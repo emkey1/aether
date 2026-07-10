@@ -1,0 +1,27 @@
+// HTTP GET with the MStream response buffer: fetch current weather from the
+// Open-Meteo API and print the raw JSON payload. Requires a build with
+// AETHER_ENABLE_CURL=ON to actually run; it compile-checks everywhere.
+//
+// The shape to remember:
+//   httpsession() -> Int session handle
+//   mstreamcreate() -> MStream out-buffer (opaque handle, never Int)
+//   httprequest(session, method, url, body, out) -> Int status
+//   mstreambuffer(out) -> Text response body
+fn main() -> Void {
+    fx {
+        let session: Int = httpsession();
+        let out: MStream = mstreamcreate();
+        let url: Text = "https://api.open-meteo.com/v1/forecast?latitude=45.6387&longitude=-122.6615&current_weather=true";
+        let status: Int = httprequest(session, "GET", url, "", out);
+        if status == 200 {
+            let body: Text = mstreambuffer(out);
+            println(body);
+        } else {
+            print("request failed with status ");
+            println(status);
+        }
+        mstreamfree(out);
+        httpclose(session);
+    }
+    ret;
+}

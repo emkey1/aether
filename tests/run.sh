@@ -157,6 +157,12 @@ TOON_COMMENT_ARITH_PASS_FIXTURE="$TESTS_DIR/toon_comment_arithmetic_pass.aether"
 TOON_NESTED_HELPERS_PASS_FIXTURE="$TESTS_DIR/toon_nested_helpers_pass.aether"
 TOON_SINGLE_CHAR_KEY_PASS_FIXTURE="$TESTS_DIR/toon_single_char_key_pass.aether"
 TOON_OBJECT_ROOT_ITER_FAIL_FIXTURE="$TESTS_DIR/toon_object_root_iteration_fail.aether"
+MSTREAM_HANDLE_PASS_FIXTURE="$TESTS_DIR/mstream_handle_pass.aether"
+MSTREAM_DECL_INT_FAIL_FIXTURE="$TESTS_DIR/mstream_decl_int_fail.aether"
+MSTREAM_HANDLE_ARITH_FAIL_FIXTURE="$TESTS_DIR/mstream_handle_arithmetic_fail.aether"
+MSTREAM_CROSS_KIND_FAIL_FIXTURE="$TESTS_DIR/mstream_cross_kind_fail.aether"
+HTTP_SESSION_FX_FAIL_FIXTURE="$TESTS_DIR/http_session_fx_fail.aether"
+HTTP_MSTREAM_COMPILE_PASS_FIXTURE="$TESTS_DIR/http_mstream_compile_pass.aether"
 SHOWCASE_EXAMPLE="$EX_DIR/showcase/agent_report"
 
 if [ ! -x "$AETHER_BIN" ]; then
@@ -309,6 +315,12 @@ for fixture in \
     "$TOON_NESTED_HELPERS_PASS_FIXTURE" \
     "$TOON_SINGLE_CHAR_KEY_PASS_FIXTURE" \
     "$TOON_OBJECT_ROOT_ITER_FAIL_FIXTURE" \
+    "$MSTREAM_HANDLE_PASS_FIXTURE" \
+    "$MSTREAM_DECL_INT_FAIL_FIXTURE" \
+    "$MSTREAM_HANDLE_ARITH_FAIL_FIXTURE" \
+    "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" \
+    "$HTTP_SESSION_FX_FAIL_FIXTURE" \
+    "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" \
     "$SHOWCASE_EXAMPLE"
 do
     if [ ! -f "$fixture" ]; then
@@ -1931,6 +1943,78 @@ if ! grep -q '^Ada 91$' /tmp/aether_toon_nested_helpers_pass.out; then
     cat /tmp/aether_toon_nested_helpers_pass.out >&2
     exit 1
 fi
+
+# MStream is a first-class opaque handle type (MS-001): declarations,
+# inference, and mstreambuffer -> Text extraction must run end to end.
+"$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_PASS_FIXTURE" >/tmp/aether_mstream_handle_pass.out
+printf 'aether streams\nempty ok\n' >/tmp/aether_mstream_handle_expected.out
+if ! cmp -s /tmp/aether_mstream_handle_expected.out /tmp/aether_mstream_handle_pass.out; then
+    echo "unexpected MStream handle pass output" >&2
+    cat /tmp/aether_mstream_handle_pass.out >&2
+    exit 1
+fi
+
+# `let stream: Int = mstreamfromstring(...)` must be a COMPILE-time MS-001,
+# not the runtime VM crash "Cannot assign MEMORY_STREAM to integer".
+if "$AETHER_BIN" --no-cache "$MSTREAM_DECL_INT_FAIL_FIXTURE" >/tmp/aether_mstream_decl_int_fail.out 2>&1; then
+    echo "expected MStream Int-declaration failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "binding for 'stream' must use MStream when initialized from 'mstreamfromstring'" /tmp/aether_mstream_decl_int_fail.out; then
+    echo "missing MStream Int-declaration failure message" >&2
+    cat /tmp/aether_mstream_decl_int_fail.out >&2
+    exit 1
+fi
+if ! grep -q "MS-001" /tmp/aether_mstream_decl_int_fail.out; then
+    echo "MStream Int-declaration diagnostic missing MS-001 code" >&2
+    cat /tmp/aether_mstream_decl_int_fail.out >&2
+    exit 1
+fi
+if grep -q "Cannot assign MEMORY_STREAM to integer" /tmp/aether_mstream_decl_int_fail.out; then
+    echo "MStream Int-declaration crashed at runtime instead of failing at compile time" >&2
+    cat /tmp/aether_mstream_decl_int_fail.out >&2
+    exit 1
+fi
+
+if "$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_ARITH_FAIL_FIXTURE" >/tmp/aether_mstream_handle_arith_fail.out 2>&1; then
+    echo "expected MStream arithmetic failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "opaque MStream handle 's' cannot be used in arithmetic expressions" /tmp/aether_mstream_handle_arith_fail.out; then
+    echo "missing MStream arithmetic failure message" >&2
+    cat /tmp/aether_mstream_handle_arith_fail.out >&2
+    exit 1
+fi
+
+if "$AETHER_BIN" --no-cache "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" >/tmp/aether_mstream_cross_kind_fail.out 2>&1; then
+    echo "expected MStream cross-kind declaration failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "binding for 'doc' must use MStream when initialized from 'mstreamcreate'" /tmp/aether_mstream_cross_kind_fail.out; then
+    echo "missing MStream cross-kind declaration failure message" >&2
+    cat /tmp/aether_mstream_cross_kind_fail.out >&2
+    exit 1
+fi
+
+# Networking stays fx-gated: httpsession() outside fx is FX-001.
+if "$AETHER_BIN" --no-cache "$HTTP_SESSION_FX_FAIL_FIXTURE" >/tmp/aether_http_session_fx_fail.out 2>&1; then
+    echo "expected httpsession fx failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "call to 'httpsession' requires an fx block" /tmp/aether_http_session_fx_fail.out; then
+    echo "missing httpsession fx failure message" >&2
+    cat /tmp/aether_http_session_fx_fail.out >&2
+    exit 1
+fi
+if ! grep -q "FX-001" /tmp/aether_http_session_fx_fail.out; then
+    echo "httpsession fx diagnostic missing FX-001 code" >&2
+    cat /tmp/aether_http_session_fx_fail.out >&2
+    exit 1
+fi
+
+# The documented HTTP + MStream shape must COMPILE on every build (curl-less
+# builds fail only at runtime, so this is a --no-run check).
+"$AETHER_BIN" --no-cache --no-run "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" >/dev/null
 
 "$AETHER_BIN" --no-cache "$TOON_SINGLE_CHAR_KEY_PASS_FIXTURE" >/tmp/aether_toon_single_char_key_pass.out
 if grep -qx "yyjson unavailable" /tmp/aether_toon_single_char_key_pass.out; then

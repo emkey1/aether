@@ -1285,6 +1285,14 @@ static const char *inferHelperReturnTypeName(const char *nameStart, size_t nameL
         (nameLen == 7 && strncmp(nameStart, "toon_at", 7) == 0)) {
         return "ToonNode";
     }
+    if ((nameLen == 13 && strncmp(nameStart, "mstreamcreate", 13) == 0) ||
+        (nameLen == 17 && strncmp(nameStart, "mstreamfromstring", 17) == 0) ||
+        (nameLen == 13 && strncmp(nameStart, "socketreceive", 13) == 0)) {
+        return "MStream";
+    }
+    if (nameLen == 13 && strncmp(nameStart, "mstreambuffer", 13) == 0) {
+        return "Text";
+    }
     if ((nameLen == 9 && strncmp(nameStart, "toon_type", 9) == 0) ||
         (nameLen == 13 && strncmp(nameStart, "toon_get_text", 13) == 0) ||
         (nameLen == 16 && strncmp(nameStart, "toon_get_text_or", 16) == 0) ||

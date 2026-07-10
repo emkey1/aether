@@ -1,0 +1,7 @@
+// The classic LLM mistake this fence exists for: declaring a memory-stream
+// handle as Int. Must fail at COMPILE time with MS-001, not crash the VM at
+// runtime with "Cannot assign MEMORY_STREAM to integer".
+fn main() -> Void {
+    let stream: Int = mstreamfromstring("");
+    ret;
+}

@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-04-2*
+*Guide version: 2026-07-09-1*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -84,10 +84,15 @@ If you only read one part of this document, read **Highest-Value Rules** and
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block.
+22. **MS-001.** `MStream` is the opaque memory-stream handle type.
+    `mstreamcreate()` / `mstreamfromstring(text)` return `MStream` — never
+    declare the binding `Int` or `Text`. Extract contents with
+    `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`. HTTP responses
+    arrive in an `MStream` out-buffer (see **HTTP requests**).
 
 Fast failure checks: output outside `fx` is wrong; a guessed import is wrong;
 a helper not listed in this document is wrong; arithmetic on `ToonDoc` /
-`ToonNode` is wrong; `return` is wrong; contracts inside a body are wrong;
+`ToonNode` / `MStream` is wrong; `return` is wrong; contracts inside a body are wrong;
 when unsure about a type, add it explicitly.
 
 ## Never Generate These
@@ -120,6 +125,8 @@ when unsure about a type, add it explicitly.
   (SCOPE-001)
 - arithmetic on `ToonDoc` or `ToonNode`, or assigning one where the other is
   expected (TOON-001)
+- `let stream: Int = mstreamfromstring(...)` — memory streams are `MStream`
+  handles, not integers (MS-001)
 - annotations inside a function body (ANN-001)
 - a tuple-return call bound to one variable: `let value = pair();` (TUP-001)
 - mixed-type output that guesses `+` will stringify numbers
@@ -209,6 +216,7 @@ fn main() -> Void {
 | `Bool` | `true`, `false` | `println(flag)` prints `true` or `false` |
 | `Void` | — | return type for procedures |
 | `ToonDoc`, `ToonNode` | — | opaque handles (TOON-001) |
+| `MStream` | — | opaque memory-stream handle (MS-001) |
 
 For mixed output, prefer variadic `println(...)` / `print(...)` rather than
 guessing conversion helpers or `Text + Int` coercions.
@@ -733,9 +741,55 @@ fn main() -> Void {
 }
 ```
 
-Networking (`http*`, `socket*`), database (`sqlite*`), `random`/`randomize`,
-and the clock are also effectful but are not part of the curated surface; reach
-for them via `builtin_info(...)` discovery.
+Sockets (`socket*`), database (`sqlite*`), `random`/`randomize`, and the
+clock are also effectful but are not part of the curated surface; reach for
+them via `builtin_info(...)` discovery.
+
+## HTTP requests and memory streams (MS-001)
+
+HTTP support needs a build with libcurl networking (`AETHER_ENABLE_CURL=ON`);
+without it the `http*` builtins fail at runtime. The response body arrives in
+an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
+
+| Builtin | Signature | fx? |
+|---|---|---|
+| `httpsession()` | `() -> Int` (session handle, `-1` on failure) | yes |
+| `httprequest(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
+| `httpsetheader(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
+| `httpclose(session)` | `(Int) -> Void` | yes |
+| `mstreamcreate()` | `() -> MStream` | no (pure memory) |
+| `mstreamfromstring(text)` | `(Text) -> MStream` | no |
+| `mstreambuffer(ms)` | `(MStream) -> Text` (stream contents) | no |
+| `mstreamfree(ms)` | `(MStream) -> Void` | no |
+| `mstreamloadfromfile(ms, path)` / `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Bool` | yes (file I/O) |
+
+Golden shape — a GET request end to end (all `http*` calls inside `fx`):
+
+```aether
+fn main() -> Void {
+    fx {
+        let session: Int = httpsession();
+        let out: MStream = mstreamcreate();
+        let status: Int = httprequest(session, "GET", "https://example.com/", "", out);
+        if status == 200 {
+            let body: Text = mstreambuffer(out);
+            println(body);
+        }
+        mstreamfree(out);
+        httpclose(session);
+    }
+    ret;
+}
+```
+
+- the `out` argument must be an initialized `MStream` (`mstreamcreate()`);
+  `httprequest` clears it before writing the response into it
+- `mstreambuffer(out)` is the ONLY way to get the body as `Text` — never
+  `print(out)` and never `let body: Int = ...`
+- `body` (arg 4) is the request payload — pass `""` for GET
+- a JSON response pairs naturally with TOON: `toon_parse(mstreambuffer(out))`
+- `MStream` handles are opaque: no arithmetic, no cross-assignment with
+  `ToonDoc`/`ToonNode`/`Int` (MS-001)
 
 ## Dynamic arrays
 

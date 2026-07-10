@@ -1,0 +1,6 @@
+// A ToonDoc binding cannot be initialized from a memory-stream constructor:
+// the handle kinds are distinct opaque types (MS-001).
+fn main() -> Void {
+    let doc: ToonDoc = mstreamcreate();
+    ret;
+}

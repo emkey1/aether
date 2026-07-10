@@ -1,0 +1,20 @@
+// The documented HTTP shape: session + MStream out-buffer + mstreambuffer.
+// Compile-checked only (--no-run) so it passes on builds without libcurl;
+// runtime behavior needs AETHER_ENABLE_CURL=ON.
+fn main() -> Void {
+    fx {
+        let session: Int = httpsession();
+        let out: MStream = mstreamcreate();
+        let status: Int = httprequest(session, "GET", "https://example.com/", "", out);
+        if status == 200 {
+            let body: Text = mstreambuffer(out);
+            println(body);
+        } else {
+            print("http status ");
+            println(status);
+        }
+        mstreamfree(out);
+        httpclose(session);
+    }
+    ret;
+}

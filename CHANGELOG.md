@@ -12,6 +12,44 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-09-1
+
+**`MStream` is now a first-class opaque Aether type; HTTP + memory streams
+join the curated surface (new rule MS-001).** Previously the memory-stream
+handle had no source-level type name at all -- `let s: MStream = ...` failed
+`identifier 'MStream' not in scope`, `let s = mstreamcreate()` could not
+infer, and the only "working" spelling (`let s: Int = ...`) compiled and then
+crashed the VM at runtime with `Cannot assign MEMORY_STREAM to integer`. That
+made `httprequest` (whose response body arrives in a memory-stream out-buffer)
+unusable from typed Aether; observed in the wild as a local model burning 50
+generate/repair iterations on a simple weather-API program with no valid
+spelling available.
+
+- `MStream` lowers to rea's `mstream` / `TYPE_MEMORYSTREAM` (unlike
+  `ToonDoc`/`ToonNode`, which are integer handles). Explicit declarations,
+  inference from `mstreamcreate()` / `mstreamfromstring()` /
+  `socketreceive()`, and `mstreambuffer(ms) -> Text` extraction all
+  type-check on both the AST parser and the textual type-flow pass.
+- The opaque-handle semantic fences were generalized from the ToonDoc/ToonNode
+  boolean to a three-kind model. New compile-time MS-001 diagnostics (with the
+  standard `help:` guide pointer): a stream-returning builtin bound to a
+  non-`MStream` type (the exact former runtime crash), arithmetic on an
+  `MStream` binding, and cross-kind assignment/argument misuse between
+  `MStream` and TOON handles (`mstreambuffer(doc)`, `let doc: ToonDoc =
+  mstreamcreate()`). TOON diagnostics keep their historical wording and
+  TOON-001 code.
+- HTTP is now documented in both guides (new sections + rule MS-001 +
+  repair-rule entry): `httpsession` / `httprequest` / `httpsetheader` /
+  `httpclose` with the `MStream` out-buffer shape, fx-gating noted
+  (`http*` and mstream file ops effectful; in-memory mstream ops pure), and
+  `AETHER_ENABLE_CURL=ON` called out as the build prerequisite.
+- New fixtures: `mstream_handle_pass`, `mstream_decl_int_fail` (pins the
+  compile-time catch of the former runtime crash),
+  `mstream_handle_arithmetic_fail`, `mstream_cross_kind_fail`,
+  `http_session_fx_fail`, `http_mstream_compile_pass` (compile-only, passes on
+  curl-less builds); new example `examples/base/http_weather` (runs live on a
+  curl build).
+
 ## 2026-07-04-2
 
 **Tuple returns lowered to a reentrant record-by-value instead of shared

@@ -106,6 +106,15 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
           strstr(detail, " third argument")))) {
         return "TOON-001";
     }
+    /* MStream handle misuse: mirrors the semantic.c sites that emit [MS-001]
+     * explicitly. Checked before the generic scalar "must use ... when
+     * initialized from" backstop so stream-handle mismatches resolve here. */
+    if (strstr(detail, "opaque MStream handle") ||
+        strstr(detail, "expects a MStream handle") ||
+        strstr(detail, "cannot assign MStream handle") ||
+        strstr(detail, "must use MStream when initialized")) {
+        return "MS-001";
+    }
     /* Scalar binding/assignment mismatches from the semantic pass (which now
      * emits [TYPE-001] at the site; these are backstops for any uncoded copy of
      * the same wording). Checked after the ToonDoc/ToonNode block so handle

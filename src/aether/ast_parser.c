@@ -1142,6 +1142,11 @@ static bool mapAetherType(const char *name, size_t len,
         { "TOON",    "str",   TYPE_UNICODE_STRING },
         { "ToonDoc", "int",   TYPE_INT64 },
         { "ToonNode","int",   TYPE_INT64 },
+        /* Memory-stream handle (HTTP response bodies, SocketReceive, mstream*
+         * builtins). Unlike the TOON handles this is NOT an integer in the VM:
+         * it lowers to rea's `mstream` keyword / TYPE_MEMORYSTREAM so the
+         * backend assigns the real MEMORY_STREAM value. */
+        { "MStream", "mstream", TYPE_MEMORYSTREAM },
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         size_t alen = strlen(table[i].aether);
@@ -2787,6 +2792,8 @@ static const char *aetherTypeNameForVarType(VarType vt) {
             return "Bool";
         case TYPE_CHAR: case TYPE_WIDECHAR:
             return "Text";
+        case TYPE_MEMORYSTREAM:
+            return "MStream";
         default:
             return NULL;
     }
@@ -2806,6 +2813,13 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "YyjsonRead", "ToonDoc" }, { "YyjsonReadFile", "ToonDoc" },
         { "YyjsonGetRoot", "ToonNode" }, { "YyjsonGetKey", "ToonNode" },
         { "YyjsonGetIndex", "ToonNode" },
+        /* Memory-stream handles (vm builtin names; lookup is case-insensitive). */
+        { "mstreamcreate", "MStream" }, { "mstreamfromstring", "MStream" },
+        { "socketreceive", "MStream" },
+        { "mstreambuffer", "Text" },
+        { "mstreamloadfromfile", "Bool" }, { "mstreamsavetofile", "Bool" },
+        /* HTTP surface: session handles and response status are plain Ints. */
+        { "httpsession", "Int" }, { "httprequest", "Int" },
         /* Text-returning. */
         { "YyjsonGetString", "Text" }, { "ai_chat", "Text" },
         { "openaichatcompletions", "Text" },

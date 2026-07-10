@@ -1,0 +1,5 @@
+// Networking is effectful: httpsession() outside fx must be FX-001.
+fn main() -> Void {
+    let session: Int = httpsession();
+    ret;
+}

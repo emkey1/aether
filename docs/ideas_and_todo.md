@@ -215,18 +215,20 @@ left ungated. Documentation surfaced **filesystem + Pascal string ops**
 (`copy`/`pos`/`trim`/`stringofchar`) in both guides; BUILT-001 softened to
 "supported surface, discover others via `builtin_info`."
 
-### HTTP / sockets / SQLite — *deferred, not surfaced*
-These are now correctly fx-gated (effectful) but remain **discovery-only**, not
-in the curated guide surface:
-- **HTTP** is low-level: `httprequest(session, method, url, body, out)` writes
-  the response into a memory stream and returns the status code. It needs a
-  session handle *and* the `mstream*` API. Worse, the memory-stream handle has
-  **no surfaced Aether type name** and cannot be inferred (`let s: MStream`,
-  `let s = mstreamcreate()` both fail), so HTTP is not cleanly usable from typed
-  Aether yet. **Prereq for documenting HTTP:** either expose the mstream type
-  name, or (better) add a clean alias layer — `http_get(url) -> Text`,
-  `http_post(url, body) -> Text` — mirroring how `toon_*`/`task_*` alias raw
-  backend builtins. Until then, leave HTTP undocumented.
+### HTTP / sockets / SQLite — *HTTP done 2026-07-09-1; sockets/SQLite deferred*
+These are correctly fx-gated (effectful). Status:
+- **HTTP — surfaced 2026-07-09-1.** `MStream` is now a first-class opaque
+  Aether type (lowers to rea `mstream`/`TYPE_MEMORYSTREAM`; explicit decls and
+  inference from `mstreamcreate`/`mstreamfromstring` both work), the opaque
+  handle fences were generalized to a three-kind model (new **MS-001**
+  diagnostics: stream-returning builtin bound to a non-MStream type — the
+  former runtime `Cannot assign MEMORY_STREAM to integer` crash, now caught at
+  compile time — plus arithmetic and cross-kind misuse), and HTTP
+  (`httpsession`/`httprequest`/`httpsetheader`/`httpclose` + the mstream
+  helpers) is documented in both guides. `examples/base/http_weather` runs
+  live on an `AETHER_ENABLE_CURL=ON` build. A convenience alias layer
+  (`http_get(url) -> Text`, `http_post(url, body) -> Text`) is still a
+  possible future ergonomics addition, but no longer a prereq.
 - **Sockets** (`socket*`, `dnslookup`) and **SQLite** (`sqlite*`, ~21 fns): real
   and coherent, but large; surface only on demand. SQLite is the strongest
   candidate if a DB use case appears.

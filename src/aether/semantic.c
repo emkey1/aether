@@ -12,9 +12,15 @@
 #include "aether/parser.h"
 #include "rea/semantic.h"
 
+/* Opaque handle kinds tracked by the textual type-flow pass. The TOON pair
+ * predates MStream; `kind` was formerly a boolean named isDoc. */
+#define AETHER_HANDLE_NODE 0
+#define AETHER_HANDLE_DOC 1
+#define AETHER_HANDLE_MSTREAM 2
+
 typedef struct AetherOpaqueBinding {
     char *name;
-    int isDoc;
+    int kind;
 } AetherOpaqueBinding;
 
 typedef struct AetherOpaqueBindingTable {
@@ -36,7 +42,22 @@ typedef struct AetherScalarBindingTable {
 
 static const char *g_aether_source_path = NULL;
 static void reportAetherError(const char *kind, int line, const char *detail);
-static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsDoc);
+static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsKind);
+
+/* Aether source-level type name of an opaque handle kind. */
+static const char *opaqueHandleTypeName(int kind) {
+    switch (kind) {
+        case AETHER_HANDLE_DOC: return "ToonDoc";
+        case AETHER_HANDLE_MSTREAM: return "MStream";
+        default: return "ToonNode";
+    }
+}
+
+/* Diagnostic code for a handle-discipline error: the TOON pair keeps TOON-001;
+ * memory streams point at the MS-001 guide section. */
+static const char *opaqueHandleCode(int kind) {
+    return kind == AETHER_HANDLE_MSTREAM ? "MS-001" : "TOON-001";
+}
 static const char *expectedScalarReturnTypeName(const char *name, size_t len);
 static const char *skipQuotedString(const char *cursor, int *line);
 static int isArithmeticChar(char ch);
@@ -389,7 +410,7 @@ static int validatePureAnnotationSyntax(const char *body,
     return 1;
 }
 
-static int addOpaqueBinding(AetherOpaqueBindingTable *table, const char *name, int isDoc) {
+static int addOpaqueBinding(AetherOpaqueBindingTable *table, const char *name, int kind) {
     size_t i;
     char *copy;
 
@@ -398,7 +419,7 @@ static int addOpaqueBinding(AetherOpaqueBindingTable *table, const char *name, i
     }
     for (i = 0; i < table->count; i++) {
         if (strcmp(table->items[i].name, name) == 0) {
-            table->items[i].isDoc = isDoc;
+            table->items[i].kind = kind;
             return 1;
         }
     }
@@ -410,7 +431,7 @@ static int addOpaqueBinding(AetherOpaqueBindingTable *table, const char *name, i
         return 0;
     }
     table->items[table->count].name = copy;
-    table->items[table->count].isDoc = isDoc;
+    table->items[table->count].kind = kind;
     table->count++;
     return 1;
 }
@@ -618,7 +639,7 @@ static int copyOpaqueBindingTable(AetherOpaqueBindingTable *dst,
             return 0;
         }
         dst->items[dst->count].name = name;
-        dst->items[dst->count].isDoc = src->items[i].isDoc;
+        dst->items[dst->count].kind = src->items[i].kind;
         dst->count++;
     }
     return 1;
@@ -888,9 +909,9 @@ static const char *inferInitializerTypeName(const char *start,
                                           (size_t)(trimmedEnd - trimmedStart));
         if (opaqueBinding) {
             if (isOpaqueDoc) {
-                *isOpaqueDoc = opaqueBinding->isDoc;
+                *isOpaqueDoc = opaqueBinding->kind;
             }
-            return opaqueBinding->isDoc ? "ToonDoc" : "ToonNode";
+            return opaqueHandleTypeName(opaqueBinding->kind);
         }
         scalarBinding = findScalarBinding(scalarBindings,
                                           trimmedStart,
@@ -907,7 +928,7 @@ static const char *inferInitializerTypeName(const char *start,
         if (isOpaqueDoc) {
             *isOpaqueDoc = returnsDoc;
         }
-        return returnsDoc ? "ToonDoc" : "ToonNode";
+        return opaqueHandleTypeName(returnsDoc);
     }
     if ((size_t)(nameEnd - trimmedStart) == 7 && strncmp(trimmedStart, "ai_chat", 7) == 0) {
         return "Text";
@@ -975,10 +996,13 @@ static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *
                 }
                 if ((size_t)(typeEnd - typeStart) == 7 &&
                     strncmp(typeStart, "ToonDoc", 7) == 0) {
-                    isDoc = 1;
+                    isDoc = AETHER_HANDLE_DOC;
                 } else if ((size_t)(typeEnd - typeStart) == 8 &&
                            strncmp(typeStart, "ToonNode", 8) == 0) {
-                    isDoc = 0;
+                    isDoc = AETHER_HANDLE_NODE;
+                } else if ((size_t)(typeEnd - typeStart) == 7 &&
+                           strncmp(typeStart, "MStream", 7) == 0) {
+                    isDoc = AETHER_HANDLE_MSTREAM;
                 } else {
                     cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
                     continue;
@@ -1000,10 +1024,6 @@ static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *
                     cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
                     continue;
                 }
-                if (!(isDoc == 0 || isDoc == 1)) {
-                    cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
-                    continue;
-                }
                 {
                     const char *typeName = inferInitializerTypeName(skipInlineSpaces(equals + 1, lineEnd),
                                                                     lineEnd,
@@ -1011,7 +1031,9 @@ static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *
                                                                     NULL,
                                                                     &isDoc);
                     if (!typeName ||
-                        !((strcmp(typeName, "ToonDoc") == 0) || (strcmp(typeName, "ToonNode") == 0))) {
+                        !(strcmp(typeName, "ToonDoc") == 0 ||
+                          strcmp(typeName, "ToonNode") == 0 ||
+                          strcmp(typeName, "MStream") == 0)) {
                         cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
                         continue;
                     }
@@ -1259,13 +1281,21 @@ static int aetherIsEffectfulBuiltin(const char *name, size_t len) {
     return pscalBuiltinNameEffectMaskLive(buf) != FX_PURE ? 1 : 0;
 }
 
-static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsDoc) {
-    if (!name || !expectsDoc) {
+static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsKind) {
+    if (!name || !expectsKind) {
         return 0;
     }
     if ((len == 9 && strncmp(name, "toon_root", len) == 0) ||
         (len == 10 && strncmp(name, "toon_close", len) == 0)) {
-        *expectsDoc = 1;
+        *expectsKind = AETHER_HANDLE_DOC;
+        return 1;
+    }
+    /* Memory-stream consumers: first argument must be an MStream handle. */
+    if ((len == 13 && strncasecmp(name, "mstreambuffer", len) == 0) ||
+        (len == 11 && strncasecmp(name, "mstreamfree", len) == 0) ||
+        (len == 17 && strncasecmp(name, "mstreamsavetofile", len) == 0) ||
+        (len == 19 && strncasecmp(name, "mstreamloadfromfile", len) == 0)) {
+        *expectsKind = AETHER_HANDLE_MSTREAM;
         return 1;
     }
     if ((len == 8 && strncmp(name, "toon_key", len) == 0) ||
@@ -1296,7 +1326,7 @@ static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsDoc) 
         (len == 16 && strncmp(name, "toon_get_real_or", len) == 0) ||
         (len == 13 && strncmp(name, "toon_get_bool", len) == 0) ||
         (len == 16 && strncmp(name, "toon_get_bool_or", len) == 0)) {
-        *expectsDoc = 0;
+        *expectsKind = AETHER_HANDLE_NODE;
         return 1;
     }
     return 0;
@@ -1333,13 +1363,13 @@ static const char *expectedPrimaryArgTypeName(const char *name, size_t len) {
     return NULL;
 }
 
-static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsDoc) {
-    if (!name || !returnsDoc) {
+static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsKind) {
+    if (!name || !returnsKind) {
         return 0;
     }
     if ((len == 10 && strncmp(name, "toon_parse", len) == 0) ||
         (len == 15 && strncmp(name, "toon_parse_file", len) == 0)) {
-        *returnsDoc = 1;
+        *returnsKind = AETHER_HANDLE_DOC;
         return 1;
     }
     if ((len == 9 && strncmp(name, "toon_root", len) == 0) ||
@@ -1347,7 +1377,15 @@ static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsDo
         (len == 11 && strncmp(name, "toon_key_or", len) == 0) ||
         (len == 9 && strncmp(name, "toon_null", len) == 0) ||
         (len == 7 && strncmp(name, "toon_at", len) == 0)) {
-        *returnsDoc = 0;
+        *returnsKind = AETHER_HANDLE_NODE;
+        return 1;
+    }
+    /* Memory-stream constructors are the raw vm builtin names; VM lookup is
+     * case-insensitive, so match them case-insensitively here too. */
+    if ((len == 13 && strncasecmp(name, "mstreamcreate", len) == 0) ||
+        (len == 17 && strncasecmp(name, "mstreamfromstring", len) == 0) ||
+        (len == 13 && strncasecmp(name, "socketreceive", len) == 0)) {
+        *returnsKind = AETHER_HANDLE_MSTREAM;
         return 1;
     }
     return 0;
@@ -1436,7 +1474,7 @@ static void reportAetherError(const char *kind, int line, const char *detail) {
     reportAetherErrorCoded(aetherInferDiagnosticCode(kind, detail), kind, line, detail);
 }
 
-static int parseOpaqueTypeName(const char *start, const char *end, int *isDoc) {
+static int parseOpaqueTypeName(const char *start, const char *end, int *kind) {
     while (start < end && isspace((unsigned char)*start)) {
         start++;
     }
@@ -1444,14 +1482,20 @@ static int parseOpaqueTypeName(const char *start, const char *end, int *isDoc) {
         end--;
     }
     if ((size_t)(end - start) == 7 && strncmp(start, "ToonDoc", 7) == 0) {
-        if (isDoc) {
-            *isDoc = 1;
+        if (kind) {
+            *kind = AETHER_HANDLE_DOC;
         }
         return 1;
     }
     if ((size_t)(end - start) == 8 && strncmp(start, "ToonNode", 8) == 0) {
-        if (isDoc) {
-            *isDoc = 0;
+        if (kind) {
+            *kind = AETHER_HANDLE_NODE;
+        }
+        return 1;
+    }
+    if ((size_t)(end - start) == 7 && strncmp(start, "MStream", 7) == 0) {
+        if (kind) {
+            *kind = AETHER_HANDLE_MSTREAM;
         }
         return 1;
     }
@@ -1523,7 +1567,7 @@ static void validateOpaqueAssignmentLine(const char *body,
         if (!lhsBinding) {
             return;
         }
-        lhsIsDoc = lhsBinding->isDoc;
+        lhsIsDoc = lhsBinding->kind;
         rhsStart = skipInlineSpaces(equals + 1, lineEnd);
         rhsEnd = rhsStart;
         while (rhsEnd < lineEnd && (isalnum((unsigned char)*rhsEnd) || *rhsEnd == '_')) {
@@ -1537,10 +1581,10 @@ static void validateOpaqueAssignmentLine(const char *body,
                          "binding for '%.*s' must use %s when initialized from '%.*s'.",
                          (int)(lhsEnd - lhsStart),
                          lhsStart,
-                         rhsReturnsDoc ? "ToonDoc" : "ToonNode",
+                         opaqueHandleTypeName(rhsReturnsDoc),
                          (int)(rhsEnd - rhsStart),
                          rhsStart);
-                reportAetherErrorCoded("TOON-001", "type", line, detail);
+                reportAetherErrorCoded(opaqueHandleCode(rhsReturnsDoc), "type", line, detail);
             }
             return;
         }
@@ -1557,15 +1601,15 @@ static void validateOpaqueAssignmentLine(const char *body,
     if (!rhsBinding) {
         return;
     }
-    if (rhsBinding->isDoc != lhsIsDoc) {
+    if (rhsBinding->kind != lhsIsDoc) {
         snprintf(detail,
                  sizeof(detail),
                  "cannot assign %s handle '%.*s' to %s binding.",
-                 rhsBinding->isDoc ? "ToonDoc" : "ToonNode",
+                 opaqueHandleTypeName(rhsBinding->kind),
                  (int)(rhsEnd - rhsStart),
                  rhsStart,
-                 lhsIsDoc ? "ToonDoc" : "ToonNode");
-        reportAetherErrorCoded("TOON-001", "type", line, detail);
+                 opaqueHandleTypeName(lhsIsDoc));
+        reportAetherErrorCoded(opaqueHandleCode(rhsBinding->kind), "type", line, detail);
     }
 }
 
@@ -1630,10 +1674,10 @@ static void validateOpaqueReturnBindingLine(const char *body, const char *lineEn
                  "binding for '%.*s' must use %s when initialized from '%.*s'.",
                  (int)(nameEnd - skipInlineSpaces(body + (startsWithWord(body, lineEnd, "const") ? 5 : 3), lineEnd)),
                  skipInlineSpaces(body + (startsWithWord(body, lineEnd, "const") ? 5 : 3), lineEnd),
-                 rhsIsDoc ? "ToonDoc" : "ToonNode",
+                 opaqueHandleTypeName(rhsIsDoc),
                  (int)(rhsEnd - rhsStart),
                  rhsStart);
-        reportAetherErrorCoded("TOON-001", "type", line, detail);
+        reportAetherErrorCoded(opaqueHandleCode(rhsIsDoc), "type", line, detail);
         return;
     }
 
@@ -1643,10 +1687,10 @@ static void validateOpaqueReturnBindingLine(const char *body, const char *lineEn
                  "binding for '%.*s' must use %s when initialized from '%.*s'.",
                  (int)(nameEnd - skipInlineSpaces(body + (startsWithWord(body, lineEnd, "const") ? 5 : 3), lineEnd)),
                  skipInlineSpaces(body + (startsWithWord(body, lineEnd, "const") ? 5 : 3), lineEnd),
-                 rhsIsDoc ? "ToonDoc" : "ToonNode",
+                 opaqueHandleTypeName(rhsIsDoc),
                  (int)(rhsEnd - rhsStart),
                  rhsStart);
-        reportAetherErrorCoded("TOON-001", "type", line, detail);
+        reportAetherErrorCoded(opaqueHandleCode(rhsIsDoc), "type", line, detail);
     }
 }
 
@@ -1908,17 +1952,17 @@ static void validateOpaqueCallKind(const char *callName,
     if (!binding) {
         return;
     }
-    if (binding->isDoc != expectsDoc) {
+    if (binding->kind != expectsDoc) {
         snprintf(detail,
                  sizeof(detail),
                  "call to '%.*s' expects a %s handle, but '%.*s' is %s.",
                  (int)callNameLen,
                  callName,
-                 expectsDoc ? "ToonDoc" : "ToonNode",
+                 opaqueHandleTypeName(expectsDoc),
                  (int)(argEnd - argStart),
                  argStart,
-                 binding->isDoc ? "ToonDoc" : "ToonNode");
-        reportAetherErrorCoded("TOON-001", "type", line, detail);
+                 opaqueHandleTypeName(binding->kind));
+        reportAetherErrorCoded(opaqueHandleCode(expectsDoc), "type", line, detail);
     }
 }
 
@@ -2252,12 +2296,17 @@ static void validateAetherSource(const char *source,
                     if ((prevSig && isArithmeticChar(*prevSig) &&
                          !(prevSig > lineStart && prevSig[-1] == '=')) ||
                         (nextSig && isArithmeticChar(*nextSig))) {
+                        const AetherOpaqueBinding *arith =
+                            findOpaqueBinding(opaqueBindings, start, nameLen);
+                        int arithKind = arith ? arith->kind : AETHER_HANDLE_NODE;
+                        /* Keep the historical "TOON" label for the doc/node pair. */
                         snprintf(detail,
                                  sizeof(detail),
-                                 "opaque TOON handle '%.*s' cannot be used in arithmetic expressions.",
+                                 "opaque %s handle '%.*s' cannot be used in arithmetic expressions.",
+                                 arithKind == AETHER_HANDLE_MSTREAM ? "MStream" : "TOON",
                                  (int)nameLen,
                                  start);
-                        reportAetherErrorCoded("TOON-001", "type", line, detail);
+                        reportAetherErrorCoded(opaqueHandleCode(arithKind), "type", line, detail);
                     }
                 }
 

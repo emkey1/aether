@@ -4,3 +4,4 @@ build_fix/
 .claude/
 *.o
 .DS_Store
+build-curl/
