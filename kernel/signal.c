@@ -395,6 +395,8 @@ static guest_addr_t current_user_sp(struct task *task) {
         return task->cpu.amd64_regs[amd64_rsp];
     if (task->abi == GUEST_ABI_ARM64)
         return task->cpu.arm64_sp;
+    if (task->abi == GUEST_ABI_RISCV64)
+        return task->cpu.riscv64_regs[riscv64_sp];
     return task->cpu.esp;
 }
 
