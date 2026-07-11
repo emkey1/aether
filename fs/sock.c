@@ -52,8 +52,15 @@
 #define SIOCGIFNAME_ 0x8910
 #define SIOCGIFCONF_ 0x8912
 #define SIOCGIFFLAGS_ 0x8913
+#define SIOCGIFADDR_ 0x8915
+#define SIOCGIFDSTADDR_ 0x8917
+#define SIOCGIFBRDADDR_ 0x8919
+#define SIOCGIFNETMASK_ 0x891b
+#define SIOCGIFMETRIC_ 0x891d
+#define SIOCGIFMTU_ 0x8921
 #define SIOCGIFINDEX_ 0x8933
 #define SIOCGIFTXQLEN_ 0x8942
+#define SIOCGIFHWADDR_ 0x8927
 
 #define IFNAMSIZ_ 16
 
@@ -129,9 +136,22 @@ struct ifreq_ {
         int16_t flags;
         int32_t ifindex;
         int32_t qlen;
+        int32_t mtu;
+        int32_t metric;
         char pad[24];
     } ifr_ifru;
 };
+
+/* Real Linux sizeof(struct ifreq): 32 on a 32-bit guest (i386), 40 on a
+   64-bit guest (amd64/arm64/riscv64) -- struct ifmap's "unsigned long"
+   fields double in size, growing the ifr_ifru union. All the fields iSH
+   actually reads/writes (ifr_name, ifr_flags, ifr_ifindex, ifr_qlen) sit
+   within the first 20 bytes, so struct ifreq_ above (which mirrors the
+   64-bit layout) is reused for both; only the copy size to/from guest
+   memory needs to vary. Copying the 64-bit size for a 32-bit guest would
+   write 8 bytes past its ifreq buffer into whatever guest memory follows. */
+#define IFREQ_SIZE_32_ 32
+#define IFREQ_SIZE_64_ (sizeof(struct ifreq_))
 
 struct sockaddr_in_ {
     uint16_t sin_family;
@@ -148,14 +168,41 @@ struct sockaddr_in6_ {
     uint32_t sin6_scope_id;
 };
 
-struct guest_ifreq_addr_ {
+/* struct ifreq's union is sized to fit struct ifmap, whose "unsigned long"
+   fields are 8 bytes on a 64-bit guest vs 4 on a 32-bit guest -- so
+   sizeof(struct ifreq) is 40 on amd64/arm64/riscv64 but only 32 on i386.
+   SIOCGIFCONF's ifc_buf is an array of these, so the entry stride must
+   match the guest's real ifreq size or busybox/net-tools reads every
+   entry past the first at the wrong offset (and miscomputes the device
+   count from ifc_len / sizeof(struct ifreq)). */
+struct guest_ifreq_addr32_ {
     char ifr_name[IFNAMSIZ_];
     struct sockaddr_in_ guest_addr;
 };
 
-struct guest_ifconf_ {
+struct guest_ifreq_addr64_ {
+    char ifr_name[IFNAMSIZ_];
+    struct sockaddr_in_ guest_addr;
+    uint8_t __pad[8];
+};
+
+/* struct ifconf's layout depends on the guest pointer size: on a 32-bit
+   guest (i386) it's a packed 8 bytes (len + 4-byte ptr), but on a 64-bit
+   guest (amd64/arm64/riscv64) the ifc_buf pointer is 8-byte aligned, so
+   there are 4 bytes of padding between ifc_len and ifc_buf, making the
+   struct 16 bytes. Using the wrong layout for a 64-bit guest reads the
+   padding as the buffer pointer (always 0), silently dropping every
+   ifreq entry and leaving busybox/net-tools ifconfig's buffer zeroed --
+   producing an empty ifr_name and "Device not found". */
+struct guest_ifconf32_ {
     int32_t guest_len;
-    addr_t guest_buf;
+    uint32_t guest_buf;
+};
+
+struct guest_ifconf64_ {
+    int32_t guest_len;
+    int32_t __pad;
+    guest_addr_t guest_buf;
 };
 
 struct nlmsghdr_ {
@@ -1000,17 +1047,174 @@ static int sock_ifreq_txqlen_from_name(struct ifreq_ *ifreq) {
     return 0;
 }
 
-static int sock_ifconf(struct guest_ifconf_ *ifconf) {
-    if (ifconf->guest_len < 0)
+static int sock_ifreq_mtu_from_name(struct ifreq_ *ifreq) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+    int err = _ENODEV;
+    int32_t mtu = 1500;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL)
+            continue;
+        if (strncmp(cursor->ifa_name, ifreq->ifr_name, sizeof(ifreq->ifr_name)) != 0)
+            continue;
+        err = 0;
+#if defined(__APPLE__)
+        if (cursor->ifa_data != NULL) {
+            const struct if_data *stats = (const struct if_data *) cursor->ifa_data;
+            if (stats->ifi_mtu != 0)
+                mtu = (int32_t) stats->ifi_mtu;
+        }
+#endif
+        break;
+    }
+    freeifaddrs(addrs);
+    if (err < 0)
+        return err;
+    ifreq->ifr_ifru.mtu = mtu;
+    return 0;
+}
+
+static int sock_ifreq_metric_from_name(struct ifreq_ *ifreq) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    if (if_nametoindex(ifreq->ifr_name) == 0)
+        return _ENODEV;
+    // iSH does not model per-route metrics; 0 is the Linux default net-tools/
+    // busybox ifconfig display when a device has none configured.
+    ifreq->ifr_ifru.metric = 0;
+    return 0;
+}
+
+static int sock_ifreq_hwaddr_from_name(struct ifreq_ *ifreq) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+    int err = _ENODEV;
+    bool is_loopback = false;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL)
+            continue;
+        if (strncmp(cursor->ifa_name, ifreq->ifr_name, sizeof(ifreq->ifr_name)) != 0)
+            continue;
+        err = 0;
+        if (cursor->ifa_flags & IFF_LOOPBACK)
+            is_loopback = true;
+    }
+    if (err < 0) {
+        freeifaddrs(addrs);
+        return err;
+    }
+
+    memset(&ifreq->ifr_ifru.addr, 0, sizeof(ifreq->ifr_ifru.addr));
+    ifreq->ifr_ifru.addr.family = is_loopback ? ARPHRD_LOOPBACK_ : ARPHRD_ETHER_;
+#if defined(__APPLE__)
+    // A loopback interface has no link-layer address; only look for one on
+    // AF_LINK entries here, mirroring netlink_fill_link_info()'s IFLA_ADDRESS.
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL || cursor->ifa_addr == NULL)
+            continue;
+        if (strcmp(cursor->ifa_name, ifreq->ifr_name) != 0)
+            continue;
+        if (cursor->ifa_addr->sa_family != AF_LINK)
+            continue;
+        const struct sockaddr_dl *sdl = (const struct sockaddr_dl *) cursor->ifa_addr;
+        if (sdl->sdl_alen == 0 || sdl->sdl_alen > sizeof(ifreq->ifr_ifru.addr.data))
+            continue;
+        memcpy(ifreq->ifr_ifru.addr.data, LLADDR(sdl), sdl->sdl_alen);
+        break;
+    }
+#endif
+    freeifaddrs(addrs);
+    return 0;
+}
+
+enum sock_ifreq_addr_field_ {
+    SOCK_IFREQ_ADDR_,
+    SOCK_IFREQ_DSTADDR_,
+    SOCK_IFREQ_BRDADDR_,
+    SOCK_IFREQ_NETMASK_,
+};
+
+// SIOCGIFADDR/DSTADDR/BRDADDR/NETMASK all read a struct sockaddr_in out of the
+// same ifr_ifru.addr slot; only which host-side address they report differs.
+// A device that exists but has no IPv4 configured (in_dev is NULL on real
+// Linux) fails with EADDRNOTAVAIL rather than ENODEV; a device with IPv4 but
+// not point-to-point/broadcast reports 0.0.0.0 for dst/brd, matching Linux.
+static int sock_ifreq_addr_field_from_name(struct ifreq_ *ifreq, enum sock_ifreq_addr_field_ field) {
+    if (ifreq->ifr_name[0] == '\0')
+        return _ENODEV;
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return _EIO;
+    bool device_found = false;
+    bool inet_found = false;
+    uint32_t result = 0;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL)
+            continue;
+        if (strncmp(cursor->ifa_name, ifreq->ifr_name, sizeof(ifreq->ifr_name)) != 0)
+            continue;
+        device_found = true;
+        if (cursor->ifa_addr == NULL || cursor->ifa_addr->sa_family != AF_INET)
+            continue;
+        inet_found = true;
+        const struct sockaddr *want = NULL;
+        switch (field) {
+            case SOCK_IFREQ_ADDR_:
+                want = cursor->ifa_addr;
+                break;
+            case SOCK_IFREQ_DSTADDR_:
+                if ((cursor->ifa_flags & IFF_POINTOPOINT) && cursor->ifa_dstaddr != NULL)
+                    want = cursor->ifa_dstaddr;
+                break;
+            case SOCK_IFREQ_BRDADDR_:
+                if ((cursor->ifa_flags & IFF_BROADCAST) && cursor->ifa_broadaddr != NULL)
+                    want = cursor->ifa_broadaddr;
+                break;
+            case SOCK_IFREQ_NETMASK_:
+                want = cursor->ifa_netmask;
+                break;
+        }
+        if (want != NULL && want->sa_family == AF_INET)
+            result = ((const struct sockaddr_in *) want)->sin_addr.s_addr;
+        break;
+    }
+    freeifaddrs(addrs);
+    if (!device_found)
+        return _ENODEV;
+    if (!inet_found)
+        return _EADDRNOTAVAIL;
+
+    struct sockaddr_in_ *sin = (struct sockaddr_in_ *) &ifreq->ifr_ifru.addr;
+    memset(sin, 0, sizeof(*sin));
+    sin->sin_family = AF_INET_;
+    sin->sin_addr = result;
+    return 0;
+}
+
+static int sock_ifconf(void *arg) {
+    bool is_64bit = task_is_64bit(current);
+    struct guest_ifconf32_ *ifconf32 = arg;
+    struct guest_ifconf64_ *ifconf64 = arg;
+    int32_t guest_len = is_64bit ? ifconf64->guest_len : ifconf32->guest_len;
+    guest_addr_t guest_buf = is_64bit ? ifconf64->guest_buf : ifconf32->guest_buf;
+
+    if (guest_len < 0)
         return _EINVAL;
 
     struct ifaddrs *addrs = NULL;
     if (getifaddrs(&addrs) != 0)
         return _EIO;
 
-    size_t capacity = (size_t) ifconf->guest_len;
+    size_t capacity = (size_t) guest_len;
     size_t used = 0;
     size_t total = 0;
+    size_t entry_size = is_64bit ? sizeof(struct guest_ifreq_addr64_) : sizeof(struct guest_ifreq_addr32_);
     int err = 0;
 
     for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
@@ -1019,30 +1223,31 @@ static int sock_ifconf(struct guest_ifconf_ *ifconf) {
         if (cursor->ifa_addr->sa_family != AF_INET)
             continue;
 
-        struct guest_ifreq_addr_ entry = {};
+        struct guest_ifreq_addr64_ entry = {};
         strncpy(entry.ifr_name, cursor->ifa_name, sizeof(entry.ifr_name) - 1);
         entry.guest_addr.sin_family = AF_INET_;
         entry.guest_addr.sin_port = 0;
         entry.guest_addr.sin_addr = ((const struct sockaddr_in *) cursor->ifa_addr)->sin_addr.s_addr;
 
-        total += sizeof(entry);
-        if (ifconf->guest_buf == 0 || used + sizeof(entry) > capacity)
+        total += entry_size;
+        if (guest_buf == 0 || used + entry_size > capacity)
             continue;
-        if (user_write(ifconf->guest_buf + used, &entry, sizeof(entry))) {
+        if (user_write(guest_buf + used, &entry, entry_size)) {
             err = _EFAULT;
             break;
         }
-        used += sizeof(entry);
+        used += entry_size;
     }
 
     freeifaddrs(addrs);
     if (err < 0)
         return err;
 
-    if ((size_t) ifconf->guest_len >= total)
-        ifconf->guest_len = (int32_t) total;
+    int32_t result_len = (size_t) guest_len >= total ? (int32_t) total : (int32_t) used;
+    if (is_64bit)
+        ifconf64->guest_len = result_len;
     else
-        ifconf->guest_len = (int32_t) used;
+        ifconf32->guest_len = result_len;
     return 0;
 }
 
@@ -5549,6 +5754,20 @@ static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
         return sock_ifreq_flags_from_name(arg);
     if (cmd == SIOCGIFTXQLEN_)
         return sock_ifreq_txqlen_from_name(arg);
+    if (cmd == SIOCGIFMTU_)
+        return sock_ifreq_mtu_from_name(arg);
+    if (cmd == SIOCGIFMETRIC_)
+        return sock_ifreq_metric_from_name(arg);
+    if (cmd == SIOCGIFHWADDR_)
+        return sock_ifreq_hwaddr_from_name(arg);
+    if (cmd == SIOCGIFADDR_)
+        return sock_ifreq_addr_field_from_name(arg, SOCK_IFREQ_ADDR_);
+    if (cmd == SIOCGIFDSTADDR_)
+        return sock_ifreq_addr_field_from_name(arg, SOCK_IFREQ_DSTADDR_);
+    if (cmd == SIOCGIFBRDADDR_)
+        return sock_ifreq_addr_field_from_name(arg, SOCK_IFREQ_BRDADDR_);
+    if (cmd == SIOCGIFNETMASK_)
+        return sock_ifreq_addr_field_from_name(arg, SOCK_IFREQ_NETMASK_);
     if (fd->real_fd < 0) {
         if (cmd == FIONREAD_)
             *(dword_t *) arg = (dword_t) (fd->socket.netlink_reply_len - fd->socket.netlink_reply_off);
@@ -5566,7 +5785,16 @@ static ssize_t sock_ioctl_size(int cmd) {
         case SIOCGIFINDEX_:
         case SIOCGIFFLAGS_:
         case SIOCGIFTXQLEN_:
-            return cmd == SIOCGIFCONF_ ? sizeof(struct guest_ifconf_) : sizeof(struct ifreq_);
+        case SIOCGIFMTU_:
+        case SIOCGIFMETRIC_:
+        case SIOCGIFHWADDR_:
+        case SIOCGIFADDR_:
+        case SIOCGIFDSTADDR_:
+        case SIOCGIFBRDADDR_:
+        case SIOCGIFNETMASK_:
+            if (cmd != SIOCGIFCONF_)
+                return task_is_64bit(current) ? IFREQ_SIZE_64_ : IFREQ_SIZE_32_;
+            return task_is_64bit(current) ? sizeof(struct guest_ifconf64_) : sizeof(struct guest_ifconf32_);
         default:
             return realfs_ioctl_size(cmd);
     }

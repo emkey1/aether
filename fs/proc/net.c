@@ -51,32 +51,52 @@
  */
 static int proc_show_if_inet6(struct proc_entry * UNUSED(entry), struct proc_data *buf) {
     struct ifaddrs *addrs;
-    size_t needed; // How much buffer do we need to allocate
-    // char *mybuf;
-    
-#if defined(__APPLE__)
-    int mib[] = {CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS};
-    if (sysctl(mib, sizeof(mib) / sizeof(mib[0]), NULL, &needed, NULL, 0) < 0) {
-       printk("error in route-sysctl-estimate");
-    }
-#else
-    (void) needed;
-#endif
-    
     bool success = (getifaddrs(&addrs) == 0);
-    unsigned count = 0;
     if (success) {
-        const struct ifaddrs *cursor = addrs;
-        while (cursor != NULL) {
-            //count++;
-            if (cursor->ifa_addr->sa_family == AF_LINK) {
-                proc_printf(buf, "00000000000000000000000000000001 %02x 80 10 80       %s\n", count++, cursor->ifa_name);
+        for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+            if (cursor->ifa_name == NULL || cursor->ifa_addr == NULL)
+                continue;
+            if (cursor->ifa_addr->sa_family != AF_INET6)
+                continue;
+            const struct in6_addr *addr6 = &((const struct sockaddr_in6 *) cursor->ifa_addr)->sin6_addr;
+
+            uint8_t prefix_len = 128;
+            if (cursor->ifa_netmask != NULL && cursor->ifa_netmask->sa_family == AF_INET6) {
+                const uint8_t *mask_bytes = (const uint8_t *) &((const struct sockaddr_in6 *) cursor->ifa_netmask)->sin6_addr;
+                prefix_len = 0;
+                for (int i = 0; i < 16; i++)
+                    prefix_len += (uint8_t) __builtin_popcount(mask_bytes[i]);
             }
-            cursor = cursor->ifa_next;
+
+            // Scope classification matches the byte ranges iSH already uses
+            // for IPv4/IPv6 route scope elsewhere (see netlink_addr_is_link_local
+            // in fs/sock.c): fe80::/10 link-local, fec0::/10 (deprecated)
+            // site-local, ::1 host-local, everything else global. These are the
+            // nibble-shifted values real /proc/net/if_inet6 emits (not the raw
+            // IPV6_ADDR_SCOPE_* route constants), matching the sample above.
+            uint8_t scope;
+            static const uint8_t loopback_bytes[16] = {0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1};
+            if (memcmp(addr6->s6_addr, loopback_bytes, 16) == 0)
+                scope = 0x10;
+            else if (addr6->s6_addr[0] == 0xfe && (addr6->s6_addr[1] & 0xc0) == 0x80)
+                scope = 0x20;
+            else if (addr6->s6_addr[0] == 0xfe && (addr6->s6_addr[1] & 0xc0) == 0xc0)
+                scope = 0x40;
+            else
+                scope = 0x00;
+
+            unsigned ifindex = if_nametoindex(cursor->ifa_name);
+
+            char addr_hex[33];
+            for (int i = 0; i < 16; i++)
+                snprintf(addr_hex + i * 2, 3, "%02x", addr6->s6_addr[i]);
+
+            proc_printf(buf, "%s %02x %02x %02x 80       %s\n",
+                    addr_hex, ifindex, prefix_len, scope, cursor->ifa_name);
         }
         freeifaddrs(addrs);
     }
-    
+
     return 0;
 }
 
@@ -445,7 +465,15 @@ static int proc_show_dev(struct proc_entry * UNUSED(entry), struct proc_data *bu
                 const struct if_data *stats = (struct if_data *)cursor->ifa_data;
                 
                 if (stats != NULL) {
-                    proc_printf(buf, "%6s:%8lu %7lu %4lu %4lu %4lu %5lu %10lu %9lu %8lu %7lu %4lu %4lu %4lu %5lu %7lu %10lu\n",
+                    /* Linux's dev_seq_printf_stats() always emits a literal
+                       space after the name colon ("%6s: %7llu ..."), which
+                       guarantees a separator even when rx_bytes is 8+ digits.
+                       Without it, busybox/net-tools ifconfig's whitespace
+                       tokenizer glues the byte count onto the interface
+                       name (e.g. "lo0:3020696576"), so the parsed name is
+                       wrong/empty and the follow-up SIOCGIFFLAGS lookup
+                       fails with ENODEV -> "Device not found". */
+                    proc_printf(buf, "%6s: %7lu %7lu %4lu %4lu %4lu %5lu %10lu %9lu %8lu %7lu %4lu %4lu %4lu %5lu %7lu %10lu\n",
                                  cursor->ifa_name,
                                  (unsigned long)stats->ifi_ibytes,   // stats->rx_bytes,
                                  (unsigned long)stats->ifi_ipackets,   // stats->rx_packets,
