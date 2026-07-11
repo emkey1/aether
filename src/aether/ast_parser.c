@@ -1206,6 +1206,32 @@ static AST *buildTypeNode(const char *name, size_t len, int line, VarType *outTy
     return node;
 }
 
+/* Like buildTypeNode, but for an Aether type *name* that may carry trailing
+ * `[]` array-suffix markers (e.g. "Int[]", the binding-table convention
+ * parseTypeWithArraySuffix produces for an explicit `: Int[]` annotation --
+ * see its comment). buildTypeNode itself has no notion of this suffix; called
+ * directly on a name like "Int[]" it does a literal (and failing) `lookupType
+ * ("Int[]")`, surfacing as "identifier 'Int[]' not in scope" -- the bug this
+ * function exists to close. Strips one trailing "[]" at a time, recursing on
+ * the base name and wrapping each level in an AST_ARRAY_TYPE, exactly the way
+ * parseTypeWithArraySuffix wraps each `[` it consumes from the token stream.
+ * This is the path `let`'s *inferred*-type case needs: inferLetTypeName can
+ * only hand back a type *name* string (there's no token stream to walk for an
+ * inferred type), so the explicit path's incremental token-stream wrapping
+ * doesn't apply -- this reconstructs the same AST shape from the name alone. */
+static AST *buildTypeNodeFromName(const char *name, size_t len, int line, VarType *outType) {
+    if (len >= 2 && name[len - 2] == '[' && name[len - 1] == ']') {
+        AST *baseNode = buildTypeNodeFromName(name, len - 2, line, outType);
+        if (!baseNode) return NULL;
+        AST *arrType = newASTNode(AST_ARRAY_TYPE, NULL);
+        setTypeAST(arrType, TYPE_ARRAY);
+        setRight(arrType, baseNode);
+        *outType = TYPE_ARRAY;
+        return arrType;
+    }
+    return buildTypeNode(name, len, line, outType);
+}
+
 /* Parse a type-name token plus any trailing `[]` array suffixes, mirroring how
  * rea's parseVarDecl builds an open array type: each `[]` wraps the base type in
  * an AST_ARRAY_TYPE (var_type TYPE_ARRAY, right = base, no AST_SUBRANGE children
@@ -3317,7 +3343,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
          * annotated `let c: C = new C();` type-checked. buildTypeNode handles the
          * builtin-keyword case (AST_TYPE_IDENTIFIER) and the unknown-type fallback
          * (bare AST_TYPE_REFERENCE, TYPE_UNKNOWN) exactly as the old code did. */
-        typeNode = buildTypeNode(inferred, strlen(inferred), kwLine, &vtype);
+        typeNode = buildTypeNodeFromName(inferred, strlen(inferred), kwLine, &vtype);
         if (!typeNode) {
             free(inferred);
             freeToken(nameTok);
