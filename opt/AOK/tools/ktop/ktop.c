@@ -500,9 +500,25 @@ static void term_size(int *rows, int *cols) {
 static struct termios orig_termios;
 static bool termios_saved = false;
 
-static void restore_termios(void) {
+// Undoes everything interactive mode did to the terminal: leave the
+// alternate screen (restoring whatever was on screen before ktop ran, like
+// htop), reset attributes, and restore canonical/echo mode. Runs via atexit
+// on normal quit and from the signal handler on SIGINT/SIGTERM/SIGHUP --
+// without the latter, a Ctrl-C would leave the tty raw with echo off.
+static void restore_terminal(void) {
+    // write(2), not stdio: also called from a signal handler.
+    static const char leave[] = "\033[0m\033[?1049l";
+    ssize_t ignored = write(STDOUT_FILENO, leave, sizeof(leave) - 1);
+    (void) ignored;
     if (termios_saved)
         tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+}
+
+static void exit_signal_handler(int sig) {
+    restore_terminal();
+    // Re-raise with default disposition so the exit status is correct.
+    signal(sig, SIG_DFL);
+    raise(sig);
 }
 
 static void enable_raw_stdin(void) {
@@ -511,7 +527,10 @@ static void enable_raw_stdin(void) {
     if (tcgetattr(STDIN_FILENO, &orig_termios) != 0)
         return;
     termios_saved = true;
-    atexit(restore_termios);
+    atexit(restore_terminal);
+    signal(SIGINT, exit_signal_handler);
+    signal(SIGTERM, exit_signal_handler);
+    signal(SIGHUP, exit_signal_handler);
     struct termios raw = orig_termios;
     raw.c_lflag &= (tcflag_t) ~(ICANON | ECHO);
     raw.c_cc[VMIN] = 0;
@@ -1018,7 +1037,9 @@ int main(int argc, char **argv) {
     if (isatty(STDOUT_FILENO))
         enable_colors();
     enable_raw_stdin();
-    fputs("\033[2J", stdout); // full clear once; redraws overwrite in place
+    // Alternate screen buffer + clear, like htop: quitting restores whatever
+    // was on the terminal before ktop started (see restore_terminal).
+    fputs("\033[?1049h\033[2J", stdout);
 
     counts[cur_buf] = collect(bufs[cur_buf], MAX_PROCS);
     fill_cpu_deltas(bufs[cur_buf], counts[cur_buf], NULL, 0);
@@ -1171,7 +1192,8 @@ int main(int argc, char **argv) {
         }
     }
 done:
-    // Leave the screen tidy: move below the table and reset attributes.
-    printf("%s\n", C_RESET);
+    // restore_terminal (via atexit) leaves the alternate screen and restores
+    // the tty; just make sure buffered output is flushed first.
+    fflush(stdout);
     return 0;
 }
