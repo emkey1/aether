@@ -9,6 +9,14 @@ Scheme: ``YYYY-MM-DD-N``
 Run this once per revision, before committing a guide edit. If a guide has no
 stamp yet, it is inserted just below the title.
 
+Also bump on a benchmark-harness change that could plausibly move a score
+(e.g. tools/aether_doc_bench.py's repair-feedback logic), even with no edit to
+the guide text itself — the "guide ver" column in
+docs/aether_guided_benchmark.md is the only per-row version marker, so it
+doubles as "what produced this score." Pair a harness-only bump with a dated
+note in that doc's Status section explaining there's no corresponding guide
+text diff, so it doesn't read as unexplained drift later.
+
 Usage:
     python3 tools/bump_guide_version.py docs/aether_for_llms_and_others.md \\
                                         docs/aether_for_llms_with_small_contexts.md
