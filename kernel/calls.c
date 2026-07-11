@@ -2539,7 +2539,18 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
         return false; // not handled here: fall through to the legacy-marshalled table
     }
     if (syscall_result_should_restart(result)) {
-        prepare_syscall_restart(cpu, &arm64_syscall_dispatch, syscall_num, raw_args[0]);
+        // handle_asm_generic_native_syscall is shared by both arm64 and
+        // riscv64 guests; prepare_syscall_restart's PC-rewind and
+        // syscall-number/first-arg restore are register-file-specific
+        // (arm64_regs/arm64_pc vs riscv64_regs/riscv64_pc), so the dispatch
+        // table passed here must match the actual guest ABI, not be
+        // hardcoded to arm64 -- otherwise a riscv64 syscall interrupted by
+        // an SA_RESTART signal never gets its real PC rewound over the
+        // ecall (the write lands in the unused arm64 register shadow
+        // instead), and resumes with garbage in a0 (signal_restart,
+        // eventfd_interrupt, futex_core device failures).
+        prepare_syscall_restart(cpu, current->abi == GUEST_ABI_RISCV64 ?
+                &riscv64_syscall_dispatch : &arm64_syscall_dispatch, syscall_num, raw_args[0]);
         return true;
     }
     // Sign-extend: a dword -errno (or any negative 32-bit result, e.g.

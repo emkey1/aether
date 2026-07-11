@@ -131,6 +131,25 @@ static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, l
         : "memory", "cc");
     return x0;
 }
+#elif defined(__riscv) && __riscv_xlen == 64
+static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
+    // Same rationale as the aarch64 shim above: a real raw syscall (ecall)
+    // returning the kernel's negative-errno value directly, bypassing the
+    // libc syscall() wrapper's own -1/errno conversion.
+    register long a7 __asm__("a7") = nr;
+    register long x10 __asm__("a0") = a1;
+    register long x11 __asm__("a1") = a2;
+    register long x12 __asm__("a2") = a3;
+    register long x13 __asm__("a3") = a4;
+    register long x14 __asm__("a4") = a5;
+    register long x15 __asm__("a5") = a6;
+    __asm__ volatile(
+        "ecall"
+        : "+r"(x10)
+        : "r"(a7), "r"(x11), "r"(x12), "r"(x13), "r"(x14), "r"(x15)
+        : "memory");
+    return x10;
+}
 #else
 static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
     return syscall(nr, a1, a2, a3, a4, a5, a6);
