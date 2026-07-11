@@ -101,6 +101,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 | model | size · served | guide ver | aether ver | concise guide | full guide |
 |---|---|---|---|---|---|
+| `ornith-1.0-35b-nvfp4` | 35B-MoE · claw1 | **2026-07-04-2** | 2026-07-04-2 | **30/30** (1 retried, 1 fixed) | **30/30** |
 | `gpt-oss-120b` | 120B MXFP4 · claw1 | 2026-06-28 | 2026-06-27-3 | **30/30** (6 retried, 6 fixed) | 29/30 (7 retried, 6 fixed) |
 | `qwen3.6-35b-a3b` | 35B-A3B · m5t | 2026-06-28 | 2026-06-27-3 | **30/30** (1 retried, 1 fixed) | **30/30** |
 | `gemini-2.5-flash` | — · cloud | 2026-06-28 | 2026-06-27-3 | **30/30** (1 retried, 1 fixed) | **30/30** (1 retried, 1 fixed) |
@@ -161,6 +162,7 @@ the same model are grouped together, oldest guide version first.*
 
 | model | size · served | guide ver | aether ver | concise guide | full guide |
 |---|---|---|---|---|---|
+| `ornith-1.0-35b-nvfp4` | 35B-MoE · claw1 | **2026-07-04-2** | 2026-07-04-2 | 7/8 (3 retried, 3 fixed) | **8/8** (1 retried, 1 fixed) |
 | `gemini-2.5-flash` | — · cloud | 2026-06-28 | 2026-06-27-3 | **8/8** | **8/8** |
 | `gemini-2.5-flash` | — · cloud | **2026-07-01-8** | 2026-07-01-8 | 7/8 (3 retried, 2 fixed) | 6/8 (3 retried, 1 fixed) |
 | `gemini-2.5-flash` | — · cloud | **2026-07-04-2** | 2026-07-04-2 | 6/8 (2 retried, 0 fixed) | 7/8 (2 retried, 1 fixed) |
@@ -192,6 +194,7 @@ the same model are grouped together, oldest guide version first.*
 
 | model | guide ver | aether ver | concise guide compiled | full guide compiled |
 |---|---|---|---|---|
+| `ornith-1.0-35b-nvfp4` | **2026-07-04-2** | 2026-07-04-2 | 7/8 | 8/8 |
 | `gemini-2.5-flash` | 2026-06-28 | 2026-06-27-3 | 8/8 | 8/8 |
 | `gemini-2.5-flash` | **2026-07-01-8** | 2026-07-01-8 | 7/8 | 6/8 |
 | `gemini-2.5-flash` | **2026-07-04-2** | 2026-07-04-2 | 6/8 | 7/8 |
@@ -219,6 +222,8 @@ the same model are grouped together, oldest guide version first.*
 
 | model | size · served | guide ver | aether ver | concise guide | full guide |
 |---|---|---|---|---|---|
+| `ornith-1.0-35b-nvfp4` | 35B-MoE · claw1 | 2026-07-04-2 | 2026-07-04-2 | 18/19 (3 retried, 2 fixed) | 17/19 (5 retried, 4 fixed) |
+| `ornith-1.0-35b-nvfp4` | 35B-MoE · claw1 | **2026-07-05-1** | 2026-07-04-2 | 17/19 (6 retried, 4 fixed) | 18/19 (5 retried, 5 fixed) |
 | `glm-5-turbo` | — · cloud | 2026-06-28 | 2026-06-27-3 | 18/19 (1 retried, 1 fixed) | **19/19** (1 retried, 1 fixed) |
 | `glm-5-turbo` | — · cloud | **2026-07-01-8** | 2026-07-01-8 | **19/19** (2 retried, 2 fixed) | 16/19 |
 | `glm-5.2` | — · cloud | 2026-06-28 | 2026-06-27-3 | 18/19 (3 retried, 3 fixed) | 18/19 (1 retried, 1 fixed) |
@@ -247,11 +252,60 @@ the same model are grouped together, oldest guide version first.*
 
 *`glm-5-turbo`'s full guide has 3 non-generated cases (proxy timeout on `fibonacci`/`hanoi`/`quick_sort` — see Status), scored as 0 per the never-generated convention, not a correctness miss. `qwen3-4b`'s concise guide (Simple table) similarly has 7 non-generated cases (T'Ra queue/network timeouts, not a capability miss) — see the raw per-model JSON for which tasks.*
 
+*`ornith-1.0-35b-nvfp4`'s `2026-07-04-2` row's full-guide miss is
+`cs_edit_distance`: the generated program never terminates within the
+harness's local execution timeout (20s) — a real model weakness (an
+unbounded/incorrect DP loop), not infra. It also recurs identically on the
+`2026-07-05-1` re-run (same task, same failure mode both times), so it's a
+standing miss independent of the harness change below. `cs_quick_sort` (full)
+and `cs_bfs` (concise), also misses on that row, both compiled and ran but
+produced wrong output through all 3 attempts, never converging — see the
+harness-change note for what fixed the first of those two. Model card:
+DeepReinforce Ornith-1.0, the 35B-MoE member of the family
+(`Qwen3_5MoeForConditionalGeneration`, confirmed via `config.json` — not
+dense), served NVFP4 on stock llama.cpp with MTP. It is a reasoning model
+(`<think>...</think>` before the answer, `--reasoning-parser qwen3`), so its
+unusually fast wall-clock here is the MoE architecture (few active experts per
+token) plus MTP speculative decoding carrying the reasoning overhead
+efficiently — not a non-thinking shortcut. The `2026-07-04-2` run also
+surfaced and fixed a real harness bug: `run_model_with_deadline()` in
+`tools/aether_doc_bench.py` joined the LLM-call subprocess before draining its
+result queue, which can deadlock for the full `request_timeout_seconds` (here
+8900s) whenever a generated response is large enough to fill the OS pipe
+buffer (~64KB on macOS) — hit on `cs_merge_sort`'s first attempt across two
+independent runs. Fixed by reading the queue with a timeout before joining;
+unrelated to the VM 2.0 rewrite.*
+
+*The `2026-07-05-1` re-run (harness-only bump, see Status) demonstrates the
+second harness fix: `derive_failure_summary` now computes an actual
+expected-vs-observed diff for "ran clean but wrong output" repair attempts
+instead of a bare `"stdout_mismatch"` label. `cs_quick_sort`'s prior miss is
+now fixed — its repair reasoning explicitly cited the new diff
+(`"expected 9 token(s), got 3; missing: 1,3,4,6,7,9"`) and correctly
+identified that its quicksort dropped every pivot on a distinct-value array
+(`loop i in 1..n` → `loop i in 0..n`), a clean before/after win attributable to
+the fix. `cs_bfs` also now passes on `full`, though that one isn't a clean
+attribution — it's a crash-then-fix case where the *existing* error-message
+feedback (unrelated to this change) already applied. Sampling variance
+(temperature 0.2) then surfaced two different concise-guide misses on this
+run instead: `cs_bubble_sort` produces correctly-sorted values but with a
+persistent per-element-newline formatting bug (`"1\n, 2\n, 3\n..."` instead of
+one line), unfixed after 3 attempts including a repair that briefly regressed
+into a scope error; `cs_bfs` (concise) hit the identical `"Length expects a
+string or array argument"` crash on all 3 attempts, i.e. repair had a strong,
+specific error message each time and still reproduced the same broken code.
+Net: one clean attributable fix, one coincidental fix, two fresh misses of the
+same "wrong output despite running" and "same crash won't resolve" shapes the
+harness already had — an argument the model's ceiling on `cs`, not the
+harness, is now the binding constraint for this pair of tasks.*
+
 <details>
 <summary>Compiled detail — CS-classics</summary>
 
 | model | guide ver | aether ver | concise guide compiled | full guide compiled |
 |---|---|---|---|---|
+| `ornith-1.0-35b-nvfp4` | 2026-07-04-2 | 2026-07-04-2 | 19/19 | 18/19 |
+| `ornith-1.0-35b-nvfp4` | **2026-07-05-1** | 2026-07-04-2 | 18/19 | 18/19 |
 | `glm-5-turbo` | 2026-06-28 | 2026-06-27-3 | 18/19 | 19/19 |
 | `glm-5-turbo` | **2026-07-01-8** | 2026-07-01-8 | 19/19 | 16/19 |
 | `glm-5.2` | 2026-06-28 | 2026-06-27-3 | 18/19 | 18/19 |
@@ -372,11 +426,37 @@ board](aether_specialization_findings.md#cs-aug3)) where decoding the same
 kind of timestamp turned up **real** version drift within a single result
 set.
 
+**`ornith-1.0-35b-nvfp4` landed (2026-07-05):** all three instruments complete
+against the `2026-07-04-2` guide/aether pair — `simple` 30/30 both variants,
+`large` 8/8 (full) / 7/8 (concise), `cs` 17/19 (full) / 18/19 (concise). Rows
+above; see the CS-classics footnote for the genuine misses and a harness bug
+this run surfaced and fixed (`run_model_with_deadline()` queue/join ordering
+deadlock in `tools/aether_doc_bench.py`). Re-run on `cs` after the follow-up
+harness fix below (`2026-07-05-1`): `full` 18/19 (only `cs_edit_distance`
+remains, a standing miss both runs), `concise` 17/19 (`cs_quick_sort`/`cs_bfs`
+from the first run now pass; `cs_bubble_sort`/`cs_bfs` fail instead — see
+footnote for which fixes are attributable to the harness change vs. run-to-run
+model variance). `simple`/`large` were not re-run (nothing in that harness
+change touches their pass/fail path) and stand as reported above.
+
+**Guide version now also covers harness changes (2026-07-05):** bumped
+`2026-07-04-2` → `2026-07-05-1` on both guides with **no change to the guide
+text itself** — the bump reflects a `tools/aether_doc_bench.py` change
+(`derive_failure_summary` now computes an actual expected-vs-observed diff for
+"ran clean but wrong output" repair attempts instead of a bare
+`"stdout_mismatch"` label; see the CS-classics footnote). Reusing this column
+rather than adding a new one is a deliberate simplification — if a row's guide
+version bumps with no visible diff to `aether_for_llms_and_others.md` /
+`aether_for_llms_with_small_contexts.md`, check here and in git history for a
+harness-only reason before assuming drift (this doc already had one real scare
+of that shape — see the aether-version note below). Going forward, any change
+to the benchmark harness that could plausibly move a score gets a guide-version
+bump plus a dated Status note like this one, even absent a guide-text edit.
+
 **In progress:** the two GB10 Sparks (claw1/claw2), routed through the T'Ra
 scheduler, are benchmarking a broad tail — more small models (qwen3 1.7b-32b,
 deepseek-r1, command-r) and larger ones (gemma3-12b, llama3.3-70b,
-command-r-plus, nemotron) plus the **Ornith-1.0-35B** agentic-coding model —
-folding in as they land, smallest first. `qwen3-1.7b` is the first to complete
+command-r-plus, nemotron). `qwen3-1.7b` is the first to complete
 (all three instruments, `2026-07-01-8` guide). (The original m5t laptop tail
 was moved to the claws, which serve 32B models far faster; `seed-oss-36b`
 stays dropped — impractically slow.) The broad single-pass 2B–122B sweep —
