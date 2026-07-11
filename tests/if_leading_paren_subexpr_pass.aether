@@ -1,0 +1,10 @@
+fn main() -> Void {
+    let a: Bool = true;
+    let c: Bool = false;
+    if (a) && !c {
+        fx { writeln("yes"); }
+    } else {
+        fx { writeln("no"); }
+    }
+    ret;
+}

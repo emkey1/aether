@@ -4051,26 +4051,14 @@ static AST *parseRet(AetherParser *p) {
  * effect wrapper rules don't apply here; this is the statement form. */
 static AST *parseIfStmt(AetherParser *p) {
     aetherAdvance(p); /* consume 'if' */
-    /* Parens around the condition are optional, but they must balance: only
-     * consume a ')' when we consumed the matching '(' (a stray ')' after an
-     * unparenthesized condition is malformed input, not ours to swallow). */
-    bool sawParen = false;
-    int openLine = p->current.line;
-    if (p->current.type == REA_TOKEN_LEFT_PAREN) {
-        sawParen = true;
-        aetherAdvance(p);
-    }
+    /* Parens around the condition are optional -- a redundant C-style
+     * `if (cond) { }` spelling is allowed -- but a leading '(' does not
+     * necessarily wrap the *whole* condition (e.g. `if (a) && !c { }`).
+     * Rather than special-casing a leading paren as if it always closes
+     * the condition, just hand the whole condition to parseExpr, exactly
+     * as parseLoop does for its condition form; the general expression
+     * grammar already parses balanced parens anywhere within it. */
     AST *condition = parseExpr(p);
-    if (sawParen) {
-        if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
-            aetherAdvance(p);
-        } else if (!p->hadError) {
-            char msg[96];
-            snprintf(msg, sizeof(msg), "expected ')' to close if condition (opened at line %d).", openLine);
-            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
-            p->hadError = true;
-        }
-    }
     AST *thenBranch = NULL;
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         thenBranch = parseBlock(p);
