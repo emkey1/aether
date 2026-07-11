@@ -76,24 +76,36 @@ static int raw_syscall_status(long ret) {
 
 #if defined(__i386__)
 static long raw_syscall6(long nr, long a1, long a2, long a3, long a4, long a5, long a6) {
+    // Bind a1/a2/a3/a4/a5 directly to their ABI registers (b/c/d/S/D) so the
+    // compiler can never place one of them in the same register another
+    // operand needs -- the previous version used generic "rm" constraints
+    // for a1/a4/a5/a6 plus explicit "mov %[argN], %%reg" shuffles, which let
+    // gcc -O2 pick e.g. edi for [arg1] and esi for [arg5] and then clobber
+    // esi (via the [arg4] move, reusing edx's register when a3==a4) before
+    // the [arg5] move read it, silently corrupting uaddr2/val3 for any
+    // futex(2) op that uses all 6 args (FUTEX_WAKE_OP). ebp has no such
+    // single-letter constraint, so a6 goes in via the stack: pushed first
+    // (while ebp/esp are still whatever the compiler expects, so %[arg6]'s
+    // own addressing mode -- register, immediate, or ebp/esp-relative
+    // memory -- is still valid), then loaded into ebp via a literal
+    // esp-relative offset. An xchgl-with-memory version of this (swap ebp
+    // and a6's stack slot directly) is what real libcs use, but it's only
+    // safe under -fomit-frame-pointer: with a frame pointer, gcc addresses
+    // %[arg6] as -N(%ebp), and the second xchgl (restoring ebp) then
+    // computes that same -N(%ebp) using the *new* ebp (a6's syscall value,
+    // not the frame pointer) -- garbage address, corrupting the stack.
+    // Plain esp-relative offsets here are literal in the template text, so
+    // they stay correct regardless of the caller's frame-pointer choice.
     long ret;
     __asm__ volatile(
-        "push %%ebx\n\t"
-        "push %%esi\n\t"
-        "push %%edi\n\t"
+        "push %[arg6]\n\t"
         "push %%ebp\n\t"
-        "mov %[arg1], %%ebx\n\t"
-        "mov %[arg4], %%esi\n\t"
-        "mov %[arg5], %%edi\n\t"
-        "mov %[arg6], %%ebp\n\t"
+        "mov 4(%%esp), %%ebp\n\t"
         "int $0x80\n\t"
         "pop %%ebp\n\t"
-        "pop %%edi\n\t"
-        "pop %%esi\n\t"
-        "pop %%ebx\n\t"
+        "add $4, %%esp\n\t"
         : "=a"(ret)
-        : "a"(nr), [arg1] "rm"(a1), "c"(a2), "d"(a3),
-          [arg4] "rm"(a4), [arg5] "rm"(a5), [arg6] "rm"(a6)
+        : "a"(nr), "b"(a1), "c"(a2), "d"(a3), "S"(a4), "D"(a5), [arg6] "rm"(a6)
         : "memory", "cc");
     return ret;
 }
