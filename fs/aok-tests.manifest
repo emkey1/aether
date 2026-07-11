@@ -62,6 +62,7 @@ tmpfs_statfs.c
 memfd_mmap.c
 mount_stdev.c
 mmap_truncate_sigbus.c
+wayland_scm_shm.c
 x86/amd64_regress.c
 x86/amd64_jit_bench.sh
 setup-regressions.sh
