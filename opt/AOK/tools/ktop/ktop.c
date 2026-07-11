@@ -1,10 +1,10 @@
 /*
  * ktop -- a small, dependency-free top(1) clone with one extra column: the
- * guest CPU architecture (arm64 / x86_64 / x86) of each process's binary,
- * read straight from its ELF header via /proc/<pid>/exe.
+ * guest CPU architecture (arm64 / x86_64 / x86 / riscv64) of each process's
+ * binary, read straight from its ELF header via /proc/<pid>/exe.
  *
- * Built for iSH-AOK: a single guest can run i386, amd64 and arm64 binaries
- * side by side (e.g. a chroot into another installed root via
+ * Built for iSH-AOK: a single guest can run i386, amd64, arm64 and riscv64
+ * binaries side by side (e.g. a chroot into another installed root via
  * /AOK/tools/mount-root.sh), and stock top has no way to show that mix.
  * ktop otherwise behaves like ordinary top: an interactive, periodically
  * refreshing process table sorted by %CPU, or -b batch mode for scripting.
@@ -91,6 +91,7 @@ static const char *detect_arch(pid_t pid) {
         case 62:  return arch_intern("x86_64"); // EM_X86_64
         case 183: return arch_intern("arm64");  // EM_AARCH64
         case 40:  return arch_intern("arm");    // EM_ARM (32-bit, just in case)
+        case 243: return arch_intern("riscv64"); // EM_RISCV
         default:  return arch_intern("?");
     }
 }
