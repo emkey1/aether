@@ -4222,14 +4222,18 @@ static bool guest_cmsg_parse(enum guest_abi abi, const uint8_t *buffer, size_t c
 
     if (len < hdr_size)
         return false;
-    size_t cmsg_space = guest_cmsg_space(abi, len - hdr_size);
-    if (*offset + cmsg_space > capacity)
+    // Linux permits the last cmsg to end unpadded at exactly cmsg_len
+    // (libwayland sends msg_controllen = CMSG_LEN, not CMSG_SPACE, so a
+    // single-fd SCM_RIGHTS is 4 bytes short of the aligned size). Bounds-check
+    // the unpadded length; the aligned advance may step past capacity, which
+    // just terminates the caller's loop.
+    if (*offset + len > capacity)
         return false;
 
     cmsg->len = len;
     *data = buffer + *offset + hdr_size;
     *data_len = len - hdr_size;
-    *offset += cmsg_space;
+    *offset += guest_cmsg_space(abi, len - hdr_size);
     return true;
 }
 
