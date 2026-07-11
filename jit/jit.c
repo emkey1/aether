@@ -1050,7 +1050,10 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // Another task thread can change this address space while we are still
         // running translated blocks. Revalidate the software TLB at block
         // boundaries so stale cached host pointers do not survive mmap/munmap/COW.
-        if (tlb->mem_changes != cpu->mmu->changes)
+        // Compare the mmu pointer too: after execve swaps in a fresh mm, the new
+        // change counter can numerically collide with the old snapshot, and a
+        // counter-only check would leave the TLB pointing at the freed mm.
+        if (tlb->mmu != cpu->mmu || tlb->mem_changes != cpu->mmu->changes)
             tlb_refresh(tlb, cpu->mmu);
 
         // Check write_wanted before any potentially slow operation (block lookup,
@@ -1378,7 +1381,13 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
 
     int interrupt = INT_NONE;
     while (interrupt == INT_NONE) {
-        if (tlb->mem_changes != cpu->mmu->changes)
+        // This frontend has no entry refresh, so the first iteration after
+        // execve still sees the TLB bound to the old, freed mm. Change ids are
+        // seeded uniquely per mm but increment locally, so the old snapshot
+        // frequently collides numerically with the new mm's counter -- compare
+        // the mmu pointer too, or the refresh is skipped and the JIT keeps
+        // translating through freed memory.
+        if (tlb->mmu != cpu->mmu || tlb->mem_changes != cpu->mmu->changes)
             tlb_refresh(tlb, cpu->mmu);
 
         if (jit_should_yield(jit, cpu)) {
@@ -1584,7 +1593,13 @@ static int cpu_step_to_interrupt_riscv64(struct cpu_state *cpu, struct tlb *tlb)
 
     int interrupt = INT_NONE;
     while (interrupt == INT_NONE) {
-        if (tlb->mem_changes != cpu->mmu->changes)
+        // This frontend has no entry refresh, so the first iteration after
+        // execve still sees the TLB bound to the old, freed mm. Change ids are
+        // seeded uniquely per mm but increment locally, so the old snapshot
+        // frequently collides numerically with the new mm's counter -- compare
+        // the mmu pointer too, or the refresh is skipped and the JIT keeps
+        // translating through freed memory.
+        if (tlb->mmu != cpu->mmu || tlb->mem_changes != cpu->mmu->changes)
             tlb_refresh(tlb, cpu->mmu);
 
         if (jit_should_yield(jit, cpu)) {
@@ -1853,7 +1868,7 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     unsigned last_block_cleanup_seq =
         atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
     while (true) {
-        if (tlb->mem_changes != cpu->mmu->changes)
+        if (tlb->mmu != cpu->mmu || tlb->mem_changes != cpu->mmu->changes)
             tlb_refresh(tlb, cpu->mmu);
 
         fallback_to_interp = false;
