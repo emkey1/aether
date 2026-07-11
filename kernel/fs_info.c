@@ -19,6 +19,8 @@ struct fs_info *fs_info_retain(struct fs_info *fs) {
 
 struct fs_info *fs_info_copy(struct fs_info *fs) {
     struct fs_info *new_fs = fs_info_new();
+    if (new_fs == NULL)
+        return NULL;
     new_fs->umask = fs->umask;
     new_fs->pwd = fd_retain(fs->pwd);
     new_fs->root = fd_retain(fs->root);
