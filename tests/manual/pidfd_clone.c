@@ -26,6 +26,24 @@
 #define CLONE_PIDFD 0x00001000
 #endif
 
+// Older libc headers (e.g. the musl version bundled with this Alpine image)
+// don't define these yet; 424/434 are the "common" numbers shared by i386
+// and amd64 (see kernel/calls.c), matching pidfd_open.c's fallback.
+#ifndef SYS_pidfd_send_signal
+# ifdef __NR_pidfd_send_signal
+#  define SYS_pidfd_send_signal __NR_pidfd_send_signal
+# else
+#  define SYS_pidfd_send_signal 424
+# endif
+#endif
+#ifndef SYS_pidfd_open
+# ifdef __NR_pidfd_open
+#  define SYS_pidfd_open __NR_pidfd_open
+# else
+#  define SYS_pidfd_open 434
+# endif
+#endif
+
 static int raw_pidfd_send_signal(int pidfd, int sig, void *info, unsigned flags) {
     return syscall(SYS_pidfd_send_signal, pidfd, sig, info, flags);
 }

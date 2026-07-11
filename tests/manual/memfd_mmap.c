@@ -252,10 +252,5 @@ int main(int argc, char **argv) {
     test_file_io();
     test_shared_fork();
 
-    if (failures_total) {
-        printf("memfd_mmap: %u FAILURES\n", failures_total);
-        return 1;
-    }
-    printf("memfd_mmap: all tests passed\n");
-    return 0;
+    return finish_suite("memfd_mmap");
 }
