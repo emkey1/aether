@@ -207,6 +207,9 @@ int_t sys_inotify_add_watch_guest(fd_t fd, guest_addr_t pathname_addr, uint_t ma
 int_t sys_inotify_rm_watch(fd_t fd, int_t wd);
 int_t sys_memfd_create(addr_t name_addr, uint_t flags);
 int_t sys_memfd_create_guest(guest_addr_t name_addr, uint_t flags);
+struct fd;
+int_t memfd_add_seals(struct fd *fd, uint_t arg);
+int_t memfd_get_seals(struct fd *fd);
 
 // file management
 fd_t sys_open(addr_t path_addr, dword_t flags, mode_t_ mode);

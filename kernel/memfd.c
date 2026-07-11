@@ -16,6 +16,15 @@
 #define MFD_EXEC_ 0x0010
 #define MEMFD_MAX_NAME 249
 
+#define F_SEAL_SEAL_ 0x0001
+#define F_SEAL_SHRINK_ 0x0002
+#define F_SEAL_GROW_ 0x0004
+#define F_SEAL_WRITE_ 0x0008
+#define F_SEAL_FUTURE_WRITE_ 0x0010
+#define F_SEAL_EXEC_ 0x0020
+#define MEMFD_ALL_SEALS_ (F_SEAL_SEAL_ | F_SEAL_SHRINK_ | F_SEAL_GROW_ | \
+        F_SEAL_WRITE_ | F_SEAL_FUTURE_WRITE_ | F_SEAL_EXEC_)
+
 // A memfd's contents live in an unlinked host temp file (host_fd), created
 // eagerly at memfd_create time — a memfd exists specifically to be mmapped, so
 // unlike tmpfs there's no point in a malloc-backed fast path. Guest mappings
@@ -27,7 +36,7 @@
 struct memfd_state {
     char *name;
     int host_fd;
-    bool sealing_allowed;
+    int seals; // F_SEAL_*, guarded by lock; F_SEAL_SEAL_ set = sealing forbidden
     lock_t lock;
 };
 
@@ -95,6 +104,16 @@ static ssize_t memfd_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_
         unlock(&state->lock);
         return _EFBIG;
     }
+    // Linux (shmem_file_write_iter): sealed-for-write is EPERM, as is a write
+    // that would grow a GROW-sealed file.
+    if (state->seals & (F_SEAL_WRITE_ | F_SEAL_FUTURE_WRITE_)) {
+        unlock(&state->lock);
+        return _EPERM;
+    }
+    if ((state->seals & F_SEAL_GROW_) && (qword_t) off + bufsize > fd->stat.size) {
+        unlock(&state->lock);
+        return _EPERM;
+    }
     ssize_t n = pwrite(state->host_fd, buf, bufsize, off);
     if (n < 0) {
         unlock(&state->lock);
@@ -140,6 +159,13 @@ static int memfd_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t page
     // Linux (verified): a file offset that isn't page-aligned is EINVAL.
     if (offset % PAGE_SIZE != 0)
         return _EINVAL;
+    lock(&state->lock, 0);
+    int seals = state->seals;
+    unlock(&state->lock);
+    // Linux: a writable shared mapping of a write-sealed memfd is EPERM.
+    if ((flags & MMAP_SHARED) && (prot & P_WRITE) &&
+            (seals & (F_SEAL_WRITE_ | F_SEAL_FUTURE_WRITE_)))
+        return _EPERM;
     return host_fd_mmap(state->host_fd, mem, start, pages, offset, prot, flags);
 }
 
@@ -185,6 +211,12 @@ static int memfd_fsetattr(struct fd *fd, struct attr attr) {
         case attr_size:
             if (attr.size < 0)
                 err = _EINVAL;
+            // Linux: ftruncate on a sealed memfd is EPERM in the offending
+            // direction (shrink under F_SEAL_SHRINK, grow under F_SEAL_GROW).
+            else if ((qword_t) attr.size < fd->stat.size && (state->seals & F_SEAL_SHRINK_))
+                err = _EPERM;
+            else if ((qword_t) attr.size > fd->stat.size && (state->seals & F_SEAL_GROW_))
+                err = _EPERM;
             else
                 err = memfd_resize_locked(fd, attr.size);
             break;
@@ -213,6 +245,37 @@ static struct fd_ops memfd_ops = {
     .fsync = memfd_fsync,
     .close = memfd_close,
 };
+
+// fcntl(F_ADD_SEALS/F_GET_SEALS), dispatched from sys_fcntl. Only memfds
+// support sealing here (Linux: shmem/hugetlb files); anything else is EINVAL.
+int_t memfd_add_seals(struct fd *fd, uint_t arg) {
+    if (fd->ops != &memfd_ops)
+        return _EINVAL;
+    if (arg & ~MEMFD_ALL_SEALS_)
+        return _EINVAL;
+    struct memfd_state *state = memfd_state_get(fd);
+    lock(&state->lock, 0);
+    if (state->seals & F_SEAL_SEAL_) {
+        unlock(&state->lock);
+        return _EPERM;
+    }
+    // Linux also fails F_SEAL_WRITE with EBUSY while writable shared mappings
+    // exist; mappings aren't tracked per-fd here, so that check is skipped
+    // (callers that seal WRITE before sharing the fd are unaffected).
+    state->seals |= arg;
+    unlock(&state->lock);
+    return 0;
+}
+
+int_t memfd_get_seals(struct fd *fd) {
+    if (fd->ops != &memfd_ops)
+        return _EINVAL;
+    struct memfd_state *state = memfd_state_get(fd);
+    lock(&state->lock, 0);
+    int seals = state->seals;
+    unlock(&state->lock);
+    return seals;
+}
 
 int_t sys_memfd_create(addr_t name_addr, uint_t flags) {
     return sys_memfd_create_guest(name_addr, flags);
@@ -247,7 +310,13 @@ int_t sys_memfd_create_guest(guest_addr_t name_addr, uint_t flags) {
         free(state);
         return err;
     }
-    state->sealing_allowed = (flags & MFD_ALLOW_SEALING_) != 0;
+    // Linux: without MFD_ALLOW_SEALING the file starts permanently sealed
+    // against sealing (F_SEAL_SEAL). MFD_NOEXEC_SEAL implies sealing is
+    // allowed and pre-applies F_SEAL_EXEC.
+    if (flags & MFD_NOEXEC_SEAL_)
+        state->seals = F_SEAL_EXEC_;
+    else if (!(flags & MFD_ALLOW_SEALING_))
+        state->seals = F_SEAL_SEAL_;
     lock_init(&state->lock, "memfd_state\0");
 
     struct fd *fd = fd_create(&memfd_ops);

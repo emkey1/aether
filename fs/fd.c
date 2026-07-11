@@ -296,6 +296,8 @@ void fdtable_do_cloexec(struct fdtable *table) {
 #define F_OFD_SETLKW_ 38
 
 #define F_DUPFD_CLOEXEC_ 1030
+#define F_ADD_SEALS_ 1033
+#define F_GET_SEALS_ 1034
 #define CLOSE_RANGE_UNSHARE_ (1U << 1)
 #define CLOSE_RANGE_CLOEXEC_ (1U << 2)
 
@@ -635,6 +637,15 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
                 }
                 ret = fcntl_setlk(fd, &flock, cmd == F_OFD_SETLKW_, true);
             }
+            break;
+
+        case F_ADD_SEALS_:
+            STRACE("fcntl(%d, F_ADD_SEALS, %#x)", f, arg);
+            ret = memfd_add_seals(fd, arg);
+            break;
+        case F_GET_SEALS_:
+            STRACE("fcntl(%d, F_GET_SEALS)", f);
+            ret = memfd_get_seals(fd);
             break;
 
         default:
