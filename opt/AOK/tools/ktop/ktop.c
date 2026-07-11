@@ -693,7 +693,7 @@ static void draw_header(int cols, int ncpu,
         double fu = dtotal > 0 ? (double) du / (double) dtotal : 0;
         double fs = dtotal > 0 ? (double) ds / (double) dtotal : 0;
 
-        char label[8], text[16];
+        char label[16], text[16];
         snprintf(label, sizeof(label), "%d", i);
         snprintf(text, sizeof(text), "%.1f%%", (fu + fs) * 100.0);
         const double fracs[2] = {fu, fs};
@@ -836,7 +836,7 @@ static void draw_interactive(struct proc_sample *procs, int n,
             ? (double) procs[i].rss_pages * (double) page_kb * 100.0 / (double) mi->total_kb
             : 0;
 
-        char userbuf[32], virt[16], res[16], timebuf[16], state[2];
+        char userbuf[32], virt[16], res[16], timebuf[32], state[2];
         username_for(procs[i].uid, userbuf, sizeof(userbuf));
         format_kb(procs[i].vsize / 1024, virt, sizeof(virt));
         format_kb((unsigned long) (procs[i].rss_pages * page_kb), res, sizeof(res));
