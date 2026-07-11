@@ -1523,6 +1523,8 @@ static AST *parseFnDecl(AetherParser *p);
 static AST *parseTypeDecl(AetherParser *p);
 static AST *parseConstDeclTop(AetherParser *p);
 static char *inferLetTypeName(AetherParser *p, AST *init);
+static void buildArrayAppendSteps(const AST *target, AST *item, int line,
+                                  AST **outSetlenStmt, AST **outIdxAssign);
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
                              bool inMethodContract);
 static AST *buildContractGuard(AetherParser *p, const char *exprText,
@@ -3249,6 +3251,35 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         aetherAdvance(p);
     }
 
+    /* Array-append initializer: `let x: T[] = src + [item];` / `let x = src +
+     * [item];`. Rewrite `init` in place to just `src` (a plain array-copy
+     * initializer, which the normal declaration path below already handles
+     * correctly -- arrays are value types) and remember `item`/`appendLine` so
+     * the setlength+indexed-assign steps can be spliced in after the
+     * declaration once `decl` is built. Without this, `src + [item]` compiles
+     * as a literal `ARRAY + ARRAY_LITERAL` binary op the VM has no operator
+     * for ("Runtime Error: Operands must be numbers for arithmetic operation
+     * '+'... Got ARRAY and ARRAY") -- the only shape that ever worked was the
+     * self-reassignment statement `xs = xs + [v];`, handled separately below
+     * in parseStmt. */
+    AST *appendItem = NULL;
+    int appendLine = 0;
+    if (init && init->type == AST_BINARY_OP && init->token &&
+        init->token->type == TOKEN_PLUS &&
+        init->right && init->right->type == AST_ARRAY_LITERAL &&
+        init->right->child_count == 1) {
+        appendLine = init->token->line;
+        AST *src = init->left;
+        appendItem = init->right->children[0];
+        init->right->children[0] = NULL;
+        init->right->child_count = 0;
+        if (appendItem) appendItem->parent = NULL;
+        init->left = NULL;
+        freeAST(init); /* frees the now-empty `+`/array-literal shell only */
+        init = src;
+        if (init) init->parent = NULL;
+    }
+
     /* Binding a tuple-return call to a single name is unsupported: `let v = pair();`
      * where `pair` returns `(...)`. Match the rewriter's specific diagnostic rather
      * than the generic "cannot infer type" so error-message parity holds. Applies
@@ -3330,6 +3361,19 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     setLeft(decl, init);
     setRight(decl, typeNode);
     setTypeAST(decl, vtype);
+    if (appendItem) {
+        /* `let x: T[] = src + [item];` -- `decl` above now declares `x` as a
+         * copy of `src` (init was rewritten to `src` further up); splice in
+         * the setlength+indexed-assign steps right after it. */
+        AST *setlenStmt = NULL, *idxAssign = NULL;
+        buildArrayAppendSteps(var, appendItem, appendLine, &setlenStmt, &idxAssign);
+        AST *outer = newASTNode(AST_COMPOUND, NULL);
+        outer->i_val = 1; /* splice into the surrounding block, like buildArrayAppend's */
+        addChild(outer, decl);
+        addChild(outer, setlenStmt);
+        addChild(outer, idxAssign);
+        return outer;
+    }
     return decl;
 }
 
@@ -3338,6 +3382,25 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
  * variable, a field-access chain, or an array access. The rewriter's append
  * detection compares the LHS and the `+` left operand as TEXT; we compare the
  * already-parsed nodes, which is the same relation. */
+/* Is `node` an assignable lvalue chain (bare variable, field-access chain, or
+ * array-access chain) -- the same shapes aetherLValueEqual compares? Used to
+ * validate the *assignment target* of an array-append expansion even when
+ * there's no second lvalue to structurally compare it against (the `let x: T[]
+ * = src + [v];` and `x = src + [v];` with `x != src` cases). */
+static bool aetherIsLValueChain(const AST *node) {
+    if (!node) return false;
+    switch (node->type) {
+        case AST_VARIABLE:
+            return node->token && node->token->value;
+        case AST_FIELD_ACCESS:
+            return node->token && node->token->value && aetherIsLValueChain(node->left);
+        case AST_ARRAY_ACCESS:
+            return aetherIsLValueChain(node->left);
+        default:
+            return false;
+    }
+}
+
 static bool aetherLValueEqual(const AST *a, const AST *b) {
     if (!a || !b) return false;
     if (a->type != b->type) return false;
@@ -3379,18 +3442,16 @@ static AST *buildIntLiteral(long v, int line) {
     return node;
 }
 
-/* Expand `target = target + [item]` into the two-statement append the rewriter
- * emits (translate.c translateArrayAppendLine):
+/* Build the two append statements shared by every array-append expansion:
  *     setlength(target, length(target) + 1);
  *     target[length(target) - 1] = item;
- * Returns an AST_COMPOUND splice (i_val==1) so parseBlock flattens it; the caller
- * has already verified the shape. `assign` is consumed (its target + the item are
- * reused/freed). */
-static AST *buildArrayAppend(AST *assign, AST *target, AST *item, int line) {
-    /* setlength(target, length(target) + 1) */
+ * `target` is only read (copied); ownership of `item` transfers to the
+ * returned `*outIdxAssign`. */
+static void buildArrayAppendSteps(const AST *target, AST *item, int line,
+                                  AST **outSetlenStmt, AST **outIdxAssign) {
     Token *slTok = newToken(TOKEN_IDENTIFIER, "setlength", line, 0);
     AST *setlen = newASTNode(AST_PROCEDURE_CALL, slTok);
-    addChild(setlen, copyAST(target));
+    addChild(setlen, copyAST((AST *)target));
     Token *plusTok = newToken(TOKEN_PLUS, "+", line, 0);
     AST *lenPlus1 = newASTNode(AST_BINARY_OP, plusTok);
     setLeft(lenPlus1, buildLengthCall(target, line));
@@ -3401,14 +3462,13 @@ static AST *buildArrayAppend(AST *assign, AST *target, AST *item, int line) {
     AST *setlenStmt = newASTNode(AST_EXPR_STMT, setlen->token);
     setLeft(setlenStmt, setlen);
 
-    /* target[length(target) - 1] = item */
     Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
     AST *lenMinus1 = newASTNode(AST_BINARY_OP, minusTok);
     setLeft(lenMinus1, buildLengthCall(target, line));
     setRight(lenMinus1, buildIntLiteral(1, line));
     setTypeAST(lenMinus1, TYPE_INTEGER);
     AST *access = newASTNode(AST_ARRAY_ACCESS, NULL);
-    setLeft(access, copyAST(target));
+    setLeft(access, copyAST((AST *)target));
     addChild(access, lenMinus1);
     setTypeAST(access, TYPE_UNKNOWN);
     Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
@@ -3417,8 +3477,46 @@ static AST *buildArrayAppend(AST *assign, AST *target, AST *item, int line) {
     setRight(idxAssign, item);
     setTypeAST(idxAssign, item ? item->var_type : TYPE_UNKNOWN);
 
+    *outSetlenStmt = setlenStmt;
+    *outIdxAssign = idxAssign;
+}
+
+/* Expand `target = src + [item]` into the two/three-statement append the
+ * rewriter's self-reassignment case emits (translate.c
+ * translateArrayAppendLine), generalized to any `src` (not just `src ==
+ * target`):
+ *     target = src;                       -- only when src != target
+ *     setlength(target, length(target) + 1);
+ *     target[length(target) - 1] = item;
+ * When `src` is NULL or structurally equal to `target` (the original,
+ * narrower self-reassignment shape this function used to require), the copy
+ * step is skipped -- `target` already holds the array to extend, exactly as
+ * before. This is what lets `let b: Int[] = a + [3];` and `b = a + [3];`
+ * (`b` a different, already-declared array than `a`) lower the same way
+ * `xs = xs + [v]` always has, instead of falling through to a raw
+ * `ARRAY + ARRAY_LITERAL` binary op the VM has no operator for (previously:
+ * "Runtime Error: Operands must be numbers for arithmetic operation '+'...
+ * Got ARRAY and ARRAY").
+ * Returns an AST_COMPOUND splice (i_val==1) so parseBlock flattens it; the caller
+ * has already verified the shape. `assign` is consumed (its target + the item are
+ * reused/freed). */
+static AST *buildArrayAppend(AST *assign, AST *target, AST *item, int line, AST *src) {
+    AST *copyStmt = NULL;
+    if (src && !aetherLValueEqual(target, src)) {
+        Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+        AST *copyAssign = newASTNode(AST_ASSIGN, aTok);
+        setLeft(copyAssign, copyAST(target));
+        setRight(copyAssign, copyAST(src));
+        setTypeAST(copyAssign, target->var_type);
+        copyStmt = newASTNode(AST_EXPR_STMT, copyAssign->token);
+        setLeft(copyStmt, copyAssign);
+    }
+    AST *setlenStmt = NULL, *idxAssign = NULL;
+    buildArrayAppendSteps(target, item, line, &setlenStmt, &idxAssign);
+
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
+    if (copyStmt) addChild(outer, copyStmt);
     addChild(outer, setlenStmt);
     addChild(outer, idxAssign);
 
@@ -4477,23 +4575,29 @@ static AST *parseStatement(AetherParser *p) {
         aetherAdvance(p);
     }
     if (expr->type == AST_ASSIGN) {
-        /* Array append: `target = target + [item]` (single-element literal, with
-         * the `+` left operand structurally equal to the assign target). Lower it
-         * to the rewriter's setlength + indexed-assign expansion. */
+        /* Array append: `target = src + [item]` (single-element literal). Lower
+         * it to the rewriter's setlength + indexed-assign expansion, whether
+         * `src` is `target` itself (the original self-reassignment idiom,
+         * `xs = xs + [v];`) or a different array (`target = src + [v];` /
+         * `let target: T[] = src + [v];` below) -- the latter previously fell
+         * through to a raw `ARRAY + ARRAY_LITERAL` binary op the VM has no
+         * operator for ("Operands must be numbers for arithmetic operation
+         * '+'... Got ARRAY and ARRAY"). `target` must still be an assignable
+         * lvalue chain; `src` can be any expression of the right array type. */
         AST *target = expr->left;
         AST *rhs = expr->right;
         if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
             rhs->token->type == TOKEN_PLUS &&
             rhs->right && rhs->right->type == AST_ARRAY_LITERAL &&
             rhs->right->child_count == 1 &&
-            aetherLValueEqual(target, rhs->left)) {
+            aetherIsLValueChain(target)) {
             int line = expr->token ? expr->token->line : p->current.line;
             /* Move the single element out of the literal so it survives the free. */
             AST *item = rhs->right->children[0];
             rhs->right->children[0] = NULL;
             rhs->right->child_count = 0;
             if (item) item->parent = NULL;
-            return buildArrayAppend(expr, target, item, line);
+            return buildArrayAppend(expr, target, item, line, rhs->left);
         }
         return expr; /* assignments act as statements directly */
     }
