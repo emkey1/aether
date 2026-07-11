@@ -168,6 +168,10 @@ struct task {
     bool zombie;
     bool exiting;
     bool io_block;
+    // Set once do_exit has banked this task's final thread CPU time into its
+    // per-virtual-CPU accounting slot (task_bank_cpu_time); tells the
+    // /proc/stat walker to stop live-sampling a thread that may be gone.
+    _Atomic bool cpu_time_banked;
     // Set while this task sits in task_wait_for_mem_quiesce (no mem read lock
     // held), cleared before it can re-take one. Lets task_poke_shared_mem skip
     // the SIGUSR1 the same way it skips io_block tasks: a parked sibling holds
@@ -353,6 +357,22 @@ void task_snapshot_release(struct task_snapshot *snapshot);
 dword_t get_count_of_blocked_tasks(void);
 dword_t get_count_of_alive_tasks(void);
 void get_guest_loadavg(uint64_t out[3]);
+
+// Live user/system CPU time of one task's host thread, in jiffies (USER_HZ =
+// 100). Works cross-thread. Reports 0/0 if the thread is gone or the host
+// won't say (on non-Mach hosts the user/system split isn't available and the
+// total is reported as user time).
+void task_thread_cpu_time(struct task *task, unsigned long *out_utime, unsigned long *out_stime);
+// Charges the exiting task's final thread CPU time to its per-virtual-CPU
+// accounting slot; called once from do_exit while the host thread still
+// exists to be queried. Sets task->cpu_time_banked.
+void task_bank_cpu_time(struct task *task);
+// Per-emulated-CPU usage for /proc/stat's cpuN lines: each task's real thread
+// CPU time charged to slot pid % ncpu (live tasks sampled, exited tasks from
+// the banked totals). Returns 0 and a malloc'd get_cpu_count()-sized array,
+// or _ENOMEM.
+struct cpu_usage;
+int get_emulated_per_cpu_usage(struct cpu_usage **cpus_usage);
 
 #define MAX_PID (1 << 15) // oughta be enough
 

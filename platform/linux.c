@@ -65,30 +65,6 @@ int get_cpu_count_for_affinity(void) {
     return get_cpu_count();
 }
 
-int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
-    char buf[1234];
-    char cpu_title[8];
-    int ncpu = get_cpu_count();
-    struct cpu_usage* cpus_load_data = (struct cpu_usage*)calloc(ncpu, sizeof(struct cpu_usage));
-    if (!cpus_load_data) {
-        return _ENOMEM;
-    }
-    
-    for (int i = 0; i < ncpu; i++) {
-        int cpu_num;
-        int title_len = snprintf(cpu_title, 8, "cpu%d", i);
-        if (title_len > 8 || title_len < 0) {
-            STRACE("Can't load info of cpu %d (>10000)", i);
-            free(cpus_load_data);
-            return _EOVERFLOW;
-        }
-        read_proc_line("/proc/stat", cpu_title, buf);
-        sscanf(buf, "cpu%d %"SCNu64" %"SCNu64" %"SCNu64" %"SCNu64"\n", &cpu_num, &cpus_load_data[i].user_ticks, &cpus_load_data[i].system_ticks, &cpus_load_data[i].idle_ticks, &cpus_load_data[i].nice_ticks);
-    }
-    *cpus_usage = cpus_load_data;
-    return 0;
-}
-
 bool host_mem_headroom_low(void) {
     // No hard per-process memory budget on a Linux host; the OOM killer and
     // overcommit policy own this. The guard is an iOS-jetsam concern.

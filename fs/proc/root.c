@@ -288,7 +288,7 @@ static int proc_show_stat(struct proc_entry *UNUSED(entry), struct proc_data *bu
     
     proc_printf(buf, "cpu  %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" 0 0 0 0\n", total_usage.user_ticks, total_usage.nice_ticks, total_usage.system_ticks, total_usage.idle_ticks);
     
-    int err = get_per_cpu_usage(&per_cpu_usage);
+    int err = get_emulated_per_cpu_usage(&per_cpu_usage);
     if (!err) {
         for (int i = 0; i < ncpus; i++) {
             proc_printf(buf, "cpu%d  %"PRIu64" %"PRIu64" %"PRIu64" %"PRIu64" 0 0 0 0\n", i, per_cpu_usage[i].user_ticks, per_cpu_usage[i].nice_ticks, per_cpu_usage[i].system_ticks, per_cpu_usage[i].idle_ticks);

@@ -185,32 +185,6 @@ int get_cpu_count_for_affinity(void) {
     return ncpu;
 }
 
-int get_per_cpu_usage(struct cpu_usage** cpus_usage) {
-    // See get_total_cpu_usage(): PROCESSOR_CPU_LOAD_INFO reports real physical
-    // host cores, which have no clean mapping to iSH's own emulated cpus (each
-    // Linux task gets its own host pthread, not a fixed per-virtual-cpu
-    // worker). Approximate by splitting our own correctly-scoped total evenly
-    // across the configured cpu count instead of reporting numbers from a
-    // different process's workload entirely.
-    int ncpu = get_cpu_count();
-    if (ncpu < 1)
-        ncpu = 1;
-    struct cpu_usage total = get_total_cpu_usage();
-
-    struct cpu_usage *cpus_load_data = calloc(ncpu, sizeof(struct cpu_usage));
-    if (cpus_load_data == NULL)
-        return _ENOMEM;
-
-    for (int i = 0; i < ncpu; i++) {
-        cpus_load_data[i].user_ticks = total.user_ticks / (unsigned) ncpu;
-        cpus_load_data[i].system_ticks = total.system_ticks / (unsigned) ncpu;
-        cpus_load_data[i].idle_ticks = total.idle_ticks / (unsigned) ncpu;
-        cpus_load_data[i].nice_ticks = 0;
-    }
-    *cpus_usage = cpus_load_data;
-    return 0;
-}
-
 #if TARGET_OS_IPHONE
 #include <os/proc.h>
 #endif

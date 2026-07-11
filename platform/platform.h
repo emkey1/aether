@@ -10,7 +10,6 @@ struct cpu_usage {
     uint64_t nice_ticks;
 };
 struct cpu_usage get_total_cpu_usage(void);
-int get_per_cpu_usage(struct cpu_usage** cpus_usage);
 
 struct mem_usage {
     uint64_t total;

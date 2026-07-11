@@ -134,29 +134,6 @@ static int proc_pid_copy_cmdline_range(struct task *task, struct mem *mem, addr_
     return 0;
 }
 
-// Get user and system CPU time for a task's thread, in jiffies (USER_HZ = 100).
-// Uses the Mach thread_info API so it works from any thread, not just the target.
-static void proc_task_cpu_time(struct task *task, unsigned long *out_utime, unsigned long *out_stime) {
-#ifdef __APPLE__
-    mach_port_t mach_thread = pthread_mach_thread_np(task->thread);
-    if (mach_thread != MACH_PORT_NULL) {
-        thread_basic_info_data_t info;
-        mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
-        kern_return_t kr = thread_info(mach_thread, THREAD_BASIC_INFO,
-                                       (thread_info_t)&info, &count);
-        if (kr == KERN_SUCCESS) {
-            *out_utime = (unsigned long)info.user_time.seconds * 100
-                         + info.user_time.microseconds / 10000;
-            *out_stime = (unsigned long)info.system_time.seconds * 100
-                         + info.system_time.microseconds / 10000;
-            return;
-        }
-    }
-#endif
-    *out_utime = 0;
-    *out_stime = 0;
-}
-
 // Count the number of mapped pages in a mem.
 // Intentionally lock-free: the count is only used for /proc reporting, so a
 // slightly stale snapshot is acceptable.
@@ -173,7 +150,7 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
 
     // Gather CPU time and memory before the main locks (independent of general_lock)
     unsigned long utime_jiffies, stime_jiffies;
-    proc_task_cpu_time(task, &utime_jiffies, &stime_jiffies);
+    task_thread_cpu_time(task, &utime_jiffies, &stime_jiffies);
 
     struct mm *mm = proc_task_mm_retain(task);
     size_t page_count = proc_mem_count_pages(mm ? &mm->mem : NULL);

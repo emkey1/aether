@@ -14,6 +14,7 @@
 #if defined(__APPLE__)
 #include <libkern/OSAtomic.h>
 #include <os/proc.h>
+#include <mach/mach.h>
 #endif
 #include <dlfcn.h>
 
@@ -231,6 +232,111 @@ void get_guest_loadavg(uint64_t out[3]) {
     unlock(&load_lock);
 }
 
+// ---- per-emulated-CPU time accounting (for /proc/stat's cpuN lines) --------
+//
+// iSH has no real CPU affinity: every guest task is a host pthread that the
+// host kernel schedules wherever it likes, so "which emulated CPU did the
+// work" has no ground truth. Define it here instead: each task is bucketed
+// into virtual-CPU slot pid % ncpu and its REAL thread CPU time is charged to
+// that slot -- live tasks are sampled on each /proc/stat read, and do_exit
+// banks a task's final time so short-lived processes (compilers!) stay
+// visible in the counters. This replaces the old even split of the process
+// total, which made every cpuN line identical and diluted a busy task's usage
+// by 1/ncpu. The slot sums won't exactly match the aggregate "cpu" line
+// (which uses process-wide accounting including non-task host threads), and a
+// slot holding several busy tasks can saturate at 100%; both are acceptable
+// for what these lines are for (top/htop-style meters).
+
+#define CPU_SLOTS_MAX 64
+static _Atomic uint64_t cpu_slot_dead_user[CPU_SLOTS_MAX];
+static _Atomic uint64_t cpu_slot_dead_system[CPU_SLOTS_MAX];
+
+static int task_cpu_slot(struct task *task, int ncpu) {
+    if (ncpu > CPU_SLOTS_MAX)
+        ncpu = CPU_SLOTS_MAX;
+    if (ncpu < 1)
+        ncpu = 1;
+    return (int) (task->pid % (dword_t) ncpu);
+}
+
+void task_thread_cpu_time(struct task *task, unsigned long *out_utime, unsigned long *out_stime) {
+    *out_utime = 0;
+    *out_stime = 0;
+#ifdef __APPLE__
+    mach_port_t mach_thread = pthread_mach_thread_np(task->thread);
+    if (mach_thread != MACH_PORT_NULL) {
+        thread_basic_info_data_t info;
+        mach_msg_type_number_t count = THREAD_BASIC_INFO_COUNT;
+        if (thread_info(mach_thread, THREAD_BASIC_INFO,
+                        (thread_info_t) &info, &count) == KERN_SUCCESS) {
+            *out_utime = (unsigned long) info.user_time.seconds * 100
+                         + (unsigned long) info.user_time.microseconds / 10000;
+            *out_stime = (unsigned long) info.system_time.seconds * 100
+                         + (unsigned long) info.system_time.microseconds / 10000;
+        }
+    }
+#else
+    clockid_t clkid;
+    if (pthread_getcpuclockid(task->thread, &clkid) == 0) {
+        struct timespec ts;
+        if (clock_gettime(clkid, &ts) == 0)
+            *out_utime = (unsigned long) ts.tv_sec * 100
+                         + (unsigned long) (ts.tv_nsec / 10000000);
+    }
+#endif
+}
+
+void task_bank_cpu_time(struct task *task) {
+    if (task->cpu_time_banked)
+        return;
+    unsigned long utime, stime;
+    task_thread_cpu_time(task, &utime, &stime);
+    int slot = task_cpu_slot(task, get_cpu_count());
+    atomic_fetch_add(&cpu_slot_dead_user[slot], utime);
+    atomic_fetch_add(&cpu_slot_dead_system[slot], stime);
+    task->cpu_time_banked = true;
+}
+
+int get_emulated_per_cpu_usage(struct cpu_usage **cpus_usage) {
+    int ncpu = get_cpu_count();
+    if (ncpu < 1)
+        ncpu = 1;
+    struct cpu_usage *cpus = calloc((size_t) ncpu, sizeof(*cpus));
+    if (cpus == NULL)
+        return _ENOMEM;
+
+    complex_lockt(&pids_lock, 0);
+    struct pid *pid_entry;
+    list_for_each_entry(&alive_pids_list, pid_entry, alive) {
+        struct task *task = pid_entry->task;
+        // A banked task's time is already in the dead-slot totals; its host
+        // thread may be gone, so don't sample it (and don't double-count).
+        if (task == NULL || task->cpu_time_banked)
+            continue;
+        unsigned long utime, stime;
+        task_thread_cpu_time(task, &utime, &stime);
+        int slot = task_cpu_slot(task, ncpu);
+        cpus[slot].user_ticks += utime;
+        cpus[slot].system_ticks += stime;
+    }
+    unlock(&pids_lock);
+
+    // Each virtual CPU has uptime ticks of capacity; whatever its tasks
+    // didn't use was idle.
+    uint64_t uptime_ticks = get_uptime().uptime_ticks;
+    for (int i = 0; i < ncpu; i++) {
+        if (i < CPU_SLOTS_MAX) {
+            cpus[i].user_ticks += atomic_load(&cpu_slot_dead_user[i]);
+            cpus[i].system_ticks += atomic_load(&cpu_slot_dead_system[i]);
+        }
+        uint64_t busy = cpus[i].user_ticks + cpus[i].system_ticks;
+        cpus[i].idle_ticks = uptime_ticks > busy ? uptime_ticks - busy : 0;
+        cpus[i].nice_ticks = 0;
+    }
+    *cpus_usage = cpus;
+    return 0;
+}
+
 struct task *task_create_(struct task *parent) {
     struct task *task = malloc(sizeof(struct task));
     if (task == NULL)
@@ -248,6 +354,7 @@ struct task *task_create_(struct task *parent) {
         task->cap_permitted[0] = task->cap_permitted[1] = UINT32_MAX;
         task->cap_inheritable[0] = task->cap_inheritable[1] = UINT32_MAX;
     }
+    task->cpu_time_banked = false; // per-task, not inherited via the parent copy
     list_init(&task->group_links);
     list_init(&task->children);
     list_init(&task->siblings);

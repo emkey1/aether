@@ -199,6 +199,13 @@ noreturn void do_exit(struct task *task, int status) {
     bool was_already_exiting = task->exiting;
     task->exiting = true;
 
+    // Charge this task's final thread CPU time to its per-virtual-CPU
+    // accounting slot (/proc/stat cpuN) while the host thread still exists
+    // to be queried. Only on first entry; re-entry would just re-check the
+    // banked flag anyway.
+    if (!was_already_exiting)
+        task_bank_cpu_time(task);
+
     // Report PTRACE_EVENT_EXIT only on the FIRST entry to do_exit. If we re-enter
     // (ptrace_stop_common can see a pending SIGKILL during this very event-exit
     // stop and call do_exit_group again), reporting the event again recurses
