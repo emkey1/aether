@@ -1,15 +1,18 @@
 # ktop
 
-A small, dependency-free `top(1)` clone with one extra column: **ARCH**, the
-guest CPU architecture (`arm64` / `x86_64` / `x86`) of each process's binary,
-read from its ELF header via `/proc/<pid>/exe`.
+A small, dependency-free `htop`-style process viewer with one extra column:
+**ARCH**, the guest CPU architecture (`arm64` / `x86_64` / `x86` /
+`riscv64`) of each process's binary, read from its ELF header via
+`/proc/<pid>/exe`.
 
-iSH-AOK can run i386, amd64 and arm64 binaries side by side in the same
-booted guest -- most usefully via `chroot`ing into another installed root
-with [`/AOK/tools/mount-root.sh`](../mount-root.sh) -- and stock `top` has no
-way to show that mix. `ktop` otherwise behaves like ordinary `top`: an
-interactive, periodically refreshing process table sorted by `%CPU`, or `-b`
-batch mode for scripting. No ncurses, no procps -- just libc and `/proc`.
+iSH-AOK can run i386, amd64, arm64 and riscv64 binaries side by side in the
+same booted guest -- most usefully via `chroot`ing into another installed
+root with [`/AOK/tools/mount-root.sh`](../mount-root.sh) -- and stock
+`top`/`htop` have no way to show that mix. Interactive mode is htop-flavored:
+colored per-CPU / memory / swap meter bars, a cursor-selectable scrolling
+process list, sort hotkeys, and kill. Batch mode (`-b`) prints a plain
+top-style table for scripting. No ncurses, no procps -- just libc, ANSI
+escapes and `/proc`.
 
 ## Build
 
@@ -39,8 +42,18 @@ ktop [-b] [-n iterations] [-d seconds]
   -d seconds    delay between snapshots (default: 3)
 ```
 
-Interactive mode redraws in place (like `top`); press `q` to quit. Batch mode
-(`-b`) is meant for scripting, e.g.:
+Interactive keys:
+
+| Key | Action |
+|-----|--------|
+| `Up`/`Down`/`PgUp`/`PgDn`/`Home`/`End` | move the cursor / scroll the list |
+| `P` / `M` / `T` / `N` | sort by `%CPU` / `%MEM` / `TIME+` / `PID` |
+| `c` | toggle full command line vs short name |
+| `k` | send a signal to the selected process (Enter = TERM, Esc = cancel) |
+| `q` | quit |
+
+The cursor follows the selected process across refreshes and re-sorts, like
+htop. Batch mode (`-b`) is meant for scripting, e.g.:
 
 ```sh
 ktop -bn1                       # one snapshot, then exit

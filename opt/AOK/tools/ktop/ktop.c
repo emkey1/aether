@@ -1,13 +1,16 @@
 /*
- * ktop -- a small, dependency-free top(1) clone with one extra column: the
- * guest CPU architecture (arm64 / x86_64 / x86 / riscv64) of each process's
- * binary, read straight from its ELF header via /proc/<pid>/exe.
+ * ktop -- a small, dependency-free htop-style process viewer with one extra
+ * column: the guest CPU architecture (arm64 / x86_64 / x86 / riscv64) of each
+ * process's binary, read straight from its ELF header via /proc/<pid>/exe.
  *
  * Built for iSH-AOK: a single guest can run i386, amd64, arm64 and riscv64
  * binaries side by side (e.g. a chroot into another installed root via
- * /AOK/tools/mount-root.sh), and stock top has no way to show that mix.
- * ktop otherwise behaves like ordinary top: an interactive, periodically
- * refreshing process table sorted by %CPU, or -b batch mode for scripting.
+ * /AOK/tools/mount-root.sh), and stock top/htop have no way to show that mix.
+ *
+ * Interactive mode is htop-flavored: colored per-CPU / memory / swap meter
+ * bars, a cursor-selectable process list with scrolling, sort hotkeys, and
+ * kill -- all with raw ANSI escapes. Batch mode (-b) keeps the original plain
+ * top-style table for scripting.
  *
  * No dependencies beyond a C99 libc and /proc -- no ncurses, no procps.
  *
@@ -19,6 +22,13 @@
  *                 'q' is pressed or the process is killed, in interactive
  *                 mode).
  *   -d seconds    delay between snapshots (default: 3).
+ *
+ * Interactive keys:
+ *   Up/Down/PgUp/PgDn/Home/End  move the cursor / scroll
+ *   P / M / T / N               sort by %CPU / %MEM / TIME+ / PID
+ *   c                           toggle full command line vs comm
+ *   k                           send a signal to the selected process
+ *   q                           quit
  */
 #define _GNU_SOURCE
 #include <ctype.h>
@@ -33,6 +43,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <sys/select.h>
 #include <sys/stat.h>
 #include <sys/types.h>
@@ -41,11 +52,16 @@
 #include <unistd.h>
 
 #define MAX_PROCS 4096
+#define MAX_CPUS 16
+#define CMDLINE_MAX 160
 
 struct proc_sample {
     pid_t pid;
     uid_t uid;
     char comm[64];
+    char cmdline[CMDLINE_MAX]; // full command line ('\0'-separators joined
+                               // with spaces); empty for kernel threads or
+                               // unreadable /proc/<pid>/cmdline
     char state;
     long priority, nice;
     unsigned long vsize;       // bytes
@@ -53,17 +69,41 @@ struct proc_sample {
     unsigned long long utime, stime; // jiffies, cumulative
     const char *arch;          // interned string, never freed
     unsigned long long cpu_delta; // jiffies since the previous sample;
-                                   // transient, filled in by print_snapshot
+                                   // transient, filled in by fill_cpu_deltas
                                    // just before sorting/printing (0 for a
                                    // process not present in the previous
                                    // sample, including the very first one)
 };
 
+// ---- colors ----------------------------------------------------------------
+
+// Empty strings in batch mode / non-tty stdout so every printf below can use
+// them unconditionally.
+static const char *C_RESET = "", *C_BAR_GREEN = "", *C_BAR_RED = "",
+                  *C_BAR_BLUE = "", *C_BAR_YELLOW = "", *C_LABEL = "",
+                  *C_HDR = "", *C_HDR_SORT = "", *C_SEL = "", *C_DIM = "",
+                  *C_KEY = "", *C_KEYBAR = "";
+
+static void enable_colors(void) {
+    C_RESET = "\033[0m";
+    C_BAR_GREEN = "\033[32m";
+    C_BAR_RED = "\033[31m";
+    C_BAR_BLUE = "\033[34m";
+    C_BAR_YELLOW = "\033[33m";
+    C_LABEL = "\033[1;36m";     // meter labels, bright cyan
+    C_HDR = "\033[30;42m";      // column header: black on green (htop)
+    C_HDR_SORT = "\033[30;46m"; // active sort column: black on cyan
+    C_SEL = "\033[30;46m";      // selected row: black on cyan
+    C_DIM = "\033[2m";
+    C_KEY = "\033[0;37m";       // key bar: "k" in plain
+    C_KEYBAR = "\033[30;46m";   // key bar: label on cyan
+}
+
 // ---- ELF-header architecture detection -----------------------------------
 
 static const char *arch_intern(const char *s) {
-    // All callers pass one of these three literals or "?"; returning the
-    // literal itself keeps proc_sample.arch a non-owning pointer with no
+    // All callers pass one of these literals or "?"; returning the literal
+    // itself keeps proc_sample.arch a non-owning pointer with no
     // allocation/free bookkeeping.
     return s;
 }
@@ -207,18 +247,53 @@ static uid_t read_proc_uid(pid_t pid) {
     return uid;
 }
 
+static void read_proc_cmdline(pid_t pid, char *buf, size_t bufsize) {
+    buf[0] = '\0';
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/cmdline", (int) pid);
+    int fd = open(path, O_RDONLY);
+    if (fd < 0)
+        return;
+    ssize_t n = read(fd, buf, bufsize - 1);
+    close(fd);
+    if (n <= 0) {
+        buf[0] = '\0';
+        return;
+    }
+    // argv strings are '\0'-separated (with a trailing '\0'); join with
+    // spaces for display.
+    for (ssize_t i = 0; i < n - 1; i++) {
+        if (buf[i] == '\0')
+            buf[i] = ' ';
+    }
+    buf[n] = '\0';
+    // Trim trailing separator-turned-space noise.
+    while (n > 0 && (buf[n - 1] == ' ' || buf[n - 1] == '\0'))
+        buf[--n] = '\0';
+}
+
 // ---- system-wide totals ----------------------------------------------------
 
-static void read_meminfo(unsigned long *total_kb, unsigned long *free_kb, unsigned long *avail_kb) {
-    *total_kb = *free_kb = *avail_kb = 0;
+struct meminfo {
+    unsigned long total_kb, free_kb, avail_kb;
+    unsigned long buffers_kb, cached_kb;
+    unsigned long swap_total_kb, swap_free_kb;
+};
+
+static void read_meminfo(struct meminfo *mi) {
+    memset(mi, 0, sizeof(*mi));
     FILE *f = fopen("/proc/meminfo", "r");
     if (f == NULL)
         return;
     char line[256];
     while (fgets(line, sizeof(line), f) != NULL) {
-        sscanf(line, "MemTotal: %lu kB", total_kb);
-        sscanf(line, "MemFree: %lu kB", free_kb);
-        sscanf(line, "MemAvailable: %lu kB", avail_kb);
+        sscanf(line, "MemTotal: %lu kB", &mi->total_kb);
+        sscanf(line, "MemFree: %lu kB", &mi->free_kb);
+        sscanf(line, "MemAvailable: %lu kB", &mi->avail_kb);
+        sscanf(line, "Buffers: %lu kB", &mi->buffers_kb);
+        sscanf(line, "Cached: %lu kB", &mi->cached_kb);
+        sscanf(line, "SwapTotal: %lu kB", &mi->swap_total_kb);
+        sscanf(line, "SwapFree: %lu kB", &mi->swap_free_kb);
     }
     fclose(f);
 }
@@ -234,23 +309,34 @@ static void read_loadavg(double *l1, double *l5, double *l15) {
     fclose(f);
 }
 
-// Total CPU jiffies across all modes, from /proc/stat's aggregate "cpu " line.
-static unsigned long long read_total_cpu_jiffies(void) {
+// Per-CPU jiffy counters from /proc/stat's cpuN lines. Slot [i] is cpuN=i;
+// returns the number of per-CPU lines found (0 if only the aggregate "cpu "
+// line exists).
+struct cpu_ticks {
+    unsigned long long user, nice, system, idle, iowait, irq, softirq, steal;
+};
+
+static int read_cpu_ticks(struct cpu_ticks *cpus, int max) {
     FILE *f = fopen("/proc/stat", "r");
     if (f == NULL)
         return 0;
-    char label[16];
-    unsigned long long vals[10] = {0};
-    unsigned long long total = 0;
-    if (fscanf(f, "%15s", label) == 1 && strcmp(label, "cpu") == 0) {
-        for (int i = 0; i < 10; i++) {
-            if (fscanf(f, "%llu", &vals[i]) != 1)
-                break;
-            total += vals[i];
+    int count = 0;
+    char line[512];
+    while (fgets(line, sizeof(line), f) != NULL && count < max) {
+        int idx;
+        struct cpu_ticks t = {0};
+        if (sscanf(line, "cpu%d %llu %llu %llu %llu %llu %llu %llu %llu",
+                   &idx, &t.user, &t.nice, &t.system, &t.idle,
+                   &t.iowait, &t.irq, &t.softirq, &t.steal) >= 5) {
+            if (idx >= 0 && idx < max) {
+                cpus[idx] = t;
+                if (idx + 1 > count)
+                    count = idx + 1;
+            }
         }
     }
     fclose(f);
-    return total;
+    return count;
 }
 
 // ---- process table snapshot ------------------------------------------------
@@ -272,22 +358,63 @@ static int collect(struct proc_sample *procs, int max) {
             continue;
         p.uid = read_proc_uid(pid);
         p.arch = detect_arch(pid);
+        read_proc_cmdline(pid, p.cmdline, sizeof(p.cmdline));
         procs[count++] = p;
     }
     closedir(d);
     return count;
 }
 
-// Sorts by cpu_delta (jiffies used since the previous sample), which
-// print_snapshot fills in for every entry before calling qsort -- NOT by raw
-// cumulative utime+stime, which would permanently rank long-lived idle
-// daemons above short-lived busy ones.
-static int cmp_by_cpu_delta(const void *pa, const void *pb) {
+// Fill in cpu_delta (jiffies used since the previous sample) BEFORE sorting:
+// a process absent from the previous sample -- including every process on the
+// very first snapshot, where prev_n is 0 -- gets 0, not its full lifetime
+// utime+stime. Without this, long-lived processes would show wildly inflated
+// %CPU on first display and permanently outrank recently-busy ones.
+static void fill_cpu_deltas(struct proc_sample *cur, int cur_n,
+                            struct proc_sample *prev, int prev_n) {
+    for (int i = 0; i < cur_n; i++) {
+        cur[i].cpu_delta = 0;
+        unsigned long long cur_total = cur[i].utime + cur[i].stime;
+        for (int j = 0; j < prev_n; j++) {
+            if (prev[j].pid == cur[i].pid) {
+                unsigned long long prev_total = prev[j].utime + prev[j].stime;
+                cur[i].cpu_delta = cur_total >= prev_total ? cur_total - prev_total : 0;
+                break;
+            }
+        }
+    }
+}
+
+// ---- sorting ----------------------------------------------------------------
+
+enum sort_mode { SORT_CPU, SORT_MEM, SORT_TIME, SORT_PID };
+static enum sort_mode sort_mode = SORT_CPU;
+
+static int cmp_procs(const void *pa, const void *pb) {
     const struct proc_sample *a = pa, *b = pb;
-    if (a->cpu_delta != b->cpu_delta)
-        return a->cpu_delta > b->cpu_delta ? -1 : 1;
+    switch (sort_mode) {
+        case SORT_MEM:
+            if (a->rss_pages != b->rss_pages)
+                return a->rss_pages > b->rss_pages ? -1 : 1;
+            break;
+        case SORT_TIME: {
+            unsigned long long ta = a->utime + a->stime, tb = b->utime + b->stime;
+            if (ta != tb)
+                return ta > tb ? -1 : 1;
+            break;
+        }
+        case SORT_PID:
+            break; // pid tiebreak below is the whole sort
+        case SORT_CPU:
+        default:
+            if (a->cpu_delta != b->cpu_delta)
+                return a->cpu_delta > b->cpu_delta ? -1 : 1;
+            break;
+    }
     return a->pid < b->pid ? -1 : (a->pid > b->pid ? 1 : 0);
 }
+
+// ---- formatting helpers ------------------------------------------------------
 
 static const char *username_for(uid_t uid, char *buf, size_t bufsize) {
     if (uid == (uid_t) -1) {
@@ -321,13 +448,458 @@ static void format_uptime(char *buf, size_t bufsize) {
         snprintf(buf, bufsize, "%02ld:%02ld", hours, mins);
 }
 
-static void print_snapshot(struct proc_sample *cur, int cur_n,
-                            struct proc_sample *prev, int prev_n,
-                            unsigned long long cpu_jiffies_delta,
-                            long clk_tck, long page_kb, bool batch) {
-    if (!batch)
-        fputs("\033[H\033[J", stdout); // home + clear, no ncurses needed
+// Human-ish size like htop's: plain KiB up to 6 digits, then M / G with one
+// decimal. Always fits in 7 columns.
+static void format_kb(unsigned long kb, char *buf, size_t bufsize) {
+    if (kb < 1000000UL)
+        snprintf(buf, bufsize, "%lu", kb);
+    else if (kb < 10UL * 1024 * 1024)
+        snprintf(buf, bufsize, "%.1fM", (double) kb / 1024.0);
+    else
+        snprintf(buf, bufsize, "%.1fG", (double) kb / (1024.0 * 1024.0));
+}
 
+// Same, but always with an explicit K/M/G unit -- for meter bar text, where
+// a bare number would be ambiguous.
+static void format_kb_unit(unsigned long kb, char *buf, size_t bufsize) {
+    if (kb < 1000000UL)
+        snprintf(buf, bufsize, "%luK", kb);
+    else if (kb < 10UL * 1024 * 1024)
+        snprintf(buf, bufsize, "%.1fM", (double) kb / 1024.0);
+    else
+        snprintf(buf, bufsize, "%.1fG", (double) kb / (1024.0 * 1024.0));
+}
+
+// htop TIME+ format: mm:ss.cc, rolling to h:mm:ss past an hour.
+static void format_time_plus(unsigned long long jiffies, long clk_tck,
+                             char *buf, size_t bufsize) {
+    double secs = clk_tck > 0 ? (double) jiffies / (double) clk_tck : 0;
+    unsigned long long total = (unsigned long long) secs;
+    if (total >= 3600) {
+        snprintf(buf, bufsize, "%lluh%02llu:%02llu",
+                 total / 3600, (total % 3600) / 60, total % 60);
+    } else {
+        unsigned cents = (unsigned) ((secs - (double) total) * 100);
+        snprintf(buf, bufsize, "%llu:%02llu.%02u", total / 60, total % 60, cents);
+    }
+}
+
+// ---- terminal ---------------------------------------------------------------
+
+static void term_size(int *rows, int *cols) {
+    struct winsize ws;
+    if (ioctl(STDOUT_FILENO, TIOCGWINSZ, &ws) == 0 && ws.ws_row > 0 && ws.ws_col > 0) {
+        *rows = ws.ws_row;
+        *cols = ws.ws_col;
+    } else {
+        *rows = 24;
+        *cols = 80;
+    }
+}
+
+static struct termios orig_termios;
+static bool termios_saved = false;
+
+static void restore_termios(void) {
+    if (termios_saved)
+        tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
+}
+
+static void enable_raw_stdin(void) {
+    if (!isatty(STDIN_FILENO))
+        return;
+    if (tcgetattr(STDIN_FILENO, &orig_termios) != 0)
+        return;
+    termios_saved = true;
+    atexit(restore_termios);
+    struct termios raw = orig_termios;
+    raw.c_lflag &= (tcflag_t) ~(ICANON | ECHO);
+    raw.c_cc[VMIN] = 0;
+    raw.c_cc[VTIME] = 0;
+    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
+}
+
+// Input events, decoded from raw bytes (arrow keys arrive as ESC [ X).
+enum key {
+    KEY_NONE = 0, KEY_QUIT, KEY_UP, KEY_DOWN, KEY_PGUP, KEY_PGDN,
+    KEY_HOME, KEY_END, KEY_SORT_CPU, KEY_SORT_MEM, KEY_SORT_TIME,
+    KEY_SORT_PID, KEY_KILL, KEY_CMDLINE, KEY_OTHER
+};
+
+// Waits up to `seconds` for one key. Returns KEY_NONE on timeout.
+static enum key read_key(double seconds) {
+    fd_set fds;
+    struct timeval tv;
+    FD_ZERO(&fds);
+    FD_SET(STDIN_FILENO, &fds);
+    tv.tv_sec = (time_t) seconds;
+    tv.tv_usec = (suseconds_t) ((seconds - (double) tv.tv_sec) * 1e6);
+    int r = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
+    if (r <= 0)
+        return KEY_NONE;
+    char c;
+    if (read(STDIN_FILENO, &c, 1) != 1)
+        return KEY_NONE;
+    switch (c) {
+        case 'q': case 'Q': return KEY_QUIT;
+        case 'P': case 'p': return KEY_SORT_CPU;
+        case 'M': case 'm': return KEY_SORT_MEM;
+        case 'T': case 't': return KEY_SORT_TIME;
+        case 'N': case 'n': return KEY_SORT_PID;
+        case 'k': case 'K': return KEY_KILL;
+        case 'c': case 'C': return KEY_CMDLINE;
+        case '\033': break; // fall through to escape-sequence decode
+        default: return KEY_OTHER;
+    }
+    // Decode CSI sequences: ESC [ A/B (up/down), 5~/6~ (pgup/pgdn),
+    // H/F or 1~/4~ (home/end). Non-blocking reads: a bare ESC decodes as
+    // KEY_OTHER.
+    char seq[3];
+    if (read(STDIN_FILENO, &seq[0], 1) != 1 || seq[0] != '[')
+        return KEY_OTHER;
+    if (read(STDIN_FILENO, &seq[1], 1) != 1)
+        return KEY_OTHER;
+    switch (seq[1]) {
+        case 'A': return KEY_UP;
+        case 'B': return KEY_DOWN;
+        case 'H': return KEY_HOME;
+        case 'F': return KEY_END;
+        case '1': case '4': case '5': case '6':
+            if (read(STDIN_FILENO, &seq[2], 1) == 1 && seq[2] == '~') {
+                switch (seq[1]) {
+                    case '1': return KEY_HOME;
+                    case '4': return KEY_END;
+                    case '5': return KEY_PGUP;
+                    case '6': return KEY_PGDN;
+                }
+            }
+            return KEY_OTHER;
+        default: return KEY_OTHER;
+    }
+}
+
+// ---- htop-style meters -------------------------------------------------------
+
+// Draws one bracketed meter: label, colored '|' fill segments, right-aligned
+// text inside the bar. fracs/colors describe up to 3 stacked fill fractions
+// (of the total width) drawn left to right.
+static void draw_meter(const char *label, int inner_width,
+                       const double *fracs, const char **colors, int nfrac,
+                       const char *text) {
+    printf("%s%3s%s[", C_LABEL, label, C_RESET);
+    int cells[3] = {0};
+    int used = 0;
+    for (int i = 0; i < nfrac && i < 3; i++) {
+        double f = fracs[i];
+        if (f < 0)
+            f = 0;
+        cells[i] = (int) (f * inner_width + 0.5);
+        if (used + cells[i] > inner_width)
+            cells[i] = inner_width - used;
+        used += cells[i];
+    }
+    int text_len = (int) strlen(text);
+    if (text_len > inner_width)
+        text_len = inner_width;
+    int text_start = inner_width - text_len;
+
+    int pos = 0;
+    for (int i = 0; i < nfrac && i < 3; i++) {
+        if (cells[i] <= 0)
+            continue;
+        fputs(colors[i], stdout);
+        for (int j = 0; j < cells[i]; j++, pos++) {
+            if (pos >= text_start)
+                putchar(text[pos - text_start]);
+            else
+                putchar('|');
+        }
+        fputs(C_RESET, stdout);
+    }
+    fputs(C_DIM, stdout);
+    for (; pos < inner_width; pos++) {
+        if (pos >= text_start)
+            putchar(text[pos - text_start]);
+        else
+            putchar(' ');
+    }
+    fputs(C_RESET, stdout);
+    putchar(']');
+}
+
+// ---- interactive (htop-style) drawing ----------------------------------------
+
+static bool show_cmdline = true;
+
+// One transient status message shown in the key bar until the next keypress.
+static char status_msg[128];
+
+static int header_rows_drawn; // set by draw_header, read by the scroller
+
+static void draw_header(int cols, int ncpu,
+                        const struct cpu_ticks *cur_cpu,
+                        const struct cpu_ticks *prev_cpu,
+                        int task_total, int task_running,
+                        const struct meminfo *mi) {
+    char timebuf[16], uptime[32];
+    time_t now = time(NULL);
+    struct tm tm_now;
+    localtime_r(&now, &tm_now);
+    strftime(timebuf, sizeof(timebuf), "%H:%M:%S", &tm_now);
+    format_uptime(uptime, sizeof(uptime));
+    double l1, l5, l15;
+    read_loadavg(&l1, &l5, &l15);
+
+    int rows = 0;
+    printf("\033[K%sktop%s - %s up %s   Tasks: %s%d%s, %s%d%s running   Load: %.2f %.2f %.2f\n",
+           C_LABEL, C_RESET, timebuf, uptime,
+           C_LABEL, task_total, C_RESET, C_LABEL, task_running, C_RESET,
+           l1, l5, l15);
+    rows++;
+
+    // CPU meters, two per row. Meter inner width sized so two meters + labels
+    // + brackets fit the terminal.
+    int per_row = cols >= 60 ? 2 : 1;
+    int inner = cols / per_row - 7; // 3 label + '[' + ']' + 2 gutter
+    if (inner < 10)
+        inner = 10;
+    for (int i = 0; i < ncpu; i++) {
+        unsigned long long du = cur_cpu[i].user + cur_cpu[i].nice
+            - prev_cpu[i].user - prev_cpu[i].nice;
+        unsigned long long ds = cur_cpu[i].system + cur_cpu[i].irq + cur_cpu[i].softirq
+            - prev_cpu[i].system - prev_cpu[i].irq - prev_cpu[i].softirq;
+        unsigned long long didle = cur_cpu[i].idle + cur_cpu[i].iowait
+            - prev_cpu[i].idle - prev_cpu[i].iowait;
+        unsigned long long dtotal = du + ds + didle;
+        double fu = dtotal > 0 ? (double) du / (double) dtotal : 0;
+        double fs = dtotal > 0 ? (double) ds / (double) dtotal : 0;
+
+        char label[8], text[16];
+        snprintf(label, sizeof(label), "%d", i);
+        snprintf(text, sizeof(text), "%.1f%%", (fu + fs) * 100.0);
+        const double fracs[2] = {fu, fs};
+        const char *colors[2] = {C_BAR_GREEN, C_BAR_RED};
+        if (i % per_row == 0)
+            fputs("\033[K", stdout);
+        draw_meter(label, inner, fracs, colors, 2, text);
+        if (i % per_row == per_row - 1 || i == ncpu - 1) {
+            putchar('\n');
+            rows++;
+        } else {
+            fputs("  ", stdout);
+        }
+    }
+
+    // Memory: green = apps (used minus buffers/cache), blue = buffers,
+    // yellow = cache -- htop's scheme.
+    int mem_inner = cols - 7;
+    if (mem_inner < 10)
+        mem_inner = 10;
+    unsigned long used_kb = mi->total_kb > mi->free_kb ? mi->total_kb - mi->free_kb : 0;
+    unsigned long cachebuf = mi->buffers_kb + mi->cached_kb;
+    unsigned long apps_kb = used_kb > cachebuf ? used_kb - cachebuf : 0;
+    double ft = mi->total_kb > 0 ? (double) mi->total_kb : 1;
+    char mem_used[16], mem_total[16], text[40];
+    format_kb_unit(apps_kb, mem_used, sizeof(mem_used));
+    format_kb_unit(mi->total_kb, mem_total, sizeof(mem_total));
+    snprintf(text, sizeof(text), "%s/%s", mem_used, mem_total);
+    {
+        const double fracs[3] = {apps_kb / ft, mi->buffers_kb / ft, mi->cached_kb / ft};
+        const char *colors[3] = {C_BAR_GREEN, C_BAR_BLUE, C_BAR_YELLOW};
+        fputs("\033[K", stdout);
+        draw_meter("Mem", mem_inner, fracs, colors, 3, text);
+        putchar('\n');
+        rows++;
+    }
+    if (mi->swap_total_kb > 0) {
+        unsigned long sw_used = mi->swap_total_kb - mi->swap_free_kb;
+        char su[16], st[16];
+        format_kb_unit(sw_used, su, sizeof(su));
+        format_kb_unit(mi->swap_total_kb, st, sizeof(st));
+        snprintf(text, sizeof(text), "%s/%s", su, st);
+        const double fracs[1] = {(double) sw_used / (double) mi->swap_total_kb};
+        const char *colors[1] = {C_BAR_RED};
+        fputs("\033[K", stdout);
+        draw_meter("Swp", mem_inner, fracs, colors, 1, text);
+        putchar('\n');
+        rows++;
+    }
+
+    header_rows_drawn = rows;
+}
+
+static void draw_column_header(int cols) {
+    // Reproduce COL_FMT per column so the active sort column can get its own
+    // highlight color.
+    char line[64];
+    fputs("\033[K", stdout);
+    fputs(C_HDR, stdout);
+    snprintf(line, sizeof(line), "%6s %-8.8s %3s %3s %7s %7s %1s %-7s ",
+             "PID", "USER", "PR", "NI", "VIRT", "RES", "S", "ARCH");
+    fputs(line, stdout);
+    printf("%s%5s%s%s %s%5s%s%s %s%8s%s%s ",
+           sort_mode == SORT_CPU ? C_HDR_SORT : "", "%CPU", C_RESET, C_HDR,
+           sort_mode == SORT_MEM ? C_HDR_SORT : "", "%MEM", C_RESET, C_HDR,
+           sort_mode == SORT_TIME ? C_HDR_SORT : "", "TIME+", C_RESET, C_HDR);
+    // Pad "Command" out to the full width so the green bar spans the line.
+    int used = 6 + 1 + 8 + 1 + 3 + 1 + 3 + 1 + 7 + 1 + 7 + 1 + 1 + 1
+             + 7 + 1 + 5 + 1 + 5 + 1 + 8 + 1;
+    int rest = cols - used;
+    if (rest < 7)
+        rest = 7;
+    printf("%-*.*s%s\n", rest, rest, "Command", C_RESET);
+}
+
+static void draw_key_bar(int cols) {
+    fputs("\033[K", stdout);
+    if (status_msg[0] != '\0') {
+        printf("%s%-*.*s%s", C_KEYBAR, cols, cols, status_msg, C_RESET);
+        fflush(stdout);
+        return;
+    }
+    static const struct { const char *key, *label; } keys[] = {
+        {"P", "SortCpu"}, {"M", "SortMem"}, {"T", "SortTime"}, {"N", "SortPid"},
+        {"c", "Cmdline"}, {"k", "Kill"}, {"q", "Quit"},
+    };
+    int used = 0;
+    for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
+        int w = (int) (strlen(keys[i].key) + strlen(keys[i].label)) + 1;
+        if (used + w > cols)
+            break;
+        printf("%s%s%s%s%s%s ", C_KEY, keys[i].key, C_RESET,
+               C_KEYBAR, keys[i].label, C_RESET);
+        used += w;
+    }
+    fflush(stdout);
+}
+
+static void draw_interactive(struct proc_sample *procs, int n,
+                             int ncpu, const struct cpu_ticks *cur_cpu,
+                             const struct cpu_ticks *prev_cpu,
+                             const struct meminfo *mi,
+                             long clk_tck, long page_kb,
+                             int selected, int *scroll_top) {
+    int rows, cols;
+    term_size(&rows, &cols);
+
+    int running = 0;
+    for (int i = 0; i < n; i++)
+        if (procs[i].state == 'R')
+            running++;
+
+    fputs("\033[H", stdout); // home; each line clears itself with \033[K
+    draw_header(cols, ncpu, cur_cpu, prev_cpu, n, running, mi);
+    draw_column_header(cols);
+
+    int list_rows = rows - header_rows_drawn - 2; // column header + key bar
+    if (list_rows < 3)
+        list_rows = 3;
+    if (selected < *scroll_top)
+        *scroll_top = selected;
+    if (selected >= *scroll_top + list_rows)
+        *scroll_top = selected - list_rows + 1;
+    if (*scroll_top > n - list_rows)
+        *scroll_top = n - list_rows;
+    if (*scroll_top < 0)
+        *scroll_top = 0;
+
+    for (int row = 0; row < list_rows; row++) {
+        int i = *scroll_top + row;
+        fputs("\033[K", stdout);
+        if (i >= n) {
+            putchar('\n');
+            continue;
+        }
+        double cpu_pct = 0;
+        if (clk_tck > 0)
+            cpu_pct = (double) procs[i].cpu_delta * 100.0 / (double) clk_tck;
+        double mem_pct = mi->total_kb > 0
+            ? (double) procs[i].rss_pages * (double) page_kb * 100.0 / (double) mi->total_kb
+            : 0;
+
+        char userbuf[32], virt[16], res[16], timebuf[16], state[2];
+        username_for(procs[i].uid, userbuf, sizeof(userbuf));
+        format_kb(procs[i].vsize / 1024, virt, sizeof(virt));
+        format_kb((unsigned long) (procs[i].rss_pages * page_kb), res, sizeof(res));
+        format_time_plus(procs[i].utime + procs[i].stime, clk_tck,
+                         timebuf, sizeof(timebuf));
+        state[0] = procs[i].state;
+        state[1] = '\0';
+
+        const char *cmd = (show_cmdline && procs[i].cmdline[0] != '\0')
+            ? procs[i].cmdline : procs[i].comm;
+
+        char line[512];
+        int len = snprintf(line, sizeof(line),
+                           "%6d %-8.8s %3ld %3ld %7s %7s %1s %-7s %5.1f %5.1f %8s %s",
+                           (int) procs[i].pid, userbuf,
+                           procs[i].priority, procs[i].nice,
+                           virt, res, state, procs[i].arch,
+                           cpu_pct, mem_pct, timebuf, cmd);
+        if (len > cols)
+            len = cols;
+        if (i == selected)
+            printf("%s%-*.*s%s\n", C_SEL, cols, len, line, C_RESET);
+        else
+            printf("%.*s\n", len, line);
+    }
+    draw_key_bar(cols);
+    fflush(stdout);
+}
+
+// Prompt (on the key bar line) for a signal to send to pid. Blocks on stdin;
+// Enter with no digits sends SIGTERM, Esc/q cancels.
+static void kill_prompt(pid_t pid, const char *comm, int rows, int cols) {
+    char prompt[160];
+    snprintf(prompt, sizeof(prompt),
+             "Send signal to %d (%s): 15=TERM 9=KILL 1=HUP 2=INT, Enter=15, Esc=cancel > ",
+             (int) pid, comm);
+    printf("\033[%d;1H\033[K%s%-*.*s%s\033[%d;%dH",
+           rows, C_KEYBAR, cols, cols, prompt, C_RESET,
+           rows, (int) strlen(prompt) + 1);
+    fflush(stdout);
+
+    char digits[8] = {0};
+    size_t ndig = 0;
+    for (;;) {
+        fd_set fds;
+        FD_ZERO(&fds);
+        FD_SET(STDIN_FILENO, &fds);
+        if (select(STDIN_FILENO + 1, &fds, NULL, NULL, NULL) <= 0)
+            return;
+        char c;
+        if (read(STDIN_FILENO, &c, 1) != 1)
+            continue;
+        if (c == '\033' || c == 'q') {
+            snprintf(status_msg, sizeof(status_msg), "Kill cancelled");
+            return;
+        }
+        if (c == '\r' || c == '\n')
+            break;
+        if (isdigit((unsigned char) c) && ndig < sizeof(digits) - 1) {
+            digits[ndig++] = c;
+            putchar(c);
+            fflush(stdout);
+        }
+    }
+    int sig = ndig > 0 ? atoi(digits) : SIGTERM;
+    if (sig <= 0 || sig >= 64) {
+        snprintf(status_msg, sizeof(status_msg), "Bad signal %s", digits);
+        return;
+    }
+    if (kill(pid, sig) == 0)
+        snprintf(status_msg, sizeof(status_msg), "Sent signal %d to %d (%s)",
+                 sig, (int) pid, comm);
+    else
+        snprintf(status_msg, sizeof(status_msg), "kill %d: %s",
+                 (int) pid, strerror(errno));
+}
+
+// ---- batch mode (original plain top-style output, kept for scripts) ----------
+
+static void print_batch(struct proc_sample *cur, int cur_n,
+                        const struct meminfo *mi,
+                        long clk_tck, long page_kb) {
     time_t now = time(NULL);
     struct tm tm_now;
     localtime_r(&now, &tm_now);
@@ -354,51 +926,22 @@ static void print_snapshot(struct proc_sample *cur, int cur_n,
     printf("Tasks: %d total, %d running, %d sleeping, %d stopped, %d zombie\n",
            cur_n, running, sleeping, stopped, zombie);
 
-    // %CPU across all cores: fraction of aggregate jiffy-delta that wasn't
-    // idle+iowait, matching how the per-process %CPU below is derived from
-    // the same clk_tck-based accounting.
-    unsigned long total_kb, free_kb, avail_kb;
-    read_meminfo(&total_kb, &free_kb, &avail_kb);
-    unsigned long used_kb = total_kb > free_kb ? total_kb - free_kb : 0;
+    unsigned long used_kb = mi->total_kb > mi->free_kb ? mi->total_kb - mi->free_kb : 0;
     printf("Mem: %lukB total, %lukB used, %lukB free\n",
-           total_kb, used_kb, free_kb);
-    (void) avail_kb;
-    (void) cpu_jiffies_delta;
+           mi->total_kb, used_kb, mi->free_kb);
 
     printf("\n%6s %-8s %3s %3s %8s %8s %-7s %5s %5s  %s\n",
            "PID", "USER", "PR", "NI", "VIRT(K)", "RES(K)", "ARCH", "%CPU", "%MEM", "COMMAND");
 
-    // Fill in cpu_delta (jiffies used since the previous sample) BEFORE
-    // sorting: a process absent from the previous sample -- including every
-    // process on the very first snapshot, where prev_n is 0 -- gets 0, not
-    // its full lifetime utime+stime. Without this, long-lived processes
-    // would show wildly inflated %CPU on first display and permanently
-    // outrank recently-busy ones in the sort.
-    for (int i = 0; i < cur_n; i++) {
-        cur[i].cpu_delta = 0;
-        unsigned long long cur_total = cur[i].utime + cur[i].stime;
-        for (int j = 0; j < prev_n; j++) {
-            if (prev[j].pid == cur[i].pid) {
-                unsigned long long prev_total = prev[j].utime + prev[j].stime;
-                cur[i].cpu_delta = cur_total >= prev_total ? cur_total - prev_total : 0;
-                break;
-            }
-        }
-    }
-    qsort(cur, (size_t) cur_n, sizeof(cur[0]), cmp_by_cpu_delta);
-
     for (int i = 0; i < cur_n; i++) {
         double cpu_pct = 0;
         if (clk_tck > 0)
-            cpu_pct = (double) cur[i].cpu_delta * 100.0 / (double) clk_tck; // per sampling window (~-d seconds)
-
-        double mem_pct = total_kb > 0
-            ? (double) cur[i].rss_pages * (double) page_kb * 100.0 / (double) total_kb
+            cpu_pct = (double) cur[i].cpu_delta * 100.0 / (double) clk_tck;
+        double mem_pct = mi->total_kb > 0
+            ? (double) cur[i].rss_pages * (double) page_kb * 100.0 / (double) mi->total_kb
             : 0;
-
         char userbuf[32];
         username_for(cur[i].uid, userbuf, sizeof(userbuf));
-
         printf("%6d %-8s %3ld %3ld %8lu %8ld %-7s %5.1f %5.1f  %s\n",
                (int) cur[i].pid, userbuf, cur[i].priority, cur[i].nice,
                cur[i].vsize / 1024, cur[i].rss_pages * page_kb,
@@ -407,55 +950,7 @@ static void print_snapshot(struct proc_sample *cur, int cur_n,
     fflush(stdout);
 }
 
-static struct termios orig_termios;
-static bool termios_saved = false;
-
-static void restore_termios(void) {
-    if (termios_saved)
-        tcsetattr(STDIN_FILENO, TCSANOW, &orig_termios);
-}
-
-static void enable_raw_stdin(void) {
-    if (!isatty(STDIN_FILENO))
-        return;
-    if (tcgetattr(STDIN_FILENO, &orig_termios) != 0)
-        return;
-    termios_saved = true;
-    atexit(restore_termios);
-    struct termios raw = orig_termios;
-    raw.c_lflag &= (tcflag_t) ~(ICANON | ECHO);
-    raw.c_cc[VMIN] = 0;
-    raw.c_cc[VTIME] = 0;
-    tcsetattr(STDIN_FILENO, TCSANOW, &raw);
-}
-
-// Sleeps up to `seconds`, returning early (true) if 'q' or Ctrl-C-like input
-// arrives on stdin. In batch mode or when stdin isn't a tty, just sleeps.
-static bool wait_or_quit(double seconds, bool batch) {
-    if (batch || !isatty(STDIN_FILENO)) {
-        struct timespec ts = {(time_t) seconds, (long) ((seconds - (time_t) seconds) * 1e9)};
-        nanosleep(&ts, NULL);
-        return false;
-    }
-    fd_set fds;
-    struct timeval tv;
-    double remaining = seconds;
-    while (remaining > 0) {
-        FD_ZERO(&fds);
-        FD_SET(STDIN_FILENO, &fds);
-        double chunk = remaining > 0.2 ? 0.2 : remaining;
-        tv.tv_sec = (time_t) chunk;
-        tv.tv_usec = (suseconds_t) ((chunk - tv.tv_sec) * 1e6);
-        int r = select(STDIN_FILENO + 1, &fds, NULL, NULL, &tv);
-        if (r > 0) {
-            char c;
-            if (read(STDIN_FILENO, &c, 1) == 1 && (c == 'q' || c == 'Q'))
-                return true;
-        }
-        remaining -= chunk;
-    }
-    return false;
-}
+// ---- main --------------------------------------------------------------------
 
 int main(int argc, char **argv) {
     bool batch = false;
@@ -490,28 +985,193 @@ int main(int argc, char **argv) {
     int counts[2] = {0, 0};
     int cur_buf = 0;
 
-    if (!batch)
-        enable_raw_stdin();
+    static struct cpu_ticks cpu_bufs[2][MAX_CPUS];
+    int ncpu = 0;
+    int cur_cpu_buf = 0;
+
+    struct meminfo mi;
+
+    if (batch) {
+        // ---- original plain-top behavior, unchanged for scripts ----
+        counts[cur_buf] = collect(bufs[cur_buf], MAX_PROCS);
+        fill_cpu_deltas(bufs[cur_buf], counts[cur_buf], NULL, 0);
+        sort_mode = SORT_CPU;
+        qsort(bufs[cur_buf], (size_t) counts[cur_buf], sizeof(bufs[0][0]), cmp_procs);
+        read_meminfo(&mi);
+        print_batch(bufs[cur_buf], counts[cur_buf], &mi, clk_tck, page_kb);
+        for (int iter = 1; iterations < 0 || iter < iterations; iter++) {
+            struct timespec ts = {(time_t) delay, (long) ((delay - (time_t) delay) * 1e9)};
+            nanosleep(&ts, NULL);
+            int prev_buf = cur_buf;
+            cur_buf ^= 1;
+            counts[cur_buf] = collect(bufs[cur_buf], MAX_PROCS);
+            fill_cpu_deltas(bufs[cur_buf], counts[cur_buf],
+                            bufs[prev_buf], counts[prev_buf]);
+            qsort(bufs[cur_buf], (size_t) counts[cur_buf], sizeof(bufs[0][0]), cmp_procs);
+            read_meminfo(&mi);
+            print_batch(bufs[cur_buf], counts[cur_buf], &mi, clk_tck, page_kb);
+        }
+        return 0;
+    }
+
+    // ---- interactive htop-style mode ----
+    if (isatty(STDOUT_FILENO))
+        enable_colors();
+    enable_raw_stdin();
+    fputs("\033[2J", stdout); // full clear once; redraws overwrite in place
 
     counts[cur_buf] = collect(bufs[cur_buf], MAX_PROCS);
-    // First snapshot has no previous sample to diff against for %CPU; show
-    // it once immediately (0% CPU for everything) so the user sees output
-    // right away instead of waiting a full -d seconds for the first table.
-    print_snapshot(bufs[cur_buf], counts[cur_buf], NULL, 0, 0, clk_tck, page_kb, batch);
+    fill_cpu_deltas(bufs[cur_buf], counts[cur_buf], NULL, 0);
+    ncpu = read_cpu_ticks(cpu_bufs[cur_cpu_buf], MAX_CPUS);
+    if (ncpu == 0)
+        ncpu = 1;
+    // First draw has no previous CPU sample; diff against itself (all-zero
+    // deltas, meters empty) rather than garbage.
+    memcpy(cpu_bufs[cur_cpu_buf ^ 1], cpu_bufs[cur_cpu_buf],
+           sizeof(cpu_bufs[0][0]) * (size_t) ncpu);
+    read_meminfo(&mi);
 
+    qsort(bufs[cur_buf], (size_t) counts[cur_buf], sizeof(bufs[0][0]), cmp_procs);
+
+    int selected = 0;
+    int scroll_top = 0;
+    pid_t selected_pid = counts[cur_buf] > 0 ? bufs[cur_buf][0].pid : -1;
     int iter = 1;
-    while (iterations < 0 || iter < iterations) {
-        if (wait_or_quit(delay, batch))
-            break;
-        int prev_buf = cur_buf;
-        cur_buf ^= 1;
-        counts[cur_buf] = collect(bufs[cur_buf], MAX_PROCS);
-        unsigned long long total_now = read_total_cpu_jiffies();
-        (void) total_now;
-        print_snapshot(bufs[cur_buf], counts[cur_buf],
-                        bufs[prev_buf], counts[prev_buf],
-                        0, clk_tck, page_kb, batch);
-        iter++;
+
+    draw_interactive(bufs[cur_buf], counts[cur_buf], ncpu,
+                     cpu_bufs[cur_cpu_buf], cpu_bufs[cur_cpu_buf ^ 1],
+                     &mi, clk_tck, page_kb, selected, &scroll_top);
+
+    struct timespec next_refresh;
+    clock_gettime(CLOCK_MONOTONIC, &next_refresh);
+    next_refresh.tv_sec += (time_t) delay;
+
+    for (;;) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        double until = (double) (next_refresh.tv_sec - now.tv_sec)
+                     + (double) (next_refresh.tv_nsec - now.tv_nsec) / 1e9;
+        bool need_redraw = false;
+        bool need_resort = false;
+
+        if (until <= 0) {
+            if (iterations >= 0 && iter >= iterations)
+                break;
+            int prev_buf = cur_buf;
+            cur_buf ^= 1;
+            counts[cur_buf] = collect(bufs[cur_buf], MAX_PROCS);
+            fill_cpu_deltas(bufs[cur_buf], counts[cur_buf],
+                            bufs[prev_buf], counts[prev_buf]);
+            cur_cpu_buf ^= 1;
+            int n = read_cpu_ticks(cpu_bufs[cur_cpu_buf], MAX_CPUS);
+            if (n > 0)
+                ncpu = n;
+            read_meminfo(&mi);
+            need_resort = true;
+            iter++;
+            clock_gettime(CLOCK_MONOTONIC, &next_refresh);
+            next_refresh.tv_sec += (time_t) delay;
+            next_refresh.tv_nsec += (long) ((delay - (time_t) delay) * 1e9);
+            if (next_refresh.tv_nsec >= 1000000000L) {
+                next_refresh.tv_nsec -= 1000000000L;
+                next_refresh.tv_sec++;
+            }
+        } else {
+            enum key k = read_key(until > 0.25 ? 0.25 : until);
+            int n = counts[cur_buf];
+            switch (k) {
+                case KEY_QUIT:
+                    goto done;
+                case KEY_UP:
+                    if (selected > 0)
+                        selected--;
+                    need_redraw = true;
+                    break;
+                case KEY_DOWN:
+                    if (selected < n - 1)
+                        selected++;
+                    need_redraw = true;
+                    break;
+                case KEY_PGUP: {
+                    int rows, cols;
+                    term_size(&rows, &cols);
+                    selected -= rows - header_rows_drawn - 2;
+                    if (selected < 0)
+                        selected = 0;
+                    need_redraw = true;
+                    break;
+                }
+                case KEY_PGDN: {
+                    int rows, cols;
+                    term_size(&rows, &cols);
+                    selected += rows - header_rows_drawn - 2;
+                    if (selected > n - 1)
+                        selected = n - 1;
+                    need_redraw = true;
+                    break;
+                }
+                case KEY_HOME:
+                    selected = 0;
+                    need_redraw = true;
+                    break;
+                case KEY_END:
+                    selected = n - 1;
+                    need_redraw = true;
+                    break;
+                case KEY_SORT_CPU: sort_mode = SORT_CPU; need_resort = true; break;
+                case KEY_SORT_MEM: sort_mode = SORT_MEM; need_resort = true; break;
+                case KEY_SORT_TIME: sort_mode = SORT_TIME; need_resort = true; break;
+                case KEY_SORT_PID: sort_mode = SORT_PID; need_resort = true; break;
+                case KEY_CMDLINE:
+                    show_cmdline = !show_cmdline;
+                    need_redraw = true;
+                    break;
+                case KEY_KILL:
+                    if (n > 0 && selected < n) {
+                        int rows, cols;
+                        term_size(&rows, &cols);
+                        kill_prompt(bufs[cur_buf][selected].pid,
+                                    bufs[cur_buf][selected].comm, rows, cols);
+                        need_redraw = true;
+                    }
+                    break;
+                case KEY_OTHER:
+                    status_msg[0] = '\0';
+                    need_redraw = true;
+                    break;
+                case KEY_NONE:
+                default:
+                    break;
+            }
+            if (selected >= 0 && selected < n && k != KEY_NONE)
+                selected_pid = bufs[cur_buf][selected].pid;
+        }
+
+        if (need_resort) {
+            qsort(bufs[cur_buf], (size_t) counts[cur_buf], sizeof(bufs[0][0]), cmp_procs);
+            // Keep the cursor on the same process across refreshes/resorts,
+            // like htop; fall back to clamping the index if it's gone.
+            int found = -1;
+            for (int i = 0; i < counts[cur_buf]; i++) {
+                if (bufs[cur_buf][i].pid == selected_pid) {
+                    found = i;
+                    break;
+                }
+            }
+            if (found >= 0)
+                selected = found;
+            else if (selected > counts[cur_buf] - 1)
+                selected = counts[cur_buf] > 0 ? counts[cur_buf] - 1 : 0;
+            need_redraw = true;
+        }
+        if (need_redraw) {
+            draw_interactive(bufs[cur_buf], counts[cur_buf], ncpu,
+                             cpu_bufs[cur_cpu_buf], cpu_bufs[cur_cpu_buf ^ 1],
+                             &mi, clk_tck, page_kb, selected, &scroll_top);
+        }
     }
+done:
+    // Leave the screen tidy: move below the table and reset attributes.
+    printf("%s\n", C_RESET);
     return 0;
 }
