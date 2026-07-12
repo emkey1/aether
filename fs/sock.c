@@ -1985,6 +1985,14 @@ static bool sock_bound_inet_conflicts(struct fd *sock, const struct inet_bind_in
                     other->real_fd < 0) {
                 continue;
             }
+            // Only an actual listener occupies the bind slot for a given
+            // address:port. An established/accepted connection's local
+            // address happens to match its listener's (getsockname() on an
+            // accepted socket returns the same local port), so without this
+            // check any live connection -- e.g. the very ssh session used to
+            // restart sshd -- would falsely block a fresh bind() on that port.
+            if (!other->socket.listening)
+                continue;
             struct sockaddr_storage other_addr = {};
             socklen_t other_addr_len = sizeof(other_addr);
             if (getsockname(other->real_fd, (struct sockaddr *) &other_addr, &other_addr_len) < 0)
