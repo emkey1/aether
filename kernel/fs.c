@@ -1199,6 +1199,26 @@ dword_t sys_pwritev_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_cou
     return sys_pwritev_common(fd_no, iovec_addr, iovec_count, off, GUEST_ABI_AMD64);
 }
 
+// preadv2/pwritev2: same as preadv/pwritev, but an offset of -1 means "use
+// and advance the current file position" (like plain readv/writev) rather
+// than a positioned access, and there's a trailing RWF_* flags word. The
+// flags (RWF_HIPRI, RWF_DSYNC, RWF_SYNC, RWF_NOWAIT, RWF_APPEND) are
+// performance/durability/append hints with no analog in our fd_ops
+// backends, so they're accepted but ignored, like fadvise64.
+dword_t sys_preadv2_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count,
+        off_t_ off, uint_t UNUSED(flags)) {
+    if (off == (off_t_) -1)
+        return sys_readv_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
+    return sys_preadv_common(fd_no, iovec_addr, iovec_count, off, GUEST_ABI_AMD64);
+}
+
+dword_t sys_pwritev2_guest(fd_t fd_no, guest_addr_t iovec_addr, dword_t iovec_count,
+        off_t_ off, uint_t UNUSED(flags)) {
+    if (off == (off_t_) -1)
+        return sys_writev_common(fd_no, iovec_addr, iovec_count, GUEST_ABI_AMD64);
+    return sys_pwritev_common(fd_no, iovec_addr, iovec_count, off, GUEST_ABI_AMD64);
+}
+
 dword_t sys__llseek(fd_t f, dword_t off_high, dword_t off_low, addr_t res_addr, dword_t whence) {
     struct fd *fd = f_get(f);
     if (fd == NULL)

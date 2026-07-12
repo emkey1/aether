@@ -832,6 +832,21 @@ static dword_t sys_pwrite_amd64(fd_t f, addr_t buf_addr, dword_t size,
     return sys_pwrite(f, buf_addr, size, off);
 }
 
+// Legacy 32-bit-pointer fallback for the table slot; handle_amd64_native_memory_syscall
+// intercepts 327/328 first with the 64-bit-safe sys_{preadv,pwritev}2_guest, so this
+// never actually runs — it only needs to exist so the table entry isn't NULL.
+static dword_t sys_preadv2_amd64(fd_t f, addr_t iovec_addr, dword_t iovec_count,
+        dword_t off_low, dword_t off_high, dword_t flags) {
+    off_t_ off = ((off_t_) off_high << 32) | off_low;
+    return sys_preadv2_guest(f, iovec_addr, iovec_count, off, flags);
+}
+
+static dword_t sys_pwritev2_amd64(fd_t f, addr_t iovec_addr, dword_t iovec_count,
+        dword_t off_low, dword_t off_high, dword_t flags) {
+    off_t_ off = ((off_t_) off_high << 32) | off_low;
+    return sys_pwritev2_guest(f, iovec_addr, iovec_count, off, flags);
+}
+
 static dword_t sys_truncate_amd64(addr_t path_addr, dword_t size_low, dword_t size_high,
         dword_t UNUSED(unused3), dword_t UNUSED(unused4), dword_t UNUSED(unused5)) {
     return sys_truncate64(path_addr, size_low, size_high);
@@ -1501,6 +1516,8 @@ static syscall_t amd64_syscall_table[463] = {
     [322] = (syscall_t) sys_execveat,
     [324] = (syscall_t) sys_membarrier,
     [326] = (syscall_t) sys_copy_file_range,
+    [327] = (syscall_t) sys_preadv2_amd64,
+    [328] = (syscall_t) sys_pwritev2_amd64,
     [332] = (syscall_t) sys_statx_amd64,
     [334] = (syscall_t) sys_rseq,
     [403] = (syscall_t) sys_clock_gettime64,
@@ -3362,6 +3379,17 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_copy_file_range_guest(
                 (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3],
                 raw_args[4], (uint_t) raw_args[5]));
+        return true;
+    case 327: // preadv2(fd, iov, iovcnt, pos_l, pos_h, flags) -- native so the
+              // 64-bit iovec pointer and pos survive the marshaller
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_preadv2_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2],
+                (off_t_) (raw_args[3] | (raw_args[4] << 32)), (uint_t) raw_args[5]));
+        return true;
+    case 328: // pwritev2(fd, iov, iovcnt, pos_l, pos_h, flags)
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_pwritev2_guest(
+                (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2],
+                (off_t_) (raw_args[3] | (raw_args[4] << 32)), (uint_t) raw_args[5]));
         return true;
     default:
         return false;
