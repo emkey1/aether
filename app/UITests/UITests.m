@@ -16,8 +16,40 @@
     self.continueAfterFailure = NO;
 }
 
-// Opens the Display applet via the Utils dock tile (long-press -> "Media"
-// group -> "Display") and asserts it comes up without crashing: the toolbar
+// Opens the Utilities group-choice sheet, adapting to whichever Workspace
+// style is active:
+//   Classic -- the "utils" dock tile at the bottom of the screen; long-press
+//              it (a plain tap does something else -- toggleClockFromDock:).
+//   Modern  -- dockWindow is hidden entirely and there's no "utils" element
+//              at all; instead a round "Workspace menu" pip floats in the
+//              bottom-right corner (see makeModernMenuPip). Tapping it opens
+//              a "Workspace" root sheet with a "Utilities…" item that leads
+//              to the *same* presentUtilsDockActionsFromView: sheet Classic's
+//              long-press reaches directly.
+// Both converge on the same "Media (N)" -> "Open Display" flow from there.
+static void OpenUtilitiesGroupSheet(XCUIApplication *app) {
+    XCUIElement *utilsDockButton = app.buttons[@"utils"];
+    if ([utilsDockButton waitForExistenceWithTimeout:5]) {
+        [utilsDockButton pressForDuration:0.4];
+        return;
+    }
+
+    NSPredicate *pipPredicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"Workspace menu"];
+    XCUIElement *menuPip = [app.buttons matchingPredicate:pipPredicate].firstMatch;
+    XCTAssert([menuPip waitForExistenceWithTimeout:15],
+              @"Neither the Classic 'utils' dock tile nor the Modern 'Workspace menu' pip "
+              @"appeared -- Workspace failed to load in either style");
+    [menuPip tap];
+
+    NSPredicate *utilitiesPredicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"Utilities"];
+    XCUIElement *utilitiesAction = [app.buttons matchingPredicate:utilitiesPredicate].firstMatch;
+    XCTAssert([utilitiesAction waitForExistenceWithTimeout:10],
+              @"Workspace root menu (Modern style) did not list 'Utilities…'");
+    [utilitiesAction tap];
+}
+
+// Opens the Display applet (via OpenUtilitiesGroupSheet, then "Media" group
+// -> "Display") and asserts it comes up without crashing: the toolbar
 // (status label + Ctrl+Alt+Del/Reconnect buttons) must appear, and the
 // status label must settle on either a normal in-progress state or a clear,
 // actionable failure (pointing at setup-wayland.sh) -- never stay on
@@ -30,10 +62,7 @@
     XCUIApplication *app = [XCUIApplication new];
     [app launch];
 
-    XCUIElement *utilsDockButton = app.buttons[@"utils"];
-    XCTAssert([utilsDockButton waitForExistenceWithTimeout:20],
-              @"Utils dock button did not appear -- Workspace failed to load");
-    [utilsDockButton pressForDuration:0.4];
+    OpenUtilitiesGroupSheet(app);
 
     NSPredicate *mediaGroupPredicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"Media"];
     XCUIElement *mediaGroupAction = [app.buttons matchingPredicate:mediaGroupPredicate].firstMatch;
@@ -61,10 +90,15 @@
     // Give the guest-session attempt time to resolve one way or the other
     // (boot + become_new_init_child + do_execve, or the timeout/failure path
     // if the Wayland stack isn't installed) rather than asserting against
-    // whatever transient text raced onto screen first.
+    // whatever transient text raced onto screen first. Match by ruling out
+    // the two known preamble strings DisplayViewController sets before the
+    // guest process even starts, rather than enumerating every downstream
+    // status (Waiting for compositor.../Starting bridge.../Connected/
+    // Wayland session ended/arbitrary -failWithMessage: text) -- an
+    // enumerated allowlist silently stalls the test again the next time a
+    // new status string is added.
     NSPredicate *settledPredicate = [NSPredicate predicateWithFormat:
-        @"label CONTAINS 'setup-wayland' OR label CONTAINS 'Connect' OR label CONTAINS 'Wayland session ended' "
-        @"OR label CONTAINS 'Waiting' OR label CONTAINS 'Error'"];
+        @"NOT (label CONTAINS 'Starting…') AND NOT (label CONTAINS 'Starting...')"];
     XCUIElement *settledLabel = [app.staticTexts matchingPredicate:settledPredicate].firstMatch;
     XCTAssert([settledLabel waitForExistenceWithTimeout:30],
               @"Display applet's status label never left the initial 'Starting...' state "
