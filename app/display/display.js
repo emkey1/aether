@@ -10,9 +10,13 @@
 // Native <-> JS bridge, message handler name "ishDisplay":
 //   JS -> native: postMessage({type: "status", state: "connecting"|"connected"
 //                              |"disconnected"|"error"|"desktopname", detail})
+//                 postMessage({type: "clipboard", text}) -- guest clipboard
+//                 changed (ServerCutText); native mirrors it to UIPasteboard.
 //   native -> JS: window.ishDisplaySendCtrlAltDel()
 //                 window.ishDisplaySetViewOnly(bool)
 //                 window.ishDisplaySetScaling(bool)
+//                 window.ishDisplayPasteText(text) -- push iOS pasteboard
+//                 text into the guest clipboard.
 // Path is bundle-relative, not source-tree-relative: deps/novnc is added to
 // the Xcode project as a folder reference (see iSH-AOK.xcodeproj), which
 // copies it into the app bundle as a "novnc/" sibling of this file, not at
@@ -71,6 +75,10 @@ if (!port) {
             post('status', { state: 'error', detail: (e.detail && e.detail.reason) || 'security failure' });
         });
         rfb.addEventListener('desktopname', (e) => post('status', { state: 'desktopname', detail: e.detail.name }));
+        // Guest -> iOS: wayvnc sends ServerCutText whenever the guest-side
+        // clipboard changes (e.g. a select/copy inside foot); mirror it to
+        // UIPasteboard automatically, no button needed for this direction.
+        rfb.addEventListener('clipboard', (e) => post('clipboard', { text: e.detail.text }));
     }).catch((err) => {
         post('status', { state: 'error', detail: 'failed to load noVNC module: ' + (err && err.message ? err.message : err) });
     });
@@ -86,4 +94,10 @@ window.ishDisplaySetViewOnly = function (viewOnly) {
 };
 window.ishDisplaySetScaling = function (enabled) {
     if (rfb) rfb.scaleViewport = !!enabled;
+};
+// iOS -> guest: no-op (rather than throwing) before the RFB session is up
+// or once it's torn down -- DisplayViewController doesn't track connection
+// state itself before calling this, it just fires the button tap through.
+window.ishDisplayPasteText = function (text) {
+    if (rfb) rfb.clipboardPasteFrom(text);
 };

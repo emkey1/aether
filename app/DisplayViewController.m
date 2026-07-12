@@ -40,6 +40,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIView *_displayCard;
     UILabel *_statusLabel;
     UIButton *_ctrlAltDelButton;
+    UIButton *_pasteButton;
     UIButton *_reconnectButton;
     WKWebView *_webView;
 
@@ -87,6 +88,9 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     _ctrlAltDelButton = [self displayButtonWithTitle:@"Ctrl+Alt+Del" action:@selector(sendCtrlAltDel:)];
     [_toolbarCard addSubview:_ctrlAltDelButton];
 
+    _pasteButton = [self displayButtonWithTitle:@"Paste" action:@selector(pasteToGuest:)];
+    [_toolbarCard addSubview:_pasteButton];
+
     _reconnectButton = [self displayButtonWithTitle:@"Reconnect" action:@selector(reconnect:)];
     _reconnectButton.hidden = YES;
     [_toolbarCard addSubview:_reconnectButton];
@@ -112,7 +116,10 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         [_ctrlAltDelButton.trailingAnchor constraintEqualToAnchor:_reconnectButton.leadingAnchor constant:-8.0],
         [_ctrlAltDelButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
 
-        [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_ctrlAltDelButton.leadingAnchor constant:-8.0],
+        [_pasteButton.trailingAnchor constraintEqualToAnchor:_ctrlAltDelButton.leadingAnchor constant:-8.0],
+        [_pasteButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
+
+        [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-8.0],
     ]];
 
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -359,6 +366,22 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                     completionHandler:nil];
 }
 
+- (void)pasteToGuest:(id)sender {
+    NSString *text = UIPasteboard.generalPasteboard.string;
+    if (text.length == 0)
+        return;
+    // NSJSONSerialization for the string literal, not manual quote-escaping
+    // -- this is the only safe way to embed arbitrary clipboard text
+    // (quotes, backslashes, newlines, unicode) into a JS expression string.
+    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:@[text] options:0 error:nil];
+    if (jsonData == nil)
+        return;
+    NSString *jsonArray = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
+    NSString *jsStringLiteral = [jsonArray substringWithRange:NSMakeRange(1, jsonArray.length - 2)]; // strip [ ]
+    NSString *js = [NSString stringWithFormat:@"window.ishDisplayPasteText && window.ishDisplayPasteText(%@);", jsStringLiteral];
+    [self.webView evaluateJavaScript:js completionHandler:nil];
+}
+
 #pragma mark - WKWebView
 
 - (WKWebView *)webView {
@@ -428,6 +451,12 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     NSDictionary *body = message.body;
     if (![body isKindOfClass:NSDictionary.class])
         return;
+    if ([body[@"type"] isEqualToString:@"clipboard"]) {
+        NSString *text = body[@"text"];
+        if (text.length > 0)
+            UIPasteboard.generalPasteboard.string = text;
+        return;
+    }
     if (![body[@"type"] isEqualToString:@"status"])
         return;
     NSString *state = body[@"state"];
