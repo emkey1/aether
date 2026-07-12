@@ -5,6 +5,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 #include "jit/gen.h"
 #include "emu/modrm.h"
 #include "emu/cpuid.h"
@@ -4665,9 +4666,22 @@ static int gen_riscv64_branch_to(struct gen_state *state, guest_addr_t target) {
 // frm (0x002) = fcsr[7:5], fcsr (0x003) = fcsr[7:0]. Exception flags are
 // whatever the guest last wrote — host FP status is not synced back
 // (deviation; musl/printf only ever set the rounding mode).
+// Also handles the read-only Zicntr counters (cycle/time/instret, 0xc00-2):
+// there's no real cycle or instruction count to report, so all three alias
+// a host monotonic nanosecond counter -- Go's runtime.nanotime() (compiled
+// to `csrrs rd, time, x0`) only needs *a* monotonically increasing value.
+// Write attempts to these never reach here (rejected as illegal
+// instructions at decode time, see gen_step_riscv64's RISCV64_OP_SYSTEM).
 void riscv64_csr_helper(struct cpu_state *cpu, unsigned long arg) {
     unsigned rd = arg & 31, rs1 = (arg >> 5) & 31;
     unsigned funct3 = (arg >> 10) & 7, csr = (unsigned) (arg >> 13);
+    if (csr == 0xc00 || csr == 0xc01 || csr == 0xc02) {
+        struct timespec now;
+        clock_gettime(CLOCK_MONOTONIC, &now);
+        if (rd != 0)
+            cpu->riscv64_regs[rd] = (uint64_t) now.tv_sec * 1000000000ull + (uint64_t) now.tv_nsec;
+        return;
+    }
     dword_t fcsr = cpu->riscv64_fcsr;
     qword_t old = csr == 1 ? (fcsr & 0x1f)
                 : csr == 2 ? ((fcsr >> 5) & 7)
@@ -5338,7 +5352,13 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
                     state->riscv64_orig_ip, state->riscv64_orig_ip);
         if (funct3 >= 1 && funct3 <= 7 && funct3 != 4) { // csrrw/s/c[i]
             unsigned csr = insn >> 20;
-            if (csr >= 1 && csr <= 3) { // fflags/frm/fcsr only
+            bool is_counter = csr == 0xc00 || csr == 0xc01 || csr == 0xc02; // cycle/time/instret
+            // csrrs/c(i) with rs1/uimm == 0 is a pure read (this is what the
+            // `rdtime`/`csrr` pseudo-ops assemble to); anything else would
+            // write, which is illegal for these read-only counters and
+            // falls through to gen_riscv64_undefined below.
+            bool counter_read_only = is_counter && (funct3 & 3) != 1 && rs1 == 0;
+            if ((csr >= 1 && csr <= 3) || counter_read_only) { // fflags/frm/fcsr, or cycle/time/instret
                 extern void gadget_riscv64_call_helper(void);
                 extern void riscv64_csr_helper(struct cpu_state *cpu, unsigned long arg);
                 gen(state, (unsigned long) gadget_riscv64_call_helper);
