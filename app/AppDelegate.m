@@ -2261,7 +2261,13 @@ static TerminalViewController *CreateTerminalViewController(void) {
     EnsureCharacterDevice("/dev/urandom", S_IFCHR|0666, dev_make(MEM_MAJOR, DEV_URANDOM_MINOR));
     
     generic_mkdirat(AT_PWD, "/dev/pts", 0755);
-    
+
+    // Linux ships /dev/shm as a (normally tmpfs-mounted) directory, mode 1777
+    // like /tmp; some bundled roots' base tarballs don't include it and iSH
+    // has no boot-time tmpfs auto-mount for it, so anything that needs POSIX
+    // shm (wl_shm clients, sem_open, etc.) found no /dev/shm to open under.
+    generic_mkdirat(AT_PWD, "/dev/shm", 01777);
+
     // Permissions and type metadata on / have been broken for a while, let's fix them.
     generic_setattrat(AT_PWD, "/", (struct attr) {.type = attr_mode, .mode = S_IFDIR|0755}, false);
     

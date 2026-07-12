@@ -140,6 +140,10 @@ static void ignore_eexist(int err) {
 static void setup_host_mounts(void) {
     ignore_eexist(generic_mkdirat(AT_PWD, "/dev", 0755));
     ignore_eexist(generic_mkdirat(AT_PWD, "/dev/pts", 0755));
+    // Not every bundled root's base tarball ships /dev/shm, and iSH has no
+    // boot-time tmpfs auto-mount for it; create it unconditionally so POSIX
+    // shm (wl_shm clients, sem_open, etc.) always has somewhere to open.
+    ignore_eexist(generic_mkdirat(AT_PWD, "/dev/shm", 01777));
     ignore_eexist(generic_mkdirat(AT_PWD, "/proc", 0555));
     ignore_eexist(generic_mkdirat(AT_PWD, "/sys", 0555));
 
