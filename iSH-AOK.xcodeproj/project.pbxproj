@@ -113,6 +113,7 @@
 		AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */; };
 		826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */; };
 		54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */; };
+		FF0F1FAE84EA95701F222D85 /* WorkspaceVideoPlayer.m in Sources */ = {isa = PBXBuildFile; fileRef = 01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */; };
 		5D4E7DF82B1E68EB006BA7D4 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
 		5D4E7DFA2B1E68F6006BA7D4 /* rw_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DAE32B17EB1600FA995C /* rw_locks.c */; };
 		5D7E7E152B1FD4890087F2E0 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
@@ -645,6 +646,8 @@
 		438B54F5AE6878B6B1BF54F1 /* WorkspaceMarkdownViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceMarkdownViewer.h; sourceTree = "<group>"; };
 		8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceImageViewer.m; sourceTree = "<group>"; };
 		C100D3488E931E73E9A1AC8C /* WorkspaceImageViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceImageViewer.h; sourceTree = "<group>"; };
+		01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceVideoPlayer.m; sourceTree = "<group>"; };
+		461ED952F7CB7E4FBF484A4E /* WorkspaceVideoPlayer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceVideoPlayer.h; sourceTree = "<group>"; };
 		59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPlayerEngine.m; sourceTree = "<group>"; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
@@ -1232,6 +1235,8 @@
 				3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */,
 				C100D3488E931E73E9A1AC8C /* WorkspaceImageViewer.h */,
 				8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */,
+				461ED952F7CB7E4FBF484A4E /* WorkspaceVideoPlayer.h */,
+				01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */,
 			);
 			path = app;
 			sourceTree = "<group>";
@@ -2429,6 +2434,7 @@
 				AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */,
 				826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */,
 				54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */,
+				FF0F1FAE84EA95701F222D85 /* WorkspaceVideoPlayer.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

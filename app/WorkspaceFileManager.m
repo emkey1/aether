@@ -5,10 +5,13 @@
 
 #import "WorkspaceFileManager.h"
 #import "GuestFileBridge.h"
+#import "AudioLibrary.h"
+#import "AudioPlayerEngine.h"
 
 // Forward-declared: defined near the routing table below, used earlier by
-// -iconForItem: to badge image files distinctly.
+// -iconForItem: to badge image/audio/video files distinctly.
 static NSSet<NSString *> *ISHFileManagerImageExtensions(void);
+static NSSet<NSString *> *ISHFileManagerVideoExtensions(void);
 
 static const CGFloat kFileManagerSidebarWidth = 180.0;
 static const CGFloat kFileManagerSidebarCollapseThreshold = 520.0;
@@ -532,6 +535,12 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
             [weakSelf duplicateItem:item];
         }]];
     }
+    if (item.kind == ISHGuestFileKindDirectory) {
+        [actions addObject:[UIAction actionWithTitle:@"Add Folder to Music" image:[UIImage systemImageNamed:@"music.note.list"]
+                                           identifier:nil handler:^(UIAction *action) {
+            [weakSelf addFolderToMusic:item];
+        }]];
+    }
     [actions addObject:[UIAction actionWithTitle:@"Rename…" image:[UIImage systemImageNamed:@"pencil"]
                                        identifier:nil handler:^(UIAction *action) {
         [weakSelf promptRenameItem:item];
@@ -576,7 +585,14 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
         symbolName = @"folder";
     } else if (item.kind == ISHGuestFileKindRegular) {
         NSString *ext = item.name.pathExtension.lowercaseString;
-        symbolName = (ext.length > 0 && [ISHFileManagerImageExtensions() containsObject:ext]) ? @"photo" : @"doc.text";
+        if (ext.length > 0 && [ISHFileManagerImageExtensions() containsObject:ext])
+            symbolName = @"photo";
+        else if (ext.length > 0 && [ISHFileManagerVideoExtensions() containsObject:ext])
+            symbolName = @"film";
+        else if ([ISHAudioLibrary isSupportedAudioFileName:item.name])
+            symbolName = @"music.note";
+        else
+            symbolName = @"doc.text";
     } else {
         symbolName = @"questionmark.square";
     }
@@ -640,9 +656,8 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 
 // Markdown and image extensions get their dedicated viewers. Other known-text
 // extensions skip the content sniff below and route straight to MotePad.
-// Known-binary extensions with no viewer (video/audio/archives/office/fonts)
-// always report no route rather than guessing from content -- those land in
-// later phases.
+// Known-binary extensions with no viewer (archives/office/fonts) always
+// report no route rather than guessing from content.
 static NSSet<NSString *> *ISHFileManagerMarkdownExtensions(void) {
     static NSSet<NSString *> *set;
     static dispatch_once_t once;
@@ -660,6 +675,19 @@ static NSSet<NSString *> *ISHFileManagerImageExtensions(void) {
     dispatch_once(&once, ^{
         set = [NSSet setWithArray:@[@"png", @"jpg", @"jpeg", @"gif", @"bmp", @"tiff", @"tif", @"heic", @"heif", @"webp", @"ico"]];
     });
+    return set;
+}
+
+// The video player doesn't pre-filter by extension internally (it hands
+// anything to AVPlayer and surfaces whatever real error AVFoundation
+// reports), but the file manager still needs a list to decide whether a tap
+// should open the player at all -- includes containers AVFoundation may not
+// actually support (mkv/webm) so those get a real in-player error instead of
+// a flat "no viewer" from here.
+static NSSet<NSString *> *ISHFileManagerVideoExtensions(void) {
+    static NSSet<NSString *> *set;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ set = [NSSet setWithArray:@[@"mp4", @"mov", @"m4v", @"avi", @"mkv", @"webm"]]; });
     return set;
 }
 
@@ -684,8 +712,6 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
     dispatch_once(&once, ^{
         set = [NSSet setWithArray:@[
             @"svg",
-            @"mp4", @"mov", @"m4v", @"avi", @"mkv", @"webm",
-            @"mp3", @"m4a", @"aac", @"flac", @"ogg", @"opus", @"wav",
             @"zip", @"tar", @"gz", @"bz2", @"xz", @"7z", @"rar",
             @"pdf", @"doc", @"docx", @"xls", @"xlsx", @"ppt", @"pptx",
             @"so", @"dylib", @"dll", @"exe", @"o", @"a", @"bin",
@@ -710,6 +736,14 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
     }
     if (ext.length > 0 && [ISHFileManagerImageExtensions() containsObject:ext]) {
         completion(@"imageviewer");
+        return;
+    }
+    if (ext.length > 0 && [ISHFileManagerVideoExtensions() containsObject:ext]) {
+        completion(@"videoplayer");
+        return;
+    }
+    if ([ISHAudioLibrary isSupportedAudioFileName:item.name]) {
+        completion(@"audio");
         return;
     }
     if (ext.length > 0 && [ISHFileManagerKnownTextExtensions() containsObject:ext]) {
@@ -853,6 +887,30 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
         }
         [strongSelf reload];
     }];
+}
+
+// scanGuestDirectoryAtPath: is a blocking VFS walk (borrows the guest task
+// context, like every other GuestFileBridge/AudioLibrary operation) -- run it
+// off the main thread, matching how AudioPlayerEngine.m itself resolves
+// tracks on its own decode queue rather than main.
+- (void)addFolderToMusic:(ISHGuestFileItem *)item {
+    __weak typeof(self) weakSelf = self;
+    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+        NSArray<ISHAudioTrack *> *tracks = [ISHAudioLibrary.sharedLibrary scanGuestDirectoryAtPath:item.guestPath];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) strongSelf = weakSelf;
+            if (strongSelf == nil) return;
+            if (tracks.count == 0) {
+                [strongSelf presentSimpleAlertWithTitle:@"No Audio Found"
+                                                 message:[NSString stringWithFormat:@"“%@” doesn’t contain any supported audio files.", item.name]];
+                return;
+            }
+            [ISHAudioPlayerEngine.sharedEngine enqueueTracks:tracks];
+            [strongSelf presentSimpleAlertWithTitle:@"Added to Music"
+                                             message:[NSString stringWithFormat:@"Added %lu track%@ to the Music queue.",
+                                                       (unsigned long)tracks.count, tracks.count == 1 ? @"" : @"s"]];
+        });
+    });
 }
 
 - (void)confirmDeleteItem:(ISHGuestFileItem *)item {

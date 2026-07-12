@@ -15,6 +15,7 @@
 #import "WorkspaceFileManager.h"
 #import "WorkspaceMarkdownViewer.h"
 #import "WorkspaceImageViewer.h"
+#import "WorkspaceVideoPlayer.h"
 #import "UIApplication+OpenURL.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
@@ -120,6 +121,7 @@ static NSString *const ISHWorkspaceToolMotePadIdentifier = @"motepad";
 static NSString *const ISHWorkspaceToolFileManagerIdentifier = @"filemanager";
 static NSString *const ISHWorkspaceToolMarkdownViewerIdentifier = @"markdown";
 static NSString *const ISHWorkspaceToolImageViewerIdentifier = @"imageviewer";
+static NSString *const ISHWorkspaceToolVideoPlayerIdentifier = @"videoplayer";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -319,6 +321,8 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"imageviewer": ISHWorkspaceToolImageViewerIdentifier,
         @"image": ISHWorkspaceToolImageViewerIdentifier,
         @"img": ISHWorkspaceToolImageViewerIdentifier,
+        @"videoplayer": ISHWorkspaceToolVideoPlayerIdentifier,
+        @"video": ISHWorkspaceToolVideoPlayerIdentifier,
     };
     return map[token];
 }
@@ -922,6 +926,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(340, 460);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
             return CGSizeMake(340, 420);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
+            return CGSizeMake(340, 260);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -966,6 +972,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(620, 640);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
         return CGSizeMake(620, 520);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
+        return CGSizeMake(720, 460);
     return CGSizeMake(720, 640);
 }
 
@@ -1056,6 +1064,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(260, 260);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
             return CGSizeMake(240, 240);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
+            return CGSizeMake(240, 180);
         return CGSizeMake(300, 220);
     }
 
@@ -1095,6 +1105,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(360, 320);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
         return CGSizeMake(320, 280);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
+        return CGSizeMake(320, 220);
     return CGSizeZero;
 }
 
@@ -1162,6 +1174,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Markdown";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
         return @"Image Viewer";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
+        return @"Video Player";
     return @"Window";
 }
 
@@ -2480,6 +2494,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceMarkdownViewerToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
         return [WorkspaceImageViewerToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
+        return [WorkspaceVideoPlayerToolViewController new];
     return nil;
 }
 
@@ -2526,6 +2542,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolMarkdownViewerIdentifier;
     if ([viewController isKindOfClass:WorkspaceImageViewerToolViewController.class])
         return ISHWorkspaceToolImageViewerIdentifier;
+    if ([viewController isKindOfClass:WorkspaceVideoPlayerToolViewController.class])
+        return ISHWorkspaceToolVideoPlayerIdentifier;
     return nil;
 }
 
@@ -5496,6 +5514,7 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
             @"items": @[
                 @{@"title": @"Markdown", @"identifier": ISHWorkspaceToolMarkdownViewerIdentifier},
                 @{@"title": @"Image Viewer", @"identifier": ISHWorkspaceToolImageViewerIdentifier},
+                @{@"title": @"Video Player", @"identifier": ISHWorkspaceToolVideoPlayerIdentifier},
             ],
         },
         @{
@@ -9924,7 +9943,7 @@ static UIColor *ISHAudioHexColor(uint32_t hex) {
 
 @end
 
-@interface WorkspaceAudioPlayerToolViewController () <UITableViewDataSource, UITableViewDelegate>
+@interface WorkspaceAudioPlayerToolViewController () <UITableViewDataSource, UITableViewDelegate, WorkspaceFileOpenable>
 @end
 
 @implementation WorkspaceAudioPlayerToolViewController {
@@ -9952,6 +9971,16 @@ static UIColor *ISHAudioHexColor(uint32_t hex) {
 }
 
 - (ISHAudioPlayerEngine *)engine { return ISHAudioPlayerEngine.sharedEngine; }
+
+// WorkspaceFileOpenable: "open" replaces the queue with just this track and
+// plays it (Finder/double-click semantics), rather than appending -- that's
+// what "Add Folder to Music" in the File Manager's directory context menu is
+// for. setQueue:startIndex: resolves the guest path and decodes on the
+// engine's own background queue; nothing here needs its own VFS threading.
+- (void)workspaceOpenFileAtGuestPath:(NSString *)guestPath {
+    ISHAudioTrack *track = [[ISHAudioTrack alloc] initWithGuestPath:guestPath];
+    [self.engine setQueue:@[track] startIndex:0];
+}
 
 - (void)viewDidLoad {
     [super viewDidLoad];
