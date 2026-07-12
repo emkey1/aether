@@ -14,6 +14,8 @@
 provision-ultimate-alpine.sh
 provision-ultimate-devuan.sh
 mount-root.sh
+setup-wayland.sh
+start-wayland.sh
 ktop/ktop.c
 ktop/Makefile
 ktop/build.sh

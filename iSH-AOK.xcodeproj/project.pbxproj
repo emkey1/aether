@@ -22,9 +22,16 @@
 
 /* Begin PBXBuildFile section */
 		07430ECDFB3BADD4102D3854 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */; };
+		08B8DE8241C32EBCB4682895 /* display.html in Resources */ = {isa = PBXBuildFile; fileRef = 4FBC2E782E3D476AE3FFFBDB /* display.html */; };
 		0FC2383C2991FBA6004C09EC /* mmx.c in Sources */ = {isa = PBXBuildFile; fileRef = 0FC2383B2991FB82004C09EC /* mmx.c */; };
+		2467269437B203C877862943 /* display.css in Resources */ = {isa = PBXBuildFile; fileRef = 661D111B4C5CC46D2FE7C119 /* display.css */; };
+		253CB8D42AB1EC52F9A3B954 /* novnc in Resources */ = {isa = PBXBuildFile; fileRef = 6B6737CF2813C4E0E29A4F9A /* novnc */; };
+		2660BC0640E432A39A96729B /* DisplayNetworkBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 3A6792C5BC8AC798819DA14F /* DisplayNetworkBridge.m */; };
 		29DEBACFDDF2AA4566B488EF /* audiocodecs.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F264C7242E0E51BAA5B5CF3 /* audiocodecs.xcframework */; };
+		2E93B4EE793B2F3424392363 /* DisplayViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 336DFB895C466449FA941BEF /* DisplayViewController.m */; };
 		3507455F518BE9C7E4BBB938 /* AudioPCMDecoder_Vorbis.m in Sources */ = {isa = PBXBuildFile; fileRef = 340B757F7B6F0A41BD73AE7D /* AudioPCMDecoder_Vorbis.m */; };
+		3CFB2CDE11FC08241BE3BAA3 /* GuestFileBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 04D500F4AD345B478159A9D2 /* GuestFileBridge.m */; };
+		400B158EC5B0ECEB2F4302B2 /* display.js in Resources */ = {isa = PBXBuildFile; fileRef = B110D540E4E832A04EB18ED4 /* display.js */; };
 		491B31E62883BF22008EEFB0 /* ThemeViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 491B31E52883BF22008EEFB0 /* ThemeViewController.m */; };
 		49302D8E277669D300C9885A /* ish.c in Sources */ = {isa = PBXBuildFile; fileRef = 49302D8D277669D300C9885A /* ish.c */; };
 		496C7AB227CC697E005D7613 /* Theme.m in Sources */ = {isa = PBXBuildFile; fileRef = 491C4C1E27C8FB65008B1DFA /* Theme.m */; };
@@ -107,13 +114,8 @@
 		497F6D3D254E5EA600C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
-		5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */; };
-		3CFB2CDE11FC08241BE3BAA3 /* GuestFileBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 04D500F4AD345B478159A9D2 /* GuestFileBridge.m */; };
-		E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */; };
-		AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */; };
-		826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */; };
 		54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */; };
-		FF0F1FAE84EA95701F222D85 /* WorkspaceVideoPlayer.m in Sources */ = {isa = PBXBuildFile; fileRef = 01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */; };
+		5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */; };
 		5D4E7DF82B1E68EB006BA7D4 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
 		5D4E7DFA2B1E68F6006BA7D4 /* rw_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DAE32B17EB1600FA995C /* rw_locks.c */; };
 		5D7E7E152B1FD4890087F2E0 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
@@ -130,9 +132,12 @@
 		5DD383EB2AAE33330013A847 /* UIDevice.m in Sources */ = {isa = PBXBuildFile; fileRef = 5DD383EA2AAE33330013A847 /* UIDevice.m */; };
 		64CE50B26A1362B804F817ED /* AudioPCMDecoder_AVF.m in Sources */ = {isa = PBXBuildFile; fileRef = 753D59F184017DDADD8F541A /* AudioPCMDecoder_AVF.m */; };
 		7D1582A708E54A98CEF01901 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27540C36CB55E575C077AB88 /* AVFoundation.framework */; };
+		826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */; };
 		8373773A4AE4AA88C0E3CCBC /* AudioLibrary.m in Sources */ = {isa = PBXBuildFile; fileRef = F9B4AFAD2A89EB3E27D10A36 /* AudioLibrary.m */; };
 		97ABBD170D9DA6A9B0481FE5 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */; };
 		9C2BEE382C85ECD21A4672CA /* AudioPCMDecoder_Opus.m in Sources */ = {isa = PBXBuildFile; fileRef = 0877CBCD3AD3639A48727F42 /* AudioPCMDecoder_Opus.m */; };
+		A1A88C53E652F07D631C47BA /* novnc in Resources */ = {isa = PBXBuildFile; fileRef = 6B6737CF2813C4E0E29A4F9A /* novnc */; };
+		AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */; };
 		B115F7067DF5415ECA19F2C3 /* AudioPCMDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = 2D2CE94AE68FC33023A693E0 /* AudioPCMDecoder.m */; };
 		B5B659AF30978A9998EF8AB6 /* audiocodecs.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F264C7242E0E51BAA5B5CF3 /* audiocodecs.xcframework */; };
 		BB0F552E239F8A790032A2A1 /* Icons.plist in Resources */ = {isa = PBXBuildFile; fileRef = BB0F552D239F8A790032A2A1 /* Icons.plist */; };
@@ -279,15 +284,20 @@
 		C0A000012E00000100000003 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0A000012E00000100000009 /* AudioToolbox.framework */; };
 		C0A000012E00000100000004 /* AudioToolbox.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = C0A000012E00000100000009 /* AudioToolbox.framework */; };
 		C0A000022E00000200000001 /* aok.c in Sources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000002 /* aok.c */; };
-		C0A000022E00000200000003 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
-		C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
-		C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */; };
-		C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */; };
+		C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */; };
+		C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */; };
+		C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */; };
+		C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */ = {isa = PBXBuildFile; fileRef = C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */; };
 		C0A000032E00000300000001 /* WorkspaceViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = C0A000032E00000300000003 /* WorkspaceViewController.m */; };
-		C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
-		C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */; };
+		C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
+		C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
 		D655F8B9294AA603BF1C430A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27540C36CB55E575C077AB88 /* AVFoundation.framework */; };
 		DC09D58C8595F3ACD279A0D2 /* AudioPlayerEngine.m in Sources */ = {isa = PBXBuildFile; fileRef = 59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */; };
+		E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */; };
+		ED49EC9B9F4C84462B299D08 /* display.js in Resources */ = {isa = PBXBuildFile; fileRef = B110D540E4E832A04EB18ED4 /* display.js */; };
+		F06148C61694C8CD434FA5CB /* display.html in Resources */ = {isa = PBXBuildFile; fileRef = 4FBC2E782E3D476AE3FFFBDB /* display.html */; };
+		F9CE1D5941F7A989E4053F62 /* display.css in Resources */ = {isa = PBXBuildFile; fileRef = 661D111B4C5CC46D2FE7C119 /* display.css */; };
+		FF0F1FAE84EA95701F222D85 /* WorkspaceVideoPlayer.m in Sources */ = {isa = PBXBuildFile; fileRef = 01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXBuildRule section */
@@ -466,15 +476,23 @@
 /* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
+		01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceVideoPlayer.m; sourceTree = "<group>"; };
+		04D500F4AD345B478159A9D2 /* GuestFileBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = GuestFileBridge.m; sourceTree = "<group>"; };
 		0877CBCD3AD3639A48727F42 /* AudioPCMDecoder_Opus.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPCMDecoder_Opus.m; sourceTree = "<group>"; };
 		0FC2383B2991FB82004C09EC /* mmx.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = mmx.c; sourceTree = "<group>"; };
 		27540C36CB55E575C077AB88 /* AVFoundation.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AVFoundation.framework; path = System/Library/Frameworks/AVFoundation.framework; sourceTree = SDKROOT; };
 		2D2CE94AE68FC33023A693E0 /* AudioPCMDecoder.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPCMDecoder.m; sourceTree = "<group>"; };
+		336DFB895C466449FA941BEF /* DisplayViewController.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DisplayViewController.m; sourceTree = "<group>"; };
 		339C4B7260DE3DF9776043F8 /* AudioPCMDecoder.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPCMDecoder.h; sourceTree = "<group>"; };
 		340B757F7B6F0A41BD73AE7D /* AudioPCMDecoder_Vorbis.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPCMDecoder_Vorbis.m; sourceTree = "<group>"; };
+		3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceMarkdownViewer.m; sourceTree = "<group>"; };
+		3A6792C5BC8AC798819DA14F /* DisplayNetworkBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DisplayNetworkBridge.m; sourceTree = "<group>"; };
 		3F264C7242E0E51BAA5B5CF3 /* audiocodecs.xcframework */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = wrapper.xcframework; name = audiocodecs.xcframework; path = "deps/audiocodecs-static/audiocodecs.xcframework"; sourceTree = SOURCE_ROOT; };
 		408A2639236440F8008A4E81 /* iOSFS.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = iOSFS.m; sourceTree = "<group>"; };
 		408A263B23644102008A4E81 /* iOSFS.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = iOSFS.h; sourceTree = "<group>"; };
+		438B54F5AE6878B6B1BF54F1 /* WorkspaceMarkdownViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceMarkdownViewer.h; sourceTree = "<group>"; };
+		461ED952F7CB7E4FBF484A4E /* WorkspaceVideoPlayer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceVideoPlayer.h; sourceTree = "<group>"; };
+		46F9CCCA8673E426A3B257F5 /* DisplayViewController.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DisplayViewController.h; sourceTree = "<group>"; };
 		49087C13295DF0490058075B /* hook.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = hook.h; sourceTree = "<group>"; };
 		49087C14295DF0490058075B /* hook.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = hook.c; sourceTree = "<group>"; };
 		49087C26295DF1350058075B /* mach_exc.defs */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.mig; name = mach_exc.defs; path = Platforms/MacOSX.platform/Developer/SDKs/MacOSX.sdk/usr/include/mach/mach_exc.defs; sourceTree = DEVELOPER_DIR; };
@@ -635,19 +653,9 @@
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
 		497F6D47254E605F00C82F46 /* ish */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MotePadDocumentStore.m; sourceTree = "<group>"; };
+		4FBC2E782E3D476AE3FFFBDB /* display.html */ = {isa = PBXFileReference; includeInIndex = 1; path = display.html; sourceTree = "<group>"; };
 		56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MotePadDocumentStore.h; sourceTree = "<group>"; };
-		04D500F4AD345B478159A9D2 /* GuestFileBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = GuestFileBridge.m; sourceTree = "<group>"; };
-		F6CFEC30BC981057316A8873 /* GuestFileBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = GuestFileBridge.h; sourceTree = "<group>"; };
 		57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MarkdownRenderer.m; sourceTree = "<group>"; };
-		761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MarkdownRenderer.h; sourceTree = "<group>"; };
-		8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceFileManager.m; sourceTree = "<group>"; };
-		C9934D01E356E81EDFCCD344 /* WorkspaceFileManager.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceFileManager.h; sourceTree = "<group>"; };
-		3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceMarkdownViewer.m; sourceTree = "<group>"; };
-		438B54F5AE6878B6B1BF54F1 /* WorkspaceMarkdownViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceMarkdownViewer.h; sourceTree = "<group>"; };
-		8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceImageViewer.m; sourceTree = "<group>"; };
-		C100D3488E931E73E9A1AC8C /* WorkspaceImageViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceImageViewer.h; sourceTree = "<group>"; };
-		01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceVideoPlayer.m; sourceTree = "<group>"; };
-		461ED952F7CB7E4FBF484A4E /* WorkspaceVideoPlayer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceVideoPlayer.h; sourceTree = "<group>"; };
 		59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPlayerEngine.m; sourceTree = "<group>"; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
@@ -670,12 +678,19 @@
 		5DD383EC2AAE33920013A847 /* UIDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UIDevice.h; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
+		661D111B4C5CC46D2FE7C119 /* display.css */ = {isa = PBXFileReference; includeInIndex = 1; path = display.css; sourceTree = "<group>"; };
+		6B6737CF2813C4E0E29A4F9A /* novnc */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = novnc; path = ../../deps/novnc; sourceTree = "<group>"; };
+		72A1CBF6CC6C925A15953A8A /* DisplayNetworkBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DisplayNetworkBridge.h; sourceTree = "<group>"; };
 		753D59F184017DDADD8F541A /* AudioPCMDecoder_AVF.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPCMDecoder_AVF.m; sourceTree = "<group>"; };
+		761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MarkdownRenderer.h; sourceTree = "<group>"; };
 		8632A7BD219A59FB00F02325 /* UserPreferences.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UserPreferences.h; sourceTree = "<group>"; };
 		8632A7BE219A59FB00F02325 /* UserPreferences.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = UserPreferences.m; sourceTree = "<group>"; };
+		8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceImageViewer.m; sourceTree = "<group>"; };
+		8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceFileManager.m; sourceTree = "<group>"; };
 		9A28E4E8219A8B670073D200 /* AboutAppearanceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutAppearanceViewController.h; sourceTree = "<group>"; };
 		9A28E4E9219A8B670073D200 /* AboutAppearanceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutAppearanceViewController.m; sourceTree = "<group>"; };
 		B023928FD74F4E108378A110 /* AudioPlayerEngine.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPlayerEngine.h; sourceTree = "<group>"; };
+		B110D540E4E832A04EB18ED4 /* display.js */ = {isa = PBXFileReference; includeInIndex = 1; path = display.js; sourceTree = "<group>"; };
 		BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDefault.xcconfig; sourceTree = "<group>"; };
 		BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDebug.xcconfig; sourceTree = "<group>"; };
 		BB0B859C2586F19000208600 /* XcodeRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeRelease.xcconfig; sourceTree = "<group>"; };
@@ -834,14 +849,17 @@
 		C0A000012E00000100000008 /* AudioOutput.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AudioOutput.h; sourceTree = "<group>"; };
 		C0A000012E00000100000009 /* AudioToolbox.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = AudioToolbox.framework; path = System/Library/Frameworks/AudioToolbox.framework; sourceTree = SDKROOT; };
 		C0A000022E00000200000002 /* aok.c */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.c; path = aok.c; sourceTree = "<group>"; };
-		C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
-		C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
+		C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */ = {isa = PBXFileReference; lastKnownFileType = audio; path = "tests/audio/test-tone-48k-s16le-stereo.raw"; sourceTree = SOURCE_ROOT; };
+		C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */ = {isa = PBXFileReference; lastKnownFileType = audio.wav; path = "tests/audio/test-tone-48k-s16le-stereo.wav"; sourceTree = SOURCE_ROOT; };
 		C0A000032E00000300000002 /* WorkspaceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = WorkspaceViewController.h; sourceTree = "<group>"; };
 		C0A000032E00000300000003 /* WorkspaceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = WorkspaceViewController.m; sourceTree = "<group>"; };
-		C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
+		C0A000042E00000400000003 /* iSH_benchmark.tgz */ = {isa = PBXFileReference; lastKnownFileType = archive.gzip; path = tools/iSH_benchmark.tgz; sourceTree = SOURCE_ROOT; };
+		C100D3488E931E73E9A1AC8C /* WorkspaceImageViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceImageViewer.h; sourceTree = "<group>"; };
+		C9934D01E356E81EDFCCD344 /* WorkspaceFileManager.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceFileManager.h; sourceTree = "<group>"; };
 		DB5F3377782D953C463D3F4C /* AudioLibrary.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioLibrary.h; sourceTree = "<group>"; };
 		EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = MediaPlayer.framework; path = System/Library/Frameworks/MediaPlayer.framework; sourceTree = SDKROOT; };
 		F2335E04AD7BA30533F45B20 /* AudioPCMDecoder_Internal.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPCMDecoder_Internal.h; sourceTree = "<group>"; };
+		F6CFEC30BC981057316A8873 /* GuestFileBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = GuestFileBridge.h; sourceTree = "<group>"; };
 		F9B4AFAD2A89EB3E27D10A36 /* AudioLibrary.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioLibrary.m; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -1208,9 +1226,9 @@
 				BB88F4A4215476BA00A341FD /* iSH.entitlements */,
 				BB88F4912154760800A341FD /* FileProvider */,
 				BB41591D255EF9E300E0950C /* UITests */,
-				C0A000022E00000200000007 /* tests/audio/test-tone-48k-s16le-stereo.raw */,
-				C0A000022E00000200000008 /* tests/audio/test-tone-48k-s16le-stereo.wav */,
-				C0A000042E00000400000003 /* tools/iSH_benchmark.tgz */,
+				C0A000022E00000200000007 /* test-tone-48k-s16le-stereo.raw */,
+				C0A000022E00000200000008 /* test-tone-48k-s16le-stereo.wav */,
+				C0A000042E00000400000003 /* iSH_benchmark.tgz */,
 				5D8CFA842B1198B300D50E57 /* RTCDevice.m */,
 				5D8CFA882B1198DB00D50E57 /* RTCDevice.h */,
 				59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */,
@@ -1237,6 +1255,11 @@
 				8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */,
 				461ED952F7CB7E4FBF484A4E /* WorkspaceVideoPlayer.h */,
 				01BF35C50FE269DF759E5D59 /* WorkspaceVideoPlayer.m */,
+				46F9CCCA8673E426A3B257F5 /* DisplayViewController.h */,
+				336DFB895C466449FA941BEF /* DisplayViewController.m */,
+				72A1CBF6CC6C925A15953A8A /* DisplayNetworkBridge.h */,
+				3A6792C5BC8AC798819DA14F /* DisplayNetworkBridge.m */,
+				E6AA55A551C9DD9A3AD49B55 /* display */,
 			);
 			path = app;
 			sourceTree = "<group>";
@@ -1526,6 +1549,18 @@
 				BBFB557F21587B6800DFE6DE /* ArrowBarButton.m */,
 			);
 			name = Bar;
+			sourceTree = "<group>";
+		};
+		E6AA55A551C9DD9A3AD49B55 /* display */ = {
+			isa = PBXGroup;
+			children = (
+				4FBC2E782E3D476AE3FFFBDB /* display.html */,
+				661D111B4C5CC46D2FE7C119 /* display.css */,
+				B110D540E4E832A04EB18ED4 /* display.js */,
+				6B6737CF2813C4E0E29A4F9A /* novnc */,
+			);
+			name = display;
+			path = display;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -1935,9 +1970,13 @@
 				BB38599F27BCEE6B000A1082 /* icon1337.png in Resources */,
 				BB3859A127BCEE6B000A1082 /* iinhash.png in Resources */,
 				BB38599727BCEE6B000A1082 /* freeiosterminal.png in Resources */,
-				C0A000022E00000200000003 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */,
-				C0A000022E00000200000004 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */,
-				C0A000042E00000400000001 /* tools/iSH_benchmark.tgz in Resources */,
+				C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */,
+				C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */,
+				C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */,
+				08B8DE8241C32EBCB4682895 /* display.html in Resources */,
+				2467269437B203C877862943 /* display.css in Resources */,
+				400B158EC5B0ECEB2F4302B2 /* display.js in Resources */,
+				A1A88C53E652F07D631C47BA /* novnc in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1984,9 +2023,13 @@
 				BBEF1995268066D1001225BD /* sprite64.png in Resources */,
 				BBEF1996268066D1001225BD /* icon.png in Resources */,
 				BB38598127BCEC78000A1082 /* freeiosterminal.png in Resources */,
-				C0A000022E00000200000005 /* tests/audio/test-tone-48k-s16le-stereo.raw in Resources */,
-				C0A000022E00000200000006 /* tests/audio/test-tone-48k-s16le-stereo.wav in Resources */,
-				C0A000042E00000400000002 /* tools/iSH_benchmark.tgz in Resources */,
+				C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */,
+				C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */,
+				C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */,
+				F06148C61694C8CD434FA5CB /* display.html in Resources */,
+				F9CE1D5941F7A989E4053F62 /* display.css in Resources */,
+				ED49EC9B9F4C84462B299D08 /* display.js in Resources */,
+				253CB8D42AB1EC52F9A3B954 /* novnc in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2435,6 +2478,8 @@
 				826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */,
 				54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */,
 				FF0F1FAE84EA95701F222D85 /* WorkspaceVideoPlayer.m in Sources */,
+				2E93B4EE793B2F3424392363 /* DisplayViewController.m in Sources */,
+				2660BC0640E432A39A96729B /* DisplayNetworkBridge.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -7,6 +7,7 @@
 #include "fs/devices.h"
 #include "kernel/init.h"
 #import "TerminalViewController.h"
+#import "DisplayViewController.h"
 #import "UserPreferences.h"
 #import "NSObject+SaneKVO.h"
 #import "AudioPlayerEngine.h"
@@ -122,6 +123,7 @@ static NSString *const ISHWorkspaceToolFileManagerIdentifier = @"filemanager";
 static NSString *const ISHWorkspaceToolMarkdownViewerIdentifier = @"markdown";
 static NSString *const ISHWorkspaceToolImageViewerIdentifier = @"imageviewer";
 static NSString *const ISHWorkspaceToolVideoPlayerIdentifier = @"videoplayer";
+static NSString *const ISHWorkspaceToolDisplayIdentifier = @"display";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -323,6 +325,9 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"img": ISHWorkspaceToolImageViewerIdentifier,
         @"videoplayer": ISHWorkspaceToolVideoPlayerIdentifier,
         @"video": ISHWorkspaceToolVideoPlayerIdentifier,
+        @"display": ISHWorkspaceToolDisplayIdentifier,
+        @"vnc": ISHWorkspaceToolDisplayIdentifier,
+        @"wayland": ISHWorkspaceToolDisplayIdentifier,
     };
     return map[token];
 }
@@ -928,6 +933,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(340, 420);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
             return CGSizeMake(340, 260);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
+            return CGSizeMake(344, 300);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -974,6 +981,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(620, 520);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
         return CGSizeMake(720, 460);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
+        return CGSizeMake(680, 480);
     return CGSizeMake(720, 640);
 }
 
@@ -1066,6 +1075,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(240, 240);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
             return CGSizeMake(240, 180);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
+            return CGSizeMake(280, 220);
         return CGSizeMake(300, 220);
     }
 
@@ -1107,6 +1118,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(320, 280);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
         return CGSizeMake(320, 220);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
+        return CGSizeMake(400, 300);
     return CGSizeZero;
 }
 
@@ -1176,6 +1189,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Image Viewer";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
         return @"Video Player";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
+        return @"Display";
     return @"Window";
 }
 
@@ -2496,6 +2511,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceImageViewerToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
         return [WorkspaceVideoPlayerToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
+        return [DisplayViewController new];
     return nil;
 }
 
@@ -2544,6 +2561,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolImageViewerIdentifier;
     if ([viewController isKindOfClass:WorkspaceVideoPlayerToolViewController.class])
         return ISHWorkspaceToolVideoPlayerIdentifier;
+    if ([viewController isKindOfClass:DisplayViewController.class])
+        return ISHWorkspaceToolDisplayIdentifier;
     return nil;
 }
 
@@ -4071,6 +4090,7 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         @{@"name": @"Markdown", @"command": @"{markdown}"},
         @{@"name": @"Image Viewer", @"command": @"{imageviewer}"},
         @{@"name": @"Video Player", @"command": @"{videoplayer}"},
+        @{@"name": @"Display", @"command": @"{display}"},
         @{@"name": @"Clock", @"command": @"{clock}"},
         @{@"name": @"Monitor", @"command": @"{monitor}"},
         @{@"name": @"Networks", @"command": @"{networks}"},
@@ -5535,6 +5555,7 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
                 @{@"title": @"Markdown", @"identifier": ISHWorkspaceToolMarkdownViewerIdentifier},
                 @{@"title": @"Image Viewer", @"identifier": ISHWorkspaceToolImageViewerIdentifier},
                 @{@"title": @"Video Player", @"identifier": ISHWorkspaceToolVideoPlayerIdentifier},
+                @{@"title": @"Display", @"identifier": ISHWorkspaceToolDisplayIdentifier},
             ],
         },
         @{
