@@ -1,0 +1,6 @@
+use module_lib_with_main;
+
+fn main() -> Void {
+    fx { println("consumer: ", libDouble(4)); }
+    ret;
+}

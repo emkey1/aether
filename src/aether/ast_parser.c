@@ -59,6 +59,7 @@
 #include "core/type_registry.h"
 #include "symbol/symbol.h"
 #include "rea/lexer.h"
+#include "rea/frontend_hooks.h"
 #include "aether/parser.h"
 #include "aether/semantic.h"
 #include "aether/diagnostics.h"
@@ -1477,7 +1478,8 @@ static HashTable *aetherEnsureProcedureTable(void) {
 /* Register a parsed function/procedure declaration so that calls resolve and
  * semantic analysis can find it -- exactly as rea's parseFunctionDecl does
  * (minus the class/module machinery, which Milestone 1 does not cover). */
-static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, bool hasBody) {
+static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, bool hasBody,
+                                    bool isMethod) {
     char lower_name[MAX_SYMBOL_LENGTH];
     strncpy(lower_name, name, sizeof(lower_name) - 1);
     lower_name[sizeof(lower_name) - 1] = '\0';
@@ -1520,8 +1522,15 @@ static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, b
     }
 
     /* For a class method `Class.method`, register a bare-name alias `method` so
-     * that `obj.method(...)` resolves -- exactly as rea parseFunctionDecl does. */
-    if (sym && sym_is_new && sym->name) {
+     * that `obj.method(...)` resolves -- exactly as rea parseFunctionDecl does
+     * (rea gates this on p->currentClassName; mirror that here with `isMethod`
+     * rather than just checking for a dot in the name). A module-qualified
+     * name ("ModuleName.funcname") also contains a dot but must NOT get this
+     * treatment: an unscoped bare alias here is shared by every module, so a
+     * second module declaring a same-named private helper would silently
+     * reuse (and never update) the first module's alias, making the second
+     * module's private helper permanently unreachable by its own bare name. */
+    if (isMethod && sym && sym_is_new && sym->name) {
         const char *dot = strrchr(sym->name, '.');
         const char *bare = (dot && *(dot + 1)) ? dot + 1 : NULL;
         if (bare && target_table && !hashTableLookup(target_table, bare)) {
@@ -5439,7 +5448,20 @@ static AST *parseFnDecl(AetherParser *p) {
         snprintf(qualifiedName, sizeof(qualifiedName), "%s.%s", p->currentModuleName, regName);
         regName = qualifiedName;
     }
-    registerFunctionSymbol(func, regName, vtype, hasBody);
+    /* A `use`d dependency file is parsed via its own, independent parse call
+     * (loadModuleRecursive), after the program's own entry file already
+     * registered its own top-level `main`. Without this guard, a dependency
+     * file's stray top-level `main` (declared outside any `mod { }` block,
+     * e.g. for the file's own standalone testing) reuses-and-overwrites the
+     * entry file's already-registered bare "main" symbol, silently making
+     * the dependency's main the program's entry point instead. Mirrors the
+     * identical guard in rea's own parser.c function-registration tail. */
+    bool suppressRegistration = !isMethod && !(p->currentModuleName && *p->currentModuleName) &&
+                                 reaFrontendIsParsingLibraryFile() &&
+                                 strcasecmp(regName, "main") == 0;
+    if (!suppressRegistration) {
+        registerFunctionSymbol(func, regName, vtype, hasBody, isMethod);
+    }
     return func;
 }
 
