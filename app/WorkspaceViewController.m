@@ -4067,6 +4067,10 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         @{@"name": @"Web Browser", @"command": @"{browser}"},
         @{@"name": @"Music", @"command": @"{music}"},
         @{@"name": @"MotePad", @"command": @"{motepad}"},
+        @{@"name": @"File Manager", @"command": @"{files}"},
+        @{@"name": @"Markdown", @"command": @"{markdown}"},
+        @{@"name": @"Image Viewer", @"command": @"{imageviewer}"},
+        @{@"name": @"Video Player", @"command": @"{videoplayer}"},
         @{@"name": @"Clock", @"command": @"{clock}"},
         @{@"name": @"Monitor", @"command": @"{monitor}"},
         @{@"name": @"Networks", @"command": @"{networks}"},
@@ -4512,7 +4516,7 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentUtilsDockActionsFromView:self.desktopSurfaceView];
+            [self presentUtilsDockActionsFromView:sourceView];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Settings"
@@ -4524,7 +4528,7 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         dispatch_async(dispatch_get_main_queue(), ^{
-            [self presentWorkspaceStyleChooserFromView:self.desktopSurfaceView];
+            [self presentWorkspaceStyleChooserFromView:sourceView];
         });
     }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
