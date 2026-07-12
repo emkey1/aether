@@ -58,7 +58,8 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     UIButton *_backButton;
     UIButton *_forwardButton;
     UIButton *_upButton;
-    UILabel *_pathLabel;
+    UIScrollView *_pathScrollView;   // breadcrumb: one tappable button per path component
+    UIStackView *_pathStack;
     UIButton *_moreButton;
 
     UITableView *_tableView;
@@ -74,6 +75,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     NSError *_loadError;
     BOOL _loading;
     NSInteger _loadGeneration;                // discards stale async listings
+    int64_t _availableBytes;                  // statfs free space of the current mount, 0 = no figure
 
     WorkspaceFileManagerSortMode _sortMode;
     BOOL _showHidden;
@@ -149,6 +151,56 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     _sidebarWidthConstraint.constant = hideSidebar ? 0 : kFileManagerSidebarWidth;
 }
 
+#pragma mark Hardware keyboard
+
+// Key commands are collected along the first-responder chain, and this
+// applet has no text input to anchor it there (MotePad's shortcuts work
+// because its UITextView is first responder) -- so the view controller
+// itself participates: it takes first responder when its window appears and
+// again on any row tap, and yields naturally when the user focuses a
+// terminal or another editor.
+- (BOOL)canBecomeFirstResponder {
+    return YES;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self becomeFirstResponder];
+}
+
+// Only shortcuts that don't require row selection -- the tap-to-open
+// interaction model has no persistent selection to operate on. Selection-
+// dependent shortcuts (return-to-open, cmd-delete, space preview) arrive
+// with multi-select.
+- (NSArray<UIKeyCommand *> *)keyCommands {
+    UIKeyCommand *up = [UIKeyCommand keyCommandWithInput:UIKeyInputUpArrow modifierFlags:UIKeyModifierCommand action:@selector(navigateUp)];
+    up.discoverabilityTitle = @"Enclosing Folder";
+    UIKeyCommand *back = [UIKeyCommand keyCommandWithInput:@"[" modifierFlags:UIKeyModifierCommand action:@selector(navigateBack)];
+    back.discoverabilityTitle = @"Back";
+    UIKeyCommand *forward = [UIKeyCommand keyCommandWithInput:@"]" modifierFlags:UIKeyModifierCommand action:@selector(navigateForward)];
+    forward.discoverabilityTitle = @"Forward";
+    UIKeyCommand *hidden = [UIKeyCommand keyCommandWithInput:@"." modifierFlags:UIKeyModifierCommand | UIKeyModifierShift action:@selector(toggleHiddenFiles)];
+    hidden.discoverabilityTitle = @"Show/Hide Hidden Files";
+    UIKeyCommand *refresh = [UIKeyCommand keyCommandWithInput:@"r" modifierFlags:UIKeyModifierCommand action:@selector(reload)];
+    refresh.discoverabilityTitle = @"Refresh";
+    UIKeyCommand *newWindow = [UIKeyCommand keyCommandWithInput:@"n" modifierFlags:UIKeyModifierCommand action:@selector(openNewWindowHere)];
+    newWindow.discoverabilityTitle = @"New File Manager Window";
+    return @[up, back, forward, hidden, refresh, newWindow];
+}
+
+- (void)openNewWindowHere {
+    // The routing entry point opens a fresh (non-singleton) window and
+    // delivers the path; our dir-aware open then navigates straight into it.
+    [self.workspaceHostViewController openWorkspaceToolWithIdentifier:@"filemanager" fileGuestPath:_currentPath];
+}
+
+- (void)toggleHiddenFiles {
+    _showHidden = !_showHidden;
+    [NSUserDefaults.standardUserDefaults setBool:_showHidden forKey:kFileManagerShowHiddenDefaultsKey];
+    [self applyFilterAndSort];
+    [self refreshMoreMenu];
+}
+
 #pragma mark View construction
 
 - (void)buildSidebar {
@@ -189,15 +241,33 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     _moreButton = [self toolbarIconButtonNamed:@"ellipsis.circle" action:nil];
     _moreButton.showsMenuAsPrimaryAction = YES;
 
-    _pathLabel = [UILabel new];
-    _pathLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    _pathLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
-    _pathLabel.lineBreakMode = NSLineBreakByTruncatingHead;
-    _pathLabel.textAlignment = NSTextAlignmentCenter;
-    // The label absorbs the squeeze on long paths; the nav buttons must not.
-    [_pathLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    // Finder-style breadcrumb: one button per path component inside a
+    // horizontal scroll view, so deep paths scroll rather than squeezing the
+    // nav buttons out. Buttons are rebuilt on every navigation.
+    _pathScrollView = [UIScrollView new];
+    _pathScrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    _pathScrollView.showsHorizontalScrollIndicator = NO;
+    _pathScrollView.showsVerticalScrollIndicator = NO;
+    [_pathScrollView setContentHuggingPriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
+    [_pathScrollView setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
-    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_backButton, _forwardButton, _upButton, _pathLabel, _moreButton]];
+    _pathStack = [UIStackView new];
+    _pathStack.translatesAutoresizingMaskIntoConstraints = NO;
+    _pathStack.axis = UILayoutConstraintAxisHorizontal;
+    _pathStack.alignment = UIStackViewAlignmentCenter;
+    _pathStack.spacing = 2.0;
+    [_pathScrollView addSubview:_pathStack];
+
+    [NSLayoutConstraint activateConstraints:@[
+        [_pathStack.leadingAnchor constraintEqualToAnchor:_pathScrollView.contentLayoutGuide.leadingAnchor],
+        [_pathStack.trailingAnchor constraintEqualToAnchor:_pathScrollView.contentLayoutGuide.trailingAnchor],
+        [_pathStack.topAnchor constraintEqualToAnchor:_pathScrollView.contentLayoutGuide.topAnchor],
+        [_pathStack.bottomAnchor constraintEqualToAnchor:_pathScrollView.contentLayoutGuide.bottomAnchor],
+        [_pathStack.heightAnchor constraintEqualToAnchor:_pathScrollView.frameLayoutGuide.heightAnchor],
+        [_pathScrollView.heightAnchor constraintEqualToConstant:kFileManagerToolbarHeight - 12.0],
+    ]];
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_backButton, _forwardButton, _upButton, _pathScrollView, _moreButton]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
     stack.axis = UILayoutConstraintAxisHorizontal;
     stack.alignment = UIStackViewAlignmentCenter;
@@ -209,6 +279,56 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
         [stack.trailingAnchor constraintEqualToAnchor:_toolbarView.trailingAnchor constant:-10],
         [stack.centerYAnchor constraintEqualToAnchor:_toolbarView.centerYAnchor],
     ]];
+}
+
+// One tappable button per path component ("/" plus each directory), the last
+// one rendered as the current location. Buttons carry their target path in a
+// UIAction, so there's nothing to look up on tap.
+- (void)rebuildBreadcrumb {
+    for (UIView *subview in _pathStack.arrangedSubviews.copy) {
+        [_pathStack removeArrangedSubview:subview];
+        [subview removeFromSuperview];
+    }
+
+    NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    NSMutableArray<NSString *> *prefixes = [NSMutableArray arrayWithObject:@"/"];
+    NSMutableArray<NSString *> *titles = [NSMutableArray arrayWithObject:@"/"];
+    NSString *running = @"";
+    for (NSString *component in _currentPath.pathComponents) {
+        if ([component isEqualToString:@"/"])
+            continue;
+        running = [running stringByAppendingFormat:@"/%@", component];
+        [prefixes addObject:running];
+        [titles addObject:component];
+    }
+
+    for (NSUInteger i = 0; i < prefixes.count; i++) {
+        BOOL isLast = (i == prefixes.count - 1);
+        if (i > 0) {
+            UILabel *separator = [UILabel new];
+            separator.text = @"›";
+            separator.font = [UIFont systemFontOfSize:12.0];
+            separator.textColor = theme[@"secondary"];
+            [_pathStack addArrangedSubview:separator];
+        }
+        UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+        button.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:(isLast ? UIFontWeightSemibold : UIFontWeightRegular)];
+        [button setTitle:titles[i] forState:UIControlStateNormal];
+        [button setTitleColor:(isLast ? theme[@"primary"] : theme[@"accent"]) forState:UIControlStateNormal];
+        button.enabled = !isLast;  // the current location isn't a link anywhere
+        NSString *targetPath = prefixes[i];
+        __weak typeof(self) weakSelf = self;
+        [button addAction:[UIAction actionWithHandler:^(UIAction *action) {
+            [weakSelf navigateToPath:targetPath pushHistory:YES];
+        }] forControlEvents:UIControlEventTouchUpInside];
+        [_pathStack addArrangedSubview:button];
+    }
+
+    // Deep paths overflow leftward; keep the current location in view.
+    [_pathScrollView layoutIfNeeded];
+    CGFloat overflow = _pathStack.bounds.size.width - _pathScrollView.bounds.size.width;
+    if (overflow > 0)
+        [_pathScrollView setContentOffset:CGPointMake(overflow, 0) animated:NO];
 }
 
 - (UIButton *)toolbarIconButtonNamed:(NSString *)symbolName action:(nullable SEL)action {
@@ -293,7 +413,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     if (_toolbarView == nil)
         return;
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
-    _pathLabel.textColor = theme[@"primary"];
+    [self rebuildBreadcrumb];  // its buttons bake theme colors at build time
     _statusLabel.textColor = theme[@"secondary"];
     _dividerView.backgroundColor = theme[@"stroke"];
     _tableView.separatorColor = theme[@"stroke"];
@@ -349,18 +469,28 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     _backButton.enabled = _backHistory.count > 0;
     _forwardButton.enabled = _forwardHistory.count > 0;
     _upButton.enabled = ![_currentPath isEqualToString:@"/"];
-    _pathLabel.text = _currentPath;
+    [self rebuildBreadcrumb];
 }
 
 #pragma mark WorkspaceFileOpenable
 
-// Opening a path in the File Manager means "reveal its containing folder" --
-// the same meaning "open" has for any directory-aware applet. No adopters call
-// this yet; it exists so a future "reveal in Finder" action has somewhere to go.
+// Opening a directory shows that directory; opening a file reveals its
+// containing folder. The kind check is async (a stat through the bridge),
+// which is fine -- navigation lands a beat later.
 - (void)workspaceOpenFileAtGuestPath:(NSString *)guestPath {
-    NSString *directory = guestPath.stringByDeletingLastPathComponent;
-    if (directory.length == 0) directory = @"/";
-    [self navigateToPath:directory pushHistory:YES];
+    __weak typeof(self) weakSelf = self;
+    [ISHGuestFileBridge.sharedBridge statAtGuestPath:guestPath completion:^(ISHGuestFileItem *item, NSError *error) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        strongSelf->_navigationPinned = YES;  // an explicit open always outranks the default-directory kick
+        if (item != nil && item.kind == ISHGuestFileKindDirectory) {
+            [strongSelf navigateToPath:item.guestPath pushHistory:YES];
+            return;
+        }
+        NSString *directory = guestPath.stringByDeletingLastPathComponent;
+        if (directory.length == 0) directory = @"/";
+        [strongSelf navigateToPath:directory pushHistory:YES];
+    }];
 }
 
 #pragma mark Loading
@@ -378,6 +508,14 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
         strongSelf->_allItems = items ?: @[];
         [strongSelf setLoading:NO];  // after the assignments: this recomputes the empty state from them
         [strongSelf applyFilterAndSort];
+    }];
+    [[ISHGuestFileBridge sharedBridge] filesystemStatusAtGuestPath:_currentPath
+                                                         completion:^(int64_t availableBytes, int64_t totalBytes, NSError *error) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_loadGeneration != generation)
+            return;
+        strongSelf->_availableBytes = (error == nil) ? availableBytes : 0;
+        [strongSelf updateStatusLabel];
     }];
 }
 
@@ -461,7 +599,11 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 }
 
 - (void)updateStatusLabel {
-    _statusLabel.text = _items.count == 1 ? @"1 item" : [NSString stringWithFormat:@"%lu items", (unsigned long)_items.count];
+    NSString *countText = _items.count == 1 ? @"1 item" : [NSString stringWithFormat:@"%lu items", (unsigned long)_items.count];
+    // 0 means "the filesystem reports no figure" (proc, devpts), not "full".
+    if (_availableBytes > 0)
+        countText = [countText stringByAppendingFormat:@" · %@ available", [self formattedSize:(unsigned long long)_availableBytes]];
+    _statusLabel.text = countText;
 }
 
 #pragma mark UITableViewDataSource / UITableViewDelegate
@@ -514,6 +656,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    [self becomeFirstResponder];  // re-anchor keyboard shortcuts here after the user worked elsewhere
     if (tableView == _sidebarTableView) {
         NSDictionary *row = ISHFileManagerSidebarRows()[(NSUInteger)indexPath.row];
         [self navigateToPath:row[@"path"] pushHistory:YES];
@@ -1025,12 +1168,7 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
 
     UIAction *hiddenToggle = [UIAction actionWithTitle:@"Show Hidden Files" image:nil identifier:nil
                                                 handler:^(UIAction *action) {
-        typeof(self) strongSelf = weakSelf;
-        if (strongSelf == nil) return;
-        strongSelf->_showHidden = !strongSelf->_showHidden;
-        [NSUserDefaults.standardUserDefaults setBool:strongSelf->_showHidden forKey:kFileManagerShowHiddenDefaultsKey];
-        [strongSelf applyFilterAndSort];
-        [strongSelf refreshMoreMenu];
+        [weakSelf toggleHiddenFiles];
     }];
     hiddenToggle.state = _showHidden ? UIMenuElementStateOn : UIMenuElementStateOff;
 

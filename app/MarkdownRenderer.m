@@ -17,6 +17,33 @@ static UIFont *ISHMarkdownMonospaceFont(CGFloat size) {
     return [UIFont fontWithName:@"Menlo" size:size] ?: [UIFont systemFontOfSize:size];
 }
 
+// Splits a pipe-table row into trimmed cells, dropping the empty boundary
+// cells a leading/trailing "|" produces.
+static NSArray<NSString *> *ISHMarkdownTableCells(NSString *row) {
+    NSCharacterSet *ws = NSCharacterSet.whitespaceCharacterSet;
+    NSString *trimmed = [row stringByTrimmingCharactersInSet:ws];
+    if ([trimmed hasPrefix:@"|"]) trimmed = [trimmed substringFromIndex:1];
+    if ([trimmed hasSuffix:@"|"]) trimmed = [trimmed substringToIndex:trimmed.length - 1];
+    NSMutableArray<NSString *> *cells = [NSMutableArray array];
+    for (NSString *cell in [trimmed componentsSeparatedByString:@"|"])
+        [cells addObject:[cell stringByTrimmingCharactersInSet:ws]];
+    return cells;
+}
+
+// A table's second line is the header separator: only pipes, colons, dashes,
+// and whitespace, with at least one dash ("|---|:--:|").
+static BOOL ISHMarkdownLineIsTableSeparator(NSString *line) {
+    NSString *trimmed = [line stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceCharacterSet];
+    if (trimmed.length == 0 || ![trimmed containsString:@"-"])
+        return NO;
+    static NSCharacterSet *allowed;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        allowed = [NSCharacterSet characterSetWithCharactersInString:@"|:- \t"];
+    });
+    return [trimmed rangeOfCharacterFromSet:allowed.invertedSet].location == NSNotFound;
+}
+
 // Inline pass: emphasis (** * __ _), inline code (`), and links [text](url).
 // Recurses for nested emphasis. Underscore emphasis is suppressed intra-word so
 // snake_case and __dunder__ identifiers survive untouched.
@@ -140,7 +167,8 @@ NSAttributedString *ISHMarkdownAttributedStringFromMarkdown(NSString *markdown, 
         [codeLines removeAllObjects];
     };
 
-    for (NSString *rawLine in lines) {
+    for (NSUInteger lineIndex = 0; lineIndex < lines.count; lineIndex++) {
+        NSString *rawLine = lines[lineIndex];
         NSString *trimmed = [rawLine stringByTrimmingCharactersInSet:ws];
 
         // fenced code block ``` or ~~~
@@ -151,6 +179,57 @@ NSAttributedString *ISHMarkdownAttributedStringFromMarkdown(NSString *markdown, 
         if (inFence) { [codeLines addObject:rawLine]; continue; }
 
         if (trimmed.length == 0) { appendNewline(); continue; }
+
+        // pipe table: a header row containing "|" followed by a separator row
+        // ("|---|---|"). Rendered as a monospaced grid -- column widths are
+        // computed in characters, so ideographic/emoji-heavy cells can
+        // misalign slightly; the tradeoff buys attributed-string tables with
+        // no layout machinery. Cell text is rendered verbatim (no nested
+        // emphasis), which is what keeps the columns honest.
+        if ([trimmed containsString:@"|"] && lineIndex + 1 < lines.count &&
+            ISHMarkdownLineIsTableSeparator(lines[lineIndex + 1])) {
+            NSMutableArray<NSArray<NSString *> *> *tableRows = [NSMutableArray array];
+            [tableRows addObject:ISHMarkdownTableCells(trimmed)];
+            NSUInteger consumed = lineIndex + 2;  // skip the separator row
+            while (consumed < lines.count && [lines[consumed] containsString:@"|"]) {
+                [tableRows addObject:ISHMarkdownTableCells(lines[consumed])];
+                consumed++;
+            }
+            lineIndex = consumed - 1;
+
+            NSUInteger columnCount = 0;
+            for (NSArray<NSString *> *row in tableRows)
+                columnCount = MAX(columnCount, row.count);
+            NSMutableArray<NSNumber *> *columnWidths = [NSMutableArray array];
+            for (NSUInteger column = 0; column < columnCount; column++) {
+                NSUInteger width = 0;
+                for (NSArray<NSString *> *row in tableRows)
+                    if (column < row.count) width = MAX(width, row[column].length);
+                [columnWidths addObject:@(width)];
+            }
+
+            UIFont *headerFont = ISHMarkdownFontWithTraits(codeFont, UIFontDescriptorTraitBold);
+            for (NSUInteger rowIndex = 0; rowIndex < tableRows.count; rowIndex++) {
+                NSArray<NSString *> *row = tableRows[rowIndex];
+                NSMutableString *renderedRow = [NSMutableString string];
+                for (NSUInteger column = 0; column < columnCount; column++) {
+                    NSString *cell = column < row.count ? row[column] : @"";
+                    [renderedRow appendString:cell];
+                    if (column + 1 < columnCount) {
+                        NSUInteger pad = columnWidths[column].unsignedIntegerValue - cell.length + 2;
+                        [renderedRow appendString:[@"" stringByPaddingToLength:pad withString:@" " startingAtIndex:0]];
+                    }
+                }
+                [renderedRow appendString:@"\n"];
+                [out appendAttributedString:[[NSAttributedString alloc] initWithString:renderedRow attributes:@{
+                    NSFontAttributeName: (rowIndex == 0 ? headerFont : codeFont),
+                    NSForegroundColorAttributeName: textColor,
+                    NSParagraphStyleAttributeName: codeStyle,
+                }]];
+            }
+            appendNewline();
+            continue;
+        }
 
         // horizontal rule
         if ([trimmed isEqualToString:@"---"] || [trimmed isEqualToString:@"***"] || [trimmed isEqualToString:@"___"] ||

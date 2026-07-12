@@ -112,6 +112,13 @@ typedef NSUUID *ISHGuestFileExtractionToken;
               completion:(void (^)(ISHGuestFileItem * _Nullable item,
                                     NSError * _Nullable error))completion;
 
+// Free/total space of the filesystem containing guestPath (statfs). Virtual
+// filesystems that report no numbers (proc, devpts) come back as 0/0 with no
+// error -- display should treat 0 total as "no free-space figure", not "full".
+- (void)filesystemStatusAtGuestPath:(NSString *)guestPath
+                          completion:(void (^)(int64_t availableBytes, int64_t totalBytes,
+                                                NSError * _Nullable error))completion;
+
 #pragma mark Reading
 
 // Whole-file read capped at maxBytes; a file larger than the cap fails with

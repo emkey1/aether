@@ -81,6 +81,17 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
     [self centerImage];
 }
 
+// Key commands are collected along the first-responder chain, and nothing in
+// this applet takes text input -- participate directly so the arrows work.
+- (BOOL)canBecomeFirstResponder {
+    return YES;
+}
+
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    [self becomeFirstResponder];
+}
+
 - (NSArray<UIKeyCommand *> *)keyCommands {
     UIKeyCommand *prev = [UIKeyCommand keyCommandWithInput:UIKeyInputLeftArrow modifierFlags:0 action:@selector(navigatePrev)];
     prev.discoverabilityTitle = @"Previous Image";

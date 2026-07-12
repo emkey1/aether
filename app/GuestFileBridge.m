@@ -461,6 +461,54 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     });
 }
 
+#pragma mark Filesystem status (statfs)
+
+- (void)filesystemStatusAtGuestPath:(NSString *)guestPath
+                          completion:(void (^)(int64_t, int64_t, NSError * _Nullable))completion {
+    NSString *path = [self normalizedGuestPath:guestPath];
+    dispatch_async(self.ioQueue, ^{
+        NSURL *hostURL = [self hostURLForRealfsGuestPath:path];
+        if (hostURL != nil) {
+            NSDictionary<NSFileAttributeKey, id> *attrs =
+                [NSFileManager.defaultManager attributesOfFileSystemForPath:hostURL.path error:NULL];
+            int64_t available = [attrs[NSFileSystemFreeSize] longLongValue];
+            int64_t total = [attrs[NSFileSystemSize] longLongValue];
+            dispatch_async(dispatch_get_main_queue(), ^{ if (completion) completion(available, total, nil); });
+            return;
+        }
+
+        __block int64_t available = 0;
+        __block int64_t total = 0;
+        __block NSError *vfsError = nil;
+        BOOL hadContext = [self withGuestTaskContext:^{
+            // Mirrors sys_statfs (kernel/fs.c): normalize, find the mount,
+            // ask its filesystem. Filesystems without a statfs op (proc,
+            // devpts) just leave the buffer zeroed -- reported as 0/0.
+            char normalized[MAX_PATH];
+            int err = path_normalize(AT_PWD, path.fileSystemRepresentation, normalized, N_SYMLINK_NOFOLLOW);
+            if (err < 0) { vfsError = [self errorWithGuestErrno:err message:@"Cannot resolve path"]; return; }
+            struct mount *mount = mount_find(normalized);
+            if (mount == NULL) { vfsError = [self errorWithGuestErrno:_ENOENT message:@"No such mount"]; return; }
+            struct statfsbuf buf;
+            memset(&buf, 0, sizeof(buf));
+            if (mount->fs->statfs != NULL)
+                err = mount->fs->statfs(mount, &buf);
+            mount_release(mount);
+            if (err < 0) { vfsError = [self errorWithGuestErrno:err message:@"Cannot stat filesystem"]; return; }
+            long blockSize = buf.frsize > 0 ? buf.frsize : buf.bsize;
+            if (blockSize > 0) {
+                available = (int64_t)buf.bavail * blockSize;
+                total = (int64_t)buf.blocks * blockSize;
+            }
+        }];
+        NSError *error = hadContext ? vfsError : [self notReadyError];
+        int64_t finalAvailable = available, finalTotal = total;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            if (completion) completion(error == nil ? finalAvailable : 0, error == nil ? finalTotal : 0, error);
+        });
+    });
+}
+
 #pragma mark Reading
 
 - (void)readFileAtGuestPath:(NSString *)guestPath maxBytes:(NSUInteger)maxBytes
