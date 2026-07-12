@@ -100,7 +100,12 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
     if (flags & CLONE_VM_) {
         mm_retain(mm);
     } else {
-        task_set_mm(task, mm_copy(mm));
+        struct mm *new_mm = mm_copy(mm);
+        if (new_mm == NULL)
+            // task->mm still aliases the parent's (unretained) mm from the
+            // task_create_ struct copy; task_destroy doesn't touch it.
+            return _ENOMEM;
+        task_set_mm(task, new_mm);
     }
 
     if (flags & CLONE_FILES_) {
@@ -236,13 +241,43 @@ fail_free_sighand:
     while(task_ref_cnt_get(task, 0)) { // Wait for now, task is in one or more critical sections
         nanosleep(&lock_pause, NULL);
     }
-    sighand_release(task->sighand);
+    // The half-created task stays visible in the pid table until
+    // sys_clone_common's task_destroy, and the ref-drain wait above doesn't
+    // stop a NEW reader from grabbing a task reference afterward. Cross-task
+    // readers reach these resources through the task: procfs and
+    // user_read_task/user_write_task retain task->mm / task->files / task->fs
+    // under general_lock, and signal senders read task->sighand under
+    // pids_lock. Detach each pointer under the lock its readers use BEFORE
+    // releasing it -- releasing while still attached let a concurrent
+    // /proc/<pid>/stat read retain the mm as it was freed, walk freed page
+    // tables, and double-free it, corrupting the malloc freelist (the
+    // app-wide mm_copy heap-corruption crash, issue #463). Same invariant
+    // exec.c (elf_exec) and exit.c (do_exit) already follow.
+    complex_lockt(&pids_lock, 0);
+    struct sighand *dead_sighand = task->sighand;
+    task->sighand = NULL;
+    unlock(&pids_lock);
+    sighand_release(dead_sighand);
 fail_free_fs:
-    fs_info_release(task->fs);
+    lock(&task->general_lock, 0);
+    struct fs_info *dead_fs = task->fs;
+    task->fs = NULL;
+    unlock(&task->general_lock);
+    fs_info_release(dead_fs);
 fail_free_files:
-    fdtable_release(task->files);
+    lock(&task->general_lock, 0);
+    struct fdtable *dead_files = task->files;
+    task->files = NULL;
+    unlock(&task->general_lock);
+    fdtable_release(dead_files);
 fail_free_mem:
-    mm_release(task->mm);
+    lock(&task->general_lock, 0);
+    struct mm *dead_mm = task->mm;
+    task->mm = NULL;
+    task->mem = NULL;
+    task->cpu.mmu = NULL;
+    unlock(&task->general_lock);
+    mm_release(dead_mm);
     return err;
 }
 
@@ -267,15 +302,28 @@ void task_never_ran_destroy(struct task *task) {
     }
     unlock(&parent_group->lock);
     task_unlink_locked(task);
-    unlock(&pids_lock);
-    sighand_release(task->sighand);
+    // Detach resources before releasing them, under the locks their readers
+    // use (see the matching comment in copy_task's error path): a procfs
+    // reader that took a task reference before task_unlink_locked can still
+    // retain task->mm/files/fs via general_lock after the unlink, and the
+    // old release-then-NULL order let it retain a freed object.
+    struct sighand *dead_sighand = task->sighand;
     task->sighand = NULL;
-    fs_info_release(task->fs);
+    unlock(&pids_lock);
+    lock(&task->general_lock, 0);
+    struct fs_info *dead_fs = task->fs;
     task->fs = NULL;
-    fdtable_release(task->files);
+    struct fdtable *dead_files = task->files;
     task->files = NULL;
-    mm_release(task->mm);
+    struct mm *dead_mm = task->mm;
     task->mm = NULL;
+    task->mem = NULL;
+    task->cpu.mmu = NULL;
+    unlock(&task->general_lock);
+    sighand_release(dead_sighand);
+    fs_info_release(dead_fs);
+    fdtable_release(dead_files);
+    mm_release(dead_mm);
     task_destroy_unlinked(task, 3);
 }
 
@@ -374,6 +422,11 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
         // some other thread could get a pointer to the task.
         // FIXME: task_destroy doesn't free all aspects of the task, which
         // could cause leaks
+        // Debug hook (issue #463): widen the copy_task-failure window to make
+        // the procfs-reader-vs-error-path race reproducible on demand.
+        const char *fail_delay = getenv("ISH_DEBUG_CLONE_FAIL_DELAY_US");
+        if (fail_delay != NULL)
+            usleep((unsigned) atoi(fail_delay));
         complex_lockt(&pids_lock, 0);
         task_destroy(task, 3);
         unlock(&pids_lock);
