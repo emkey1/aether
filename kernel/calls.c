@@ -5532,21 +5532,21 @@ void dump_maps(void) {
     free(orig_data);
 }
 
-void dump_mem(addr_t start, uint_t len) {
+void dump_mem(guest_addr_t start, uint_t len) {
     const int width = 8;
     if (len == 0) {
         printk("ERROR: No memory to dump\n");
         return;
     }
 
-    for (addr_t addr = start; addr < start + len; addr += sizeof(dword_t)) {
+    for (guest_addr_t addr = start; addr < start + len; addr += sizeof(dword_t)) {
         unsigned from_left = (addr - start) / sizeof(dword_t) % width;
         if (from_left == 0)
-            printk("%08x: ", addr);
+            printk("%08llx: ", (unsigned long long) addr);
 
         dword_t word;
         if (user_get(addr, word)) {
-            printk("ERROR: Unable to read memory at address %08x\n", addr);
+            printk("ERROR: Unable to read memory at address %08llx\n", (unsigned long long) addr);
             break;
         }
         printk("%08x ", word);
@@ -5557,7 +5557,35 @@ void dump_mem(addr_t start, uint_t len) {
 }
 
 void dump_stack(int lines) {
-    printk("stack at %x, base at %x, ip at %x\n", current->cpu.esp, current->cpu.ebp, current->cpu.eip);
+    guest_addr_t sp;
+    switch (current->abi) {
+        case GUEST_ABI_AMD64:
+            sp = current->cpu.amd64_regs[amd64_rsp];
+            printk("stack at %#llx, bp at %#llx, ip at %#llx\n",
+                   (unsigned long long) sp,
+                   (unsigned long long) current->cpu.amd64_regs[amd64_rbp],
+                   (unsigned long long) current->cpu.amd64_rip);
+            break;
+        case GUEST_ABI_ARM64:
+            sp = current->cpu.arm64_sp;
+            printk("stack at %#llx, fp at %#llx, pc at %#llx\n",
+                   (unsigned long long) sp,
+                   (unsigned long long) current->cpu.arm64_regs[arm64_x29],
+                   (unsigned long long) current->cpu.arm64_pc);
+            break;
+        case GUEST_ABI_RISCV64:
+            sp = current->cpu.riscv64_regs[riscv64_sp];
+            printk("stack at %#llx, fp at %#llx, pc at %#llx\n",
+                   (unsigned long long) sp,
+                   (unsigned long long) current->cpu.riscv64_regs[riscv64_s0],
+                   (unsigned long long) current->cpu.riscv64_pc);
+            break;
+        default:
+            sp = current->cpu.esp;
+            printk("stack at %x, base at %x, ip at %x\n",
+                   current->cpu.esp, current->cpu.ebp, current->cpu.eip);
+            break;
+    }
     if (lines <= 0) {
         printk("ERROR: Invalid number of lines specified for stack dump\n");
         return;
@@ -5566,7 +5594,7 @@ void dump_stack(int lines) {
     const int max_lines = 20;
     lines = (lines > max_lines) ? max_lines : lines;
 
-    dump_mem(current->cpu.esp, lines * sizeof(dword_t) * 8);
+    dump_mem(sp, lines * sizeof(dword_t) * 8);
 }
 
 // TODO find a home for this
