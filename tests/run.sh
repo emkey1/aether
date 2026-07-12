@@ -116,6 +116,8 @@ MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE="$TESTS_DIR/module_type_global_let_pass.aeth
 MODULE_CALC_SUPPORT_FIXTURE="$TESTS_DIR/module_calc"
 MODULE_INTRAMODULE_CALL_PASS_FIXTURE="$TESTS_DIR/module_intramodule_call_pass.aether"
 MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE="$TESTS_DIR/module_self_qualified_call_pass.aether"
+MODULE_VOID_PARAM_SUPPORT_FIXTURE="$TESTS_DIR/module_void_param"
+MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE="$TESTS_DIR/module_type_param_void_bare_call_pass.aether"
 IF_LEADING_PAREN_SUBEXPR_PASS_FIXTURE="$TESTS_DIR/if_leading_paren_subexpr_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
@@ -281,6 +283,8 @@ for fixture in \
     "$MODULE_CALC_SUPPORT_FIXTURE" \
     "$MODULE_INTRAMODULE_CALL_PASS_FIXTURE" \
     "$MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE" \
+    "$MODULE_VOID_PARAM_SUPPORT_FIXTURE" \
+    "$MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE" \
     "$TOON_BLOCK_PASS_FIXTURE" \
     "$TYPE_BLOCK_PASS_FIXTURE" \
     "$TYPE_FIELD_COMMA_FAIL_FIXTURE" \
@@ -791,6 +795,21 @@ fi
 if ! grep -qx "12" /tmp/aether_module_self_qualified_call_pass.out; then
     echo "unexpected self-qualified module call output" >&2
     cat /tmp/aether_module_self_qualified_call_pass.out >&2
+    exit 1
+fi
+# Regression: a Void-returning function taking a parameter typed with a
+# record exported from a different module, called as a bare statement
+# (return value discarded), used to fail with "expects type VOID but got
+# POINTER". The parameter's type is registered into procedure_table as an
+# unresolved AST_TYPE_REFERENCE snapshot at parse time, before the module's
+# `use` clause loads it; a bare-statement call reads that stale snapshot
+# straight from procedure_table instead of the (correctly healed) live
+# tree. See rea's semantic.c resolveForwardClassRefsInProcedureTable and
+# https://github.com/emkey1/rea/issues/6.
+"$AETHER_BIN" --no-cache "$MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE" >/tmp/aether_module_type_param_void_bare_call_pass.out
+if ! grep -qx "42" /tmp/aether_module_type_param_void_bare_call_pass.out; then
+    echo "unexpected void-param bare-call module output" >&2
+    cat /tmp/aether_module_type_param_void_bare_call_pass.out >&2
     exit 1
 fi
 # Regression: `if (expr) && more { }` used to fail to parse. parseIfStmt

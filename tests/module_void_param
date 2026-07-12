@@ -1,0 +1,5 @@
+mod VoidParam {
+    export type R {
+        x: Int;
+    }
+}

@@ -1,0 +1,13 @@
+use module_void_param;
+
+fn takesR(r: R) -> Void {
+    fx { writeln(r.x); }
+    ret;
+}
+
+fn main() -> Void {
+    let r: R = new R();
+    r.x = 42;
+    takesR(r);
+    ret;
+}
