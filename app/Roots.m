@@ -159,6 +159,16 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-x86_64.tar.xz",
                 kBundledRootDownloadSizeKey: @"~31 MB",
             },
+            @{
+                kBundledRootIdentifierKey: @"devuan6riscv64",
+                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, riscv64)",
+                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-riscv64",
+                kBundledRootImportNameKey: @"Devuan6-riscv64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"riscv64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-riscv64.tar.xz",
+                kBundledRootDownloadSizeKey: @"~31 MB",
+            },
         ];
     });
     return choices;

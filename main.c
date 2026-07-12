@@ -159,6 +159,17 @@ static void setup_host_mounts(void) {
         ignore_eexist(generic_mkdirat(AT_PWD, "/realmnt", 0755));
         ignore_eexist(do_mount(&realfs, real_mnt, "/realmnt", "", 0));
     }
+
+    // Dev-only: mount a second fakefs (SQLite-backed) root at /fakemnt2, to
+    // reproduce cross-root bugs (e.g. mv between two /AOK/roots-style fakefs
+    // mounts) against a local repro rig without the iOS app.
+    const char *fake_mnt2 = getenv("ISH_FAKE_MNT2");
+    if (fake_mnt2 != NULL && fake_mnt2[0] != '\0') {
+        char fake_mnt2_data[MAX_PATH + 1];
+        snprintf(fake_mnt2_data, sizeof(fake_mnt2_data), "%s/data", fake_mnt2);
+        ignore_eexist(generic_mkdirat(AT_PWD, "/fakemnt2", 0755));
+        ignore_eexist(do_mount(&fakefs, fake_mnt2_data, "/fakemnt2", "", 0));
+    }
 }
 
 int main(int argc, char *const argv[]) {
