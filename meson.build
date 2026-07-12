@@ -307,7 +307,8 @@ if get_option('kernel') == 'ish'
         include_directories: includes)
 
     if not meson.is_cross_build()
-        executable('ish', ['main.c'], dependencies: ish)
+        executable('ish', ['main.c'], dependencies: ish,
+            c_args: ['-DISH_SOURCE_ROOT="' + meson.project_source_root() + '"'])
     endif
 
 elif get_option('kernel') == 'linux'

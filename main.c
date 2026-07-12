@@ -147,9 +147,24 @@ static void setup_host_mounts(void) {
     ignore_eexist(generic_mkdirat(AT_PWD, "/proc", 0555));
     ignore_eexist(generic_mkdirat(AT_PWD, "/sys", 0555));
 
-    if (access("tests/audio", R_OK) == 0) {
+    // aokfs's inline/generated content (README, /tools, /tests, /docs) needs no
+    // backing files, but the few bundled real files (test audio, the benchmark
+    // tarball) are read from the source tree via mount->source. Resolve that
+    // against the source root baked in at build time rather than the process's
+    // CWD -- a bare `access("tests/audio", R_OK)` only succeeded when ish was
+    // launched from the repo root, so running it from e.g. the build directory
+    // silently skipped mounting /AOK entirely (leaving whatever bare directory,
+    // if any, the guest rootfs already had at that path).
+#ifdef ISH_SOURCE_ROOT
+    const char *aok_source_root = ISH_SOURCE_ROOT;
+#else
+    const char *aok_source_root = ".";
+#endif
+    char aok_audio_check[MAX_PATH + 1];
+    snprintf(aok_audio_check, sizeof(aok_audio_check), "%s/tests/audio", aok_source_root);
+    if (access(aok_audio_check, R_OK) == 0) {
         ignore_eexist(generic_mkdirat(AT_PWD, "/AOK", 0555));
-        ignore_eexist(do_mount(&aokfs, ".", "/AOK", "", MS_READONLY_));
+        ignore_eexist(do_mount(&aokfs, aok_source_root, "/AOK", "", MS_READONLY_));
     }
 
     ignore_eexist(do_mount(&procfs, "proc", "/proc", "", 0));
