@@ -91,6 +91,10 @@ extern NSString *const kThemeBackgroundColor;
 @property NSArray<NSString *> *launchCommand;
 @property NSArray<NSString *> *bootCommand;
 @property (nonatomic) NSString *customDnsServers;
+// When YES, new terminal sessions launched with the default "/bin/login -f root" command log in
+// as the unprivileged UID 1000 account instead, matching how a real Linux desktop is normally
+// used. Sessions with a customized launch command are unaffected.
+@property BOOL shouldLoginAsDefaultUser;
 
 + (instancetype)shared;
 
@@ -101,5 +105,14 @@ extern NSString *const kThemeBackgroundColor;
 extern NSString *const kPreferenceLaunchCommandKey;
 extern NSString *const kPreferenceBootCommandKey;
 extern NSString *const kPreferenceInitialWindowKey;
+
+// The unprivileged account "Open everything as the UID 1000 (default) user account" logs into.
+// Provisioned into the guest's /etc/passwd, /etc/group, and (if present) /etc/shadow at boot --
+// see ProvisionDefaultUserAccount() in AppDelegate.m -- so it exists to log into regardless of
+// whether the mounted root filesystem shipped one itself.
+extern NSString *const ISHDefaultUserAccountName;
+extern const int ISHDefaultUserAccountUID;
+extern const int ISHDefaultUserAccountGID;
+extern NSString *const ISHDefaultUserAccountHome;
 
 NS_ASSUME_NONNULL_END

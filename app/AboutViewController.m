@@ -155,6 +155,7 @@ BOOL ISHLLMClientEnabled(void) {
 @property (weak, nonatomic) IBOutlet UILabel *versionLabel;
 
 @property (nonatomic, strong) UISwitch *llmClientSwitch;
+@property (nonatomic, strong) UISwitch *loginAsDefaultUserSwitch;
 
 @end
 
@@ -2573,8 +2574,26 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     return sections;
 }
 
-- (NSInteger)_llmSectionIndex {
+// Appended sections live past the storyboard's static ones, in a fixed order:
+// user-account section, then LLM section.
+- (NSInteger)_userAccountSectionIndex {
     return [self _visibleStoryboardSectionCount];
+}
+
+- (NSInteger)_llmSectionIndex {
+    return [self _visibleStoryboardSectionCount] + 1;
+}
+
+- (UITableViewCell *)_loginAsDefaultUserCell {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    cell.selectionStyle = UITableViewCellSelectionStyleNone;
+    cell.textLabel.text = @"Open Everything as Default User";
+    UISwitch *enabledSwitch = [UISwitch new];
+    enabledSwitch.on = UserPreferences.shared.shouldLoginAsDefaultUser;
+    [enabledSwitch addTarget:self action:@selector(loginAsDefaultUserChanged:) forControlEvents:UIControlEventValueChanged];
+    cell.accessoryView = enabledSwitch;
+    self.loginAsDefaultUserSwitch = enabledSwitch;
+    return cell;
 }
 
 - (UITableViewCell *)_llmEnabledCell {
@@ -2746,6 +2765,9 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    if (section == [self _userAccountSectionIndex])
+        return [NSString stringWithFormat:@"When enabled, new terminal sessions using the default login command sign in as \"%@\" (UID %d) instead of root.",
+                ISHDefaultUserAccountName, ISHDefaultUserAccountUID];
     if (section == [self _llmSectionIndex])
         return UserPreferences.shared.shouldEnableLLMClient
             ? @"When enabled, LLM Chat appears in Switch Terminal and Workspace menus."
@@ -2763,22 +2785,28 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
+    if (section == [self _userAccountSectionIndex])
+        return @"Default User";
     if (section == [self _llmSectionIndex])
         return @"LLM Client";
     return [super tableView:tableView titleForHeaderInSection:section];
 }
 
 - (NSInteger)numberOfSectionsInTableView:(UITableView *)tableView {
-    return [self _visibleStoryboardSectionCount] + 1;
+    return [self _visibleStoryboardSectionCount] + 2;
 }
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    if (section == [self _userAccountSectionIndex])
+        return 1;
     if (section == [self _llmSectionIndex])
         return UserPreferences.shared.shouldEnableLLMClient ? 2 : 1;
     return [super tableView:tableView numberOfRowsInSection:section];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    if (indexPath.section == [self _userAccountSectionIndex])
+        return [self _loginAsDefaultUserCell];
     if (indexPath.section == [self _llmSectionIndex]) {
         if (indexPath.row == 0)
             return [self _llmEnabledCell];
@@ -2787,29 +2815,36 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     return [super tableView:tableView cellForRowAtIndexPath:indexPath];
 }
 
-// iOS 27's UIKit bounds-checks the storyboard's static-section array. Our LLM
-// section is appended at index == _llmSectionIndex (past the static sections),
-// so any UITableViewController static *layout* delegate method reached via
-// [super ...] for it indexes out of bounds -> "index N beyond bounds [0..N-1]"
-// (reloadData asks the static layout for the appended section's heights). Older
-// UIKit tolerated it; 27 throws. Guard these the same way we guard the
-// data-source methods above. heightForRow/indentationLevel are part of the
-// static-cell support (proven by the [super ...] calls above); header/footer
-// heights may be table defaults, so only forward those when super implements them.
+// iOS 27's UIKit bounds-checks the storyboard's static-section array. Our
+// appended sections (user account, LLM) live at indexes >= the static section
+// count, so any UITableViewController static *layout* delegate method reached
+// via [super ...] for one of them indexes out of bounds -> "index N beyond
+// bounds [0..N-1]" (reloadData asks the static layout for the appended
+// section's heights). Older UIKit tolerated it; 27 throws. Guard these the
+// same way we guard the data-source methods above, generalized to any
+// section past the static ones rather than one specific index, since there
+// are now two appended sections sharing this guard. heightForRow/
+// indentationLevel are part of the static-cell support (proven by the
+// [super ...] calls above); header/footer heights may be table defaults, so
+// only forward those when super implements them.
+- (BOOL)_isAppendedSection:(NSInteger)section {
+    return section >= [self _visibleStoryboardSectionCount];
+}
+
 - (CGFloat)tableView:(UITableView *)tableView heightForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == [self _llmSectionIndex])
+    if ([self _isAppendedSection:indexPath.section])
         return 44;
     return [super tableView:tableView heightForRowAtIndexPath:indexPath];
 }
 
 - (NSInteger)tableView:(UITableView *)tableView indentationLevelForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if (indexPath.section == [self _llmSectionIndex])
+    if ([self _isAppendedSection:indexPath.section])
         return 0;
     return [super tableView:tableView indentationLevelForRowAtIndexPath:indexPath];
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForHeaderInSection:(NSInteger)section {
-    if (section == [self _llmSectionIndex])
+    if ([self _isAppendedSection:section])
         return UITableViewAutomaticDimension;
     if ([UITableViewController instancesRespondToSelector:_cmd])
         return [super tableView:tableView heightForHeaderInSection:section];
@@ -2817,7 +2852,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (CGFloat)tableView:(UITableView *)tableView heightForFooterInSection:(NSInteger)section {
-    if (section == [self _llmSectionIndex])
+    if ([self _isAppendedSection:section])
         return UITableViewAutomaticDimension;
     if ([UITableViewController instancesRespondToSelector:_cmd])
         return [super tableView:tableView heightForFooterInSection:section];
@@ -2827,11 +2862,11 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 // Without an override here, UIKit falls back to its own default header/footer
 // view synthesis (-[UITableViewDataSource tableView:viewForHeaderInSection:]),
 // which hits the same static-section-array bounds check as the [super ...]
-// calls above -- crashing on the appended LLM section ("index N beyond bounds
+// calls above -- crashing on an appended section ("index N beyond bounds
 // [0..N-1]"). Returning nil lets UITableView fall back to the plain
 // title-based header/footer from titleForHeaderInSection/titleForFooterInSection.
 - (UIView *)tableView:(UITableView *)tableView viewForHeaderInSection:(NSInteger)section {
-    if (section == [self _llmSectionIndex])
+    if ([self _isAppendedSection:section])
         return nil;
     if ([UITableViewController instancesRespondToSelector:_cmd])
         return [super tableView:tableView viewForHeaderInSection:section];
@@ -2839,7 +2874,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (UIView *)tableView:(UITableView *)tableView viewForFooterInSection:(NSInteger)section {
-    if (section == [self _llmSectionIndex])
+    if ([self _isAppendedSection:section])
         return nil;
     if ([UITableViewController instancesRespondToSelector:_cmd])
         return [super tableView:tableView viewForFooterInSection:section];
@@ -2865,6 +2900,10 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 - (void)llmClientEnabledChanged:(UISwitch *)sender {
     UserPreferences.shared.shouldEnableLLMClient = sender.on;
     [self.tableView reloadData];
+}
+
+- (void)loginAsDefaultUserChanged:(UISwitch *)sender {
+    UserPreferences.shared.shouldLoginAsDefaultUser = sender.on;
 }
 
 //- (IBAction)shouldLockSleepNanoseconds:(id)sender {

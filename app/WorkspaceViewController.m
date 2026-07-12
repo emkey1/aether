@@ -790,6 +790,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     }
 
     [self bringWindowToFront];
+    BOOL didRestore;
     if (self.zoomedToFullscreen) {
         CGRect restoreFrame = self.restoreFrameBeforeZoom;
         if (CGRectIsEmpty(restoreFrame) || CGRectIsNull(restoreFrame))
@@ -798,14 +799,22 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
         restoreFrame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(restoreFrame));
         self.frame = restoreFrame;
         self.preferredSize = restoreFrame.size;
+        didRestore = YES;
     } else {
         self.restoreFrameBeforeZoom = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(self.frame));
         self.zoomedToFullscreen = YES;
         CGRect fullscreenFrame = self.superview.bounds;
         self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRectIntegral(fullscreenFrame));
+        didRestore = NO;
     }
 
-    if (self.frameDidChangeHandler != nil)
+    // Only persist on the way back down. A window with a frameDidChangeHandler
+    // that autosaves position on every change (the pinned Launcher/Desktops
+    // utilities) would otherwise have its fullscreen frame saved as the new
+    // "normal" spot the instant it's zoomed, so relaunching would restore it
+    // maximized instead of wherever the user actually left it. Restoring is
+    // safe to persist -- it's exactly the frame that's already saved.
+    if (didRestore && self.frameDidChangeHandler != nil)
         self.frameDidChangeHandler();
 }
 
@@ -3321,6 +3330,19 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         if (existing != nil)
             return existing;
     }
+    // The Music player is a window onto one shared playback engine (ISHAudioPlayerEngine.sharedEngine),
+    // not independent state -- a second window wouldn't be a second player, just a second remote that
+    // mirrors the first. Reuse whichever Music window is already open instead of spawning a duplicate
+    // when another song is opened, summoning it to the current Desktop if it was hidden on another one
+    // (same reveal behavior as openOrFocusWorkspaceToolIdentifier:).
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolAudioIdentifier]) {
+        ISHWorkspaceContainedWindowView *existing = [self desktopWindowForToolIdentifier:toolIdentifier];
+        if (existing != nil) {
+            existing.workspaceDesktopIndex = self.activeDesktopIndex;
+            existing.hidden = NO;
+            return existing;
+        }
+    }
     UIViewController *viewController = ISHCreateWorkspaceToolViewController(toolIdentifier);
     if (viewController == nil)
         return nil;
@@ -3344,12 +3366,11 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
                     appliesInitialPlacement:!pinnedWorkspaces];
     windowView.workspaceToolIdentifier = toolIdentifier;
     // Same double-tap-to-maximize convenience Terminal windows get (see
-    // openDesktopTerminalWindowWithTitle:terminalViewController:) — most useful here for
-    // locally-hosted webapps that want the whole desktop. Left off the pinned/singleton
-    // utilities (Launcher, Desktops, Settings) since their frames are otherwise persisted
-    // or managed specially.
-    if ([toolIdentifier isEqualToString:ISHWorkspaceToolBrowserIdentifier])
-        windowView.titleBarDoubleTapZoomEnabled = YES;
+    // openDesktopTerminalWindowWithTitle:terminalViewController:), now on every tool
+    // window. Safe even for the pinned Launcher/Desktops utilities: handleTitleBarDoubleTap:
+    // only invokes frameDidChangeHandler (their autosave) when restoring back down, never
+    // while zoomed, so their persisted "normal" position can't get clobbered by a zoom.
+    windowView.titleBarDoubleTapZoomEnabled = YES;
     if ([self isGlobalToolIdentifier:toolIdentifier])
         windowView.workspaceDesktopIndex = 0;  // global singletons live on the first Desktop
     CGSize minimumSize = ISHWorkspaceMinimumToolContentSize(toolIdentifier);

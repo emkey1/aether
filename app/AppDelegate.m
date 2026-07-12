@@ -15,6 +15,7 @@
 #include <notify.h>
 #include <pthread.h>
 #include <sys/stat.h>
+#include <ftw.h>
 #include <sys/socket.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -795,6 +796,7 @@ static NSArray<NSString *> *BootCommandFallbackCandidatesDescription(NSArray<NSA
 static int EnsureDirectory(const char *path, mode_t_ mode);
 static int EnsureRegularFileNonEmpty(const char *path, const char *contents, mode_t_ mode);
 static int EnsureSymlink(const char *path, const char *target);
+static void ProvisionDefaultUserAccount(void);
 
 static NSData *BootEnvironmentForCommand(NSString *commandPath) {
     NSString *shell = commandPath.length != 0 ? commandPath : @"/bin/sh";
@@ -1339,6 +1341,89 @@ static void ProvisionGuestHostFiles(void) {
     EnsureRegularFileNonEmpty("/etc/hosts", "127.0.0.1\tlocalhost\n127.0.1.1\tlocalhost\n", 0644);
 }
 
+// Reads PATH in full (up to bufsize - 1 bytes) and returns YES if any line's colon-delimited
+// first field equals NAME exactly (an /etc/passwd, /etc/group, or /etc/shadow style entry).
+// Used to make provisioning idempotent -- never append a duplicate account line.
+static BOOL EtcColonFileHasEntryNamed(const char *path, const char *name, char *buf, size_t bufsize) {
+    struct fd *fd = generic_open(path, O_RDONLY_, 0);
+    if (IS_ERR(fd))
+        return NO;
+    size_t total = 0;
+    while (total + 1 < bufsize) {
+        ssize_t n = fd->ops->read(fd, buf + total, bufsize - 1 - total);
+        if (n <= 0)
+            break;
+        total += (size_t) n;
+    }
+    fd_close(fd);
+    buf[total] = '\0';
+
+    size_t nameLen = strlen(name);
+    const char *cursor = buf;
+    while (cursor != NULL) {
+        if (strncmp(cursor, name, nameLen) == 0 && cursor[nameLen] == ':')
+            return YES;
+        cursor = strchr(cursor, '\n');
+        if (cursor != NULL)
+            cursor++;
+    }
+    return NO;
+}
+
+static void AppendLineToFile(const char *path, const char *line, mode_t_ mode) {
+    struct fd *fd = generic_open(path, O_WRONLY_ | O_CREAT_ | O_APPEND_, mode & 07777);
+    if (IS_ERR(fd))
+        return;
+    fd->ops->write(fd, line, strlen(line));
+    fd_close(fd);
+}
+
+// Provisions the unprivileged UID/GID 1000 account "Open everything as the UID 1000 (default)
+// user account" logs into, so the toggle works even on a root filesystem that never shipped one
+// itself. Idempotent (skips any file that already has a "user:" entry) and additive -- existing
+// /etc/passwd, /etc/group, and /etc/shadow entries are never rewritten, only appended to. Runs on
+// every boot alongside ProvisionGuestHostFiles(), but only when the toggle is enabled, so a user
+// who never opts in gets a byte-identical rootfs to before this existed.
+static void ProvisionDefaultUserAccount(void) {
+    if (!UserPreferences.shared.shouldLoginAsDefaultUser)
+        return;
+
+    char buf[16384];
+    const char *name = ISHDefaultUserAccountName.UTF8String;
+
+    if (!EtcColonFileHasEntryNamed("/etc/passwd", name, buf, sizeof(buf))) {
+        char line[256];
+        snprintf(line, sizeof(line), "%s:x:%d:%d:Linux User:%s:/bin/sh\n",
+                 name, ISHDefaultUserAccountUID, ISHDefaultUserAccountGID,
+                 ISHDefaultUserAccountHome.UTF8String);
+        AppendLineToFile("/etc/passwd", line, 0644);
+    }
+    if (!EtcColonFileHasEntryNamed("/etc/group", name, buf, sizeof(buf))) {
+        char line[128];
+        snprintf(line, sizeof(line), "%s:x:%d:\n", name, ISHDefaultUserAccountGID);
+        AppendLineToFile("/etc/group", line, 0644);
+    }
+    // /bin/login -f forces the login without consulting the password hash, so /etc/shadow only
+    // needs an entry to keep other tools (passwd, su) from tripping over a passwd entry with no
+    // matching shadow line -- and only if the rootfs uses shadow passwords at all. The aging
+    // fields (last-changed/min/max/warn) are left blank, matching how real distro accounts that
+    // never expire are provisioned (e.g. Alpine's own "guest:!::0:::::") -- populating a concrete
+    // last-changed day switches on password-aging enforcement for the account, which can force an
+    // interactive "change your password" prompt even though -f already bypassed authentication.
+    struct statbuf shadowStat;
+    if (generic_statat(AT_PWD, "/etc/shadow", &shadowStat, AT_SYMLINK_NOFOLLOW_) >= 0 &&
+        !EtcColonFileHasEntryNamed("/etc/shadow", name, buf, sizeof(buf))) {
+        char line[128];
+        snprintf(line, sizeof(line), "%s:!::0:::::\n", name);
+        AppendLineToFile("/etc/shadow", line, 0640);
+    }
+
+    const char *home = ISHDefaultUserAccountHome.UTF8String;
+    EnsureDirectory(home, 0755);
+    generic_setattrat(AT_PWD, home, make_attr(uid, ISHDefaultUserAccountUID), false);
+    generic_setattrat(AT_PWD, home, make_attr(gid, ISHDefaultUserAccountGID), false);
+}
+
 static int EnsureSymlink(const char *path, const char *target) {
     char existing[MAX_PATH];
     ssize_t len = generic_readlinkat(AT_PWD, path, existing, sizeof(existing) - 1);
@@ -1369,6 +1454,32 @@ static int EnsureSymlink(const char *path, const char *target) {
         return generic_symlinkat(target, AT_PWD, path);
     }
     return (int) len;
+}
+
+// nftw callback backing FixSharedDirectoryPermissions: widens every entry's
+// mode to be world-rw (world-rwx for directories), preserving any bits
+// already set (e.g. an existing execute bit on a script). Symlinks are left
+// alone (FTW_PHYS below reports them as FTW_SL rather than following them)
+// so this can't be used to reach outside the tree via a symlink target.
+static int FixSharedDirectoryPermissionsCallback(const char *fpath, const struct stat *sb, int typeflag, struct FTW *ftwbuf) {
+    (void)ftwbuf;
+    if (typeflag == FTW_D || typeflag == FTW_DP)
+        chmod(fpath, sb->st_mode | 0777);
+    else if (typeflag == FTW_F)
+        chmod(fpath, sb->st_mode | 0666);
+    return 0;
+}
+
+// /AOK/persist is a realfs mount backed by this single host directory, owned
+// at the host layer by the app's own uid -- never by whatever uid a guest
+// process happens to be running as (see MOUNT_ISH_SHARED_ in kernel/fs.h).
+// MOUNT_ISH_SHARED_ keeps every node created *after* this fix world-writable,
+// but content already on disk from before it (or copied in by hand, e.g. via
+// the Files app) predates that and can carry restrictive host-default modes.
+// Recursively widening permissions here, on every launch, heals that: it's
+// cheap for the modest trees /AOK/persist actually holds, and idempotent.
+static void FixSharedDirectoryPermissions(const char *path) {
+    nftw(path, FixSharedDirectoryPermissionsCallback, 16, FTW_PHYS);
 }
 
 static NSURL *AOKPersistDirectoryURL(void) {
@@ -2352,7 +2463,12 @@ static TerminalViewController *CreateTerminalViewController(void) {
                                    withIntermediateDirectories:YES
                                                     attributes:nil
                                                          error:&persistError]) {
-            int persistMountErr = do_mount(&realfs, aokPersistURL.fileSystemRepresentation, "/AOK/persist", "", 0);
+            // /AOK/persist is shared by every guest uid but owned at the host
+            // layer by the app's own uid -- see MOUNT_ISH_SHARED_ (kernel/fs.h)
+            // for why that means it needs to be forced world-writable rather
+            // than relying on ordinary Unix ownership.
+            FixSharedDirectoryPermissions(aokPersistURL.fileSystemRepresentation);
+            int persistMountErr = do_mount(&realfs, aokPersistURL.fileSystemRepresentation, "/AOK/persist", "", MOUNT_ISH_SHARED_);
             if (persistMountErr < 0)
                 NSLog(@"Could not mount /AOK/persist: %d", persistMountErr);
         } else {
@@ -2399,7 +2515,10 @@ static TerminalViewController *CreateTerminalViewController(void) {
                                    withIntermediateDirectories:YES
                                                     attributes:nil
                                                          error:&rootsError]) {
-            int rootsMountErr = do_mount(&realfs, aokRootsURL.fileSystemRepresentation, "/AOK/roots", "", 0);
+            // See the matching comment at the /AOK/persist mount above --
+            // same single-host-owner-shared-by-every-guest-uid situation.
+            chmod(aokRootsURL.fileSystemRepresentation, 0777);
+            int rootsMountErr = do_mount(&realfs, aokRootsURL.fileSystemRepresentation, "/AOK/roots", "", MOUNT_ISH_SHARED_);
             if (rootsMountErr < 0) {
                 NSLog(@"Could not mount /AOK/roots: %d", rootsMountErr);
             } else {
@@ -2503,6 +2622,7 @@ static TerminalViewController *CreateTerminalViewController(void) {
     // (real /sbin/init and the fake-init fallback). Docker-exported images ship both as
     // empty 0-byte files, which otherwise leaves the system with an empty hostname.
     ProvisionGuestHostFiles();
+    ProvisionDefaultUserAccount();
     if (bootUsesNativeFakeInit) {
         FakeInitPrepareGuestRoot();
         err = StartFallbackConsoleSupervisor(command, argvCommand, argv, sizeof(argv), envpData);

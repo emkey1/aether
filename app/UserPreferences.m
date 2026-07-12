@@ -44,6 +44,12 @@ static NSString *const kPreferenceCustomDnsServersKey = @"Custom DNS Servers";
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
 NSString *const kPreferenceBootCommandKey = @"Boot Command";
 NSString *const kPreferenceInitialWindowKey = @"Initial Window";
+static NSString *const kPreferenceLoginAsDefaultUserKey = @"Login As Default User";
+
+NSString *const ISHDefaultUserAccountName = @"user";
+const int ISHDefaultUserAccountUID = 1000;
+const int ISHDefaultUserAccountGID = 1000;
+NSString *const ISHDefaultUserAccountHome = @"/home/user";
 static NSString *const kPreferenceCursorStyleKey = @"Cursor Style";
 static NSString *const kPreferenceBlinkCursorKey = @"Blink Cursor";
 NSString *const kPreferenceHideStatusBarKey = @"Status Bar";
@@ -205,6 +211,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceShowTerminalQuickButtonsKey: @(YES),
             kPreferenceWorkspaceLaunchCountKey: @(1),
             kPreferenceThemeKey: @"Solarized",
+            kPreferenceLoginAsDefaultUserKey: @(NO),
         }];
         // https://webkit.org/blog/10247/new-webkit-features-in-safari-13-1/
         if (@available(iOS 13.4, *)) {
@@ -246,6 +253,7 @@ bool (*remove_user_default)(const char *name);
             @"llm_tools_enabled": kPreferenceLLMToolsEnabledKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
+            @"login_as_default_user": kPreferenceLoginAsDefaultUserKey,
             @"cursor_style": kPreferenceCursorStyleKey,
             @"blink_cursor": kPreferenceBlinkCursorKey,
             @"hide_status_bar": kPreferenceHideStatusBarKey,
@@ -654,6 +662,19 @@ bool (*remove_user_default)(const char *name);
  //       zero_critical_regions_count();
   //      unlock(&pids_lock);
     }
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: shouldLoginAsDefaultUser
+- (BOOL)shouldLoginAsDefaultUser {
+    return [_defaults boolForKey:kPreferenceLoginAsDefaultUserKey];
+}
+
+- (void)setShouldLoginAsDefaultUser:(BOOL)shouldLoginAsDefaultUser {
+    [_defaults setBool:shouldLoginAsDefaultUser forKey:kPreferenceLoginAsDefaultUserKey];
+}
+
+- (BOOL)validateShouldLoginAsDefaultUser:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

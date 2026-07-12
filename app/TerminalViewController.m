@@ -69,6 +69,16 @@ static BOOL ISHCommandIsDefaultLogin(NSArray<NSString *> *command) {
             [command[2] isEqualToString:@"root"];
 }
 
+// "Open everything as the UID 1000 (default) user account": only swaps a command that resolved
+// to exactly the standard root login -- never a raw fallback shell (which can't switch users
+// anyway) and never a launch command the user customized to something else, since a customized
+// command means they've already taken explicit control of who they log in as.
+static NSArray<NSString *> *ISHCommandWithDefaultUserSubstitution(NSArray<NSString *> *command) {
+    if (!UserPreferences.shared.shouldLoginAsDefaultUser || !ISHCommandIsDefaultLogin(command))
+        return command;
+    return @[command[0], command[1], ISHDefaultUserAccountName];
+}
+
 static BOOL ISHGuestExecutableExists(NSString *path, intptr_t *errOut) {
     struct task *previousCurrent = NULL;
     BOOL borrowedInit = [AppDelegate pushUsableInitTaskAsCurrent:&previousCurrent];
@@ -1019,6 +1029,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 	                                            &sessionFailureTitle,
 	                                            &sessionFailureMessage,
 	                                            &sessionFailureOverlayText);
+	    command = ISHCommandWithDefaultUserSubstitution(command);
 	    commandString = [command componentsJoinedByString:@" "];
 	    if (sessionFailureMessage.length != 0) {
 	        self.sessionFailureTitle = sessionFailureTitle;

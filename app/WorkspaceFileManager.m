@@ -7,6 +7,7 @@
 #import "GuestFileBridge.h"
 #import "AudioLibrary.h"
 #import "AudioPlayerEngine.h"
+#import "UserPreferences.h"
 
 // Forward-declared: defined near the routing table below, used earlier by
 // -iconForItem: to badge image/audio/video files distinctly.
@@ -35,8 +36,15 @@ typedef NS_ENUM(NSInteger, WorkspaceFileManagerSortMode) {
 // Fixed, non-editable sidebar rows for v1 -- the plan's "user-editable Favorites"
 // is a later-phase nicety; this covers the seed locations that matter today.
 static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
+    // New sessions log in as root, or as the UID 1000 account when "Open Everything as Default
+    // User" is on (see ProvisionDefaultUserAccount() in AppDelegate.m) -- match "Home" to
+    // whichever one is actually being logged into so it doesn't silently point at /root while
+    // every session is really landing in /home/user.
+    NSString *homePath = UserPreferences.shared.shouldLoginAsDefaultUser
+        ? ISHDefaultUserAccountHome
+        : @"/root";
     return @[
-        @{@"title": @"Home", @"path": @"/root", @"symbol": @"house"},
+        @{@"title": @"Home", @"path": homePath, @"symbol": @"house"},
         @{@"title": @"Persist", @"path": @"/AOK/persist", @"symbol": @"externaldrive"},
         @{@"title": @"Temporary", @"path": @"/tmp", @"symbol": @"clock"},
         @{@"title": @"Root", @"path": @"/", @"symbol": @"internaldrive"},
