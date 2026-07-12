@@ -23,6 +23,7 @@
 /* Begin PBXBuildFile section */
 		07430ECDFB3BADD4102D3854 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */; };
 		08B8DE8241C32EBCB4682895 /* display.html in Resources */ = {isa = PBXBuildFile; fileRef = 4FBC2E782E3D476AE3FFFBDB /* display.html */; };
+		0C68CBD978E3A86AB46ED1C0 /* DisplayStaticFileServer.m in Sources */ = {isa = PBXBuildFile; fileRef = 707DE0C2BE4F788ED0C93A7A /* DisplayStaticFileServer.m */; };
 		0FC2383C2991FBA6004C09EC /* mmx.c in Sources */ = {isa = PBXBuildFile; fileRef = 0FC2383B2991FB82004C09EC /* mmx.c */; };
 		2467269437B203C877862943 /* display.css in Resources */ = {isa = PBXBuildFile; fileRef = 661D111B4C5CC46D2FE7C119 /* display.css */; };
 		253CB8D42AB1EC52F9A3B954 /* novnc in Resources */ = {isa = PBXBuildFile; fileRef = 6B6737CF2813C4E0E29A4F9A /* novnc */; };
@@ -656,6 +657,7 @@
 		4FBC2E782E3D476AE3FFFBDB /* display.html */ = {isa = PBXFileReference; includeInIndex = 1; path = display.html; sourceTree = "<group>"; };
 		56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MotePadDocumentStore.h; sourceTree = "<group>"; };
 		57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MarkdownRenderer.m; sourceTree = "<group>"; };
+		5934C6726549148C92751A8E /* DisplayStaticFileServer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DisplayStaticFileServer.h; sourceTree = "<group>"; };
 		59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPlayerEngine.m; sourceTree = "<group>"; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
@@ -680,6 +682,7 @@
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
 		661D111B4C5CC46D2FE7C119 /* display.css */ = {isa = PBXFileReference; includeInIndex = 1; path = display.css; sourceTree = "<group>"; };
 		6B6737CF2813C4E0E29A4F9A /* novnc */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = folder; name = novnc; path = ../../deps/novnc; sourceTree = "<group>"; };
+		707DE0C2BE4F788ED0C93A7A /* DisplayStaticFileServer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DisplayStaticFileServer.m; sourceTree = "<group>"; };
 		72A1CBF6CC6C925A15953A8A /* DisplayNetworkBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DisplayNetworkBridge.h; sourceTree = "<group>"; };
 		753D59F184017DDADD8F541A /* AudioPCMDecoder_AVF.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPCMDecoder_AVF.m; sourceTree = "<group>"; };
 		761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MarkdownRenderer.h; sourceTree = "<group>"; };
@@ -1260,6 +1263,8 @@
 				72A1CBF6CC6C925A15953A8A /* DisplayNetworkBridge.h */,
 				3A6792C5BC8AC798819DA14F /* DisplayNetworkBridge.m */,
 				E6AA55A551C9DD9A3AD49B55 /* display */,
+				5934C6726549148C92751A8E /* DisplayStaticFileServer.h */,
+				707DE0C2BE4F788ED0C93A7A /* DisplayStaticFileServer.m */,
 			);
 			path = app;
 			sourceTree = "<group>";
@@ -2480,6 +2485,7 @@
 				FF0F1FAE84EA95701F222D85 /* WorkspaceVideoPlayer.m in Sources */,
 				2E93B4EE793B2F3424392363 /* DisplayViewController.m in Sources */,
 				2660BC0640E432A39A96729B /* DisplayNetworkBridge.m in Sources */,
+				0C68CBD978E3A86AB46ED1C0 /* DisplayStaticFileServer.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

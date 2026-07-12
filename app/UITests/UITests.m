@@ -48,20 +48,9 @@ static void OpenUtilitiesGroupSheet(XCUIApplication *app) {
     [utilitiesAction tap];
 }
 
-// Opens the Display applet (via OpenUtilitiesGroupSheet, then "Media" group
-// -> "Display") and asserts it comes up without crashing: the toolbar
-// (status label + Ctrl+Alt+Del/Reconnect buttons) must appear, and the
-// status label must settle on either a normal in-progress state or a clear,
-// actionable failure (pointing at setup-wayland.sh) -- never stay on
-// "Starting..." forever or leave the window blank. On a Simulator/fresh root
-// with no Wayland packages installed, the actionable-failure path is the
-// expected outcome; this test doesn't require wayvnc to actually be
-// reachable, only that DisplayViewController's guest-session/UI plumbing
-// itself doesn't crash or hang silently.
-- (void)testDisplayAppletOpensWithoutCrashing {
-    XCUIApplication *app = [XCUIApplication new];
-    [app launch];
-
+// Navigates from a freshly-launched app to an open Display applet window
+// via OpenUtilitiesGroupSheet, then "Media" group -> "Display".
+static void OpenDisplayApplet(XCUIApplication *app) {
     OpenUtilitiesGroupSheet(app);
 
     NSPredicate *mediaGroupPredicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"Media"];
@@ -75,6 +64,22 @@ static void OpenUtilitiesGroupSheet(XCUIApplication *app) {
     XCTAssert([displayAction waitForExistenceWithTimeout:10],
               @"Media group sheet did not list Display -- applet registration is missing");
     [displayAction tap];
+}
+
+// Opens the Display applet and asserts it comes up without crashing: the
+// toolbar (status label + Ctrl+Alt+Del/Reconnect buttons) must appear, and
+// the status label must settle on either a normal in-progress state or a
+// clear, actionable failure (pointing at setup-wayland.sh) -- never stay on
+// "Starting..." forever or leave the window blank. On a Simulator/fresh root
+// with no Wayland packages installed, the actionable-failure path is the
+// expected outcome; this test doesn't require wayvnc to actually be
+// reachable, only that DisplayViewController's guest-session/UI plumbing
+// itself doesn't crash or hang silently.
+- (void)testDisplayAppletOpensWithoutCrashing {
+    XCUIApplication *app = [XCUIApplication new];
+    [app launch];
+
+    OpenDisplayApplet(app);
 
     // The applet's own toolbar status label -- proves DisplayViewController's
     // viewDidLoad ran, laid its chrome out, and viewDidAppear kicked off
@@ -103,6 +108,48 @@ static void OpenUtilitiesGroupSheet(XCUIApplication *app) {
     XCTAssert([settledLabel waitForExistenceWithTimeout:30],
               @"Display applet's status label never left the initial 'Starting...' state "
               @"(stuck, or crashed without leaving an error message)");
+}
+
+// Deeper check than testDisplayAppletOpensWithoutCrashing: waits for the
+// guest's labwc/wayvnc stack to actually come up and the noVNC WKWebView to
+// report DisplayConnectionStateConnected, then attaches a full-window
+// screenshot to the test result so a human (or a later post-hoc read of the
+// xcresult) can visually confirm real compositor pixels are being rendered,
+// not just that the status label advanced. This requires the Wayland
+// packages (see opt/AOK/tools/setup-wayland.sh) to already be installed on
+// whichever root is booted -- on a bare root this will fail waiting for
+// "Connected" and only prove the failure path, which is still useful
+// information, so the screenshot is attached unconditionally via addTeardownBlock
+// rather than only on success.
+- (void)testDisplayAppletRendersDesktop {
+    XCUIApplication *app = [XCUIApplication new];
+    [app launch];
+
+    __weak XCUIApplication *weakApp = app;
+    [self addTeardownBlock:^{
+        XCUIApplication *strongApp = weakApp;
+        if (strongApp == nil)
+            return;
+        XCTAttachment *shot = [XCTAttachment attachmentWithScreenshot:strongApp.screenshot];
+        shot.lifetime = XCTAttachmentLifetimeKeepAlways;
+        shot.name = @"DisplayAppletFinalState";
+        [self addAttachment:shot];
+    }];
+
+    OpenDisplayApplet(app);
+
+    NSPredicate *connectedPredicate = [NSPredicate predicateWithFormat:@"label == 'Connected'"];
+    XCUIElement *connectedLabel = [app.staticTexts matchingPredicate:connectedPredicate].firstMatch;
+    XCTAssert([connectedLabel waitForExistenceWithTimeout:90],
+              @"Display applet never reached 'Connected' -- either the Wayland stack isn't "
+              @"installed on this root (run opt/AOK/tools/setup-wayland.sh) or the "
+              @"labwc/wayvnc/bridge pipeline is broken; see the attached screenshot for the "
+              @"actual on-screen status");
+
+    // Give wayvnc/labwc a moment to paint the first real frame after the
+    // RFB handshake completes, so the attached screenshot isn't just a
+    // freshly-cleared black canvas racing the first framebuffer update.
+    [NSThread sleepForTimeInterval:3.0];
 }
 
 @end

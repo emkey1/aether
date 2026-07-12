@@ -17,8 +17,6 @@
 // the Xcode project as a folder reference (see iSH-AOK.xcodeproj), which
 // copies it into the app bundle as a "novnc/" sibling of this file, not at
 // its source-tree path.
-import RFB from './novnc/core/rfb.js';
-
 let rfb = null;
 
 function post(type, fields) {
@@ -27,6 +25,21 @@ function post(type, fields) {
         window.webkit.messageHandlers.ishDisplay.postMessage(msg);
     }
 }
+
+// This file is loaded as a plain classic script, not <script type="module">
+// -- WKWebView loading a module script tag via file:// silently never
+// executes it at all (confirmed on-device: none of this file's code ran,
+// not even these error listeners, since they'd have been inside the
+// never-started module body). noVNC's rfb.js is still an ES module
+// internally; dynamic import() works from a classic script and lets a
+// resolution failure be caught and reported like any other error instead
+// of vanishing the same way.
+window.addEventListener('error', (e) => {
+    post('status', { state: 'error', detail: 'script error: ' + (e.message || e) });
+});
+window.addEventListener('unhandledrejection', (e) => {
+    post('status', { state: 'error', detail: 'unhandled rejection: ' + (e.reason && e.reason.message || e.reason) });
+});
 
 function readQueryVariable(name, defaultValue) {
     const re = new RegExp('[?&]' + name + '=([^&#]*)');
@@ -40,22 +53,27 @@ const scale = readQueryVariable('scale', 'true') === 'true';
 if (!port) {
     post('status', { state: 'error', detail: 'no bridge port supplied' });
 } else {
-    const url = 'ws://127.0.0.1:' + port + '/';
     post('status', { state: 'connecting' });
 
-    rfb = new RFB(document.getElementById('screen'), url, {});
-    rfb.scaleViewport = scale;
-    rfb.resizeSession = false;
-    rfb.clipViewport = false;
+    import('./novnc/core/rfb.js').then(({ default: RFB }) => {
+        const url = 'ws://127.0.0.1:' + port + '/';
 
-    rfb.addEventListener('connect', () => post('status', { state: 'connected' }));
-    rfb.addEventListener('disconnect', (e) => {
-        post('status', { state: 'disconnected', detail: e.detail && e.detail.clean ? 'clean' : 'unclean' });
+        rfb = new RFB(document.getElementById('screen'), url, {});
+        rfb.scaleViewport = scale;
+        rfb.resizeSession = false;
+        rfb.clipViewport = false;
+
+        rfb.addEventListener('connect', () => post('status', { state: 'connected' }));
+        rfb.addEventListener('disconnect', (e) => {
+            post('status', { state: 'disconnected', detail: e.detail && e.detail.clean ? 'clean' : 'unclean' });
+        });
+        rfb.addEventListener('securityfailure', (e) => {
+            post('status', { state: 'error', detail: (e.detail && e.detail.reason) || 'security failure' });
+        });
+        rfb.addEventListener('desktopname', (e) => post('status', { state: 'desktopname', detail: e.detail.name }));
+    }).catch((err) => {
+        post('status', { state: 'error', detail: 'failed to load noVNC module: ' + (err && err.message ? err.message : err) });
     });
-    rfb.addEventListener('securityfailure', (e) => {
-        post('status', { state: 'error', detail: (e.detail && e.detail.reason) || 'security failure' });
-    });
-    rfb.addEventListener('desktopname', (e) => post('status', { state: 'desktopname', detail: e.detail.name }));
 }
 
 // Native -> JS entry points, called from DisplayViewController via

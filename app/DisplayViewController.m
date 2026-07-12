@@ -1,5 +1,6 @@
 #import "DisplayViewController.h"
 #import "DisplayNetworkBridge.h"
+#import "DisplayStaticFileServer.h"
 #import "Terminal.h"
 #import "AppDelegate.h"
 #import "GuestFileBridge.h"
@@ -20,7 +21,7 @@ NS_ASSUME_NONNULL_BEGIN
 // emits, not a plain byte stream.
 static NSString *const DisplayReadyGuestPath = @"/tmp/ish-display.ready";
 static const NSTimeInterval DisplayReadyPollInterval = 0.3;
-static const NSTimeInterval DisplayReadyTimeout = 25.0;
+static const NSTimeInterval DisplayReadyTimeout = 45.0;
 
 typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     DisplayConnectionStateIdle,
@@ -55,6 +56,16 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     DisplayConnectionState _state;
     NSDate *_Nullable _readyPollDeadline;
     BOOL _startedOnce;
+
+    // Serves display.html/js/css + deps/novnc over http://127.0.0.1 instead
+    // of file:// -- see DisplayStaticFileServer.h for why (WKWebView
+    // rejects noVNC's rfb.js ES module import under file:// as
+    // cross-origin, even with allowingReadAccessToURL: granted). Started
+    // once, independent of the guest session, since it never depends on
+    // the guest boot/Wayland stack at all.
+    DisplayStaticFileServer *_staticServer;
+    uint16_t _staticServerPort;
+    NSDate *_Nullable _staticServerStartDeadline;
 }
 
 #pragma mark - Lifecycle
@@ -108,6 +119,28 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                                             selector:@selector(guestProcessExited:)
                                                 name:ProcessExitedNotification
                                               object:nil];
+
+    // Started immediately, independent of the guest session -- purely
+    // static asset serving, nothing here depends on the guest booting.
+    // By the time -loadWebViewWithBridgePort: actually needs
+    // _staticServerPort (after guest boot + Wayland stack readiness, many
+    // seconds away), this has always long since finished.
+    NSURL *displayHTMLFile = [NSBundle.mainBundle URLForResource:@"display" withExtension:@"html"];
+    NSURL *bundleRootURL = displayHTMLFile.URLByDeletingLastPathComponent ?: NSBundle.mainBundle.resourceURL;
+    if (bundleRootURL != nil) {
+        _staticServer = [DisplayStaticFileServer new];
+        __weak typeof(self) weakSelf = self;
+        [_staticServer startServingRootURL:bundleRootURL completion:^(uint16_t port, NSError *_Nullable error) {
+            typeof(self) strongSelf = weakSelf;
+            if (strongSelf == nil)
+                return;
+            if (error != nil) {
+                [strongSelf failWithMessage:[NSString stringWithFormat:@"Static asset server failed to start: %@", error.localizedDescription]];
+                return;
+            }
+            strongSelf->_staticServerPort = port;
+        }];
+    }
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -121,6 +154,11 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
     [self teardownSession];
+    // Not stopped in -teardownSession: that also runs on every Reconnect,
+    // and the static server is independent of the guest session -- no
+    // need to restart it (and re-poll for it in -loadWebViewWithBridgePort:)
+    // on every reconnect attempt.
+    [_staticServer stop];
 }
 
 - (UIButton *)displayButtonWithTitle:(NSString *)title action:(SEL)action {
@@ -226,10 +264,27 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                 return;
             }
         }
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (DisplayReadyPollInterval * NSEC_PER_SEC)),
-                        dispatch_get_main_queue(), ^{
-            [strongSelf pollForReadyFile];
-        });
+        // start-wayland.sh writes this alongside (never instead of) the
+        // ready file whenever it die()s -- labwc/foot/wayvnc missing,
+        // crashing, or never reaching a listening state -- so a real
+        // failure surfaces immediately instead of only ever producing this
+        // poll's generic timeout message after the full deadline.
+        [ISHGuestFileBridge.sharedBridge readFileAtGuestPath:[DisplayReadyGuestPath stringByAppendingString:@".error"]
+                                                     maxBytes:4096
+                                                   completion:^(NSData *_Nullable errorData, NSError *_Nullable readError) {
+            typeof(self) innerSelf = weakSelf;
+            if (innerSelf == nil || innerSelf->_state != DisplayConnectionStateWaitingForReady)
+                return;
+            if (errorData.length > 0) {
+                NSString *reason = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+                [innerSelf failWithMessage:[NSString stringWithFormat:@"start-wayland.sh failed:\n\n%@", reason]];
+                return;
+            }
+            dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (DisplayReadyPollInterval * NSEC_PER_SEC)),
+                            dispatch_get_main_queue(), ^{
+                [innerSelf pollForReadyFile];
+            });
+        }];
     }];
 }
 
@@ -332,17 +387,38 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 
 - (void)loadWebViewWithBridgePort:(uint16_t)bridgePort {
     _state = DisplayConnectionStateConnected; // optimistic; refined by JS "status" messages
-    NSURL *displayHTMLFile = [NSBundle.mainBundle URLForResource:@"display" withExtension:@"html"];
-    if (displayHTMLFile == nil) {
-        [self failWithMessage:@"Missing bundled Display UI (display.html)"];
+
+    // _staticServer is started independently in -viewDidLoad and is
+    // essentially always ready long before the guest boot + Wayland stack
+    // reaches this point, but poll briefly rather than assume -- cheaper
+    // and more honest than a race.
+    if (_staticServerPort == 0) {
+        if (_staticServerStartDeadline == nil)
+            _staticServerStartDeadline = [NSDate dateWithTimeIntervalSinceNow:10.0];
+        if (_staticServerStartDeadline.timeIntervalSinceNow < 0) {
+            [self failWithMessage:@"Static asset server never started"];
+            return;
+        }
+        __weak typeof(self) weakSelf = self;
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [weakSelf loadWebViewWithBridgePort:bridgePort];
+        });
         return;
     }
-    NSURLComponents *components = [NSURLComponents componentsWithURL:displayHTMLFile resolvingAgainstBaseURL:NO];
+
+    NSURLComponents *components = [NSURLComponents new];
+    components.scheme = @"http";
+    components.host = @"127.0.0.1";
+    components.port = @(_staticServerPort);
+    components.path = @"/display.html";
     components.queryItems = @[[NSURLQueryItem queryItemWithName:@"port"
                                                             value:[NSString stringWithFormat:@"%u", (unsigned) bridgePort]]];
-    NSURL *urlWithQuery = components.URL ?: displayHTMLFile;
-    NSURL *readAccessURL = displayHTMLFile.URLByDeletingLastPathComponent ?: NSBundle.mainBundle.resourceURL ?: displayHTMLFile;
-    [self.webView loadFileURL:urlWithQuery allowingReadAccessToURL:readAccessURL];
+    NSURL *url = components.URL;
+    if (url == nil) {
+        [self failWithMessage:@"Failed to build Display UI URL"];
+        return;
+    }
+    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
 }
 
 - (void)userContentController:(WKUserContentController *)userContentController
