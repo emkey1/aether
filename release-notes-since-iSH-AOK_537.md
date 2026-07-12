@@ -73,6 +73,7 @@ A sustained pass driven by differential testing against real Linux under `stress
 - `fakefsify` no longer leaks the host's native `dev_t` encoding into fakefs device nodes — on macOS this had silently corrupted `/dev/null` and other device nodes in any rootfs image built there (`e0926b75`); a separate `fakefsify` fix corrected a root-inode missing `S_IFDIR` on rootless tarballs that broke `dpkg -i`/`apt-get install` (`f5f14ed9`).
 - `sendmsg()` control-buffer parsing now accepts an unpadded final `cmsg` (callers that set `msg_controllen = CMSG_LEN(n)` instead of the aligned `CMSG_SPACE(n)` previously got a spurious `EINVAL` on any single-fd `SCM_RIGHTS` send) (`d9f817f2`).
 - `ifconfig`/`ip` fixed for 64-bit guests: `struct ifreq`/`ifconf` layout (padding, pointer width) now varies correctly by guest word size, `SIOCGIFADDR`/`DSTADDR`/`BRDADDR`/`NETMASK`/`METRIC`/`MTU`/`HWADDR` ioctls added, `/proc/net/if_inet6` now emits real per-interface addresses instead of a loopback placeholder, and `/proc/net/dev` now matches Linux's spacing so byte counters ≥ 8 digits don't glue onto the interface name (`4fe1da7c`).
+- amd64 `preadv2`/`pwritev2` (syscalls 327/328) implemented — previously entirely missing from the amd64 table, causing a hard "missing syscall" `SIGSYS` (`gpg` hit this in normal use). An offset of `-1` is handled per the syscall's semantics (use and advance the current file position, like plain `preadv`/`pwritev`); `RWF_*` flags are accepted but ignored, same tradeoff as the existing `fadvise64` stub. Verified against a real x86_64 binary round-tripping data through both syscalls.
 
 ### /proc and iotop
 
@@ -127,6 +128,8 @@ A tracked backlog of documented-but-unresolved FIXMEs, closed with real implemen
 - `ptrace_group_stop` timed out once on arm64 during a deliberate 4-way-concurrent (all archs at once) on-device run — "no group-stop report / never resumed." Not reproduced in isolation yet; likely load-induced (9 emulated CPUs carrying four simultaneous compiler-heavy suites) rather than a real regression, but flagged for a follow-up solo re-run before ruling that out for certain.
 - A `ktop` (guest tool) crash was observed under the same 4-way-concurrent run's extreme `/proc` scanning load — a read page fault inside `ktop`'s own code, not an emulator crash (the app survived). Likely a race in `ktop`'s `/proc` scanning under unusually heavy, fast process churn; not yet root-caused, deferred as a follow-up.
 
+- Crash-log diagnostics: `dump_stack()`/`dump_mem()` were i386-only (read `cpu.esp`/`.ebp`/`.eip` unconditionally), so a page-fault crash dump on an amd64/arm64/riscv64 task printed garbage SP/FP/PC and truncated with "Unable to read memory" instead of a real stack dump. Now ABI-aware and 64-bit-address-safe; no behavior change to fault handling/signal delivery itself, which was already correct.
+
 ## Maintainer Notes
 
 - `CURRENT_PROJECT_VERSION` is 538 across the four main-target build configs in `iSH-AOK.xcodeproj/project.pbxproj`; the secondary (autocomplete-dummy) target's four configs remain frozen at 529, per existing convention. `builds/iSH-AOK_538` (annotated tag, matching prior releases) has been moved forward several times during this release's testing to track the second and third waves of fixes below; it now points at `c03a7bc6`.
@@ -142,6 +145,9 @@ A tracked backlog of documented-but-unresolved FIXMEs, closed with real implemen
 
 ## Commit Range
 ```
+7226a0d8 kernel: implement amd64 preadv2/pwritev2 (syscalls 327/328)
+91cdbec5 kernel: make dump_stack/dump_mem ABI-aware for 64-bit guests
+9f441f22 docs: fold the #463 fix and 4-way concurrent validation into the release notes
 c03a7bc6 fork: detach task resources before releasing them on the clone() error path (#463)
 6ac74f7e ktop: fix -Wformat-truncation warnings on gcc (Devuan riscv64 build)
 902e61ae tests: fix i386 raw_syscall6 register-aliasing bug that wedged futex_core (#462)
