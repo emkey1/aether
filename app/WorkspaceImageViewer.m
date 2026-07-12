@@ -239,6 +239,14 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
     if (_toolbarView == nil)
         return;
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    // primary/secondary/accent are only guaranteed to contrast against the
+    // theme's card surfaces (programmatically contrast-adjusted against
+    // them), never against the raw gradient backdrop -- give the content
+    // area an opaque card backing rather than rendering text straight onto
+    // the transparent gradient, matching every other applet in this file.
+    // Also gives letterboxed (non-fitting) images a neutral backdrop instead
+    // of the gradient showing through.
+    self.toolContentView.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.95];
     _titleLabel.textColor = theme[@"primary"];
     _statusLabel.textColor = theme[@"secondary"];
     for (UIButton *button in @[_prevButton, _nextButton, _shareButton, _reloadButton])

@@ -413,12 +413,22 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     if (_toolbarView == nil)
         return;
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
+    // primary/secondary/accent are only guaranteed to contrast against the
+    // theme's card surfaces (they're programmatically contrast-adjusted
+    // against them, see ISHWorkspaceThemeDescriptorFromEditablePalette) --
+    // never against backgroundTop/backgroundBottom directly. Every other
+    // applet in this file renders on an opaque workspaceThemeCardView; this
+    // one and the other new viewers were the only ones putting text right on
+    // the transparent gradient backdrop, which is exactly what made rows
+    // unreadable in some themes (dark text in a theme whose gradient reads
+    // dark, or vice versa) despite the theme system's contrast guarantees.
+    self.toolContentView.backgroundColor = [theme[@"card"] colorWithAlphaComponent:0.95];
     [self rebuildBreadcrumb];  // its buttons bake theme colors at build time
     _statusLabel.textColor = theme[@"secondary"];
     _dividerView.backgroundColor = theme[@"stroke"];
     _tableView.separatorColor = theme[@"stroke"];
     _sidebarTableView.separatorColor = theme[@"stroke"];
-    _sidebarTableView.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.4];
+    _sidebarTableView.backgroundColor = [theme[@"cardAlt"] colorWithAlphaComponent:0.95];
     for (UIButton *button in @[_backButton, _forwardButton, _upButton, _moreButton])
         button.tintColor = theme[@"accent"];
     [_tableView reloadData];
@@ -649,6 +659,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     cell.detailTextLabel.textColor = self.workspaceTheme[@"secondary"];
     cell.imageView.image = [self iconForItem:item];
     cell.imageView.tintColor = self.workspaceTheme[@"accent"];
+    cell.backgroundColor = UIColor.clearColor;  // UITableViewCell defaults to opaque white; without this the theme's light-on-dark text is nearly invisible
     cell.accessoryType = (item.kind == ISHGuestFileKindDirectory) ? UITableViewCellAccessoryDisclosureIndicator : UITableViewCellAccessoryNone;
     cell.selectionStyle = openable ? UITableViewCellSelectionStyleDefault : UITableViewCellSelectionStyleNone;
     return cell;

@@ -120,6 +120,12 @@ static void *kWorkspaceVideoPlayerItemStatusContext = &kWorkspaceVideoPlayerItem
     [super workspaceApplyTheme];
     // The progress card/label/progress view are all base-class factory
     // products, already auto-tracked and recolored by super's implementation.
+    // primary/secondary/accent are only guaranteed to contrast against the
+    // theme's card surfaces, never the raw gradient backdrop -- give the
+    // content area an opaque card backing so the status label (and any
+    // letterboxing around a loaded video) reads correctly. Harmless once a
+    // video is playing, since the player view then covers the whole area.
+    self.toolContentView.backgroundColor = [self.workspaceTheme[@"card"] colorWithAlphaComponent:0.95];
     _statusLabel.textColor = self.workspaceTheme[@"secondary"];
 }
 
