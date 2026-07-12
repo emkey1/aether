@@ -71,6 +71,17 @@ chmod 700 "$XDG_RUNTIME_DIR"
 export HOME="${HOME:-/root}"
 export WLR_BACKENDS=headless
 export WLR_LIBINPUT_NO_DEVICES=1
+# There's no real GPU/DRM device here (matches labwc's own harmless
+# "drmGetDevices2 failed: No such file or directory" at startup). GTK3
+# apps generally cope via cairo software rendering by default, but GTK4's
+# GskRenderer tries GL/Vulkan first -- confirmed on-device: gnome-calculator
+# hit "MESA: error: ZINK: vkCreateInstance failed (VK_ERROR_INCOMPATIBLE_
+# DRIVER)" and only rendered once forced to cairo/software. Exported here
+# (not just set for wayvnc/foot individually) so every client an interactive
+# session launches -- typically from a shell inside foot -- inherits them
+# without the user needing to know this environment has no GPU.
+export GSK_RENDERER=cairo
+export LIBGL_ALWAYS_SOFTWARE=1
 
 COMPOSITOR_PID=""
 FOOT_PID=""
