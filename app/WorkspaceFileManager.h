@@ -13,7 +13,7 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
-@interface WorkspaceFileManagerToolViewController : WorkspaceThemedToolViewController <WorkspaceFileOpenable>
+@interface WorkspaceFileManagerToolViewController : WorkspaceThemedToolViewController <WorkspaceFileOpenable, WorkspaceStatefulTool>
 @end
 
 NS_ASSUME_NONNULL_END

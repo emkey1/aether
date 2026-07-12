@@ -77,6 +77,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 
     WorkspaceFileManagerSortMode _sortMode;
     BOOL _showHidden;
+    BOOL _navigationPinned;  // a restore or user action happened; the async default-directory kick must not override it
 }
 
 #pragma mark Lifecycle
@@ -112,11 +113,30 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     [[ISHGuestFileBridge sharedBridge] statAtGuestPath:@"/AOK/persist" completion:^(ISHGuestFileItem *item, NSError *error) {
         typeof(self) strongSelf = weakSelf;
         if (strongSelf == nil) return;
-        BOOL userAlreadyNavigated = strongSelf->_backHistory.count > 0 || ![strongSelf->_currentPath isEqualToString:@"/"];
+        BOOL userAlreadyNavigated = strongSelf->_navigationPinned
+            || strongSelf->_backHistory.count > 0
+            || ![strongSelf->_currentPath isEqualToString:@"/"];
         if (userAlreadyNavigated) return;
         if (item != nil && item.kind == ISHGuestFileKindDirectory)
             [strongSelf navigateToPath:@"/AOK/persist" pushHistory:NO];
     }];
+}
+
+#pragma mark WorkspaceStatefulTool
+
+- (nullable NSDictionary<NSString *, id> *)workspaceToolStateForSaving {
+    return _currentPath.length > 0 ? @{@"path": _currentPath} : nil;
+}
+
+- (void)workspaceRestoreToolState:(NSDictionary<NSString *, id> *)state {
+    NSString *path = [state[@"path"] isKindOfClass:NSString.class] ? state[@"path"] : nil;
+    if (path.length == 0)
+        return;
+    // Pin even when the restored path is "/": the user's saved location must
+    // win over the async default-directory kick above, whatever it was. A
+    // path that no longer exists just shows the listing's errno empty state.
+    _navigationPinned = YES;
+    [self navigateToPath:path pushHistory:NO];
 }
 
 - (void)viewDidLayoutSubviews {

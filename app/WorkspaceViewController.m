@@ -3155,12 +3155,22 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
     }
 
     if (windowView.workspaceToolIdentifier.length > 0) {
-        return @{
+        NSMutableDictionary<NSString *, id> *descriptor = [@{
             @"kind": ISHWorkspaceSavedLayoutKindTool,
             @"frame": frameDescriptor,
             @"toolIdentifier": windowView.workspaceToolIdentifier,
             @"desktopIndex": @(windowView.workspaceDesktopIndex),
-        };
+        } mutableCopy];
+        // Applet-provided content state (current directory, open file) rides
+        // along in the layout descriptor so the window comes back showing
+        // what it showed, not just where it was.
+        UIViewController *contentViewController = [self contentViewControllerForDesktopWindow:windowView];
+        if ([contentViewController conformsToProtocol:@protocol(WorkspaceStatefulTool)]) {
+            NSDictionary<NSString *, id> *state = [(id<WorkspaceStatefulTool>) contentViewController workspaceToolStateForSaving];
+            if (state.count > 0)
+                descriptor[@"state"] = state;
+        }
+        return descriptor;
     }
 
     return nil;
@@ -3540,6 +3550,12 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
                                    toWindow:windowView
                                fallbackSize:ISHWorkspacePreferredToolContentSize(toolIdentifier)];
             [self assignRestoredWindow:windowView toDesktopFromDescriptor:descriptor];
+            NSDictionary<NSString *, id> *toolState = [descriptor[@"state"] isKindOfClass:NSDictionary.class] ? descriptor[@"state"] : nil;
+            if (toolState != nil) {
+                UIViewController *contentViewController = [self contentViewControllerForDesktopWindow:windowView];
+                if ([contentViewController conformsToProtocol:@protocol(WorkspaceStatefulTool)])
+                    [(id<WorkspaceStatefulTool>) contentViewController workspaceRestoreToolState:toolState];
+            }
             continue;
         }
         if ([kind isEqualToString:ISHWorkspaceSavedLayoutKindTerminal]) {

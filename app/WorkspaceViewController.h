@@ -17,6 +17,17 @@ extern NSString *_Nullable ISHWorkspaceToolIdentifierForViewController(UIViewCon
 - (void)workspaceOpenFileAtGuestPath:(NSString *)guestPath;
 @end
 
+// Adopted by an applet whose content should survive an app restart (e.g. the
+// File Manager's current directory, a viewer's open file). The returned
+// dictionary is stored inside the saved window-layout descriptor in
+// NSUserDefaults, so it must contain only plist types and stay small.
+// Restore is called after viewDidLoad, when the window is recreated from a
+// saved layout.
+@protocol WorkspaceStatefulTool <NSObject>
+- (nullable NSDictionary<NSString *, id> *)workspaceToolStateForSaving;
+- (void)workspaceRestoreToolState:(NSDictionary<NSString *, id> *)state;
+@end
+
 @class WorkspaceViewController;
 
 // Base class for every Workspace applet's content view controller. Provides a

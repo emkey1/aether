@@ -144,6 +144,18 @@ static const NSUInteger kMarkdownViewerMaxBytes = 4 * 1024 * 1024;  // 4 MiB; re
     [self loadPath:guestPath];
 }
 
+#pragma mark WorkspaceStatefulTool
+
+- (nullable NSDictionary<NSString *, id> *)workspaceToolStateForSaving {
+    return _currentPath.length > 0 ? @{@"path": _currentPath} : nil;
+}
+
+- (void)workspaceRestoreToolState:(NSDictionary<NSString *, id> *)state {
+    NSString *path = [state[@"path"] isKindOfClass:NSString.class] ? state[@"path"] : nil;
+    if (path.length > 0)
+        [self workspaceOpenFileAtGuestPath:path];  // a since-deleted file shows the load error, honestly
+}
+
 #pragma mark Navigation
 
 - (void)navigateBack {
