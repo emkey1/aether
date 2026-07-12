@@ -680,7 +680,14 @@ static void jit_cleanup_jetsam_if_needed(struct jit *jit) {
     }
 }
 
-static bool jit_i386_gpf_addr_accessible(guest_addr_t addr, int type) {
+// x86-guest-only (i386 and amd64): a stale JIT block can race a concurrent
+// COW/mmap update on another CPU and take a host #GP even though the target
+// page is validly mapped. When that happens the page is actually accessible,
+// so the fault was spurious rather than a real guest-visible GPF. Originally
+// i386-only (hence the name); confirmed to reproduce on amd64 too under
+// multicore concurrent workloads (fdfind's threaded directory walker hitting
+// a host GPF mid-memchr scan) -- see cpu_step_to_interrupt's retry dance.
+static bool jit_x86_gpf_addr_accessible(guest_addr_t addr, int type) {
     if (current == NULL || addr == 0)
         return false;
 
@@ -695,14 +702,16 @@ static bool jit_i386_gpf_addr_accessible(guest_addr_t addr, int type) {
     return accessible;
 }
 
-static bool jit_i386_gpf_looks_retryable(struct cpu_state *cpu) {
-    if (current == NULL || current->abi == GUEST_ABI_AMD64)
+static bool jit_x86_gpf_looks_retryable(struct cpu_state *cpu) {
+    if (current == NULL)
+        return false;
+    if (current->abi != GUEST_ABI_I386 && current->abi != GUEST_ABI_AMD64)
         return false;
     if (cpu->segfault_addr == 0)
         return false;
 
-    bool read_ok = jit_i386_gpf_addr_accessible(cpu->segfault_addr, MEM_READ);
-    bool write_ok = jit_i386_gpf_addr_accessible(cpu->segfault_addr, MEM_WRITE);
+    bool read_ok = jit_x86_gpf_addr_accessible(cpu->segfault_addr, MEM_READ);
+    bool write_ok = jit_x86_gpf_addr_accessible(cpu->segfault_addr, MEM_WRITE);
     if (cpu->segfault_was_write)
         return write_ok;
     return read_ok || write_ok;
@@ -1040,7 +1049,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     // Track cleanup_seq locally (NOT in frame, which would corrupt assembly
     // gadget offsets for ret_cache — see frame.h "keep in sync with asm").
     unsigned last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
-    addr_t last_retry_eip = 0;
+    guest_addr_t last_retry_ip = 0;
     guest_addr_t last_retry_addr = 0;
     bool last_retry_write = false;
     unsigned last_retry_count = 0;
@@ -1277,15 +1286,17 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
             if (force_block_boundary_break && interrupt == INT_TIMER)
                 interrupt = INT_NONE;
         }
-        if (interrupt == INT_GPF && current != NULL && current->abi != GUEST_ABI_AMD64) {
-            bool retryable = jit_i386_gpf_looks_retryable(cpu);
+        if (interrupt == INT_GPF && current != NULL &&
+                (current->abi == GUEST_ABI_I386 || current->abi == GUEST_ABI_AMD64)) {
+            bool retryable = jit_x86_gpf_looks_retryable(cpu);
             if (!retryable)
                 goto no_jit_retry;
-            bool same_retry = cpu->eip == last_retry_eip &&
+            guest_addr_t fault_ip = current->abi == GUEST_ABI_AMD64 ? cpu->amd64_rip : cpu->eip;
+            bool same_retry = fault_ip == last_retry_ip &&
                     cpu->segfault_addr == last_retry_addr &&
                     cpu->segfault_was_write == last_retry_write;
             if (!same_retry) {
-                last_retry_eip = cpu->eip;
+                last_retry_ip = fault_ip;
                 last_retry_addr = cpu->segfault_addr;
                 last_retry_write = cpu->segfault_was_write;
                 last_retry_count = 0;
@@ -1331,8 +1342,8 @@ done_unlocked:
 // architecture compiled them) -- with two deliberate simplifications for
 // this first slice:
 //   - ip tracking uses frame->cpu.arm64_pc, not eip.
-//   - i386's INT_GPF retry-on-fault dance (jit_i386_gpf_looks_retryable)
-//     is omitted; that logic exists for an i386-JIT-specific correctness
+//   - the x86 guests' INT_GPF retry-on-fault dance (jit_x86_gpf_looks_retryable)
+//     is omitted; that logic exists for an x86-JIT-specific correctness
 //     workaround that hasn't been shown to apply here. If real testing
 //     surfaces an equivalent class of transient fault for arm64 gadgets,
 //     add the analogous retry then, informed by what's actually observed
