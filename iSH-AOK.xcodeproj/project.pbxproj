@@ -111,6 +111,8 @@
 		3CFB2CDE11FC08241BE3BAA3 /* GuestFileBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 04D500F4AD345B478159A9D2 /* GuestFileBridge.m */; };
 		E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */; };
 		AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */; };
+		826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */; };
+		54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */; };
 		5D4E7DF82B1E68EB006BA7D4 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
 		5D4E7DFA2B1E68F6006BA7D4 /* rw_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DAE32B17EB1600FA995C /* rw_locks.c */; };
 		5D7E7E152B1FD4890087F2E0 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
@@ -639,6 +641,10 @@
 		761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MarkdownRenderer.h; sourceTree = "<group>"; };
 		8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceFileManager.m; sourceTree = "<group>"; };
 		C9934D01E356E81EDFCCD344 /* WorkspaceFileManager.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceFileManager.h; sourceTree = "<group>"; };
+		3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceMarkdownViewer.m; sourceTree = "<group>"; };
+		438B54F5AE6878B6B1BF54F1 /* WorkspaceMarkdownViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceMarkdownViewer.h; sourceTree = "<group>"; };
+		8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceImageViewer.m; sourceTree = "<group>"; };
+		C100D3488E931E73E9A1AC8C /* WorkspaceImageViewer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceImageViewer.h; sourceTree = "<group>"; };
 		59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPlayerEngine.m; sourceTree = "<group>"; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
@@ -1222,6 +1228,10 @@
 				57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */,
 				C9934D01E356E81EDFCCD344 /* WorkspaceFileManager.h */,
 				8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */,
+				438B54F5AE6878B6B1BF54F1 /* WorkspaceMarkdownViewer.h */,
+				3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */,
+				C100D3488E931E73E9A1AC8C /* WorkspaceImageViewer.h */,
+				8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */,
 			);
 			path = app;
 			sourceTree = "<group>";
@@ -2417,6 +2427,8 @@
 				3CFB2CDE11FC08241BE3BAA3 /* GuestFileBridge.m in Sources */,
 				E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */,
 				AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */,
+				826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */,
+				54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

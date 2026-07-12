@@ -13,6 +13,8 @@
 #import "AudioLibrary.h"
 #import "MotePadDocumentStore.h"
 #import "WorkspaceFileManager.h"
+#import "WorkspaceMarkdownViewer.h"
+#import "WorkspaceImageViewer.h"
 #import "UIApplication+OpenURL.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
@@ -116,6 +118,8 @@ static NSString *const ISHWorkspaceToolLauncherIdentifier = @"launcher";
 static NSString *const ISHWorkspaceToolAudioIdentifier = @"audio";
 static NSString *const ISHWorkspaceToolMotePadIdentifier = @"motepad";
 static NSString *const ISHWorkspaceToolFileManagerIdentifier = @"filemanager";
+static NSString *const ISHWorkspaceToolMarkdownViewerIdentifier = @"markdown";
+static NSString *const ISHWorkspaceToolImageViewerIdentifier = @"imageviewer";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -310,6 +314,11 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"files": ISHWorkspaceToolFileManagerIdentifier,
         @"filemanager": ISHWorkspaceToolFileManagerIdentifier,
         @"finder": ISHWorkspaceToolFileManagerIdentifier,
+        @"markdown": ISHWorkspaceToolMarkdownViewerIdentifier,
+        @"md": ISHWorkspaceToolMarkdownViewerIdentifier,
+        @"imageviewer": ISHWorkspaceToolImageViewerIdentifier,
+        @"image": ISHWorkspaceToolImageViewerIdentifier,
+        @"img": ISHWorkspaceToolImageViewerIdentifier,
     };
     return map[token];
 }
@@ -909,6 +918,10 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(340, 460);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
             return CGSizeMake(340, 460);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMarkdownViewerIdentifier])
+            return CGSizeMake(340, 460);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
+            return CGSizeMake(340, 420);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -949,6 +962,10 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(620, 560);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
         return CGSizeMake(720, 480);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMarkdownViewerIdentifier])
+        return CGSizeMake(620, 640);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
+        return CGSizeMake(620, 520);
     return CGSizeMake(720, 640);
 }
 
@@ -1035,6 +1052,10 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(280, 300);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
             return CGSizeMake(280, 300);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolMarkdownViewerIdentifier])
+            return CGSizeMake(260, 260);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
+            return CGSizeMake(240, 240);
         return CGSizeMake(300, 220);
     }
 
@@ -1070,6 +1091,10 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(360, 300);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
         return CGSizeMake(420, 320);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMarkdownViewerIdentifier])
+        return CGSizeMake(360, 320);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
+        return CGSizeMake(320, 280);
     return CGSizeZero;
 }
 
@@ -1133,6 +1158,10 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"MotePad";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
         return @"File Manager";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMarkdownViewerIdentifier])
+        return @"Markdown";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
+        return @"Image Viewer";
     return @"Window";
 }
 
@@ -2447,6 +2476,10 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceMotePadToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
         return [WorkspaceFileManagerToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolMarkdownViewerIdentifier])
+        return [WorkspaceMarkdownViewerToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolImageViewerIdentifier])
+        return [WorkspaceImageViewerToolViewController new];
     return nil;
 }
 
@@ -2489,6 +2522,10 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolMotePadIdentifier;
     if ([viewController isKindOfClass:WorkspaceFileManagerToolViewController.class])
         return ISHWorkspaceToolFileManagerIdentifier;
+    if ([viewController isKindOfClass:WorkspaceMarkdownViewerToolViewController.class])
+        return ISHWorkspaceToolMarkdownViewerIdentifier;
+    if ([viewController isKindOfClass:WorkspaceImageViewerToolViewController.class])
+        return ISHWorkspaceToolImageViewerIdentifier;
     return nil;
 }
 
@@ -5452,6 +5489,14 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
             @"title": @"Workspace",
             @"message": @"Launchers and workspace-wide controls.",
             @"items": workspaceItems,
+        },
+        @{
+            @"title": @"Media",
+            @"message": @"Document and image viewers.",
+            @"items": @[
+                @{@"title": @"Markdown", @"identifier": ISHWorkspaceToolMarkdownViewerIdentifier},
+                @{@"title": @"Image Viewer", @"identifier": ISHWorkspaceToolImageViewerIdentifier},
+            ],
         },
         @{
             @"title": @"Status",

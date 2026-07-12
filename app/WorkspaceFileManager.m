@@ -6,6 +6,10 @@
 #import "WorkspaceFileManager.h"
 #import "GuestFileBridge.h"
 
+// Forward-declared: defined near the routing table below, used earlier by
+// -iconForItem: to badge image files distinctly.
+static NSSet<NSString *> *ISHFileManagerImageExtensions(void);
+
 static const CGFloat kFileManagerSidebarWidth = 180.0;
 static const CGFloat kFileManagerSidebarCollapseThreshold = 520.0;
 static const CGFloat kFileManagerToolbarHeight = 44.0;
@@ -567,9 +571,15 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 }
 
 - (nullable UIImage *)iconForItem:(ISHGuestFileItem *)item {
-    NSString *symbolName = (item.kind == ISHGuestFileKindDirectory) ? @"folder"
-                          : (item.kind == ISHGuestFileKindRegular) ? @"doc.text"
-                          : @"questionmark.square";
+    NSString *symbolName;
+    if (item.kind == ISHGuestFileKindDirectory) {
+        symbolName = @"folder";
+    } else if (item.kind == ISHGuestFileKindRegular) {
+        NSString *ext = item.name.pathExtension.lowercaseString;
+        symbolName = (ext.length > 0 && [ISHFileManagerImageExtensions() containsObject:ext]) ? @"photo" : @"doc.text";
+    } else {
+        symbolName = @"questionmark.square";
+    }
     return [UIImage systemImageNamed:symbolName];
 }
 
@@ -628,16 +638,37 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 
 #pragma mark Opening files
 
-// Extensions known to be plain text: skip the content sniff below and route
-// straight to MotePad. Extensions known to be binary media: no viewer exists
-// yet (images/video/audio land in phases 2-3), so these always report no
-// route rather than guessing from content.
+// Markdown and image extensions get their dedicated viewers. Other known-text
+// extensions skip the content sniff below and route straight to MotePad.
+// Known-binary extensions with no viewer (video/audio/archives/office/fonts)
+// always report no route rather than guessing from content -- those land in
+// later phases.
+static NSSet<NSString *> *ISHFileManagerMarkdownExtensions(void) {
+    static NSSet<NSString *> *set;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ set = [NSSet setWithArray:@[@"md", @"markdown"]]; });
+    return set;
+}
+
+// Matches WorkspaceImageViewer.m's ISHImageViewerSupportedExtensions() --
+// deliberately excludes svg (not rasterizable by the ImageIO decode path the
+// viewer uses) and stays routed to nil until the Browser applet is wired for
+// file-open.
+static NSSet<NSString *> *ISHFileManagerImageExtensions(void) {
+    static NSSet<NSString *> *set;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        set = [NSSet setWithArray:@[@"png", @"jpg", @"jpeg", @"gif", @"bmp", @"tiff", @"tif", @"heic", @"heif", @"webp", @"ico"]];
+    });
+    return set;
+}
+
 static NSSet<NSString *> *ISHFileManagerKnownTextExtensions(void) {
     static NSSet<NSString *> *set;
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         set = [NSSet setWithArray:@[
-            @"txt", @"md", @"markdown", @"log", @"conf", @"cfg", @"config", @"json", @"yaml", @"yml",
+            @"txt", @"log", @"conf", @"cfg", @"config", @"json", @"yaml", @"yml",
             @"xml", @"csv", @"tsv", @"sh", @"bash", @"zsh", @"c", @"h", @"cpp", @"cc", @"hpp", @"m", @"mm",
             @"py", @"rb", @"js", @"ts", @"jsx", @"tsx", @"go", @"rs", @"java", @"swift", @"ini", @"toml",
             @"gitignore", @"env", @"plist", @"properties", @"gradle", @"make", @"mk", @"cmake", @"rst",
@@ -652,7 +683,7 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
     static dispatch_once_t once;
     dispatch_once(&once, ^{
         set = [NSSet setWithArray:@[
-            @"png", @"jpg", @"jpeg", @"gif", @"bmp", @"tiff", @"tif", @"heic", @"heif", @"webp", @"ico", @"svg",
+            @"svg",
             @"mp4", @"mov", @"m4v", @"avi", @"mkv", @"webm",
             @"mp3", @"m4a", @"aac", @"flac", @"ogg", @"opus", @"wav",
             @"zip", @"tar", @"gz", @"bz2", @"xz", @"7z", @"rar",
@@ -666,13 +697,21 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
     return set;
 }
 
-// The tool identifier is hardcoded rather than referencing
-// ISHWorkspaceToolMotePadIdentifier (that constant has internal linkage in
+// The tool identifiers are hardcoded rather than referencing e.g.
+// ISHWorkspaceToolMotePadIdentifier (those constants have internal linkage in
 // WorkspaceViewController.m) -- these identifier strings are already a durable
 // contract (they round-trip through NSUserDefaults for saved window layouts),
 // so a literal here carries no more fragility than that existing constraint.
 - (void)determineOpenRouteForItem:(ISHGuestFileItem *)item completion:(void (^)(NSString * _Nullable toolIdentifier))completion {
     NSString *ext = item.name.pathExtension.lowercaseString;
+    if (ext.length > 0 && [ISHFileManagerMarkdownExtensions() containsObject:ext]) {
+        completion(@"markdown");
+        return;
+    }
+    if (ext.length > 0 && [ISHFileManagerImageExtensions() containsObject:ext]) {
+        completion(@"imageviewer");
+        return;
+    }
     if (ext.length > 0 && [ISHFileManagerKnownTextExtensions() containsObject:ext]) {
         completion(@"motepad");
         return;
