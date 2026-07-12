@@ -108,6 +108,9 @@
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
 		5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */; };
+		3CFB2CDE11FC08241BE3BAA3 /* GuestFileBridge.m in Sources */ = {isa = PBXBuildFile; fileRef = 04D500F4AD345B478159A9D2 /* GuestFileBridge.m */; };
+		E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */; };
+		AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */; };
 		5D4E7DF82B1E68EB006BA7D4 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
 		5D4E7DFA2B1E68F6006BA7D4 /* rw_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DAE32B17EB1600FA995C /* rw_locks.c */; };
 		5D7E7E152B1FD4890087F2E0 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
@@ -630,6 +633,12 @@
 		497F6D47254E605F00C82F46 /* ish */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
 		4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MotePadDocumentStore.m; sourceTree = "<group>"; };
 		56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MotePadDocumentStore.h; sourceTree = "<group>"; };
+		04D500F4AD345B478159A9D2 /* GuestFileBridge.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = GuestFileBridge.m; sourceTree = "<group>"; };
+		F6CFEC30BC981057316A8873 /* GuestFileBridge.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = GuestFileBridge.h; sourceTree = "<group>"; };
+		57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MarkdownRenderer.m; sourceTree = "<group>"; };
+		761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MarkdownRenderer.h; sourceTree = "<group>"; };
+		8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceFileManager.m; sourceTree = "<group>"; };
+		C9934D01E356E81EDFCCD344 /* WorkspaceFileManager.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = WorkspaceFileManager.h; sourceTree = "<group>"; };
 		59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPlayerEngine.m; sourceTree = "<group>"; };
 		5D272493277C20DF0005F2A8 /* iSHFileProviderRelease.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = iSHFileProviderRelease.entitlements; sourceTree = "<group>"; };
 		5D59DAD92B17996100FA995C /* ro_locks.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = ro_locks.h; sourceTree = "<group>"; };
@@ -1207,6 +1216,12 @@
 				DB5F3377782D953C463D3F4C /* AudioLibrary.h */,
 				56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */,
 				4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */,
+				F6CFEC30BC981057316A8873 /* GuestFileBridge.h */,
+				04D500F4AD345B478159A9D2 /* GuestFileBridge.m */,
+				761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */,
+				57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */,
+				C9934D01E356E81EDFCCD344 /* WorkspaceFileManager.h */,
+				8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */,
 			);
 			path = app;
 			sourceTree = "<group>";
@@ -2399,6 +2414,9 @@
 				9C2BEE382C85ECD21A4672CA /* AudioPCMDecoder_Opus.m in Sources */,
 				8373773A4AE4AA88C0E3CCBC /* AudioLibrary.m in Sources */,
 				5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */,
+				3CFB2CDE11FC08241BE3BAA3 /* GuestFileBridge.m in Sources */,
+				E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */,
+				AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

@@ -12,6 +12,7 @@
 #import "AudioPlayerEngine.h"
 #import "AudioLibrary.h"
 #import "MotePadDocumentStore.h"
+#import "WorkspaceFileManager.h"
 #import "UIApplication+OpenURL.h"
 #import <WebKit/WebKit.h>
 #include "kernel/task.h"
@@ -114,6 +115,7 @@ static NSString *const ISHWorkspaceToolLLMIdentifier = @"llm";
 static NSString *const ISHWorkspaceToolLauncherIdentifier = @"launcher";
 static NSString *const ISHWorkspaceToolAudioIdentifier = @"audio";
 static NSString *const ISHWorkspaceToolMotePadIdentifier = @"motepad";
+static NSString *const ISHWorkspaceToolFileManagerIdentifier = @"filemanager";
 static NSString *const ISHWorkspaceSavedLayoutDefaultsKey = @"ISHWorkspaceSavedLayout";
 static NSString *const ISHWorkspacePersistentWorkspacesWindowFrameDefaultsKey = @"ISHWorkspacePersistentWorkspacesWindowFrame";
 static NSString *const ISHWorkspaceLegacyPersistentWorkspacesWindowFrameDefaultsKeyPrefix = @"ISHWorkspacePersistentWorkspacesWindowFrame";
@@ -305,6 +307,9 @@ static NSString *ISHWorkspaceLauncherToolIdentifierForCommand(NSString *command)
         @"notepad": ISHWorkspaceToolMotePadIdentifier,
         @"textedit": ISHWorkspaceToolMotePadIdentifier,
         @"text": ISHWorkspaceToolMotePadIdentifier,
+        @"files": ISHWorkspaceToolFileManagerIdentifier,
+        @"filemanager": ISHWorkspaceToolFileManagerIdentifier,
+        @"finder": ISHWorkspaceToolFileManagerIdentifier,
     };
     return map[token];
 }
@@ -902,6 +907,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 510);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
             return CGSizeMake(340, 460);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
+            return CGSizeMake(340, 460);
         return CGSizeMake(344, 580);
     }
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolClockIdentifier])
@@ -940,6 +947,8 @@ static CGSize ISHWorkspacePreferredToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 470);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
         return CGSizeMake(620, 560);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
+        return CGSizeMake(720, 480);
     return CGSizeMake(720, 640);
 }
 
@@ -1024,6 +1033,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
             return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 390);
         if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
             return CGSizeMake(280, 300);
+        if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
+            return CGSizeMake(280, 300);
         return CGSizeMake(300, 220);
     }
 
@@ -1057,6 +1068,8 @@ static CGSize ISHWorkspaceMinimumToolContentSize(NSString *toolIdentifier) {
         return CGSizeMake(ISHWorkspaceAudioWindowWidth(), 360);
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
         return CGSizeMake(360, 300);
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
+        return CGSizeMake(420, 320);
     return CGSizeZero;
 }
 
@@ -1118,6 +1131,8 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
         return @"Music";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
         return @"MotePad";
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
+        return @"File Manager";
     return @"Window";
 }
 
@@ -2341,21 +2356,9 @@ static BOOL ISHWorkspaceThemeIdentifierIsBuiltIn(NSString *identifier) {
     return NO;
 }
 
-@interface WorkspaceThemedToolViewController : UIViewController
-
-@property (nonatomic, strong, readonly) UIView *toolContentView;
-@property (nonatomic, weak) WorkspaceViewController *workspaceHostViewController;
-
-- (UIView *)workspaceThemeCardView;
-- (UILabel *)workspaceThemePrimaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
-- (UILabel *)workspaceThemeSecondaryLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
-- (UILabel *)workspaceThemeAccentLabelWithTextStyle:(UIFontTextStyle)textStyle monospaced:(BOOL)monospaced;
-- (UITextView *)workspaceThemeTextView;
-- (UIProgressView *)workspaceThemeProgressView;
-- (NSDictionary<NSString *, UIColor *> *)workspaceTheme;
-- (void)workspaceApplyTheme;
-
-@end
+// WorkspaceThemedToolViewController's @interface now lives in
+// WorkspaceViewController.h so applets defined in their own translation unit
+// (e.g. WorkspaceFileManager.m) can subclass it.
 
 @interface WorkspaceClockToolViewController : WorkspaceThemedToolViewController
 @end
@@ -2442,6 +2445,8 @@ static UIViewController *ISHCreateWorkspaceToolViewController(NSString *toolIden
         return [WorkspaceAudioPlayerToolViewController new];
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolMotePadIdentifier])
         return [WorkspaceMotePadToolViewController new];
+    if ([toolIdentifier isEqualToString:ISHWorkspaceToolFileManagerIdentifier])
+        return [WorkspaceFileManagerToolViewController new];
     return nil;
 }
 
@@ -2482,6 +2487,8 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
         return ISHWorkspaceToolAudioIdentifier;
     if ([viewController isKindOfClass:WorkspaceMotePadToolViewController.class])
         return ISHWorkspaceToolMotePadIdentifier;
+    if ([viewController isKindOfClass:WorkspaceFileManagerToolViewController.class])
+        return ISHWorkspaceToolFileManagerIdentifier;
     return nil;
 }
 
@@ -3299,6 +3306,28 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         [self.desktopSurfaceView bringSubviewToFront:windowView];
     [self refreshDockButtons];
     return windowView;
+}
+
+// The content view controller isn't stored anywhere new -- it's already a
+// child view controller of self (see attachViewController:toDesktopWindow:),
+// so it's found the same way UIKit finds any child: by whose view lives
+// inside the window's contentContainerView.
+- (nullable UIViewController *)contentViewControllerForDesktopWindow:(ISHWorkspaceContainedWindowView *)windowView {
+    for (UIViewController *child in self.childViewControllers) {
+        if (child.view.superview == windowView.contentContainerView)
+            return child;
+    }
+    return nil;
+}
+
+- (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier fileGuestPath:(NSString *)guestPath {
+    ISHWorkspaceContainedWindowView *windowView = [self openWorkspaceToolWindowWithIdentifier:toolIdentifier];
+    if (windowView == nil)
+        return;
+    [self focusDesktopWindow:windowView];
+    UIViewController *contentViewController = [self contentViewControllerForDesktopWindow:windowView];
+    if ([contentViewController conformsToProtocol:@protocol(WorkspaceFileOpenable)])
+        [(id<WorkspaceFileOpenable>) contentViewController workspaceOpenFileAtGuestPath:guestPath];
 }
 
 - (void)dismissSettingsToolWindow:(id)sender {
@@ -5412,6 +5441,7 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
         @{@"title": @"Browser", @"identifier": ISHWorkspaceToolBrowserIdentifier},
         @{@"title": @"Music", @"identifier": ISHWorkspaceToolAudioIdentifier},
         @{@"title": @"MotePad", @"identifier": ISHWorkspaceToolMotePadIdentifier},
+        @{@"title": @"File Manager", @"identifier": ISHWorkspaceToolFileManagerIdentifier},
         @{@"title": @"Sessions", @"identifier": ISHWorkspaceToolSessionsIdentifier},
         @{@"title": @"Themes", @"identifier": ISHWorkspaceToolThemesIdentifier},
     ]];
@@ -8719,7 +8749,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 @end
 
 
-@interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate>
+@interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate, WorkspaceFileOpenable>
 @end
 
 @implementation WorkspaceMotePadToolViewController {
@@ -9327,6 +9357,29 @@ static NSMutableSet<NSString *> *MotePadClaimedDraftSlots(void) {
                 }
                 [s2 loadText:text guestPath:path];
             }];
+        }];
+    }];
+}
+
+// WorkspaceFileOpenable: same read/load pipeline as mpOpen's browser-selection
+// completion, just entered with an already-known path (from the File Manager)
+// instead of from MotePad's own file browser.
+- (void)workspaceOpenFileAtGuestPath:(NSString *)guestPath {
+    __weak typeof(self) ws = self;
+    [self promptToSaveIfDirtyThen:^{
+        typeof(self) ss = ws;
+        if (ss == nil) return;
+        [ss beginFileOperation:@"Opening…"];
+        [[MotePadDocumentStore sharedStore] readTextFileAtGuestPath:guestPath
+                                                         completion:^(NSString *text, NSError *error) {
+            typeof(self) s2 = ws;
+            if (s2 == nil) return;
+            [s2 endFileOperation];
+            if (text == nil) {
+                [s2 presentError:error title:@"Couldn’t Open"];
+                return;
+            }
+            [s2 loadText:text guestPath:guestPath];
         }];
     }];
 }
