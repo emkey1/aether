@@ -47,6 +47,7 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
     BOOL _showingActualSize;
     NSString *_statusMessage;
     NSInteger _loadGeneration;            // discards stale async loads
+    CGSize _lastLayoutSize;               // detects real window resizes in viewDidLayoutSubviews
 }
 
 #pragma mark Lifecycle
@@ -64,11 +65,31 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
     [self updateStatusLabel];
 }
 
+// Workspace windows resize continuously; the fit-mode constraints tie the
+// image size to the scroll view's frame, and re-solving them under a live
+// zoomScale > 1 makes the zoomed view jump unpredictably. Reset to the
+// un-zoomed fit on a real size change (zooming itself doesn't change our
+// bounds, so this never fires mid-pinch).
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    CGSize size = self.view.bounds.size;
+    if (CGSizeEqualToSize(size, _lastLayoutSize))
+        return;
+    _lastLayoutSize = size;
+    if (_scrollView.zoomScale != _scrollView.minimumZoomScale)
+        [_scrollView setZoomScale:_scrollView.minimumZoomScale animated:NO];
+    [self centerImage];
+}
+
 - (NSArray<UIKeyCommand *> *)keyCommands {
     UIKeyCommand *prev = [UIKeyCommand keyCommandWithInput:UIKeyInputLeftArrow modifierFlags:0 action:@selector(navigatePrev)];
     prev.discoverabilityTitle = @"Previous Image";
     UIKeyCommand *next = [UIKeyCommand keyCommandWithInput:UIKeyInputRightArrow modifierFlags:0 action:@selector(navigateNext)];
     next.discoverabilityTitle = @"Next Image";
+    // Without this the iOS 15+ focus engine consumes unmodified arrows before
+    // they reach key commands, so prev/next would silently never fire.
+    prev.wantsPriorityOverSystemBehavior = YES;
+    next.wantsPriorityOverSystemBehavior = YES;
     return @[prev, next];
 }
 
@@ -202,6 +223,10 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
 
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
+    // The base class invokes this from ITS viewDidLoad, before ours has
+    // built any views -- an @[] literal of nil ivars would throw.
+    if (_toolbarView == nil)
+        return;
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
     _titleLabel.textColor = theme[@"primary"];
     _statusLabel.textColor = theme[@"secondary"];
@@ -285,11 +310,23 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
             [strongSelf updateStatusLabel];
             return;
         }
-        // ImageIO decode is a blocking CPU operation; keep it off the main thread.
+        // Capture the pixel budget here on main (view bounds and screen
+        // scale are UIKit main-thread state), then decode off-main -- ImageIO
+        // decode is a blocking CPU operation.
+        size_t maxPixelSize = [strongSelf currentDecodePixelBudget];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-            [strongSelf decodeAndDisplayData:data generation:generation];
+            [strongSelf decodeAndDisplayData:data maxPixelSize:maxPixelSize generation:generation];
         });
     }];
+}
+
+// Main thread only. ~2x the window's screen-pixel size, clamped to a sane
+// range, so a huge photo can never balloon into a full-resolution UIImage.
+- (size_t)currentDecodePixelBudget {
+    CGFloat screenScale = UIScreen.mainScreen.scale;
+    CGFloat maxViewDimension = MAX(self.view.bounds.size.width, self.view.bounds.size.height);
+    if (maxViewDimension <= 0) maxViewDimension = 512.0;  // view not laid out yet; fall back to a sane budget
+    return (size_t)MIN(MAX(maxViewDimension * screenScale * 2.0, kImageViewerMinPixelBudget), kImageViewerMaxPixelBudget);
 }
 
 - (NSString *)messageForReadError:(NSError *)error {
@@ -298,15 +335,15 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
     return error.localizedDescription.length ? error.localizedDescription : @"Couldn’t open this file.";
 }
 
-// Runs on a background queue. Decodes at a bounded pixel budget (~2x the
-// window's screen-pixel size) so a huge photo can never balloon into a
-// full-resolution UIImage and trigger jetsam -- this is a correctness
-// requirement, not an optimization. "Actual size" below therefore shows the
-// decoded bitmap's own size, which for anything under the budget (the common
-// case) is the image's true size; the title bar's pixel-dimension readout
-// still reflects the file's real dimensions, read separately and cheaply
-// from the image source's properties without a full decode.
-- (void)decodeAndDisplayData:(NSData *)data generation:(NSInteger)generation {
+// Runs on a background queue. Decodes at the caller-captured pixel budget so
+// a huge photo can never balloon into a full-resolution UIImage and trigger
+// jetsam -- this is a correctness requirement, not an optimization. "Actual
+// size" below therefore shows the decoded bitmap's own size, which for
+// anything under the budget (the common case) is the image's true size; the
+// title bar's pixel-dimension readout still reflects the file's real
+// dimensions, read separately and cheaply from the image source's
+// properties without a full decode.
+- (void)decodeAndDisplayData:(NSData *)data maxPixelSize:(size_t)maxPixelSize generation:(NSInteger)generation {
     CGImageSourceRef source = CGImageSourceCreateWithData((__bridge CFDataRef)data, NULL);
     if (source == NULL) {
         [self finishDecodeOnMainQueueWithImage:nil pixelSize:CGSizeZero generation:generation
@@ -317,11 +354,6 @@ static NSSet<NSString *> *ISHImageViewerSupportedExtensions(void) {
     NSDictionary *properties = (__bridge_transfer NSDictionary *)CGImageSourceCopyPropertiesAtIndex(source, 0, NULL);
     CGFloat pixelWidth = [properties[(__bridge NSString *)kCGImagePropertyPixelWidth] doubleValue];
     CGFloat pixelHeight = [properties[(__bridge NSString *)kCGImagePropertyPixelHeight] doubleValue];
-
-    CGFloat screenScale = UIScreen.mainScreen.scale;
-    CGFloat maxViewDimension = MAX(self.view.bounds.size.width, self.view.bounds.size.height);
-    if (maxViewDimension <= 0) maxViewDimension = 512.0;  // view not laid out yet; fall back to a sane budget
-    size_t maxPixelSize = (size_t)MIN(MAX(maxViewDimension * screenScale * 2.0, kImageViewerMinPixelBudget), kImageViewerMaxPixelBudget);
 
     NSDictionary *thumbnailOptions = @{
         (__bridge NSString *)kCGImageSourceCreateThumbnailFromImageAlways: @YES,

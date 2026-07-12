@@ -126,6 +126,10 @@ static const NSUInteger kMarkdownViewerMaxBytes = 4 * 1024 * 1024;  // 4 MiB; re
 
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
+    // The base class invokes this from ITS viewDidLoad, before ours has
+    // built any views -- an @[] literal of nil ivars would throw.
+    if (_toolbarView == nil)
+        return;
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
     _titleLabel.textColor = theme[@"primary"];
     for (UIButton *button in @[_backButton, _editButton, _reloadButton])
@@ -246,11 +250,21 @@ static const NSUInteger kMarkdownViewerMaxBytes = 4 * 1024 * 1024;  // 4 MiB; re
         [UIApplication.sharedApplication openURL:URL options:@{} completionHandler:nil];
         return NO;
     }
-    // No scheme: a path relative to the current file. Only follow it in-reader
-    // if it looks like another markdown document; anything else (an image
-    // reference, say -- inline image rendering isn't implemented yet) gets a
-    // clear "can't open this" instead of silently doing nothing.
+    // No scheme: a path relative to the current file. Strip any #fragment
+    // (an anchor within the target document, meaningless to our loader) and
+    // percent-decode -- iOS 17+ leniently percent-encodes spaces at parse
+    // time, and authors may pre-encode, but the guest path wants raw bytes.
+    // Only follow it in-reader if it looks like another markdown document;
+    // anything else (an image reference, say -- inline image rendering isn't
+    // implemented yet) gets a clear "can't open this" instead of silently
+    // doing nothing.
     NSString *relativePath = URL.relativeString;
+    NSRange fragmentMarker = [relativePath rangeOfString:@"#"];
+    if (fragmentMarker.location != NSNotFound)
+        relativePath = [relativePath substringToIndex:fragmentMarker.location];
+    relativePath = relativePath.stringByRemovingPercentEncoding ?: relativePath;
+    if (relativePath.length == 0)
+        return NO;  // pure-anchor link like "#section": nowhere to navigate
     NSString *ext = relativePath.pathExtension.lowercaseString;
     if (ext.length == 0 || [ext isEqualToString:@"md"] || [ext isEqualToString:@"markdown"]) {
         [self navigateToRelativePath:relativePath];

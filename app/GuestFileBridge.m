@@ -29,7 +29,6 @@
 NSString *const ISHGuestFileErrorDomain = @"ISHGuestFileErrorDomain";
 
 static NSString *const kPersistGuestPrefix = @"/AOK/persist/";
-static const NSUInteger kExtractionCacheByteLimit = 512 * 1024 * 1024;
 static const NSUInteger kExtractionChunkSize = 1 << 20;  // 1 MiB
 static const NSUInteger kMixedBackendCopyMaxBytes = 256 * 1024 * 1024;
 
@@ -73,7 +72,18 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
 #pragma mark - ISHGuestFileBridge
 
 @implementation ISHGuestFileBridge {
-    NSCache<NSString *, ISHGuestFileExtractionCacheEntry *> *_extractionCache;
+    // Plain dictionary, deliberately NOT an NSCache: NSCache evicts on its
+    // own schedule (memory pressure, backgrounding), and evicting an entry
+    // whose temp file a consumer still has open -- AVPlayer reopens local
+    // files by path on seek -- would yank the file mid-use. Space is
+    // reclaimed only by clearExtractionCache at app launch; the dictionary
+    // also guarantees an unchanged file is never extracted twice, so disk
+    // use is bounded by the set of distinct files opened in one app run.
+    // Accessed only on ioQueue.
+    NSMutableDictionary<NSString *, ISHGuestFileExtractionCacheEntry *> *_extractionCache;
+    // Token bookkeeping, guarded by @synchronized(self): callers cancel from
+    // the main thread while the ioQueue polls between chunks.
+    NSMutableSet<NSUUID *> *_inflightExtractions;
     NSMutableSet<NSUUID *> *_cancelledExtractions;
 }
 
@@ -89,9 +99,8 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     if (self) {
         _ioQueue = dispatch_queue_create("app.ish.guestfilebridge.io", DISPATCH_QUEUE_SERIAL);
         _cancelledExtractions = [NSMutableSet set];
-        _extractionCache = [NSCache new];
-        _extractionCache.delegate = self;
-        _extractionCache.totalCostLimit = kExtractionCacheByteLimit;
+        _inflightExtractions = [NSMutableSet set];
+        _extractionCache = [NSMutableDictionary dictionary];
         [self extractionCacheDirectory];  // ensure it exists
     }
     return self;
@@ -186,9 +195,26 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     for (NSString *component in rel.pathComponents) {
         if (component.length == 0 || [component isEqualToString:@"/"])
             continue;
+        // ".." would walk the host URL out of the persist base into the rest
+        // of the app container -- decline the fast path and let the VFS
+        // resolve it (path_normalize handles dot-dot inside guest namespace).
+        if ([component isEqualToString:@"."] || [component isEqualToString:@".."])
+            return nil;
         hostURL = [hostURL URLByAppendingPathComponent:component];
     }
     return hostURL;
+}
+
+// The persist base with host symlinks resolved (e.g. /var vs /private/var),
+// with a trailing slash so prefix checks can't match a sibling like
+// ".../persistXYZ". Used to confirm a resolved symlink target stayed inside
+// the persist area before treating it as realfs-reachable.
+- (nullable NSString *)resolvedPersistBasePrefix {
+    NSURL *base = [self persistHostBaseURL];
+    if (base == nil) return nil;
+    NSString *resolved = base.URLByResolvingSymlinksInPath.path;
+    if (resolved.length == 0) return nil;
+    return [resolved hasSuffix:@"/"] ? resolved : [resolved stringByAppendingString:@"/"];
 }
 
 - (NSString *)normalizedGuestPath:(NSString *)guestPath {
@@ -237,7 +263,14 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     NSString *target = [NSFileManager.defaultManager destinationOfSymbolicLinkAtPath:hostURL.path error:NULL];
     item.symlinkTarget = target ?: @"";
 
+    // Only follow the link if its target stays inside the persist area. An
+    // absolute target like "/etc/hosts" names a guest path, but resolving it
+    // with host APIs would land on iOS's /etc/hosts -- the wrong namespace.
+    // Escaping links display as unresolved rather than showing host files.
     NSString *resolved = hostURL.URLByResolvingSymlinksInPath.path;
+    NSString *basePrefix = [self resolvedPersistBasePrefix];
+    if (resolved != nil && (basePrefix == nil || ![resolved hasPrefix:basePrefix]))
+        resolved = nil;
     NSDictionary *followedAttrs = resolved != nil ? [NSFileManager.defaultManager attributesOfItemAtPath:resolved error:NULL] : nil;
     if (followedAttrs != nil) {
         item.kind = [self kindFromHostFileType:followedAttrs[NSFileType]];
@@ -306,10 +339,13 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
         NSError *error = nil;
         NSURL *hostDir = [self hostURLForRealfsGuestPath:path];
         BOOL hostIsDir = NO;
-        if (hostDir != nil && [NSFileManager.defaultManager fileExistsAtPath:hostDir.path isDirectory:&hostIsDir] && hostIsDir) {
+        BOOL hostExists = hostDir != nil && [NSFileManager.defaultManager fileExistsAtPath:hostDir.path isDirectory:&hostIsDir];
+        if (hostExists && hostIsDir) {
             items = [self listHostDirectory:hostDir guestBasePath:path];
-        } else if (hostDir != nil) {
+        } else if (hostExists) {
             error = [self errorWithCode:ISHGuestFileBridgeErrorNotDirectory message:@"That path is not a directory"];
+        } else if (hostDir != nil) {
+            error = [self errorWithGuestErrno:_ENOENT message:@"No such file or directory"];
         } else {
             __block NSArray<ISHGuestFileItem *> *vfsItems = nil;
             __block NSError *vfsError = nil;
@@ -340,9 +376,11 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     return items;
 }
 
-// Caller must already hold a borrowed task context.
+// Caller must already hold a borrowed task context. O_NONBLOCK_ so being
+// handed a FIFO path can never park the ioQueue in a blocking open; the
+// S_ISDIR check below rejects it (harmless for real directories).
 - (nullable NSArray<ISHGuestFileItem *> *)listGuestDirectoryViaVFS:(NSString *)guestPath error:(NSError **)error {
-    struct fd *fd = generic_open(guestPath.fileSystemRepresentation, O_RDONLY_, 0);
+    struct fd *fd = generic_open(guestPath.fileSystemRepresentation, O_RDONLY_ | O_NONBLOCK_, 0);
     if (IS_ERR(fd)) {
         if (error) *error = [self errorWithGuestErrno:(long)PTR_ERR(fd) message:@"Cannot open directory"];
         return nil;
@@ -551,11 +589,6 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     });
 }
 
-- (void)cache:(NSCache *)cache willEvictObject:(id)obj {
-    ISHGuestFileExtractionCacheEntry *entry = obj;
-    [NSFileManager.defaultManager removeItemAtURL:entry.fileURL error:NULL];
-}
-
 - (nullable NSURL *)cachedExtractionURLForGuestPath:(NSString *)guestPath
                                                  size:(unsigned long long)size
                                      modificationDate:(nullable NSDate *)modificationDate {
@@ -574,24 +607,35 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     entry.size = size;
     entry.modificationDate = modificationDate;
     entry.fileURL = url;
-    [_extractionCache setObject:entry forKey:guestPath cost:(NSUInteger)MIN(size, (unsigned long long)NSUIntegerMax)];
+    _extractionCache[guestPath] = entry;
+}
+
+- (void)beginExtraction:(NSUUID *)token {
+    @synchronized (self) {
+        [_inflightExtractions addObject:token];
+    }
 }
 
 - (BOOL)isExtractionCancelled:(NSUUID *)token {
-    @synchronized (_cancelledExtractions) {
+    @synchronized (self) {
         return [_cancelledExtractions containsObject:token];
     }
 }
 
+// Ignores tokens that aren't in flight: cancelling after completion (a
+// window closing that always cancels defensively, say) must not grow the
+// cancelled set with UUIDs nothing will ever remove.
 - (void)cancelExtraction:(ISHGuestFileExtractionToken)token {
     if (token == nil) return;
-    @synchronized (_cancelledExtractions) {
-        [_cancelledExtractions addObject:token];
+    @synchronized (self) {
+        if ([_inflightExtractions containsObject:token])
+            [_cancelledExtractions addObject:token];
     }
 }
 
 - (void)finishExtraction:(NSUUID *)token {
-    @synchronized (_cancelledExtractions) {
+    @synchronized (self) {
+        [_inflightExtractions removeObject:token];
         [_cancelledExtractions removeObject:token];
     }
 }
@@ -601,6 +645,7 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     completion:(void (^)(NSURL * _Nullable, NSError * _Nullable))completion {
     NSUUID *token = [NSUUID UUID];
     NSString *path = [self normalizedGuestPath:guestPath];
+    [self beginExtraction:token];  // before returning it, so an immediate cancel is honored
 
     dispatch_async(self.ioQueue, ^{
         if ([self isExtractionCancelled:token]) {
@@ -658,13 +703,17 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     return token;
 }
 
-// Caller must already hold a borrowed task context.
+// Caller must already hold a borrowed task context. O_NONBLOCK_ is load-
+// bearing: a FIFO with no writer blocks generic_open forever otherwise
+// (fs/fifo.c), and a wedged open here parks the serial ioQueue -- every
+// bridge operation app-wide would hang with no recovery. The S_ISREG check
+// then rejects the FIFO (and sockets/devices) cleanly.
 - (nullable NSURL *)extractGuestPathViaVFS:(NSString *)guestPath
                                        token:(NSUUID *)token
                                        total:(int64_t)totalBytes
                                     progress:(void (^)(int64_t, int64_t))progress
                                        error:(NSError **)error {
-    struct fd *fd = generic_open(guestPath.fileSystemRepresentation, O_RDONLY_, 0);
+    struct fd *fd = generic_open(guestPath.fileSystemRepresentation, O_RDONLY_ | O_NONBLOCK_, 0);
     if (IS_ERR(fd)) {
         if (error) *error = [self errorWithGuestErrno:(long)PTR_ERR(fd) message:@"Cannot open guest file"];
         return nil;
@@ -672,6 +721,11 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     if (S_ISDIR(fd->type)) {
         fd_close(fd);
         if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorIsDirectory message:@"That path is a directory"];
+        return nil;
+    }
+    if (!S_ISREG(fd->type)) {
+        fd_close(fd);
+        if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorNotRegularFile message:@"That path is not a regular file"];
         return nil;
     }
 
@@ -751,12 +805,22 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
                     if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorNotRegularFile message:@"Cannot save through a broken symbolic link"];
                     return NO;
                 }
+                // A link whose target leaves the persist area names a guest
+                // path (e.g. "/etc/hosts"); following it with host APIs would
+                // write to iOS's file of that name. Refuse rather than cross
+                // namespaces -- the VFS route handles such links correctly.
+                NSString *resolvedPath = [NSString stringWithUTF8String:resolved] ?: @"";
+                NSString *basePrefix = [self resolvedPersistBasePrefix];
+                if (basePrefix == nil || ![resolvedPath hasPrefix:basePrefix]) {
+                    if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorNotRegularFile message:@"That link points outside the persist area"];
+                    return NO;
+                }
                 struct stat rst;
                 if (stat(resolved, &rst) != 0 || !S_ISREG(rst.st_mode)) {
                     if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorNotRegularFile message:@"That path is not a regular file"];
                     return NO;
                 }
-                hostURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:resolved] isDirectory:NO];
+                hostURL = [NSURL fileURLWithPath:resolvedPath isDirectory:NO];
             } else if (!S_ISREG(lst.st_mode)) {
                 if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorNotRegularFile message:@"That path is not a regular file"];
                 return NO;
@@ -956,6 +1020,8 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
 
 // Must run on ioQueue.
 - (BOOL)moveSync:(NSString *)sourcePath toGuestPath:(NSString *)destinationPath error:(NSError **)error {
+    if ([sourcePath isEqualToString:destinationPath])
+        return YES;  // moving something onto itself is a no-op, not an error
     NSURL *srcHost = [self hostURLForRealfsGuestPath:sourcePath];
     NSURL *dstHost = [self hostURLForRealfsGuestPath:destinationPath];
 
@@ -989,8 +1055,14 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
         if (error) *error = [self errorWithCode:ISHGuestFileBridgeErrorUnsupported message:@"Moving a folder across filesystems isn't supported yet"];
         return NO;
     }
-    if (![self copySync:sourcePath toGuestPath:destinationPath error:error])
+    if (![self copySync:sourcePath toGuestPath:destinationPath error:error]) {
+        // The size cap belongs to the copy engine; surface it as what the
+        // user actually attempted.
+        if (error && [(*error).domain isEqualToString:ISHGuestFileErrorDomain] && (*error).code == ISHGuestFileBridgeErrorTooLarge)
+            *error = [self errorWithCode:ISHGuestFileBridgeErrorUnsupported
+                                  message:@"Moving files this large across filesystems isn't supported yet"];
         return NO;
+    }
     return [self removeSync:sourcePath recursive:NO error:error];
 }
 
@@ -1008,6 +1080,12 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
 // Must run on ioQueue. Regular files only in v1 -- directory copy needs a
 // recursive tree walk with mkdir mirroring that no caller needs yet.
 - (BOOL)copySync:(NSString *)sourcePath toGuestPath:(NSString *)destinationPath error:(NSError **)error {
+    if ([sourcePath isEqualToString:destinationPath]) {
+        // The host branch below deletes the destination before copying; for
+        // the same path that would destroy the only copy, then fail.
+        if (error) *error = [self errorWithGuestErrno:_EINVAL message:@"Source and destination are the same file"];
+        return NO;
+    }
     NSURL *srcHost = [self hostURLForRealfsGuestPath:sourcePath];
     NSURL *dstHost = [self hostURLForRealfsGuestPath:destinationPath];
 
@@ -1096,46 +1174,70 @@ static ISHGuestFileKind ISHGuestFileKindFromMode(mode_t mode) {
     return YES;
 }
 
-// Caller must already hold a borrowed task context. Post-order walk; never
-// follows a symlinked directory into its target -- deleting a folder must
-// never reach outside it.
+// Caller must already hold a borrowed task context. Iterative post-order
+// walk with an explicit worklist -- a recursive walk burns one stack frame
+// per directory level, and a guest shell can trivially build trees deep
+// enough (thousands of levels) to overflow a 512 KB GCD worker stack. Never
+// follows a symlinked directory into its target: entries are classified by
+// lstat, so a symlink inside the tree is unlinked as itself and deleting a
+// folder can never reach outside it.
 - (BOOL)removeGuestPathRecursivelyViaVFS:(NSString *)guestPath error:(NSError **)error {
-    struct statbuf lst;
-    memset(&lst, 0, sizeof(lst));
-    if (generic_statat(AT_PWD, guestPath.fileSystemRepresentation, &lst, AT_SYMLINK_NOFOLLOW_) < 0) {
+    struct statbuf rootStat;
+    memset(&rootStat, 0, sizeof(rootStat));
+    if (generic_statat(AT_PWD, guestPath.fileSystemRepresentation, &rootStat, AT_SYMLINK_NOFOLLOW_) < 0) {
         if (error) *error = [self errorWithGuestErrno:_ENOENT message:@"No such file or directory"];
         return NO;
     }
-    if (!S_ISDIR((mode_t)lst.mode))
+    if (!S_ISDIR((mode_t)rootStat.mode))
         return [self removeGuestPathViaVFS:guestPath error:error];
 
-    struct fd *fd = generic_open(guestPath.fileSystemRepresentation, O_RDONLY_, 0);
-    if (IS_ERR(fd)) {
-        if (error) *error = [self errorWithGuestErrno:(long)PTR_ERR(fd) message:@"Cannot open directory"];
-        return NO;
-    }
-    NSMutableArray<NSString *> *names = [NSMutableArray array];
-    if (fd->ops->readdir_begin) fd->ops->readdir_begin(fd);
-    while (true) {
-        struct dir_entry entry;
-        memset(&entry, 0, sizeof(entry));
-        entry.type = DT_UNKNOWN;
-        int err = fd->ops->readdir(fd, &entry);
-        if (err <= 0) break;
-        NSString *name = [NSString stringWithUTF8String:entry.name];
-        if (name == nil || [name isEqualToString:@"."] || [name isEqualToString:@".."])
-            continue;
-        [names addObject:name];
-    }
-    if (fd->ops->readdir_end) fd->ops->readdir_end(fd);
-    fd_close(fd);
+    // `stack` is the pending work (top = current); a directory is expanded
+    // (children pushed above it) exactly once, tracked in `expanded`, and
+    // rmdir'd when it surfaces again with its subtree already gone.
+    NSMutableArray<NSString *> *stack = [NSMutableArray arrayWithObject:guestPath];
+    NSMutableSet<NSString *> *expanded = [NSMutableSet set];
+    while (stack.count > 0) {
+        NSString *path = stack.lastObject;
 
-    for (NSString *name in names) {
-        NSString *childPath = [guestPath stringByAppendingPathComponent:name];
-        if (![self removeGuestPathRecursivelyViaVFS:childPath error:error])
+        struct statbuf lst;
+        memset(&lst, 0, sizeof(lst));
+        if (generic_statat(AT_PWD, path.fileSystemRepresentation, &lst, AT_SYMLINK_NOFOLLOW_) < 0) {
+            [stack removeLastObject];  // vanished mid-walk (concurrent guest activity): already gone
+            [expanded removeObject:path];
+            continue;
+        }
+
+        BOOL isDirectory = S_ISDIR((mode_t)lst.mode);
+        if (!isDirectory || [expanded containsObject:path]) {
+            if (![self removeGuestPathViaVFS:path error:error])
+                return NO;
+            [stack removeLastObject];
+            [expanded removeObject:path];
+            continue;
+        }
+
+        [expanded addObject:path];
+        struct fd *fd = generic_open(path.fileSystemRepresentation, O_RDONLY_ | O_NONBLOCK_, 0);
+        if (IS_ERR(fd)) {
+            if (error) *error = [self errorWithGuestErrno:(long)PTR_ERR(fd) message:@"Cannot open directory"];
             return NO;
+        }
+        if (fd->ops->readdir_begin) fd->ops->readdir_begin(fd);
+        while (true) {
+            struct dir_entry entry;
+            memset(&entry, 0, sizeof(entry));
+            entry.type = DT_UNKNOWN;
+            int err = fd->ops->readdir(fd, &entry);
+            if (err <= 0) break;
+            NSString *name = [NSString stringWithUTF8String:entry.name];
+            if (name == nil || [name isEqualToString:@"."] || [name isEqualToString:@".."])
+                continue;
+            [stack addObject:[path stringByAppendingPathComponent:name]];
+        }
+        if (fd->ops->readdir_end) fd->ops->readdir_end(fd);
+        fd_close(fd);
     }
-    return [self removeGuestPathViaVFS:guestPath error:error];
+    return YES;
 }
 
 @end

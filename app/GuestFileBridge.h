@@ -87,7 +87,7 @@ typedef NS_ENUM(NSInteger, ISHGuestFileKind) {
 // Opaque handle for a cancelable extraction; pass to -cancelExtraction:.
 typedef NSUUID *ISHGuestFileExtractionToken;
 
-@interface ISHGuestFileBridge : NSObject <NSCacheDelegate>
+@interface ISHGuestFileBridge : NSObject
 
 + (instancetype)sharedBridge;
 
@@ -127,7 +127,10 @@ typedef NSUUID *ISHGuestFileExtractionToken;
 // progress and cancellation. Realfs-backed paths (/AOK/persist) return the
 // backing host URL immediately with no copy. Results are cached by
 // (guestPath, size, modificationDate); a second call for an unchanged file
-// returns from cache without touching the VFS.
+// returns from cache without touching the VFS. Cached temp files are only
+// reclaimed by clearExtractionCache (call it at app launch) -- deliberately
+// not evicted while the app runs, because a consumer (AVPlayer especially)
+// may hold the URL and reopen the file at any time during playback.
 - (ISHGuestFileExtractionToken)extractToTempFileAtGuestPath:(NSString *)guestPath
     progress:(nullable void (^)(int64_t bytesWritten, int64_t totalBytes))progress
     completion:(void (^)(NSURL * _Nullable fileURL, NSError * _Nullable error))completion;

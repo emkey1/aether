@@ -174,6 +174,8 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     _pathLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightMedium];
     _pathLabel.lineBreakMode = NSLineBreakByTruncatingHead;
     _pathLabel.textAlignment = NSTextAlignmentCenter;
+    // The label absorbs the squeeze on long paths; the nav buttons must not.
+    [_pathLabel setContentCompressionResistancePriority:UILayoutPriorityDefaultLow forAxis:UILayoutConstraintAxisHorizontal];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[_backButton, _forwardButton, _upButton, _pathLabel, _moreButton]];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
@@ -265,6 +267,11 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 
 - (void)workspaceApplyTheme {
     [super workspaceApplyTheme];
+    // The base class invokes this from ITS viewDidLoad, before ours has
+    // built any views -- an @[] literal of nil ivars would throw. Same guard
+    // the Music applet uses for the same reason.
+    if (_toolbarView == nil)
+        return;
     NSDictionary<NSString *, UIColor *> *theme = self.workspaceTheme;
     _pathLabel.textColor = theme[@"primary"];
     _statusLabel.textColor = theme[@"secondary"];
@@ -276,6 +283,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
         button.tintColor = theme[@"accent"];
     [_tableView reloadData];
     [_sidebarTableView reloadData];
+    [self updateEmptyState];  // its label bakes theme colors at creation; rebuild so it tracks the new theme
 }
 
 #pragma mark Navigation
@@ -346,9 +354,9 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
         typeof(self) strongSelf = weakSelf;
         if (strongSelf == nil || strongSelf->_loadGeneration != generation)
             return;  // a newer navigation superseded this listing
-        [strongSelf setLoading:NO];
         strongSelf->_loadError = error;
         strongSelf->_allItems = items ?: @[];
+        [strongSelf setLoading:NO];  // after the assignments: this recomputes the empty state from them
         [strongSelf applyFilterAndSort];
     }];
 }

@@ -39,6 +39,10 @@ static void *kWorkspaceVideoPlayerItemStatusContext = &kWorkspaceVideoPlayerItem
 }
 
 - (void)dealloc {
+    // Stop a still-running extraction; without this, closing the window
+    // mid-copy of a large video keeps the ioQueue copying to completion.
+    if (_activeExtractionToken != nil)
+        [ISHGuestFileBridge.sharedBridge cancelExtraction:_activeExtractionToken];
     [self removeItemObserverIfNeeded];
 }
 
