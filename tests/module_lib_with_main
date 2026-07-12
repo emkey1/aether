@@ -1,0 +1,10 @@
+mod LibWithMain {
+    export fn libDouble(n: Int) -> Int {
+        ret n * 2;
+    }
+}
+
+fn main() -> Void {
+    fx { println("lib self-test: ", libDouble(21)); }
+    ret;
+}

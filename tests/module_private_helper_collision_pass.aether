@@ -1,0 +1,10 @@
+use module_helper_collision_a;
+use module_helper_collision_b;
+
+fn main() -> Void {
+    fx {
+        writeln(viaA(1));
+        writeln(viaB(1));
+    }
+    ret;
+}

@@ -1,0 +1,9 @@
+mod ModA {
+    fn helper(n: Int) -> Int {
+        ret n + 1;
+    }
+
+    export fn viaA(n: Int) -> Int {
+        ret helper(n);
+    }
+}

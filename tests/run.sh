@@ -118,6 +118,11 @@ MODULE_INTRAMODULE_CALL_PASS_FIXTURE="$TESTS_DIR/module_intramodule_call_pass.ae
 MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE="$TESTS_DIR/module_self_qualified_call_pass.aether"
 MODULE_VOID_PARAM_SUPPORT_FIXTURE="$TESTS_DIR/module_void_param"
 MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE="$TESTS_DIR/module_type_param_void_bare_call_pass.aether"
+MODULE_HELPER_COLLISION_A_SUPPORT_FIXTURE="$TESTS_DIR/module_helper_collision_a"
+MODULE_HELPER_COLLISION_B_SUPPORT_FIXTURE="$TESTS_DIR/module_helper_collision_b"
+MODULE_PRIVATE_HELPER_COLLISION_PASS_FIXTURE="$TESTS_DIR/module_private_helper_collision_pass.aether"
+MODULE_LIB_WITH_MAIN_SUPPORT_FIXTURE="$TESTS_DIR/module_lib_with_main"
+MODULE_IMPORTED_MAIN_NOT_ENTRY_POINT_PASS_FIXTURE="$TESTS_DIR/module_imported_main_not_entry_point_pass.aether"
 IF_LEADING_PAREN_SUBEXPR_PASS_FIXTURE="$TESTS_DIR/if_leading_paren_subexpr_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
@@ -285,6 +290,11 @@ for fixture in \
     "$MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE" \
     "$MODULE_VOID_PARAM_SUPPORT_FIXTURE" \
     "$MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE" \
+    "$MODULE_HELPER_COLLISION_A_SUPPORT_FIXTURE" \
+    "$MODULE_HELPER_COLLISION_B_SUPPORT_FIXTURE" \
+    "$MODULE_PRIVATE_HELPER_COLLISION_PASS_FIXTURE" \
+    "$MODULE_LIB_WITH_MAIN_SUPPORT_FIXTURE" \
+    "$MODULE_IMPORTED_MAIN_NOT_ENTRY_POINT_PASS_FIXTURE" \
     "$TOON_BLOCK_PASS_FIXTURE" \
     "$TYPE_BLOCK_PASS_FIXTURE" \
     "$TYPE_FIELD_COMMA_FAIL_FIXTURE" \
@@ -810,6 +820,32 @@ fi
 if ! grep -qx "42" /tmp/aether_module_type_param_void_bare_call_pass.out; then
     echo "unexpected void-param bare-call module output" >&2
     cat /tmp/aether_module_type_param_void_bare_call_pass.out >&2
+    exit 1
+fi
+# Regression for https://github.com/emkey1/rea/issues/5 (finding #8): two
+# modules each declaring their own private (non-exported) helper() of the
+# same bare name must not collide. registerFunctionSymbol() (ast_parser.c)
+# used to add an unscoped bare-name alias for ANY dotted symbol name --
+# including "ModuleName.funcname" qualified names, not just "Class.method"
+# ones -- so the second module's private helper silently reused (and never
+# updated) the first module's alias, making ModB.helper unreachable by its
+# own bare name and ModA.helper's implementation run in its place.
+"$AETHER_BIN" --no-cache "$MODULE_PRIVATE_HELPER_COLLISION_PASS_FIXTURE" >/tmp/aether_module_private_helper_collision_pass.out
+if [ "$(cat /tmp/aether_module_private_helper_collision_pass.out)" != "$(printf '2\n101')" ]; then
+    echo "unexpected private-helper collision output" >&2
+    cat /tmp/aether_module_private_helper_collision_pass.out >&2
+    exit 1
+fi
+# Regression for https://github.com/emkey1/rea/issues/5 (finding #8): a
+# `use`d file's own top-level main() (declared outside any `mod { }` block,
+# e.g. for that file's own standalone testing) must not shadow the
+# importer's own main() as the program's entry point. The bare "main"
+# symbol used to be reused-and-overwritten across independently-parsed
+# files just like the private-helper case above.
+"$AETHER_BIN" --no-cache "$MODULE_IMPORTED_MAIN_NOT_ENTRY_POINT_PASS_FIXTURE" >/tmp/aether_module_imported_main_not_entry_point_pass.out
+if ! grep -qx "consumer: 8" /tmp/aether_module_imported_main_not_entry_point_pass.out; then
+    echo "unexpected imported-main entry-point output" >&2
+    cat /tmp/aether_module_imported_main_not_entry_point_pass.out >&2
     exit 1
 fi
 # Regression: `if (expr) && more { }` used to fail to parse. parseIfStmt
