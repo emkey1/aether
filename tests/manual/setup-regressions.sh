@@ -135,6 +135,7 @@ need_file signal_realtime.c
 need_file signal_altstack.c
 need_file signal_stop_cont.c
 need_file signal_poll.c
+need_file signal_child_burst.c
 need_file eventfd_interrupt.c
 need_file futex_core.c
 need_file process_lifecycle.c
@@ -411,7 +412,7 @@ build_one() {
     cc -pthread -o "$work_dir/bin/$name" "$fixed_asm" -lm
 }
 
-all_tests="signal_core signal_restart signal_realtime signal_altstack signal_stop_cont signal_poll eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm epoll_mod_spurious_wake epoll_data_layout ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path utimensat_fd copy_file_range name_to_handle_at sendfile_vhangup pidfd_open pidfd_clone fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup posix_timer_fork concurrent_exec_tlb random_seed getrusage_group pty_line_discipline proc_pid_io taskstats_genl tmpfs_mmap tmpfs_statfs memfd_mmap mount_stdev mmap_truncate_sigbus signalfd_epoll_deadlock signalfd_thread_group wayland_scm_shm chroot_getcwd iovec_abi_marshal fakefs_type_race"
+all_tests="signal_core signal_restart signal_realtime signal_altstack signal_stop_cont signal_poll signal_child_burst eventfd_interrupt futex_core process_lifecycle pthread_sync ptrace_group_stop ptrace_thread_follow epoll_mod_wake epoll_oneshot_rearm epoll_mod_spurious_wake epoll_data_layout ptrace_exit_kill fcntl_lock fcntl_ofd at_empty_path utimensat_fd copy_file_range name_to_handle_at sendfile_vhangup pidfd_open pidfd_clone fs_conformance process_conformance time_conformance mem_conformance sock_conformance netlink_route mount_flags clone_error_cleanup posix_timer_fork concurrent_exec_tlb random_seed getrusage_group pty_line_discipline proc_pid_io taskstats_genl tmpfs_mmap tmpfs_statfs memfd_mmap mount_stdev mmap_truncate_sigbus signalfd_epoll_deadlock signalfd_thread_group wayland_scm_shm chroot_getcwd iovec_abi_marshal fakefs_type_race"
 if [ "$is_x86_guest" -eq 1 ]; then
     # x86 flag-semantics atomics (lock-prefixed inline asm)
     all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 $all_tests"

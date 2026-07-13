@@ -25,6 +25,7 @@ signal_realtime.c
 signal_altstack.c
 signal_stop_cont.c
 signal_poll.c
+signal_child_burst.c
 eventfd_interrupt.c
 futex_core.c
 process_lifecycle.c

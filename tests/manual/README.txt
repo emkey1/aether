@@ -55,6 +55,8 @@ Portable focused tests (all guest arches):
   signal_realtime.c    sigqueue and realtime queued-signal coverage
   signal_altstack.c    sigaltstack and SA_ONSTACK coverage
   signal_poll.c        poll/select/pselect signal interruption coverage
+  signal_child_burst.c A shell reaping a burst of near-simultaneous child exits
+                       (SIGCHLD) must never get stuck forever in sigsuspend()
   eventfd_interrupt.c  eventfd read/poll interruption via the generic wait path
   futex_core.c         FUTEX_WAIT/FUTEX_WAKE timeout, wake, and signal coverage
   process_lifecycle.c  fork/exec/vfork/wait and signal inheritance coverage
