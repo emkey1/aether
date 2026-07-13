@@ -547,6 +547,56 @@ static void signal_prepare_stop_cont(struct task *task, int sig) {
     }
 }
 
+// Poke `task` so it re-checks pending signals: send SIGUSR1, poke its poll
+// notify pipe, poke the JIT if it's spinning in guest code, and wake any
+// pthread_cond it's parked in. Caller holds `sighand->lock` (either `task`'s
+// own sighand, or -- for a process-directed signal -- the shared sighand of
+// `task`'s whole thread group) and gets it back on return; the lock is only
+// dropped around wake_waiting_task, which must not be called while holding it
+// (see the AB-BA comment on signalfd_wakeup_task above).
+static bool signal_wake_task(struct task *task, struct sighand *sighand, int sig) {
+    if (task == current)
+        return wake_waiting_task(task);
+
+    int wake_err = pthread_kill(task->thread, SIGUSR1);
+    // Robustly wake a sibling parked in poll/select/epoll: the SIGUSR1 above
+    // can be lost in TLB-poke noise, but the notify-pipe write cannot.
+    poll_notify_poke(task->poll_notify_fd);
+    if ((sig == SIGKILL_ || sig == SIGABRT_) &&
+            (amd64_trace_is_lineage_tgid(task->tgid) ||
+             (current != NULL && amd64_trace_is_lineage_tgid(current->tgid)))) {
+        printk("tracked signal wake: sender=%d sender_tgid=%d sig=%d target=%d target_tgid=%d abi=%d wake_err=%d exiting=%d io_block=%d pending=%#llx blocked=%#llx\n",
+               current != NULL ? current->pid : -1,
+               current != NULL ? current->tgid : -1,
+               sig, task->pid, task->tgid, task->abi, wake_err,
+               task->exiting, task->io_block,
+               (unsigned long long) task->pending,
+               (unsigned long long) task->blocked);
+    }
+    if (task->cpu.poked_ptr)
+        cpu_poke(&task->cpu);
+
+    // Wake pthread condition waiters without keeping sighand->lock held.
+    // If the waiter is between publishing waiting_cond and entering
+    // pthread_cond_wait(), retry briefly for its lock handoff so the wake
+    // is not lost. This avoids global timed polling in wait_for().
+    memset(&sighand->lock.owner, 0, sizeof(sighand->lock.owner));
+    pthread_mutex_unlock(&sighand->lock.m);
+    bool interrupted_wait = wake_waiting_task(task);
+    pthread_mutex_lock(&sighand->lock.m);
+    sighand->lock.owner = pthread_self();
+    return interrupted_wait;
+}
+
+static void signal_note_interrupted(struct task *task, struct sighand *sighand, int sig, bool interrupted_wait) {
+    if (!interrupted_wait)
+        return;
+    bool restart = signal_action(sighand, sig) == SIGNAL_CALL_HANDLER &&
+        !!(sighand->action[sig].flags & SA_RESTART_);
+    __atomic_store_n(&task->restart_interrupted_syscall, restart, __ATOMIC_RELEASE);
+    __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
+}
+
 static void deliver_signal_unlocked_locked(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     if (!signal_is_realtime(sig) && sigset_has(task->pending, sig))
         return;
@@ -568,44 +618,90 @@ static void deliver_signal_unlocked_locked(struct task *task, struct sighand *si
             !signal_is_synchronous_trap(sig))
         return;
 
-    bool interrupted_wait = false;
-    if (task != current) {
-        int wake_err = pthread_kill(task->thread, SIGUSR1);
-        // Robustly wake a sibling parked in poll/select/epoll: the SIGUSR1 above
-        // can be lost in TLB-poke noise, but the notify-pipe write cannot.
-        poll_notify_poke(task->poll_notify_fd);
-        if ((sig == SIGKILL_ || sig == SIGABRT_) &&
-                (amd64_trace_is_lineage_tgid(task->tgid) ||
-                 (current != NULL && amd64_trace_is_lineage_tgid(current->tgid)))) {
-            printk("tracked signal wake: sender=%d sender_tgid=%d sig=%d target=%d target_tgid=%d abi=%d wake_err=%d exiting=%d io_block=%d pending=%#llx blocked=%#llx\n",
-                   current != NULL ? current->pid : -1,
-                   current != NULL ? current->tgid : -1,
-                   sig, task->pid, task->tgid, task->abi, wake_err,
-                   task->exiting, task->io_block,
-                   (unsigned long long) task->pending,
-                   (unsigned long long) task->blocked);
-        }
-        if (task->cpu.poked_ptr)
-            cpu_poke(&task->cpu);
+    bool interrupted_wait = signal_wake_task(task, sighand, sig);
+    signal_note_interrupted(task, sighand, sig, interrupted_wait);
+}
 
-        // Wake pthread condition waiters without keeping sighand->lock held.
-        // If the waiter is between publishing waiting_cond and entering
-        // pthread_cond_wait(), retry briefly for its lock handoff so the wake
-        // is not lost. This avoids global timed polling in wait_for().
-        memset(&sighand->lock.owner, 0, sizeof(sighand->lock.owner));
-        pthread_mutex_unlock(&sighand->lock.m);
-        interrupted_wait = wake_waiting_task(task);
-        pthread_mutex_lock(&sighand->lock.m);
-        sighand->lock.owner = pthread_self();
-    } else {
-        interrupted_wait = wake_waiting_task(task);
+// Deliver a process-directed signal into the thread group's shared queue
+// (Linux's shared_pending): any sibling thread with `sig` unblocked -- not
+// just whichever task object the sender happened to address -- can observe
+// and dequeue it via receive_signals/signalfd/sigwaitinfo. Contrast
+// deliver_signal_unlocked_locked, which targets one specific task's own
+// per-thread queue. `members`/`count` is a pre-collected, ref-counted
+// snapshot of the group's live threads (see send_signal_to_group): walking
+// tgroup->threads needs pids_lock, and this runs under sighand->lock, so the
+// snapshot has to happen first (pids_lock -> sighand->lock, never the
+// reverse). Caller holds `sighand->lock`.
+static void deliver_signal_to_group_locked(struct sighand *sighand, int sig, struct siginfo_ info,
+        struct task **members, size_t count) {
+    if (!signal_is_realtime(sig) && sigset_has(sighand->pending, sig))
+        return;
+
+    sigset_add(&sighand->pending, sig);
+    struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
+    sigqueue->info = info;
+    sigqueue->info.sig = sig;
+    list_add_tail(&sighand->queue, &sigqueue->queue);
+
+    for (size_t i = 0; i < count; i++) {
+        struct task *task = members[i];
+        signalfd_wakeup_task(task, sig);
+        bool interrupted_wait = signal_wake_task(task, sighand, sig);
+        signal_note_interrupted(task, sighand, sig, interrupted_wait);
     }
-    if (interrupted_wait) {
-        bool restart = signal_action(sighand, sig) == SIGNAL_CALL_HANDLER &&
-            !!(sighand->action[sig].flags & SA_RESTART_);
-        __atomic_store_n(&task->restart_interrupted_syscall, restart, __ATOMIC_RELEASE);
-        __atomic_store_n(&task->wait_interrupted, true, __ATOMIC_RELEASE);
+}
+
+void send_signal_to_group(struct tgroup *group, int sig, struct siginfo_ info) {
+    if (sig == 0)
+        return;
+
+    struct task *stack_members[32];
+    struct task **members = stack_members;
+    size_t member_cap = sizeof(stack_members) / sizeof(stack_members[0]);
+    size_t member_count = 0;
+    struct sighand *sighand = NULL;
+    struct task *task;
+
+    complex_lockt(&pids_lock, 0);
+    for (;;) {
+        size_t needed = 0;
+        list_for_each_entry(&group->threads, task, group_links)
+            needed++;
+        if (needed <= member_cap)
+            break;
+        unlock(&pids_lock);
+        if (members != stack_members)
+            free(members);
+        members = malloc(sizeof(*members) * needed);
+        if (members == NULL)
+            return;
+        member_cap = needed;
+        complex_lockt(&pids_lock, 0);
     }
+
+    list_for_each_entry(&group->threads, task, group_links) {
+        if (task->zombie || task->exiting || task->sighand == NULL)
+            continue;
+        if (sighand == NULL) {
+            sighand = task->sighand;
+            sighand_retain(sighand);
+        }
+        task_ref_cnt_mod(task, 1);
+        members[member_count++] = task;
+    }
+    unlock(&pids_lock);
+
+    if (sighand != NULL) {
+        lock(&sighand->lock, 0);
+        deliver_signal_to_group_locked(sighand, sig, info, members, member_count);
+        unlock(&sighand->lock);
+        sighand_release(sighand);
+    }
+
+    for (size_t i = 0; i < member_count; i++)
+        task_ref_cnt_mod(members[i], -1);
+    if (members != stack_members)
+        free(members);
 }
 
 void deliver_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
@@ -636,36 +732,63 @@ void deliver_signal(struct task *task, int sig, struct siginfo_ info) {
     deliver_signal_with_sighand(task, sighand, sig, info);
 }
 
-static bool signal_still_pending_locked(struct task *task, int sig) {
+static bool signal_list_still_has_locked(struct list *queue, int sig) {
     struct sigqueue *sigqueue;
-    list_for_each_entry(&task->queue, sigqueue, queue) {
+    list_for_each_entry(queue, sigqueue, queue) {
         if (sigqueue->info.sig == sig)
             return true;
     }
     return false;
 }
 
+static bool signal_still_pending_locked(struct task *task, int sig) {
+    return signal_list_still_has_locked(&task->queue, sig);
+}
+
+// Scans both `task`'s own (thread-directed) queue and, if present, its
+// sighand's shared (process-directed) queue -- a signalfd/sigwaitinfo/
+// receive_signals caller must see process-directed signals (e.g. SIGCHLD to a
+// possibly-multithreaded parent, see send_signal_to_group) regardless of
+// which sibling thread they were delivered through.
 static bool signal_take_next_locked(struct task *task, sigset_t_ mask, struct siginfo_ *info_out) {
     // POSIX/signal(7): when several signals are pending, the lowest-numbered is
     // delivered first; multiple instances of the same (real-time) signal are
-    // delivered FIFO. The queue is in FIFO insertion order, so scan for the
+    // delivered FIFO. Each queue is in FIFO insertion order, so scan for the
     // lowest signal number and, using a strict <, keep the first (oldest)
-    // entry of that number. Matters for sigtimedwait/sigwaitinfo/signalfd.
+    // entry of that number -- ties between the two queues favor whichever is
+    // scanned first (the thread's own queue). Matters for
+    // sigtimedwait/sigwaitinfo/signalfd.
+    struct sighand *sighand = task->sighand;
     struct sigqueue *sigqueue;
     struct sigqueue *best = NULL;
+    bool best_is_group = false;
     list_for_each_entry(&task->queue, sigqueue, queue) {
         if (!sigset_has(mask, sigqueue->info.sig))
             continue;
         if (best == NULL || sigqueue->info.sig < best->info.sig)
             best = sigqueue;
     }
+    if (sighand != NULL) {
+        list_for_each_entry(&sighand->queue, sigqueue, queue) {
+            if (!sigset_has(mask, sigqueue->info.sig))
+                continue;
+            if (best == NULL || sigqueue->info.sig < best->info.sig) {
+                best = sigqueue;
+                best_is_group = true;
+            }
+        }
+    }
     if (best == NULL)
         return false;
     *info_out = best->info;
     int sig = best->info.sig;
     list_remove(&best->queue);
-    if (!signal_still_pending_locked(task, sig))
+    if (best_is_group) {
+        if (!signal_list_still_has_locked(&sighand->queue, sig))
+            sigset_del(&sighand->pending, sig);
+    } else if (!signal_still_pending_locked(task, sig)) {
         sigset_del(&task->pending, sig);
+    }
     free(best);
     return true;
 }
@@ -933,6 +1056,15 @@ static int signalfd_poll(struct fd *fd) {
     lock(&current->sighand->lock, 0);
     struct sigqueue *sigqueue;
     list_for_each_entry(&current->queue, sigqueue, queue) {
+        if (sigset_has(state->mask, sigqueue->info.sig)) {
+            unlock(&current->sighand->lock);
+            return POLL_READ;
+        }
+    }
+    // A process-directed signal (e.g. SIGCHLD delivered via
+    // send_signal_to_group) lives in the shared queue, not this thread's own
+    // -- a signalfd on any sibling thread must still see it.
+    list_for_each_entry(&current->sighand->queue, sigqueue, queue) {
         if (sigset_has(state->mask, sigqueue->info.sig)) {
             unlock(&current->sighand->lock);
             return POLL_READ;
@@ -1761,11 +1893,23 @@ void receive_signals(void) {
     for (;;) {
         struct sigqueue *best = NULL;
         struct sigqueue *sigqueue;
+        bool best_is_group = false;
         list_for_each_entry(&current->queue, sigqueue, queue) {
             if (sigset_has(blocked, sigqueue->info.sig))
                 continue;
             if (best == NULL || sigqueue->info.sig < best->info.sig)
                 best = sigqueue;
+        }
+        // Also drain the shared (process-directed) queue -- e.g. a SIGCHLD
+        // delivered via send_signal_to_group to a sibling thread of this
+        // process, see kernel/exit.c.
+        list_for_each_entry(&sighand->queue, sigqueue, queue) {
+            if (sigset_has(blocked, sigqueue->info.sig))
+                continue;
+            if (best == NULL || sigqueue->info.sig < best->info.sig) {
+                best = sigqueue;
+                best_is_group = true;
+            }
         }
         if (best == NULL)
             break;
@@ -1773,8 +1917,12 @@ void receive_signals(void) {
         int sig = best->info.sig;
         struct siginfo_ info = best->info;
         list_remove(&best->queue);
-        if (!signal_still_pending_locked(current, sig))
+        if (best_is_group) {
+            if (!signal_list_still_has_locked(&sighand->queue, sig))
+                sigset_del(&sighand->pending, sig);
+        } else if (!signal_still_pending_locked(current, sig)) {
             sigset_del(&current->pending, sig);
+        }
         free(best);
 
         if (current->ptrace.traced && sig != SIGKILL_ &&
@@ -1983,6 +2131,7 @@ struct sighand *sighand_new(void) {
     memset(sighand, 0, sizeof(struct sighand));
     sighand->refcount = 1;
     lock_init(&sighand->lock, "sighand_new\0");
+    list_init(&sighand->queue);
     return sighand;
 }
 
@@ -2169,8 +2318,10 @@ int_t sys_rt_sigpending(addr_t set_addr) {
 
 int_t sys_rt_sigpending_guest(guest_addr_t set_addr) {
     STRACE("rt_sigpending(%#llx)", (unsigned long long) set_addr);
-    // as defined by the standard
-    sigset_t_ pending = current->pending & current->blocked;
+    // as defined by the standard. Includes the shared (process-directed)
+    // queue: sigpending(2) is specified as the union of the thread's own and
+    // the process's pending sets.
+    sigset_t_ pending = (current->pending | current->sighand->pending) & current->blocked;
     if (user_put(set_addr, pending))
         return _EFAULT;
     return 0;

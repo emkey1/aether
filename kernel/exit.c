@@ -384,8 +384,14 @@ noreturn void do_exit(struct task *task, int status) {
     }
 
     if (signal_parent != NULL) {
+        // Process-directed: the parent may be multithreaded, and the thread
+        // that happens to be `leader->parent` (whichever one called fork())
+        // need not be the thread that's watching for SIGCHLD (e.g. a
+        // dedicated signalfd reaper thread). Deliver to the whole group's
+        // shared queue so any sibling can observe/dequeue it, matching Linux
+        // CLONE_THREAD signal-sharing semantics.
         if (signal_no != 0)
-            send_signal(signal_parent, signal_no, signal_info);
+            send_signal_to_group(signal_parent->group, signal_no, signal_info);
         task_ref_cnt_mod(signal_parent, -1);
     }
 
@@ -644,7 +650,7 @@ static bool wait_interrupted_by_signal(void) {
         return false;
     __atomic_exchange_n(&current->wait_interrupted, false, __ATOMIC_ACQ_REL);
     lock(&current->sighand->lock, 0);
-    bool pending = !!(current->pending & ~current->blocked);
+    bool pending = !!((current->pending | current->sighand->pending) & ~current->blocked);
     unlock(&current->sighand->lock);
     return pending;
 }
