@@ -53,7 +53,7 @@ static int do_getrlimit32(int resource, struct rlimit32_ *rlimit32) {
     int err = rlimit_get(current, resource, &rlimit);
     if (err < 0)
         return err;
-    STRACE(" {cur=%#x, max=%#x}", rlimit.cur, rlimit.max);
+    STRACE(" {cur=%#llx, max=%#llx}", (unsigned long long) rlimit.cur, (unsigned long long) rlimit.max);
 
     rlimit32->max = rlimit.max;
     rlimit32->cur = rlimit.cur;
@@ -118,7 +118,7 @@ dword_t sys_setrlimit32(dword_t resource, addr_t rlim_addr) {
     struct rlimit_ rlimit;
     if (user_get(rlim_addr, rlimit))
         return _EFAULT;
-    STRACE("setrlimit(%d, {cur=%#x, max=%#x})", resource, rlimit.cur, rlimit.max);
+    STRACE("setrlimit(%d, {cur=%#llx, max=%#llx})", resource, (unsigned long long) rlimit.cur, (unsigned long long) rlimit.max);
     int err = check_setrlimit(resource, rlimit);
     if (err < 0)
         return err;
@@ -153,7 +153,7 @@ dword_t sys_prlimit64_guest(pid_t_ pid, dword_t resource, guest_addr_t new_limit
         int err = rlimit_get(current, resource, &rlimit);
         if (err < 0)
             return err;
-        STRACE(" old={cur=%#x, max=%#x}", rlimit.cur, rlimit.max);
+        STRACE(" old={cur=%#llx, max=%#llx}", (unsigned long long) rlimit.cur, (unsigned long long) rlimit.max);
         if (user_put(old_limit_addr, rlimit))
             return _EFAULT;
     }
@@ -162,7 +162,7 @@ dword_t sys_prlimit64_guest(pid_t_ pid, dword_t resource, guest_addr_t new_limit
         struct rlimit_ rlimit;
         if (user_get(new_limit_addr, rlimit))
             return _EFAULT;
-        STRACE(" new={cur=%#x, max=%#x}", rlimit.cur, rlimit.max);
+        STRACE(" new={cur=%#llx, max=%#llx}", (unsigned long long) rlimit.cur, (unsigned long long) rlimit.max);
         int err = check_setrlimit(resource, rlimit);
         if (err < 0)
             return err;

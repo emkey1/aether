@@ -151,9 +151,9 @@ static void output_line(const char *line) {
      const size_t tlen = strlen(c_time_string); // We can trust c_time_string to be null terminated
      c_time_string[tlen - 1] = '\0'; // Remove trailing newline
 
-     char tmpbuff[512];
-     if (snprintf(tmpbuff, 512, "[%s] %s", c_time_string, line) >= 512) { // Insufficient room, need to terminate at buffer size
-         tmpbuff[511] = '\0';
+     char tmpbuff[16384];
+     if (snprintf(tmpbuff, sizeof(tmpbuff), "[%s] %s", c_time_string, line) >= (int) sizeof(tmpbuff)) { // Insufficient room, need to terminate at buffer size
+         tmpbuff[sizeof(tmpbuff) - 1] = '\0';
      }
     // send it to stdout or wherever
     if(strcmp(tmpbuff, "") != 0) { // Don't log empty string
