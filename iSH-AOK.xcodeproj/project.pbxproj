@@ -130,9 +130,12 @@
 		7D1582A708E54A98CEF01901 /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27540C36CB55E575C077AB88 /* AVFoundation.framework */; };
 		826E8F9723237C5BAA6FDD6A /* WorkspaceMarkdownViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 3A510B0EF1C9B96522FE6860 /* WorkspaceMarkdownViewer.m */; };
 		8373773A4AE4AA88C0E3CCBC /* AudioLibrary.m in Sources */ = {isa = PBXBuildFile; fileRef = F9B4AFAD2A89EB3E27D10A36 /* AudioLibrary.m */; };
+		8C4DBEDCCB7D84AA66E57324 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1C46BFA5283C8409E80F5EC /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
 		8D457CFF8048C780CA8A5561 /* DisplayRFBView.m in Sources */ = {isa = PBXBuildFile; fileRef = F849D89896B2C39F45F1E7E5 /* DisplayRFBView.m */; };
 		97ABBD170D9DA6A9B0481FE5 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */; };
 		9C2BEE382C85ECD21A4672CA /* AudioPCMDecoder_Opus.m in Sources */ = {isa = PBXBuildFile; fileRef = 0877CBCD3AD3639A48727F42 /* AudioPCMDecoder_Opus.m */; };
+		9E0E330D31CAA2DC36F0F208 /* FoundationModels.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = A1C46BFA5283C8409E80F5EC /* FoundationModels.framework */; settings = {ATTRIBUTES = (Weak, ); }; };
+		A143B4E425BDFAE03A1725CD /* AOKFoundationModelsBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6F681FC66C14DDED4FBD7BD6 /* AOKFoundationModelsBridge.swift */; };
 		AC2AD539A8142C5355A695A5 /* WorkspaceFileManager.m in Sources */ = {isa = PBXBuildFile; fileRef = 8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */; };
 		B115F7067DF5415ECA19F2C3 /* AudioPCMDecoder.m in Sources */ = {isa = PBXBuildFile; fileRef = 2D2CE94AE68FC33023A693E0 /* AudioPCMDecoder.m */; };
 		B5B659AF30978A9998EF8AB6 /* audiocodecs.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F264C7242E0E51BAA5B5CF3 /* audiocodecs.xcframework */; };
@@ -671,6 +674,7 @@
 		5DD383EC2AAE33920013A847 /* UIDevice.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = UIDevice.h; sourceTree = "<group>"; };
 		650B337222EA235C00B4C03E /* PasteboardDevice.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = PasteboardDevice.h; sourceTree = "<group>"; };
 		650B337322EA235C00B4C03E /* PasteboardDevice.m */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.objc; path = PasteboardDevice.m; sourceTree = "<group>"; };
+		6F681FC66C14DDED4FBD7BD6 /* AOKFoundationModelsBridge.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = AOKFoundationModelsBridge.swift; sourceTree = "<group>"; };
 		704575CA466EF25ECC14EA7B /* DisplayRFBClient.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = DisplayRFBClient.m; sourceTree = "<group>"; };
 		753D59F184017DDADD8F541A /* AudioPCMDecoder_AVF.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = AudioPCMDecoder_AVF.m; sourceTree = "<group>"; };
 		761C29F5D922E3D01F78AE83 /* MarkdownRenderer.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MarkdownRenderer.h; sourceTree = "<group>"; };
@@ -680,6 +684,7 @@
 		8DA9B7B2A14CC33EF9CF003E /* WorkspaceFileManager.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = WorkspaceFileManager.m; sourceTree = "<group>"; };
 		9A28E4E8219A8B670073D200 /* AboutAppearanceViewController.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = AboutAppearanceViewController.h; sourceTree = "<group>"; };
 		9A28E4E9219A8B670073D200 /* AboutAppearanceViewController.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = AboutAppearanceViewController.m; sourceTree = "<group>"; };
+		A1C46BFA5283C8409E80F5EC /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		A6CA9F3287E76895B984C378 /* DisplayRFBClient.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DisplayRFBClient.h; sourceTree = "<group>"; };
 		B023928FD74F4E108378A110 /* AudioPlayerEngine.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPlayerEngine.h; sourceTree = "<group>"; };
 		BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDefault.xcconfig; sourceTree = "<group>"; };
@@ -894,6 +899,7 @@
 				7D1582A708E54A98CEF01901 /* AVFoundation.framework in Frameworks */,
 				07430ECDFB3BADD4102D3854 /* MediaPlayer.framework in Frameworks */,
 				B5B659AF30978A9998EF8AB6 /* audiocodecs.xcframework in Frameworks */,
+				9E0E330D31CAA2DC36F0F208 /* FoundationModels.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -926,6 +932,7 @@
 				D655F8B9294AA603BF1C430A /* AVFoundation.framework in Frameworks */,
 				97ABBD170D9DA6A9B0481FE5 /* MediaPlayer.framework in Frameworks */,
 				29DEBACFDDF2AA4566B488EF /* audiocodecs.xcframework in Frameworks */,
+				8C4DBEDCCB7D84AA66E57324 /* FoundationModels.framework in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -1274,6 +1281,7 @@
 				27540C36CB55E575C077AB88 /* AVFoundation.framework */,
 				EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */,
 				3F264C7242E0E51BAA5B5CF3 /* audiocodecs.xcframework */,
+				A1C46BFA5283C8409E80F5EC /* FoundationModels.framework */,
 			);
 			name = Frameworks;
 			sourceTree = "<group>";
@@ -1532,6 +1540,7 @@
 				BBA5D87D27536E7600B39D77 /* UpgradeRootViewController.m */,
 				8632A7BD219A59FB00F02325 /* UserPreferences.h */,
 				8632A7BE219A59FB00F02325 /* UserPreferences.m */,
+				6F681FC66C14DDED4FBD7BD6 /* AOKFoundationModelsBridge.swift */,
 			);
 			name = About;
 			sourceTree = "<group>";
@@ -2541,6 +2550,7 @@
 				2E93B4EE793B2F3424392363 /* DisplayViewController.m in Sources */,
 				C3060403DA76F382061A1170 /* DisplayRFBClient.m in Sources */,
 				8D457CFF8048C780CA8A5561 /* DisplayRFBView.m in Sources */,
+				A143B4E425BDFAE03A1725CD /* AOKFoundationModelsBridge.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2915,6 +2925,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -2944,6 +2958,10 @@
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/Frameworks",
+				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
@@ -2988,6 +3006,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -3007,6 +3029,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -3284,6 +3310,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -3298,6 +3328,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -3338,6 +3372,10 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -3356,6 +3394,10 @@
 				CODE_SIGN_STYLE = Automatic;
 				DEVELOPMENT_TEAM = UYU5FM4LQ4;
 				ENABLE_APP_SANDBOX = YES;
+				LIBRARY_SEARCH_PATHS = (
+					"$(inherited)",
+					"$(DEVELOPER_DIR)/Toolchains/XcodeDefault.xctoolchain/usr/lib/swift/$(PLATFORM_NAME)",
+				);
 				PRODUCT_BUNDLE_IDENTIFIER = "app.ish.iSH-AOK";
 				PRODUCT_NAME = "iSH-AOK";
 				PROVISIONING_PROFILE_SPECIFIER = "";

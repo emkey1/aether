@@ -19,6 +19,9 @@
 #import "UIViewController+Extras.h"
 #import "WorkspaceViewController.h"
 #import "MarkdownRenderer.h"
+#if __has_include("libiSH_AOKApp-Swift.h")
+#import "libiSH_AOKApp-Swift.h" // AOKFoundationModelsBridge (Swift, iOS 26+ FoundationModels wrapper)
+#endif
 #include <netdb.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -311,8 +314,25 @@ static AOKLLMBackend ISHLLMCurrentBackend(void) {
         : AOKLLMBackendOpenAICompatibleEndpoint;
 }
 
+// Status/explanation text for the Apple Foundation Models provider. When the
+// Swift bridge is compiled in (libiSH_AOKApp-Swift.h present) this reflects
+// the live SystemLanguageModel.default.availability on this device/OS; older
+// builds without FoundationModels.framework linked fall back to a static
+// explanation.
 static NSString *ISHLLMAppleFoundationModelsUnavailableMessage(void) {
+#if __has_include("libiSH_AOKApp-Swift.h")
+    return [AOKFoundationModelsBridge availabilityDescription];
+#else
     return @"Apple Foundation Models is selected, but this build cannot call it yet. The current SDK does not expose FoundationModels.framework, and the app still targets older iOS/iPadOS. When built with the iOS 26 SDK, this provider should use Apple's on-device Foundation Models backend with no server URL or API key.";
+#endif
+}
+
+static BOOL ISHLLMFoundationModelsReady(void) {
+#if __has_include("libiSH_AOKApp-Swift.h")
+    return [AOKFoundationModelsBridge currentAvailability] == AOKFoundationModelAvailabilityAvailable;
+#else
+    return NO;
+#endif
 }
 
 static BOOL ISHLLMUsesGeminiAPI(void) {
@@ -1543,6 +1563,18 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     [self appendRole:@"assistant" content:ISHLLMSanitizedAssistantContent(content)];
 }
 
+// Apple Foundation Models streams cumulative snapshots (not deltas like the
+// OpenAI-compatible SSE path), so the in-progress message is overwritten
+// rather than appended to.
+- (void)setStreamingAssistantContent:(NSString *)content atMessageIndex:(NSUInteger)index {
+    if (index >= _messages.count)
+        return;
+    NSMutableDictionary<NSString *, NSString *> *message = [_messages[index] mutableCopy];
+    message[@"content"] = content ?: @"";
+    _messages[index] = message;
+    [self refreshTranscript];
+}
+
 - (void)appendStreamingAssistantChunk:(NSString *)chunk toMessageAtIndex:(NSUInteger)index {
     if (index >= _messages.count || chunk.length == 0)
         return;
@@ -1721,6 +1753,45 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     [_activeTask resume];
 }
 
+- (void)sendPromptToAppleFoundationModels:(NSString *)prompt {
+    if (!ISHLLMFoundationModelsReady()) {
+        [self appendRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
+        return;
+    }
+#if __has_include("libiSH_AOKApp-Swift.h")
+    [self setSending:YES];
+    [_messages addObject:@{@"role": @"assistant", @"content": @""}];
+    NSUInteger streamingIndex = _messages.count - 1;
+    [self refreshTranscript];
+    __weak typeof(self) weakSelf = self;
+    [AOKFoundationModelsBridge streamResponseToPrompt:prompt
+                                          instructions:nil
+                                             onPartial:^(NSString *partial) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) self = weakSelf;
+            if (self != nil)
+                [self setStreamingAssistantContent:partial atMessageIndex:streamingIndex];
+        });
+    }
+                                            completion:^(NSString *finalText, NSString *errorMessage) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) self = weakSelf;
+            if (self == nil)
+                return;
+            [self setSending:NO];
+            if (finalText.length == 0 && errorMessage.length > 0) {
+                [self setStreamingAssistantContent:[NSString stringWithFormat:@"Request failed: %@", errorMessage] atMessageIndex:streamingIndex];
+            } else {
+                [self setStreamingAssistantContent:ISHLLMSanitizedAssistantContent(finalText ?: @"") atMessageIndex:streamingIndex];
+            }
+            [self saveTranscript];
+        });
+    }];
+#else
+    [self appendRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
+#endif
+}
+
 - (void)sendPrompt:(id)sender {
     (void) sender;
     NSString *prompt = [_promptField.text stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -1740,8 +1811,8 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     }
     if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
         _promptField.text = @"";
-        [self appendLocalRole:@"user" content:prompt];
-        [self appendLocalRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
+        [self appendRole:@"user" content:prompt];
+        [self sendPromptToAppleFoundationModels:prompt];
         return;
     }
     NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
@@ -2170,7 +2241,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     if (section == 0)
         return nil;
     if (ISHLLMUsesAppleFoundationModels())
-        return @"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend. This build exposes the provider setting, but runtime calls require building with an SDK that includes FoundationModels.framework. Chat history is saved in /AOK/persist/llm-chat.json.";
+        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
     return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini.\nChat history is saved in /AOK/persist/llm-chat.json.";
 }
 
@@ -2765,9 +2836,14 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
-    if (section == [self _userAccountSectionIndex])
-        return [NSString stringWithFormat:@"When enabled, new terminal sessions using the default login command sign in as \"%@\" (UID %d) instead of root.",
-                ISHDefaultUserAccountName, ISHDefaultUserAccountUID];
+    if (section == [self _userAccountSectionIndex]) {
+        NSString *accountName = [AppDelegate defaultUserAccountName];
+        return accountName.length != 0
+            ? [NSString stringWithFormat:@"When enabled, new terminal sessions using the default login command sign in as \"%@\" (UID %d) instead of root.",
+               accountName, ISHDefaultUserAccountUID]
+            : [NSString stringWithFormat:@"When enabled, new terminal sessions using the default login command sign in as the UID %d account instead of root -- but this filesystem doesn't have one yet.",
+               ISHDefaultUserAccountUID];
+    }
     if (section == [self _llmSectionIndex])
         return UserPreferences.shared.shouldEnableLLMClient
             ? @"When enabled, LLM Chat appears in Switch Terminal and Workspace menus."
