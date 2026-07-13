@@ -301,3 +301,76 @@ NSAttributedString *ISHMarkdownAttributedStringFromMarkdown(NSString *markdown, 
 
     return out;
 }
+
+@interface ISHMarkdownBlock ()
+@property (nonatomic, readwrite) ISHMarkdownBlockKind kind;
+@property (nonatomic, readwrite, nullable) NSAttributedString *attributedText;
+@property (nonatomic, readwrite, nullable) NSString *code;
+@property (nonatomic, readwrite, nullable) NSString *language;
+@end
+
+@implementation ISHMarkdownBlock
+@end
+
+NSArray<ISHMarkdownBlock *> *ISHMarkdownBlocksFromMarkdown(NSString *markdown, UIFont *baseFont, UIColor *textColor, UIColor *secondaryColor, UIColor *linkColor) {
+    NSMutableArray<ISHMarkdownBlock *> *blocks = [NSMutableArray array];
+    if (markdown.length == 0)
+        return blocks;
+    NSCharacterSet *ws = NSCharacterSet.whitespaceCharacterSet;
+    NSArray<NSString *> *lines = [markdown componentsSeparatedByString:@"\n"];
+    NSMutableArray<NSString *> *textLines = [NSMutableArray array];
+    NSMutableArray<NSString *> *codeLines = [NSMutableArray array];
+    __block NSString *codeLanguage = @"";
+    BOOL inFence = NO;
+
+    void (^flushText)(void) = ^{
+        if (textLines.count == 0)
+            return;
+        NSString *chunk = [textLines componentsJoinedByString:@"\n"];
+        [textLines removeAllObjects];
+        if ([chunk stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet].length == 0)
+            return;
+        ISHMarkdownBlock *block = [ISHMarkdownBlock new];
+        block.kind = ISHMarkdownBlockKindText;
+        block.attributedText = ISHMarkdownAttributedStringFromMarkdown(chunk, baseFont, textColor, secondaryColor, nil, linkColor);
+        [blocks addObject:block];
+    };
+    void (^flushCode)(void) = ^{
+        NSString *code = [codeLines componentsJoinedByString:@"\n"];
+        [codeLines removeAllObjects];
+        ISHMarkdownBlock *block = [ISHMarkdownBlock new];
+        block.kind = ISHMarkdownBlockKindCode;
+        block.code = code;
+        block.language = codeLanguage;
+        [blocks addObject:block];
+        codeLanguage = @"";
+    };
+
+    for (NSString *rawLine in lines) {
+        NSString *trimmed = [rawLine stringByTrimmingCharactersInSet:ws];
+        if ([trimmed hasPrefix:@"```"] || [trimmed hasPrefix:@"~~~"]) {
+            if (inFence) {
+                flushCode();
+                inFence = NO;
+            } else {
+                flushText();
+                codeLanguage = [[trimmed substringFromIndex:3] stringByTrimmingCharactersInSet:ws];
+                inFence = YES;
+            }
+            continue;
+        }
+        if (inFence) { [codeLines addObject:rawLine]; continue; }
+        [textLines addObject:rawLine];
+    }
+    if (inFence && codeLines.count > 0)
+        flushCode(); // unterminated fence (e.g. still streaming)
+    flushText();
+    return blocks;
+}
+
+ISHMarkdownBlock *ISHMarkdownPlainTextBlock(NSString *text, UIFont *font, UIColor *color) {
+    ISHMarkdownBlock *block = [ISHMarkdownBlock new];
+    block.kind = ISHMarkdownBlockKindText;
+    block.attributedText = [[NSAttributedString alloc] initWithString:text ?: @"" attributes:@{NSFontAttributeName: font, NSForegroundColorAttributeName: color}];
+    return block;
+}

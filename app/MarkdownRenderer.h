@@ -28,4 +28,34 @@ NSAttributedString *ISHMarkdownAttributedStringFromMarkdown(NSString *markdown,
                                                               UIColor * _Nullable codeBg,
                                                               UIColor *linkColor);
 
+typedef NS_ENUM(NSInteger, ISHMarkdownBlockKind) {
+    ISHMarkdownBlockKindText,
+    ISHMarkdownBlockKindCode,
+};
+
+// One top-level segment of a message: either prose (rendered, wraps normally)
+// or a single fenced code block (raw text + the language tag from the
+// opening fence, meant to be shown in its own non-wrapping, horizontally
+// scrolling view with a Copy button -- code just doesn't read right wrapped).
+@interface ISHMarkdownBlock : NSObject
+@property (nonatomic, readonly) ISHMarkdownBlockKind kind;
+@property (nonatomic, readonly, nullable) NSAttributedString *attributedText; // kind == Text
+@property (nonatomic, readonly, nullable) NSString *code;                    // kind == Code
+@property (nonatomic, readonly, nullable) NSString *language;                // kind == Code, may be ""
+@end
+
+// Splits `markdown` into an ordered list of text/code blocks. Each text
+// segment is rendered with ISHMarkdownAttributedStringFromMarkdown (codeBg
+// nil -- code segments carry their own presentation), so this is a pure
+// pre-split, not a second parser.
+NSArray<ISHMarkdownBlock *> *ISHMarkdownBlocksFromMarkdown(NSString *markdown,
+                                                            UIFont *baseFont,
+                                                            UIColor *textColor,
+                                                            UIColor *secondaryColor,
+                                                            UIColor *linkColor);
+
+// Wraps `text` verbatim (no Markdown parsing) as a single text block -- for
+// content that must never be reinterpreted, like the user's own prompt.
+ISHMarkdownBlock *ISHMarkdownPlainTextBlock(NSString *text, UIFont *font, UIColor *color);
+
 NS_ASSUME_NONNULL_END

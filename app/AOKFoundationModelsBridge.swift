@@ -60,6 +60,18 @@ public final class AOKFoundationModelsBridge: NSObject {
     // (command output, or an explanation if declined/unavailable).
     @objc public static var shellCommandHandler: ((String, @escaping (String) -> Void) -> Void)?
 
+    // The in-flight respond/streamResponse Task, if any, so Stop can cancel
+    // it. Swift concurrency cancellation is cooperative: `for try await` and
+    // `try await` suspension points check it and throw CancellationError,
+    // which the do/catch below turns into a normal completion(nil, ...) call
+    // -- ObjC distinguishes "stopped" from "really failed" via its own
+    // _cancelled flag, not by inspecting this error.
+    private static var activeTask: Task<Void, Never>?
+
+    @objc public static func cancelActiveRequest() {
+        activeTask?.cancel()
+    }
+
     @objc public static func currentAvailability() -> AOKFoundationModelAvailability {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *) {
@@ -101,7 +113,7 @@ public final class AOKFoundationModelsBridge: NSObject {
     @objc public static func respond(toPrompt prompt: String, instructions: String?, toolsEnabled: Bool, completion: @escaping (String?, String?) -> Void) {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *), case .available = SystemLanguageModel.default.availability {
-            Task {
+            activeTask = Task {
                 do {
                     let session = LanguageModelSession(tools: toolsEnabled ? [AOKShellTool()] : [], instructions: instructions)
                     let response = try await session.respond(to: prompt)
@@ -109,6 +121,7 @@ public final class AOKFoundationModelsBridge: NSObject {
                 } catch {
                     completion(nil, error.localizedDescription)
                 }
+                activeTask = nil
             }
             return
         }
@@ -126,7 +139,7 @@ public final class AOKFoundationModelsBridge: NSObject {
     @objc public static func streamResponse(toPrompt prompt: String, instructions: String?, toolsEnabled: Bool, onPartial: @escaping (String) -> Void, completion: @escaping (String?, String?) -> Void) {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *), case .available = SystemLanguageModel.default.availability {
-            Task {
+            activeTask = Task {
                 do {
                     let session = LanguageModelSession(tools: toolsEnabled ? [AOKShellTool()] : [], instructions: instructions)
                     var last = ""
@@ -138,6 +151,7 @@ public final class AOKFoundationModelsBridge: NSObject {
                 } catch {
                     completion(nil, error.localizedDescription)
                 }
+                activeTask = nil
             }
             return
         }

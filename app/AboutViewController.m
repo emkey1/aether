@@ -101,7 +101,7 @@ UINavigationController *ISHCreateAboutNavigationController(BOOL recoveryMode, BO
 @interface DiagnosticsViewController : UIViewController
 @end
 
-@interface LLMClientViewController : UIViewController <UITextFieldDelegate>
+@interface LLMClientViewController : UIViewController <UITextFieldDelegate, UITableViewDataSource, UITableViewDelegate>
 
 @property (nonatomic, copy) NSString *initialPrompt;
 
@@ -684,10 +684,14 @@ static NSString *ISHLLMContentFromStreamingPayload(NSString *payload) {
     return content;
 }
 
+// fdOut, if non-NULL, receives the connected socket fd for as long as this
+// call is blocked in send()/recv() -- so a caller on another thread can
+// shutdown() it to unblock a cancelled request. Always left at 0 on return.
 static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
                                           NSData *body,
                                           NSString *apiKey,
                                           void (^chunkHandler)(NSString *chunk),
+                                          int *fdOut,
                                           NSInteger *statusCodeOut,
                                           NSError **errorOut) {
     NSString *host = url.host;
@@ -719,6 +723,8 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
             *errorOut = ISHLLMConnectionError(host, portString, connectErrno);
         return NO;
     }
+    if (fdOut != NULL)
+        *fdOut = fd;
 
     NSString *path = url.path.length > 0 ? url.path : @"/";
     if (url.query.length > 0)
@@ -745,6 +751,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         ssize_t sent = send(fd, bytes, remaining, 0);
         if (sent <= 0) {
             int savedErrno = errno;
+            if (fdOut != NULL) *fdOut = 0;
             close(fd);
             if (errorOut != nil)
                 *errorOut = [NSError errorWithDomain:NSPOSIXErrorDomain code:savedErrno userInfo:nil];
@@ -762,6 +769,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
         ssize_t nread = recv(fd, buffer, sizeof(buffer), 0);
         if (nread < 0) {
             int savedErrno = errno;
+            if (fdOut != NULL) *fdOut = 0;
             close(fd);
             if (errorOut != nil)
                 *errorOut = [NSError errorWithDomain:NSPOSIXErrorDomain code:savedErrno userInfo:nil];
@@ -808,6 +816,7 @@ static BOOL ISHLLMDirectHTTPPostStreaming(NSURL *url,
                 chunkHandler(content);
         }
     }
+    if (fdOut != NULL) *fdOut = 0;
     close(fd);
     return YES;
 }
@@ -1051,13 +1060,281 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     return note;
 }
 
+static UIFont *ISHLLMMonospaceFont(CGFloat size) {
+    if (@available(iOS 13.0, *))
+        return [UIFont monospacedSystemFontOfSize:size weight:UIFontWeightRegular];
+    return [UIFont fontWithName:@"Menlo" size:size] ?: [UIFont systemFontOfSize:size];
+}
+
+// A UIButton that remembers the text a tap on it should copy -- lets one
+// target action (on the cell) serve any number of per-code-block Copy
+// buttons without threading the payload through the responder chain.
+@interface ISHLLMCopyButton : UIButton
+@property (nonatomic, copy) NSString *payload;
+@end
+@implementation ISHLLMCopyButton
+@end
+
+// One chat bubble: a role-colored container holding a vertical stack of
+// blocks -- wrapping text labels for prose, and independent horizontally
+// scrolling monospace views (each with its own Copy button) for fenced code,
+// since code just doesn't read right line-wrapped. Long-pressing the bubble
+// copies the whole raw message.
+@interface ISHLLMChatMessageCell : UITableViewCell
+- (void)configureWithBlocks:(NSArray<ISHMarkdownBlock *> *)blocks
+                     rawText:(NSString *)rawText
+                 isAssistant:(BOOL)isAssistant
+                     caption:(nullable NSString *)caption
+                    baseFont:(UIFont *)baseFont
+                    codeFont:(UIFont *)codeFont
+                   textColor:(UIColor *)textColor
+              secondaryColor:(UIColor *)secondaryColor
+                 bubbleColor:(UIColor *)bubbleColor
+             codeBubbleColor:(UIColor *)codeBubbleColor;
+@end
+
+@implementation ISHLLMChatMessageCell {
+    UIView *_bubbleView;
+    UIStackView *_blocksStack;
+    UILabel *_copiedToast;
+    NSLayoutConstraint *_bubbleLeading;
+    NSLayoutConstraint *_bubbleTrailing;
+    NSString *_rawText;
+}
+
+- (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
+    self = [super initWithStyle:style reuseIdentifier:reuseIdentifier];
+    if (self) {
+        self.selectionStyle = UITableViewCellSelectionStyleNone;
+        self.backgroundColor = UIColor.clearColor;
+
+        _bubbleView = [UIView new];
+        _bubbleView.translatesAutoresizingMaskIntoConstraints = NO;
+        _bubbleView.layer.cornerRadius = 14.0;
+        _bubbleView.layer.masksToBounds = YES;
+        _bubbleView.userInteractionEnabled = YES;
+        [self.contentView addSubview:_bubbleView];
+
+        _blocksStack = [UIStackView new];
+        _blocksStack.translatesAutoresizingMaskIntoConstraints = NO;
+        _blocksStack.axis = UILayoutConstraintAxisVertical;
+        _blocksStack.alignment = UIStackViewAlignmentFill;
+        _blocksStack.spacing = 6.0;
+        [_bubbleView addSubview:_blocksStack];
+
+        _copiedToast = [UILabel new];
+        _copiedToast.translatesAutoresizingMaskIntoConstraints = NO;
+        _copiedToast.text = @"Copied";
+        _copiedToast.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
+        _copiedToast.textColor = UIColor.whiteColor;
+        _copiedToast.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
+        _copiedToast.textAlignment = NSTextAlignmentCenter;
+        _copiedToast.layer.cornerRadius = 6.0;
+        _copiedToast.layer.masksToBounds = YES;
+        _copiedToast.alpha = 0.0;
+        [self.contentView addSubview:_copiedToast];
+
+        [NSLayoutConstraint activateConstraints:@[
+            [_blocksStack.topAnchor constraintEqualToAnchor:_bubbleView.topAnchor constant:8.0],
+            [_blocksStack.bottomAnchor constraintEqualToAnchor:_bubbleView.bottomAnchor constant:-8.0],
+            [_blocksStack.leadingAnchor constraintEqualToAnchor:_bubbleView.leadingAnchor constant:10.0],
+            [_blocksStack.trailingAnchor constraintEqualToAnchor:_bubbleView.trailingAnchor constant:-10.0],
+
+            [_bubbleView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3.0],
+            [_bubbleView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3.0],
+            [_bubbleView.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.86],
+
+            [_copiedToast.centerXAnchor constraintEqualToAnchor:_bubbleView.centerXAnchor],
+            [_copiedToast.centerYAnchor constraintEqualToAnchor:_bubbleView.centerYAnchor],
+            [_copiedToast.widthAnchor constraintGreaterThanOrEqualToConstant:64.0],
+            [_copiedToast.heightAnchor constraintEqualToConstant:26.0],
+        ]];
+        _bubbleLeading = [_bubbleView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12.0];
+        _bubbleTrailing = [_bubbleView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12.0];
+
+        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
+        [_bubbleView addGestureRecognizer:longPress];
+    }
+    return self;
+}
+
+- (void)prepareForReuse {
+    [super prepareForReuse];
+    for (UIView *view in _blocksStack.arrangedSubviews) {
+        [_blocksStack removeArrangedSubview:view];
+        [view removeFromSuperview];
+    }
+    _copiedToast.alpha = 0.0;
+    _rawText = nil;
+}
+
+- (void)configureWithBlocks:(NSArray<ISHMarkdownBlock *> *)blocks
+                     rawText:(NSString *)rawText
+                 isAssistant:(BOOL)isAssistant
+                     caption:(NSString *)caption
+                    baseFont:(UIFont *)baseFont
+                    codeFont:(UIFont *)codeFont
+                   textColor:(UIColor *)textColor
+              secondaryColor:(UIColor *)secondaryColor
+                 bubbleColor:(UIColor *)bubbleColor
+             codeBubbleColor:(UIColor *)codeBubbleColor {
+    _rawText = rawText;
+    _bubbleView.backgroundColor = bubbleColor;
+    // Assistant bubbles hug the leading edge, user bubbles the trailing edge
+    // (only one of the two width-defining edge constraints is active at a
+    // time; the other bubble edge is free, so the bubble's own width
+    // constraint plus its content determine where it ends).
+    _bubbleLeading.active = isAssistant;
+    _bubbleTrailing.active = !isAssistant;
+
+    for (ISHMarkdownBlock *block in blocks) {
+        if (block.kind == ISHMarkdownBlockKindCode) {
+            [_blocksStack addArrangedSubview:[self codeViewForBlock:block font:codeFont textColor:textColor bgColor:codeBubbleColor]];
+        } else if (block.attributedText.length > 0) {
+            UILabel *label = [UILabel new];
+            label.numberOfLines = 0;
+            label.attributedText = block.attributedText;
+            [_blocksStack addArrangedSubview:label];
+        }
+    }
+    if (caption.length > 0) {
+        UILabel *captionLabel = [UILabel new];
+        captionLabel.numberOfLines = 0;
+        captionLabel.font = ISHMarkdownFontWithTraits([baseFont fontWithSize:baseFont.pointSize - 1.0], UIFontDescriptorTraitItalic);
+        captionLabel.textColor = secondaryColor;
+        captionLabel.text = caption;
+        [_blocksStack addArrangedSubview:captionLabel];
+    }
+    if (_blocksStack.arrangedSubviews.count == 0) {
+        // Should not normally happen (callers skip empty messages), but an
+        // empty bubble with no intrinsic height would collapse to nothing.
+        UILabel *label = [UILabel new];
+        label.numberOfLines = 0;
+        label.font = baseFont;
+        label.textColor = secondaryColor;
+        label.text = @" ";
+        [_blocksStack addArrangedSubview:label];
+    }
+}
+
+// A non-wrapping, horizontally scrolling monospace view for one fenced code
+// block, with a small Copy button pinned to its top-right corner. The
+// scroll view's height is tied to its content (the label's natural height),
+// so only the horizontal axis ever scrolls -- the standard recipe for a
+// self-sizing horizontal scroll view inside a self-sizing table cell.
+- (UIView *)codeViewForBlock:(ISHMarkdownBlock *)block font:(UIFont *)font textColor:(UIColor *)textColor bgColor:(UIColor *)bgColor {
+    UIView *container = [UIView new];
+    container.translatesAutoresizingMaskIntoConstraints = NO;
+    container.backgroundColor = bgColor;
+    container.layer.cornerRadius = 8.0;
+    container.layer.masksToBounds = YES;
+
+    UIScrollView *scroll = [UIScrollView new];
+    scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    scroll.showsHorizontalScrollIndicator = YES;
+    scroll.alwaysBounceHorizontal = YES;
+    [container addSubview:scroll];
+
+    UILabel *label = [UILabel new];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.font = font;
+    label.textColor = textColor;
+    label.numberOfLines = 0;
+    label.text = block.code;
+    [scroll addSubview:label];
+
+    ISHLLMCopyButton *copyButton = [ISHLLMCopyButton buttonWithType:UIButtonTypeSystem];
+    copyButton.translatesAutoresizingMaskIntoConstraints = NO;
+    copyButton.payload = block.code ?: @"";
+    [copyButton setTitle:@"Copy" forState:UIControlStateNormal];
+    copyButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
+    copyButton.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.18];
+    copyButton.layer.cornerRadius = 5.0;
+    copyButton.layer.masksToBounds = YES;
+    copyButton.contentEdgeInsets = UIEdgeInsetsMake(2.0, 6.0, 2.0, 6.0);
+    [copyButton addTarget:self action:@selector(codeCopyButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [container addSubview:copyButton];
+
+    CGFloat topInset = block.language.length > 0 ? 22.0 : 8.0;
+    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
+        [scroll.topAnchor constraintEqualToAnchor:container.topAnchor constant:topInset],
+        [scroll.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-8.0],
+        [scroll.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
+        [scroll.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
+        [scroll.heightAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.heightAnchor],
+
+        [label.topAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.topAnchor],
+        [label.bottomAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.bottomAnchor],
+        [label.leadingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.leadingAnchor constant:10.0],
+        [label.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-10.0],
+        [label.heightAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.heightAnchor],
+
+        [copyButton.topAnchor constraintEqualToAnchor:container.topAnchor constant:4.0],
+        [copyButton.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-6.0],
+    ]];
+    if (block.language.length > 0) {
+        UILabel *languageLabel = [UILabel new];
+        languageLabel.translatesAutoresizingMaskIntoConstraints = NO;
+        languageLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
+        languageLabel.textColor = textColor;
+        languageLabel.alpha = 0.6;
+        languageLabel.text = block.language;
+        [container addSubview:languageLabel];
+        [constraints addObjectsFromArray:@[
+            [languageLabel.topAnchor constraintEqualToAnchor:container.topAnchor constant:6.0],
+            [languageLabel.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:10.0],
+        ]];
+    }
+    [NSLayoutConstraint activateConstraints:constraints];
+    return container;
+}
+
+- (void)codeCopyButtonTapped:(ISHLLMCopyButton *)sender {
+    if (sender.payload.length == 0)
+        return;
+    UIPasteboard.generalPasteboard.string = sender.payload;
+    NSString *original = [sender titleForState:UIControlStateNormal];
+    [sender setTitle:@"Copied" forState:UIControlStateNormal];
+    sender.enabled = NO;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(1.1 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        [sender setTitle:original forState:UIControlStateNormal];
+        sender.enabled = YES;
+    });
+}
+
+- (void)handleLongPress:(UILongPressGestureRecognizer *)recognizer {
+    if (recognizer.state != UIGestureRecognizerStateBegan || _rawText.length == 0)
+        return;
+    UIPasteboard.generalPasteboard.string = _rawText;
+    if (@available(iOS 10.0, *)) {
+        UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
+        [feedback impactOccurred];
+    }
+    _copiedToast.alpha = 0.0;
+    [UIView animateWithDuration:0.15 animations:^{
+        self->_copiedToast.alpha = 1.0;
+    } completion:^(BOOL finished) {
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+            [UIView animateWithDuration:0.25 animations:^{
+                self->_copiedToast.alpha = 0.0;
+            }];
+        });
+    }];
+}
+
+@end
+
 @implementation LLMClientViewController {
     UIStackView *_toolbarStackView;
-    UITextView *_transcriptView;
+    UITableView *_transcriptTable;
+    NSArray<NSNumber *> *_visibleMessageIndices; // indices into _messages, skipping role=="tool"
+    UILabel *_emptyStateLabel; // shown over the table when there's nothing to display yet
     UITextField *_promptField;
     UIButton *_sendButton;
     NSMutableArray<NSDictionary<NSString *, id> *> *_messages;
     NSURLSessionDataTask *_activeTask;
+    int _activeStreamFD; // raw socket fd of an in-flight direct-HTTP stream, 0 if none; Stop shuts it down to unblock recv()
+    BOOL _cancelled; // set by Stop; checked before continuing a streaming/tool-loop/Apple FM request
     BOOL _autoRunCommandsThisReply; // skip per-command confirm for the current reply
     BOOL _autoRunCommandsThisChat;  // skip per-command confirm until the chat is cleared
     NSString *_guestEnvironmentNote; // cached distro/tool probe for the tool system prompt
@@ -1083,16 +1360,28 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         }
     }
 
-    _transcriptView = [[UITextView alloc] initWithFrame:CGRectZero];
-    _transcriptView.translatesAutoresizingMaskIntoConstraints = NO;
-    _transcriptView.editable = NO;
-    _transcriptView.alwaysBounceVertical = YES;
-    _transcriptView.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
-    if (@available(iOS 13.0, *)) {
-        _transcriptView.backgroundColor = UIColor.systemBackgroundColor;
-        _transcriptView.textColor = UIColor.labelColor;
-    }
-    [self.view addSubview:_transcriptView];
+    _transcriptTable = [[UITableView alloc] initWithFrame:CGRectZero style:UITableViewStylePlain];
+    _transcriptTable.translatesAutoresizingMaskIntoConstraints = NO;
+    _transcriptTable.dataSource = self;
+    _transcriptTable.delegate = self;
+    _transcriptTable.separatorStyle = UITableViewCellSeparatorStyleNone;
+    _transcriptTable.rowHeight = UITableViewAutomaticDimension;
+    _transcriptTable.estimatedRowHeight = 60.0;
+    _transcriptTable.keyboardDismissMode = UIScrollViewKeyboardDismissModeInteractive;
+    [_transcriptTable registerClass:ISHLLMChatMessageCell.class forCellReuseIdentifier:@"message"];
+    if (@available(iOS 13.0, *))
+        _transcriptTable.backgroundColor = UIColor.systemBackgroundColor;
+    [self.view addSubview:_transcriptTable];
+
+    _emptyStateLabel = [UILabel new];
+    _emptyStateLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _emptyStateLabel.numberOfLines = 0;
+    _emptyStateLabel.textAlignment = NSTextAlignmentCenter;
+    _emptyStateLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    _emptyStateLabel.hidden = YES;
+    if (@available(iOS 13.0, *))
+        _emptyStateLabel.textColor = UIColor.secondaryLabelColor;
+    [self.view addSubview:_emptyStateLabel];
 
     UIView *inputBar = [UIView new];
     inputBar.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1170,10 +1459,15 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         [_toolbarStackView.trailingAnchor constraintEqualToAnchor:safeArea.trailingAnchor constant:-10.0],
         [_toolbarStackView.heightAnchor constraintGreaterThanOrEqualToConstant:32.0],
 
-        [_transcriptView.topAnchor constraintEqualToAnchor:_toolbarStackView.bottomAnchor constant:4.0],
-        [_transcriptView.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor],
-        [_transcriptView.trailingAnchor constraintEqualToAnchor:safeArea.trailingAnchor],
-        [_transcriptView.bottomAnchor constraintEqualToAnchor:statusRow.topAnchor constant:-2.0],
+        [_transcriptTable.topAnchor constraintEqualToAnchor:_toolbarStackView.bottomAnchor constant:4.0],
+        [_transcriptTable.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor],
+        [_transcriptTable.trailingAnchor constraintEqualToAnchor:safeArea.trailingAnchor],
+        [_transcriptTable.bottomAnchor constraintEqualToAnchor:statusRow.topAnchor constant:-2.0],
+
+        [_emptyStateLabel.centerXAnchor constraintEqualToAnchor:_transcriptTable.centerXAnchor],
+        [_emptyStateLabel.centerYAnchor constraintEqualToAnchor:_transcriptTable.centerYAnchor],
+        [_emptyStateLabel.leadingAnchor constraintGreaterThanOrEqualToAnchor:safeArea.leadingAnchor constant:24.0],
+        [_emptyStateLabel.trailingAnchor constraintLessThanOrEqualToAnchor:safeArea.trailingAnchor constant:-24.0],
 
         [statusRow.leadingAnchor constraintEqualToAnchor:safeArea.leadingAnchor constant:12.0],
         [statusRow.trailingAnchor constraintLessThanOrEqualToAnchor:safeArea.trailingAnchor constant:-12.0],
@@ -1201,6 +1495,11 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
 
 - (void)dealloc {
     [_activeTask cancel];
+    if (_activeStreamFD > 0)
+        shutdown(_activeStreamFD, SHUT_RDWR);
+#if __has_include("libiSH_AOKApp-Swift.h")
+    [AOKFoundationModelsBridge cancelActiveRequest];
+#endif
 }
 
 - (void)showLLMSettings:(id)sender {
@@ -1256,16 +1555,10 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
 
 - (void)showExtractActions:(id)sender {
     NSArray<NSDictionary<NSString *, NSString *> *> *blocks = [self extractCodeBlocksFromText:self.latestAssistantMessage];
-    NSString *selectedText = [self selectedTranscriptText];
     NSString *savePath = @"/AOK/persist/llm-extracts";
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Save From Chat"
-                                                                   message:(blocks.count > 0 || selectedText.length > 0) ? [@"Save destination: " stringByAppendingString:savePath] : [@"No highlighted text or fenced code blocks found. Save destination: " stringByAppendingString:savePath]
+                                                                   message:blocks.count > 0 ? [@"Save destination: " stringByAppendingString:savePath] : [@"No fenced code blocks found in the last reply. Long-press any message to copy it, or a code block's own Copy button. Save destination: " stringByAppendingString:savePath]
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
-    if (selectedText.length > 0) {
-        [alert addAction:[UIAlertAction actionWithTitle:@"Save Highlighted Text" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-            [self saveExtractText:selectedText extension:@"txt" label:@"highlighted"];
-        }]];
-    }
     for (NSUInteger i = 0; i < blocks.count; i++) {
         NSDictionary<NSString *, NSString *> *block = blocks[i];
         NSString *language = block[@"language"].length > 0 ? block[@"language"] : @"text";
@@ -1283,13 +1576,6 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [self anchorPopoverForAlertController:alert toSource:sender];
     [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (NSString *)selectedTranscriptText {
-    NSRange selectedRange = _transcriptView.selectedRange;
-    if (selectedRange.length == 0 || NSMaxRange(selectedRange) > _transcriptView.text.length)
-        return @"";
-    return [_transcriptView.text substringWithRange:selectedRange];
 }
 
 - (void)saveCodeBlock:(NSDictionary<NSString *, NSString *> *)block index:(NSUInteger)index {
@@ -1432,73 +1718,168 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     [_messages writeToURL:ISHLLMTranscriptURL() atomically:YES];
 }
 
+// A message gets its own bubble/row if it has visible content, or a
+// tool-call caption to show, or it's the trailing in-progress streaming
+// placeholder (empty content until the first chunk arrives). Tool-role
+// messages are never shown -- their output still goes to the model, just
+// not the screen.
+- (void)recomputeVisibleMessageIndices {
+    NSMutableArray<NSNumber *> *indices = [NSMutableArray array];
+    for (NSUInteger i = 0; i < _messages.count; i++) {
+        NSDictionary<NSString *, id> *message = _messages[i];
+        NSString *role = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
+        if ([role isEqualToString:@"tool"])
+            continue;
+        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+        BOOL hasCommandNote = [self commandCountForMessage:message] > 0;
+        BOOL isTrailingStreamingPlaceholder = (i == _messages.count - 1) && [role isEqualToString:@"assistant"];
+        if (content.length == 0 && !hasCommandNote && !isTrailingStreamingPlaceholder)
+            continue;
+        [indices addObject:@(i)];
+    }
+    _visibleMessageIndices = indices;
+}
+
+// Don't show the commands or their output in the transcript -- only a small
+// note that the model ran tools. The full command and output are still kept
+// in the saved transcript file and sent to the model.
+- (NSUInteger)commandCountForMessage:(NSDictionary<NSString *, id> *)message {
+    NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
+    NSUInteger commandCount = 0;
+    for (NSDictionary *toolCall in toolCalls) {
+        if ([toolCall isKindOfClass:NSDictionary.class] && ISHLLMToolCallCommand(toolCall).length > 0)
+            commandCount++;
+    }
+    return commandCount;
+}
+
 - (void)refreshTranscript {
+    [self recomputeVisibleMessageIndices];
+    if (_emptyStateLabel != nil) {
+        _emptyStateLabel.hidden = _visibleMessageIndices.count > 0;
+        if (!_emptyStateLabel.hidden) {
+            // Intentionally omit the server URL here -- it shows after Clear and
+            // may contain a private host/IP the user doesn't want on screen.
+            _emptyStateLabel.text = [NSString stringWithFormat:@"Configure an OpenAI-compatible server in Settings, then send a prompt.\n\nModel: %@",
+                                      UserPreferences.shared.llmModel];
+        }
+    }
+    [_transcriptTable reloadData];
+    [self scrollTranscriptToBottomAnimated:NO];
+}
+
+- (void)scrollTranscriptToBottomAnimated:(BOOL)animated {
+    NSInteger rows = [_transcriptTable numberOfRowsInSection:0];
+    if (rows <= 0)
+        return;
+    [_transcriptTable scrollToRowAtIndexPath:[NSIndexPath indexPathForRow:rows - 1 inSection:0] atScrollPosition:UITableViewScrollPositionBottom animated:animated];
+}
+
+// Streaming updates only ever touch the trailing placeholder message, which
+// -recomputeVisibleMessageIndices always keeps as the last row -- so a token
+// arriving mid-stream only needs that one row reloaded, not the whole table.
+- (void)reloadLastRowAndScroll:(BOOL)scroll {
+    NSInteger rows = [_transcriptTable numberOfRowsInSection:0];
+    if (rows <= 0)
+        return;
+    NSIndexPath *path = [NSIndexPath indexPathForRow:rows - 1 inSection:0];
+    [UIView performWithoutAnimation:^{
+        [self->_transcriptTable reloadRowsAtIndexPaths:@[path] withRowAnimation:UITableViewRowAnimationNone];
+    }];
+    if (scroll)
+        [self scrollTranscriptToBottomAnimated:NO];
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    (void) tableView;
+    (void) section;
+    return (NSInteger) _visibleMessageIndices.count;
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    ISHLLMChatMessageCell *cell = [tableView dequeueReusableCellWithIdentifier:@"message" forIndexPath:indexPath];
+    if ((NSUInteger) indexPath.row < _visibleMessageIndices.count)
+        [self configureCell:cell forMessageAtIndex:_visibleMessageIndices[indexPath.row].unsignedIntegerValue];
+    return cell;
+}
+
+- (void)configureCell:(ISHLLMChatMessageCell *)cell forMessageAtIndex:(NSUInteger)messageIndex {
+    if (messageIndex >= _messages.count)
+        return;
+    NSDictionary<NSString *, id> *message = _messages[messageIndex];
+    NSString *role = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
+    NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+    BOOL isAssistant = [role isEqualToString:@"assistant"];
+
     UIFont *baseFont = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    UIFont *codeFont = ISHLLMMonospaceFont(baseFont.pointSize - 1.0);
     UIColor *textColor = UIColor.blackColor;
     UIColor *secondaryColor = UIColor.grayColor;
-    UIColor *codeBg = [UIColor colorWithWhite:0.0 alpha:0.06];
+    UIColor *assistantBubbleColor = [UIColor colorWithWhite:0.9 alpha:1.0];
+    UIColor *codeBubbleColor = [UIColor colorWithWhite:0.0 alpha:0.06];
     UIColor *linkColor = [UIColor colorWithRed:0.0 green:0.48 blue:1.0 alpha:1.0];
     if (@available(iOS 13.0, *)) {
         textColor = UIColor.labelColor;
         secondaryColor = UIColor.secondaryLabelColor;
-        codeBg = UIColor.tertiarySystemFillColor; // adapts to light/dark
+        assistantBubbleColor = UIColor.secondarySystemBackgroundColor;
+        codeBubbleColor = UIColor.tertiarySystemFillColor; // adapts to light/dark
         linkColor = UIColor.linkColor;
     }
-    NSDictionary *plainAttrs = @{NSFontAttributeName: baseFont, NSForegroundColorAttributeName: textColor};
-    NSDictionary *roleAttrs = @{NSFontAttributeName: ISHMarkdownFontWithTraits(baseFont, UIFontDescriptorTraitBold), NSForegroundColorAttributeName: secondaryColor};
-    NSDictionary *noteAttrs = @{NSFontAttributeName: ISHMarkdownFontWithTraits([baseFont fontWithSize:baseFont.pointSize - 1.0], UIFontDescriptorTraitItalic), NSForegroundColorAttributeName: secondaryColor};
+    UIColor *userBubbleColor = UIColor.systemBlueColor;
+    UIColor *userTextColor = UIColor.whiteColor;
 
-    NSMutableAttributedString *out = [NSMutableAttributedString new];
-    for (NSDictionary<NSString *, id> *message in _messages) {
-        NSString *messageRole = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
-        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
-        if ([messageRole isEqualToString:@"tool"])
-            continue; // tool output is hidden from the transcript (the model still gets it)
-        BOOL isAssistant = [messageRole isEqualToString:@"assistant"];
-        if (content.length > 0) {
-            // Bold role header on its own line, then the message body. Assistant
-            // replies are rendered as Markdown; the user's own prompt is shown
-            // verbatim so their literal text is never reinterpreted.
-            [out appendAttributedString:[[NSAttributedString alloc] initWithString:(isAssistant ? @"Assistant\n" : @"You\n") attributes:roleAttrs]];
-            if (isAssistant)
-                [out appendAttributedString:ISHMarkdownAttributedStringFromMarkdown(content, baseFont, textColor, secondaryColor, codeBg, linkColor)];
-            else
-                [out appendAttributedString:[[NSAttributedString alloc] initWithString:content attributes:plainAttrs]];
-            [out appendAttributedString:[[NSAttributedString alloc] initWithString:@"\n\n" attributes:plainAttrs]];
-        }
-        // Don't show the commands or their output in the transcript -- only a small
-        // note that the model ran tools. The full command and output are still kept
-        // in the saved transcript file and sent to the model.
-        NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
-        NSUInteger commandCount = 0;
-        for (NSDictionary *toolCall in toolCalls) {
-            if ([toolCall isKindOfClass:NSDictionary.class] && ISHLLMToolCallCommand(toolCall).length > 0)
-                commandCount++;
-        }
-        if (commandCount > 0)
-            [out appendAttributedString:[[NSAttributedString alloc] initWithString:[NSString stringWithFormat:@"(ran %lu shell command%@)\n\n", (unsigned long) commandCount, commandCount == 1 ? @"" : @"s"] attributes:noteAttrs]];
-    }
-    if (out.length == 0) {
-        // Intentionally omit the server URL here -- it shows after Clear and may
-        // contain a private host/IP the user doesn't want on screen.
-        NSString *hint = [NSString stringWithFormat:@"Configure an OpenAI-compatible server in Settings, then send a prompt.\n\nModel: %@\n",
-                          UserPreferences.shared.llmModel];
-        [out appendAttributedString:[[NSAttributedString alloc] initWithString:hint attributes:plainAttrs]];
-    }
-    _transcriptView.attributedText = out;
-    NSRange bottom = NSMakeRange(out.length, 0);
-    [_transcriptView scrollRangeToVisible:bottom];
+    // Assistant replies are rendered as Markdown, with fenced code split into
+    // its own scrollable blocks; the user's own prompt is shown verbatim in a
+    // single block so their literal text is never reinterpreted.
+    NSArray<ISHMarkdownBlock *> *blocks = isAssistant
+        ? ISHMarkdownBlocksFromMarkdown(content, baseFont, textColor, secondaryColor, linkColor)
+        : @[ISHMarkdownPlainTextBlock(content, baseFont, userTextColor)];
+
+    NSUInteger commandCount = [self commandCountForMessage:message];
+    NSString *caption = commandCount > 0
+        ? [NSString stringWithFormat:@"(ran %lu shell command%@)", (unsigned long) commandCount, commandCount == 1 ? @"" : @"s"]
+        : nil;
+
+    [cell configureWithBlocks:blocks
+                       rawText:content
+                   isAssistant:isAssistant
+                       caption:caption
+                      baseFont:baseFont
+                      codeFont:codeFont
+                     textColor:isAssistant ? textColor : userTextColor
+                secondaryColor:isAssistant ? secondaryColor : [userTextColor colorWithAlphaComponent:0.85]
+                   bubbleColor:isAssistant ? assistantBubbleColor : userBubbleColor
+               codeBubbleColor:codeBubbleColor];
 }
 
 - (void)setSending:(BOOL)sending {
-    _sendButton.enabled = !sending;
+    _sendButton.enabled = YES; // stays tappable while sending -- it becomes Stop
     _promptField.enabled = !sending;
-    [_sendButton setTitle:(sending ? @"..." : @"Send") forState:UIControlStateNormal];
-    _sendButton.accessibilityLabel = sending ? @"Sending" : @"Send";
+    [_sendButton setTitle:(sending ? @"Stop" : @"Send") forState:UIControlStateNormal];
+    _sendButton.accessibilityLabel = sending ? @"Stop generating" : @"Send";
+    [_sendButton removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside];
+    [_sendButton addTarget:self action:(sending ? @selector(stopGenerating:) : @selector(sendPrompt:)) forControlEvents:UIControlEventTouchUpInside];
     if (sending)
         [self setStatus:@"Working…" busy:YES];
     else
         [self setStatus:[self idleStatusText] busy:NO];
+}
+
+// Cancels whichever request is currently in flight: an NSURLSession task, a
+// raw-socket direct-HTTP stream (shut down from here to unblock its blocking
+// recv()), the OpenAI tool loop (checked at its next checkpoint -- the
+// in-flight HTTP call itself can't be interrupted mid-request), or an Apple
+// Foundation Models generation. Whatever partial text has streamed in stays
+// on screen; only further progress stops.
+- (void)stopGenerating:(id)sender {
+    (void) sender;
+    _cancelled = YES;
+    [_activeTask cancel];
+    if (_activeStreamFD > 0)
+        shutdown(_activeStreamFD, SHUT_RDWR);
+#if __has_include("libiSH_AOKApp-Swift.h")
+    [AOKFoundationModelsBridge cancelActiveRequest];
+#endif
 }
 
 // Status row driver. busy spins the indicator; the text names the current phase
@@ -1520,9 +1901,22 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     return [NSString stringWithFormat:@"Ready · %@", model];
 }
 
+// True (and handled) if `error` is the result of the user hitting Stop,
+// rather than a real failure -- shows a quiet "(stopped)" note instead of
+// "Request failed: ...cancelled...".
+- (BOOL)handleUserCancelledError:(NSError *)error {
+    if (error == nil || !(error.domain == NSURLErrorDomain && error.code == NSURLErrorCancelled) || !_cancelled)
+        return NO;
+    _cancelled = NO;
+    [self appendRole:@"assistant" content:@"(stopped)"];
+    return YES;
+}
+
 - (void)handleLLMResponseData:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error {
     [self setSending:NO];
     _activeTask = nil;
+    if ([self handleUserCancelledError:error])
+        return;
     if (error != nil) {
         [self appendRole:@"assistant" content:[NSString stringWithFormat:@"Request failed: %@", error.localizedDescription]];
         return;
@@ -1550,6 +1944,8 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
 - (void)handleGeminiResponseData:(NSData *)data response:(NSURLResponse *)response error:(NSError *)error {
     [self setSending:NO];
     _activeTask = nil;
+    if ([self handleUserCancelledError:error])
+        return;
     if (error != nil) {
         [self appendRole:@"assistant" content:[NSString stringWithFormat:@"Request failed: %@", error.localizedDescription]];
         return;
@@ -1588,7 +1984,7 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     NSMutableDictionary<NSString *, NSString *> *message = [_messages[index] mutableCopy];
     message[@"content"] = content ?: @"";
     _messages[index] = message;
-    [self refreshTranscript];
+    [self reloadLastRowAndScroll:YES];
 }
 
 - (void)appendStreamingAssistantChunk:(NSString *)chunk toMessageAtIndex:(NSUInteger)index {
@@ -1598,7 +1994,7 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     NSString *content = ISHLLMStreamingAssistantContent([message[@"content"] ?: @"" stringByAppendingString:chunk]);
     message[@"content"] = content;
     _messages[index] = message;
-    [self refreshTranscript];
+    [self reloadLastRowAndScroll:YES];
 }
 
 // End-of-stream cleanup: collapse trailing whitespace the streaming accumulator
@@ -1612,7 +2008,7 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         return;
     message[@"content"] = finalized;
     _messages[index] = message;
-    [self refreshTranscript];
+    [self reloadLastRowAndScroll:NO];
 }
 
 - (void)appendModelListFromData:(NSData *)data statusCode:(NSInteger)statusCode error:(NSError *)error {
@@ -1882,7 +2278,10 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
                 if (self == nil)
                     return;
                 [self setSending:NO];
-                if (finalText.length == 0 && errorMessage.length > 0) {
+                if (self->_cancelled) {
+                    self->_cancelled = NO;
+                    [self finalizeStreamingAssistantMessageAtIndex:streamingIndex]; // keep whatever streamed in before Stop
+                } else if (finalText.length == 0 && errorMessage.length > 0) {
                     [self setStreamingAssistantContent:[NSString stringWithFormat:@"Request failed: %@", errorMessage] atMessageIndex:streamingIndex];
                 } else {
                     [self setStreamingAssistantContent:ISHLLMSanitizedAssistantContent(finalText ?: @"") atMessageIndex:streamingIndex];
@@ -2018,6 +2417,9 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
         [self refreshTranscript];
         __weak typeof(self) weakSelf = self;
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            typeof(self) self = weakSelf; // held strong for the duration of the blocking call below, so its fd stays valid for Stop to shut down
+            if (self == nil)
+                return;
             NSInteger statusCode = 0;
             NSError *directError = nil;
             __block BOOL receivedChunk = NO;
@@ -2028,7 +2430,19 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
                     if (self != nil)
                         [self appendStreamingAssistantChunk:chunk toMessageAtIndex:streamingIndex];
                 });
-            }, &statusCode, &directError);
+            }, &self->_activeStreamFD, &statusCode, &directError);
+            if (self->_cancelled) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    typeof(self) self = weakSelf;
+                    if (self == nil)
+                        return;
+                    self->_cancelled = NO;
+                    [self finalizeStreamingAssistantMessageAtIndex:streamingIndex];
+                    [self setSending:NO];
+                    [self saveTranscript];
+                });
+                return;
+            }
             NSData *responseBody = nil;
             if (!streamed || !receivedChunk)
                 responseBody = ISHLLMDirectHTTPPost(url, fallbackRequestBody, requestAPIKey, &statusCode, &directError);
@@ -2109,6 +2523,13 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (void)runToolLoopRound:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
+    if (_cancelled) {
+        _cancelled = NO;
+        [self appendRole:@"assistant" content:@"(stopped)"];
+        [self setSending:NO];
+        [self saveTranscript];
+        return;
+    }
     NSURL *url = [NSURL URLWithString:ISHLLMChatEndpoint()];
     if (url == nil) {
         [self appendRole:@"assistant" content:@"Invalid LLM server URL."];
@@ -2157,6 +2578,13 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (void)handleToolRoundData:(NSData *)data statusCode:(NSInteger)statusCode error:(NSError *)error round:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
+    if (_cancelled) {
+        _cancelled = NO;
+        [self appendRole:@"assistant" content:@"(stopped)"];
+        [self setSending:NO];
+        [self saveTranscript];
+        return;
+    }
     if (error != nil) {
         [self appendRole:@"assistant" content:[NSString stringWithFormat:@"Request failed: %@", error.localizedDescription]];
         [self setSending:NO];
@@ -2204,6 +2632,13 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (void)runToolCalls:(NSArray<NSDictionary *> *)toolCalls index:(NSUInteger)index round:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
+    if (_cancelled) {
+        _cancelled = NO;
+        [self appendRole:@"assistant" content:@"(stopped)"];
+        [self setSending:NO];
+        [self saveTranscript];
+        return;
+    }
     if (index >= toolCalls.count) {
         [self runToolLoopRound:round + 1 model:model apiKey:apiKey];
         return;
@@ -2227,6 +2662,12 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         }];
         [self refreshTranscript];
         [self saveTranscript];
+        if (self->_cancelled) {
+            self->_cancelled = NO;
+            [self appendRole:@"assistant" content:@"(stopped)"];
+            [self setSending:NO];
+            return;
+        }
         [self runToolCalls:toolCalls index:index + 1 round:round model:model apiKey:apiKey];
     };
 
