@@ -264,12 +264,26 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
     if (fakefs_initctl_info(path, NULL, NULL))
         return fakefs_open_initctl(path, flags);
     struct fakefs_db *fs = &mount->fakefs;
-    struct fd *fd = realfs.open(mount, path, flags, 0666);
-    if (IS_ERR(fd))
-        return fd;
+    // For O_CREAT, take the metadata transaction lock *before* the real
+    // host create, so the host-side create and the SQLite metadata write
+    // that describes it are atomic with each other (previously the host
+    // create happened with no fakefs lock held at all, leaving a window
+    // where a concurrent mkdir/unlink/symlink/mknod on the same path could
+    // run its own real-op+metadata pair and interleave with this one,
+    // leaving ish_stat.mode describing a different entry type than what's
+    // actually on the host filesystem). This is still paired with
+    // inodes_lock in generic_openat/generic_mkdirat/etc, which is what
+    // actually serializes against those other syscalls; this ordering
+    // just keeps fakefs_open internally consistent as well.
     if (flags & O_CREAT_)
         db_begin_write(fs);
-    else
+    struct fd *fd = realfs.open(mount, path, flags, 0666);
+    if (IS_ERR(fd)) {
+        if (flags & O_CREAT_)
+            db_rollback(fs);
+        return fd;
+    }
+    if (!(flags & O_CREAT_))
         db_begin_read(fs);
     fd->fake_inode = path_get_inode(fs, path);
     if (flags & O_CREAT_) {
@@ -352,7 +366,12 @@ static int fakefs_unlink(struct mount *mount, const char *path) {
     }
     ino_t ino = path_unlink(fs, path);
     db_commit(fs);
-    inode_check_orphaned(mount, ino);
+    // generic_unlinkat holds inodes_lock across this whole call (to serialize
+    // against a concurrent open(O_CREAT)/mkdir/etc. on the same path), so use
+    // the _unlocked variant here -- inodes_lock is a plain non-recursive
+    // mutex, and calling the locking inode_check_orphaned() from within that
+    // critical section would self-deadlock the calling thread.
+    inode_check_orphaned_unlocked(mount, ino);
     return 0;
 }
 
@@ -366,7 +385,9 @@ static int fakefs_rmdir(struct mount *mount, const char *path) {
     }
     ino_t ino = path_unlink(fs, path);
     db_commit(fs);
-    inode_check_orphaned(mount, ino);
+    // See the comment in fakefs_unlink: generic_rmdirat holds inodes_lock
+    // across this call, so use the _unlocked variant to avoid self-deadlock.
+    inode_check_orphaned_unlocked(mount, ino);
     return 0;
 }
 

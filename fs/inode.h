@@ -40,6 +40,11 @@ struct inode_data *inode_get_unlocked(struct mount *mount, ino_t inode);
 
 // calls mount->fs->inode_orphaned if this inode is orphaned, while holding indoes_lock
 void inode_check_orphaned(struct mount *mount, ino_t ino);
+// same, but for a caller that already holds inodes_lock (e.g. fakefs_unlink/
+// fakefs_rmdir, called from generic_unlinkat/generic_rmdirat while they hold
+// it): inodes_lock is a plain non-recursive mutex, so calling the locking
+// version here would self-deadlock.
+void inode_check_orphaned_unlocked(struct mount *mount, ino_t ino);
 
 // file locking stuff (maybe should go in kernel/calls.h?)
 

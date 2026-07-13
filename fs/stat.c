@@ -10,6 +10,7 @@
 #include "kernel/task.h"
 #include "fs/dev.h"
 #include "fs/fd.h"
+#include "fs/inode.h"
 #include "fs/path.h"
 
 #define STATX_TYPE_        0x00000001U
@@ -313,7 +314,17 @@ int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, in
     if (mount == NULL)
         return _ENOENT;
     memset(stat, 0, sizeof(*stat));
+    // fakefs_stat reads its SQLite ish_stat metadata and the real host stat()
+    // as two separate, unlocked steps; without inodes_lock here, a concurrent
+    // mkdir/unlink/open(O_CREAT)/etc. (which serialize their own real-op +
+    // metadata-update pair under inodes_lock -- see generic_openat) can land
+    // in between those two steps and produce a torn combination: metadata
+    // describing one entry type together with a live host entry of a
+    // different type. mount->fs->stat never blocks, so it's safe to hold
+    // the lock across it unconditionally.
+    lock(&inodes_lock, 0); // TODO: don't do this
     err = mount->fs->stat(mount, path, stat);
+    unlock(&inodes_lock);
     if (err >= 0)
         stat_stamp_fake_dev(mount, stat);
     mount_release(mount);

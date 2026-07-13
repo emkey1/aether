@@ -52,11 +52,15 @@ struct inode_data *inode_get(struct mount *mount, ino_t ino) {
     return data;
 }
 
-void inode_check_orphaned(struct mount *mount, ino_t ino) {
-    lock(&inodes_lock, 0);
+void inode_check_orphaned_unlocked(struct mount *mount, ino_t ino) {
     struct inode_data *inode = inode_get_data(mount, ino);
     if (inode == NULL)
         mount->fs->inode_orphaned(mount, ino);
+}
+
+void inode_check_orphaned(struct mount *mount, ino_t ino) {
+    lock(&inodes_lock, 0);
+    inode_check_orphaned_unlocked(mount, ino);
     unlock(&inodes_lock);
 }
 
