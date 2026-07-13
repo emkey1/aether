@@ -1753,40 +1753,132 @@ static NSString *ISHLLMToolSystemNote(NSString *environmentNote) {
     [_activeTask resume];
 }
 
+#if __has_include("libiSH_AOKApp-Swift.h")
+// Installed once per chat session. AOKShellTool (Swift) calls back through
+// this to run a command, reusing the same confirmation dialog and
+// run_guest_command_capture primitive as the OpenAI-compatible tool loop.
+- (void)installAppleFoundationModelsShellHandlerIfNeeded {
+    if (AOKFoundationModelsBridge.shellCommandHandler != nil)
+        return;
+    __weak typeof(self) weakSelf = self;
+    AOKFoundationModelsBridge.shellCommandHandler = ^(NSString *command, void (^handlerCompletion)(NSString *)) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) self = weakSelf;
+            if (self == nil) {
+                handlerCompletion(@"The chat window closed before this command could run.");
+                return;
+            }
+            [self runAppleFoundationModelsShellCommand:command completion:handlerCompletion];
+        });
+    };
+}
+
+// Mirrors runToolCalls: (this is the OpenAI tool-loop equivalent), but for a
+// single command with no tool_call_id bookkeeping -- FoundationModels drives
+// the call sequencing internally.
+- (void)runAppleFoundationModelsShellCommand:(NSString *)command completion:(void (^)(NSString *))completion {
+    __weak typeof(self) weakSelf = self;
+    void (^recordAndComplete)(NSString *, NSString *) = ^(NSString *resultText, NSString *summary) {
+        typeof(self) self = weakSelf;
+        if (self != nil) {
+            [self->_messages addObject:@{
+                @"role": @"tool",
+                @"name": @"run_shell",
+                @"content": resultText ?: @"",
+                @"summary": summary.length > 0 ? summary : (resultText ?: @""),
+            }];
+            [self refreshTranscript];
+            [self saveTranscript];
+        }
+        completion(resultText ?: @"");
+    };
+
+    void (^runApprovedCommand)(void) = ^{
+        typeof(self) self = weakSelf;
+        if (self != nil)
+            [self setStatus:@"Running command…" busy:YES];
+        dispatch_async(ISHLLMGuestCommandQueue(), ^{
+            NSString *summary = nil;
+            NSString *output = ISHLLMRunGuestShellCommand(command, &summary);
+            dispatch_async(dispatch_get_main_queue(), ^{
+                recordAndComplete(output, summary);
+            });
+        });
+    };
+
+    if (_autoRunCommandsThisChat || _autoRunCommandsThisReply) {
+        runApprovedCommand();
+        return;
+    }
+
+    [self setStatus:@"Waiting for approval…" busy:YES];
+    [self confirmRunCommand:command completion:^(ISHLLMToolRunDecision decision) {
+        typeof(self) self = weakSelf;
+        if (self == nil)
+            return;
+        if (decision == ISHLLMToolRunDecline) {
+            recordAndComplete(@"The user declined to run this command.", @"declined by user");
+            return;
+        }
+        if (decision == ISHLLMToolRunAllowReply)
+            self->_autoRunCommandsThisReply = YES;
+        else if (decision == ISHLLMToolRunAllowChat)
+            self->_autoRunCommandsThisChat = YES;
+        runApprovedCommand();
+    }];
+}
+#endif
+
 - (void)sendPromptToAppleFoundationModels:(NSString *)prompt {
     if (!ISHLLMFoundationModelsReady()) {
         [self appendRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
         return;
     }
 #if __has_include("libiSH_AOKApp-Swift.h")
-    [self setSending:YES];
-    [_messages addObject:@{@"role": @"assistant", @"content": @""}];
-    NSUInteger streamingIndex = _messages.count - 1;
-    [self refreshTranscript];
-    __weak typeof(self) weakSelf = self;
-    [AOKFoundationModelsBridge streamResponseToPrompt:prompt
-                                          instructions:nil
-                                             onPartial:^(NSString *partial) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            typeof(self) self = weakSelf;
-            if (self != nil)
-                [self setStreamingAssistantContent:partial atMessageIndex:streamingIndex];
-        });
+    BOOL toolsEnabled = UserPreferences.shared.llmToolsEnabled;
+    if (toolsEnabled) {
+        _autoRunCommandsThisReply = NO; // a new prompt re-arms confirmation for this reply
+        [self installAppleFoundationModelsShellHandlerIfNeeded];
     }
-                                            completion:^(NSString *finalText, NSString *errorMessage) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            typeof(self) self = weakSelf;
-            if (self == nil)
-                return;
-            [self setSending:NO];
-            if (finalText.length == 0 && errorMessage.length > 0) {
-                [self setStreamingAssistantContent:[NSString stringWithFormat:@"Request failed: %@", errorMessage] atMessageIndex:streamingIndex];
-            } else {
-                [self setStreamingAssistantContent:ISHLLMSanitizedAssistantContent(finalText ?: @"") atMessageIndex:streamingIndex];
-            }
-            [self saveTranscript];
-        });
-    }];
+    __weak typeof(self) weakSelf = self;
+    void (^startRequest)(void) = ^{
+        typeof(self) self = weakSelf;
+        if (self == nil)
+            return;
+        NSString *instructions = toolsEnabled ? ISHLLMToolSystemNote(self->_guestEnvironmentNote) : nil;
+        [self setSending:YES];
+        [self->_messages addObject:@{@"role": @"assistant", @"content": @""}];
+        NSUInteger streamingIndex = self->_messages.count - 1;
+        [self refreshTranscript];
+        [AOKFoundationModelsBridge streamResponseToPrompt:prompt
+                                              instructions:instructions
+                                              toolsEnabled:toolsEnabled
+                                                 onPartial:^(NSString *partial) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                typeof(self) self = weakSelf;
+                if (self != nil)
+                    [self setStreamingAssistantContent:partial atMessageIndex:streamingIndex];
+            });
+        }
+                                                completion:^(NSString *finalText, NSString *errorMessage) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                typeof(self) self = weakSelf;
+                if (self == nil)
+                    return;
+                [self setSending:NO];
+                if (finalText.length == 0 && errorMessage.length > 0) {
+                    [self setStreamingAssistantContent:[NSString stringWithFormat:@"Request failed: %@", errorMessage] atMessageIndex:streamingIndex];
+                } else {
+                    [self setStreamingAssistantContent:ISHLLMSanitizedAssistantContent(finalText ?: @"") atMessageIndex:streamingIndex];
+                }
+                [self saveTranscript];
+            });
+        }];
+    };
+    if (toolsEnabled)
+        [self prepareGuestEnvironmentNoteThen:startRequest];
+    else
+        startRequest();
 #else
     [self appendRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
 #endif
@@ -2241,7 +2333,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     if (section == 0)
         return nil;
     if (ISHLLMUsesAppleFoundationModels())
-        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
+        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command. Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
     return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini.\nChat history is saved in /AOK/persist/llm-chat.json.";
 }
 

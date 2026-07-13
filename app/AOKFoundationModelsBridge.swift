@@ -16,12 +16,49 @@ import FoundationModels
     case unknown = 5
 }
 
+#if canImport(FoundationModels)
+// The "run_shell" tool. Executing a command means reaching back into the
+// (Objective-C) guest-shell + confirmation-dialog machinery in
+// AboutViewController.m, which this Swift file has no direct access to --
+// so the actual work is delegated through AOKFoundationModelsBridge's
+// shellCommandHandler, which AboutViewController installs before starting a
+// tool-enabled session.
+@available(iOS 26.0, *)
+struct AOKShellTool: Tool {
+    let name = "run_shell"
+    let description = "Run a shell command in the iSH guest Linux environment and return its combined stdout+stderr. Use this to list/read files, check installed tools, or run quick scripts. Each call runs one command and may require the user's confirmation before it executes."
+
+    @Generable
+    struct Arguments {
+        @Guide(description: "The shell command to execute, e.g. \"ls -la /root\"")
+        var command: String
+    }
+
+    func call(arguments: Arguments) async throws -> String {
+        guard let handler = AOKFoundationModelsBridge.shellCommandHandler else {
+            return "The shell tool is not available right now."
+        }
+        return await withCheckedContinuation { continuation in
+            handler(arguments.command) { output in
+                continuation.resume(returning: output)
+            }
+        }
+    }
+}
+#endif
+
 // Bridges Apple's FoundationModels (Swift-only, iOS 26+) to the Objective-C
 // chat UI in AboutViewController.m. Every entry point is safe to call on any
 // OS version/SDK: below iOS 26, or when the framework wasn't linked, calls
 // resolve to .unsupportedOSVersion / an explanatory error instead of trapping.
 @objc(AOKFoundationModelsBridge)
 public final class AOKFoundationModelsBridge: NSObject {
+
+    // Installed by AboutViewController before a tools-enabled request. Called
+    // with the requested command and a completion the handler must invoke
+    // exactly once, on any thread, with the text to feed back to the model
+    // (command output, or an explanation if declined/unavailable).
+    @objc public static var shellCommandHandler: ((String, @escaping (String) -> Void) -> Void)?
 
     @objc public static func currentAvailability() -> AOKFoundationModelAvailability {
         #if canImport(FoundationModels)
@@ -61,12 +98,12 @@ public final class AOKFoundationModelsBridge: NSObject {
 
     // Non-streaming request/response. completion is always called, exactly
     // once, off the main thread -- callers must hop back to main themselves.
-    @objc public static func respond(toPrompt prompt: String, instructions: String?, completion: @escaping (String?, String?) -> Void) {
+    @objc public static func respond(toPrompt prompt: String, instructions: String?, toolsEnabled: Bool, completion: @escaping (String?, String?) -> Void) {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *), case .available = SystemLanguageModel.default.availability {
             Task {
                 do {
-                    let session = LanguageModelSession(instructions: instructions)
+                    let session = LanguageModelSession(tools: toolsEnabled ? [AOKShellTool()] : [], instructions: instructions)
                     let response = try await session.respond(to: prompt)
                     completion(response.content, nil)
                 } catch {
@@ -81,13 +118,17 @@ public final class AOKFoundationModelsBridge: NSObject {
 
     // Streaming variant. onPartial is called repeatedly with the cumulative
     // response text so far (not a delta); completion is called exactly once
-    // at the end, successful or not. Both fire off the main thread.
-    @objc public static func streamResponse(toPrompt prompt: String, instructions: String?, onPartial: @escaping (String) -> Void, completion: @escaping (String?, String?) -> Void) {
+    // at the end, successful or not. Both fire off the main thread. When a
+    // tool call happens mid-stream, FoundationModels runs it internally
+    // (invoking shellCommandHandler) before resuming generation -- there is
+    // no separate callback for tool-call start/finish, only the eventual
+    // text.
+    @objc public static func streamResponse(toPrompt prompt: String, instructions: String?, toolsEnabled: Bool, onPartial: @escaping (String) -> Void, completion: @escaping (String?, String?) -> Void) {
         #if canImport(FoundationModels)
         if #available(iOS 26.0, *), case .available = SystemLanguageModel.default.availability {
             Task {
                 do {
-                    let session = LanguageModelSession(instructions: instructions)
+                    let session = LanguageModelSession(tools: toolsEnabled ? [AOKShellTool()] : [], instructions: instructions)
                     var last = ""
                     for try await snapshot in session.streamResponse(to: prompt) {
                         last = snapshot.content
