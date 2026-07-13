@@ -5503,9 +5503,10 @@ void handle_interrupt(int interrupt) {
     // arrive with no guest-visible pending signal work. Avoid serializing all
     // runnable threads on sighand->lock in that common case.
     sigset_t_ pending = __atomic_load_n(&current->pending, __ATOMIC_ACQUIRE);
+    sigset_t_ group_pending = __atomic_load_n(&current->sighand->pending, __ATOMIC_ACQUIRE);
     sigset_t_ blocked = __atomic_load_n(&current->blocked, __ATOMIC_ACQUIRE);
     bool has_saved_mask = __atomic_load_n(&current->has_saved_mask, __ATOMIC_ACQUIRE);
-    if (has_saved_mask || (pending & ~blocked) != 0)
+    if (has_saved_mask || ((pending | group_pending) & ~blocked) != 0)
         receive_signals();
     // Fast path: group->stopped is almost always false. Read it locklessly
     // (it is _Atomic) and only take group->lock to actually wait when stopped.

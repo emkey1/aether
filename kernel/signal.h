@@ -211,12 +211,30 @@ struct sighand {
     atomic_uint refcount;
     struct sigaction_ action[NUM_SIGS];
     lock_t lock;
+    // Process-directed signal queue, shared by every thread in the CLONE_SIGHAND
+    // group (Linux's signal_struct->shared_pending). A signal landing here (as
+    // opposed to one specific task's own `pending`/`queue`) can be observed and
+    // dequeued by ANY sibling thread with it unblocked -- not just whichever
+    // task object the sender happened to address. Locked by `lock`, same as
+    // every task's own `pending`/`queue` (sighand is already shared across the
+    // group, so this is the same lock instance for every sibling).
+    struct list queue;
+    sigset_t_ pending;
 };
 struct sighand *sighand_new(void);
 struct sighand *sighand_copy(struct sighand *sighand);
 void sighand_retain(struct sighand *sighand);
 void sighand_release(struct sighand *sighand);
 void deliver_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info);
+struct tgroup;
+// Deliver a process-directed signal to a thread group: enqueues into the
+// shared sighand->queue (visible to any sibling thread's signalfd/
+// sigwaitinfo/receive_signals, matching Linux's shared_pending) and wakes
+// every live thread in the group so whichever one can currently accept it
+// re-checks. Use for signals conceptually addressed to "the process" (e.g.
+// SIGCHLD to a possibly-multithreaded parent) rather than to one specific
+// thread (tkill/tgkill/synchronous traps stay on send_signal/deliver_signal).
+void send_signal_to_group(struct tgroup *group, int sig, struct siginfo_ info);
 
 dword_t sys_rt_sigaction(dword_t signum, addr_t action_addr, addr_t oldaction_addr, dword_t sigset_size);
 dword_t sys_rt_sigaction_guest(dword_t signum, guest_addr_t action_addr, guest_addr_t oldaction_addr, dword_t sigset_size);

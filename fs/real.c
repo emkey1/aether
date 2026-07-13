@@ -41,7 +41,7 @@ static inline void realfs_count_write(ssize_t res) {
 
 static bool realfs_guest_signal_pending(void) {
     lock(&current->sighand->lock, 0);
-    bool signal_pending = !!(current->pending & ~current->blocked);
+    bool signal_pending = !!((current->pending | current->sighand->pending) & ~current->blocked);
     unlock(&current->sighand->lock);
     return signal_pending;
 }

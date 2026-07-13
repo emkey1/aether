@@ -425,7 +425,10 @@ struct task *task_create_(struct task *parent) {
 // We consolidate the check for whether the task is in a critical section,
 // holds locks, or has pending signals into a single function.
 bool should_wait(struct task *t) {
-    return task_ref_cnt_get(t, 0) > 1 || locks_held_count(t) || !!(t->pending & ~t->blocked);
+    // sighand is released (and nulled) before a task reaches this path during
+    // teardown; a nulled sighand has nothing left to check.
+    sigset_t_ group_pending = t->sighand != NULL ? t->sighand->pending : 0;
+    return task_ref_cnt_get(t, 0) > 1 || locks_held_count(t) || !!((t->pending | group_pending) & ~t->blocked);
 }
 
 void task_unlink_locked(struct task *task) {

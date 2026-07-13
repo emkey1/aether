@@ -565,7 +565,7 @@ static void ptrace_stop_common(int sig, const struct siginfo_ *info, bool syscal
         while (current->ptrace.stopped) {
             wait_for_ignore_signals(&current->ptrace.cond, &current->ptrace.lock, NULL);
             lock(&current->sighand->lock, 0);
-            bool got_sigkill = sigset_has(current->pending, SIGKILL_);
+            bool got_sigkill = sigset_has(current->pending | current->sighand->pending, SIGKILL_);
             unlock(&current->sighand->lock);
             if (got_sigkill) {
                 STRACE("%d received a SIGKILL in ptrace stop\n", current->pid);
