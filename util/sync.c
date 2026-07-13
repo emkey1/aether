@@ -80,13 +80,29 @@ void cond_destroy(cond_t *cond) {
 static bool is_signal_pending(lock_t *lock) {
     if (!current)
         return false;
+    // A process-directed signal (e.g. SIGCHLD delivered via
+    // send_signal_to_group, see kernel/exit.c/kernel/signal.c) only ever sets
+    // current->sighand->pending, never current->pending -- deliver_signal_to_
+    // group_locked has no per-task queue to put it in, only the shared one.
+    // Checking current->pending alone here meant sys_rt_sigsuspend_guest's
+    // retry loop (`while (wait_for(...) != _EINTR) continue;`) could fail to
+    // recognize a real, already-pending group signal as a reason to stop
+    // waiting whenever the wake-side race in deliver_signal_to_group_locked
+    // didn't manage to mark current->wait_interrupted for it (e.g. it landed
+    // in the narrow window between one wait_for call finishing and the next
+    // one registering current->waiting_cond) -- the thread would then block
+    // again on a fresh pthread_cond_wait with nothing left to ever wake it,
+    // even though a zombie was sitting there the whole time. Matches
+    // kernel/exit.c's wait_interrupted_by_signal(), which already ORs in
+    // sighand->pending for the same reason on the do_wait() path.
     sigset_t_ pending = __atomic_load_n(&current->pending, __ATOMIC_ACQUIRE);
+    sigset_t_ shand_pending = __atomic_load_n(&current->sighand->pending, __ATOMIC_ACQUIRE);
     sigset_t_ blocked = __atomic_load_n(&current->blocked, __ATOMIC_ACQUIRE);
-    if ((pending & ~blocked) == 0)
+    if (((pending | shand_pending) & ~blocked) == 0)
         return false;
     if (lock != &current->sighand->lock)
         lock(&current->sighand->lock, 0);
-    bool has_pending = !!(current->pending & ~current->blocked);
+    bool has_pending = !!((current->pending | current->sighand->pending) & ~current->blocked);
     if (lock != &current->sighand->lock)
         unlock(&current->sighand->lock);
     return has_pending;

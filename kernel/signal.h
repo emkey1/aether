@@ -220,6 +220,24 @@ struct sighand {
     // group, so this is the same lock instance for every sibling).
     struct list queue;
     sigset_t_ pending;
+    // Serializes signal_wake_task's temporary release of `lock` (kernel/signal.c):
+    // that function has to give up `lock` before calling wake_waiting_task, since
+    // wake_waiting_task can itself block on an unrelated lock (see its own
+    // comments) and holding `lock` across that risks an ABBA deadlock against
+    // code elsewhere that must take locks in the other order (e.g. pids_lock ->
+    // `lock`, never the reverse -- see send_signal_to_group). But that leaves a
+    // real window where `lock` is genuinely, fully unlocked despite the "caller
+    // holds sighand->lock" contract -- a second, concurrent deliver_signal_*
+    // call for the same sighand (e.g. two children exiting at once, each
+    // delivering SIGCHLD to the same parent) can legitimately acquire `lock`
+    // during that window and reach its own signal_wake_task call, which then
+    // races the first call's manual unlock/relock of the exact same mutex --
+    // undefined behavior for a plain, non-recursive pthread_mutex_t, and able to
+    // corrupt `lock` for good. wake_lock is acquired only while `lock` is NOT
+    // held (after releasing it, before reacquiring it) so it can never nest with
+    // `lock` in a way that reintroduces an ABBA hazard; it just ensures at most
+    // one thread is ever mid-wake for a given sighand at a time.
+    lock_t wake_lock;
 };
 struct sighand *sighand_new(void);
 struct sighand *sighand_copy(struct sighand *sighand);

@@ -580,9 +580,24 @@ static bool signal_wake_task(struct task *task, struct sighand *sighand, int sig
     // If the waiter is between publishing waiting_cond and entering
     // pthread_cond_wait(), retry briefly for its lock handoff so the wake
     // is not lost. This avoids global timed polling in wait_for().
+    //
+    // sighand->lock is genuinely, fully unlocked for the duration of this
+    // release -- deliver_signal_unlocked_locked/deliver_signal_to_group_locked
+    // can now call this concurrently for the same sighand (a burst of
+    // simultaneous exits each raising SIGCHLD to the same parent, each
+    // wanting its own wake attempt -- see the "already_pending" comments on
+    // those two functions), and two such calls both reaching this exact
+    // unlock/relock dance at once would race the same non-recursive
+    // pthread_mutex_t: undefined behavior, and able to corrupt sighand->lock
+    // for good, wedging every future signal delivery to this whole group.
+    // wake_lock (acquired only while sighand->lock is NOT held, so it can
+    // never nest with it and reintroduce an ABBA hazard) serializes this
+    // dance so at most one thread is ever mid-wake for a given sighand.
     memset(&sighand->lock.owner, 0, sizeof(sighand->lock.owner));
     pthread_mutex_unlock(&sighand->lock.m);
+    lock(&sighand->wake_lock, 0);
     bool interrupted_wait = wake_waiting_task(task);
+    unlock(&sighand->wake_lock);
     pthread_mutex_lock(&sighand->lock.m);
     sighand->lock.owner = pthread_self();
     return interrupted_wait;
@@ -598,17 +613,32 @@ static void signal_note_interrupted(struct task *task, struct sighand *sighand, 
 }
 
 static void deliver_signal_unlocked_locked(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
-    if (!signal_is_realtime(sig) && sigset_has(task->pending, sig))
-        return;
-
     if (task->exiting)
         return;
 
-    sigset_add(&task->pending, sig);
-    struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
-    sigqueue->info = info;
-    sigqueue->info.sig = sig;
-    list_add_tail(&task->queue, &sigqueue->queue);
+    // Standard (non-realtime) signals don't queue a second instance while one
+    // is already pending -- that much matches Linux. But sigset_has(pending)
+    // here and the clearing of that bit in receive_signals() are not atomic
+    // with each other: a waiter can dequeue/clear the first occurrence and
+    // re-enter its wait (e.g. sigsuspend()/wait4() looping to reap a burst of
+    // exiting children, each raising SIGCHLD) before this second occurrence
+    // arrives. Returning here unconditionally used to skip the wake too, so
+    // that second occurrence was silently dropped with nobody left to notice
+    // it -- a permanent hang, not just a redundant signal. Only skip the
+    // requeue; always still attempt the wake below (redundant wakes of an
+    // already-running thread are harmless).
+    bool already_pending = !signal_is_realtime(sig) && sigset_has(task->pending, sig);
+    if (!already_pending) {
+        sigset_add(&task->pending, sig);
+        struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
+        sigqueue->info = info;
+        sigqueue->info.sig = sig;
+        list_add_tail(&task->queue, &sigqueue->queue);
+    }
+    // signalfd_wakeup_task is a best-effort, idempotent poke (see its own
+    // comment: a signalfd's readiness is re-checked on the next scan/timeout
+    // regardless), so -- like signal_wake_task below -- it must run even when
+    // this occurrence was already pending, for the same reason.
     signalfd_wakeup_task(task, sig);
 
     // Synchronous fault signals must be delivered even when the task has them
@@ -634,14 +664,26 @@ static void deliver_signal_unlocked_locked(struct task *task, struct sighand *si
 // reverse). Caller holds `sighand->lock`.
 static void deliver_signal_to_group_locked(struct sighand *sighand, int sig, struct siginfo_ info,
         struct task **members, size_t count) {
-    if (!signal_is_realtime(sig) && sigset_has(sighand->pending, sig))
-        return;
-
-    sigset_add(&sighand->pending, sig);
-    struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
-    sigqueue->info = info;
-    sigqueue->info.sig = sig;
-    list_add_tail(&sighand->queue, &sigqueue->queue);
+    // See the matching comment in deliver_signal_unlocked_locked: skipping the
+    // requeue for an already-pending standard signal is correct (Linux
+    // doesn't queue multiple instances either), but skipping the wake too --
+    // as this used to do via an unconditional early return -- can strand
+    // every member of the group. This is the SIGCHLD path for a burst of
+    // near-simultaneous child exits (send_signal_to_group), which is exactly
+    // where the race is easy to hit: one child's SIGCHLD sets the pending bit
+    // and wakes the parent, the parent's sigsuspend()/wait4() loop reaps that
+    // child and goes back to sleep, and a second child exits and delivers
+    // SIGCHLD while the first occurrence's pending bit hasn't been cleared by
+    // receive_signals() yet -- that second, distinct occurrence must still
+    // wake the parent even though it doesn't get its own queue entry.
+    bool already_pending = !signal_is_realtime(sig) && sigset_has(sighand->pending, sig);
+    if (!already_pending) {
+        sigset_add(&sighand->pending, sig);
+        struct sigqueue *sigqueue = malloc(sizeof(struct sigqueue));
+        sigqueue->info = info;
+        sigqueue->info.sig = sig;
+        list_add_tail(&sighand->queue, &sigqueue->queue);
+    }
 
     for (size_t i = 0; i < count; i++) {
         struct task *task = members[i];
@@ -2131,6 +2173,7 @@ struct sighand *sighand_new(void) {
     memset(sighand, 0, sizeof(struct sighand));
     sighand->refcount = 1;
     lock_init(&sighand->lock, "sighand_new\0");
+    lock_init(&sighand->wake_lock, "sighand_wake\0");
     list_init(&sighand->queue);
     return sighand;
 }
