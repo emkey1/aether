@@ -600,17 +600,29 @@ ssize_t realfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off)
     return res;
 }
 
-void realfs_opendir(struct fd *fd) {
+// Returns 0 on success, or a negative ish errno on failure (fd->dir stays NULL).
+// A host directory entry that doesn't actually open as a directory (e.g. a
+// filesystem left in an inconsistent state by a racing writer) is reported
+// to the guest as an error instead of taking down the whole process.
+int realfs_opendir(struct fd *fd) {
     if (fd->dir == NULL) {
         int dirfd = dup(fd->real_fd);
+        if (dirfd < 0)
+            return errno_map();
         fd->dir = fdopendir(dirfd);
-        // this should never get called on a non-directory
-        assert(fd->dir != NULL);
+        if (fd->dir == NULL) {
+            int err = errno_map();
+            close(dirfd);
+            return err;
+        }
     }
+    return 0;
 }
 
 int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
-    realfs_opendir(fd);
+    int err = realfs_opendir(fd);
+    if (err < 0)
+        return err;
     errno = 0;
     struct dirent *dirent = readdir(fd->dir);
     if (dirent == NULL) {
@@ -626,12 +638,14 @@ int realfs_readdir(struct fd *fd, struct dir_entry *entry) {
 }
 
 unsigned long realfs_telldir(struct fd *fd) {
-    realfs_opendir(fd);
+    if (realfs_opendir(fd) < 0)
+        return 0;
     return telldir(fd->dir);
 }
 
 void realfs_seekdir(struct fd *fd, unsigned long ptr) {
-    realfs_opendir(fd);
+    if (realfs_opendir(fd) < 0)
+        return;
     seekdir(fd->dir, ptr);
 }
 
