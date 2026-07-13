@@ -799,6 +799,11 @@ struct diag_socket_entry {
 };
 
 static uint32_t netlink_next_port_id(void);
+// on iOS, when the device goes to sleep, all connected sockets are killed;
+// reads/writes then return ENOTCONN, a POSIX violation this remaps to
+// ECONNRESET. Defined near sock_read/sock_write; forward-declared here so the
+// recvfrom/sendto/recvmsg/sendmsg paths above them can use it too.
+static void sock_translate_err(struct fd *fd, int *err);
 
 const struct fd_ops socket_fdops;
 
@@ -3639,6 +3644,7 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
             return _EAGAIN;
         }
         int mapped_err = errno_map();
+        sock_translate_err(sock, &mapped_err);
         // Linux returns ENOTCONN for a send() on an unconnected AF_UNIX
         // datagram socket with no destination address; Darwin returns
         // EDESTADDRREQ. (For AF_INET both kernels use EDESTADDRREQ.)
@@ -3796,6 +3802,7 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
             return _EAGAIN;
         }
         int mapped_err = errno_map();
+        sock_translate_err(sock, &mapped_err);
         sock_trace("recvfrom", sock, -1, mapped_err);
         sock_debug_event("recvfrom", sock, -1, mapped_err);
         if (mapped_err == _EAGAIN)
@@ -4883,6 +4890,7 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             err = (int_t) requested;
             goto out_free_scm;
         }
+        sock_translate_err(sock, &err);
         sock_trace("sendmsg", sock, -1, err);
         sock_debug_event("sendmsg", sock, -1, err);
         if (err == _EAGAIN)
@@ -5286,6 +5294,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             err = _EAGAIN;
         else
             err = errno_map();
+        sock_translate_err(sock, &err);
         sock_trace("recvmsg", sock, -1, err);
         sock_debug_event("recvmsg", sock, -1, err);
         if (err == _EAGAIN)
