@@ -310,8 +310,20 @@ struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi,
     if (iov_count > IOV_MAX)
         return ERR_PTR(_EINVAL);
 
+    // arm64/riscv64 are 64-bit ABIs with the same {ptr, size_t} iovec layout
+    // as amd64 (both fields qword_t) -- only i386 uses the 32-bit layout.
+    // This used to check `abi == GUEST_ABI_AMD64` specifically, so arm64 and
+    // riscv64 fell into the i386 (8-byte) branch: user_read_iovecs_abi read
+    // half as many bytes as the guest's real 16-byte struct iovec, splitting
+    // the 64-bit iov_base into a bogus base/len pair (len ends up as the
+    // pointer's upper 32 bits, typically 0 for small addresses). Every
+    // process_vm_readv call on those guests then copied 0 bytes, which is
+    // why a real strace tracing an arm64/riscv64 process showed every
+    // path/struct/array argument as empty or zeroed while return values
+    // stayed correct (ptrace(2) PEEKDATA/PEEKTEXT wasn't affected, only the
+    // process_vm_readv fast path this function feeds).
     size_t guest_size;
-    if (abi == GUEST_ABI_AMD64) {
+    if (guest_abi_is_64bit(abi)) {
         guest_size = sizeof(struct amd64_iovec_);
     } else {
         guest_size = sizeof(struct i386_iovec_);
@@ -335,7 +347,7 @@ struct guest_iovec_ *user_read_iovecs_abi(struct task *task, enum guest_abi abi,
     for (dword_t i = 0; i < iov_count; i++) {
         qword_t base;
         qword_t len;
-        if (abi == GUEST_ABI_AMD64) {
+        if (guest_abi_is_64bit(abi)) {
             struct amd64_iovec_ *amd64_iov = raw_iov;
             base = amd64_iov[i].base;
             len = amd64_iov[i].len;
