@@ -355,6 +355,60 @@ static void check_fp(void) {
     check_bytes("vsqrtq_f64", dgot, dwant, 16);
 }
 
+// ---- LDR (literal, SIMD&FP) -------------------------------------------------
+//
+// V=1 counterpart of the ordinary GPR "LDR (literal)" PC-relative form
+// (which the JIT already handled). Compilers emit this constantly for FP
+// constant pools -- NEON intrinsics alone don't reliably force the compiler
+// to pick this exact encoding over materializing the constant some other
+// way, so these use inline asm with a local literal to guarantee it.
+
+static void check_literal_loads(void) {
+    float sgot;
+    asm volatile(
+        "ldr s0, 1f\n"
+        "str s0, %0\n"
+        "b 2f\n"
+        "1: .float 3.140625\n"
+        "2:\n"
+        : "=m"(sgot) :: "s0");
+    if (sgot != 3.140625f)
+        failf("ldr s (literal)", (uint64_t) (uint32_t) sgot, 0, 0, 0, 0, 0);
+    else
+        test_logf("ldr s (literal) ok\n");
+
+    double dgot;
+    asm volatile(
+        "ldr d0, 1f\n"
+        "str d0, %0\n"
+        "b 2f\n"
+        "1: .double 1.0\n" // the exact bit pattern (0x3ff0000000000000) that
+                            // surfaced the missing-gadget bug: nvim/LuaJIT's
+                            // arm64 build hit this on startup with no gadget
+                            // to decode it, taking a guest SIGILL every time.
+        "2:\n"
+        : "=m"(dgot) :: "d0");
+    if (dgot != 1.0)
+        failf("ldr d (literal)", 0, 0, 0, 0, 0, 0);
+    else
+        test_logf("ldr d (literal) ok\n");
+
+    uint64_t qgot[2];
+    asm volatile(
+        "ldr q0, 1f\n"
+        "str q0, %0\n"
+        "b 2f\n"
+        ".align 4\n"
+        "1: .dword 0x0123456789abcdef\n"
+        "   .dword 0xfedcba9876543210\n"
+        "2:\n"
+        : "=m"(qgot) :: "q0");
+    if (qgot[0] != 0x0123456789abcdefULL || qgot[1] != 0xfedcba9876543210ULL)
+        failf("ldr q (literal)", qgot[0], qgot[1], 0, 0x0123456789abcdefULL, 0xfedcba9876543210ULL, 0);
+    else
+        test_logf("ldr q (literal) ok\n");
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     check_int_three_same();
@@ -364,5 +418,6 @@ int main(int argc, char **argv) {
     check_permute();
     check_two_misc();
     check_fp();
+    check_literal_loads();
     return finish_suite("vector_smoke");
 }

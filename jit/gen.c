@@ -1736,6 +1736,29 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
         return 1;
     }
 
+    // LDR (literal, SIMD&FP): PC-relative load into a V register, the V=1
+    // counterpart of the GPR form above (same imm19*4 addressing). opc:
+    // 00=LDR St (32-bit), 01=LDR Dt (64-bit), 10=LDR Qt (128-bit),
+    // 11=unallocated (unlike the GPR family, there's no PRFM literal here).
+    if ((insn & 0x3f000000) == 0x1c000000) {
+        extern void gadget_arm64_vload_lit_s(void), gadget_arm64_vload_lit_d(void);
+        extern void gadget_arm64_vload_lit_q(void);
+        unsigned opc = (insn >> 30) & 0x3;
+        unsigned rt = insn & 0x1f;
+        if (opc == 3)
+            return gen_arm64_undefined(state);
+        int64_t offset = arm64_branch_imm19(insn); // same imm19*4 field as branches
+        uint64_t addr = state->arm64_orig_ip + (uint64_t) offset;
+        void *gadget = opc == 0 ? (void *) gadget_arm64_vload_lit_s
+                     : opc == 1 ? (void *) gadget_arm64_vload_lit_d
+                                : (void *) gadget_arm64_vload_lit_q;
+        gen(state, (unsigned long) gadget);
+        gen(state, rt);
+        gen(state, addr);
+        gen(state, state->arm64_orig_ip); // fault-restart address (see memory.S's segfault paths)
+        return 1;
+    }
+
     // ---- SIMD/FP loads/stores and register constants (Phase D) -----------
     // The blocker-driven minimal subset for musl memset/memcpy and
     // compiler-generated struct zeroing — see jit/guest-arm64/simd.S.

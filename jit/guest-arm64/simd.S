@@ -68,6 +68,34 @@ vstore_single vstore32,   32, str, s31
 vstore_single vstore64,   64, str, d31
 vstore_single vstore128, 128, str, q31
 
+// ---- LDR (literal, SIMD&FP): V=1 counterpart of memory.S's load_literal.
+// The address is compile-time known (PC + imm19*4, computed by
+// gen_step_arm64): same code-stream format, [gadget][rt][absolute address].
+// Compilers emit this constantly for FP constant pools (e.g. loading a
+// literal double) -- LuaJIT's interpreter/mcode hit it immediately on
+// startup and, with no gadget to decode it, took a guest SIGILL (the
+// nvim-on-arm64-guest crash-on-launch bug). Unlike the GPR form, register
+// 31 needs no ZR-discard special case: the SIMD register file has no ZR/SP
+// aliasing (see this file's header comment), so there's nothing to skip.
+.macro vload_literal name, bits, ldinsn, vreg
+.gadget \name
+    ldr x20, [_ip]            // rt
+    ldr x7, [_ip, #8]         // absolute guest address
+    add _ip, _ip, #24         // rt + address + trailing orig_ip (fault restart)
+    read_prep \bits, \name
+    movi v31.2d, #0
+    \ldinsn \vreg, [_addr]
+    add x9, _cpu, #CPU_v0
+    add x9, x9, x20, lsl #4
+    str q31, [x9]
+    gret
+    read_bullshit \bits, \name
+.endm
+
+vload_literal vload_lit_s,   32, ldr, s31
+vload_literal vload_lit_d,   64, ldr, d31
+vload_literal vload_lit_q,  128, ldr, q31
+
 // ---- Vector/FP register pair load/store (LDP/STP, V=1) ------------------
 // Same code-stream format as memory.S's integer pair gadgets:
 // [rt | rt2<<8 | rn<<16 | mode<<24 (1=post,2=offset,3=pre)][scaled offset].
