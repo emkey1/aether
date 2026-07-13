@@ -37,8 +37,14 @@
 #                      generic "timed out waiting" after the full deadline.
 #
 # Fixed for v1 (matches wayland_workspace_plan.md phase 2.5): the headless
-# output is wlroots' default size (1280x720); the applet's noVNC client
-# scales to fit. Per-session resizable output is a follow-up, not built here.
+# output is wlroots' default size (1280x720); the applet's native RFB client
+# (DisplayRFBClient/DisplayRFBView) scales to fit. Per-session resizable
+# output is a follow-up, not built here.
+#
+# First-run only, a minimal labwc menu.xml + a pipemenu script get seeded
+# under $HOME/.config/labwc/ (see below) so right-click gives you more than
+# labwc's compiled-in "Reconfigure"/"Exit" fallback -- a "New Terminal" entry
+# and an "Applications" submenu that lists whatever's apt-installed.
 # ---------------------------------------------------------------------------
 set -u
 
@@ -59,6 +65,20 @@ for bin in $COMPOSITOR_CMD foot wayvnc; do
     command -v "$bin" >/dev/null 2>&1 \
         || die "'$bin' not found -- run 'sudo sh /AOK/tools/setup-wayland.sh' first"
 done
+
+# Defensively clean up any stale labwc/foot/wayvnc left over from a prior
+# session that didn't get torn down before this one started (a fast
+# Reconnect, or closing and reopening the applet, can both race ahead of the
+# old session's async guest-side cleanup -- the native side now waits for
+# confirmed exit before reconnecting, but this covers it independent of
+# that, since every session binds the same fixed WAYVNC_PORT regardless of
+# who started it). Without this, overlapping instances fight over that port
+# and pile up as unreaped zombies that drag the whole guest's scheduling
+# down until the applet looks wedged.
+pkill -x "$COMPOSITOR_CMD" 2>/dev/null
+pkill -x foot 2>/dev/null
+pkill -x wayvnc 2>/dev/null
+sleep 0.2
 
 # A runtime dir scoped to this invocation (pid-suffixed) avoids colliding
 # with a leftover socket/lock from a prior run that didn't get torn down
@@ -106,6 +126,72 @@ trap cleanup TERM INT HUP EXIT
 # *why* short of re-running this script by hand over SSH.
 DEBUG_LOG="${ISH_DISPLAY_DEBUG_LOG:-/tmp/ish-wayland-debug.log}"
 : > "$DEBUG_LOG"
+
+# Seed a minimal-but-useful labwc config. Without this, labwc falls back to
+# its compiled-in root menu, which is just "Reconfigure"/"Exit" and gives no
+# way to launch anything beyond the one foot window this script starts. The
+# "Applications" entry is a labwc pipemenu -- labwc runs list-apps.sh and
+# expects an <openbox_pipe_menu> XML fragment on stdout, regenerated every
+# time that submenu opens -- so whatever gets apt-installed later shows up
+# automatically, no menu.xml edits needed.
+if [ "$COMPOSITOR_CMD" = "labwc" ]; then
+    mkdir -p "$HOME/.config/labwc"
+    # Regenerated on every session start (not gated on "doesn't already
+    # exist" like menu.xml below) -- it's a generated helper, not something
+    # a user would hand-edit, and it needs to actually pick up fixes. A
+    # single awk pass per .desktop file replaces what used to be ~9 forked
+    # subprocesses per file (grep/cut/sed chained several times over) --
+    # spawning that many processes per file was slow enough on its own to
+    # make the menu look empty/unresponsive (labwc giving up on a pipemenu
+    # that takes too long), and the resulting burst of rapid fork/exit/
+    # SIGCHLD activity is also the likely trigger for a separate lock-
+    # contention issue observed in the emulator's own signal/poll code when
+    # this menu was opened -- worth its own investigation, but cutting the
+    # process count this much should avoid triggering it in the first place.
+    cat > "$HOME/.config/labwc/list-apps.sh" <<'LIST_APPS_EOF'
+#!/bin/sh
+echo '<openbox_pipe_menu>'
+for f in /usr/share/applications/*.desktop; do
+    [ -f "$f" ] || continue
+    awk '
+        /^NoDisplay=true/ { hidden=1 }
+        /^Hidden=true/ { hidden=1 }
+        /^Name=/ && name == "" { name = substr($0, 6) }
+        /^Exec=/ && execline == "" { execline = substr($0, 6) }
+        END {
+            if (hidden || name == "" || execline == "") exit
+            gsub(/%[a-zA-Z]/, "", execline)
+            gsub(/&/, "\\&amp;", name); gsub(/</, "\\&lt;", name); gsub(/>/, "\\&gt;", name)
+            gsub(/&/, "\\&amp;", execline); gsub(/</, "\\&lt;", execline); gsub(/>/, "\\&gt;", execline)
+            printf "<item label=\"%s\"><action name=\"Execute\"><command>%s</command></action></item>\n", name, execline
+        }
+    ' "$f"
+done
+echo '</openbox_pipe_menu>'
+LIST_APPS_EOF
+    chmod +x "$HOME/.config/labwc/list-apps.sh"
+fi
+if [ "$COMPOSITOR_CMD" = "labwc" ] && [ ! -f "$HOME/.config/labwc/menu.xml" ]; then
+    cat > "$HOME/.config/labwc/menu.xml" <<MENU_EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu>
+  <menu id="root-menu" label="Root">
+    <item label="New Terminal">
+      <action name="Execute"><command>foot</command></action>
+    </item>
+    <separator/>
+    <menu id="apps-pipemenu" label="Applications" execute="$HOME/.config/labwc/list-apps.sh"/>
+    <separator/>
+    <item label="Reconfigure">
+      <action name="Reconfigure"/>
+    </item>
+    <item label="Exit">
+      <action name="Exit"/>
+    </item>
+  </menu>
+</openbox_menu>
+MENU_EOF
+fi
 
 log "starting $COMPOSITOR_CMD (headless)"
 $COMPOSITOR_CMD 2>&1 | tee -a "$DEBUG_LOG" >&2 &

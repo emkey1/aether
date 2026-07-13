@@ -1,10 +1,10 @@
 #import "DisplayViewController.h"
-#import "DisplayNetworkBridge.h"
-#import "DisplayStaticFileServer.h"
+#import "DisplayRFBClient.h"
+#import "DisplayRFBView.h"
 #import "Terminal.h"
 #import "AppDelegate.h"
 #import "GuestFileBridge.h"
-#import <WebKit/WebKit.h>
+#import "UserPreferences.h"
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
@@ -21,18 +21,32 @@ NS_ASSUME_NONNULL_BEGIN
 // emits, not a plain byte stream.
 static NSString *const DisplayReadyGuestPath = @"/tmp/ish-display.ready";
 static const NSTimeInterval DisplayReadyPollInterval = 0.3;
+static NSArray<NSString *> *const DisplayPlainRootCommand = @[@"/bin/sh", @"/AOK/tools/start-wayland.sh"];
+
+// "Open Everything as Default User" (UserPreferences.shouldLoginAsDefaultUser):
+// TerminalViewController honors this by substituting the username inside an
+// already-interactive `/bin/login -f root` and letting login itself drop
+// privileges. This session isn't interactive -- it execve's a script
+// directly, no login prompt involved -- so `su -c` is the equivalent for
+// that case: root can su to any other user without a password, and `-`
+// resets HOME/USER/LOGNAME/PATH to match a genuine login as that user
+// instead of leaving the hardcoded root envp below in effect.
+static NSArray<NSString *> *DisplayGuestSessionCommand(void) {
+    if (!UserPreferences.shared.shouldLoginAsDefaultUser)
+        return DisplayPlainRootCommand;
+    return @[@"/bin/su", @"-", ISHDefaultUserAccountName, @"-c", @"sh /AOK/tools/start-wayland.sh"];
+}
 static const NSTimeInterval DisplayReadyTimeout = 45.0;
 
 typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     DisplayConnectionStateIdle,
     DisplayConnectionStateStartingGuestSession,
     DisplayConnectionStateWaitingForReady,
-    DisplayConnectionStateStartingBridge,
     DisplayConnectionStateConnected,
     DisplayConnectionStateFailed,
 };
 
-@interface DisplayViewController () <WKScriptMessageHandler, WKNavigationDelegate>
+@interface DisplayViewController () <DisplayRFBClientDelegate>
 @end
 
 @implementation DisplayViewController {
@@ -42,31 +56,34 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *_ctrlAltDelButton;
     UIButton *_pasteButton;
     UIButton *_reconnectButton;
-    WKWebView *_webView;
+    DisplayRFBView *_displayView;
 
     // The guest session is owned exactly the way TerminalViewController owns
     // its shell session (a real pty via +[Terminal createPseudoTerminal:]),
-    // but _sessionTerminal's own .webView is never touched/shown -- only
-    // _webView (the noVNC client) is user-visible. Tearing this Terminal
-    // down hangs up the pty (SIGHUP), which start-wayland.sh's trap uses to
-    // tear the whole guest Wayland stack down.
+    // but _sessionTerminal itself is never shown -- only _displayView (the
+    // native RFB renderer) is user-visible. Tearing this Terminal down
+    // hangs up the pty (SIGHUP), which start-wayland.sh's trap uses to tear
+    // the whole guest Wayland stack down.
     Terminal *_Nullable _sessionTerminal;
-    int _sessionPid;
+    int _sessionPid; // the currently active session's pid, 0 if none
 
-    DisplayNetworkBridge *_Nullable _bridge;
+    // A prior session we've asked to tear down but haven't yet confirmed is
+    // actually gone. -teardownSession only *initiates* teardown (hangs up
+    // the pty) -- the guest side (start-wayland.sh's trap killing labwc/
+    // foot/wayvnc, releasing the fixed WAYVNC_PORT) happens asynchronously,
+    // whenever the guest scheduler gets to it. Starting a new session before
+    // that's confirmed races the old labwc/foot/wayvnc for the same port and
+    // leaves them un-reaped, piling up zombie generations that drag the
+    // whole guest's scheduling down until the applet looks wedged (found via
+    // a device backtrace showing 4 generations of labwc and 9 of foot alive
+    // at once after repeated Reconnect clicks).
+    int _teardownPid;
+    BOOL _reconnectPendingAfterTeardown;
+
+    DisplayRFBClient *_Nullable _rfbClient;
     DisplayConnectionState _state;
     NSDate *_Nullable _readyPollDeadline;
     BOOL _startedOnce;
-
-    // Serves display.html/js/css + deps/novnc over http://127.0.0.1 instead
-    // of file:// -- see DisplayStaticFileServer.h for why (WKWebView
-    // rejects noVNC's rfb.js ES module import under file:// as
-    // cross-origin, even with allowingReadAccessToURL: granted). Started
-    // once, independent of the guest session, since it never depends on
-    // the guest boot/Wayland stack at all.
-    DisplayStaticFileServer *_staticServer;
-    uint16_t _staticServerPort;
-    NSDate *_Nullable _staticServerStartDeadline;
 }
 
 #pragma mark - Lifecycle
@@ -126,28 +143,6 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                                             selector:@selector(guestProcessExited:)
                                                 name:ProcessExitedNotification
                                               object:nil];
-
-    // Started immediately, independent of the guest session -- purely
-    // static asset serving, nothing here depends on the guest booting.
-    // By the time -loadWebViewWithBridgePort: actually needs
-    // _staticServerPort (after guest boot + Wayland stack readiness, many
-    // seconds away), this has always long since finished.
-    NSURL *displayHTMLFile = [NSBundle.mainBundle URLForResource:@"display" withExtension:@"html"];
-    NSURL *bundleRootURL = displayHTMLFile.URLByDeletingLastPathComponent ?: NSBundle.mainBundle.resourceURL;
-    if (bundleRootURL != nil) {
-        _staticServer = [DisplayStaticFileServer new];
-        __weak typeof(self) weakSelf = self;
-        [_staticServer startServingRootURL:bundleRootURL completion:^(uint16_t port, NSError *_Nullable error) {
-            typeof(self) strongSelf = weakSelf;
-            if (strongSelf == nil)
-                return;
-            if (error != nil) {
-                [strongSelf failWithMessage:[NSString stringWithFormat:@"Static asset server failed to start: %@", error.localizedDescription]];
-                return;
-            }
-            strongSelf->_staticServerPort = port;
-        }];
-    }
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -161,11 +156,6 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
     [self teardownSession];
-    // Not stopped in -teardownSession: that also runs on every Reconnect,
-    // and the static server is independent of the guest session -- no
-    // need to restart it (and re-poll for it in -loadWebViewWithBridgePort:)
-    // on every reconnect attempt.
-    [_staticServer stop];
 }
 
 - (UIButton *)displayButtonWithTitle:(NSString *)title action:(SEL)action {
@@ -216,13 +206,21 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     }
     tty_release(tty);
 
-    NSArray<NSString *> *command = @[@"/bin/sh", @"/AOK/tools/start-wayland.sh"];
+    NSArray<NSString *> *command = DisplayGuestSessionCommand();
     char argv[4096];
     [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
     const char *envp = "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin\0"
                         "HOME=/root\0"
                         "TERM=xterm\0";
     err = do_execve(command[0].UTF8String, command.count, argv, envp);
+    if (err < 0 && ![command isEqualToArray:DisplayPlainRootCommand]) {
+        // "su" missing (or otherwise failed) on this root -- fall back to
+        // running as root rather than failing the whole session over a
+        // preference that's a nice-to-have, not a hard requirement.
+        command = DisplayPlainRootCommand;
+        [Terminal convertCommand:command toArgs:argv limitSize:sizeof(argv)];
+        err = do_execve(command[0].UTF8String, command.count, argv, envp);
+    }
     if (err < 0) {
         [self failWithMessage:[NSString stringWithFormat:
             @"Could not start /AOK/tools/start-wayland.sh: %@\n\nIf labwc/foot/wayvnc aren't "
@@ -267,7 +265,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
             NSInteger port = text.integerValue;
             if (port > 0 && port <= UINT16_MAX) {
-                [strongSelf startBridgeToGuestPort:(uint16_t) port];
+                [strongSelf connectRFBToGuestPort:(uint16_t) port];
                 return;
             }
         }
@@ -295,41 +293,50 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     }];
 }
 
-- (void)startBridgeToGuestPort:(uint16_t)guestPort {
-    _state = DisplayConnectionStateStartingBridge;
-    _statusLabel.text = @"Starting bridge…";
-    _bridge = [DisplayNetworkBridge new];
-    __weak typeof(self) weakSelf = self;
-    [_bridge startRelayingToTCPPort:guestPort completion:^(uint16_t bridgePort, NSError *_Nullable error) {
-        typeof(self) strongSelf = weakSelf;
-        if (strongSelf == nil)
-            return;
-        if (error != nil) {
-            [strongSelf failWithMessage:[NSString stringWithFormat:@"Bridge failed to start: %@", error.localizedDescription]];
-            return;
-        }
-        [strongSelf loadWebViewWithBridgePort:bridgePort];
-    }];
+- (void)connectRFBToGuestPort:(uint16_t)guestPort {
+    _state = DisplayConnectionStateConnected; // optimistic; refined by DisplayRFBClientDelegate callbacks
+    _statusLabel.text = @"Connecting to compositor…";
+    _rfbClient = [DisplayRFBClient new];
+    _rfbClient.delegate = self;
+    [_rfbClient connectToGuestPort:guestPort];
 }
 
 - (void)teardownSession {
-    [_bridge stop];
-    _bridge = nil;
+    [_rfbClient disconnect];
+    _rfbClient = nil;
+    _displayView.rfbClient = nil;
     Terminal *terminal = _sessionTerminal;
     _sessionTerminal = nil;
-    _sessionPid = 0;
+    if (_sessionPid != 0) {
+        _teardownPid = _sessionPid;
+        _sessionPid = 0;
+    }
     [terminal setPendingDestroyReason:@"display-applet-teardown"];
     [terminal destroy];
 }
 
 - (void)guestProcessExited:(NSNotification *)notification {
     int pid = [notification.userInfo[@"pid"] intValue];
-    if (pid == 0 || pid != _sessionPid)
+    if (pid == 0)
+        return;
+    if (pid == _teardownPid) {
+        // Confirms the guest side actually finished (labwc/foot/wayvnc
+        // killed, WAYVNC_PORT released) -- see the _teardownPid doc above
+        // for why this can't just be assumed once -teardownSession returns.
+        _teardownPid = 0;
+        if (_reconnectPendingAfterTeardown) {
+            _reconnectPendingAfterTeardown = NO;
+            [self startGuestSession];
+        }
+        return;
+    }
+    if (pid != _sessionPid)
         return;
     _sessionPid = 0;
     _sessionTerminal = nil; // the kernel already tore this down; don't double-destroy it
-    [_bridge stop];
-    _bridge = nil;
+    [_rfbClient disconnect];
+    _rfbClient = nil;
+    _displayView.rfbClient = nil;
     __weak typeof(self) weakSelf = self;
     dispatch_async(dispatch_get_main_queue(), ^{
         typeof(self) strongSelf = weakSelf;
@@ -355,145 +362,102 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 }
 
 - (void)reconnect:(id)sender {
+    if (_reconnectPendingAfterTeardown)
+        return; // already reconnecting; ignore extra taps while we wait for the old session to actually exit
+    BOOL hadActiveSession = _sessionPid != 0;
     [self teardownSession];
     _statusLabel.numberOfLines = 1;
+    _reconnectButton.hidden = YES;
     _state = DisplayConnectionStateIdle;
-    [self startGuestSession];
+
+    if (!hadActiveSession) {
+        [self startGuestSession];
+        return;
+    }
+
+    // Deferred until -guestProcessExited: confirms the old session's guest
+    // processes actually exited -- see the _teardownPid doc above for why.
+    _statusLabel.text = @"Disconnecting…";
+    _reconnectPendingAfterTeardown = YES;
+    __weak typeof(self) weakSelf = self;
+    dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (5.0 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
+        typeof(self) strongSelf = weakSelf;
+        // Fallback in case the exit notification never arrives (e.g. the
+        // old session was already gone by the time we asked to tear it
+        // down) -- don't leave Reconnect stuck waiting forever.
+        if (strongSelf == nil || !strongSelf->_reconnectPendingAfterTeardown)
+            return;
+        strongSelf->_reconnectPendingAfterTeardown = NO;
+        strongSelf->_teardownPid = 0;
+        [strongSelf startGuestSession];
+    });
 }
 
 - (void)sendCtrlAltDel:(id)sender {
-    [self.webView evaluateJavaScript:@"window.ishDisplaySendCtrlAltDel && window.ishDisplaySendCtrlAltDel();"
-                    completionHandler:nil];
+    [_rfbClient sendCtrlAltDel];
 }
 
 - (void)pasteToGuest:(id)sender {
     NSString *text = UIPasteboard.generalPasteboard.string;
     if (text.length == 0)
         return;
-    // NSJSONSerialization for the string literal, not manual quote-escaping
-    // -- this is the only safe way to embed arbitrary clipboard text
-    // (quotes, backslashes, newlines, unicode) into a JS expression string.
-    NSData *jsonData = [NSJSONSerialization dataWithJSONObject:@[text] options:0 error:nil];
-    if (jsonData == nil)
-        return;
-    NSString *jsonArray = [[NSString alloc] initWithData:jsonData encoding:NSUTF8StringEncoding];
-    NSString *jsStringLiteral = [jsonArray substringWithRange:NSMakeRange(1, jsonArray.length - 2)]; // strip [ ]
-    NSString *js = [NSString stringWithFormat:@"window.ishDisplayPasteText && window.ishDisplayPasteText(%@);", jsStringLiteral];
-    [self.webView evaluateJavaScript:js completionHandler:nil];
+    [_rfbClient sendClientCutText:text];
 }
 
-#pragma mark - WKWebView
+#pragma mark - DisplayRFBView
 
-- (WKWebView *)webView {
-    if (_webView == nil) {
-        WKWebViewConfiguration *config = [WKWebViewConfiguration new];
-        [config.userContentController addScriptMessageHandler:self name:@"ishDisplay"];
-        _webView = [[WKWebView alloc] initWithFrame:CGRectZero configuration:config];
-        _webView.navigationDelegate = self;
-        _webView.translatesAutoresizingMaskIntoConstraints = NO;
-        _webView.scrollView.scrollEnabled = NO; // noVNC handles its own scaling/panning
-        _webView.opaque = NO;
-        _webView.backgroundColor = UIColor.blackColor;
-        _webView.layer.cornerRadius = 10.0;
-        _webView.layer.masksToBounds = YES;
-        [_displayCard addSubview:_webView];
+- (DisplayRFBView *)displayView {
+    if (_displayView == nil) {
+        _displayView = [[DisplayRFBView alloc] initWithFrame:CGRectZero];
+        [_displayCard addSubview:_displayView];
         CGFloat inset = 8.0;
         [NSLayoutConstraint activateConstraints:@[
-            [_webView.topAnchor constraintEqualToAnchor:_displayCard.topAnchor constant:inset],
-            [_webView.leadingAnchor constraintEqualToAnchor:_displayCard.leadingAnchor constant:inset],
-            [_webView.trailingAnchor constraintEqualToAnchor:_displayCard.trailingAnchor constant:-inset],
-            [_webView.bottomAnchor constraintEqualToAnchor:_displayCard.bottomAnchor constant:-inset],
+            [_displayView.topAnchor constraintEqualToAnchor:_displayCard.topAnchor constant:inset],
+            [_displayView.leadingAnchor constraintEqualToAnchor:_displayCard.leadingAnchor constant:inset],
+            [_displayView.trailingAnchor constraintEqualToAnchor:_displayCard.trailingAnchor constant:-inset],
+            [_displayView.bottomAnchor constraintEqualToAnchor:_displayCard.bottomAnchor constant:-inset],
         ]];
     }
-    return _webView;
+    return _displayView;
 }
 
-- (void)loadWebViewWithBridgePort:(uint16_t)bridgePort {
-    _state = DisplayConnectionStateConnected; // optimistic; refined by JS "status" messages
+#pragma mark - DisplayRFBClientDelegate
 
-    // _staticServer is started independently in -viewDidLoad and is
-    // essentially always ready long before the guest boot + Wayland stack
-    // reaches this point, but poll briefly rather than assume -- cheaper
-    // and more honest than a race.
-    if (_staticServerPort == 0) {
-        if (_staticServerStartDeadline == nil)
-            _staticServerStartDeadline = [NSDate dateWithTimeIntervalSinceNow:10.0];
-        if (_staticServerStartDeadline.timeIntervalSinceNow < 0) {
-            [self failWithMessage:@"Static asset server never started"];
-            return;
-        }
-        __weak typeof(self) weakSelf = self;
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t) (0.05 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [weakSelf loadWebViewWithBridgePort:bridgePort];
-        });
+- (void)rfbClientDidConnect:(DisplayRFBClient *)client {
+    if (client != _rfbClient)
         return;
-    }
-
-    NSURLComponents *components = [NSURLComponents new];
-    components.scheme = @"http";
-    components.host = @"127.0.0.1";
-    components.port = @(_staticServerPort);
-    components.path = @"/display.html";
-    components.queryItems = @[[NSURLQueryItem queryItemWithName:@"port"
-                                                            value:[NSString stringWithFormat:@"%u", (unsigned) bridgePort]]];
-    NSURL *url = components.URL;
-    if (url == nil) {
-        [self failWithMessage:@"Failed to build Display UI URL"];
-        return;
-    }
-    [self.webView loadRequest:[NSURLRequest requestWithURL:url]];
+    self.displayView.rfbClient = client;
+    if (client.desktopName.length > 0)
+        self.title = client.desktopName;
+    _state = DisplayConnectionStateConnected;
+    _statusLabel.text = @"Connected";
+    _statusLabel.numberOfLines = 1;
+    _reconnectButton.hidden = YES;
 }
 
-- (void)userContentController:(WKUserContentController *)userContentController
-       didReceiveScriptMessage:(WKScriptMessage *)message {
-    if (![message.name isEqualToString:@"ishDisplay"])
+- (void)rfbClientDidUpdateFramebuffer:(DisplayRFBClient *)client {
+    if (client != _rfbClient)
         return;
-    NSDictionary *body = message.body;
-    if (![body isKindOfClass:NSDictionary.class])
-        return;
-    if ([body[@"type"] isEqualToString:@"clipboard"]) {
-        NSString *text = body[@"text"];
-        if (text.length > 0)
-            UIPasteboard.generalPasteboard.string = text;
-        return;
-    }
-    if (![body[@"type"] isEqualToString:@"status"])
-        return;
-    NSString *state = body[@"state"];
-    if ([state isEqualToString:@"connected"]) {
-        _statusLabel.text = @"Connected";
-        _statusLabel.numberOfLines = 1;
-        _reconnectButton.hidden = YES;
-    } else if ([state isEqualToString:@"connecting"]) {
-        _statusLabel.text = @"Connecting to compositor…";
-    } else if ([state isEqualToString:@"disconnected"]) {
-        _statusLabel.text = @"Disconnected";
-        _reconnectButton.hidden = NO;
-    } else if ([state isEqualToString:@"error"]) {
-        _statusLabel.text = [NSString stringWithFormat:@"Error: %@", body[@"detail"] ?: @"unknown"];
-        _statusLabel.numberOfLines = 0;
-        _reconnectButton.hidden = NO;
-    } else if ([state isEqualToString:@"desktopname"]) {
-        NSString *name = body[@"detail"];
-        if (name.length > 0)
-            self.title = name;
-    }
+    [_displayView setNeedsDisplay];
 }
 
-// navigation is _Null_unspecified in WKNavigationDelegate's own declaration
-// (not _Nullable) -- matched explicitly here since these implementations
-// otherwise fall inside this file's NS_ASSUME_NONNULL_BEGIN region, which
-// would default the bare pointer to _Nonnull and conflict with the protocol.
-- (void)webView:(WKWebView *)webView didFailNavigation:(WKNavigation *_Null_unspecified)navigation withError:(NSError *)error {
-    [self failWithMessage:[NSString stringWithFormat:@"Display UI failed to load: %@", error.localizedDescription]];
+- (void)rfbClient:(DisplayRFBClient *)client didUpdateCursorWithWidth:(uint16_t)width height:(uint16_t)height
+         hotspotX:(uint16_t)hotspotX hotspotY:(uint16_t)hotspotY bgra:(NSData *)bgra {
+    if (client != _rfbClient)
+        return;
+    [_displayView updateCursorWithWidth:width height:height hotspotX:hotspotX hotspotY:hotspotY bgra:bgra];
 }
 
-- (void)webView:(WKWebView *)webView didFailProvisionalNavigation:(WKNavigation *_Null_unspecified)navigation withError:(NSError *)error {
-    [self failWithMessage:[NSString stringWithFormat:@"Display UI failed to load: %@", error.localizedDescription]];
+- (void)rfbClient:(DisplayRFBClient *)client didReceiveServerCutText:(NSString *)text {
+    if (client != _rfbClient)
+        return;
+    UIPasteboard.generalPasteboard.string = text;
 }
 
-- (void)webViewWebContentProcessDidTerminate:(WKWebView *)webView {
-    [self failWithMessage:@"Display UI's web content process terminated"];
+- (void)rfbClient:(DisplayRFBClient *)client didFailWithMessage:(NSString *)message {
+    if (client != _rfbClient)
+        return;
+    [self failWithMessage:message];
 }
 
 @end
