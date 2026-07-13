@@ -4274,8 +4274,8 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
                               cpu->segfault_was_write ? MEM_WRITE : MEM_READ);
 
     if (ptr == NULL) {
-        printk("ERROR: %d(%s) page fault on %#llx at %#llx%s\n",
-               current->pid, current->comm,
+        printk("ERROR: %d(%s) [%s] page fault on %#llx at %#llx%s\n",
+               current->pid, current->comm, guest_abi_desc(current->abi).name,
                (unsigned long long) cpu->segfault_addr,
                (unsigned long long) current_fault_ip(cpu),
                cpu->segfault_was_write ? " (write)" : " (read)");
@@ -4371,8 +4371,8 @@ static void handle_general_protection_interrupt(struct cpu_state *cpu) {
     guest_addr_t ip = current_fault_ip(cpu);
     uint8_t first_opcode = 0;
     bool have_first_opcode = user_get(ip, first_opcode) == 0;
-    printk("ERROR: %d(%s) general protection fault at %#llx: ",
-           current->pid, current->comm, (unsigned long long) ip);
+    printk("ERROR: %d(%s) [%s] general protection fault at %#llx: ",
+           current->pid, current->comm, guest_abi_desc(current->abi).name, (unsigned long long) ip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
         if (user_get(ip + i, b))
@@ -5372,8 +5372,8 @@ void handle_illegal_instruction_interrupt(struct cpu_state *cpu) {
             return;
     }
 
-    printk("ERROR: %d(%s) illegal instruction at %#llx: ",
-           current->pid, current->comm, (unsigned long long) ip);
+    printk("ERROR: %d(%s) [%s] illegal instruction at %#llx: ",
+           current->pid, current->comm, guest_abi_desc(current->abi).name, (unsigned long long) ip);
     for (int i = 0; i < 8; i++) {
         uint8_t b;
         if (user_get(ip + i, b))
@@ -5407,8 +5407,8 @@ static void handle_bus_interrupt(struct cpu_state *cpu) {
     // guest page is validly mapped in iSH's page table, so there is nothing for
     // mem_ptr_fault to resolve -- deliver a guest SIGBUS directly, matching
     // Linux (accessing a truncated page of a file mapping => SIGBUS/BUS_ADRERR).
-    printk("ERROR: %d(%s) SIGBUS on %#llx at %#llx (file-backed mmap truncated)\n",
-           current->pid, current->comm,
+    printk("ERROR: %d(%s) [%s] SIGBUS on %#llx at %#llx (file-backed mmap truncated)\n",
+           current->pid, current->comm, guest_abi_desc(current->abi).name,
            (unsigned long long) cpu->segfault_addr,
            (unsigned long long) current_fault_ip(cpu));
     record_guest_fault_event("bus-error", cpu, cpu->segfault_addr, cpu->segfault_was_write);
@@ -5420,7 +5420,8 @@ static void handle_bus_interrupt(struct cpu_state *cpu) {
 }
 
 static void handle_arithmetic_interrupt(struct cpu_state *cpu) {
-    printk("ERROR: %d(%s) arithmetic fault at 0x%x\n", current->pid, current->comm, cpu->eip);
+    printk("ERROR: %d(%s) [%s] arithmetic fault at 0x%x\n",
+           current->pid, current->comm, guest_abi_desc(current->abi).name, cpu->eip);
     dump_stack(8);
     struct siginfo_ info = {
         .code = FPE_INTDIV_,
