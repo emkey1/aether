@@ -912,7 +912,14 @@ static void signalfd_wakeup_task(struct task *task, int sig) {
         if (!sigset_has(state->mask, sig))
             continue;
         notify(&fd->cond);
-        poll_wakeup(fd, POLL_READ);
+        // Not poll_wakeup(): signalfd_poll (this fd's fd_ops.poll) takes
+        // current->sighand->lock, and poll_wait holds poll->lock across its
+        // call to fd->ops->poll() (poll->lock -> sighand->lock order). We get
+        // here with sighand->lock already held, so a blocking poll_wakeup()
+        // (fd->poll_lock -> poll->lock) would be the reverse order -- an
+        // AB-BA deadlock against a thread mid-epoll_wait on this same
+        // signalfd. See the comment on poll_wakeup_trylock() in fs/poll.c.
+        poll_wakeup_trylock(fd, POLL_READ);
     }
     unlock(&files->lock);
     fdtable_release(files);

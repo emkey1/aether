@@ -508,6 +508,48 @@ void poll_wakeup(struct fd *fd, int events) {
     unlock(&fd->poll_lock);
 }
 
+// Non-blocking counterpart to poll_wakeup(), for a caller that cannot honor
+// the "don't call while holding a lock your poll operation acquires"
+// contract above. signalfd_wakeup_task (kernel/signal.c) is called with
+// task->sighand->lock held, and signalfd's fd_ops.poll (signalfd_poll) takes
+// current->sighand->lock -- the same lock, shared by every thread in a
+// tgroup. poll_scan_ready_locked() calls fd->ops->poll() while holding
+// poll->lock (see poll_wait), so that path's order is poll->lock ->
+// sighand->lock. A blocking poll_wakeup() from signalfd_wakeup_task takes
+// fd->poll_lock -> poll->lock while sighand->lock is already held, i.e.
+// sighand->lock -> poll->lock: the reverse order. Two threads hitting these
+// paths at once AB-BA deadlock (observed on-device: an exiting child
+// delivering SIGCHLD while the parent's event-loop thread was mid-epoll_wait
+// scanning the same signalfd). Best-effort here is fine: deliver_signal
+// already wakes the signal's target task via SIGUSR1 + poll_notify_fd
+// independent of this notify-pipe poke, and a signalfd's readiness is
+// re-checked on the next scan/timeout regardless.
+void poll_wakeup_trylock(struct fd *fd, int events) {
+    struct poll_fd *poll_fd;
+    if (trylock(&fd->poll_lock) != 0)
+        return;
+    list_for_each_entry(&fd->poll_fds, poll_fd, polls) {
+        struct poll *poll = poll_fd->poll;
+        if (trylock(&poll->lock) != 0)
+            continue;
+        if (poll_fd->types & POLL_EDGETRIGGERED)
+            poll_fd->triggered_types &= ~events;
+        if (poll->notify_pipe[1] != -1) {
+            ssize_t wrote;
+            do {
+                wrote = write(poll->notify_pipe[1], "", 1);
+            } while (wrote < 0 && errno == EINTR);
+            if (wrote >= 0 || errno == EAGAIN) {
+                poll->notify_pending = true;
+            } else if (wrote < 0) {
+                FIXME("poll wake notify write failed: %s", strerror(errno));
+            }
+        }
+        unlock(&poll->lock);
+    }
+    unlock(&fd->poll_lock);
+}
+
 int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struct timespec *timeout) {
     lock(&poll_->lock, 0);
 
