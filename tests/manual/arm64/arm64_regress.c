@@ -21,6 +21,14 @@
 //  mrs              CNTVCT/CNTFRQ/NZCV/ID-register MRS emulation.
 //  crc32            CRC32/CRC32C instructions (advertised via ISAR0).
 //  scalar-misc      FRECPE + CMxx-zero, the cc1-startup SIGILL pair.
+//  and-sp           `AND/ORR/EOR <Xd|SP>, ...` (Rd=31, opc != ANDS) was
+//                   unconditionally treated as XZR-discard, like the GPR
+//                   file's real "no SP" instructions -- but this family IS
+//                   SP-capable for its non-flag-setting forms, same as
+//                   ADD/SUB immediate. Silently no-opped SP updates, so
+//                   the next SP-relative load read stale/wrong memory.
+//                   Found via a real crash: LuaJIT's `and sp, x1, #mask`
+//                   stack realignment on a call return.
 
 #include <errno.h>
 #include <stdint.h>
@@ -274,6 +282,58 @@ static void check_scalar_misc(void) {
         test_logf("scalar-misc ok\n");
 }
 
+// ---- and-sp (AND/ORR/EOR with Rd=SP, and ANDS's Rd=31=XZR-discard) --------
+
+static void check_and_sp(void) {
+    uint64_t x1_val = 0x1234567890abcd0full;
+    uint64_t old_sp, new_sp;
+
+    // AND SP, X1, #mask -- SP-capable, like ADD/SUB immediate.
+    __asm__ volatile("mov %0, sp" : "=r"(old_sp));
+    __asm__ volatile(
+        "mov x1, %2\n\t"
+        "and sp, x1, #0xfffffffffffffffc\n\t"
+        "mov %0, sp\n\t"
+        "mov sp, %1\n\t" // restore immediately -- don't run on a moved SP
+        : "=&r"(new_sp)
+        : "r"(old_sp), "r"(x1_val)
+        : "x1");
+    uint64_t expect_and = x1_val & 0xfffffffffffffffcull;
+    if (new_sp != expect_and)
+        failf("and-sp (AND SP,Xn,#imm)", new_sp, 0, 0, expect_and, 0, 0);
+    else
+        test_logf("and-sp AND ok\n");
+
+    // ORR SP, XZR, #mask -- the MOV-to-SP-via-bitmask-immediate idiom.
+    __asm__ volatile(
+        "orr sp, xzr, #0xff00\n\t"
+        "mov %0, sp\n\t"
+        "mov sp, %1\n\t"
+        : "=&r"(new_sp)
+        : "r"(old_sp));
+    if (new_sp != 0xff00ull)
+        failf("and-sp (ORR SP,XZR,#imm)", new_sp, 0, 0, 0xff00ull, 0, 0);
+    else
+        test_logf("and-sp ORR ok\n");
+
+    // ANDS with Rd=31 is the TST alias: sets flags, discards the result --
+    // must NOT touch SP.
+    uint64_t nzcv_before, nzcv_after;
+    __asm__ volatile("mrs %0, nzcv" : "=r"(nzcv_before));
+    __asm__ volatile(
+        "mov x1, #0\n\t"
+        "ands xzr, x1, #0xff\n\t" // TST: result 0 -> Z set
+        : : : "x1", "cc");
+    __asm__ volatile("mrs %0, nzcv" : "=r"(nzcv_after));
+    __asm__ volatile("mov %0, sp" : "=r"(new_sp));
+    if (new_sp != old_sp)
+        failf("and-sp (ANDS/TST must not touch SP)", new_sp, 0, 0, old_sp, 0, 0);
+    else if (!(nzcv_after & (1ull << 30))) // Z flag
+        failf("and-sp (TST zero-flag)", nzcv_after, 0, 0, nzcv_before, 0, 0);
+    else
+        test_logf("and-sp ANDS/TST ok\n");
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     check_ldp32_upper();
@@ -285,5 +345,6 @@ int main(int argc, char **argv) {
     check_mrs();
     check_crc32();
     check_scalar_misc();
+    check_and_sp();
     return finish_suite("arm64_regress");
 }

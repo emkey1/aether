@@ -76,11 +76,28 @@ logical_imm_eor32:
     eor w16, w15, w11
 
 logical_imm_store_result:
-    // Not SP-capable (unlike ADD/SUB immediate) -- Rd=31 is always XZR
-    // discard here, never SP.
+    // Rd=31 means SP for the non-flag-setting forms here (AND/ORR/EOR,
+    // opc in x12 != 3) -- same SP-capable destination as ADD/SUB
+    // immediate. Unlike add_imm/sub_imm (math.S) this does NOT mask to 48
+    // bits before storing: the architected result is exactly `src OP imm`
+    // with no truncation, and clipping it here would silently corrupt any
+    // caller whose immediate legitimately sets bits above 47 (a real gap
+    // caught by tests/manual/arm64/arm64_regress.c's and-sp check, which
+    // uses such a value deliberately). Only ANDS (opc==3, x12==3) can't
+    // target SP: its Rd=31 form is the TST alias and genuinely discards
+    // the result. Found via a real on-device crash: LuaJIT's
+    // `and sp, x1, #mask` stack-realignment (arm64 GC64 coroutine/call-
+    // return path) was silently a no-op here, leaving SP stale so the
+    // next SP-relative load read garbage -- manifested as a NaN-boxed
+    // double or a GC string's raw bytes ending up dereferenced as a
+    // pointer several instructions later.
     cmp x9, #31
-    b.eq 3f
-    str x16, [x14, x9, lsl #3]
-3:  gret
+    b.ne 3f
+    cmp x12, #3
+    b.eq 4f
+    str x16, [_cpu, #CPU_sp]
+4:  gret
+3:  str x16, [x14, x9, lsl #3]
+    gret
 
 # vim: ft=gas

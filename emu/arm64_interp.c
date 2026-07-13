@@ -273,9 +273,20 @@ static int arm64_execute(struct cpu_state *cpu, struct tlb *tlb, uint32_t insn, 
         default:
             return INT_UNDEFINED;
         }
-        // Not SP-capable (unlike ADD/SUB immediate) — Rd=31 is always XZR
-        // discard here, never SP.
-        arm64_reg_set_discard(cpu, rd, sf, result);
+        // Rd=31 means SP for the non-flag-setting forms (AND/ORR/EOR,
+        // opc != 0b11) -- same SP-capable destination as ADD/SUB immediate
+        // just above. Only ANDS (opc==0b11) can't target SP: its Rd=31
+        // form is the TST alias and genuinely discards the result. Found
+        // via a real on-device crash: LuaJIT's `and sp, x1, #mask` stack-
+        // realignment (arm64 GC64 coroutine/call-return path) was
+        // silently a no-op here, leaving SP stale so the next SP-relative
+        // load read garbage -- manifested as a NaN-boxed double or a GC
+        // string's raw bytes ending up dereferenced as a pointer several
+        // instructions later.
+        if (opc == 0b11)
+            arm64_reg_set_discard(cpu, rd, sf, result);
+        else
+            arm64_reg_set_sp(cpu, rd, sf, result);
         return INT_NONE;
     }
 
