@@ -1338,6 +1338,11 @@ static void sock_trace_tcp_info(const char *label, struct fd *sock) {
     socklen_t so_error_len = sizeof(so_error);
     if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0)
         so_error = -1;
+    // This read-and-clears the host's SO_ERROR same as socket_tcp_connect_
+    // write_ready; cache it too so an strace-enabled run doesn't itself steal
+    // the one authoritative read a guest getsockopt(SO_ERROR) needs.
+    else if (so_error != 0 && sock->socket.host_connect_error == 0)
+        sock->socket.host_connect_error = so_error;
 
     printk("INFO: net tcp %s pid=%d comm=%s real=%d state=%u options=%#x flags=%#x so_error=%d snd_sbbytes=%u snd_cwnd=%u snd_wnd=%u rcv_wnd=%u rtt=%u srtt=%u txbytes=%llu rxbytes=%llu retrans=%llu\n",
            label, current->pid, current->comm, sock->real_fd,
@@ -1490,8 +1495,15 @@ static bool socket_tcp_connect_write_ready(struct fd *sock) {
     socklen_t so_error_len = sizeof(so_error);
     if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &so_error, &so_error_len) < 0)
         return true;
-    if (so_error != 0)
+    if (so_error != 0) {
+        // This read just cleared the host's SO_ERROR (read-and-clear
+        // semantics); stash it so a later guest getsockopt(SO_ERROR) still
+        // sees it instead of a silently-reset 0. See the fd.h comment on
+        // host_connect_error.
+        if (sock->socket.host_connect_error == 0)
+            sock->socket.host_connect_error = so_error;
         return true;
+    }
 
     return socket_tcp_connect_established(sock);
 }
@@ -1517,8 +1529,17 @@ static int socket_finish_blocking_connect(struct fd *sock) {
         socklen_t real_error_len = sizeof(real_error);
         if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len) < 0)
             return errno_map();
-        if (real_error != 0)
+#if defined(__APPLE__)
+        // A concurrent poll/epoll scan on another thread (socket_tcp_connect_
+        // write_ready, called from every sock_poll) may have already read and
+        // cleared SO_ERROR before this getsockopt() got here.
+        if (real_error == 0 && sock->socket.host_connect_error != 0)
+            real_error = sock->socket.host_connect_error;
+#endif
+        if (real_error != 0) {
+            sock->socket.host_connect_error = 0;
             return err_map(real_error);
+        }
 #if defined(__APPLE__)
         if (!socket_tcp_connect_established(sock))
             continue;
@@ -3129,11 +3150,17 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
             !socket_tcp_connect_established(sock)) {
         int real_error = 0;
         socklen_t real_error_len = sizeof(real_error);
-        if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len) == 0 &&
-                real_error != 0) {
-            int mapped_err = err_map(real_error);
-            sock_trace("connect", sock, -1, mapped_err);
-            return mapped_err;
+        if (getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len) == 0) {
+            // A concurrent poll/epoll scan on another thread may have already
+            // read-and-cleared SO_ERROR; fall back to what it cached.
+            if (real_error == 0 && sock->socket.host_connect_error != 0)
+                real_error = sock->socket.host_connect_error;
+            if (real_error != 0) {
+                sock->socket.host_connect_error = 0;
+                int mapped_err = err_map(real_error);
+                sock_trace("connect", sock, -1, mapped_err);
+                return mapped_err;
+            }
         }
         // Darwin can report connect() success before TCP_CONNECTION_INFO
         // catches up. Do not turn a successful connect into ECONNRESET here;
@@ -4206,6 +4233,15 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
             int err = getsockopt(sock->real_fd, SOL_SOCKET, SO_ERROR, &real_error, &real_error_len);
             if (err < 0)
                 return errno_map();
+            // SO_ERROR is read-and-clear at the host level: an internal
+            // readiness probe (socket_tcp_connect_write_ready, run on every
+            // poll/epoll scan of this fd) may have already observed and
+            // cleared it before this guest query got here. Fall back to the
+            // cached value so a genuine connect failure isn't reported as
+            // success. See the fd.h comment on host_connect_error.
+            if (real_error == 0 && sock->socket.host_connect_error != 0)
+                real_error = sock->socket.host_connect_error;
+            sock->socket.host_connect_error = 0;
             socket_error = real_error == 0 ? 0 : -err_map(real_error);
         }
         sockopt_store_value(value, user_value_len, &value_len, &socket_error, sizeof(socket_error));

@@ -77,6 +77,18 @@ struct fd {
             bool reuseaddr;
             bool reuseport;
             bool listening; // listen() called: SO_ACCEPTCONN (Darwin can't report it)
+            // SO_ERROR is read-and-clear at the host level: the first getsockopt()
+            // to observe a nonzero value resets it to 0 for every later reader.
+            // iSH's own internal readiness probes (see socket_tcp_connect_write_ready
+            // in fs/sock.c, called from every poll/epoll scan of a connecting socket)
+            // query it purely as a boolean and would otherwise silently steal the
+            // one authoritative read a guest's own getsockopt(SOL_SOCKET, SO_ERROR)
+            // needs after a nonblocking connect() -- observed making a refused
+            // loopback connect() report success. Stashed here the first time an
+            // internal probe observes it nonzero; consumed (and cleared) by the
+            // guest-facing getsockopt(SO_ERROR) handler in preference to a
+            // since-reset host value of 0.
+            int host_connect_error;
             dword_t ip_mtu_discover;
             dword_t ipv6_mtu_discover;
             dword_t ipv6_mtu;
