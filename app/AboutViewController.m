@@ -974,8 +974,9 @@ static NSString *ISHLLMDetectGuestEnvironmentNote(void) {
     const char *probe =
         ". /etc/os-release 2>/dev/null; "
         "printf 'distro=%s %s\\n' \"${NAME:-Linux}\" \"${VERSION_ID:-}\"; "
-        "for t in curl wget jq python3 python git; do "
-        "command -v \"$t\" >/dev/null 2>&1 && printf 'have=%s\\n' \"$t\"; done";
+        "for t in curl wget jq python3 python git make gcc cc vi vim nano tar unzip ssh nc ss netstat ip ifconfig ps top apk apt apt-get dpkg rc-service rc-status service systemctl crontab; do "
+        "command -v \"$t\" >/dev/null 2>&1 && printf 'have=%s\\n' \"$t\"; done; "
+        "[ -d /etc/init.d ] && printf 'have=/etc/init.d\\n'";
     struct guest_command_result result;
     int rc = run_guest_command_capture(probe, NULL, 10000, 16 * 1024, &result);
     if (rc < 0)
@@ -1010,9 +1011,24 @@ static NSString *ISHLLMDetectGuestEnvironmentNote(void) {
         [note appendString:@" wget is installed (e.g. wget -qO- URL); curl was not found."];
     else
         [note appendString:@" Neither curl nor wget was detected; use another approach for HTTP if needed."];
+
+    // iSH-AOK never has systemd -- Alpine boots OpenRC (rc-service/rc-status),
+    // Devuan boots sysvinit (service, /etc/init.d/<name>). Say this plainly so
+    // the model doesn't burn a turn discovering that systemctl is absent.
+    if ([tools containsObject:@"rc-service"]) {
+        [note appendString:@" Init system: OpenRC. Manage services with rc-service <name> status|start|stop and see everything running with rc-status."];
+    } else if ([tools containsObject:@"service"] || [tools containsObject:@"/etc/init.d"]) {
+        [note appendString:@" Init system: sysvinit. Manage services with service <name> status|start|stop, or directly via /etc/init.d/<name> status|start|stop; list scripts with ls /etc/init.d."];
+    } else if (![tools containsObject:@"systemctl"]) {
+        [note appendString:@" No init/service manager tooling (rc-service/service/systemctl) was detected in PATH."];
+    }
+    if ([tools containsObject:@"apk"])
+        [note appendString:@" Package manager: apk (e.g. apk info, apk add <pkg> as root)."];
+    else if ([tools containsObject:@"apt"] || [tools containsObject:@"apt-get"] || [tools containsObject:@"dpkg"])
+        [note appendString:@" Package manager: apt/dpkg (e.g. dpkg -l, apt list --installed, apt install <pkg> as root)."];
     if (tools.count > 0)
         [note appendFormat:@" Detected tools: %@.", [tools componentsJoinedByString:@", "]];
-    [note appendString:@" Use only tools that are present; if a command reports 'not found', try an alternative."];
+    [note appendString:@" This list is not exhaustive -- absence above doesn't mean a tool is missing, only that it wasn't in the fixed probe list. Use only tools you've confirmed are present; if a command reports 'not found', try an alternative or check with command -v first."];
     return note;
 }
 
