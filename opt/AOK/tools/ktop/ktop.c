@@ -810,9 +810,18 @@ static void draw_interactive(struct proc_sample *procs, int n,
     draw_header(cols, ncpu, cur_cpu, prev_cpu, n, running, mi);
     draw_column_header(cols);
 
+    // Total lines drawn each frame is header_rows_drawn + list_rows + 2 (column
+    // header + key bar), and must never exceed the terminal's actual row count:
+    // ktop repaints in place (cursor-home + per-line clear-to-EOL, no full-screen
+    // clear each frame), so one line too many scrolls the whole terminal up by
+    // that much instead of just being clipped -- the display visibly shifts.
+    // Clamping the floor to 3 (instead of 0) used to do exactly that: whenever a
+    // resize left rows - header_rows_drawn - 2 at 0..2, list_rows got forced up
+    // to 3, overshooting the terminal height by 1-3 lines and shifting the whole
+    // frame up by that much on every redraw until the window grew past it again.
     int list_rows = rows - header_rows_drawn - 2; // column header + key bar
-    if (list_rows < 3)
-        list_rows = 3;
+    if (list_rows < 0)
+        list_rows = 0;
     if (selected < *scroll_top)
         *scroll_top = selected;
     if (selected >= *scroll_top + list_rows)
