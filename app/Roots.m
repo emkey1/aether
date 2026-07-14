@@ -177,6 +177,21 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-riscv64.tar.xz",
                 kBundledRootDownloadSizeKey: @"~31 MB",
             },
+            @{
+                kBundledRootIdentifierKey: @"pscalaarch64",
+                kBundledRootDisplayNameKey: @"PSCAL + SmallCLUE (arm64)",
+                kBundledRootArchiveNameKey: @"pscal-pure-aarch64-rootfs",
+                // Pure PSCAL/SmallCLUE userland (exsh shell, PSCAL frontends
+                // under /usr/local/pscal, SmallCLUE applets on PATH) -- no
+                // Alpine/Devuan base, no GPL userland. Download-backed like
+                // the other non-bundled entries above, even though it's
+                // arm64, to keep IPA size down for this optional root.
+                kBundledRootImportNameKey: @"PSCAL-arm64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"arm64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/pscal-pure-aarch64-rootfs.tar.xz",
+                kBundledRootDownloadSizeKey: @"~6 MB",
+            },
         ];
     });
     return choices;
