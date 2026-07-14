@@ -2260,6 +2260,39 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 }
 #endif
 
+// respond(to:)/streamResponse(to:) take a single prompt with no memory of
+// earlier calls -- each one starts a brand-new LanguageModelSession. Unlike
+// the OpenAI-compatible path (which sends the full message array every
+// request), Apple Foundation Models has no equivalent per-call history
+// parameter here, so the prior turns are flattened into the prompt text
+// itself; without this, every reply is answered with zero awareness that
+// the conversation before it ever happened. Kept to a rough character
+// budget, most recent turns first, so a long chat doesn't overflow
+// FoundationModels' small (~4096 token) context window.
+- (NSString *)appleFoundationModelsPromptWithHistory {
+    NSMutableArray<NSString *> *turns = [NSMutableArray array];
+    for (NSDictionary<NSString *, id> *message in _messages) {
+        if ([self messageIsLocalOnly:message])
+            continue;
+        NSString *role = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
+        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+        if (content.length == 0 || [role isEqualToString:@"tool"] || [role isEqualToString:@"system"])
+            continue;
+        NSString *label = [role isEqualToString:@"assistant"] ? @"Assistant" : @"User";
+        [turns addObject:[NSString stringWithFormat:@"%@: %@", label, content]];
+    }
+    NSUInteger budget = 6000;
+    NSMutableArray<NSString *> *kept = [NSMutableArray array];
+    NSUInteger total = 0;
+    for (NSString *turn in turns.reverseObjectEnumerator) {
+        total += turn.length;
+        if (total > budget && kept.count > 0)
+            break;
+        [kept insertObject:turn atIndex:0];
+    }
+    return [kept componentsJoinedByString:@"\n\n"];
+}
+
 - (void)sendPromptToAppleFoundationModels:(NSString *)prompt {
     if (!ISHLLMFoundationModelsReady()) {
         [self appendRole:@"assistant" content:ISHLLMAppleFoundationModelsUnavailableMessage()];
@@ -2277,12 +2310,14 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         typeof(self) self = weakSelf;
         if (self == nil)
             return;
-        NSString *instructions = toolsEnabled ? ISHLLMToolSystemNote(self->_guestEnvironmentNote) : nil;
+        NSString *instructions = [@"The prompt is this conversation so far, formatted as alternating \"User:\"/\"Assistant:\" turns. Continue it naturally as the Assistant, responding only to the latest User message -- the earlier turns are context, not something to repeat back."
+            stringByAppendingString:toolsEnabled ? [@" " stringByAppendingString:ISHLLMToolSystemNote(self->_guestEnvironmentNote)] : @""];
+        NSString *promptWithHistory = [self appleFoundationModelsPromptWithHistory];
         [self setSending:YES];
         [self->_messages addObject:@{@"role": @"assistant", @"content": @""}];
         NSUInteger streamingIndex = self->_messages.count - 1;
         [self refreshTranscript];
-        [AOKFoundationModelsBridge streamResponseToPrompt:prompt
+        [AOKFoundationModelsBridge streamResponseToPrompt:promptWithHistory.length > 0 ? promptWithHistory : prompt
                                               instructions:instructions
                                               toolsEnabled:toolsEnabled
                                                  onPartial:^(NSString *partial) {
