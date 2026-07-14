@@ -5,3 +5,12 @@
 # starting with # are ignored.
 
 riscv64-vendor-extensions.md
+00-overview.md
+roots.md
+ktop.md
+benchmarks.md
+persist.md
+workspace.md
+llm-chat.md
+files-app-integration.md
+tuning-knobs.md
