@@ -1076,13 +1076,12 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 @end
 
 // One chat bubble: a role-colored container holding a vertical stack of
-// blocks -- wrapping text labels for prose, and independent horizontally
-// scrolling monospace views (each with its own Copy button) for fenced code,
-// since code just doesn't read right line-wrapped. Long-pressing the bubble
-// copies the whole raw message.
+// blocks -- selectable, wrapping text views for prose (so partial text can
+// be highlighted and copied like anywhere else on iOS), and independent
+// horizontally scrolling monospace views (each with its own Copy button)
+// for fenced code, since code just doesn't read right line-wrapped.
 @interface ISHLLMChatMessageCell : UITableViewCell
 - (void)configureWithBlocks:(NSArray<ISHMarkdownBlock *> *)blocks
-                     rawText:(NSString *)rawText
                  isAssistant:(BOOL)isAssistant
                      caption:(nullable NSString *)caption
                     baseFont:(UIFont *)baseFont
@@ -1096,10 +1095,8 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 @implementation ISHLLMChatMessageCell {
     UIView *_bubbleView;
     UIStackView *_blocksStack;
-    UILabel *_copiedToast;
     NSLayoutConstraint *_bubbleLeading;
     NSLayoutConstraint *_bubbleTrailing;
-    NSString *_rawText;
 }
 
 - (instancetype)initWithStyle:(UITableViewCellStyle)style reuseIdentifier:(NSString *)reuseIdentifier {
@@ -1122,18 +1119,6 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         _blocksStack.spacing = 6.0;
         [_bubbleView addSubview:_blocksStack];
 
-        _copiedToast = [UILabel new];
-        _copiedToast.translatesAutoresizingMaskIntoConstraints = NO;
-        _copiedToast.text = @"Copied";
-        _copiedToast.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption1];
-        _copiedToast.textColor = UIColor.whiteColor;
-        _copiedToast.backgroundColor = [UIColor colorWithWhite:0.0 alpha:0.75];
-        _copiedToast.textAlignment = NSTextAlignmentCenter;
-        _copiedToast.layer.cornerRadius = 6.0;
-        _copiedToast.layer.masksToBounds = YES;
-        _copiedToast.alpha = 0.0;
-        [self.contentView addSubview:_copiedToast];
-
         [NSLayoutConstraint activateConstraints:@[
             [_blocksStack.topAnchor constraintEqualToAnchor:_bubbleView.topAnchor constant:8.0],
             [_blocksStack.bottomAnchor constraintEqualToAnchor:_bubbleView.bottomAnchor constant:-8.0],
@@ -1143,17 +1128,9 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
             [_bubbleView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3.0],
             [_bubbleView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3.0],
             [_bubbleView.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.86],
-
-            [_copiedToast.centerXAnchor constraintEqualToAnchor:_bubbleView.centerXAnchor],
-            [_copiedToast.centerYAnchor constraintEqualToAnchor:_bubbleView.centerYAnchor],
-            [_copiedToast.widthAnchor constraintGreaterThanOrEqualToConstant:64.0],
-            [_copiedToast.heightAnchor constraintEqualToConstant:26.0],
         ]];
         _bubbleLeading = [_bubbleView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12.0];
         _bubbleTrailing = [_bubbleView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12.0];
-
-        UILongPressGestureRecognizer *longPress = [[UILongPressGestureRecognizer alloc] initWithTarget:self action:@selector(handleLongPress:)];
-        [_bubbleView addGestureRecognizer:longPress];
     }
     return self;
 }
@@ -1164,12 +1141,9 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         [_blocksStack removeArrangedSubview:view];
         [view removeFromSuperview];
     }
-    _copiedToast.alpha = 0.0;
-    _rawText = nil;
 }
 
 - (void)configureWithBlocks:(NSArray<ISHMarkdownBlock *> *)blocks
-                     rawText:(NSString *)rawText
                  isAssistant:(BOOL)isAssistant
                      caption:(NSString *)caption
                     baseFont:(UIFont *)baseFont
@@ -1178,7 +1152,6 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
               secondaryColor:(UIColor *)secondaryColor
                  bubbleColor:(UIColor *)bubbleColor
              codeBubbleColor:(UIColor *)codeBubbleColor {
-    _rawText = rawText;
     _bubbleView.backgroundColor = bubbleColor;
     // Assistant bubbles hug the leading edge, user bubbles the trailing edge
     // (only one of the two width-defining edge constraints is active at a
@@ -1191,10 +1164,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         if (block.kind == ISHMarkdownBlockKindCode) {
             [_blocksStack addArrangedSubview:[self codeViewForBlock:block font:codeFont textColor:textColor bgColor:codeBubbleColor]];
         } else if (block.attributedText.length > 0) {
-            UILabel *label = [UILabel new];
-            label.numberOfLines = 0;
-            label.attributedText = block.attributedText;
-            [_blocksStack addArrangedSubview:label];
+            [_blocksStack addArrangedSubview:[self selectableTextViewWithAttributedText:block.attributedText]];
         }
     }
     if (caption.length > 0) {
@@ -1215,6 +1185,23 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         label.text = @" ";
         [_blocksStack addArrangedSubview:label];
     }
+}
+
+// Non-editable, non-scrolling UITextView standing in for a UILabel -- looks
+// identical (clear background, no insets, sizes to its content within the
+// stack) but natively supports long-press-to-select and Copy, which UILabel
+// never does.
+- (UITextView *)selectableTextViewWithAttributedText:(NSAttributedString *)attributedText {
+    UITextView *textView = [UITextView new];
+    textView.translatesAutoresizingMaskIntoConstraints = NO;
+    textView.editable = NO;
+    textView.scrollEnabled = NO;
+    textView.selectable = YES;
+    textView.backgroundColor = UIColor.clearColor;
+    textView.textContainerInset = UIEdgeInsetsZero;
+    textView.textContainer.lineFragmentPadding = 0.0;
+    textView.attributedText = attributedText;
+    return textView;
 }
 
 // A non-wrapping, horizontally scrolling monospace view for one fenced code
@@ -1255,9 +1242,13 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     [copyButton addTarget:self action:@selector(codeCopyButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
     [container addSubview:copyButton];
 
-    CGFloat topInset = block.language.length > 0 ? 22.0 : 8.0;
+    // Always reserve a header band for the Copy button, whether or not there's
+    // a language tag -- code with no language tag is the common case, and
+    // skimping on this space here previously let the button overlap (and
+    // visually vanish behind) the first line of scrolling code.
+    CGFloat headerHeight = 30.0;
     NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
-        [scroll.topAnchor constraintEqualToAnchor:container.topAnchor constant:topInset],
+        [scroll.topAnchor constraintEqualToAnchor:container.topAnchor constant:headerHeight],
         [scroll.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-8.0],
         [scroll.leadingAnchor constraintEqualToAnchor:container.leadingAnchor],
         [scroll.trailingAnchor constraintEqualToAnchor:container.trailingAnchor],
@@ -1269,7 +1260,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         [label.trailingAnchor constraintEqualToAnchor:scroll.contentLayoutGuide.trailingAnchor constant:-10.0],
         [label.heightAnchor constraintEqualToAnchor:scroll.frameLayoutGuide.heightAnchor],
 
-        [copyButton.topAnchor constraintEqualToAnchor:container.topAnchor constant:4.0],
+        [copyButton.centerYAnchor constraintEqualToAnchor:container.topAnchor constant:headerHeight / 2.0],
         [copyButton.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-6.0],
     ]];
     if (block.language.length > 0) {
@@ -1281,7 +1272,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         languageLabel.text = block.language;
         [container addSubview:languageLabel];
         [constraints addObjectsFromArray:@[
-            [languageLabel.topAnchor constraintEqualToAnchor:container.topAnchor constant:6.0],
+            [languageLabel.centerYAnchor constraintEqualToAnchor:container.topAnchor constant:headerHeight / 2.0],
             [languageLabel.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:10.0],
         ]];
     }
@@ -1300,26 +1291,6 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         [sender setTitle:original forState:UIControlStateNormal];
         sender.enabled = YES;
     });
-}
-
-- (void)handleLongPress:(UILongPressGestureRecognizer *)recognizer {
-    if (recognizer.state != UIGestureRecognizerStateBegan || _rawText.length == 0)
-        return;
-    UIPasteboard.generalPasteboard.string = _rawText;
-    if (@available(iOS 10.0, *)) {
-        UIImpactFeedbackGenerator *feedback = [[UIImpactFeedbackGenerator alloc] initWithStyle:UIImpactFeedbackStyleLight];
-        [feedback impactOccurred];
-    }
-    _copiedToast.alpha = 0.0;
-    [UIView animateWithDuration:0.15 animations:^{
-        self->_copiedToast.alpha = 1.0;
-    } completion:^(BOOL finished) {
-        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(0.7 * NSEC_PER_SEC)), dispatch_get_main_queue(), ^{
-            [UIView animateWithDuration:0.25 animations:^{
-                self->_copiedToast.alpha = 0.0;
-            }];
-        });
-    }];
 }
 
 @end
@@ -1614,7 +1585,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     NSArray<NSDictionary<NSString *, NSString *> *> *blocks = [self extractCodeBlocksFromText:self.latestAssistantMessage];
     NSString *savePath = @"/AOK/persist/llm-extracts";
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Save From Chat"
-                                                                   message:blocks.count > 0 ? [@"Save destination: " stringByAppendingString:savePath] : [@"No fenced code blocks found in the last reply. Long-press any message to copy it, or a code block's own Copy button. Save destination: " stringByAppendingString:savePath]
+                                                                   message:blocks.count > 0 ? [@"Save destination: " stringByAppendingString:savePath] : [@"No fenced code blocks found in the last reply. Text in the transcript can be highlighted and copied directly, and each code block has its own Copy button. Save destination: " stringByAppendingString:savePath]
                                                             preferredStyle:UIAlertControllerStyleActionSheet];
     for (NSUInteger i = 0; i < blocks.count; i++) {
         NSDictionary<NSString *, NSString *> *block = blocks[i];
@@ -1898,7 +1869,6 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
         : nil;
 
     [cell configureWithBlocks:blocks
-                       rawText:content
                    isAssistant:isAssistant
                        caption:caption
                       baseFont:baseFont
