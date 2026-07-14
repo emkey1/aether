@@ -82,7 +82,20 @@ static void *timer_thread(void *param) {
                    (void *) timer, (unsigned long long) generation,
                    (long) interval.tv_sec, interval.tv_nsec, timer->data);
         }
-        timer->callback(timer->data);
+        // Callbacks (timerfd_callback, posix_timer_callback, itimer_notify)
+        // take their own locks (e.g. the timerfd's fd->lock). Those same
+        // locks are taken BEFORE timer->lock on the arming side (see
+        // sys_timerfd_settime_common: fd->lock then timer_set's timer->lock),
+        // so calling out while still holding timer->lock is an AB-BA
+        // lock-order inversion against any arm/cancel racing on another
+        // thread. Drop timer->lock across the callback and re-take it after;
+        // the generation is re-checked below, so a stale-generation wakeup
+        // (arm/cancel raced with us) is still discarded correctly.
+        timer_callback_t callback = timer->callback;
+        void *data = timer->data;
+        unlock(&timer->lock);
+        callback(data);
+        lock(&timer->lock, 0);
         if (timer->generation != generation)
             continue;
         if (timer->active && timespec_positive(interval)) {
