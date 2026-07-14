@@ -101,6 +101,29 @@ static inline bool exit_wait_needed(struct task *task) {
     return task_ref_cnt_get(task, 0) > 2 || locks_held_count(task);
 }
 
+// do_exit's exit_wait_needed() poll loops below used a fixed WAIT_SLEEP (2us)
+// interval. Under heavy concurrent /proc readers or a burst of simultaneous
+// task exits, that turns into a syscall storm -- hundreds of exiting tasks
+// each calling nanosleep() every 2us, with cost dominated by nanosleep()
+// itself and the resulting scheduling churn rather than actual contention
+// (confirmed via a live sample of a stuck process: do_exit/task_ref_cnt_get/
+// nanosleep were the hottest frames, system time far exceeding wall time,
+// under `ktop -b` scanning /proc concurrently with a heavy fork/exit churn
+// loop -- found chasing a device report of ktop and foot both segfaulting on
+// corrupted pointers during a Wayland session's app-launch burst). Starts at
+// the same interval used elsewhere for genuinely brief spins, doubling on
+// each retry up to a cap so a longer-held reference doesn't turn into an
+// unbounded number of syscalls. Each call site uses its own local copy --
+// this must never mutate the shared lock_pause global, which other spin-wait
+// sites (rw_locks.c, fork.c, task.c) rely on staying at its tuned default.
+static void exit_wait_backoff(struct timespec *pause) {
+    nanosleep(pause, NULL);
+    long ns = pause->tv_nsec * 2;
+    if (ns > 1000000) // 1ms cap
+        ns = 1000000;
+    pause->tv_nsec = ns;
+}
+
 // Finds a new parent for the children of a task that is exiting. If no suitable parent
 // is found within the task's group, it returns the 'init' task.
 static struct task *find_new_parent(struct task *task) {
@@ -229,10 +252,11 @@ noreturn void do_exit(struct task *task, int status) {
     }
 
     lock(&task->general_lock, 0);
-    
+
     // has to happen before mm_release
+    struct timespec exit_wait_pause = lock_pause;
     while (exit_wait_needed(task)) { // Wait for other references and locks, but ignore extra pending signals while exiting.
-        nanosleep(&lock_pause, NULL);
+        exit_wait_backoff(&exit_wait_pause);
     }
     guest_addr_t clear_tid = task->clear_tid;
     if (clear_tid) {
@@ -245,31 +269,35 @@ noreturn void do_exit(struct task *task, int status) {
     // mm_release can walk fd/inode teardown and therefore take inodes_lock.
     // Do not hold pids_lock across it, because procfs open/stat takes
     // inodes_lock before pids_lock and that lock ordering otherwise deadlocks.
+    struct timespec mm_wait_pause = lock_pause;
     do {
-        nanosleep(&lock_pause, NULL);
-        nanosleep(&lock_pause, NULL);
+        exit_wait_backoff(&mm_wait_pause);
+        exit_wait_backoff(&mm_wait_pause);
     } while (exit_wait_needed(task)); // Wait for now, task is in one or more critical
     mm_release(task->mm);
     task->mm = NULL;
     task->mem = NULL;
     task->cpu.mmu = NULL;
-    
+
+    struct timespec files_wait_pause = lock_pause;
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
-        nanosleep(&lock_pause, NULL);
+        exit_wait_backoff(&files_wait_pause);
     }
     fdtable_release(task->files);
     task->files = NULL;
-    
+
+    struct timespec fs_wait_pause = lock_pause;
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
-        nanosleep(&lock_pause, NULL);
+        exit_wait_backoff(&fs_wait_pause);
     }
     fs_info_release(task->fs);
     task->fs = NULL;
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 
+    struct timespec rusage_wait_pause = lock_pause;
     while (exit_wait_needed(task)) { // Wait for now, task is in one or more critical sections, and/or has locks.
-        nanosleep(&lock_pause, NULL);
+        exit_wait_backoff(&rusage_wait_pause);
     }
     struct rusage_ rusage = rusage_get_current();
     lock(&task->group->lock, 0);
@@ -278,8 +306,9 @@ noreturn void do_exit(struct task *task, int status) {
     unlock(&task->group->lock);
 
     // release the sighand
+    struct timespec sighand_wait_pause = lock_pause;
     while (exit_wait_needed(task)) { // We added one to the task reference count above, thus the check is 2, in case any other thread is accessing.
-        nanosleep(&lock_pause, NULL);
+        exit_wait_backoff(&sighand_wait_pause);
     }
 
     struct task *signal_parent = NULL;
