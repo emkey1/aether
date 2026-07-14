@@ -190,7 +190,7 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"arm64",
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/pscal-pure-aarch64-rootfs.tar.xz",
-                kBundledRootDownloadSizeKey: @"~6 MB",
+                kBundledRootDownloadSizeKey: @"~7 MB",
             },
         ];
     });
