@@ -34,6 +34,8 @@ ptrace_group_stop.c
 ptrace_thread_follow.c
 epoll_mod_wake.c
 epoll_oneshot_rearm.c
+epoll_mod_spurious_wake.c
+epoll_data_layout.c
 ptrace_exit_kill.c
 fcntl_lock.c
 fcntl_ofd.c
@@ -53,6 +55,7 @@ netlink_route.c
 mount_flags.c
 clone_error_cleanup.c
 posix_timer_fork.c
+concurrent_exec_tlb.c
 random_seed.c
 getrusage_group.c
 pty_line_discipline.c
@@ -63,7 +66,12 @@ tmpfs_statfs.c
 memfd_mmap.c
 mount_stdev.c
 mmap_truncate_sigbus.c
+signalfd_epoll_deadlock.c
+signalfd_thread_group.c
 wayland_scm_shm.c
+chroot_getcwd.c
+iovec_abi_marshal.c
+fakefs_type_race.c
 x86/amd64_regress.c
 x86/amd64_jit_bench.sh
 setup-regressions.sh
