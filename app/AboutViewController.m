@@ -1336,6 +1336,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     int _activeStreamFD; // raw socket fd of an in-flight direct-HTTP stream, 0 if none; Stop shuts it down to unblock recv()
     BOOL _cancelled; // set by Stop; checked before continuing a streaming/tool-loop/Apple FM request
     BOOL _autoRunCommandsThisReply; // skip per-command confirm for the current reply
+    NSMutableDictionary<NSString *, NSNumber *> *_commandDecisionsThisReply; // Apple FM only: command text -> boxed ISHLLMToolRunDecision, so a repeat call for the same command isn't re-prompted
     BOOL _autoRunCommandsThisChat;  // skip per-command confirm until the chat is cleared
     NSString *_guestEnvironmentNote; // cached distro/tool probe for the tool system prompt
     UILabel *_statusLabel;
@@ -1352,6 +1353,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     }
 
     _messages = [NSMutableArray array];
+    _commandDecisionsThisReply = [NSMutableDictionary dictionary];
     NSArray *storedMessages = [NSArray arrayWithContentsOfURL:ISHLLMTranscriptURL()];
     if ([storedMessages isKindOfClass:NSArray.class]) {
         for (id message in storedMessages) {
@@ -2166,12 +2168,12 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 }
 
 #if __has_include("libiSH_AOKApp-Swift.h")
-// Installed once per chat session. AOKShellTool (Swift) calls back through
-// this to run a command, reusing the same confirmation dialog and
-// run_guest_command_capture primitive as the OpenAI-compatible tool loop.
-- (void)installAppleFoundationModelsShellHandlerIfNeeded {
-    if (AOKFoundationModelsBridge.shellCommandHandler != nil)
-        return;
+// Reinstalled at the start of every tools-enabled request (cheap -- just
+// reassigning a closure). AOKFoundationModelsBridge.shellCommandHandler is
+// process-wide static state, so leaving a stale one from a since-closed chat
+// window installed forever would mean a later chat's tool calls silently hit
+// the "chat window closed" fallback below instead of ever running.
+- (void)installAppleFoundationModelsShellHandler {
     __weak typeof(self) weakSelf = self;
     AOKFoundationModelsBridge.shellCommandHandler = ^(NSString *command, void (^handlerCompletion)(NSString *)) {
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -2187,7 +2189,11 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 
 // Mirrors runToolCalls: (this is the OpenAI tool-loop equivalent), but for a
 // single command with no tool_call_id bookkeeping -- FoundationModels drives
-// the call sequencing internally.
+// the call sequencing internally. FoundationModels' streamResponse has been
+// observed to invoke a tool more than once for what is logically a single
+// call (e.g. if it restarts generation mid-stream); _commandDecisionsThisReply
+// remembers this reply's decision per exact command text so a repeat doesn't
+// re-prompt or re-run work the user already approved or declined.
 - (void)runAppleFoundationModelsShellCommand:(NSString *)command completion:(void (^)(NSString *))completion {
     __weak typeof(self) weakSelf = self;
     void (^recordAndComplete)(NSString *, NSString *) = ^(NSString *resultText, NSString *summary) {
@@ -2218,6 +2224,17 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         });
     };
 
+    if (command.length > 0) {
+        NSNumber *priorDecision = _commandDecisionsThisReply[command];
+        if (priorDecision != nil) {
+            if (priorDecision.integerValue == ISHLLMToolRunDecline)
+                recordAndComplete(@"The user declined to run this command.", @"declined by user (repeat request)");
+            else
+                runApprovedCommand();
+            return;
+        }
+    }
+
     if (_autoRunCommandsThisChat || _autoRunCommandsThisReply) {
         runApprovedCommand();
         return;
@@ -2228,6 +2245,8 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         typeof(self) self = weakSelf;
         if (self == nil)
             return;
+        if (command.length > 0)
+            self->_commandDecisionsThisReply[command] = @(decision);
         if (decision == ISHLLMToolRunDecline) {
             recordAndComplete(@"The user declined to run this command.", @"declined by user");
             return;
@@ -2250,7 +2269,8 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     BOOL toolsEnabled = UserPreferences.shared.llmToolsEnabled;
     if (toolsEnabled) {
         _autoRunCommandsThisReply = NO; // a new prompt re-arms confirmation for this reply
-        [self installAppleFoundationModelsShellHandlerIfNeeded];
+        [_commandDecisionsThisReply removeAllObjects];
+        [self installAppleFoundationModelsShellHandler];
     }
     __weak typeof(self) weakSelf = self;
     void (^startRequest)(void) = ^{
