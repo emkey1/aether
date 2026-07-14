@@ -25,12 +25,20 @@ static NSURL *RootsDir(void) {
     static NSURL *rootsDir;
     static dispatch_once_t token;
     dispatch_once(&token, ^{
-        rootsDir = [ContainerURL() URLByAppendingPathComponent:@"roots"];
+        NSURL *container = ContainerURL();
+        if (container == nil) {
+            NSLog(@"RootsDir: no app group container available (missing or misconfigured App Group entitlement?)");
+            return;
+        }
+        rootsDir = [container URLByAppendingPathComponent:@"roots"];
         NSFileManager *manager = [NSFileManager defaultManager];
-        [manager createDirectoryAtURL:rootsDir
-          withIntermediateDirectories:YES
-                           attributes:@{}
-                                error:nil];
+        NSError *error = nil;
+        if (![manager createDirectoryAtURL:rootsDir
+                withIntermediateDirectories:YES
+                                 attributes:@{}
+                                      error:&error]) {
+            NSLog(@"RootsDir: couldn't create roots directory: %@", error);
+        }
     });
     return rootsDir;
 }
@@ -553,15 +561,22 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
 - (instancetype)init {
     if (self = [super init]) {
         EnableCaseSensitiveFilesystemLookupsIfPossible();
-        NSError *error = nil;
-        NSArray<NSString *> *rootNames = [NSFileManager.defaultManager contentsOfDirectoryAtPath:RootsDir().path error:&error];
-        NSAssert(error == nil, @"couldn't list roots: %@", error);
         NSMutableOrderedSet<NSString *> *roots = [NSMutableOrderedSet orderedSet];
-        for (NSString *rootName in rootNames) {
-            if (RootURLLooksValid([self rootUrl:rootName])) {
-                [roots addObject:rootName];
-            } else {
-                NSLog(@"ignoring invalid root entry %@", rootName);
+        NSURL *rootsDir = RootsDir();
+        if (rootsDir == nil) {
+            NSLog(@"Roots: roots directory unavailable, starting with no roots");
+        } else {
+            NSError *error = nil;
+            NSArray<NSString *> *rootNames = [NSFileManager.defaultManager contentsOfDirectoryAtPath:rootsDir.path error:&error];
+            if (error != nil) {
+                NSLog(@"Roots: couldn't list roots: %@", error);
+            }
+            for (NSString *rootName in rootNames) {
+                if (RootURLLooksValid([self rootUrl:rootName])) {
+                    [roots addObject:rootName];
+                } else {
+                    NSLog(@"ignoring invalid root entry %@", rootName);
+                }
             }
         }
         self.roots = roots;

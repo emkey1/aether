@@ -1199,7 +1199,7 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolVideoPlayerIdentifier])
         return @"Video Player";
     if ([toolIdentifier isEqualToString:ISHWorkspaceToolDisplayIdentifier])
-        return @"Display";
+        return @"Wayland";
     return @"Window";
 }
 
@@ -4111,7 +4111,7 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
         @{@"name": @"Markdown", @"command": @"{markdown}"},
         @{@"name": @"Image Viewer", @"command": @"{imageviewer}"},
         @{@"name": @"Video Player", @"command": @"{videoplayer}"},
-        @{@"name": @"Display", @"command": @"{display}"},
+        @{@"name": @"Wayland", @"command": @"{display}"},
         @{@"name": @"Clock", @"command": @"{clock}"},
         @{@"name": @"Monitor", @"command": @"{monitor}"},
         @{@"name": @"Networks", @"command": @"{networks}"},
@@ -5576,7 +5576,7 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
                 @{@"title": @"Markdown", @"identifier": ISHWorkspaceToolMarkdownViewerIdentifier},
                 @{@"title": @"Image Viewer", @"identifier": ISHWorkspaceToolImageViewerIdentifier},
                 @{@"title": @"Video Player", @"identifier": ISHWorkspaceToolVideoPlayerIdentifier},
-                @{@"title": @"Display", @"identifier": ISHWorkspaceToolDisplayIdentifier},
+                @{@"title": @"Wayland", @"identifier": ISHWorkspaceToolDisplayIdentifier},
             ],
         },
         @{

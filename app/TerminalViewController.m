@@ -72,11 +72,16 @@ static BOOL ISHCommandIsDefaultLogin(NSArray<NSString *> *command) {
 // "Open everything as the UID 1000 (default) user account": only swaps a command that resolved
 // to exactly the standard root login -- never a raw fallback shell (which can't switch users
 // anyway) and never a launch command the user customized to something else, since a customized
-// command means they've already taken explicit control of who they log in as.
+// command means they've already taken explicit control of who they log in as. No account is
+// provisioned for this -- [AppDelegate defaultUserAccountName] looks up whatever's actually at
+// UID 1000 on this rootfs; keeps the root login unchanged if there isn't one.
 static NSArray<NSString *> *ISHCommandWithDefaultUserSubstitution(NSArray<NSString *> *command) {
     if (!UserPreferences.shared.shouldLoginAsDefaultUser || !ISHCommandIsDefaultLogin(command))
         return command;
-    return @[command[0], command[1], ISHDefaultUserAccountName];
+    NSString *accountName = [AppDelegate defaultUserAccountName];
+    if (accountName.length == 0)
+        return command;
+    return @[command[0], command[1], accountName];
 }
 
 static BOOL ISHGuestExecutableExists(NSString *path, intptr_t *errOut) {

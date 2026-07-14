@@ -305,6 +305,33 @@ NS_ASSUME_NONNULL_BEGIN
             command.wantsPriorityOverSystemBehavior = YES;
         [_keyCommands addObject:command];
     }
+    // Alt+<letter> and Alt+Shift+<letter>: sway's $mod is Alt (Mod1), not
+    // Control -- Control has to stay free for the terminal/app-level Ctrl
+    // combos above (Ctrl+C etc.), so a window-manager modifier would collide
+    // with those if it also used Control. Same UIKeyInput gap as Control:
+    // iOS never routes modified combinations through -insertText:.
+    for (size_t i = 0; controlLetters[i] != '\0'; i++) {
+        NSString *letter = [NSString stringWithFormat:@"%c", controlLetters[i]];
+        UIKeyCommand *altCommand = [UIKeyCommand keyCommandWithInput:letter
+                                                       modifierFlags:UIKeyModifierAlternate
+                                                              action:@selector(handleAltKeyCommand:)];
+        UIKeyCommand *altShiftCommand = [UIKeyCommand keyCommandWithInput:letter
+                                                            modifierFlags:UIKeyModifierAlternate | UIKeyModifierShift
+                                                                   action:@selector(handleAltShiftKeyCommand:)];
+        if (@available(iOS 15, *)) {
+            altCommand.wantsPriorityOverSystemBehavior = YES;
+            altShiftCommand.wantsPriorityOverSystemBehavior = YES;
+        }
+        [_keyCommands addObject:altCommand];
+        [_keyCommands addObject:altShiftCommand];
+    }
+    // Alt+Return: sway's new-terminal binding.
+    UIKeyCommand *altReturn = [UIKeyCommand keyCommandWithInput:@"\r"
+                                                  modifierFlags:UIKeyModifierAlternate
+                                                         action:@selector(handleAltKeyCommand:)];
+    if (@available(iOS 15, *))
+        altReturn.wantsPriorityOverSystemBehavior = YES;
+    [_keyCommands addObject:altReturn];
     return _keyCommands;
 }
 
@@ -318,6 +345,42 @@ NS_ASSUME_NONNULL_BEGIN
     [_rfbClient sendKeyEvent:keysym down:YES];
     [_rfbClient sendKeyEvent:keysym down:NO];
     [_rfbClient sendKeyEvent:keysymControlL down:NO];
+}
+
+// -input's "\r" (Alt+Return) needs the Return keysym, not the literal
+// carriage-return character value; everything else here is a plain letter,
+// where the X11 keysym equals its ASCII value.
+static uint32_t DisplayRFBKeysymForKeyCommandInput(NSString *input) {
+    if ([input isEqualToString:@"\r"])
+        return 0xFF0D; // Return
+    return (uint32_t) [input characterAtIndex:0];
+}
+
+- (void)handleAltKeyCommand:(UIKeyCommand *)command {
+    NSString *input = command.input;
+    if (input.length == 0 || _rfbClient == nil)
+        return;
+    static const uint32_t keysymAltL = 0xFFE9;
+    uint32_t keysym = DisplayRFBKeysymForKeyCommandInput(input);
+    [_rfbClient sendKeyEvent:keysymAltL down:YES];
+    [_rfbClient sendKeyEvent:keysym down:YES];
+    [_rfbClient sendKeyEvent:keysym down:NO];
+    [_rfbClient sendKeyEvent:keysymAltL down:NO];
+}
+
+- (void)handleAltShiftKeyCommand:(UIKeyCommand *)command {
+    NSString *input = command.input;
+    if (input.length == 0 || _rfbClient == nil)
+        return;
+    static const uint32_t keysymAltL = 0xFFE9;
+    static const uint32_t keysymShiftL = 0xFFE1;
+    uint32_t keysym = DisplayRFBKeysymForKeyCommandInput(input);
+    [_rfbClient sendKeyEvent:keysymAltL down:YES];
+    [_rfbClient sendKeyEvent:keysymShiftL down:YES];
+    [_rfbClient sendKeyEvent:keysym down:YES];
+    [_rfbClient sendKeyEvent:keysym down:NO];
+    [_rfbClient sendKeyEvent:keysymShiftL down:NO];
+    [_rfbClient sendKeyEvent:keysymAltL down:NO];
 }
 
 // Mirrors TerminalView's addFunctionKey: pattern (stashing the payload via

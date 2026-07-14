@@ -63,6 +63,11 @@ extern NSString *_Nullable ISHWorkspaceToolIdentifierForViewController(UIViewCon
 // identifier has no factory registration.
 - (void)openWorkspaceToolWithIdentifier:(NSString *)toolIdentifier fileGuestPath:(NSString *)guestPath;
 
+// Opens a new terminal window and, once its shell is up, injects `command` as a typed line
+// (empty command just opens a fresh shell). Same mechanism a Launcher shortcut's command runs
+// through -- see -runLauncherShortcutWithCommand:title: in the .m.
+- (void)launchTerminalWithCommand:(NSString *)command title:(nullable NSString *)title;
+
 @end
 
 NS_ASSUME_NONNULL_END

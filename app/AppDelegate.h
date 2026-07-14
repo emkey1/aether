@@ -26,6 +26,10 @@ struct task;
 + (intptr_t)ensureBooted;
 + (BOOL)pushUsableInitTaskAsCurrent:(struct task * _Nullable * _Nonnull)previousCurrent;
 + (void)popCurrentTask:(struct task * _Nullable)previousCurrent;
+// The account name whose /etc/passwd UID matches ISHDefaultUserAccountUID (see
+// UserPreferences.h), or nil if this rootfs has no such account. "Open Everything as Default
+// User" targets whatever's actually there instead of a name iSH provisions itself.
++ (NSString * _Nullable)defaultUserAccountName;
 #endif
 
 + (void)maybePresentStartupMessageOnViewController:(UIViewController *)vc;

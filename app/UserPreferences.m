@@ -46,10 +46,7 @@ NSString *const kPreferenceBootCommandKey = @"Boot Command";
 NSString *const kPreferenceInitialWindowKey = @"Initial Window";
 static NSString *const kPreferenceLoginAsDefaultUserKey = @"Login As Default User";
 
-NSString *const ISHDefaultUserAccountName = @"user";
 const int ISHDefaultUserAccountUID = 1000;
-const int ISHDefaultUserAccountGID = 1000;
-NSString *const ISHDefaultUserAccountHome = @"/home/user";
 static NSString *const kPreferenceCursorStyleKey = @"Cursor Style";
 static NSString *const kPreferenceBlinkCursorKey = @"Blink Cursor";
 NSString *const kPreferenceHideStatusBarKey = @"Status Bar";

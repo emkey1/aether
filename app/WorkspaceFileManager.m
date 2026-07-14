@@ -33,22 +33,23 @@ typedef NS_ENUM(NSInteger, WorkspaceFileManagerSortMode) {
     WorkspaceFileManagerSortKind = 3,
 };
 
-// Fixed, non-editable sidebar rows for v1 -- the plan's "user-editable Favorites"
-// is a later-phase nicety; this covers the seed locations that matter today.
-static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
-    // New sessions log in as root, or as the UID 1000 account when "Open Everything as Default
-    // User" is on (see ProvisionDefaultUserAccount() in AppDelegate.m) -- match "Home" to
-    // whichever one is actually being logged into so it doesn't silently point at /root while
-    // every session is really landing in /home/user.
-    NSString *homePath = UserPreferences.shared.shouldLoginAsDefaultUser
-        ? ISHDefaultUserAccountHome
-        : @"/root";
-    return @[
-        @{@"title": @"Home", @"path": homePath, @"symbol": @"house"},
-        @{@"title": @"Persist", @"path": @"/AOK/persist", @"symbol": @"externaldrive"},
-        @{@"title": @"Temporary", @"path": @"/tmp", @"symbol": @"clock"},
-        @{@"title": @"Root", @"path": @"/", @"symbol": @"internaldrive"},
-    ];
+// Parses /etc/passwd content for the entry whose numeric UID field matches targetUID and
+// returns its home-directory field (field 5, 0-indexed: name:passwd:uid:gid:gecos:home:shell).
+// nil if the file couldn't be read/decoded or no entry matches.
+static NSString *ISHHomeDirectoryForUID(NSData *passwdData, uid_t targetUID) {
+    if (passwdData == nil)
+        return nil;
+    NSString *contents = [[NSString alloc] initWithData:passwdData encoding:NSUTF8StringEncoding];
+    if (contents == nil)
+        return nil;
+    for (NSString *line in [contents componentsSeparatedByString:@"\n"]) {
+        NSArray<NSString *> *fields = [line componentsSeparatedByString:@":"];
+        if (fields.count < 6)
+            continue;
+        if ((uid_t)fields[2].integerValue == targetUID)
+            return fields[5];
+    }
+    return nil;
 }
 
 @interface WorkspaceFileManagerToolViewController () <UITableViewDataSource, UITableViewDelegate>
@@ -88,6 +89,39 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     WorkspaceFileManagerSortMode _sortMode;
     BOOL _showHidden;
     BOOL _navigationPinned;  // a restore or user action happened; the async default-directory kick must not override it
+
+    NSString *_homeDirectoryPath;  // sidebar "Home" target; resolved from /etc/passwd, see -resolveHomeDirectoryPath
+}
+
+// Fixed, non-editable sidebar rows for v1 -- the plan's "user-editable Favorites" is a
+// later-phase nicety; this covers the seed locations that matter today.
+- (NSArray<NSDictionary *> *)sidebarRows {
+    return @[
+        @{@"title": @"Home", @"path": _homeDirectoryPath ?: @"/root", @"symbol": @"house"},
+        @{@"title": @"Persist", @"path": @"/AOK/persist", @"symbol": @"externaldrive"},
+        @{@"title": @"/tmp", @"path": @"/tmp", @"symbol": @"clock"},
+        @{@"title": @"Root (/)", @"path": @"/", @"symbol": @"internaldrive"},
+    ];
+}
+
+// New sessions log in as root, or as whatever account this rootfs has at UID 1000 when "Open
+// Everything as Default User" is on (see +[AppDelegate defaultUserAccountName] -- no account is
+// provisioned by iSH itself) -- match the sidebar's "Home" row to wherever that account's shell
+// actually lands by reading its real entry out of /etc/passwd.
+- (void)resolveHomeDirectoryPath {
+    _homeDirectoryPath = @"/root";
+    if (!UserPreferences.shared.shouldLoginAsDefaultUser)
+        return;
+    __weak typeof(self) weakSelf = self;
+    [[ISHGuestFileBridge sharedBridge] readFileAtGuestPath:@"/etc/passwd" maxBytes:65536
+                                                  completion:^(NSData *data, NSError *error) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil) return;
+        NSString *home = ISHHomeDirectoryForUID(data, ISHDefaultUserAccountUID);
+        if (home.length == 0) return;
+        strongSelf->_homeDirectoryPath = home;
+        [strongSelf->_sidebarTableView reloadData];
+    }];
 }
 
 #pragma mark Lifecycle
@@ -105,6 +139,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     _sortMode = (WorkspaceFileManagerSortMode)[defaults integerForKey:kFileManagerSortModeDefaultsKey];
     _showHidden = [defaults boolForKey:kFileManagerShowHiddenDefaultsKey];
 
+    [self resolveHomeDirectoryPath];
     [self buildSidebar];
     [self buildDivider];
     [self buildToolbar];
@@ -627,7 +662,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
 #pragma mark UITableViewDataSource / UITableViewDelegate
 
 - (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
-    return (tableView == _sidebarTableView) ? (NSInteger)ISHFileManagerSidebarRows().count : (NSInteger)_items.count;
+    return (tableView == _sidebarTableView) ? (NSInteger)[self sidebarRows].count : (NSInteger)_items.count;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -640,7 +675,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:kFileManagerSidebarCellReuseID];
     if (cell == nil)
         cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:kFileManagerSidebarCellReuseID];
-    NSDictionary *row = ISHFileManagerSidebarRows()[(NSUInteger)indexPath.row];
+    NSDictionary *row = [self sidebarRows][(NSUInteger)indexPath.row];
     cell.textLabel.text = row[@"title"];
     cell.textLabel.font = [UIFont systemFontOfSize:13.0];
     cell.textLabel.textColor = self.workspaceTheme[@"primary"];
@@ -677,7 +712,7 @@ static NSArray<NSDictionary *> *ISHFileManagerSidebarRows(void) {
     [tableView deselectRowAtIndexPath:indexPath animated:YES];
     [self becomeFirstResponder];  // re-anchor keyboard shortcuts here after the user worked elsewhere
     if (tableView == _sidebarTableView) {
-        NSDictionary *row = ISHFileManagerSidebarRows()[(NSUInteger)indexPath.row];
+        NSDictionary *row = [self sidebarRows][(NSUInteger)indexPath.row];
         [self navigateToPath:row[@"path"] pushHistory:YES];
         return;
     }
@@ -959,7 +994,22 @@ static NSSet<NSString *> *ISHFileManagerKnownBinaryExtensions(void) {
     return YES;
 }
 
+// Single-quotes PATH for safe use as one shell word, escaping any embedded single quotes
+// (foo'bar -> 'foo'\''bar'). Guest paths can contain spaces and other shell metacharacters.
+static NSString *ISHShellQuotedPath(NSString *path) {
+    NSString *escaped = [path stringByReplacingOccurrencesOfString:@"'" withString:@"'\\''"];
+    return [NSString stringWithFormat:@"'%@'", escaped];
+}
+
 - (void)openFileItem:(ISHGuestFileItem *)item {
+    // A regular file with any execute bit set is a program, not a document -- run it in a new
+    // terminal (like double-clicking an executable in a real desktop file manager) instead of
+    // routing it through the viewer/tool machinery below, which has nothing that can run it.
+    if (item.kind == ISHGuestFileKindRegular && (item.posixMode & 0111) != 0) {
+        [self.workspaceHostViewController launchTerminalWithCommand:ISHShellQuotedPath(item.guestPath)
+                                                                title:item.name];
+        return;
+    }
     __weak typeof(self) weakSelf = self;
     [self determineOpenRouteForItem:item completion:^(NSString *toolIdentifier) {
         typeof(self) strongSelf = weakSelf;

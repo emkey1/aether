@@ -796,7 +796,6 @@ static NSArray<NSString *> *BootCommandFallbackCandidatesDescription(NSArray<NSA
 static int EnsureDirectory(const char *path, mode_t_ mode);
 static int EnsureRegularFileNonEmpty(const char *path, const char *contents, mode_t_ mode);
 static int EnsureSymlink(const char *path, const char *target);
-static void ProvisionDefaultUserAccount(void);
 
 static NSData *BootEnvironmentForCommand(NSString *commandPath) {
     NSString *shell = commandPath.length != 0 ? commandPath : @"/bin/sh";
@@ -1339,89 +1338,6 @@ static void ProvisionGuestHostFiles(void) {
     EnsureDirectory("/etc", 0755);
     EnsureRegularFileNonEmpty("/etc/hostname", "localhost\n", 0644);
     EnsureRegularFileNonEmpty("/etc/hosts", "127.0.0.1\tlocalhost\n127.0.1.1\tlocalhost\n", 0644);
-}
-
-// Reads PATH in full (up to bufsize - 1 bytes) and returns YES if any line's colon-delimited
-// first field equals NAME exactly (an /etc/passwd, /etc/group, or /etc/shadow style entry).
-// Used to make provisioning idempotent -- never append a duplicate account line.
-static BOOL EtcColonFileHasEntryNamed(const char *path, const char *name, char *buf, size_t bufsize) {
-    struct fd *fd = generic_open(path, O_RDONLY_, 0);
-    if (IS_ERR(fd))
-        return NO;
-    size_t total = 0;
-    while (total + 1 < bufsize) {
-        ssize_t n = fd->ops->read(fd, buf + total, bufsize - 1 - total);
-        if (n <= 0)
-            break;
-        total += (size_t) n;
-    }
-    fd_close(fd);
-    buf[total] = '\0';
-
-    size_t nameLen = strlen(name);
-    const char *cursor = buf;
-    while (cursor != NULL) {
-        if (strncmp(cursor, name, nameLen) == 0 && cursor[nameLen] == ':')
-            return YES;
-        cursor = strchr(cursor, '\n');
-        if (cursor != NULL)
-            cursor++;
-    }
-    return NO;
-}
-
-static void AppendLineToFile(const char *path, const char *line, mode_t_ mode) {
-    struct fd *fd = generic_open(path, O_WRONLY_ | O_CREAT_ | O_APPEND_, mode & 07777);
-    if (IS_ERR(fd))
-        return;
-    fd->ops->write(fd, line, strlen(line));
-    fd_close(fd);
-}
-
-// Provisions the unprivileged UID/GID 1000 account "Open everything as the UID 1000 (default)
-// user account" logs into, so the toggle works even on a root filesystem that never shipped one
-// itself. Idempotent (skips any file that already has a "user:" entry) and additive -- existing
-// /etc/passwd, /etc/group, and /etc/shadow entries are never rewritten, only appended to. Runs on
-// every boot alongside ProvisionGuestHostFiles(), but only when the toggle is enabled, so a user
-// who never opts in gets a byte-identical rootfs to before this existed.
-static void ProvisionDefaultUserAccount(void) {
-    if (!UserPreferences.shared.shouldLoginAsDefaultUser)
-        return;
-
-    char buf[16384];
-    const char *name = ISHDefaultUserAccountName.UTF8String;
-
-    if (!EtcColonFileHasEntryNamed("/etc/passwd", name, buf, sizeof(buf))) {
-        char line[256];
-        snprintf(line, sizeof(line), "%s:x:%d:%d:Linux User:%s:/bin/sh\n",
-                 name, ISHDefaultUserAccountUID, ISHDefaultUserAccountGID,
-                 ISHDefaultUserAccountHome.UTF8String);
-        AppendLineToFile("/etc/passwd", line, 0644);
-    }
-    if (!EtcColonFileHasEntryNamed("/etc/group", name, buf, sizeof(buf))) {
-        char line[128];
-        snprintf(line, sizeof(line), "%s:x:%d:\n", name, ISHDefaultUserAccountGID);
-        AppendLineToFile("/etc/group", line, 0644);
-    }
-    // /bin/login -f forces the login without consulting the password hash, so /etc/shadow only
-    // needs an entry to keep other tools (passwd, su) from tripping over a passwd entry with no
-    // matching shadow line -- and only if the rootfs uses shadow passwords at all. The aging
-    // fields (last-changed/min/max/warn) are left blank, matching how real distro accounts that
-    // never expire are provisioned (e.g. Alpine's own "guest:!::0:::::") -- populating a concrete
-    // last-changed day switches on password-aging enforcement for the account, which can force an
-    // interactive "change your password" prompt even though -f already bypassed authentication.
-    struct statbuf shadowStat;
-    if (generic_statat(AT_PWD, "/etc/shadow", &shadowStat, AT_SYMLINK_NOFOLLOW_) >= 0 &&
-        !EtcColonFileHasEntryNamed("/etc/shadow", name, buf, sizeof(buf))) {
-        char line[128];
-        snprintf(line, sizeof(line), "%s:!::0:::::\n", name);
-        AppendLineToFile("/etc/shadow", line, 0640);
-    }
-
-    const char *home = ISHDefaultUserAccountHome.UTF8String;
-    EnsureDirectory(home, 0755);
-    generic_setattrat(AT_PWD, home, make_attr(uid, ISHDefaultUserAccountUID), false);
-    generic_setattrat(AT_PWD, home, make_attr(gid, ISHDefaultUserAccountGID), false);
 }
 
 static int EnsureSymlink(const char *path, const char *target) {
@@ -2205,6 +2121,38 @@ static void PopCurrentTask(struct task *previousCurrent) {
     PopCurrentTask(previousCurrent);
 }
 
++ (NSString *)defaultUserAccountName {
+    struct task *previousCurrent = NULL;
+    if (!PushInitTaskAsCurrent(&previousCurrent)) {
+        PopCurrentTask(previousCurrent);
+        return nil;
+    }
+    struct fd *fd = generic_open("/etc/passwd", O_RDONLY_, 0);
+    if (IS_ERR(fd)) {
+        PopCurrentTask(previousCurrent);
+        return nil;
+    }
+    char buf[16384];
+    size_t total = 0;
+    while (total + 1 < sizeof(buf)) {
+        ssize_t n = fd->ops->read(fd, buf + total, sizeof(buf) - 1 - total);
+        if (n <= 0)
+            break;
+        total += (size_t) n;
+    }
+    fd_close(fd);
+    PopCurrentTask(previousCurrent);
+    buf[total] = '\0';
+
+    NSString *contents = [NSString stringWithUTF8String:buf];
+    for (NSString *line in [contents componentsSeparatedByString:@"\n"]) {
+        NSArray<NSString *> *fields = [line componentsSeparatedByString:@":"];
+        if (fields.count >= 3 && fields[2].integerValue == ISHDefaultUserAccountUID)
+            return fields[0];
+    }
+    return nil;
+}
+
 static UIViewController *CreateRootSelectionViewController(void) {
     UIViewController *rootsViewController = [[UIStoryboard storyboardWithName:@"Roots" bundle:nil] instantiateInitialViewController];
     UINavigationController *navigationController = [[UINavigationController alloc] initWithRootViewController:rootsViewController];
@@ -2622,7 +2570,6 @@ static TerminalViewController *CreateTerminalViewController(void) {
     // (real /sbin/init and the fake-init fallback). Docker-exported images ship both as
     // empty 0-byte files, which otherwise leaves the system with an empty hostname.
     ProvisionGuestHostFiles();
-    ProvisionDefaultUserAccount();
     if (bootUsesNativeFakeInit) {
         FakeInitPrepareGuestRoot();
         err = StartFallbackConsoleSupervisor(command, argvCommand, argv, sizeof(argv), envpData);

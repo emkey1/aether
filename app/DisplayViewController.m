@@ -30,11 +30,17 @@ static NSArray<NSString *> *const DisplayPlainRootCommand = @[@"/bin/sh", @"/AOK
 // directly, no login prompt involved -- so `su -c` is the equivalent for
 // that case: root can su to any other user without a password, and `-`
 // resets HOME/USER/LOGNAME/PATH to match a genuine login as that user
-// instead of leaving the hardcoded root envp below in effect.
+// instead of leaving the hardcoded root envp below in effect. No account is
+// provisioned for this -- [AppDelegate defaultUserAccountName] looks up
+// whatever's actually at UID 1000 on this rootfs; falls back to root if
+// there isn't one.
 static NSArray<NSString *> *DisplayGuestSessionCommand(void) {
     if (!UserPreferences.shared.shouldLoginAsDefaultUser)
         return DisplayPlainRootCommand;
-    return @[@"/bin/su", @"-", ISHDefaultUserAccountName, @"-c", @"sh /AOK/tools/start-wayland.sh"];
+    NSString *accountName = [AppDelegate defaultUserAccountName];
+    if (accountName.length == 0)
+        return DisplayPlainRootCommand;
+    return @[@"/bin/su", @"-", accountName, @"-c", @"sh /AOK/tools/start-wayland.sh"];
 }
 static const NSTimeInterval DisplayReadyTimeout = 45.0;
 
@@ -51,7 +57,6 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 
 @implementation DisplayViewController {
     UIView *_toolbarCard;
-    UIView *_displayCard;
     UILabel *_statusLabel;
     UIButton *_ctrlAltDelButton;
     UIButton *_pasteButton;
@@ -90,16 +95,15 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.title = @"Display";
+    self.title = @"Wayland";
 
     _toolbarCard = [self workspaceThemeCardView];
-    _displayCard = [self workspaceThemeCardView];
     [self.toolContentView addSubview:_toolbarCard];
-    [self.toolContentView addSubview:_displayCard];
 
     _statusLabel = [self workspaceThemeSecondaryLabelWithTextStyle:UIFontTextStyleFootnote monospaced:NO];
     _statusLabel.text = @"Starting…";
     _statusLabel.numberOfLines = 1;
+    _statusLabel.font = [UIFont systemFontOfSize:11.0];
     [_toolbarCard addSubview:_statusLabel];
 
     _ctrlAltDelButton = [self displayButtonWithTitle:@"Ctrl+Alt+Del" action:@selector(sendCtrlAltDel:)];
@@ -117,26 +121,21 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         [_toolbarCard.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:inset],
         [_toolbarCard.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:inset],
         [_toolbarCard.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-inset],
-        [_toolbarCard.heightAnchor constraintEqualToConstant:44.0],
+        [_toolbarCard.heightAnchor constraintEqualToConstant:22.0],
 
-        [_displayCard.topAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:inset],
-        [_displayCard.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:inset],
-        [_displayCard.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-inset],
-        [_displayCard.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor constant:-inset],
-
-        [_statusLabel.leadingAnchor constraintEqualToAnchor:_toolbarCard.leadingAnchor constant:12.0],
+        [_statusLabel.leadingAnchor constraintEqualToAnchor:_toolbarCard.leadingAnchor constant:10.0],
         [_statusLabel.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
 
-        [_reconnectButton.trailingAnchor constraintEqualToAnchor:_toolbarCard.trailingAnchor constant:-8.0],
+        [_reconnectButton.trailingAnchor constraintEqualToAnchor:_toolbarCard.trailingAnchor constant:-6.0],
         [_reconnectButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
 
-        [_ctrlAltDelButton.trailingAnchor constraintEqualToAnchor:_reconnectButton.leadingAnchor constant:-8.0],
+        [_ctrlAltDelButton.trailingAnchor constraintEqualToAnchor:_reconnectButton.leadingAnchor constant:-6.0],
         [_ctrlAltDelButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
 
-        [_pasteButton.trailingAnchor constraintEqualToAnchor:_ctrlAltDelButton.leadingAnchor constant:-8.0],
+        [_pasteButton.trailingAnchor constraintEqualToAnchor:_ctrlAltDelButton.leadingAnchor constant:-6.0],
         [_pasteButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
 
-        [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-8.0],
+        [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0],
     ]];
 
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -162,7 +161,8 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
     button.translatesAutoresizingMaskIntoConstraints = NO;
     [button setTitle:title forState:UIControlStateNormal];
-    button.titleLabel.font = [UIFont systemFontOfSize:13.0 weight:UIFontWeightSemibold];
+    button.titleLabel.font = [UIFont systemFontOfSize:11.0 weight:UIFontWeightSemibold];
+    button.contentEdgeInsets = UIEdgeInsetsZero;
     [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
     return button;
 }
@@ -406,16 +406,18 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 
 #pragma mark - DisplayRFBView
 
+// No card wrapper: unlike the toolbar, the display fills all remaining
+// space edge-to-edge (no rounded corners/border/shadow) so the remote
+// framebuffer gets as much room as possible.
 - (DisplayRFBView *)displayView {
     if (_displayView == nil) {
         _displayView = [[DisplayRFBView alloc] initWithFrame:CGRectZero];
-        [_displayCard addSubview:_displayView];
-        CGFloat inset = 8.0;
+        [self.toolContentView addSubview:_displayView];
         [NSLayoutConstraint activateConstraints:@[
-            [_displayView.topAnchor constraintEqualToAnchor:_displayCard.topAnchor constant:inset],
-            [_displayView.leadingAnchor constraintEqualToAnchor:_displayCard.leadingAnchor constant:inset],
-            [_displayView.trailingAnchor constraintEqualToAnchor:_displayCard.trailingAnchor constant:-inset],
-            [_displayView.bottomAnchor constraintEqualToAnchor:_displayCard.bottomAnchor constant:-inset],
+            [_displayView.topAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:8.0],
+            [_displayView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
+            [_displayView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
+            [_displayView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
         ]];
     }
     return _displayView;

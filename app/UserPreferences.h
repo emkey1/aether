@@ -106,13 +106,10 @@ extern NSString *const kPreferenceLaunchCommandKey;
 extern NSString *const kPreferenceBootCommandKey;
 extern NSString *const kPreferenceInitialWindowKey;
 
-// The unprivileged account "Open everything as the UID 1000 (default) user account" logs into.
-// Provisioned into the guest's /etc/passwd, /etc/group, and (if present) /etc/shadow at boot --
-// see ProvisionDefaultUserAccount() in AppDelegate.m -- so it exists to log into regardless of
-// whether the mounted root filesystem shipped one itself.
-extern NSString *const ISHDefaultUserAccountName;
+// "Open Everything as Default User" targets whatever account this rootfs already has at UID
+// 1000 (the conventional "first regular user" UID on Debian/Devuan/Alpine) -- no account is
+// provisioned/created by iSH itself. See +[AppDelegate defaultUserAccountName], which looks up
+// the actual account name (or returns nil if none exists) at each use.
 extern const int ISHDefaultUserAccountUID;
-extern const int ISHDefaultUserAccountGID;
-extern NSString *const ISHDefaultUserAccountHome;
 
 NS_ASSUME_NONNULL_END
