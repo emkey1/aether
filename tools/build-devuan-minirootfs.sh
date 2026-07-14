@@ -9,6 +9,7 @@
 #   devuan-minirootfs-6.0-x86_64.tar.gz   amd64 (x86_64)
 #   devuan-minirootfs-6.0-aarch64.tar.gz  arm64 (aarch64) -- matches the
 #                                         alpine-minirootfs-*-aarch64 naming
+#   devuan-minirootfs-6.0-riscv64.tar.gz  riscv64 (RV64GC)
 #
 # Strategy
 # --------
@@ -38,7 +39,7 @@
 #   OUT_DIR=/tmp tools/build-devuan-minirootfs.sh   # elsewhere
 #
 # Tunables (env):
-#   ARCHES         space list of deb arches to build   (default "i386 amd64 arm64")
+#   ARCHES         space list of deb arches to build   (default "i386 amd64 arm64 riscv64")
 #   SUITE          Devuan suite                         (default excalibur)
 #   VERSION        version string used in filenames     (default 6.0)
 #   DEVUAN_MIRROR  archive mirror                        (default deb.devuan.org)
@@ -61,7 +62,7 @@ SUITE="${SUITE:-excalibur}"
 VERSION="${VERSION:-6.0}"
 DEVUAN_MIRROR="${DEVUAN_MIRROR:-http://deb.devuan.org/merged}"
 BUILD_IMAGE="${BUILD_IMAGE:-debian:trixie}"
-ARCHES="${ARCHES:-i386 amd64 arm64}"
+ARCHES="${ARCHES:-i386 amd64 arm64 riscv64}"
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 OUT_DIR="${OUT_DIR:-$REPO_ROOT}"
 KEYRING_IMAGE="${KEYRING_IMAGE:-dyne/devuan:excalibur}"
@@ -88,8 +89,9 @@ case "$COMPRESS" in
 esac
 command -v "$COMP_TOOL" >/dev/null 2>&1 || die "compressor '$COMP_TOOL' not found in PATH"
 
-# i386 -> x86, amd64 -> x86_64, arm64 -> aarch64 (match the Alpine minirootfs
-# filename convention -- see alpine-minirootfs-3.23.3-aarch64.tar.xz).
+# i386 -> x86, amd64 -> x86_64, arm64 -> aarch64, riscv64 -> riscv64 (match the
+# Alpine minirootfs filename convention -- see
+# alpine-minirootfs-3.23.3-aarch64.tar.xz / -riscv64.tar.xz).
 arch_suffix() {
     case "$1" in
         i386)  echo x86 ;;
@@ -101,10 +103,11 @@ arch_suffix() {
 # deb arch -> docker --platform value
 arch_platform() {
     case "$1" in
-        i386)  echo linux/386 ;;
-        amd64) echo linux/amd64 ;;
-        arm64) echo linux/arm64 ;;
-        *)     die "unknown arch '$1'" ;;
+        i386)    echo linux/386 ;;
+        amd64)   echo linux/amd64 ;;
+        arm64)   echo linux/arm64 ;;
+        riscv64) echo linux/riscv64 ;;
+        *)       die "unknown arch '$1'" ;;
     esac
 }
 
