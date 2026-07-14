@@ -578,6 +578,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
     guest_addr_t load_addr = 0;
     bool load_addr_set = false;
     guest_addr_t bias = 0;
+    // Set alongside the arm64/riscv64 dynamic-placement bias below; used
+    // after the loop to actually reserve that headroom (see the comment
+    // there for why the reservation, not just the address gap, matters).
+    pages_t brk_headroom_pages = 0;
 
     for (unsigned i = 0; i < header.phent_count; i++) {
         if (ph[i].type != PT_LOAD)
@@ -594,14 +598,17 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
                 // caps the heap at the ~32 MiB gap to the page limit (2^47);
                 // brk-hungry programs like git then fail to expand the heap.
                 bias = 0x555555554000;
-            else
-                // arm64 PIE binaries fall through to here intentionally:
-                // dynamic placement, not a fixed low bias. See the
-                // GUEST_ABI_ARM64 case in guest_abi_vm_layout() (kernel/abi.h)
-                // for why — avoids the V8 CodeRange collision that OpenMinis'
-                // ish-arm64 fork hit with a fixed low bias.
+            else {
+                // arm64/riscv64 PIE binaries fall through to here
+                // intentionally: dynamic placement, not a fixed low bias.
+                // See the GUEST_ABI_ARM64 case in guest_abi_vm_layout()
+                // (kernel/abi.h) for why — avoids the V8 CodeRange
+                // collision that OpenMinis' ish-arm64 fork hit with a
+                // fixed low bias.
                 // 1 GiB of brk headroom above the image (see the helper).
-                bias = find_hole_for_elf(&header, ph, 0x40000000 >> PAGE_BITS);
+                brk_headroom_pages = 0x40000000 >> PAGE_BITS;
+                bias = find_hole_for_elf(&header, ph, brk_headroom_pages);
+            }
         }
 
         if ((err = load_entry(header.abi, ph[i], bias, fd)) < 0)
@@ -623,6 +630,29 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         guest_addr_t brk = (guest_addr_t) brk_q;
         if (brk > save->mm->start_brk)
             save->mm->start_brk = save->mm->brk = BYTES_ROUND_UP(brk);
+    }
+
+    if (brk_headroom_pages > 0 && save->mm->start_brk != 0) {
+        // find_hole_for_elf() above only computed an address gap; nothing
+        // stops a later mmap() (ld.so, thread stacks, a GC's own segment
+        // allocation, ...) from landing in it and colliding with a
+        // subsequent brk() once the heap grows that far — sys_brk_guest
+        // requires pt_is_hole() over the new range and silently refuses to
+        // grow otherwise. Reserve the headroom for real as unbacked
+        // P_BRK_RESERVE placeholder pages so pt_find_hole() skips it, and
+        // let sys_brk_guest claim it page-by-page as the heap grows into
+        // it. Best-effort: if the range isn't actually free (shouldn't
+        // happen, find_hole_for_elf sized the hole to include it) just
+        // skip the reservation rather than failing exec.
+        page_t reserve_start = PAGE(BYTES_ROUND_UP(save->mm->start_brk));
+        page_t mmap_ceiling = guest_abi_vm_layout(header.abi).mmap_ceiling;
+        pages_t reserve_pages = brk_headroom_pages;
+        if (reserve_start >= mmap_ceiling)
+            reserve_pages = 0;
+        else if (reserve_start + reserve_pages > mmap_ceiling)
+            reserve_pages = mmap_ceiling - reserve_start;
+        if (reserve_pages > 0 && pt_is_hole(save->mem, reserve_start, reserve_pages))
+            pt_map_nothing(save->mem, reserve_start, reserve_pages, P_BRK_RESERVE);
     }
 
     qword_t entry_q = (qword_t) bias + header.entry_point;

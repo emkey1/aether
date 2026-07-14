@@ -577,6 +577,17 @@ bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
     return true;
 }
 
+bool pt_is_brk_reservation(struct mem *mem, page_t start, pages_t pages) {
+    if (!mem_page_range_valid(mem, start, pages))
+        return false;
+    for (page_t page = start; page < start + pages; page++) {
+        struct pt_entry *entry = mem_pt(mem, page);
+        if (entry == NULL || entry->data->data != NULL || !(entry->flags & P_BRK_RESERVE))
+            return false;
+    }
+    return true;
+}
+
 int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t offset, unsigned flags) {
     if (!mem_page_range_valid(mem, start, pages))
         return _ENOMEM;

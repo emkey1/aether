@@ -179,8 +179,15 @@ struct pt_entry {
 #define P_ANONYMOUS (1 << 6)
 // mapping was created with MAP_SHARED, should not CoW
 #define P_SHARED (1 << 7)
+// unbacked PROT_NONE placeholder reserved by exec.c for future brk growth;
+// claimable by sys_brk_guest (see pt_is_brk_reservation), off limits to
+// everything else (mmap/pt_find_hole treat it like any other mapped page)
+#define P_BRK_RESERVE (1 << 5)
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages);
+// True iff [start, start+pages) is entirely a P_BRK_RESERVE placeholder
+// (still unbacked) that sys_brk_guest may claim as real heap.
+bool pt_is_brk_reservation(struct mem *mem, page_t start, pages_t pages);
 page_t pt_find_hole(struct mem *mem, pages_t size);
 
 // Map memory + offset into fake memory, unmapping existing mappings. Takes

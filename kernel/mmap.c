@@ -899,14 +899,24 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
         }
         page_t start = PAGE_ROUND_UP(old_brk);
         pages_t size = PAGE_ROUND_UP(new_brk) - PAGE_ROUND_UP(old_brk);
-        if (!pt_is_hole(&mm->mem, start, size)) {
+        if (pt_is_brk_reservation(&mm->mem, start, size)) {
+            // Claim the exec-time brk headroom reservation (kernel/exec.c)
+            // page by page instead of remapping it, same as an mprotect
+            // turning a PROT_NONE arena into real backing.
+            int err = pt_set_flags(&mm->mem, start, size, P_WRITE);
+            if (err < 0) {
+                expand_failed = true;
+                goto out;
+            }
+        } else if (!pt_is_hole(&mm->mem, start, size)) {
             expand_failed = true;
             goto out;
-        }
-        int err = pt_map_nothing(&mm->mem, start, size, P_WRITE);
-        if (err < 0) {
-            expand_failed = true;
-            goto out;
+        } else {
+            int err = pt_map_nothing(&mm->mem, start, size, P_WRITE);
+            if (err < 0) {
+                expand_failed = true;
+                goto out;
+            }
         }
     } else if (new_brk < old_brk) {
         // shrink heap: unmap region from new_brk to old_brk
