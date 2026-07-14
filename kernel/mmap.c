@@ -271,8 +271,20 @@ static guest_addr_t mmap_common_guest(guest_addr_t addr, qword_t len, dword_t pr
     // a runaway guest (e.g. a 10k-thread storm mapping a stack per thread)
     // must get clean ENOMEMs here rather than starving UIKit/libobjc into a
     // NULL-deref crash. No-op outside iOS. See host_mem_headroom_low().
-    if (host_mem_headroom_low())
+    if (host_mem_headroom_low()) {
+        // This guard fires silently otherwise -- from the guest's point of
+        // view every mmap() in the whole app just starts failing with a
+        // clean ENOMEM, with nothing to explain why (e.g. a Wayland
+        // compositor's *next* window failing to open, with no obvious cause,
+        // because its wl_shm buffer's mmap got refused here). Rate-limited
+        // so a runaway guest hammering mmap under low headroom can't flood
+        // the log.
+        static _Atomic unsigned headroom_log_count;
+        if (atomic_fetch_add_explicit(&headroom_log_count, 1, memory_order_relaxed) < 8)
+            printk("WARNING: %d(%s) mmap refused, low iOS memory headroom (len=%#llx)\n",
+                   current->pid, current->comm, (unsigned long long) len);
         return _ENOMEM;
+    }
     if ((flags & MMAP_PRIVATE) && (flags & MMAP_SHARED))
         return _EINVAL;
     // exactly one of MAP_PRIVATE / MAP_SHARED is required
