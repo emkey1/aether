@@ -143,7 +143,9 @@ NSAttributedString *ISHMarkdownAttributedStringFromMarkdown(NSString *markdown, 
         return out;
     CGFloat baseSize = baseFont.pointSize;
     UIFont *codeFont = ISHMarkdownMonospaceFont(baseSize - 1.0);
-    NSDictionary *ctx = @{@"color": textColor, @"codeFont": codeFont, @"codeColor": textColor, @"codeBg": codeBg, @"linkColor": linkColor};
+    NSMutableDictionary *ctx = [@{@"color": textColor, @"codeFont": codeFont, @"codeColor": textColor, @"linkColor": linkColor} mutableCopy];
+    if (codeBg != nil)
+        ctx[@"codeBg"] = codeBg; // nil means "no code-block/inline-code background fill" -- must not go in a dictionary literal
     NSCharacterSet *ws = NSCharacterSet.whitespaceCharacterSet;
 
     NSMutableParagraphStyle *bodyStyle = [NSMutableParagraphStyle new];
