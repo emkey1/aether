@@ -664,6 +664,32 @@ static void deliver_signal_unlocked_locked(struct task *task, struct sighand *si
 // reverse). Caller holds `sighand->lock`.
 static void deliver_signal_to_group_locked(struct sighand *sighand, int sig, struct siginfo_ info,
         struct task **members, size_t count) {
+    // Unlike send_signal_with_sighand's single-task path, this used to queue
+    // and wake unconditionally, with no check of signal_action() at all. For
+    // a group-default-ignored signal with no handler installed -- SIGCHLD is
+    // the common case, sent here by every child exit -- that let it sit in
+    // sighand->pending regardless of whether anyone was actually going to
+    // consume it. is_signal_pending()/wait_interrupted_by_signal() (used by
+    // wait_for's EINTR check for wait4/futex/poll) then see it as "pending"
+    // and report EINTR, even to a wait4() waiting on a *different*, still-
+    // running child that simply hasn't exited yet. Real Linux drops a
+    // default-ignored signal instead of queuing it (sig_ignored()) unless a
+    // consumer is synchronously waiting for it (blocked via sigprocmask for
+    // signalfd, or in sigtimedwait/rt_sigsuspend's wait set) -- mirror that
+    // here across the whole group before touching sighand->pending at all.
+    bool ignored = signal_action(sighand, sig) == SIGNAL_IGNORE;
+    if (ignored) {
+        bool synchronously_consumed = false;
+        for (size_t i = 0; i < count; i++) {
+            if (sigset_has(members[i]->blocked | members[i]->waiting, sig)) {
+                synchronously_consumed = true;
+                break;
+            }
+        }
+        if (!synchronously_consumed)
+            return;
+    }
+
     // See the matching comment in deliver_signal_unlocked_locked: skipping the
     // requeue for an already-pending standard signal is correct (Linux
     // doesn't queue multiple instances either), but skipping the wake too --

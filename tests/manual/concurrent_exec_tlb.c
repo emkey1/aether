@@ -18,6 +18,7 @@
 // fixed build (and real Linux) runs every round to completion with every
 // child exiting normally.
 #define _GNU_SOURCE
+#include <errno.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -82,7 +83,10 @@ int main(int argc, char **argv) {
         }
         for (int i = 0; i < NPROC; i++) {
             int status;
-            if (waitpid(pids[i], &status, 0) != pids[i]) {
+            pid_t w;
+            while ((w = waitpid(pids[i], &status, 0)) < 0 && errno == EINTR)
+                continue;
+            if (w != pids[i]) {
                 perror("waitpid");
                 return 2;
             }
