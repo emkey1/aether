@@ -8,7 +8,7 @@
 # TerminalViewController uses, minus the visible terminal UI); closing the
 # applet hangs up that pty, which delivers SIGHUP here. TERM/INT are also
 # trapped for when something signals this script directly (e.g. testing it
-# by hand from a shell). Requires labwc, foot, and wayvnc on PATH -- run
+# by hand from a shell). Requires labwc, foot, wayvnc on PATH -- run
 # /AOK/tools/setup-wayland.sh once first if they're missing.
 #
 # Env overrides (all optional):
@@ -18,8 +18,19 @@
 #                      compositor invocation (default: "labwc"). cage is
 #                      NOT supported here -- its virtual-keyboard keycodes
 #                      are off by evdev's +8 offset and foot silently drops
-#                      every key (see wayland_workspace_plan.md phase 0);
-#                      only labwc has been verified.
+#                      every key (see wayland_workspace_plan.md phase 0).
+#                      labwc is a floating/stacking compositor (normal
+#                      desktop-style windows, right-click menu) -- tried
+#                      "sway" (tiling, keybinding-driven) for a while
+#                      instead, since labwc's menu had been unreliable, but
+#                      that turned out to be a real kernel signal/poll
+#                      deadlock the menu's fork/exit pattern triggered (see
+#                      project memory project_signalfd_sighand_poll_
+#                      deadlock.md), now fixed -- and sway's tiling-by-
+#                      default layout (every window fullscreen until you
+#                      float/resize it) wasn't the desktop feel this applet
+#                      wants anyway. "sway" still works as an alternative if
+#                      you prefer it; both get installed by setup-wayland.sh.
 #   ISH_DISPLAY_READY_FILE
 #                      path this script writes "$WAYVNC_PORT\n" to once
 #                      wayvnc is confirmed listening (default
@@ -32,7 +43,7 @@
 #                      On any die() below, "$ISH_DISPLAY_READY_FILE.error" is
 #                      written instead with the failure reason, so
 #                      DisplayViewController's poll can surface the actual
-#                      cause (labwc/foot/wayvnc crash, timeout, etc.)
+#                      cause (compositor/foot/wayvnc crash, timeout, etc.)
 #                      immediately instead of only ever reporting its own
 #                      generic "timed out waiting" after the full deadline.
 #
@@ -41,10 +52,15 @@
 # (DisplayRFBClient/DisplayRFBView) scales to fit. Per-session resizable
 # output is a follow-up, not built here.
 #
-# First-run only, a minimal labwc menu.xml + a pipemenu script get seeded
-# under $HOME/.config/labwc/ (see below) so right-click gives you more than
-# labwc's compiled-in "Reconfigure"/"Exit" fallback -- a "New Terminal" entry
-# and an "Applications" submenu that lists whatever's apt-installed.
+# First-run only, a labwc setup gets seeded under $HOME/.config/labwc/ and
+# $HOME/.local/share/themes/ (see below): a right-click root menu (New
+# Terminal, an Applications submenu listing whatever's apt-installed,
+# Reconfigure, Exit), a handful of Alt-based keybindings for the same
+# actions (DisplayRFBView.m forwards Alt/Alt+Shift+<letter> and Alt+Return
+# as their own UIKeyCommands for this -- Control stays free for in-terminal
+# Ctrl combos), and a themerc styled after the app's own Workspace "Graphite"
+# palette (dark background, mint-accented active window/menu highlights)
+# instead of labwc's plain stock look.
 # ---------------------------------------------------------------------------
 set -u
 
@@ -66,18 +82,22 @@ for bin in $COMPOSITOR_CMD foot wayvnc; do
         || die "'$bin' not found -- run 'sudo sh /AOK/tools/setup-wayland.sh' first"
 done
 
-# Defensively clean up any stale labwc/foot/wayvnc left over from a prior
-# session that didn't get torn down before this one started (a fast
+# Defensively clean up any stale compositor/foot/wayvnc left over from a
+# prior session that didn't get torn down before this one started (a fast
 # Reconnect, or closing and reopening the applet, can both race ahead of the
 # old session's async guest-side cleanup -- the native side now waits for
 # confirmed exit before reconnecting, but this covers it independent of
 # that, since every session binds the same fixed WAYVNC_PORT regardless of
 # who started it). Without this, overlapping instances fight over that port
 # and pile up as unreaped zombies that drag the whole guest's scheduling
-# down until the applet looks wedged.
-pkill -x "$COMPOSITOR_CMD" 2>/dev/null
+# down until the applet looks wedged. Both compositors are killed by name
+# (not just $COMPOSITOR_CMD) in case WAYLAND_COMPOSITOR_CMD was switched
+# between sessions and a stale instance of the *other* one is still around.
+pkill -x sway 2>/dev/null
+pkill -x labwc 2>/dev/null
 pkill -x foot 2>/dev/null
 pkill -x wayvnc 2>/dev/null
+pkill -x wofi 2>/dev/null
 sleep 0.2
 
 # A runtime dir scoped to this invocation (pid-suffixed) avoids colliding
@@ -88,7 +108,40 @@ sleep 0.2
 export XDG_RUNTIME_DIR="/tmp/xdg-display-$$"
 mkdir -p "$XDG_RUNTIME_DIR"
 chmod 700 "$XDG_RUNTIME_DIR"
+
+# DisplayViewController always execs this script with a hardcoded root envp
+# (PATH/HOME=/root/TERM); when "Open Everything as Default User" is on, that
+# exec is wrapped in `su - <user> -c '...'` (see DisplayGuestSessionCommand
+# in DisplayViewController.m), which is *supposed* to reset HOME/SHELL/USER
+# to the target account's own -- but observed on-device: HOME was still
+# /root even though $(id -u) was the non-root default user, i.e. this
+# rootfs's `su` doesn't fully reset the environment for the `-c` form. Don't
+# trust the inherited environment; look up the actual running uid's account
+# directly.
+CURRENT_UID="$(id -u)"
+PW_LINE="$(awk -F: -v uid="$CURRENT_UID" '$3 == uid { print; exit }' /etc/passwd 2>/dev/null)"
+if [ -n "$PW_LINE" ]; then
+    PW_HOME="$(printf '%s' "$PW_LINE" | cut -d: -f6)"
+    [ -n "$PW_HOME" ] && export HOME="$PW_HOME"
+fi
 export HOME="${HOME:-/root}"
+# SHELL: prefer bash outright rather than trusting the passwd entry's shell
+# field, which is often stale or minimal -- the "Open Everything as Default
+# User" account this su targets (AppDelegate.m's ProvisionDefaultUserAccount)
+# used to hardcode /bin/sh, and that field is never rewritten once the
+# account exists (by design, to preserve hand-edits), so a device where that
+# account got created before that was fixed stays on /bin/sh forever even
+# after upgrading. Confirmed on-device: a genuinely interactive `-sh` (dash),
+# not a broken/non-interactive shell -- just not the bash a user typing at a
+# terminal actually wants, hence "I have to manually run bash". This is what
+# foot spawns its terminal shell from; check /bin/bash directly instead of
+# re-deriving it from a field that's unreliable for this specific purpose.
+if [ -x /bin/bash ]; then
+    export SHELL=/bin/bash
+elif [ -n "$PW_LINE" ]; then
+    PW_SHELL="$(printf '%s' "$PW_LINE" | cut -d: -f7)"
+    [ -n "$PW_SHELL" ] && export SHELL="$PW_SHELL"
+fi
 export WLR_BACKENDS=headless
 export WLR_LIBINPUT_NO_DEVICES=1
 # There's no real GPU/DRM device here (matches labwc's own harmless
@@ -127,30 +180,29 @@ trap cleanup TERM INT HUP EXIT
 DEBUG_LOG="${ISH_DISPLAY_DEBUG_LOG:-/tmp/ish-wayland-debug.log}"
 : > "$DEBUG_LOG"
 
-# Seed a minimal-but-useful labwc config. Without this, labwc falls back to
-# its compiled-in root menu, which is just "Reconfigure"/"Exit" and gives no
-# way to launch anything beyond the one foot window this script starts. The
-# "Applications" entry is a labwc pipemenu -- labwc runs list-apps.sh and
-# expects an <openbox_pipe_menu> XML fragment on stdout, regenerated every
-# time that submenu opens -- so whatever gets apt-installed later shows up
-# automatically, no menu.xml edits needed.
-if [ "$COMPOSITOR_CMD" = "labwc" ]; then
-    mkdir -p "$HOME/.config/labwc"
-    # Regenerated on every session start (not gated on "doesn't already
-    # exist" like menu.xml below) -- it's a generated helper, not something
-    # a user would hand-edit, and it needs to actually pick up fixes. A
-    # single awk pass per .desktop file replaces what used to be ~9 forked
-    # subprocesses per file (grep/cut/sed chained several times over) --
-    # spawning that many processes per file was slow enough on its own to
-    # make the menu look empty/unresponsive (labwc giving up on a pipemenu
-    # that takes too long), and the resulting burst of rapid fork/exit/
-    # SIGCHLD activity is also the likely trigger for a separate lock-
-    # contention issue observed in the emulator's own signal/poll code when
-    # this menu was opened -- worth its own investigation, but cutting the
-    # process count this much should avoid triggering it in the first place.
-    cat > "$HOME/.config/labwc/list-apps.sh" <<'LIST_APPS_EOF'
+# Seed a minimal sway config + a wofi-driven app launcher, for anyone who
+# sets WAYLAND_COMPOSITOR_CMD=sway instead of the labwc default below. sway
+# has no menu system at all; everything is a keybinding, dispatched straight
+# to sway's own IPC socket instead of round-tripping through a spawned
+# XML-emitting subprocess whose output gets parsed at click time -- useful
+# if labwc's menu ever regresses again, but it also tiles by default (every
+# window fullscreen until floated), which is why labwc is the default now.
+# $mod is Alt (Mod1): Control has to stay free for in-terminal Ctrl combos
+# (Ctrl+C etc.), so a window-manager modifier that also used Control would
+# collide with those.
+if [ "$COMPOSITOR_CMD" = "sway" ]; then
+    mkdir -p "$HOME/.config/sway"
+    # Regenerated every session start, like list-apps.sh below -- it's a
+    # generated helper, not something a user would hand-edit. Builds a
+    # Name\tExec map from the same apt-installed .desktop files (single awk
+    # pass per file, no XML escaping needed since wofi's dmenu mode is just
+    # plain-text lines in and a plain-text choice out).
+    cat > "$HOME/.config/sway/app-launcher.sh" <<'APP_LAUNCHER_EOF'
 #!/bin/sh
-echo '<openbox_pipe_menu>'
+set -u
+MAP_FILE="$(mktemp)"
+trap 'rm -f "$MAP_FILE"' EXIT INT TERM
+
 for f in /usr/share/applications/*.desktop; do
     [ -f "$f" ] || continue
     awk '
@@ -161,12 +213,140 @@ for f in /usr/share/applications/*.desktop; do
         END {
             if (hidden || name == "" || execline == "") exit
             gsub(/%[a-zA-Z]/, "", execline)
-            gsub(/&/, "\\&amp;", name); gsub(/</, "\\&lt;", name); gsub(/>/, "\\&gt;", name)
-            gsub(/&/, "\\&amp;", execline); gsub(/</, "\\&lt;", execline); gsub(/>/, "\\&gt;", execline)
-            printf "<item label=\"%s\"><action name=\"Execute\"><command>%s</command></action></item>\n", name, execline
+            printf "%s\t%s\n", name, execline
         }
-    ' "$f"
+    ' "$f" >> "$MAP_FILE"
 done
+
+[ -s "$MAP_FILE" ] || exit 0
+
+chosen_name="$(cut -f1 "$MAP_FILE" | wofi --show dmenu --prompt Applications)"
+[ -n "$chosen_name" ] || exit 0
+
+exec_line="$(awk -F'\t' -v name="$chosen_name" '$1 == name { print $2; exit }' "$MAP_FILE")"
+[ -n "$exec_line" ] || exit 0
+
+exec sh -c "$exec_line"
+APP_LAUNCHER_EOF
+    chmod +x "$HOME/.config/sway/app-launcher.sh"
+fi
+if [ "$COMPOSITOR_CMD" = "sway" ] && [ ! -f "$HOME/.config/sway/config" ]; then
+    cat > "$HOME/.config/sway/config" <<SWAY_CONFIG_EOF
+# Generated by start-wayland.sh (first run only -- hand edits are preserved
+# on later sessions since this file is only seeded when missing).
+set \$mod Mod1
+
+# No bar: single-output headless desktop, nothing to show a taskbar for,
+# and it avoids needing i3status/swaybar installed at all.
+
+# Unlike labwc, sway does not auto-enable a headless output that has no
+# matching config: confirmed on-device, sway logged "Could not find config
+# for output HEADLESS-1" and then never created wayland-0 at all (our own
+# 10s startup timeout was what actually killed the session, not sway
+# itself dying). The wildcard matches whatever wlroots names the sole
+# headless output, so this doesn't depend on that name staying "HEADLESS-1"
+# across wlroots/sway versions. 1280x720 matches wlroots' headless-backend
+# default, i.e. no different from what labwc got for free.
+output * mode 1280x720
+
+# sway tiles by default (i3-style): with only one window open, a tiling
+# layout stretches it to fill the entire output -- confirmed on-device,
+# foot opened full-screen with no way to resize it. labwc was a floating
+# compositor (normal desktop-style windows), so this is a real paradigm
+# difference, not a bug. Float everything instead so windows open at their
+# own natural/preferred size and get a draggable border for resizing.
+# Deliberately NOT relying on floating_modifier+drag (the usual i3/sway
+# way to move/resize by holding \$mod anywhere on the window) -- there's no
+# way to forward "hold Alt continuously while touch-dragging" through this
+# applet's input model (Alt is only ever sent as part of one atomic
+# UIKeyCommand action, never as a held state alongside a separate pointer
+# gesture) -- so plain border-dragging, which needs no modifier at all, is
+# what actually has to work here.
+for_window [app_id=".*"] floating enable
+for_window [class=".*"] floating enable
+
+bindsym \$mod+Return exec foot
+bindsym \$mod+d exec $HOME/.config/sway/app-launcher.sh
+bindsym \$mod+Shift+q kill
+bindsym \$mod+Shift+r reload
+# No confirmation dialog (sway's default binds this through swaynag) --
+# keeps it a single reliable keypress instead of needing a second,
+# precisely-targeted click on a popup over VNC.
+bindsym \$mod+Shift+e exec swaymsg exit
+SWAY_CONFIG_EOF
+fi
+
+# Seed labwc's setup: without this, labwc falls back to its compiled-in
+# root menu, which is just "Reconfigure"/"Exit" and gives no way to launch
+# anything beyond the one foot window this script starts. The
+# "Applications" entry is a labwc pipemenu -- labwc runs list-apps.sh and
+# expects an <openbox_pipe_menu> XML fragment on stdout, regenerated every
+# time that submenu opens -- so whatever gets apt-installed later shows up
+# automatically, no menu.xml edits needed.
+#
+# Root-caused on-device (m4pt, /tmp/ish-wayland-debug.log): labwc enforces a
+# hard PIPEMENU_TIMEOUT_IN_MS of 4000ms (src/menu/menu.c upstream) and kills
+# the pipemenu process if it's not done by then -- "[pipemenu N] timeout
+# reached, killing list-apps.sh". The one-awk-process-per-.desktop-file
+# version (already a big improvement over the original ~9-forks-per-file
+# version, and what fixed a real kernel signal/poll deadlock its fork/exit
+# burst triggered, see project memory project_signalfd_sighand_poll_
+# deadlock.md) still ran fine standalone (~0.35s for 11 files) but
+# apparently not always fast enough once labwc's own event loop is also
+# busy servicing the click that opened the menu. A single awk invocation
+# processing every .desktop file in one pass (FNR==1 marks a new file,
+# flushing the previous one's entry) cuts this to exactly one `sh` + one
+# `awk` process total regardless of app count, measured at ~0.065s for the
+# same 11 files (~5x faster, far more consistent run to run) -- comfortably
+# inside the timeout even under load. Also switched Execute's command from
+# a nested <command> child element to the command="" attribute form, matching
+# every example in labwc's own docs (both plain and forms of "&", "<", ">",
+# and now quote marks too need escaping in attribute values, unlike element
+# text).
+#
+# Also root-caused on-device: btop/htop/neovim/mc/mcedit installed but not
+# launching from the menu at all. Their .desktop files (unlike foot's) all
+# declare Terminal=true -- the freedesktop spec's way of saying "this is a
+# TUI app, wrap it in a terminal emulator before running it", since a bare
+# curses/ncurses program has no pty/window of its own to render into.
+# list-apps.sh was ignoring that field entirely and running the raw Exec=
+# command directly, so anything with Terminal=true silently did nothing
+# (no error, no output, since there was no terminal for one to appear in).
+# Fixed by parsing Terminal=true and prefixing "foot " onto the command in
+# that case; confirmed on-device that `foot btop` spawns a real foot window
+# with btop correctly attached to its own pty.
+if [ "$COMPOSITOR_CMD" = "labwc" ]; then
+    mkdir -p "$HOME/.config/labwc"
+    # Regenerated on every session start (not gated on "doesn't already
+    # exist" like menu.xml below) -- it's a generated helper, not something
+    # a user would hand-edit, and it needs to actually pick up fixes.
+    cat > "$HOME/.config/labwc/list-apps.sh" <<'LIST_APPS_EOF'
+#!/bin/sh
+set -- /usr/share/applications/*.desktop
+echo '<openbox_pipe_menu>'
+if [ -e "$1" ]; then
+    awk '
+        function emit() {
+            gsub(/%[a-zA-Z]/, "", execline)
+            if (terminal == "true") execline = "foot " execline
+            gsub(/&/, "\\&amp;", name); gsub(/</, "\\&lt;", name); gsub(/>/, "\\&gt;", name); gsub(/"/, "\\&quot;", name)
+            gsub(/&/, "\\&amp;", execline); gsub(/</, "\\&lt;", execline); gsub(/>/, "\\&gt;", execline); gsub(/"/, "\\&quot;", execline)
+            printf "<item label=\"%s\"><action name=\"Execute\" command=\"%s\"/></item>\n", name, execline
+        }
+        FNR == 1 {
+            if (!hidden && name != "" && execline != "") emit()
+            hidden = 0; name = ""; execline = ""; terminal = ""
+        }
+        /^NoDisplay=true/ { hidden = 1 }
+        /^Hidden=true/ { hidden = 1 }
+        /^Name=/ && name == "" { name = substr($0, 6) }
+        /^Exec=/ && execline == "" { execline = substr($0, 6) }
+        /^Terminal=true/ { terminal = "true" }
+        END {
+            if (!hidden && name != "" && execline != "") emit()
+        }
+    ' "$@"
+fi
 echo '</openbox_pipe_menu>'
 LIST_APPS_EOF
     chmod +x "$HOME/.config/labwc/list-apps.sh"
@@ -193,20 +373,133 @@ if [ "$COMPOSITOR_CMD" = "labwc" ] && [ ! -f "$HOME/.config/labwc/menu.xml" ]; t
 MENU_EOF
 fi
 
+# labwc's stock look is plain gray -- give it a theme instead, in the same
+# dark/mint palette as the app's own Workspace "Graphite" theme (see
+# ISHWorkspaceBuiltInThemePalette in WorkspaceViewController.m) so the
+# Display applet's windows and menu feel like part of the same app rather
+# than a bare stock Linux desktop dropped in unstyled. labwc reads themes
+# via the same lookup XDG-desktop themes use (openbox-compatible themerc
+# format): $XDG_DATA_HOME/themes/<name>/openbox-3/themerc, referenced by
+# name from rc.xml's <theme> below. Unrecognized/misspelled keys are just
+# ignored by labwc rather than failing to parse, so this is low-risk to
+# get slightly wrong.
+if [ "$COMPOSITOR_CMD" = "labwc" ] && [ ! -f "$HOME/.local/share/themes/iSH-Workspace/openbox-3/themerc" ]; then
+    mkdir -p "$HOME/.local/share/themes/iSH-Workspace/openbox-3"
+    cat > "$HOME/.local/share/themes/iSH-Workspace/openbox-3/themerc" <<'THEMERC_EOF'
+window.active.title.bg.color: #2C374C
+window.active.label.text.color: #F0F4FF
+window.active.border.color: #70E8CC
+window.active.button.unpressed.fg.color: #F0F4FF
+window.active.border.width: 2
+window.inactive.title.bg.color: #1A2232
+window.inactive.label.text.color: #B6C2DA
+window.inactive.border.color: #1A2232
+window.inactive.button.unpressed.fg.color: #B6C2DA
+window.inactive.border.width: 1
+menu.items.bg.color: #0F1420
+menu.items.text.color: #F0F4FF
+menu.items.active.bg.color: #2C374C
+menu.items.active.text.color: #70E8CC
+menu.title.bg.color: #2C374C
+menu.title.text.color: #F0F4FF
+menu.border.color: #70E8CC
+menu.border.width: 1
+THEMERC_EOF
+fi
+
+# rc.xml: without this, labwc runs on its compiled-in defaults (fine, but
+# gives up the theme above -- it's only referenced here -- and there's no
+# keyboard equivalent of the menu actions, matching what sway's Alt
+# keybindings already gave that setup). Alt+Return/Tab/Shift+Q/Shift+R/
+# Shift+E mirror the same actions the right-click menu already offers,
+# using the same Alt-based scheme DisplayRFBView.m forwards (Control stays
+# free for in-terminal Ctrl combos).
+if [ "$COMPOSITOR_CMD" = "labwc" ] && [ ! -f "$HOME/.config/labwc/rc.xml" ]; then
+    cat > "$HOME/.config/labwc/rc.xml" <<'RC_XML_EOF'
+<?xml version="1.0"?>
+<labwc_config>
+  <theme>
+    <name>iSH-Workspace</name>
+  </theme>
+  <keyboard>
+    <keybind key="A-Return">
+      <action name="Execute"><command>foot</command></action>
+    </keybind>
+    <keybind key="A-Tab">
+      <action name="NextWindow"/>
+    </keybind>
+    <keybind key="A-S-q">
+      <action name="Close"/>
+    </keybind>
+    <keybind key="A-S-r">
+      <action name="Reconfigure"/>
+    </keybind>
+    <keybind key="A-S-e">
+      <action name="Exit"/>
+    </keybind>
+  </keyboard>
+</labwc_config>
+RC_XML_EOF
+fi
+
+# Captures the PID of the actual program, not a `cmd | tee` pipeline's last
+# stage -- verified empirically: `$!` after `cmd | tee &` is tee's pid in
+# both bash and dash, and killing that pid does NOT kill `cmd` (it keeps
+# running with its output silently discarded once tee's read end closes).
+# cleanup() below relies on COMPOSITOR_PID/WAYVNC_PID/FOOT_PID actually
+# being the real processes to signal them -- with the old `| tee` pipeline
+# form, `kill "$COMPOSITOR_PID"` was killing tee, not the compositor, and
+# whether the compositor happened to exit anyway depended on it dying from
+# the broken pipe (SIGPIPE) or the pty hangup's SIGHUP reaching the whole
+# process group by luck -- which apparently differs between labwc and sway,
+# since this surfaced as Reconnect/reopen hanging or racing a still-alive
+# stale session only after the switch to sway. Routing each process's
+# output through its own named FIFO into a separate `tee` reader instead
+# means `$!` right after launching the real command (no pipe on that line)
+# is correct, fixing this deterministically for every compositor, not just
+# whichever one happens to die from a broken pipe. Must be called directly
+# (not via `$(...)`), which would put the backgrounded jobs in a subshell
+# and reparent them away before this script's own `wait` calls can see them.
+# Sets $SPAWN_PID for the caller to read immediately after the call.
+spawn_logged() {
+    name="$1"; shift
+    fifo="$XDG_RUNTIME_DIR/$name.fifo"
+    rm -f "$fifo"
+    mkfifo "$fifo"
+    tee -a "$DEBUG_LOG" >&2 < "$fifo" &
+    "$@" > "$fifo" 2>&1 &
+    SPAWN_PID=$!
+}
+
 log "starting $COMPOSITOR_CMD (headless)"
-$COMPOSITOR_CMD 2>&1 | tee -a "$DEBUG_LOG" >&2 &
-COMPOSITOR_PID=$!
+spawn_logged compositor $COMPOSITOR_CMD
+COMPOSITOR_PID=$SPAWN_PID
 
 # Wait for the compositor to create its Wayland socket rather than a fixed
 # sleep -- labwc under JIT on a loaded device can take longer than the ~1s
-# it takes on a native host.
+# it takes on a native host. Discover the actual socket name instead of
+# assuming "wayland-0": confirmed on-device (sway 1.10.1) a compositor that
+# started and ran perfectly healthy can still name its socket "wayland-1" --
+# wl_display_add_socket_auto() increments past "wayland-0" if it can't bind
+# that specific name for any reason (even just a stale leftover socket file
+# with no live listener), and there's no guarantee it won't happen here too.
+# Hardcoding "wayland-0" made this loop wait forever for a file that was
+# never going to appear and time out declaring a running compositor "dead".
 i=0
-while [ ! -S "$XDG_RUNTIME_DIR/wayland-0" ] && [ $i -lt 100 ]; do
+WAYLAND_SOCKET_NAME=""
+while [ -z "$WAYLAND_SOCKET_NAME" ] && [ $i -lt 100 ]; do
     kill -0 "$COMPOSITOR_PID" 2>/dev/null || die "$COMPOSITOR_CMD exited before creating its Wayland socket -- see $DEBUG_LOG"
+    for candidate in "$XDG_RUNTIME_DIR"/wayland-*; do
+        [ -S "$candidate" ] || continue
+        WAYLAND_SOCKET_NAME=$(basename "$candidate")
+        break
+    done
+    [ -n "$WAYLAND_SOCKET_NAME" ] && break
     sleep 0.1
     i=$((i + 1))
 done
-[ -S "$XDG_RUNTIME_DIR/wayland-0" ] || die "$COMPOSITOR_CMD did not create wayland-0 within 10s"
+[ -n "$WAYLAND_SOCKET_NAME" ] || die "$COMPOSITOR_CMD did not create a wayland-* socket within 10s"
+export WAYLAND_DISPLAY="$WAYLAND_SOCKET_NAME"
 
 # The socket *file* existing doesn't mean labwc's event loop is actually
 # accepting Wayland client connections yet -- observed on-device: wayvnc
@@ -238,8 +531,8 @@ hex_port=$(printf '%04X' "$WAYVNC_PORT")
 wayvnc_attempt=1
 while true; do
     log "starting wayvnc on :$WAYVNC_PORT (attempt $wayvnc_attempt)"
-    WAYLAND_DISPLAY=wayland-0 wayvnc 127.0.0.1 "$WAYVNC_PORT" 2>&1 | tee -a "$DEBUG_LOG" >&2 &
-    WAYVNC_PID=$!
+    spawn_logged "wayvnc-attempt$wayvnc_attempt" wayvnc 127.0.0.1 "$WAYVNC_PORT"
+    WAYVNC_PID=$SPAWN_PID
 
     # Confirm wayvnc is both still alive AND actually bound/listening before
     # declaring ready -- checking liveness alone races wayvnc's own startup:
@@ -275,8 +568,8 @@ while true; do
     sleep 0.3
 done
 log "starting foot"
-WAYLAND_DISPLAY=wayland-0 foot 2>&1 | tee -a "$DEBUG_LOG" >&2 &
-FOOT_PID=$!
+spawn_logged foot foot
+FOOT_PID=$SPAWN_PID
 # foot isn't load-bearing for the applet's own readiness (wayvnc is what the
 # bridge connects to), but a foot that dies immediately even at this
 # already-proven-ready point is a strong signal something is wrong with the
