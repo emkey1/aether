@@ -81,6 +81,20 @@ int generic_mkdirat(struct fd *at, const char *path, mode_t_ mode);
 
 int access_check(struct statbuf *stat, int check);
 
+// iSH-internal mount flag, NOT part of the guest mount(2) ABI. fs/mount.c's
+// sys_mount masks incoming guest flags to MS_FLAGS before calling do_mount(),
+// so a guest process can never set or clear this bit; only native do_mount()
+// callers (see app/AppDelegate.m) do. Marks a realfs mount whose backing
+// directory is a single app-owned host area shared by every guest uid (e.g.
+// /AOK/persist, /AOK/roots) rather than a real multi-user filesystem: every
+// file in it is always owned, at the host layer, by the app's own real uid
+// regardless of which guest uid nominally created it, so iSH's normal
+// owner-vs-other permission model (kernel/fs.c:access_check) can never see
+// the guest uid as "owner" and falls back to the (usually non-writable)
+// "other" bits. realfs_open/realfs_mkdir/realfs_mknod force newly created
+// nodes world-writable under this flag so every guest uid keeps working.
+#define MOUNT_ISH_SHARED_ (1 << 30)
+
 struct mount {
     const char *point;
     size_t point_len;

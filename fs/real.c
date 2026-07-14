@@ -425,6 +425,8 @@ static int open_flags_fake_from_real(int flags) {
 
 struct fd *realfs_open(struct mount *mount, const char *path, int flags, int mode) {
     int real_flags = open_flags_real_from_fake(flags);
+    if ((flags & O_CREAT_) && (mount->flags & MOUNT_ISH_SHARED_))
+        mode |= 0666;
     int fd_no = openat(mount->root_fd, fix_path(path), real_flags, mode);
     if (fd_no < 0) {
         realfs_trace_path_event("open", path, -1, flags);
@@ -903,12 +905,15 @@ int realfs_symlink(struct mount *mount, const char *target, const char *link) {
 
 int realfs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev_t_ UNUSED(dev)) {
     int err;
+    mode_t_ perm = mode & ~S_IFMT;
+    if (mount->flags & MOUNT_ISH_SHARED_)
+        perm |= 0666;
     if (S_ISFIFO(mode)) {
         lock_fchdir(mount->root_fd);
-        err = mkfifo(fix_path(path), mode & ~S_IFMT);
+        err = mkfifo(fix_path(path), perm);
         unlock_fchdir();
     } else if (S_ISREG(mode)) {
-        err = openat(mount->root_fd, fix_path(path), O_CREAT|O_EXCL|O_RDONLY, mode & ~S_IFMT);
+        err = openat(mount->root_fd, fix_path(path), O_CREAT|O_EXCL|O_RDONLY, perm);
         if (err >= 0)
             err = close(err);
     } else {
@@ -1000,6 +1005,8 @@ int realfs_futime(struct fd *fd, struct timespec atime, struct timespec mtime) {
 }
 
 int realfs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
+    if (mount->flags & MOUNT_ISH_SHARED_)
+        mode |= 0777;
     int err = mkdirat(mount->root_fd, fix_path(path), mode);
     if (err < 0)
         return errno_map();
