@@ -143,7 +143,19 @@ static int proc_net_socket_push(struct proc_net_socket_entry *entries, struct fd
 
 static struct fdtable *proc_net_task_files_retain(struct task *task) {
     struct fdtable *files = NULL;
-    lock(&task->general_lock, 0);
+    // trylock, not lock: task_snapshot_collect() only checks task->exiting at
+    // snapshot time, so a task in this snapshot can start exiting before this
+    // loop reaches it. do_exit() then holds general_lock while it waits for
+    // exit_wait_needed() to clear -- which won't happen until this snapshot's
+    // own reference on the task is dropped by task_snapshot_release(), at the
+    // end of the caller's loop. A blocking lock() here would wait forever for
+    // a lock that can't be released until this very call returns -- the same
+    // deadlock class fixed in fs/proc/root.c's collect_mem_page_stats(), and
+    // the same trylock-and-skip fallback proc_entry_stat() already uses: a
+    // task we can't immediately lock is mid-exit and about to disappear, so
+    // treating it as having no open files for this snapshot is harmless.
+    if (trylock(&task->general_lock) != 0)
+        return NULL;
     if (task->files != NULL)
         files = fdtable_retain(task->files);
     unlock(&task->general_lock);

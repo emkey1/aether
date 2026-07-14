@@ -354,7 +354,26 @@ static void collect_mem_page_stats(struct mem_page_class_totals *out) {
 
     for (unsigned i = 0; i < snapshot.count; i++) {
         struct task *task = snapshot.tasks[i];
-        lock(&task->general_lock, 0);
+        // task_snapshot_collect() only checks task->exiting at snapshot time
+        // (under pids_lock, skipping tasks already exiting then) -- it can't
+        // stop a task from starting to exit afterward, while this loop is
+        // still working through the rest of the snapshot. If that happens,
+        // do_exit() sets task->exiting, locks general_lock, and then waits
+        // for exit_wait_needed() to clear -- which this snapshot's own
+        // reference (task_snapshot_collect's task_ref_cnt_mod(task, 1)) keeps
+        // from ever being true, since it isn't dropped until
+        // task_snapshot_release() at the end of this function. A blocking
+        // lock() here would then wait forever for a general_lock that will
+        // never be released until this very call finishes -- a genuine
+        // deadlock, not just contention (confirmed via a live sample: a
+        // /proc/meminfo reader stuck in mylock() here while the task it was
+        // locking sat in do_exit's exit_wait_backoff loop). Use the same
+        // trylock-and-skip pattern proc_entry_stat() already uses for this
+        // exact class of race: a task we can't immediately lock is mid-exit
+        // and about to disappear, so skipping its contribution to the totals
+        // is harmless.
+        if (trylock(&task->general_lock) != 0)
+            continue;
         struct mm *mm = task->mm;
         if (mm != NULL)
             mm_retain(mm);
