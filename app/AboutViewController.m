@@ -101,7 +101,7 @@ UINavigationController *ISHCreateAboutNavigationController(BOOL recoveryMode, BO
 @interface DiagnosticsViewController : UIViewController
 @end
 
-@interface LLMClientViewController : UIViewController <UITextFieldDelegate, UITableViewDataSource, UITableViewDelegate>
+@interface LLMClientViewController : UIViewController <UITextViewDelegate, UITableViewDataSource, UITableViewDelegate>
 
 @property (nonatomic, copy) NSString *initialPrompt;
 
@@ -1324,12 +1324,15 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 
 @end
 
+static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
+
 @implementation LLMClientViewController {
     UIStackView *_toolbarStackView;
     UITableView *_transcriptTable;
     NSArray<NSNumber *> *_visibleMessageIndices; // indices into _messages, skipping role=="tool"
     UILabel *_emptyStateLabel; // shown over the table when there's nothing to display yet
-    UITextField *_promptField;
+    UITextView *_promptField;
+    UILabel *_promptPlaceholderLabel; // UITextView has no built-in placeholder
     UIButton *_sendButton;
     NSMutableArray<NSDictionary<NSString *, id> *> *_messages;
     NSURLSessionDataTask *_activeTask;
@@ -1389,15 +1392,37 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     inputBar.translatesAutoresizingMaskIntoConstraints = NO;
     [self.view addSubview:inputBar];
 
-    _promptField = [UITextField new];
+    // Multi-line, word-wrapping, auto-growing composer (capped, then scrolls
+    // internally) -- Return/Shift+Return insert a newline like any text
+    // view; only the Send button submits.
+    _promptField = [UITextView new];
     _promptField.translatesAutoresizingMaskIntoConstraints = NO;
-    _promptField.borderStyle = UITextBorderStyleRoundedRect;
-    _promptField.placeholder = @"Ask the configured model";
-    _promptField.returnKeyType = UIReturnKeySend;
+    _promptField.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
+    _promptField.textContainerInset = UIEdgeInsetsMake(8.0, 6.0, 8.0, 6.0);
+    _promptField.scrollEnabled = NO; // NO lets intrinsicContentSize drive auto-grow below the max-height cap
+    _promptField.layer.cornerRadius = 8.0;
     _promptField.autocorrectionType = UITextAutocorrectionTypeDefault;
     _promptField.delegate = self;
     _promptField.accessibilityLabel = @"Prompt input";
+    if (@available(iOS 13.0, *)) {
+        _promptField.backgroundColor = UIColor.tertiarySystemFillColor;
+    } else {
+        _promptField.backgroundColor = [UIColor colorWithWhite:0.93 alpha:1.0];
+    }
     [inputBar addSubview:_promptField];
+
+    _promptPlaceholderLabel = [UILabel new];
+    _promptPlaceholderLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    _promptPlaceholderLabel.text = @"Ask the configured model";
+    _promptPlaceholderLabel.font = _promptField.font;
+    _promptPlaceholderLabel.isAccessibilityElement = NO;
+    _promptPlaceholderLabel.userInteractionEnabled = NO;
+    if (@available(iOS 13.0, *)) {
+        _promptPlaceholderLabel.textColor = UIColor.placeholderTextColor;
+    } else {
+        _promptPlaceholderLabel.textColor = [UIColor colorWithWhite:0.0 alpha:0.3];
+    }
+    [_promptField addSubview:_promptPlaceholderLabel];
 
     _sendButton = [UIButton buttonWithType:UIButtonTypeSystem];
     _sendButton.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1483,16 +1508,24 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         [_promptField.leadingAnchor constraintEqualToAnchor:inputBar.leadingAnchor],
         [_promptField.topAnchor constraintEqualToAnchor:inputBar.topAnchor constant:4.0],
         [_promptField.bottomAnchor constraintEqualToAnchor:inputBar.bottomAnchor constant:-4.0],
+        [_promptField.heightAnchor constraintGreaterThanOrEqualToConstant:36.0],
+        [_promptField.heightAnchor constraintLessThanOrEqualToConstant:kISHLLMPromptFieldMaxHeight],
         [_sendButton.leadingAnchor constraintEqualToAnchor:_promptField.trailingAnchor constant:8.0],
         [_sendButton.trailingAnchor constraintEqualToAnchor:inputBar.trailingAnchor],
         [_sendButton.centerYAnchor constraintEqualToAnchor:_promptField.centerYAnchor],
         [_sendButton.widthAnchor constraintEqualToConstant:56.0],
+
+        [_promptPlaceholderLabel.topAnchor constraintEqualToAnchor:_promptField.topAnchor constant:8.0],
+        [_promptPlaceholderLabel.leadingAnchor constraintEqualToAnchor:_promptField.leadingAnchor constant:10.0],
+        [_promptPlaceholderLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_promptField.trailingAnchor constant:-10.0],
     ]];
 
     [self refreshTranscript];
     [self setStatus:[self idleStatusText] busy:NO];
-    if (self.initialPrompt.length > 0)
-        _promptField.text = self.initialPrompt;
+    if (self.initialPrompt.length > 0) {
+        [self.view layoutIfNeeded]; // give _promptField a real width before sizing it to this initial text
+        [self setPromptFieldText:self.initialPrompt];
+    }
 }
 
 - (void)dealloc {
@@ -1516,10 +1549,32 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     }
 }
 
+// This is also the only "start a new session" affordance: every backend is
+// effectively stateless per call (a fresh NSURLSession request, or a fresh
+// LanguageModelSession for Apple Foundation Models -- see
+// -appleFoundationModelsPromptWithHistory), and reconstructs its notion of
+// the conversation from _messages each time. Emptying it -- plus cancelling
+// anything in flight and dropping the per-chat approvals/guest-probe cache
+// below -- is a genuine clean slate, not just a visual clear.
 - (void)clearTranscript:(id)sender {
     (void) sender;
+    // Cancel anything in flight directly rather than via -stopGenerating: --
+    // that sets _cancelled=YES for a completion handler to consume and reset;
+    // with nothing in flight to call one, it would stick and wrongly mark
+    // the *next* reply as user-cancelled.
+    [_activeTask cancel];
+    if (_activeStreamFD > 0)
+        shutdown(_activeStreamFD, SHUT_RDWR);
+#if __has_include("libiSH_AOKApp-Swift.h")
+    [AOKFoundationModelsBridge cancelActiveRequest];
+#endif
+    _cancelled = NO;
+    [self setSending:NO];
     [_messages removeAllObjects];
     _autoRunCommandsThisChat = NO; // a fresh chat re-arms per-command confirmation
+    _autoRunCommandsThisReply = NO;
+    [_commandDecisionsThisReply removeAllObjects];
+    _guestEnvironmentNote = nil; // re-probe the guest on the next tool-enabled reply
     [self saveTranscript];
     [self refreshTranscript];
 }
@@ -1617,7 +1672,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     ];
     for (NSDictionary<NSString *, NSString *> *descriptor in actions) {
         [alert addAction:[UIAlertAction actionWithTitle:descriptor[@"title"] style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-            self->_promptField.text = [self terminalContextPromptWithInstruction:descriptor[@"instruction"]];
+            [self setPromptFieldText:[self terminalContextPromptWithInstruction:descriptor[@"instruction"]]];
         }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"Load Prompt Template" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
@@ -1639,7 +1694,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         [alert addAction:[UIAlertAction actionWithTitle:fileURL.lastPathComponent style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             NSString *template = [NSString stringWithContentsOfURL:fileURL encoding:NSUTF8StringEncoding error:nil];
             if (template.length > 0)
-                self->_promptField.text = template;
+                [self setPromptFieldText:template];
         }]];
     }
     [alert addAction:[UIAlertAction actionWithTitle:@"Create Examples" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
@@ -1856,7 +1911,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 
 - (void)setSending:(BOOL)sending {
     _sendButton.enabled = YES; // stays tappable while sending -- it becomes Stop
-    _promptField.enabled = !sending;
+    _promptField.editable = !sending;
     [_sendButton setTitle:(sending ? @"Stop" : @"Send") forState:UIControlStateNormal];
     _sendButton.accessibilityLabel = sending ? @"Stop generating" : @"Send";
     [_sendButton removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside];
@@ -2360,19 +2415,19 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     if (prompt.length == 0)
         return;
     if ([prompt isEqualToString:@"/models"]) {
-        _promptField.text = @"";
+        [self setPromptFieldText:@""];
         [self appendLocalRole:@"user" content:prompt];
         [self queryModelsInTranscript];
         return;
     }
     if ([prompt isEqualToString:@"/model"] || [prompt hasPrefix:@"/model "]) {
-        _promptField.text = @"";
+        [self setPromptFieldText:@""];
         [self appendLocalRole:@"user" content:prompt];
         [self setAndLoadModelFromCommand:prompt];
         return;
     }
     if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels) {
-        _promptField.text = @"";
+        [self setPromptFieldText:@""];
         [self appendRole:@"user" content:prompt];
         [self sendPromptToAppleFoundationModels:prompt];
         return;
@@ -2388,7 +2443,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
         return;
     }
 
-    _promptField.text = @"";
+    [self setPromptFieldText:@""];
     [self appendRole:@"user" content:prompt];
     [self setSending:YES];
 
@@ -2538,10 +2593,27 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     [_activeTask resume];
 }
 
-- (BOOL)textFieldShouldReturn:(UITextField *)textField {
-    (void) textField;
-    [self sendPrompt:nil];
-    return YES;
+// Only the Send button sends; Return (and Shift+Return, which iOS reports
+// identically to plain Return -- there's no separate "shift" signal for a
+// software or hardware Return key here) just inserts a newline, which is
+// UITextView's default behavior, so there's nothing to intercept.
+- (void)textViewDidChange:(UITextView *)textView {
+    if (textView == _promptField)
+        [self promptFieldTextDidChange];
+}
+
+// Also called after every programmatic _promptField.text assignment (prompt
+// templates, terminal-context actions, clearing after send), since
+// -textViewDidChange: only fires for user-driven edits.
+- (void)promptFieldTextDidChange {
+    _promptPlaceholderLabel.hidden = _promptField.text.length > 0;
+    CGSize fitSize = [_promptField sizeThatFits:CGSizeMake(_promptField.bounds.size.width, CGFLOAT_MAX)];
+    _promptField.scrollEnabled = fitSize.height > kISHLLMPromptFieldMaxHeight;
+}
+
+- (void)setPromptFieldText:(NSString *)text {
+    _promptField.text = text ?: @"";
+    [self promptFieldTextDidChange];
 }
 
 // MARK: - Guest-shell tool loop
