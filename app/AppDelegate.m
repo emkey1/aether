@@ -1338,6 +1338,33 @@ static void ProvisionGuestHostFiles(void) {
     EnsureDirectory("/etc", 0755);
     EnsureRegularFileNonEmpty("/etc/hostname", "localhost\n", 0644);
     EnsureRegularFileNonEmpty("/etc/hosts", "127.0.0.1\tlocalhost\n127.0.1.1\tlocalhost\n", 0644);
+
+    // Seed the kernel hostname from /etc/hostname right now instead of
+    // waiting for the guest's own hostname.sh, which runs a minute or more
+    // into an emulated boot. Anything started before that -- most visibly a
+    // Wayland-applet foot shell, whose bash samples the hostname exactly
+    // once at startup for PS1's \h -- otherwise bakes the host fallback
+    // ("localhost") into its prompt for the life of the shell, while a
+    // Workspace Terminal opened after boot shows the real name: two shells
+    // on one rootfs apparently disagreeing about the hostname. The guest's
+    // later sethostname simply re-sets the same value. The app-store
+    // screenshot hostnameOverride (set before boot, in didFinishLaunching)
+    // keeps precedence: only seed when nothing has set the override yet.
+    extern const char *uname_hostname_override;
+    if (uname_hostname_override == NULL) {
+        struct fd *fd = generic_open("/etc/hostname", O_RDONLY_, 0);
+        if (!IS_ERR(fd)) {
+            char buf[256];
+            ssize_t n = fd->ops->read(fd, buf, sizeof(buf) - 1);
+            fd_close(fd);
+            if (n > 0) {
+                buf[n] = '\0';
+                buf[strcspn(buf, "\r\n")] = '\0';
+                if (buf[0] != '\0' && buf[0] != '#')
+                    uname_hostname_override = strdup(buf);
+            }
+        }
+    }
 }
 
 static int EnsureSymlink(const char *path, const char *target) {
