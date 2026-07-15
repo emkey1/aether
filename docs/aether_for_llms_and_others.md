@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-09-1*
+*Guide version: 2026-07-15-2*
 Aether is a compact front end for the PSCAL suite. It targets the existing
 shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
@@ -569,6 +569,13 @@ force a real result:
 ```aether
 let successRate: Real = successful * 100.0 / total;
 ```
+
+The integer-style result applies through every `Int`-typed sink — a
+`let m: Int = ...` binding, record fields, array elements, `Int` parameters,
+and (since 2026-07-15-2) a `-> Int` function's `ret`, so
+`fn mean(...) -> Int { ret sum / n; }` returns a truncated `Int`, not a
+`Real`. Only a division printed directly with no typed sink anywhere (e.g.
+`println(7 / 2)`) shows the underlying real result (`3.500000`).
 
 ## Math builtins
 

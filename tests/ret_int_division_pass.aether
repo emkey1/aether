@@ -1,0 +1,23 @@
+// Regression for the declared-return-type coercion gap: `/` on two Ints
+// boxes a Real at runtime, and every Int-typed sink (let binding, record
+// field, array element, parameter slot) coerced it back -- except the
+// function-return path, so a `-> Int` function ending in `ret expr/expr;`
+// leaked the raw Real to the caller and printed "24.000000" instead of
+// "24". Fixed in pscal-core's returnFromCall by mirroring the CALL-time
+// parameter coercion. The symmetric direction (an Int value returned from
+// a `-> Real` function) is promoted the same way, hence realFromInt below.
+fn meanOfThree(a: Int, b: Int, c: Int) -> Int {
+    ret (a + b + c) / 3;
+}
+
+fn realFromInt(a: Int) -> Real {
+    ret a;
+}
+
+fn main() -> Void {
+    fx {
+        println("mean = ", meanOfThree(12, 30, 30));
+        println("promoted = ", realFromInt(5));
+    }
+    ret;
+}
