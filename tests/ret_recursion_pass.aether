@@ -1,0 +1,20 @@
+// Regression for the setTypeValue box-owning retype crash (pscal-core#6,
+// bisected to e9dbd27 "VM 2.0 Phase 4i checkpoint 3d -- the physical Value
+// collapse", fixed in aether#10 / VERSION 2026-07-15-1). digitSum(n)
+// recursing on n/10 boxed a Double at the division, then the callee's Int64
+// parameter-coercion path retyped that slot without zeroing the stale box
+// bits, corrupting memory on the next SET_INT_VALUE and crashing with
+// SIGBUS/SIGSEGV. This must compile and run to completion with the right sum.
+fn digitSum(n: Int) -> Int {
+    if n < 10 {
+        ret n;
+    }
+    ret (n % 10) + digitSum(n / 10);
+}
+
+fn main() -> Void {
+    fx {
+        println(digitSum(12345));
+    }
+    ret;
+}

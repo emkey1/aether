@@ -12,6 +12,36 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-15-1
+
+**Fixed a SIGBUS/SIGSEGV crash on ordinary recursive functions that divide
+their argument (e.g. `digitSum(n)` recursing on `n/10`).** Since
+2026-07-09-1 (bisected culprit `e9dbd27`, "VM 2.0 Phase 4i checkpoint 3d --
+the physical Value collapse"; last known good `2026-07-01-8`), pscal-core's
+`setTypeValue()` freed the *old* `Int64Box`/`LongDoubleBox` when a `Value`
+was already one of those box-owning types, but never zeroed `val->bits` when
+retyping *into* `TYPE_INT64`/`TYPE_UINT64`/`TYPE_LONG_DOUBLE` from a
+different family such as `TYPE_DOUBLE` (whose bits are a raw NaN-boxed
+payload, not a pointer). The leftover bit pattern was then misread by the
+next `SET_INT_VALUE`/`SET_REAL_VALUE` as a live box pointer and handed to
+`pscalObjRelease`, corrupting memory. In practice this hit the Int/Int
+division -> recursive-call path directly: a division boxes a `Double`
+result, and the callee's Int64 parameter-coercion step (`CALL_USER_PROC`
+argument setup, ~vm.c:11202) then retyped that slot and hit the stale bits.
+Fixed in pscal-core#6 (`b90a2c7`, "fix(vm): zero bits when setTypeValue
+retypes into a box-owning type"), pulled in via aether#10. Programs that
+previously crashed now compile and run correctly with no source change; new
+fixture `tests/ret_recursion_pass.aether` pins the digit-sum repro. (The
+canonical minimal repros bisected upstream are pscal-core's
+`Tests/aether_specialization/corpus_candidates/306_recursion_000` through
+`_008`.)
+
+Note for board readers: any cs-aug4 training corpus or eval board stamped
+`2026-07-09-1` and dated on or after 2026-07-15 was already built against
+the post-fix compiler (commit `9a44e67`) -- the stamp just hadn't been
+bumped yet when those runs were produced. Boards stamped `2026-07-09-1` from
+before 2026-07-15 predate the fix and ran on the crashing compiler.
+
 ## 2026-07-09-1
 
 **`MStream` is now a first-class opaque Aether type; HTTP + memory streams

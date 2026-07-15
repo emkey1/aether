@@ -97,6 +97,7 @@ WRITE_FORMAT_COLON_FAIL_FIXTURE="$TESTS_DIR/write_format_colon_fail.aether"
 TUPLE_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_recursion_pass.aether"
 TUPLE_INDIRECT_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_indirect_recursion_pass.aether"
 RECURSION_PASS_FIXTURE="$TESTS_DIR/recursion_pass.aether"
+RET_RECURSION_PASS_FIXTURE="$TESTS_DIR/ret_recursion_pass.aether"
 FOR_RANGE_PASS_FIXTURE="$TESTS_DIR/for_range_pass.aether"
 LOOP_FORMS_PASS_FIXTURE="$TESTS_DIR/loop_forms_pass.aether"
 ARRAY_RETURN_PASS_FIXTURE="$TESTS_DIR/array_return_pass.aether"
@@ -270,6 +271,7 @@ for fixture in \
     "$TUPLE_RECURSION_PASS_FIXTURE" \
     "$TUPLE_INDIRECT_RECURSION_PASS_FIXTURE" \
     "$RECURSION_PASS_FIXTURE" \
+    "$RET_RECURSION_PASS_FIXTURE" \
     "$FOR_RANGE_PASS_FIXTURE" \
     "$LOOP_FORMS_PASS_FIXTURE" \
     "$ARRAY_RETURN_PASS_FIXTURE" \
@@ -2034,6 +2036,15 @@ fi
 if ! grep -qx "120" /tmp/aether_recursion_pass.out; then
     echo "unexpected non-tuple recursion output" >&2
     cat /tmp/aether_recursion_pass.out >&2
+    exit 1
+fi
+# Recursion through an Int/Int division (which boxes a Double at the
+# division site, then retypes to the callee's Int64 param) must not crash --
+# regression for the setTypeValue stale-box-bits bug fixed in pscal-core#6.
+"$AETHER_BIN" --no-cache "$RET_RECURSION_PASS_FIXTURE" >/tmp/aether_ret_recursion_pass.out 2>&1
+if ! grep -qx "15" /tmp/aether_ret_recursion_pass.out; then
+    echo "unexpected ret-recursion (digit sum) output" >&2
+    cat /tmp/aether_ret_recursion_pass.out >&2
     exit 1
 fi
 
