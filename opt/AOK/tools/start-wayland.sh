@@ -100,14 +100,7 @@ pkill -x wayvnc 2>/dev/null
 pkill -x wofi 2>/dev/null
 sleep 0.2
 
-# A runtime dir scoped to this invocation (pid-suffixed) avoids colliding
-# with a leftover socket/lock from a prior run that didn't get torn down
-# cleanly (observed during bring-up: a stale wayvnc control socket makes the
-# next wayvnc refuse to start with "Another wayvnc process is already
-# running").
-export XDG_RUNTIME_DIR="/tmp/xdg-display-$$"
-mkdir -p "$XDG_RUNTIME_DIR"
-chmod 700 "$XDG_RUNTIME_DIR"
+# (XDG_RUNTIME_DIR is set up below, after the HOME fixup it depends on.)
 
 # DisplayViewController always execs this script with a hardcoded root envp
 # (PATH/HOME=/root/TERM); when "Open Everything as Default User" is on, that
@@ -142,6 +135,35 @@ elif [ -n "$PW_LINE" ]; then
     PW_SHELL="$(printf '%s' "$PW_LINE" | cut -d: -f7)"
     [ -n "$PW_SHELL" ] && export SHELL="$PW_SHELL"
 fi
+
+# A runtime dir scoped to this invocation (pid-suffixed) avoids colliding
+# with a leftover socket/lock from a prior run that didn't get torn down
+# cleanly (observed during bring-up: a stale wayvnc control socket makes the
+# next wayvnc refuse to start with "Another wayvnc process is already
+# running").
+#
+# It lives under $HOME, NOT /tmp: this session typically starts early in
+# guest boot (the Display applet opens it as soon as the app is up), and the
+# guest's own init then wipes /tmp partway through boot (Debian/Devuan
+# bootmisc.sh with the default TMPTIME=0 deletes everything in /tmp; Alpine's
+# bootmisc does the same) -- observed on-device deleting the runtime dir out
+# from under a LIVE session: already-connected clients (foot, wayvnc) kept
+# their sockets and rendered fine, but every new client failed with
+# "Failed to connect to Wayland display '/tmp/xdg-display-NN/wayland-0':
+# No such file or directory" (e.g. firefox launched from the foot shell).
+# The same applies to /run (init mounts a fresh tmpfs over it mid-boot) and
+# /dev/shm (ditto), so a fakefs-backed home directory is the only location
+# that reliably survives guest boot. Unix sockets work fine on fakefs, and
+# socket traffic never touches the filesystem.
+WL_RUNTIME_BASE="$HOME/.cache/ish-display"
+# Sweep stale runtime dirs from prior sessions that died without cleanup()
+# (app killed, crash): they're pid-suffixed so they never collide, but they'd
+# otherwise accumulate forever now that boot doesn't clean them for us.
+rm -rf "$WL_RUNTIME_BASE" 2>/dev/null
+export XDG_RUNTIME_DIR="$WL_RUNTIME_BASE/$$"
+mkdir -p "$XDG_RUNTIME_DIR"
+chmod 700 "$XDG_RUNTIME_DIR"
+
 export WLR_BACKENDS=headless
 export WLR_LIBINPUT_NO_DEVICES=1
 # There's no real GPU/DRM device here (matches labwc's own harmless
