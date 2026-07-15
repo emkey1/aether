@@ -251,6 +251,17 @@ void get_guest_loadavg(uint64_t out[3]) {
 static _Atomic uint64_t cpu_slot_dead_user[CPU_SLOTS_MAX];
 static _Atomic uint64_t cpu_slot_dead_system[CPU_SLOTS_MAX];
 
+// Serializes banking against the /proc/stat reader. Without this, a task
+// exiting mid-read could be counted twice in one snapshot: sampled live
+// during the reader's task-list walk, then ALSO included via the dead-slot
+// totals it banked before the reader loaded them. That read reports an
+// inflated cpuN value and the next read drops back down -- a backward-moving
+// /proc/stat counter, which real kernels never produce and which top-style
+// tools turn into a huge unsigned delta (ktop crashed on exactly this).
+// Lock order: pids_lock -> cpu_slots_lock (the reader); do_exit's banking
+// takes only cpu_slots_lock.
+static lock_t cpu_slots_lock = LOCK_INITIALIZER;
+
 static int task_cpu_slot(struct task *task, int ncpu) {
     if (ncpu > CPU_SLOTS_MAX)
         ncpu = CPU_SLOTS_MAX;
@@ -287,14 +298,16 @@ void task_thread_cpu_time(struct task *task, unsigned long *out_utime, unsigned 
 }
 
 void task_bank_cpu_time(struct task *task) {
-    if (task->cpu_time_banked)
-        return;
-    unsigned long utime, stime;
-    task_thread_cpu_time(task, &utime, &stime);
-    int slot = task_cpu_slot(task, get_cpu_count());
-    atomic_fetch_add(&cpu_slot_dead_user[slot], utime);
-    atomic_fetch_add(&cpu_slot_dead_system[slot], stime);
-    task->cpu_time_banked = true;
+    lock(&cpu_slots_lock, 0);
+    if (!task->cpu_time_banked) {
+        unsigned long utime, stime;
+        task_thread_cpu_time(task, &utime, &stime);
+        int slot = task_cpu_slot(task, get_cpu_count());
+        atomic_fetch_add(&cpu_slot_dead_user[slot], utime);
+        atomic_fetch_add(&cpu_slot_dead_system[slot], stime);
+        task->cpu_time_banked = true;
+    }
+    unlock(&cpu_slots_lock);
 }
 
 int get_emulated_per_cpu_usage(struct cpu_usage **cpus_usage) {
@@ -306,12 +319,21 @@ int get_emulated_per_cpu_usage(struct cpu_usage **cpus_usage) {
         return _ENOMEM;
 
     complex_lockt(&pids_lock, 0);
+    // Hold cpu_slots_lock across BOTH the live walk and the dead-slot loads:
+    // an exiting task then either banked before this snapshot (skipped live,
+    // counted dead) or banks after it (counted live now, dead next time) --
+    // never both in one read, so the reported counters stay monotonic.
+    lock(&cpu_slots_lock, 0);
     struct pid *pid_entry;
     list_for_each_entry(&alive_pids_list, pid_entry, alive) {
         struct task *task = pid_entry->task;
         // A banked task's time is already in the dead-slot totals; its host
         // thread may be gone, so don't sample it (and don't double-count).
-        if (task == NULL || task->cpu_time_banked)
+        // A task whose own host thread hasn't started yet still carries its
+        // PARENT's pthread from the task_create_ struct copy -- sampling it
+        // would charge the parent's whole CPU time to this task's slot, then
+        // retract it on the next read (backward counters).
+        if (task == NULL || task->cpu_time_banked || !task->host_thread_started)
             continue;
         unsigned long utime, stime;
         task_thread_cpu_time(task, &utime, &stime);
@@ -319,7 +341,6 @@ int get_emulated_per_cpu_usage(struct cpu_usage **cpus_usage) {
         cpus[slot].user_ticks += utime;
         cpus[slot].system_ticks += stime;
     }
-    unlock(&pids_lock);
 
     // Each virtual CPU has uptime ticks of capacity; whatever its tasks
     // didn't use was idle.
@@ -333,6 +354,8 @@ int get_emulated_per_cpu_usage(struct cpu_usage **cpus_usage) {
         cpus[i].idle_ticks = uptime_ticks > busy ? uptime_ticks - busy : 0;
         cpus[i].nice_ticks = 0;
     }
+    unlock(&cpu_slots_lock);
+    unlock(&pids_lock);
     *cpus_usage = cpus;
     return 0;
 }
@@ -355,6 +378,7 @@ struct task *task_create_(struct task *parent) {
         task->cap_inheritable[0] = task->cap_inheritable[1] = UINT32_MAX;
     }
     task->cpu_time_banked = false; // per-task, not inherited via the parent copy
+    task->host_thread_started = false; // ditto; task_start sets it
     list_init(&task->group_links);
     list_init(&task->children);
     list_init(&task->siblings);
@@ -714,6 +738,10 @@ int task_start(struct task *task) {
     pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
     if (err != 0)
         return _EAGAIN; // matches Linux clone() at the thread/rlimit ceiling
+    // Only now does task->thread refer to this task's own host thread rather
+    // than the parent's (copied in task_create_); let the per-CPU accounting
+    // walker sample it. See host_thread_started in task.h.
+    task->host_thread_started = true;
     return 0;
 }
 

@@ -72,6 +72,7 @@ wayland_scm_shm.c
 chroot_getcwd.c
 iovec_abi_marshal.c
 fakefs_type_race.c
+proc_stat_monotonic.c
 x86/amd64_regress.c
 x86/amd64_jit_bench.sh
 setup-regressions.sh

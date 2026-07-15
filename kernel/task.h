@@ -172,6 +172,13 @@ struct task {
     // per-virtual-CPU accounting slot (task_bank_cpu_time); tells the
     // /proc/stat walker to stop live-sampling a thread that may be gone.
     _Atomic bool cpu_time_banked;
+    // Set by task_start once this task's own host pthread exists. Until then
+    // task->thread still holds the PARENT's pthread (task_create_ copies the
+    // whole struct), so the /proc/stat walker sampling a just-forked task
+    // would charge the parent's entire accumulated CPU time to the CHILD's
+    // virtual-CPU slot -- and that contribution then vanishes once the child's
+    // real thread starts, making the slot's counters go backward.
+    _Atomic bool host_thread_started;
     // Set while this task sits in task_wait_for_mem_quiesce (no mem read lock
     // held), cleared before it can re-take one. Lets task_poke_shared_mem skip
     // the SIGUSR1 the same way it skips io_block tasks: a parked sibling holds
