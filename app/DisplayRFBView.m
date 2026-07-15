@@ -290,12 +290,18 @@ NS_ASSUME_NONNULL_BEGIN
     [self addSpecialKeyWithInput:UIKeyInputRightArrow keysym:0xFF53];
     [self addSpecialKeyWithInput:UIKeyInputEscape keysym:0xFF1B];
     [self addSpecialKeyWithInput:@"\t" keysym:0xFF09];
-    // Ctrl+<letter> (Ctrl+C, Ctrl+D, Ctrl+Z, ...): not covered by UIKeyInput
+    // Ctrl+<key> (Ctrl+C, Ctrl+D, Ctrl+Z, ...): not covered by UIKeyInput
     // at all -- iOS only routes plain character insertion through
     // -insertText:, not modified combinations, so without an explicit
-    // UIKeyCommand per letter these are silently swallowed before ever
-    // reaching the RFB session.
-    static const char *controlLetters = "abcdefghijklmnopqrstuvwxyz";
+    // UIKeyCommand per key these are silently swallowed before ever
+    // reaching the RFB session. Besides the letters, cover digits and the
+    // characters terminal font zooming uses: foot binds font-increase to
+    // Control+plus/Control+equal, font-decrease to Control+minus, and
+    // font-reset to Control+0 by default ("+" is registered as its own
+    // input alongside "=" because a hardware keyboard reports the shifted
+    // character itself for Ctrl+Shift+=; every keysym here equals its
+    // ASCII value, so handleControlKeyCommand needs no special cases).
+    static const char *controlLetters = "abcdefghijklmnopqrstuvwxyz0123456789=+-_";
     for (size_t i = 0; controlLetters[i] != '\0'; i++) {
         NSString *letter = [NSString stringWithFormat:@"%c", controlLetters[i]];
         UIKeyCommand *command = [UIKeyCommand keyCommandWithInput:letter
