@@ -177,6 +177,17 @@ export WLR_LIBINPUT_NO_DEVICES=1
 # without the user needing to know this environment has no GPU.
 export GSK_RENDERER=cairo
 export LIBGL_ALWAYS_SOFTWARE=1
+# Debian/Devuan firefox-esr routes its Wayland connection through a bundled
+# "wayland-proxy-compositor" shim by default. Under iSH that relay corrupts
+# the stream: firefox dies at startup with "Wayland protocol error:
+# wl_display#1: error 0: invalid object 0" and then spins in its crash path
+# (~38k aborts/sec, pinning the emulator). With the proxy disabled, the same
+# firefox speaks flawless Wayland straight to labwc (verified on-device with
+# WAYLAND_DEBUG=1: full registry/shm/output/seat startup, zero errors; the
+# same stack on real Linux is clean either way, so the underlying bug is in
+# how iSH's unix-socket layer handles the proxy's relay pattern -- tracked
+# separately; this export is the workaround until that's root-caused).
+export MOZ_DISABLE_WAYLAND_PROXY=1
 
 COMPOSITOR_PID=""
 FOOT_PID=""
