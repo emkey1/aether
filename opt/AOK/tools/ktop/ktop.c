@@ -325,6 +325,10 @@ static int read_cpu_ticks(struct cpu_ticks *cpus, int max) {
     while (fgets(line, sizeof(line), f) != NULL && count < max) {
         int idx;
         struct cpu_ticks t = {0};
+        // Only cpuN lines: sscanf's %d would happily skip the whitespace in
+        // the aggregate "cpu  ..." line and misread its first counter as N.
+        if (strncmp(line, "cpu", 3) != 0 || !isdigit((unsigned char) line[3]))
+            continue;
         if (sscanf(line, "cpu%d %llu %llu %llu %llu %llu %llu %llu %llu",
                    &idx, &t.user, &t.nice, &t.system, &t.idle,
                    &t.iowait, &t.irq, &t.softirq, &t.steal) >= 5) {
@@ -610,10 +614,17 @@ static void draw_meter(const char *label, int inner_width,
     int used = 0;
     for (int i = 0; i < nfrac && i < 3; i++) {
         double f = fracs[i];
-        if (f < 0)
+        // Clamp to [0,1] BEFORE the int conversion: a bogus fraction (e.g.
+        // from a kernel counter glitch) otherwise converts to INT_MAX/UB,
+        // and `used + cells[i]` below signed-overflows past the clamp --
+        // which once sent the fill loop off the top of the stack. The !(f>0)
+        // form also catches NaN.
+        if (!(f > 0))
             f = 0;
+        if (f > 1)
+            f = 1;
         cells[i] = (int) (f * inner_width + 0.5);
-        if (used + cells[i] > inner_width)
+        if (cells[i] > inner_width - used)
             cells[i] = inner_width - used;
         used += cells[i];
     }
@@ -683,12 +694,18 @@ static void draw_header(int cols, int ncpu,
     if (inner < 10)
         inner = 10;
     for (int i = 0; i < ncpu; i++) {
-        unsigned long long du = cur_cpu[i].user + cur_cpu[i].nice
-            - prev_cpu[i].user - prev_cpu[i].nice;
-        unsigned long long ds = cur_cpu[i].system + cur_cpu[i].irq + cur_cpu[i].softirq
-            - prev_cpu[i].system - prev_cpu[i].irq - prev_cpu[i].softirq;
-        unsigned long long didle = cur_cpu[i].idle + cur_cpu[i].iowait
-            - prev_cpu[i].idle - prev_cpu[i].iowait;
+        // Saturating deltas: a counter that steps backward (kernel glitch,
+        // counter reset) must read as 0 ticks, not wrap to ~2^64 and blow up
+        // the fractions below.
+        unsigned long long cu = cur_cpu[i].user + cur_cpu[i].nice;
+        unsigned long long pu = prev_cpu[i].user + prev_cpu[i].nice;
+        unsigned long long cs = cur_cpu[i].system + cur_cpu[i].irq + cur_cpu[i].softirq;
+        unsigned long long ps = prev_cpu[i].system + prev_cpu[i].irq + prev_cpu[i].softirq;
+        unsigned long long ci = cur_cpu[i].idle + cur_cpu[i].iowait;
+        unsigned long long pi = prev_cpu[i].idle + prev_cpu[i].iowait;
+        unsigned long long du = cu >= pu ? cu - pu : 0;
+        unsigned long long ds = cs >= ps ? cs - ps : 0;
+        unsigned long long didle = ci >= pi ? ci - pi : 0;
         unsigned long long dtotal = du + ds + didle;
         double fu = dtotal > 0 ? (double) du / (double) dtotal : 0;
         double fs = dtotal > 0 ? (double) ds / (double) dtotal : 0;
