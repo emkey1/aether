@@ -180,6 +180,19 @@ trap cleanup TERM INT HUP EXIT
 DEBUG_LOG="${ISH_DISPLAY_DEBUG_LOG:-/tmp/ish-wayland-debug.log}"
 : > "$DEBUG_LOG"
 
+# wlroots allocates the seat keymap via shm_open() under /dev/shm. If that
+# fails (missing dir, or a wrong-mode /dev/shm that non-root can't write
+# to -- seen on-device before the app-side boot repair enforced 1777),
+# labwc starts up apparently fine but with a NULL keymap, then exit()s the
+# instant the first keyboard attaches (wayvnc's virtual keyboard, i.e. the
+# moment a VNC client connects) -- a confusing delayed death. Catch it here
+# with a clear message instead.
+shm_probe="/dev/shm/.wl-start-probe.$$"
+if ! ( : > "$shm_probe" ) 2>/dev/null; then
+    die "/dev/shm is not writable by uid $(id -u) -- POSIX shm (keymaps, wl_shm buffers) cannot work. Reboot the app (the boot repair fixes /dev/shm's mode) or run: sudo chmod 1777 /dev/shm"
+fi
+rm -f "$shm_probe"
+
 # Seed a minimal sway config + a wofi-driven app launcher, for anyone who
 # sets WAYLAND_COMPOSITOR_CMD=sway instead of the labwc default below. sway
 # has no menu system at all; everything is a keybinding, dispatched straight

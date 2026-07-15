@@ -2326,6 +2326,16 @@ static TerminalViewController *CreateTerminalViewController(void) {
     // has no boot-time tmpfs auto-mount for it, so anything that needs POSIX
     // shm (wl_shm clients, sem_open, etc.) found no /dev/shm to open under.
     generic_mkdirat(AT_PWD, "/dev/shm", 01777);
+    // mkdirat is an EEXIST no-op when the directory already exists, so a root
+    // whose tarball (or an earlier boot) left /dev/shm with the wrong mode
+    // kept it forever -- observed on-device as drwxr-xr-x root:root, which
+    // makes every non-root shm_open() fail with EACCES until the guest's own
+    // init mounts a tmpfs over it much later in boot. A Wayland session
+    // started early ran labwc with a NULL keymap (wlroots couldn't allocate
+    // the keymap shm file) and labwc exit()s the moment the first keyboard
+    // attaches -- the Display applet's intermittent "Wayland session ended".
+    // Enforce the mode on the existing directory too, like the "/" fix below.
+    generic_setattrat(AT_PWD, "/dev/shm", (struct attr) {.type = attr_mode, .mode = S_IFDIR|01777}, false);
 
     // Permissions and type metadata on / have been broken for a while, let's fix them.
     generic_setattrat(AT_PWD, "/", (struct attr) {.type = attr_mode, .mode = S_IFDIR|0755}, false);

@@ -144,6 +144,13 @@ static void setup_host_mounts(void) {
     // boot-time tmpfs auto-mount for it; create it unconditionally so POSIX
     // shm (wl_shm clients, sem_open, etc.) always has somewhere to open.
     ignore_eexist(generic_mkdirat(AT_PWD, "/dev/shm", 01777));
+    // ...and enforce the mode when it already exists: mkdirat is an EEXIST
+    // no-op, so a pre-existing /dev/shm with the wrong mode (e.g. 0755
+    // root:root from a root image) breaks every non-root shm_open() with
+    // EACCES. See the matching AppDelegate.m fix (Wayland session died on
+    // first keyboard attach because wlroots couldn't allocate the keymap
+    // shm file early in boot).
+    generic_setattrat(AT_PWD, "/dev/shm", (struct attr) {.type = attr_mode, .mode = S_IFDIR|01777}, false);
     ignore_eexist(generic_mkdirat(AT_PWD, "/proc", 0555));
     ignore_eexist(generic_mkdirat(AT_PWD, "/sys", 0555));
 

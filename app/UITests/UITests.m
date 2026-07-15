@@ -59,7 +59,9 @@ static void OpenDisplayApplet(XCUIApplication *app) {
               @"Utils dock long-press did not present the group-choice sheet (Media group missing)");
     [mediaGroupAction tap];
 
-    NSPredicate *displayItemPredicate = [NSPredicate predicateWithFormat:@"label CONTAINS %@", @"Display"];
+    // The applet has been renamed "Wayland" in the Media group; accept the
+    // old "Display" name too so this helper works across both registrations.
+    NSPredicate *displayItemPredicate = [NSPredicate predicateWithFormat:@"label CONTAINS 'Display' OR label CONTAINS 'Wayland'"];
     XCUIElement *displayAction = [app.buttons matchingPredicate:displayItemPredicate].firstMatch;
     XCTAssert([displayAction waitForExistenceWithTimeout:10],
               @"Media group sheet did not list Display -- applet registration is missing");
