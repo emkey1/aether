@@ -393,6 +393,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 @property (nonatomic, copy) NSString *workspaceToolIdentifier;
 @property (nonatomic, copy) NSString *workspaceTerminalRole;
 @property (nonatomic) BOOL pinnedToBottomCenter;
+- (void)bringWindowToFront;
 @property (nonatomic) BOOL resizeHandleAtTopRight;
 @property (nonatomic) BOOL titleBarDoubleTapZoomEnabled;
 @property (nonatomic) BOOL zoomedToFullscreen;
@@ -4448,6 +4449,37 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
     [self switchToDesktopIndex:self.activeDesktopIndex + 1];
 }
 
+// Ctrl+Tab / Ctrl+Shift+Tab: cycle which applet window is frontmost on the
+// active Desktop. Forward rotates the current frontmost to the back of the
+// window stack (kept above the wallpaper and other non-window subviews) and
+// activates the next one, so repeated presses visit every open window;
+// Shift reverses (the backmost window comes forward). Activation goes
+// through the window's own bringWindowToFront -- the same path a tap uses --
+// so focus hand-off (didBecomeFrontmostHandler) and the dock highlight stay
+// consistent with pointer interaction. Ctrl rather than Cmd: Cmd+Tab is the
+// iOS app switcher (system-reserved, unwinnable), and the guest terminal
+// doesn't claim Ctrl+Tab (plain Tab passes through; the RFB applet registers
+// unmodified \t only).
+- (void)hotkeyCycleWindows:(UIKeyCommand *)command {
+    NSMutableArray<ISHWorkspaceContainedWindowView *> *windows = [NSMutableArray array];
+    for (UIView *view in self.desktopSurfaceView.subviews) {
+        if (![view isKindOfClass:ISHWorkspaceContainedWindowView.class])
+            continue;
+        ISHWorkspaceContainedWindowView *windowView = (ISHWorkspaceContainedWindowView *) view;
+        if (windowView == self.dockWindow || windowView.hidden)
+            continue;
+        [windows addObject:windowView];
+    }
+    if (windows.count < 2)
+        return;
+    if ((command.modifierFlags & UIKeyModifierShift) != 0) {
+        [windows.firstObject bringWindowToFront];
+    } else {
+        [self.desktopSurfaceView insertSubview:windows.lastObject belowSubview:windows.firstObject];
+        [windows[windows.count - 2] bringWindowToFront];
+    }
+}
+
 - (NSArray<UIKeyCommand *> *)keyCommands {
     BOOL textEditing = [ISHWorkspaceFindFirstResponder(self.view) isKindOfClass:UITextView.class];
     UIKeyCommand *previous = [UIKeyCommand keyCommandWithInput:UIKeyInputLeftArrow
@@ -4458,6 +4490,14 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
                                              modifierFlags:UIKeyModifierCommand
                                                     action:@selector(hotkeyNextDesktop:)
                                       discoverabilityTitle:textEditing ? @"Move to End of Line" : @"Next Desktop"];
+    UIKeyCommand *cycleForward = [UIKeyCommand keyCommandWithInput:@"\t"
+                                                     modifierFlags:UIKeyModifierControl
+                                                            action:@selector(hotkeyCycleWindows:)
+                                              discoverabilityTitle:@"Next Window"];
+    UIKeyCommand *cycleBackward = [UIKeyCommand keyCommandWithInput:@"\t"
+                                                      modifierFlags:UIKeyModifierControl | UIKeyModifierShift
+                                                             action:@selector(hotkeyCycleWindows:)
+                                               discoverabilityTitle:@"Previous Window"];
     // Without this, iOS's own system-reserved default for Cmd+Arrow silently wins over the app:
     // the command still shows up in the Cmd-hold discoverability HUD (which lists everything
     // registered, not just what wins), but the action never fires. Same fix TerminalView.m
@@ -4473,8 +4513,13 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
     if (@available(iOS 15, *)) {
         previous.wantsPriorityOverSystemBehavior = YES;
         next.wantsPriorityOverSystemBehavior = YES;
+        // Ctrl+Tab is iOS's own focus-navigation chord in some contexts;
+        // claim it for window cycling the same way (and per the same
+        // always-present rule documented above).
+        cycleForward.wantsPriorityOverSystemBehavior = YES;
+        cycleBackward.wantsPriorityOverSystemBehavior = YES;
     }
-    return @[previous, next];
+    return @[previous, next, cycleForward, cycleBackward];
 }
 
 // A brief "Desktop N / M" toast so the swipe-only switch stays oriented.
