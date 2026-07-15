@@ -98,6 +98,7 @@ TUPLE_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_recursion_pass.aether"
 TUPLE_INDIRECT_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_indirect_recursion_pass.aether"
 RECURSION_PASS_FIXTURE="$TESTS_DIR/recursion_pass.aether"
 RET_RECURSION_PASS_FIXTURE="$TESTS_DIR/ret_recursion_pass.aether"
+RET_INT_DIVISION_PASS_FIXTURE="$TESTS_DIR/ret_int_division_pass.aether"
 FOR_RANGE_PASS_FIXTURE="$TESTS_DIR/for_range_pass.aether"
 LOOP_FORMS_PASS_FIXTURE="$TESTS_DIR/loop_forms_pass.aether"
 ARRAY_RETURN_PASS_FIXTURE="$TESTS_DIR/array_return_pass.aether"
@@ -2045,6 +2046,17 @@ fi
 if ! grep -qx "15" /tmp/aether_ret_recursion_pass.out; then
     echo "unexpected ret-recursion (digit sum) output" >&2
     cat /tmp/aether_ret_recursion_pass.out >&2
+    exit 1
+fi
+# `ret expr` must coerce to the declared return type like every other typed
+# sink: a `-> Int` body ending in Int/Int division returns 24, not 24.000000,
+# and a `-> Real` body returning an Int promotes to 5.000000 -- regression
+# for the returnFromCall coercion gap fixed in pscal-core.
+"$AETHER_BIN" --no-cache "$RET_INT_DIVISION_PASS_FIXTURE" >/tmp/aether_ret_int_division_pass.out 2>&1
+printf 'mean = 24\npromoted = 5.000000\n' >/tmp/aether_ret_int_division_expected.out
+if ! cmp -s /tmp/aether_ret_int_division_expected.out /tmp/aether_ret_int_division_pass.out; then
+    echo "unexpected ret int-division coercion output" >&2
+    cat /tmp/aether_ret_int_division_pass.out >&2
     exit 1
 fi
 

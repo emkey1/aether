@@ -12,6 +12,29 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-15-2
+
+**`ret expr` now coerces the value to the function's declared return type,
+closing the last numeric-sink gap.** `/` on two Ints produces a Real at
+runtime, and every Int-typed sink coerced it back -- `let m: Int = a / b;`
+truncates, record fields and array elements truncate, and parameter passing
+truncates via `assignRealToIntChecked` at `CALL_USER_PROC` argument setup --
+except the function-return path: a `-> Int` function whose body ended in
+`ret (a + b + c) / 3;` leaked the raw Real to the caller, so
+`println(meanOfThree(12, 30, 30))` printed `24.000000` instead of `24`.
+Longstanding, not a regression (reproduced on 2026-07-09-1 both pre- and
+post- the setTypeValue fix); rea's `return` had the same gap since the fix
+site is shared. Fixed in pscal-core#7 (`095cf67`, "fix(vm): returnFromCall
+now coerces the value to the declared return type") by mirroring the
+CALL-time parameter coercion against `function_symbol->type`: Real value
+into an int-like declared type truncates (range-checked), and symmetrically
+an Int value returned from a `-> Real` function now promotes (previously
+`fn half(a: Int) -> Real { ret a; }` printed `5`, now `5.000000`). Declared
+non-numeric return types are untouched. This makes the guides' "Int / Int
+is integer-style division" rule hold through function returns; note that a
+*direct* `println(7 / 2)` (no typed sink anywhere) still prints `3.500000`.
+New fixture `tests/ret_int_division_pass.aether` pins both directions.
+
 ## 2026-07-15-1
 
 **Fixed a SIGBUS/SIGSEGV crash on ordinary recursive functions that divide
