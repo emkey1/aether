@@ -331,6 +331,22 @@ NS_ASSUME_NONNULL_BEGIN
         [_keyCommands addObject:altCommand];
         [_keyCommands addObject:altShiftCommand];
     }
+    // Cmd+= / Cmd++ / Cmd+- / Cmd+0: the Apple-conventional zoom chords.
+    // Terminal apps in the guest only understand the Ctrl forms (foot's
+    // font-increase/decrease/reset are Control+equal/plus/minus/0), so these
+    // reuse handleControlKeyCommand, which wraps the key in a guest Ctrl
+    // press. Deliberately NOT extended to Cmd+<letter>: translating Cmd+C
+    // into guest Ctrl+C would turn a reflexive "copy" into SIGINT.
+    static const char *commandZoomKeys = "=+-0";
+    for (size_t i = 0; commandZoomKeys[i] != '\0'; i++) {
+        NSString *key = [NSString stringWithFormat:@"%c", commandZoomKeys[i]];
+        UIKeyCommand *zoomCommand = [UIKeyCommand keyCommandWithInput:key
+                                                        modifierFlags:UIKeyModifierCommand
+                                                               action:@selector(handleControlKeyCommand:)];
+        if (@available(iOS 15, *))
+            zoomCommand.wantsPriorityOverSystemBehavior = YES;
+        [_keyCommands addObject:zoomCommand];
+    }
     // Alt+Return: sway's new-terminal binding.
     UIKeyCommand *altReturn = [UIKeyCommand keyCommandWithInput:@"\r"
                                                   modifierFlags:UIKeyModifierAlternate
