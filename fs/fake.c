@@ -275,18 +275,47 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
     // inodes_lock in generic_openat/generic_mkdirat/etc, which is what
     // actually serializes against those other syscalls; this ordering
     // just keeps fakefs_open internally consistent as well.
-    if (flags & O_CREAT_)
+    int open_flags = flags;
+retry:
+    if (open_flags & O_CREAT_) {
         db_begin_write(fs);
-    struct fd *fd = realfs.open(mount, path, flags, 0666);
+        // Deadlock guard: opening an existing FIFO without O_NONBLOCK blocks
+        // in the host openat() until a peer opens the other end. Holding the
+        // write transaction (fs->lock) across that wedges every fakefs
+        // operation in the process -- the peer's own open can't even stat the
+        // path, so nothing ever unblocks us (observed: a shell's `cmd > fifo`
+        // redirect, which is O_WRONLY|O_CREAT, racing the reader's `< fifo`
+        // in start-wayland.sh's FIFO-logged spawns; whole emulator froze).
+        // O_CREAT on an existing path creates nothing, so there is no host
+        // create + metadata write pair to keep atomic here -- drop the
+        // transaction and take the non-creating (unlocked) open path below.
+        // If the FIFO is unlinked between this check and the real open,
+        // realfs ENOENT retries from the top with create semantics restored.
+        if (!(open_flags & O_NONBLOCK_)) {
+            struct ish_stat existing_stat;
+            if (path_read_stat(fs, path, &existing_stat, NULL) &&
+                    S_ISFIFO(existing_stat.mode)) {
+                db_rollback(fs);
+                open_flags &= ~O_CREAT_;
+            }
+        }
+    }
+    struct fd *fd = realfs.open(mount, path, open_flags, 0666);
     if (IS_ERR(fd)) {
-        if (flags & O_CREAT_)
+        if (open_flags & O_CREAT_)
             db_rollback(fs);
+        // The FIFO this open was demoted for (see the deadlock guard above)
+        // was unlinked before the real open; retry with O_CREAT restored.
+        if (PTR_ERR(fd) == _ENOENT && (flags & O_CREAT_) && !(open_flags & O_CREAT_)) {
+            open_flags = flags;
+            goto retry;
+        }
         return fd;
     }
-    if (!(flags & O_CREAT_))
+    if (!(open_flags & O_CREAT_))
         db_begin_read(fs);
     fd->fake_inode = path_get_inode(fs, path);
-    if (flags & O_CREAT_) {
+    if (open_flags & O_CREAT_) {
         struct ish_stat ishstat;
         ishstat.mode = mode | S_IFREG;
         ishstat.uid = current->euid;
