@@ -4184,6 +4184,7 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
 }
 
 static void dump_opcode_window(guest_addr_t ip);
+static void dump_addr_backing(const char *label, guest_addr_t addr);
 static void dump_amd64_regs(const struct cpu_state *cpu);
 static void dump_amd64_hlt_tls_state(const struct cpu_state *cpu);
 static bool amd64_hlt_is_zero_sentinel_trap(guest_addr_t ip);
@@ -4290,6 +4291,7 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
                    (unsigned long long) cpu->arm64_sp,
                    (unsigned long long) cpu->arm64_pc,
                    (unsigned long long) cpu->arm64_tpidr);
+            dump_addr_backing("  pc-backing", current_fault_ip(cpu));
         }
         if (current->abi == GUEST_ABI_RISCV64) {
             for (int i = 0; i < 32; i += 4)
@@ -4740,6 +4742,34 @@ static int amd64_nop_instruction_len(guest_addr_t ip) {
 
 static bool amd64_verbose_fault_trace_enabled(void) {
     return false;
+}
+
+// Name the file/region backing a guest address, for fault diagnosis: tells
+// whether a faulting PC lives in a mapped file (libc/node .text) vs an
+// anonymous region (V8's own JIT-generated code), and the file offset so the
+// exact instruction can be disassembled from the on-disk binary.
+static void dump_addr_backing(const char *label, guest_addr_t addr) {
+    struct mem *mem = current != NULL ? current->mem : NULL;
+    if (mem == NULL)
+        return;
+    struct pt_entry *pt = mem_pt(mem, PAGE(addr));
+    if (pt == NULL || pt->data == NULL) {
+        printk("%s %#llx: unmapped\n", label, (unsigned long long) addr);
+        return;
+    }
+    struct data *data = pt->data;
+    char path[MAX_PATH] = "";
+    if (data->name != NULL)
+        strncpy(path, data->name, sizeof(path) - 1);
+    else if (data->fd != NULL)
+        generic_getpath(data->fd, path);
+    // file_offset is the region's offset at its first page; add the address's
+    // distance into this page's mapping via pt->offset (offset within data).
+    printk("%s %#llx: %s%s flags=%#x data_off=%zu file_off=%zu\n",
+           label, (unsigned long long) addr,
+           path[0] ? path : "[anon]",
+           (data->fd == NULL && data->name == NULL) ? " (anonymous/JIT)" : "",
+           pt->flags, (size_t) pt->offset, (size_t) data->file_offset);
 }
 
 static void dump_opcode_window(guest_addr_t ip) {
