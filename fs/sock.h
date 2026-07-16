@@ -296,6 +296,7 @@ static inline int sock_flags_from_real(int real) {
 #define NETLINK_KOBJECT_UEVENT_ 15
 #define NETLINK_SOCK_DIAG_ 4
 #define NETLINK_ROUTE_ 0
+#define NETLINK_AUDIT_ 9
 #define NETLINK_GENERIC_ 16
 #define NETLINK_ADD_MEMBERSHIP_ 1
 #define NETLINK_DROP_MEMBERSHIP_ 2

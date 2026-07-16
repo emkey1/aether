@@ -52,6 +52,7 @@ time_conformance.c
 mem_conformance.c
 sock_conformance.c
 netlink_route.c
+netlink_audit.c
 mount_flags.c
 clone_error_cleanup.c
 posix_timer_fork.c

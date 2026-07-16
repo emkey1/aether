@@ -43,9 +43,62 @@
 
 #define NLM_F_REQUEST_ 0x1
 #define NLM_F_MULTI_ 0x2
+#define NLM_F_ACK_ 0x4
 #define NLM_F_ROOT_ 0x100
 #define NLM_F_MATCH_ 0x200
 #define NLM_F_DUMP_ (NLM_F_ROOT_ | NLM_F_MATCH_)
+
+// NETLINK_AUDIT message types and status flags (linux/audit.h)
+#define NLMSG_MIN_TYPE_ 0x10
+#define AUDIT_GET_ 1000
+#define AUDIT_SET_ 1001
+#define AUDIT_LIST_ 1002 // removed legacy binary rule API; kernel: EOPNOTSUPP
+#define AUDIT_ADD_ 1003
+#define AUDIT_DEL_ 1004
+#define AUDIT_USER_ 1005
+#define AUDIT_ADD_RULE_ 1011
+#define AUDIT_DEL_RULE_ 1012
+#define AUDIT_LIST_RULES_ 1013
+#define AUDIT_TRIM_ 1014
+#define AUDIT_MAKE_EQUIV_ 1015
+#define AUDIT_TTY_GET_ 1016
+#define AUDIT_TTY_SET_ 1017
+#define AUDIT_SET_FEATURE_ 1018
+#define AUDIT_GET_FEATURE_ 1019
+#define AUDIT_SIGNAL_INFO_ 1010
+#define AUDIT_FIRST_USER_MSG_ 1100
+#define AUDIT_LAST_USER_MSG_ 1199
+#define AUDIT_FIRST_USER_MSG2_ 2100
+#define AUDIT_LAST_USER_MSG2_ 2999
+
+#define AUDIT_STATUS_ENABLED_ 0x0001
+#define AUDIT_STATUS_FAILURE_ 0x0002
+#define AUDIT_STATUS_PID_ 0x0004
+#define AUDIT_STATUS_RATE_LIMIT_ 0x0008
+#define AUDIT_STATUS_BACKLOG_LIMIT_ 0x0010
+
+// struct audit_status, current (v11-field) layout; older libaudits copy a
+// prefix, newer ones the whole thing, both driven by the reply length.
+struct audit_status_ {
+    uint32_t mask;
+    uint32_t enabled;
+    uint32_t failure;
+    uint32_t pid;
+    uint32_t rate_limit;
+    uint32_t backlog_limit;
+    uint32_t lost;
+    uint32_t backlog;
+    uint32_t feature_bitmap;
+    uint32_t backlog_wait_time;
+    uint32_t backlog_wait_time_actual;
+};
+
+struct audit_features_ {
+    uint32_t vers;
+    uint32_t mask;
+    uint32_t features;
+    uint32_t lock;
+};
 
 #define SOCK_DIAG_BY_FAMILY_ 20
 
@@ -1717,6 +1770,7 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
         if (protocol != NETLINK_ROUTE_ &&
                 protocol != NETLINK_SOCK_DIAG_ &&
                 protocol != NETLINK_KOBJECT_UEVENT_ &&
+                protocol != NETLINK_AUDIT_ &&
                 protocol != NETLINK_GENERIC_)
             return _EPROTONOSUPPORT;
         if (socket_type != SOCK_RAW_ && socket_type != SOCK_DGRAM_)
@@ -2417,6 +2471,103 @@ static int netlink_handle_generic_request(struct fd *sock, const struct nlmsghdr
     return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _ENOENT);
 }
 
+// Kernel-global audit status, like the real audit subsystem's. Starts (and
+// effectively stays) disabled: AUDIT_SET is accepted and echoed back by
+// AUDIT_GET so an auditd that registers itself sees coherent state, but no
+// records are ever generated or delivered -- exactly how a CONFIG_AUDIT=y
+// kernel behaves before/without an enabled audit daemon.
+static struct audit_status_ audit_state;
+static pthread_mutex_t audit_state_lock = PTHREAD_MUTEX_INITIALIZER;
+
+// Minimal NETLINK_AUDIT, mirroring kernel audit_receive_msg with auditing
+// off. The consumers that matter are libaudit clients (PAM, login/su,
+// shadow, sshd, dbus): audit_open() must succeed, and audit_send() --
+// which sets NLM_F_ACK and blocks in check_ack() -- must get a real ACK,
+// with user messages (AUDIT_USER*) silently accepted and dropped the same
+// way Linux drops them when audit_enabled is off.
+static int netlink_handle_audit_request(struct fd *sock, const struct nlmsghdr_ *hdr,
+        const void *payload, size_t payload_len) {
+    uint16_t type = hdr->nlmsg_type;
+    // netlink_rcv_skb skips control messages (< NLMSG_MIN_TYPE) silently.
+    if (type < NLMSG_MIN_TYPE_)
+        return 0;
+
+    bool user_msg = type == AUDIT_USER_ ||
+        (type >= AUDIT_FIRST_USER_MSG_ && type <= AUDIT_LAST_USER_MSG_) ||
+        (type >= AUDIT_FIRST_USER_MSG2_ && type <= AUDIT_LAST_USER_MSG2_);
+    switch (type) {
+        case AUDIT_LIST_:
+        case AUDIT_ADD_:
+        case AUDIT_DEL_:
+            // Removed legacy binary rule API; kernel audit_netlink_ok says
+            // EOPNOTSUPP before even checking permissions.
+            return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
+        case AUDIT_GET_:
+        case AUDIT_SET_:
+        case AUDIT_GET_FEATURE_:
+        case AUDIT_SET_FEATURE_:
+        case AUDIT_ADD_RULE_:
+        case AUDIT_DEL_RULE_:
+        case AUDIT_LIST_RULES_:
+        case AUDIT_TRIM_:
+        case AUDIT_MAKE_EQUIV_:
+        case AUDIT_TTY_GET_:
+        case AUDIT_TTY_SET_:
+        case AUDIT_SIGNAL_INFO_:
+            break;
+        default:
+            if (!user_msg)
+                // audit_netlink_ok's default: bad message type.
+                return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EINVAL);
+            break;
+    }
+    // Control needs CAP_AUDIT_CONTROL, user messages CAP_AUDIT_WRITE;
+    // approximate both as euid==0 (same policy as the taskstats handler).
+    if (current->euid != 0)
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EPERM);
+
+    int err = 0;
+    if (type == AUDIT_GET_) {
+        pthread_mutex_lock(&audit_state_lock);
+        struct audit_status_ s = audit_state;
+        pthread_mutex_unlock(&audit_state_lock);
+        s.mask = 0;
+        err = netlink_append_nlmsg(sock, AUDIT_GET_, 0, hdr->nlmsg_seq, &s, sizeof(s));
+    } else if (type == AUDIT_SET_) {
+        // Kernel copies min(sizeof, data_len) and applies mask-gated fields.
+        struct audit_status_ s = {};
+        memcpy(&s, payload, payload_len < sizeof(s) ? payload_len : sizeof(s));
+        pthread_mutex_lock(&audit_state_lock);
+        if (s.mask & AUDIT_STATUS_ENABLED_)
+            audit_state.enabled = s.enabled;
+        if (s.mask & AUDIT_STATUS_FAILURE_)
+            audit_state.failure = s.failure;
+        if (s.mask & AUDIT_STATUS_PID_)
+            audit_state.pid = s.pid;
+        if (s.mask & AUDIT_STATUS_RATE_LIMIT_)
+            audit_state.rate_limit = s.rate_limit;
+        if (s.mask & AUDIT_STATUS_BACKLOG_LIMIT_)
+            audit_state.backlog_limit = s.backlog_limit;
+        pthread_mutex_unlock(&audit_state_lock);
+    } else if (type == AUDIT_GET_FEATURE_) {
+        struct audit_features_ f = { .vers = 1 };
+        err = netlink_append_nlmsg(sock, AUDIT_GET_FEATURE_, 0, hdr->nlmsg_seq, &f, sizeof(f));
+    } else if (user_msg) {
+        // Accepted and dropped: Linux does the same for user messages when
+        // audit_enabled is off (audit_receive_msg returns 0 without logging).
+    } else {
+        // Remaining control ops (rules, tty, signal-info, ...) belong to a
+        // rule engine we don't have; fail them the way an old kernel fails
+        // ops it doesn't implement rather than pretending they worked.
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, _EOPNOTSUPP);
+    }
+    if (err < 0)
+        return err;
+    if (hdr->nlmsg_flags & NLM_F_ACK_)
+        return netlink_append_error(sock, hdr->nlmsg_seq, hdr, 0);
+    return 0;
+}
+
 static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
     int iovlen = msg->msg_iovlen;
     if (iovlen < 0)
@@ -2448,6 +2599,8 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
             err = netlink_handle_route_request(sock, hdr, payload, payload_len);
         else if (sock->socket.protocol == NETLINK_GENERIC_)
             err = netlink_handle_generic_request(sock, hdr, payload, payload_len);
+        else if (sock->socket.protocol == NETLINK_AUDIT_)
+            err = netlink_handle_audit_request(sock, hdr, payload, payload_len);
         else
             err = netlink_handle_diag_request(sock, hdr, payload, payload_len);
         if (err < 0)
