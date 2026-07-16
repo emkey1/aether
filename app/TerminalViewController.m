@@ -243,6 +243,8 @@ static NSArray<NSString *> *ISHSessionCommandWithFallback(NSArray<NSString *> *c
 @property int sessionPid;
 @property (nonatomic) Terminal *sessionTerminal;
 @property (nonatomic) BOOL sessionStartInProgress;
+@property (nonatomic) NSTimeInterval sessionStartedAt;
+@property (nonatomic) NSInteger consecutiveQuickSessionExits;
 @property BOOL ignoreKeyboardMotion;
 @property (nonatomic) BOOL hasExternalKeyboard;
 @property (nonatomic) BOOL didApplyDeferredSafeAreaUpdate;
@@ -1101,6 +1103,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 	        return err;
     }
     self.sessionPid = current->pid;
+    self.sessionStartedAt = CFAbsoluteTimeGetCurrent();
     [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.start.execed"
                                   details:@{@"pid": @(self.sessionPid),
                                             @"command": commandString ?: @"",
@@ -1146,6 +1149,14 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     return 0;
 }
 
+// If the launch command (e.g. "/bin/login -f root") exits this fast, treat it as a crash rather
+// than a normal short-lived command, for the purposes of loop detection below.
+static const NSTimeInterval kQuickSessionExitThreshold = 2.0;
+// Stop auto-restarting after this many consecutive crash-fast exits, so an incompatible root
+// filesystem (e.g. a login binary that a distro's PAM stack refuses on our pty) can't wedge the
+// app in a tight respawn loop that burns CPU until iOS's watchdog kills it.
+static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
+
 #if !ISH_LINUX
 - (void)processExited:(NSNotification *)notif {
     int pid = [notif.userInfo[@"pid"] intValue];
@@ -1156,10 +1167,19 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     // A workspace-embedded terminal closes its window when its shell exits; only the main
     // full-screen terminal relaunches the login shell.
     dispatch_block_t didEndHandler = self.workspaceSessionDidEndHandler;
+    NSTimeInterval elapsed = CFAbsoluteTimeGetCurrent() - self.sessionStartedAt;
+    if (elapsed < kQuickSessionExitThreshold) {
+        self.consecutiveQuickSessionExits++;
+    } else {
+        self.consecutiveQuickSessionExits = 0;
+    }
+    BOOL crashLooping = didEndHandler == nil && self.consecutiveQuickSessionExits >= kMaxConsecutiveQuickSessionExits;
     [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.processExited"
                                   details:@{@"pid": @(pid),
                                             @"sceneSession": self.sceneSession.persistentIdentifier ?: @"",
-                                            @"restarting": @(didEndHandler == nil)}];
+                                            @"restarting": @(didEndHandler == nil && !crashLooping),
+                                            @"elapsed": @(elapsed),
+                                            @"consecutiveQuickExits": @(self.consecutiveQuickSessionExits)}];
     self.sessionTerminal = nil;
     self.sessionPid = 0;
     [exitedTerminal setPendingDestroyReason:@"session-process-exited"];
@@ -1170,6 +1190,19 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         // it from its parent can release the last reference), so don't run it while we're still
         // executing one of its instance methods.
         dispatch_async(dispatch_get_main_queue(), didEndHandler);
+        return;
+    }
+    if (crashLooping) {
+        self.consecutiveQuickSessionExits = 0;
+        NSArray<NSString *> *command = UserPreferences.shared.launchCommand;
+        NSString *commandString = [command componentsJoinedByString:@" "];
+        [ISHDiagnosticsStore recordBreadcrumb:@"terminal.session.crashLoop.stopped"
+                                      details:@{@"command": commandString ?: @""}];
+        [self _showTerminalStartupFailureOverlayWithText:@"Session command keeps exiting immediately."];
+        [self showMessage:@"Session command keeps exiting immediately"
+                  subtitle:[NSString stringWithFormat:
+                            @"\"%@\" exited right away several times in a row, so iSH stopped auto-restarting it to avoid a restart loop.\n\nThis usually means the root filesystem's login program isn't compatible with iSH (for example, it refuses root login on this pseudo-terminal). Try changing Settings -> Launch Command to something like \"/bin/sh\", or use a different root filesystem.",
+                            commandString ?: @""]];
         return;
     }
     [self startNewSession];
