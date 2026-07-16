@@ -110,10 +110,12 @@ guest_arch=$(uname -m 2>/dev/null || echo unknown)
 is_amd64_guest=0
 is_x86_guest=0
 is_arm64_guest=0
+is_riscv64_guest=0
 case "$guest_arch" in
     x86_64|amd64) is_amd64_guest=1; is_x86_guest=1 ;;
     i?86) is_x86_guest=1 ;;
     aarch64|arm64) is_arm64_guest=1 ;;
+    riscv64) is_riscv64_guest=1 ;;
 esac
 
 need_file test_common.h
@@ -128,6 +130,9 @@ if [ "$is_arm64_guest" -eq 1 ]; then
     need_file arm64/atomics64.c
     need_file arm64/arm64_regress.c
     need_file arm64/vector_smoke.c
+fi
+if [ "$is_riscv64_guest" -eq 1 ]; then
+    need_file riscv64/ptrace_regset.c
 fi
 need_file signal_core.c
 need_file signal_restart.c
@@ -390,7 +395,7 @@ fi
 
 src_for() {
     # tests live at the top level (portable) or in an arch subdir
-    for candidate in "$src_dir/$1.c" "$src_dir/x86/$1.c" "$src_dir/arm64/$1.c"; do
+    for candidate in "$src_dir/$1.c" "$src_dir/x86/$1.c" "$src_dir/arm64/$1.c" "$src_dir/riscv64/$1.c"; do
         if [ -f "$candidate" ]; then
             echo "$candidate"
             return
@@ -425,6 +430,9 @@ if [ "$is_amd64_guest" -eq 1 ]; then
 fi
 if [ "$is_arm64_guest" -eq 1 ]; then
     all_tests="$all_tests atomics64 arm64_regress vector_smoke"
+fi
+if [ "$is_riscv64_guest" -eq 1 ]; then
+    all_tests="$all_tests ptrace_regset"
 fi
 
 test_selected() {

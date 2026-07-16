@@ -81,3 +81,4 @@ setup-regressions.sh
 arm64/atomics64.c
 arm64/arm64_regress.c
 arm64/vector_smoke.c
+riscv64/ptrace_regset.c

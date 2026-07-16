@@ -36,6 +36,7 @@ enum aokfs_node_kind {
     // /tests/x86/); only the directory nodes themselves are enumerated here.
     aokfs_tests_x86_dir,
     aokfs_tests_arm64_dir,
+    aokfs_tests_riscv64_dir,
     // ktop's source/build-script subdirectory: same pattern as the arch test
     // dirs above, but rooted at /tools/ktop/ against the *tools* generated
     // table (manifest names like "ktop/ktop.c" become paths under /tools/ktop/).
@@ -97,6 +98,7 @@ static bool aokfs_node_is_dir(enum aokfs_node_kind node) {
         node == aokfs_tests_audio_dir ||
         node == aokfs_tests_x86_dir ||
         node == aokfs_tests_arm64_dir ||
+        node == aokfs_tests_riscv64_dir ||
         node == aokfs_tools_ktop_dir ||
         node == aokfs_docs_dir;
 }
@@ -159,6 +161,8 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/tests/x86";
         case aokfs_tests_arm64_dir:
             return "/tests/arm64";
+        case aokfs_tests_riscv64_dir:
+            return "/tests/riscv64";
         case aokfs_tools_dir:
             return "/tools";
         case aokfs_tools_ish_benchmark:
@@ -200,6 +204,7 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_tests_dir,
         aokfs_tests_x86_dir,
         aokfs_tests_arm64_dir,
+        aokfs_tests_riscv64_dir,
         aokfs_tools_dir,
         aokfs_tools_ish_benchmark,
         aokfs_tools_setup_ish_benchmark,
@@ -735,13 +740,15 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
         }
         case aokfs_tests_dir:
         case aokfs_tests_x86_dir:
-        case aokfs_tests_arm64_dir: {
+        case aokfs_tests_arm64_dir:
+        case aokfs_tests_riscv64_dir: {
             // Generated files that belong DIRECTLY to this directory (one
             // path component past the prefix), then — for /tests itself —
             // the subdirectories.
             const char *prefix = node == aokfs_tests_dir ? "/tests/"
                                : node == aokfs_tests_x86_dir ? "/tests/x86/"
-                               : "/tests/arm64/";
+                               : node == aokfs_tests_arm64_dir ? "/tests/arm64/"
+                               : "/tests/riscv64/";
             size_t plen = strlen(prefix);
             size_t want = (size_t) fd->offset++;
             size_t seen = 0;
@@ -763,6 +770,7 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                     case 0: child = aokfs_tests_audio_dir; break;
                     case 1: child = aokfs_tests_x86_dir; break;
                     case 2: child = aokfs_tests_arm64_dir; break;
+                    case 3: child = aokfs_tests_riscv64_dir; break;
                     default: return 0;
                 }
             }
