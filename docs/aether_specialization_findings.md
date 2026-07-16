@@ -79,71 +79,101 @@ degraded run.
 | `mistral24b` | cs-aug4 | 33/32/5/2 | 7/5/8/4 | 12/9/10/0 |
 | `a3b-coder30b` (30B-A3B MoE) | cs-aug4 | 29/28/9/2 | **8**/7/3/1 | 12/9/9/0 |
 | `qwen3-8b-nothink` | cs-aug4 | 30/30/7/2 | 8/6/5/2 | 11/9/10/0 |
-| ~~`deepseek6.7b`~~ | cs-aug4 | *excluded* | *excluded* | *excluded* |
+| `deepseek6.7b`† | cs-aug4 | 30/28/7/0 | 5/4/5/0 | 12/8/13/2 |
 
 *Cells are Compiled/Correct/Retried/Fixed (overlapping tallies, not a
 partition — they do not sum to N): Compiled = ran rc 0; Correct = exact
 stdout; Retried = needed ≥2 attempts; Fixed = a repair turned a failure into
 a pass. `Compiled ≥ Correct` is not guaranteed here (a program can compile,
-run, and produce wrong output) but held in every cell on this board.*
+run, and produce wrong output) but held in every cell on this board.
+†`deepseek6.7b` served via llama.cpp/GGUF, not vLLM — see below.*
 
-### `deepseek6.7b-cs-aug4` — excluded, training-side corruption
+### `deepseek6.7b-cs-aug4` — a vLLM serving bug, not a training defect
 
-Training completed successfully (exit 0, merged export intact, 2 safetensor
-shards), and the model **compiles working Aether** (25/35 simple, 4/9 large,
-10/19 cs ran to completion) — but every generation is missing spaces between
-words and around operators, and literal byte-level BPE glyphs (`Ġ` = space,
-`Ċ` = newline) leak into some outputs. A direct vLLM chat probe against the
-merged weights, served with the clean **base-model tokenizer** (ruling out a
-serving-side tokenizer mismatch), still returned
-`thequickbrownfoxjumpsoverthelazydogĊĊĊ` for a trivial "repeat this sentence"
-prompt — **the fine-tuned weights themselves learned spaceless emission**;
-this is a training-time defect, not a servable-around bug. Root-cause
-investigation and retrain in progress; see the tokenizer-serving-gotcha
-project note for the broader pattern (this is the third distinct
-deepseek/Mistral tokenizer incident in this project's history, and the first
-one that isn't fixable by a serving flag).
+This model's first-pass numbers (9/35 simple) looked like a broken
+fine-tune — every generation was missing inter-word spaces and leaking
+literal byte-level BPE glyphs (`Ġ` = space, `Ċ` = newline;
+`println("hello from benchmark")` → `hellofrombenchmark`). The investigation
+took several wrong turns before landing on the real cause (full chain
+recorded in the tokenizer-serving-gotcha project note, since each wrong turn
+looked convincing on its own):
+
+- Tokenizer round-trip, chat-template rendering, and Unsloth's masking
+  boundary all checked out clean against real training data.
+- The 408-record training corpus had zero anomalous records.
+- A bf16 retrain (vs. the original 4-bit QLoRA) produced clean output
+  under direct `transformers.generate()` — but **the same checkpoint
+  reproduced the identical corruption once served through vLLM**, including
+  via the raw completions endpoint with a pre-rendered prompt (bypassing
+  vLLM's own chat-template logic). The bf16 result was a false signal from
+  testing against the wrong path, not a fix.
+- Decisive test: the **stock, never-fine-tuned** base
+  `deepseek-coder-6.7b-instruct`, served through the same vLLM setup,
+  produced the same glyph corruption. **This is a vLLM bug in decoding this
+  model's tokenizer, unrelated to anything about our training, corpus, or
+  quantization choice.**
+- A plausible-looking harness-side fix (substitute `Ġ`→space, `Ċ`→newline in
+  vLLM's raw output before scoring) was tested end-to-end against all 25
+  failing cases and recovered **zero** — the structural/syntax spacing came
+  back, but the specific string-literal content the task asks the model to
+  echo was still corrupted underneath, not just mis-displayed.
+- **Actual fix:** exported the checkpoint to GGUF (Unsloth's built-in
+  `save_pretrained_gguf`) and served it with `llama.cpp` instead of vLLM.
+  Completely clean — the historical llama.cpp pre-tokenizer gap that
+  blocked this model's GGUF path in the cs-aug2-builtins era appears fixed
+  upstream. The results above are this llama.cpp-served run.
+
+Net: `deepseek6.7b` is a perfectly normal small-model result once served
+correctly — smallest model in the cohort, near the bottom of the pack, no
+sign of a defect. The real finding is infrastructural: **vLLM cannot
+currently serve this model's tokenizer correctly on this project's stack;
+llama.cpp/GGUF can.** Worth checking whether other deepseek-family models
+hit the same vLLM issue before assuming any one of them is serving-safe.
 
 ### Findings
 
 - **The hard-task gap the project has tracked since `cs-aug2-builtins`
   (fine-tunes hit 25-29/30 simple but only 3-7/8 large with no guide) is
-  visibly narrower on this corpus generation.** Every model here scores
+  visibly narrower on this corpus generation.** Six of seven models score
   5-7/9 on the large suite — the same range this project's guided
   *frontier* models have historically held, not the 3-5/8 no-guide fine-tune
-  floor. `qwen14b` and `q36` both reach 12/19 on cs-classics, matching or
-  beating the previous best fine-tuned no-guide score on that instrument.
-  Whether this is the corpus refresh (bench-log-mined drills, the newly
-  fixed compiler letting more corpus cases verify cleanly), the larger/more
-  current base models, or some mix, is not yet isolated — worth a
-  same-corpus/different-vintage-compiler A/B if it matters later.
+  floor (`deepseek6.7b`, the smallest model in the cohort at 6.7B, is the
+  exception at 4/9 — plausibly just a capacity floor, not evidence against
+  the pattern). `qwen14b` and `q36` both reach 12/19 on cs-classics,
+  matching or beating the previous best fine-tuned no-guide score on that
+  instrument. Whether this is the corpus refresh (bench-log-mined drills,
+  the newly fixed compiler letting more corpus cases verify cleanly), the
+  larger/more current base models, or some mix, is not yet isolated — worth
+  a same-corpus/different-vintage-compiler A/B if it matters later.
 - **`qwen14b` is the strongest model on this board**, leading or tying the
   top score on all three suites — a change from earlier boards where the
   30B-class MoE (`a3b-coder30b`) or the reasoning hybrid (`q36`) usually led.
 - **New-task coverage results are a clean signal of real corpus gaps, not
-  eval noise.** Per-task pass counts across the 6 valid models:
-  `mstream_roundtrip` **0/6** (total, uniform failure — the `MStream`/HTTP
-  surface added 2026-07-09 has zero training exposure in this corpus);
-  `tuple_recursive_digits` 4/6; `field_defaults_gauge` 5/6;
-  `module_pure_export` 5/6; `digit_separators_sum` 6/6;
-  `hard_append_growth` 6/6. The append-in-loop idiom and digit separators are
-  already well drilled in the existing corpus; recursive tuple returns,
-  field defaults, and `@pure`-annotated module exports are each a near-miss
-  (one or two models fail) rather than solid — plausible next-corpus drill
-  candidates alongside the outright `MStream` gap.
-- **Tokenizer-serving bugs remain the single biggest threat to trusting a
-  low score at face value.** Two of seven models on this board needed a
-  tokenizer fix before their numbers meant anything, and a naive read of
-  either's first-pass result would have logged a false "bad fine-tune"
-  finding.
+  eval noise.** Per-task pass counts across all 7 models: `mstream_roundtrip`
+  **0/7** (total, uniform failure — the `MStream`/HTTP surface added
+  2026-07-09 has zero training exposure in this corpus); `tuple_recursive_digits`
+  5/7; `field_defaults_gauge` 6/7; `module_pure_export` 6/7;
+  `digit_separators_sum` 6/7; `hard_append_growth` **7/7**. The
+  append-in-loop idiom is universally solid; digit separators are solid bar
+  one model; recursive tuple returns, field defaults, and `@pure`-annotated
+  module exports are each a near-miss (one or two models fail) — plausible
+  next-corpus drill candidates alongside the outright `MStream` gap.
+- **Tokenizer/serving bugs remain the single biggest threat to trusting a
+  low score at face value — this board hit two, of different severity.**
+  `mistral24b` needed a one-flag fix (serve with the base model's
+  tokenizer). `deepseek6.7b` needed a full serving-backend switch (vLLM →
+  llama.cpp/GGUF) after training-side theories about the same symptom were
+  investigated and ruled out — see below. A naive read of either model's
+  first-pass result would have logged a false "bad fine-tune" finding, and
+  in `deepseek6.7b`'s case nearly did so through two different wrong
+  root-cause claims before the actual fix was found and verified end-to-end.
 
 ### Status
 
 Full board landed in one session (2026-07-16) after two claw2 hardware
-interruptions and two tokenizer-serving fixes. `deepseek6.7b` retrain (fixing
-the training-side tokenizer corruption) in progress; this section will be
-updated with its corrected numbers once it lands. The `MStream`-drill gap
-identified here is a natural target for the next corpus generation.
+interruptions and two tokenizer/serving fixes (one one-flag fix for
+`mistral24b`, one full backend switch for `deepseek6.7b`). The `MStream`-drill
+gap identified here is a natural target for the next corpus generation.
 
 ---
 
