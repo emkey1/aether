@@ -140,15 +140,20 @@ CLEAN_HOOK='rm -rf "$1"/var/lib/apt/lists/* "$1"/var/cache/apt/archives/*.deb "$
 # `busybox <applet>`); set BUSYBOX=0 to omit busybox entirely.
 BUSYBOX="${BUSYBOX:-1}"
 BUSYBOX_APPLETS="${BUSYBOX_APPLETS-top watch ps free vmstat pgrep pkill killall wget less}"
+# logsave: initscripts' checkroot.sh/checkfs.sh persist fsck output through
+# /sbin/logsave (split out of e2fsprogs into its own package in Debian 13/
+# Devuan Excalibur). Without it every boot prints the cosmetic-but-alarming
+# "Checking file systems...Cannot persist the following output on disc ...
+# failed!" from mount-functions.sh's logsave_best_effort().
 if [ "$BUSYBOX" = 1 ]; then
-    INCLUDE_PKGS="ca-certificates,devuan-keyring,busybox-static"
+    INCLUDE_PKGS="ca-certificates,devuan-keyring,busybox-static,logsave"
     # Only symlink applets the target busybox actually provides (it's the same
     # arch as the build container, so it runs) -- a symlink to a non-compiled
     # applet would print "applet not found" and look broken. Never overwrite an
     # existing target file.
     BBOX_HOOK='[ -e "$1/bin/busybox" ] || exit 0; avail=$("$1/bin/busybox" --list 2>/dev/null); for ap in '"$BUSYBOX_APPLETS"'; do printf "%s\n" "$avail" | grep -qx "$ap" || { echo "    busybox: no applet $ap, skipping" >&2; continue; }; [ -e "$1/usr/bin/$ap" ] || [ -e "$1/bin/$ap" ] || ln -s /bin/busybox "$1/usr/bin/$ap"; done'
 else
-    INCLUDE_PKGS="ca-certificates,devuan-keyring"
+    INCLUDE_PKGS="ca-certificates,devuan-keyring,logsave"
     BBOX_HOOK='true'
 fi
 
