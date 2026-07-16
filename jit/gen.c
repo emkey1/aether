@@ -1149,6 +1149,14 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
 
     state->arm64_orig_ip = state->arm64_ip;
     state->orig_ip_extra = 0;
+    // ISH_ARM64_TRACE_IP debug probe: run arm64_trace_probe (emu/tlb.c)
+    // before the instruction at the traced guest pc.
+    if (unlikely(arm64_trace_ip_target() != 0) &&
+            state->arm64_ip == arm64_trace_ip_target()) {
+        extern void gadget_arm64_trace_probe(void);
+        gen(state, (unsigned long) gadget_arm64_trace_probe);
+        gen(state, state->arm64_orig_ip);
+    }
     // Compare+branch fusion bookkeeping: consume the previous
     // instruction's flags-live claim, and default to NOT live for this
     // one (only the fast flag-setting paths below re-assert it).
@@ -4053,12 +4061,32 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
             return 1;
         }
         if (o2 == 1) {
-            // LDAR/STLR: an ordered but non-exclusive plain access.
+            // LDAR/STLR: an ordered but non-exclusive plain access. The
+            // plain gadget performs the access; the ORDERING must be
+            // preserved with a real host barrier, because guest threads
+            // run on concurrent host threads and V8 publishes objects
+            // cross-thread with exactly this pair (release-store a
+            // pointer/flag, acquire-load it elsewhere, then read the
+            // data it guards). Lowering these to plain accesses let the
+            // consumer thread observe the publication before the
+            // published data — Sparkplug/GC threads compiled from
+            // half-published SharedFunctionInfo/BytecodeArray state,
+            // which surfaced as npm/node crashing ~50% of runs with a
+            // LoadIC probing a feedback slot that belongs to a different
+            // IC kind (Smi(kMaxInt) deref -> SIGSEGV / V8 CHECK
+            // failures). A full barrier BEFORE a store-release and AFTER
+            // a load-acquire is conservative but correct; barriers are
+            // idempotent so fault-restart re-executing them is fine.
+            extern void gadget_arm64_barrier(void);
+            if (!L)
+                gen(state, (unsigned long) gadget_arm64_barrier);
             void *gadget = gen_arm64_ldst_single_gadget(size, L ? 1 : 0);
             gen(state, (unsigned long) gadget);
             gen(state, rt | ((uint64_t) rn << 8) | (0ULL << 16));
             gen(state, 0);
             gen(state, state->arm64_orig_ip); // fault-restart address
+            if (L)
+                gen(state, (unsigned long) gadget_arm64_barrier);
             return 1;
         }
         static void *const ldxr_gadgets[4] = {
@@ -4457,8 +4485,25 @@ int gen_step_arm64(struct gen_state *state, struct tlb *tlb) {
     // EL1-only maintenance ops have op1!=3 and never match this mask.
     if ((insn & 0xfffff0e0) == 0xd50b7020) {
         unsigned crm = (insn >> 8) & 0xf;
-        if (crm == 0x5 ||                // IC IVAU
-            crm == 0xa || crm == 0xb ||  // DC CVAC, DC CVAU
+        if (crm == 0x5) {
+            // IC IVAU must NOT be a no-op: write-driven block invalidation
+            // only fires on the TLB write-MISS path, so a code rewrite
+            // through a still-cached writable TLB entry is invisible and
+            // this instruction is the guest's only invalidation signal.
+            // Leaving it out let V8's recycled code addresses keep running
+            // their stale old translation (npm install died ~50% of runs);
+            // distilled A/B: tests/manual/arm64/smc_stale_block.c. Xt=31
+            // is XZR (VA 0): architecturally valid but nothing compiles
+            // from page 0, keep it a no-op.
+            unsigned rt = insn & 0x1f;
+            if (rt != 31) {
+                extern void gadget_arm64_ic_ivau(void);
+                gen(state, (unsigned long) gadget_arm64_ic_ivau);
+                gen(state, rt);
+            }
+            return 1;
+        }
+        if (crm == 0xa || crm == 0xb ||  // DC CVAC, DC CVAU
             crm == 0xc || crm == 0xd ||  // DC CVAP, DC CVADP
             crm == 0xe)                  // DC CIVAC
             return 1;
@@ -5195,9 +5240,19 @@ int gen_step_riscv64(struct gen_state *state, struct tlb *tlb) {
     }
 
     case RISCV64_OP_MISC_MEM:
-        // fence/fence.i: the TLB and block-invalidation machinery already
-        // provide the guarantees this JIT needs (blocks are invalidated on
-        // guest code writes); no-op, like arm64's hint-space handling.
+        // FENCE (funct3=0): guest threads are concurrent host threads, so
+        // emit a real host barrier. FENCE.I (funct3=1): must invalidate
+        // translated blocks — write-driven invalidation only fires on the
+        // TLB write-MISS path, so a code rewrite through a still-cached
+        // writable TLB entry is invisible and FENCE.I is the guest's only
+        // signal (same bug class as arm64's IC IVAU above).
+        if (funct3 == 0) {
+            extern void gadget_riscv64_fence(void);
+            gen(state, (unsigned long) gadget_riscv64_fence);
+        } else if (funct3 == 1) {
+            extern void gadget_riscv64_fence_i(void);
+            gen(state, (unsigned long) gadget_riscv64_fence_i);
+        }
         return 1;
 
     case RISCV64_OP_JALR:

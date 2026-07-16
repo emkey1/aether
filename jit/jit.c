@@ -773,6 +773,7 @@ static inline size_t jit_hash_bucket(guest_addr_t addr, size_t size) {
 
 void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
     lock(&jit->lock, 0);
+    bool invalidated = false;
     struct jit_block *block, *tmp;
     for (page_t page = start; page < end; page++) {
         for (int i = 0; i <= 1; i++) {
@@ -798,14 +799,55 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
                 jit_block_disconnect(jit, block);
                 block->is_jetsam = true;
                 list_add(&jit->jetsam, &block->jetsam);
+                invalidated = true;
             }
         }
     }
+    // Invalidated blocks stay allocated (jetsam) until a write-locked
+    // cleanup, so per-thread dispatch caches, frame->last_block, and the
+    // assembly ret_cache still hold pointers to their now-STALE
+    // translations. Bump cleanup_seq so every frontend purges those at its
+    // next block boundary — without this, a thread kept executing the old
+    // translation of a recycled code address indefinitely. Real case: V8's
+    // concurrent Sparkplug thread garbage-collects baseline code and
+    // reuses the address for a different function's code (invalidating
+    // correctly via IC IVAU -> here); the main thread's cached stale
+    // translation then ran the OLD function's code against the NEW
+    // function's frames -> npm/node crashed ~50% of runs (LoadIC probing
+    // a feedback slot of the wrong IC kind, V8 CHECK failures, SIGSEGV).
+    if (invalidated)
+        atomic_fetch_add_explicit(&jit->cleanup_seq, 1, memory_order_relaxed);
     unlock(&jit->lock);
 }
 
 void jit_invalidate_page(struct jit *jit, page_t page) {
     jit_invalidate_range(jit, page, page + 1);
+}
+
+// IC IVAU from the arm64 guest (memory.S's ic_ivau gadget): drop translated
+// blocks for the page containing the flushed VA. This CANNOT be left as a
+// no-op relying on write-driven invalidation: writes only invalidate on the
+// TLB write-MISS path (emu/memory.c's mmu_translate callback), so a code
+// rewrite through a still-cached writable TLB entry invalidates nothing —
+// the IC IVAU the guest then executes is the only remaining signal. V8
+// recycles JIT code addresses constantly; missing the invalidation left
+// stale translations of the OLD code running against the NEW code's frames
+// (npm install on an arm64 guest died ~50% of runs; see
+// tests/manual/arm64/smc_stale_block.c for the distilled A/B).
+void arm64_ic_ivau(struct tlb *tlb, uint64_t addr) {
+    struct jit *jit = tlb->mmu->jit;
+    if (jit != NULL)
+        jit_invalidate_page(jit, PAGE(addr));
+}
+
+// riscv64 FENCE.I (guest-riscv64/core.S's fence_i gadget): same bug class
+// as arm64_ic_ivau above, but FENCE.I carries no VA — conservatively drop
+// every translated block. Rare instruction (runtime code generators only),
+// so the full flush is acceptable.
+void riscv64_fence_i(struct tlb *tlb) {
+    struct jit *jit = tlb->mmu->jit;
+    if (jit != NULL)
+        jit_invalidate_all(jit);
 }
 
 void jit_invalidate_all(struct jit *jit) {
@@ -1091,7 +1133,7 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         addr_t ip = frame->cpu.eip;
         size_t cache_index = jit_cache_hash(ip);
         struct jit_block *block = cache[cache_index];
-        if (block == NULL || block->addr != ip) {
+        if (block == NULL || block->addr != ip || block->is_jetsam) {
             lock(&jit->lock, 0);
             block = jit_lookup(jit, ip);
             if (block == NULL) {
@@ -1248,7 +1290,12 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         }
         
         frame->last_block = block;
-        last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        // Deliberately NOT re-reading cleanup_seq here: a concurrent
+        // jit_invalidate_range can bump it between the check above and this
+        // point, and refreshing the snapshot would swallow that bump — the
+        // next iteration would skip the purge and dispatch through a stale
+        // cache/ret_cache entry. Leaving the snapshot alone means at worst
+        // one spurious purge next iteration.
 
         // block may be jetsam, but that's ok, because it can't be freed until
         // every thread on this jit is not executing anything
@@ -1423,7 +1470,7 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
         guest_addr_t ip = frame->cpu.arm64_pc;
         size_t cache_index = jit_cache_hash(ip);
         struct jit_block *block = cache[cache_index];
-        if (block == NULL || block->addr != ip) {
+        if (block == NULL || block->addr != ip || block->is_jetsam) {
             lock(&jit->lock, 0);
             block = jit_lookup(jit, ip);
             if (block == NULL) {
@@ -1525,7 +1572,12 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
         }
 
         frame->last_block = block;
-        last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        // Deliberately NOT re-reading cleanup_seq here: a concurrent
+        // jit_invalidate_range can bump it between the check above and this
+        // point, and refreshing the snapshot would swallow that bump — the
+        // next iteration would skip the purge and dispatch through a stale
+        // cache/ret_cache entry. Leaving the snapshot alone means at worst
+        // one spurious purge next iteration.
 
         if (__atomic_load_n(&block->code[0], __ATOMIC_RELAXED) == 0) {
             printk("WARNING: JIT block %08llx pid %d has null code[0]; invalidating\n",
@@ -1635,7 +1687,7 @@ static int cpu_step_to_interrupt_riscv64(struct cpu_state *cpu, struct tlb *tlb)
         guest_addr_t ip = frame->cpu.riscv64_pc;
         size_t cache_index = jit_cache_hash(ip);
         struct jit_block *block = cache[cache_index];
-        if (block == NULL || block->addr != ip) {
+        if (block == NULL || block->addr != ip || block->is_jetsam) {
             lock(&jit->lock, 0);
             block = jit_lookup(jit, ip);
             if (block == NULL) {
@@ -1737,7 +1789,12 @@ static int cpu_step_to_interrupt_riscv64(struct cpu_state *cpu, struct tlb *tlb)
         }
 
         frame->last_block = block;
-        last_block_cleanup_seq = atomic_load_explicit(&jit->cleanup_seq, memory_order_relaxed);
+        // Deliberately NOT re-reading cleanup_seq here: a concurrent
+        // jit_invalidate_range can bump it between the check above and this
+        // point, and refreshing the snapshot would swallow that bump — the
+        // next iteration would skip the purge and dispatch through a stale
+        // cache/ret_cache entry. Leaving the snapshot alone means at worst
+        // one spurious purge next iteration.
 
         if (__atomic_load_n(&block->code[0], __ATOMIC_RELAXED) == 0) {
             printk("WARNING: JIT block %08llx pid %d has null code[0]; invalidating\n",
@@ -1948,7 +2005,7 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
                 (unsigned long long) ip,
                 current != NULL ? current->comm : "(null)",
                 current != NULL ? current->abi : -1);
-        if (block == NULL || block->addr != ip) {
+        if (block == NULL || block->addr != ip || block->is_jetsam) {
             jit_crash_track_mutex_lock(&jit->lock);
             block = jit_lookup(jit, ip);
             if (block == NULL) {

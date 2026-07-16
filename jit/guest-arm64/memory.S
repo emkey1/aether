@@ -150,8 +150,47 @@ arm64_handle_write_miss:
     mov _addr, x27
     ret
 
+// ISH_ARM64_TRACE_IP debug probe (gen_step_arm64 emits this ahead of the
+// instruction at the traced guest pc): calls arm64_trace_probe(cpu, tlb, ip)
+// with all guest state committed, then falls through to the real gadget.
+// Code stream: [orig_ip].
+.gadget trace_probe
+    ldr x8, [_ip], #8
+    save_c
+    mov x0, x1                 // cpu   (x1 = _cpu; copied before x1 is written)
+    sub x1, x2, #TLB_entries   // tlb   (consumes x2 before x2 is written)
+    mov x2, x8                 // guest ip of the traced instruction
+    bl NAME(arm64_trace_probe)
+    restore_c
+    gret
+
+.extern arm64_trace_probe
+
+// IC IVAU: invalidate translated blocks for the page containing the VA in
+// Xt. Calls arm64_ic_ivau(tlb, addr) (jit/jit.c). Code stream: [rt].
+// Argument order per this file's aliasing discipline: read everything that
+// needs x1 (_cpu) and x2 (_tlb) before overwriting them.
+.gadget ic_ivau
+    ldr x8, [_ip], #8
+    add x9, _cpu, #CPU_x0
+    ldr x9, [x9, x8, lsl #3]   // addr = regs[rt]
+    save_c
+    sub x0, x2, #TLB_entries   // tlb
+    mov x1, x9                 // addr
+    bl NAME(arm64_ic_ivau)
+    restore_c
+    gret
+
+.extern arm64_ic_ivau
+
 .global arm64_resolve_write_ptr
 arm64_resolve_write_ptr:
+    // Stash the storing instruction's guest pc for the ISH_ARM64_WATCH_LO16
+    // store watchpoint (tlb_write_ptr_slow). [_ip, #-8] is the gadget's
+    // trailing orig_ip word, the same convention the segfault paths above
+    // rely on; x9 is prep-macro scratch, dead at this point.
+    ldur x9, [_ip, #-8]
+    str x9, [_tlb, #(-TLB_entries+TLB_watch_ip)]
     save_c
     sub x0, _tlb, #TLB_entries
     mov x1, _addr

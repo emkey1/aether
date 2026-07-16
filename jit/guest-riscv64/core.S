@@ -25,6 +25,29 @@
     mov w0, #INT_RISCV64_ECALL
     b jit_exit
 
+// FENCE: guest threads run on concurrent host threads, so a guest data
+// fence must be a real host barrier (same reasoning as guest-arm64's
+// LDAR/STLR and DMB handling). No code-stream params.
+.gadget fence
+    dmb ish
+    gret
+
+// FENCE.I: synchronize instruction fetch with prior stores. Write-driven
+// block invalidation only fires on the TLB write-MISS path, so a code
+// rewrite through a still-cached writable TLB entry is invisible and this
+// instruction is the guest's only invalidation signal (same bug class as
+// guest-arm64's IC IVAU; see jit/jit.c's arm64_ic_ivau comment and
+// tests/manual/arm64/smc_stale_block.c). FENCE.I carries no VA, so it
+// drops every translated block via riscv64_fence_i (jit/jit.c).
+.gadget fence_i
+    save_c
+    sub x0, x2, #TLB_entries
+    bl NAME(riscv64_fence_i)
+    restore_c
+    gret
+
+.extern riscv64_fence_i
+
 // rd = constant (LUI, AUIPC, li-style folds; also jal/jalr link writes).
 // Code stream: [gadget][rd_off][value]
 .gadget mov_const
