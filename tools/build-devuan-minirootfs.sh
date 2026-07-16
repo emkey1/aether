@@ -145,15 +145,26 @@ BUSYBOX_APPLETS="${BUSYBOX_APPLETS-top watch ps free vmstat pgrep pkill killall 
 # Devuan Excalibur). Without it every boot prints the cosmetic-but-alarming
 # "Checking file systems...Cannot persist the following output on disc ...
 # failed!" from mount-functions.sh's logsave_best_effort().
+#
+# vim-tiny: the bare minbase + busybox-static image had NO command named `vi`
+# at all -- busybox-static does compile a vi applet, but the customize hook
+# below deliberately never symlinks it (see its comment) to avoid contending
+# with update-alternatives, so it was reachable only via `busybox vi`, not
+# plain `vi`. vim-tiny is Debian's real minimal-vi package: it registers
+# /usr/bin/vi through update-alternatives properly on install (auto mode, no
+# manual symlink to fight), and provision-ultimate-devuan.sh's later `apt-get
+# install vim` cleanly takes over the same alternative at a higher priority
+# (verified: `update-alternatives: using /usr/bin/vim.basic to provide
+# /usr/bin/vi ... in auto mode`, no warnings). ~2.1 MB installed.
 if [ "$BUSYBOX" = 1 ]; then
-    INCLUDE_PKGS="ca-certificates,devuan-keyring,busybox-static,logsave"
+    INCLUDE_PKGS="ca-certificates,devuan-keyring,busybox-static,logsave,vim-tiny"
     # Only symlink applets the target busybox actually provides (it's the same
     # arch as the build container, so it runs) -- a symlink to a non-compiled
     # applet would print "applet not found" and look broken. Never overwrite an
     # existing target file.
     BBOX_HOOK='[ -e "$1/bin/busybox" ] || exit 0; avail=$("$1/bin/busybox" --list 2>/dev/null); for ap in '"$BUSYBOX_APPLETS"'; do printf "%s\n" "$avail" | grep -qx "$ap" || { echo "    busybox: no applet $ap, skipping" >&2; continue; }; [ -e "$1/usr/bin/$ap" ] || [ -e "$1/bin/$ap" ] || ln -s /bin/busybox "$1/usr/bin/$ap"; done'
 else
-    INCLUDE_PKGS="ca-certificates,devuan-keyring,logsave"
+    INCLUDE_PKGS="ca-certificates,devuan-keyring,logsave,vim-tiny"
     BBOX_HOOK='true'
 fi
 
