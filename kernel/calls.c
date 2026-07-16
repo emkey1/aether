@@ -5475,22 +5475,25 @@ void handle_interrupt(int interrupt) {
             handle_privileged_instruction_interrupt(cpu);
             break;
         case INT_BREAKPOINT:
-            complex_lockt(&pids_lock, 0);
-            send_signal(current, SIGTRAP_, (struct siginfo_) {
+            // Debug exceptions are forced synchronous traps on Linux
+            // (force_sig_fault): if the guest has SIGTRAP blocked (e.g.
+            // musl blocks everything around abort/thread teardown before a
+            // V8 IMMEDIATE_CRASH brk executes), delivery must force-default
+            // and kill rather than leave it pending while the brk
+            // re-executes forever. send_signal is the kill()-style path
+            // without that semantic.
+            deliver_signal(current, SIGTRAP_, (struct siginfo_) {
                 .sig = SIGTRAP_,
                 .code = TRAP_BRKPT_,
                 .fault.addr = current_fault_ip(cpu),
             });
-            unlock(&pids_lock);
             break;
         case INT_DEBUG:
-            complex_lockt(&pids_lock, 0);
-            send_signal(current, SIGTRAP_, (struct siginfo_) {
+            deliver_signal(current, SIGTRAP_, (struct siginfo_) {
                 .sig = SIGTRAP_,
                 .code = TRAP_TRACE_,
                 .fault.addr = current_fault_ip(cpu),
             });
-            unlock(&pids_lock);
             break;
         case INT_TIMER:
             handle_timer_interrupt(cpu); // Just a stub for now

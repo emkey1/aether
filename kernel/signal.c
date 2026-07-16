@@ -775,16 +775,21 @@ void send_signal_to_group(struct tgroup *group, int sig, struct siginfo_ info) {
 void deliver_signal_with_sighand(struct task *task, struct sighand *sighand, int sig, struct siginfo_ info) {
     lock(&sighand->lock, 0);
     // deliver_signal is the forced path (faults, not kill()). Match Linux
-    // force_sig semantics for synchronous traps: if the signal is ignored,
-    // or blocked with the default handler, reset to SIG_DFL and unblock it
-    // so the task dies. Without this the faulting instruction re-executes
-    // forever: handle_interrupt only calls receive_signals for unblocked
-    // pending signals, and receive_signals skips blocked ones anyway.
+    // force_sig_info_to_task semantics for synchronous traps: if the signal
+    // is ignored, or blocked -- with ANY disposition, including a custom
+    // handler ("we do not want to have a signal handler that was blocked be
+    // invoked when user space had explicitly blocked it", kernel/signal.c)
+    // -- reset to SIG_DFL and unblock it so the task dies. Without this the
+    // faulting instruction re-executes forever: handle_interrupt only calls
+    // receive_signals for unblocked pending signals, and receive_signals
+    // skips blocked ones anyway. The blocked+custom-handler case was the
+    // observable wedge: a guest that blocks SIGSEGV around a region that
+    // then faults (e.g. node/V8 crash paths under npm) spun at 100% CPU,
+    // unkillable from inside the guest, instead of dying like on Linux.
     // User-sent signals go through send_signal and are not affected.
     if (signal_is_synchronous_trap(sig) && signal_is_blockable(sig)) {
         struct sigaction_ *action = &sighand->action[sig];
-        if (action->handler == SIG_IGN_ ||
-                (action->handler == SIG_DFL_ && sigset_has(task->blocked, sig))) {
+        if (action->handler == SIG_IGN_ || sigset_has(task->blocked, sig)) {
             *action = (struct sigaction_) {.handler = SIG_DFL_};
             sigset_del(&task->blocked, sig);
         }
