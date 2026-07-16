@@ -691,22 +691,39 @@ static const char *viRepeatKeys = "hjkl";
     }
     [_keyCommands addObject:command];
 
-    command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:UIKeyModifierShift propertyList:shiftEscapeSequence];
-    if (@available(iOS 15, *)) {
-        command.wantsPriorityOverSystemBehavior = YES;
+    // Only register the modifier variants that actually have an escape
+    // sequence to send. A NULL sequence used to be registered anyway, and
+    // handleKeyCommand silently ignores a nil propertyList on a modified
+    // key -- so the terminal CLAIMED the chord (first responder wins over
+    // ancestors in UIKeyCommand dispatch) and then did nothing with it,
+    // black-holing it for the whole app. Concretely: Tab's control
+    // sequence is NULL, so Ctrl+Tab died here whenever a terminal had
+    // focus, which broke the Workspace's Ctrl+Tab window cycling
+    // ("worked once" -- until the cycle handed focus to a terminal).
+    // Skipping the dead registrations lets those chords bubble up the
+    // responder chain to whoever can actually handle them.
+    if (shiftEscapeSequence != NULL) {
+        command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:UIKeyModifierShift propertyList:shiftEscapeSequence];
+        if (@available(iOS 15, *)) {
+            command.wantsPriorityOverSystemBehavior = YES;
+        }
+        [_keyCommands addObject:command];
     }
-    [_keyCommands addObject:command];
 
-    command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:UIKeyModifierControl propertyList:controlEscapeSequence];
-    if (@available(iOS 15, *)) {
-        command.wantsPriorityOverSystemBehavior = YES;
+    if (controlEscapeSequence != NULL) {
+        command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:UIKeyModifierControl propertyList:controlEscapeSequence];
+        if (@available(iOS 15, *)) {
+            command.wantsPriorityOverSystemBehavior = YES;
+        }
+        [_keyCommands addObject:command];
     }
-    [_keyCommands addObject:command];
-    command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:UIKeyModifierAlternate propertyList:altEscapeSequence];
-    if (@available(iOS 15, *)) {
-        command.wantsPriorityOverSystemBehavior = YES;
+    if (altEscapeSequence != NULL) {
+        command = [UIKeyCommand commandWithTitle: @"" image: nil action:@selector(handleKeyCommand:) input: keyName modifierFlags:UIKeyModifierAlternate propertyList:altEscapeSequence];
+        if (@available(iOS 15, *)) {
+            command.wantsPriorityOverSystemBehavior = YES;
+        }
+        [_keyCommands addObject:command];
     }
-    [_keyCommands addObject:command];
 }
 
 - (void)keyCommandTriggered:(UIKeyCommand *)sender {

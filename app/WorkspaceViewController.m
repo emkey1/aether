@@ -8945,7 +8945,21 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 
     NSInteger _busyCount;      // >0 while a queued file operation is in flight (editor locked)
     NSString *_draftSlotName;  // this window's autosave draft file name (claimed in viewDidLoad)
+    BOOL _grabbedInitialFocus; // becomeFirstResponder on first viewDidAppear only
     NSTimer *_draftTimer;      // debounce timer for keystroke-driven autosave
+}
+
+// Give the editor the keyboard as soon as the applet opens: without this a
+// fresh MotePad window showed no text cursor and ignored typing until the
+// user tapped inside it. First appearance only -- viewDidAppear can fire
+// again on unrelated occasions (Desktop switches re-showing the window),
+// and re-stealing focus from wherever the user is working would be rude.
+- (void)viewDidAppear:(BOOL)animated {
+    [super viewDidAppear:animated];
+    if (!_grabbedInitialFocus) {
+        _grabbedInitialFocus = YES;
+        [_textView becomeFirstResponder];
+    }
 }
 
 - (void)viewDidLoad {
