@@ -271,6 +271,44 @@ static void set_user_fpregs_arm64(struct cpu_state *cpu, const struct user_fpsim
     cpu->arm64_fpcr = user_fpregs_->fpcr;
 }
 
+static void get_user_regs_riscv64(struct task *task, struct user_regs_struct_riscv64_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
+    memset(user_regs_, 0, sizeof(*user_regs_));
+    for (int i = 1; i < riscv64_reg_count; i++)
+        user_regs_->regs[i - 1] = cpu->riscv64_regs[i];
+    user_regs_->pc = cpu->riscv64_pc;
+    // At a syscall-entry stop a7 still holds the number the tracee loaded,
+    // but report the canonical ptrace.syscall so a rewrite via SETREGSET is
+    // reflected, mirroring arm64's x8 handling.
+    if (ptrace_in_syscall_entry_stop(task))
+        user_regs_->regs[riscv64_a7 - 1] = (qword_t) (sqword_t) task->ptrace.syscall;
+}
+
+static void set_user_regs_riscv64(struct task *task, const struct user_regs_struct_riscv64_ *user_regs_) {
+    struct cpu_state *cpu = &task->cpu;
+    for (int i = 1; i < riscv64_reg_count; i++)
+        cpu->riscv64_regs[i] = user_regs_->regs[i - 1];
+    cpu->riscv64_pc = user_regs_->pc;
+    // Syscall dispatch re-reads a7 after the entry stop resumes, so keep the
+    // reported syscall number in sync with what will actually run.
+    if (ptrace_in_syscall_entry_stop(task))
+        task->ptrace.syscall = (int) user_regs_->regs[riscv64_a7 - 1];
+}
+
+static void get_user_fpregs_riscv64(struct task *task, struct user_fpregs_struct_riscv64_ *user_fpregs_) {
+    struct cpu_state *cpu = &task->cpu;
+    memset(user_fpregs_, 0, sizeof(*user_fpregs_));
+    for (int i = 0; i < 32; i++)
+        user_fpregs_->f[i] = cpu->riscv64_f[i];
+    user_fpregs_->fcsr = cpu->riscv64_fcsr;
+}
+
+static void set_user_fpregs_riscv64(struct cpu_state *cpu, const struct user_fpregs_struct_riscv64_ *user_fpregs_) {
+    for (int i = 0; i < 32; i++)
+        cpu->riscv64_f[i] = user_fpregs_->f[i];
+    cpu->riscv64_fcsr = user_fpregs_->fcsr;
+}
+
 static size_t ptrace_word_size(const struct task *task) {
     return guest_abi_is_64bit(task->abi) ? sizeof(qword_t) : sizeof(dword_t);
 }
@@ -421,6 +459,10 @@ static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_
                 struct user_pt_regs_arm64_ user_regs_arm64 = {};
                 get_user_regs_arm64(child, &user_regs_arm64);
                 return ptrace_getregset_write(tracer, iov_addr, &user_regs_arm64, sizeof(user_regs_arm64));
+            } else if (child->abi == GUEST_ABI_RISCV64) {
+                struct user_regs_struct_riscv64_ user_regs_riscv64 = {};
+                get_user_regs_riscv64(child, &user_regs_riscv64);
+                return ptrace_getregset_write(tracer, iov_addr, &user_regs_riscv64, sizeof(user_regs_riscv64));
             } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_regs_struct_amd64_ user_regs_amd64 = {};
                 get_user_regs_amd64(child, &user_regs_amd64);
@@ -440,6 +482,12 @@ static int ptrace_getregset(struct task *tracer, struct task *child, guest_addr_
                 struct user_fpsimd_state_arm64_ user_fpregs_arm64 = {};
                 get_user_fpregs_arm64(child, &user_fpregs_arm64);
                 return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_arm64, sizeof(user_fpregs_arm64));
+            } else if (child->abi == GUEST_ABI_RISCV64) {
+                if (note_type != NT_PRFPREG_)
+                    return _EINVAL;
+                struct user_fpregs_struct_riscv64_ user_fpregs_riscv64 = {};
+                get_user_fpregs_riscv64(child, &user_fpregs_riscv64);
+                return ptrace_getregset_write(tracer, iov_addr, &user_fpregs_riscv64, sizeof(user_fpregs_riscv64));
             } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_fpregs_struct_amd64_ user_fpregs_amd64 = {};
                 get_user_fpregs_amd64(child, &user_fpregs_amd64);
@@ -470,6 +518,12 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
                 if (err < 0)
                     return err;
                 set_user_regs_arm64(child, &user_regs_arm64);
+            } else if (child->abi == GUEST_ABI_RISCV64) {
+                struct user_regs_struct_riscv64_ user_regs_riscv64;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_riscv64, sizeof(user_regs_riscv64));
+                if (err < 0)
+                    return err;
+                set_user_regs_riscv64(child, &user_regs_riscv64);
             } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_regs_struct_amd64_ user_regs_amd64;
                 int err = ptrace_setregset_read(tracer, iov_addr, &user_regs_amd64, sizeof(user_regs_amd64));
@@ -495,6 +549,14 @@ static int ptrace_setregset(struct task *tracer, struct task *child, guest_addr_
                 if (err < 0)
                     return err;
                 set_user_fpregs_arm64(&child->cpu, &user_fpregs_arm64);
+            } else if (child->abi == GUEST_ABI_RISCV64) {
+                if (note_type != NT_PRFPREG_)
+                    return _EINVAL;
+                struct user_fpregs_struct_riscv64_ user_fpregs_riscv64;
+                int err = ptrace_setregset_read(tracer, iov_addr, &user_fpregs_riscv64, sizeof(user_fpregs_riscv64));
+                if (err < 0)
+                    return err;
+                set_user_fpregs_riscv64(&child->cpu, &user_fpregs_riscv64);
             } else if (child->abi == GUEST_ABI_AMD64) {
                 struct user_fpregs_struct_amd64_ user_fpregs_amd64;
                 int err = ptrace_setregset_read(tracer, iov_addr, &user_fpregs_amd64, sizeof(user_fpregs_amd64));
@@ -603,7 +665,9 @@ void ptrace_syscall_stop(struct cpu_state *cpu) {
         current->ptrace.syscall = current->abi == GUEST_ABI_AMD64 ?
             (int) cpu->amd64_regs[amd64_rax] :
             current->abi == GUEST_ABI_ARM64 ?
-            (int) cpu->arm64_regs[arm64_x8] : (int) cpu->eax;
+            (int) cpu->arm64_regs[arm64_x8] :
+            current->abi == GUEST_ABI_RISCV64 ?
+            (int) cpu->riscv64_regs[riscv64_a7] : (int) cpu->eax;
     current->ptrace.syscall_stopped = !current->ptrace.syscall_stopped;
     unlock(&current->ptrace.lock);
 
@@ -734,9 +798,10 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            // The real arm64 kernel has no PEEKUSER/GETREGS-family requests
-            // (regsets only); don't hand an arm64 tracee the i386 layout.
-            if (child->abi == GUEST_ABI_ARM64) {
+            // Neither the real arm64 nor riscv64 kernel has PEEKUSER/GETREGS-
+            // family requests (regsets only); don't hand either tracee the
+            // i386 layout.
+            if (child->abi == GUEST_ABI_ARM64 || child->abi == GUEST_ABI_RISCV64) {
                 unlock(&child->ptrace.lock);
                 return _EIO;
             }
@@ -862,7 +927,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (child->abi == GUEST_ABI_ARM64) {
+            if (child->abi == GUEST_ABI_ARM64 || child->abi == GUEST_ABI_RISCV64) {
                 unlock(&child->ptrace.lock);
                 return _EIO;
             }
@@ -894,7 +959,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (child->abi == GUEST_ABI_ARM64) {
+            if (child->abi == GUEST_ABI_ARM64 || child->abi == GUEST_ABI_RISCV64) {
                 unlock(&child->ptrace.lock);
                 return _EIO;
             }
@@ -926,7 +991,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (child->abi == GUEST_ABI_ARM64) {
+            if (child->abi == GUEST_ABI_ARM64 || child->abi == GUEST_ABI_RISCV64) {
                 unlock(&child->ptrace.lock);
                 return _EIO;
             }
@@ -957,7 +1022,7 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
             struct task *child = find_child(pid);
             if (!child) return _EPERM;
 
-            if (child->abi == GUEST_ABI_ARM64) {
+            if (child->abi == GUEST_ABI_ARM64 || child->abi == GUEST_ABI_RISCV64) {
                 unlock(&child->ptrace.lock);
                 return _EIO;
             }

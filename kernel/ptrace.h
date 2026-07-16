@@ -160,6 +160,29 @@ struct user_fpsimd_state_arm64_ {
 
 static_assert(sizeof(struct user_fpsimd_state_arm64_) == 528, "arm64 ptrace fpsimd layout mismatch");
 
+// riscv64 NT_PRSTATUS payload (struct user_regs_struct, asm/ptrace.h): pc
+// followed by x1(ra)..x31(t6) in exactly that order -- which is also the
+// order of riscv64_reg's enum values 1..31, so regs[] maps directly to
+// cpu->riscv64_regs[1..31] (index 0 is the hardwired-zero x0, never in this
+// struct, same as arm64 never exposing a fixed-zero register here).
+struct user_regs_struct_riscv64_ {
+    qword_t pc;
+    qword_t regs[31];
+};
+
+static_assert(sizeof(struct user_regs_struct_riscv64_) == 256, "riscv64 ptrace pt_regs layout mismatch");
+
+// riscv64 NT_PRFPREG payload (struct __riscv_d_ext_state): 32 double-precision
+// f-registers plus fcsr, trailing-padded to the struct's natural 8-byte
+// alignment (32*8 + 4 = 260, rounded up to 264).
+struct user_fpregs_struct_riscv64_ {
+    qword_t f[32];
+    dword_t fcsr;
+    byte_t reserved[4];
+};
+
+static_assert(sizeof(struct user_fpregs_struct_riscv64_) == 264, "riscv64 ptrace fpregs layout mismatch");
+
 struct user_ {
     struct user_regs_struct_ user_regs;
     char padding[286 - sizeof(struct user_regs_struct_)];
