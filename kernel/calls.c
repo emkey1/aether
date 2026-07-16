@@ -6,6 +6,7 @@
 #include "kernel/calls.h"
 #include "emu/interrupt.h"
 #include "emu/memory.h"
+#include "emu/tlb.h"
 #include "emu/vec.h"
 #include "kernel/signal.h"
 #include "kernel/task.h"
@@ -4198,6 +4199,27 @@ static bool handle_i386_write_fault_gpf(struct cpu_state *cpu);
 static bool handle_i386_call_stack_gpf(struct cpu_state *cpu);
 static bool handle_i386_stack_store_gpf(struct cpu_state *cpu);
 
+void dump_mem(guest_addr_t start, uint_t len);
+
+// ISH_ARM64_FAULT_MEMDUMP="1,3" dumps guest memory around x1 and x3 on an
+// arm64 page fault (0x40 before to 0x140 after each register value).
+static void dump_arm64_fault_memdump(const struct cpu_state *cpu) {
+    const char *spec = getenv("ISH_ARM64_FAULT_MEMDUMP");
+    if (spec == NULL)
+        return;
+    char buf[64];
+    strlcpy(buf, spec, sizeof(buf));
+    char *save = NULL;
+    for (char *tok = strtok_r(buf, ",", &save); tok != NULL; tok = strtok_r(NULL, ",", &save)) {
+        int r = atoi(tok);
+        if (r < 0 || r > 30)
+            continue;
+        guest_addr_t v = cpu->arm64_regs[r] & ~(guest_addr_t) 7;
+        printk("memdump around x%d=%#llx:\n", r, (unsigned long long) cpu->arm64_regs[r]);
+        dump_mem(v - 0x40, 0x180);
+    }
+}
+
 static void record_guest_fault_event(const char *kind, const struct cpu_state *cpu,
                                      guest_addr_t fault_addr, bool is_write) {
     char summary[512];
@@ -4292,6 +4314,8 @@ void handle_page_fault_interrupt(struct cpu_state *cpu) {
                    (unsigned long long) cpu->arm64_pc,
                    (unsigned long long) cpu->arm64_tpidr);
             dump_addr_backing("  pc-backing", current_fault_ip(cpu));
+            dump_arm64_fault_memdump(cpu);
+            arm64_watch_dump();
         }
         if (current->abi == GUEST_ABI_RISCV64) {
             for (int i = 0; i < 32; i += 4)

@@ -19,6 +19,18 @@ struct tlb {
     // this is basically one of the return values of tlb_handle_miss, tlb_{read,write}, and __tlb_{read,write}_cross_page
     // yes, this sucks
     guest_addr_t segfault_addr;
+    // ISH_ARM64_WATCH_LO16 debug aid: guest pc of the store currently being
+    // resolved, stashed by arm64_resolve_write_ptr (jit/guest-arm64/memory.S)
+    // so tlb_write_ptr_slow can attribute watched stores to an instruction.
+    guest_addr_t watch_ip;
+    // ISH_ARM64_WATCH_VAL: the previous store resolved through this (per-
+    // thread) tlb, read back on the next store to detect a poison value
+    // having been written. prev_write_changes guards against the host page
+    // having been freed by a mapping change in between.
+    void *prev_write_ptr;
+    guest_addr_t prev_write_addr;
+    guest_addr_t prev_write_ip;
+    uint64_t prev_write_changes;
     struct tlb_entry entries[TLB_SIZE];
 };
 
@@ -30,6 +42,15 @@ void tlb_free(struct tlb *tlb);
 void tlb_flush(struct tlb *tlb);
 void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int type);
 void *tlb_write_ptr_slow(struct tlb *tlb, guest_addr_t addr);
+
+// ISH_ARM64_WATCH_LO16=<hex> store-watchpoint debug aid: records every
+// JIT store whose target's low 16 address bits fall in a small window
+// around the given value (heap layout is stable in the low bits across
+// runs even when the allocation base moves). Requires the write-
+// revalidate funnel; arm64_watch_enabled() turns it on in mem_init.
+bool arm64_watch_enabled(void);
+void arm64_watch_dump(void);
+uint64_t arm64_trace_ip_target(void);
 
 // arm64-guest host-atomic CAS pair helper (emu/tlb.c), shared by the JIT
 // casp gadgets (jit/guest-arm64/atomics.S) and the interpreter

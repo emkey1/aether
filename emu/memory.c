@@ -12,6 +12,7 @@
 #include "kernel/errno.h"
 #include "kernel/signal.h"
 #include "emu/memory.h"
+#include "emu/tlb.h"
 #include "jit/jit.h"
 #include "kernel/vdso.h"
 #include "kernel/task.h"
@@ -368,7 +369,8 @@ void mem_init(struct mem *mem) {
     pthread_mutex_init(&mem->quiesce_park_lock, NULL);
     pthread_cond_init(&mem->quiesce_park_cond, NULL);
     mem->mmu.ops = &mem_mmu_ops;
-    mem->mmu.requires_write_revalidate = mem_uses_host_page_mirroring();
+    mem->mmu.requires_write_revalidate = mem_uses_host_page_mirroring() ||
+        arm64_watch_enabled();
 #if ENGINE_JIT
     mem->mmu.jit = jit_new(&mem->mmu);
 #endif

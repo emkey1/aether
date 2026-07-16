@@ -4,6 +4,8 @@
 #include "kernel/signal.h"
 #include "kernel/task.h"
 
+static void arm64_watch_scan_value(guest_addr_t addr, const void *value, unsigned size);
+
 // AdvSIMD LD1/ST1 (load/store multiple single-element structures,
 // contiguous form): transfer `count` consecutive V registers (wrapping
 // mod 32) of `regbytes` (8 for the .8b/.4h/.2s arrangements, 16 for the
@@ -38,6 +40,7 @@ int arm64_vldst_multi(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr,
                 cpu->segfault_was_write = true;
                 return INT_PF;
             }
+            arm64_watch_scan_value(addr, &cpu->arm64_v[v], regbytes);
         }
         addr += regbytes;
     }
@@ -90,6 +93,7 @@ int arm64_vldst_struct(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t addr
                 cpu->segfault_was_write = true;
                 return INT_PF;
             }
+            arm64_watch_scan_value(addr, buf, total);
         }
         return 0;
     }
@@ -493,6 +497,7 @@ bool __tlb_write_cross_page(struct tlb *tlb, guest_addr_t addr, const char *valu
     assert(part1 < size);
     memcpy(ptr1, value, part1);
     memcpy(ptr2, value + part1, size - part1);
+    arm64_watch_scan_value(addr, value, size);
     return true;
 }
 
@@ -517,6 +522,181 @@ __no_instrument void *tlb_handle_miss(struct tlb *tlb, guest_addr_t addr, int ty
     return (void *) (tlb_ent->data_minus_addr + addr);
 }
 
+// ---- ISH_ARM64_WATCH_LO16 store watchpoint ------------------------------
+// The V8-heap layout inside a page is stable across runs even though the
+// allocation base moves, so the watch key is the low 16 bits of the target
+// address. Every recorded entry keeps the storing instruction's guest pc
+// (stashed in tlb->watch_ip by arm64_resolve_write_ptr), the full target
+// address, and the 8 bytes about to be overwritten.
+
+struct arm64_watch_rec {
+    uint64_t ip;
+    uint64_t addr;
+    uint64_t oldval;
+    uint32_t thread;
+};
+#define ARM64_WATCH_RING (1 << 20)
+static struct arm64_watch_rec *arm64_watch_ring;
+static _Atomic uint32_t arm64_watch_idx;
+static uint32_t arm64_watch_lo16;
+static bool arm64_watch_lo16_on;
+static uint64_t arm64_watch_val;
+static bool arm64_watch_val_on;
+static int arm64_watch_state; // 0 = unchecked, 1 = off, 2 = on
+
+bool arm64_watch_enabled(void) {
+    if (arm64_watch_state == 0) {
+        const char *spec = getenv("ISH_ARM64_WATCH_LO16");
+        if (spec != NULL && spec[0] != '\0') {
+            arm64_watch_lo16 = (uint32_t) strtoul(spec, NULL, 16) & 0xffff;
+            arm64_watch_lo16_on = true;
+        }
+        const char *vspec = getenv("ISH_ARM64_WATCH_VAL");
+        if (vspec != NULL && vspec[0] != '\0') {
+            arm64_watch_val = strtoull(vspec, NULL, 16);
+            arm64_watch_val_on = true;
+        }
+        if (arm64_watch_lo16_on || arm64_watch_val_on) {
+            arm64_watch_ring = calloc(ARM64_WATCH_RING, sizeof(*arm64_watch_ring));
+            arm64_watch_state = arm64_watch_ring != NULL ? 2 : 1;
+        } else {
+            arm64_watch_state = 1;
+        }
+    }
+    return arm64_watch_state == 2;
+}
+
+static __no_instrument void arm64_watch_push(uint64_t ip, uint64_t addr, uint64_t val) {
+    uint32_t i = atomic_fetch_add_explicit(&arm64_watch_idx, 1, memory_order_relaxed)
+        & (ARM64_WATCH_RING - 1);
+    struct arm64_watch_rec *rec = &arm64_watch_ring[i];
+    rec->ip = ip;
+    rec->addr = addr;
+    rec->oldval = val;
+    rec->thread = (uint32_t) (uintptr_t) pthread_self();
+}
+
+static __no_instrument void arm64_watch_record(struct tlb *tlb, guest_addr_t addr, void *ptr) {
+    if (arm64_watch_val_on) {
+        // Read back the previous store resolved through this (per-thread)
+        // tlb: if it deposited the poison value, record it with its ip.
+        // Skip when a mapping change happened in between (the old host
+        // page may be gone) or when reading 16 bytes would leave the
+        // guest page the store was on.
+        if (tlb->prev_write_ptr != NULL &&
+                tlb->prev_write_changes == tlb->mem_changes &&
+                PGOFFSET(tlb->prev_write_addr) <= PAGE_SIZE - 16) {
+            uint64_t half[2];
+            memcpy(half, tlb->prev_write_ptr, sizeof(half));
+            if (half[0] == arm64_watch_val)
+                arm64_watch_push(tlb->prev_write_ip, tlb->prev_write_addr, half[0]);
+            else if (half[1] == arm64_watch_val)
+                arm64_watch_push(tlb->prev_write_ip, tlb->prev_write_addr + 8, half[1]);
+        }
+        tlb->prev_write_ptr = (char *) ptr - (addr & 7);
+        tlb->prev_write_addr = addr & ~(guest_addr_t) 7;
+        tlb->prev_write_ip = tlb->watch_ip;
+        tlb->prev_write_changes = tlb->mem_changes;
+    }
+    if (arm64_watch_lo16_on) {
+        // window: any store starting up to 15 bytes before the watched
+        // 8-byte slot through its end can touch it (largest guest store
+        // is 16 bytes)
+        uint32_t lo = addr & 0xffff;
+        if (lo + 16 > arm64_watch_lo16 && lo < arm64_watch_lo16 + 8) {
+            uint64_t oldval;
+            memcpy(&oldval, ptr, sizeof(oldval));
+            arm64_watch_push(tlb->watch_ip, addr, oldval);
+        }
+    }
+}
+
+// Direct value check for C-side bulk stores that see the data (the ld1/st1
+// helper and the crosspage flush): record any poison value in the buffer.
+static __no_instrument void arm64_watch_scan_value(guest_addr_t addr, const void *value, unsigned size) {
+    if (arm64_watch_state != 2 || !arm64_watch_val_on)
+        return;
+    for (unsigned off = 0; off + 8 <= size; off += 4) {
+        uint64_t v;
+        memcpy(&v, (const char *) value + off, sizeof(v));
+        if (v == arm64_watch_val)
+            arm64_watch_push((uint64_t) -1, addr + off, v);
+    }
+}
+
+void arm64_watch_dump(void) {
+    if (arm64_watch_state != 2)
+        return;
+    uint32_t end = atomic_load_explicit(&arm64_watch_idx, memory_order_relaxed);
+    uint32_t count = end < ARM64_WATCH_RING ? end : ARM64_WATCH_RING;
+    uint32_t shown = count < 65536 ? count : 65536;
+    printk("arm64 watch ring: %u total records, dumping last %u\n", end, shown);
+    for (uint32_t n = shown; n > 0; n--) {
+        struct arm64_watch_rec *rec = &arm64_watch_ring[(end - n) & (ARM64_WATCH_RING - 1)];
+        printk("  watch[-%u] ip=%#llx addr=%#llx old=%#llx thread=%#x\n",
+               n, (unsigned long long) rec->ip, (unsigned long long) rec->addr,
+               (unsigned long long) rec->oldval, rec->thread);
+    }
+}
+
+// ISH_ARM64_TRACE_IP=<hex guest pc> + ISH_ARM64_TRACE_LDR="rn,rm": before
+// the instruction at the traced pc executes, recompute its register-offset
+// load address from the committed guest state and, when the value it is
+// about to load matches ISH_ARM64_WATCH_VAL, dump the full context. Used to
+// decide whether a poison value genuinely exists at the load's source or
+// the executing gadget diverges from the architectural computation.
+static uint64_t arm64_trace_rn = 5, arm64_trace_rm = 1;
+
+uint64_t arm64_trace_ip_target(void) {
+    static uint64_t target = (uint64_t) -1;
+    if (target == (uint64_t) -1) {
+        const char *spec = getenv("ISH_ARM64_TRACE_IP");
+        target = (spec != NULL && spec[0] != '\0') ? strtoull(spec, NULL, 16) : 0;
+        const char *regs = getenv("ISH_ARM64_TRACE_LDR");
+        if (regs != NULL)
+            sscanf(regs, "%llu,%llu",
+                   (unsigned long long *) &arm64_trace_rn,
+                   (unsigned long long *) &arm64_trace_rm);
+    }
+    return target;
+}
+
+void dump_mem(guest_addr_t start, uint_t len);
+
+void arm64_trace_probe(struct cpu_state *cpu, struct tlb *tlb, uint64_t ip) {
+    static _Atomic int hits;
+    uint64_t base = cpu->arm64_regs[arm64_trace_rn];
+    uint64_t idx = cpu->arm64_regs[arm64_trace_rm];
+    uint64_t addr = base + idx;
+    uint64_t val = 0;
+    if (!tlb_read(tlb, addr, &val, sizeof(val)))
+        return;
+    if (val != arm64_watch_val)
+        return;
+    if (atomic_fetch_add(&hits, 1) >= 100)
+        return;
+    printk("traceprobe ip=%#llx rn(x%llu)=%#llx rm(x%llu)=%#llx addr=%#llx val=%#llx\n",
+           (unsigned long long) ip,
+           (unsigned long long) arm64_trace_rn, (unsigned long long) base,
+           (unsigned long long) arm64_trace_rm, (unsigned long long) idx,
+           (unsigned long long) addr, (unsigned long long) val);
+    for (int i = 0; i < 31; i += 4)
+        printk("  x%d=%#llx x%d=%#llx x%d=%#llx x%d=%#llx\n",
+               i, (unsigned long long) cpu->arm64_regs[i],
+               i + 1, i + 1 < 31 ? (unsigned long long) cpu->arm64_regs[i + 1] : 0,
+               i + 2, i + 2 < 31 ? (unsigned long long) cpu->arm64_regs[i + 2] : 0,
+               i + 3, i + 3 < 31 ? (unsigned long long) cpu->arm64_regs[i + 3] : 0);
+    printk("traceprobe mem around load addr %#llx:\n", (unsigned long long) addr);
+    dump_mem((addr & ~7ULL) - 0x60, 0xc0);
+    printk("traceprobe mem around x22=%#llx:\n", (unsigned long long) cpu->arm64_regs[22]);
+    dump_mem((cpu->arm64_regs[22] & ~7ULL) - 0x20, 0x60);
+    printk("traceprobe mem around dest x3=%#llx:\n", (unsigned long long) cpu->arm64_regs[3]);
+    dump_mem((cpu->arm64_regs[3] & ~7ULL) - 0x40, 0x80);
+}
+
 __no_instrument void *tlb_write_ptr_slow(struct tlb *tlb, guest_addr_t addr) {
-    return __tlb_write_ptr(tlb, addr);
+    void *ptr = __tlb_write_ptr(tlb, addr);
+    if (unlikely(arm64_watch_state == 2) && ptr != NULL)
+        arm64_watch_record(tlb, addr, ptr);
+    return ptr;
 }
