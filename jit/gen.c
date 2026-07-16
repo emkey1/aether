@@ -786,8 +786,21 @@ static bool gen_arm64_fits_block(struct gen_state *state, uint64_t end_ip) {
     return end_ip - state->block->addr <= PAGE_SIZE;
 }
 
+// Bisection escape hatch: ISH_ARM64_NO_FUSE=1 disables the arm64 lookahead
+// fusion passes (compare+branch, load+store RMW, load+compare) so a
+// deterministic miscompilation can be pinned to a fusion vs. the base
+// gadgets. Evaluated once; no hot-path cost.
+static bool arm64_fusion_disabled(void) {
+    static int cached = -1;
+    if (cached < 0)
+        cached = getenv("ISH_ARM64_NO_FUSE") != NULL ? 1 : 0;
+    return cached == 1;
+}
+
 static void *gen_arm64_peek_bcond(struct gen_state *state, struct tlb *tlb,
         void *const table[14], uint64_t *taken_out, uint64_t *fallthrough_out) {
+    if (arm64_fusion_disabled())
+        return NULL;
     uint32_t next;
     if (!tlb_read(tlb, state->arm64_ip, &next, sizeof(next)))
         return NULL;
@@ -866,6 +879,8 @@ __attribute__((constructor)) static void arm64_probe_host_caps(void) {
 // extra instructions are consumed); false leaves state untouched.
 static bool gen_arm64_try_ldst_fusion(struct gen_state *state, struct tlb *tlb,
         unsigned size, unsigned rt, unsigned rn, uint64_t off) {
+    if (arm64_fusion_disabled())
+        return false;
     extern void gadget_arm64_rmw_addi_fast64(void), gadget_arm64_rmw_subi_fast64(void);
     extern void gadget_arm64_rmw_addi_fast32(void), gadget_arm64_rmw_subi_fast32(void);
     extern void gadget_arm64_ldldadd_st_fast64(void), gadget_arm64_ldldsub_st_fast64(void);
@@ -984,6 +999,8 @@ try_rmw:
 // fused block. Returns true with the block ended (caller returns 0).
 static bool gen_arm64_try_ld_cmp_fusion(struct gen_state *state, struct tlb *tlb,
         unsigned size, unsigned rt, unsigned rn, uint64_t off) {
+    if (arm64_fusion_disabled())
+        return false;
     extern void gadget_arm64_mov_const(void);
     extern void *const arm64_fused_ldcmpr64_table[14];
     extern void *const arm64_fused_ldcmpr32_table[14];
