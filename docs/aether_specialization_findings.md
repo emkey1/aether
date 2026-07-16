@@ -13,7 +13,141 @@ the `Tests/aether_specialization/out_<corpus>/` directory that produced the SFT 
 
 ---
 
-## cs-aug2-builtins (current primary board)
+## cs-aug4 (current primary board)
+
+**Corpus:** `cs-aug4` (`Tests/aether_specialization/out_cs_aug4`, dataset
+`2026-07-15-1`) — same instruction+repair shape as `cs-aug3` (390 corpus items,
+408 instruction records, 38 repair records), regenerated from scratch against
+a **fixed compiler**: `aether 2026-07-09-1` at commit `9a44e67`, which includes
+[pscal-core#6](https://github.com/emkey1/pscal-core/pull/6)/[aether#10](https://github.com/emkey1/aether/pull/10) —
+a real VM crash on ordinary recursion (`setTypeValue` leaving stale bits
+across a Real→Int retype, misread as a live box pointer and freed) bisected
+and fixed during this generation's prep. The prior `cs-aug3` corpus was
+silently generated and verified against the *broken* `2026-07-09-1` build
+before the bug was known; `cs-aug4` is the first corpus verified clean
+against the fix.
+
+**Test suite:** `tasks_v2_pos.json` v`2026-07-15-1` (simple, **35** — up from
+30) · `tasks_hard.json` v`2026-07-15-1` (large, **9** — up from 8) ·
+`tasks_cs.json` v`2026-06-23-1` (cs, 19, unchanged). The simple/large bumps
+are **not comparable cell-by-cell to `2026-06-21-1` rows** — 11 stale
+reference solutions were repaired (fx-gating changed since they were written)
+and 6 new tasks were added targeting language features with previously zero
+coverage: `MStream`/HTTP memory streams, *recursive* tuple-returning
+functions, constant field defaults, digit separators, `@pure` above a
+module's `export fn`, and large-N array-append growth. All six new goldens
+were confirmed absent from the `cs-aug4` training corpus before scoring.
+
+**Eval date:** 2026-07-16. **Serving:** vLLM bf16, `--enforce-eager`,
+temperature 0.2, `--repair-attempts 1`, single pass (not the 3-repeat
+convention used for `qwen36-27b-cs-aug3`). The two Qwen3.6-family models
+(`qwen36-27b`, `q36`) were served with `chat_template_kwargs: {enable_thinking:
+false}` — with thinking on, `qwen36-27b` needed ~4 hours just for the 35-task
+simple suite (each generation was an 8-9K-character reasoning trace); with it
+off, the same suite took about 13 minutes. This is a deliberate protocol
+difference from `cs-aug3`'s thinking-on treatment of this model family, not a
+degraded run.
+
+### Setup
+
+- **Same 7 models as the `cs-aug2-builtins`/`cs-aug3` cohort**, retrained
+  QLoRA (bf16 for `qwen36-27b`, 4-bit for the rest) on `cs-aug4`, in size
+  order: `deepseek6.7b`, `qwen3-8b-nothink`, `qwen14b`, `mistral24b`,
+  `qwen36-27b`, `a3b-coder30b`, `q36`.
+- **Training queue was interrupted twice by claw2 hardware faults** (see
+  `claw2` reliability notes) mid-run; the resumable queue design (skip if
+  `merged_16bit` already exists) meant no completed model was lost or
+  redone — only the in-flight model at each interruption retrained from
+  scratch.
+- **Two serving-side tokenizer bugs surfaced and were fixed before scoring**,
+  both now recognized as a recurring failure class in this project (a third,
+  training-side instance is `deepseek6.7b`'s exclusion below): `mistral24b`'s
+  Unsloth-merged export's rewritten `tokenizer.json` reproduced the
+  archived Tekken space-dropping bug (`0=>0` instead of `0 => 0`); serving
+  with the base model's tokenizer (`--tokenizer <base snapshot>`) fixed it
+  cleanly (16/35 broken → 32/35 correct, identical weights). Applied
+  pre-emptively to `deepseek6.7b` as well given its documented tokenizer
+  history.
+
+### Results — no guide (`--docs none`), repair-attempts 1
+
+| model | corpus | simple (35) | large (9) | cs (19) |
+|---|---|---|---|---|
+| `qwen14b` | cs-aug4 | 34/**34**/1/0 | 9/7/3/1 | 14/12/8/1 |
+| `q36` (35B-A3B hybrid, no-think) | cs-aug4 | 34/**34**/3/2 | 6/6/4/1 | 12/**12**/7/1 |
+| `qwen36-27b` (dense, no-think) | cs-aug4 | 33/33/5/3 | 7/6/7/4 | 11/9/10/2 |
+| `mistral24b` | cs-aug4 | 33/32/5/2 | 7/5/8/4 | 12/9/10/0 |
+| `a3b-coder30b` (30B-A3B MoE) | cs-aug4 | 29/28/9/2 | **8**/7/3/1 | 12/9/9/0 |
+| `qwen3-8b-nothink` | cs-aug4 | 30/30/7/2 | 8/6/5/2 | 11/9/10/0 |
+| ~~`deepseek6.7b`~~ | cs-aug4 | *excluded* | *excluded* | *excluded* |
+
+*Cells are Compiled/Correct/Retried/Fixed (overlapping tallies, not a
+partition — they do not sum to N): Compiled = ran rc 0; Correct = exact
+stdout; Retried = needed ≥2 attempts; Fixed = a repair turned a failure into
+a pass. `Compiled ≥ Correct` is not guaranteed here (a program can compile,
+run, and produce wrong output) but held in every cell on this board.*
+
+### `deepseek6.7b-cs-aug4` — excluded, training-side corruption
+
+Training completed successfully (exit 0, merged export intact, 2 safetensor
+shards), and the model **compiles working Aether** (25/35 simple, 4/9 large,
+10/19 cs ran to completion) — but every generation is missing spaces between
+words and around operators, and literal byte-level BPE glyphs (`Ġ` = space,
+`Ċ` = newline) leak into some outputs. A direct vLLM chat probe against the
+merged weights, served with the clean **base-model tokenizer** (ruling out a
+serving-side tokenizer mismatch), still returned
+`thequickbrownfoxjumpsoverthelazydogĊĊĊ` for a trivial "repeat this sentence"
+prompt — **the fine-tuned weights themselves learned spaceless emission**;
+this is a training-time defect, not a servable-around bug. Root-cause
+investigation and retrain in progress; see the tokenizer-serving-gotcha
+project note for the broader pattern (this is the third distinct
+deepseek/Mistral tokenizer incident in this project's history, and the first
+one that isn't fixable by a serving flag).
+
+### Findings
+
+- **The hard-task gap the project has tracked since `cs-aug2-builtins`
+  (fine-tunes hit 25-29/30 simple but only 3-7/8 large with no guide) is
+  visibly narrower on this corpus generation.** Every model here scores
+  5-7/9 on the large suite — the same range this project's guided
+  *frontier* models have historically held, not the 3-5/8 no-guide fine-tune
+  floor. `qwen14b` and `q36` both reach 12/19 on cs-classics, matching or
+  beating the previous best fine-tuned no-guide score on that instrument.
+  Whether this is the corpus refresh (bench-log-mined drills, the newly
+  fixed compiler letting more corpus cases verify cleanly), the larger/more
+  current base models, or some mix, is not yet isolated — worth a
+  same-corpus/different-vintage-compiler A/B if it matters later.
+- **`qwen14b` is the strongest model on this board**, leading or tying the
+  top score on all three suites — a change from earlier boards where the
+  30B-class MoE (`a3b-coder30b`) or the reasoning hybrid (`q36`) usually led.
+- **New-task coverage results are a clean signal of real corpus gaps, not
+  eval noise.** Per-task pass counts across the 6 valid models:
+  `mstream_roundtrip` **0/6** (total, uniform failure — the `MStream`/HTTP
+  surface added 2026-07-09 has zero training exposure in this corpus);
+  `tuple_recursive_digits` 4/6; `field_defaults_gauge` 5/6;
+  `module_pure_export` 5/6; `digit_separators_sum` 6/6;
+  `hard_append_growth` 6/6. The append-in-loop idiom and digit separators are
+  already well drilled in the existing corpus; recursive tuple returns,
+  field defaults, and `@pure`-annotated module exports are each a near-miss
+  (one or two models fail) rather than solid — plausible next-corpus drill
+  candidates alongside the outright `MStream` gap.
+- **Tokenizer-serving bugs remain the single biggest threat to trusting a
+  low score at face value.** Two of seven models on this board needed a
+  tokenizer fix before their numbers meant anything, and a naive read of
+  either's first-pass result would have logged a false "bad fine-tune"
+  finding.
+
+### Status
+
+Full board landed in one session (2026-07-16) after two claw2 hardware
+interruptions and two tokenizer-serving fixes. `deepseek6.7b` retrain (fixing
+the training-side tokenizer corruption) in progress; this section will be
+updated with its corrected numbers once it lands. The `MStream`-drill gap
+identified here is a natural target for the next corpus generation.
+
+---
+
+## cs-aug2-builtins
 
 **Corpus:** `cs-aug2-builtins` (`Tests/aether_specialization/out_cs_aug2_builtins`) —
 instruction + repair SFT set adding the non-SDL builtin reference to the training data.
