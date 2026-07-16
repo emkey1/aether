@@ -3046,8 +3046,24 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     __weak typeof(self) weakSelf = self;
     __weak typeof(windowView) weakWindowView = windowView;
     windowView.didBecomeFrontmostHandler = ^{
-        [weakWindowView.hostedTerminalViewController focusTerminal];
-        [weakSelf refreshDockButtons];
+        typeof(self) strongSelf = weakSelf;
+        typeof(windowView) strongWindowView = weakWindowView;
+        if (strongSelf == nil || strongWindowView == nil)
+            return;
+        if (strongWindowView.hostedTerminalViewController != nil) {
+            [strongWindowView.hostedTerminalViewController focusTerminal];
+        } else {
+            // Non-terminal applets (MotePad, ...) don't have a
+            // hostedTerminalViewController to focus -- ask the window's own
+            // content view controller instead, if it opts in. Without this,
+            // cycling back to e.g. a MotePad window (via tap, Ctrl+Tab, or
+            // Cmd+Arrow Desktop switching) left no first responder: no
+            // cursor, no typing, until the user tapped inside it again.
+            UIViewController *contentViewController = [strongSelf contentViewControllerForDesktopWindow:strongWindowView];
+            if ([contentViewController conformsToProtocol:@protocol(WorkspaceFocusable)])
+                [(id<WorkspaceFocusable>) contentViewController workspaceToolDidBecomeFrontmost];
+        }
+        [strongSelf refreshDockButtons];
     };
     return windowView;
 }
@@ -8920,7 +8936,7 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 @end
 
 
-@interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate, WorkspaceFileOpenable>
+@interface WorkspaceMotePadToolViewController () <UITextViewDelegate, UIFontPickerViewControllerDelegate, WorkspaceFileOpenable, WorkspaceFocusable>
 @end
 
 @implementation WorkspaceMotePadToolViewController {
@@ -8951,15 +8967,22 @@ typedef NS_ENUM(NSInteger, MotePadBrowserMode) {
 
 // Give the editor the keyboard as soon as the applet opens: without this a
 // fresh MotePad window showed no text cursor and ignored typing until the
-// user tapped inside it. First appearance only -- viewDidAppear can fire
-// again on unrelated occasions (Desktop switches re-showing the window),
-// and re-stealing focus from wherever the user is working would be rude.
+// user tapped inside it.
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
     if (!_grabbedInitialFocus) {
         _grabbedInitialFocus = YES;
         [_textView becomeFirstResponder];
     }
+}
+
+// WorkspaceFocusable: called whenever this window becomes frontmost again
+// after the first time -- a tap, Ctrl+Tab window cycling, or Cmd+Arrow
+// Desktop switching. Without this, cycling back to a MotePad window left no
+// first responder at all: no cursor, no typing, until the user tapped
+// inside it again (viewDidAppear's initial grab only fires once).
+- (void)workspaceToolDidBecomeFrontmost {
+    [_textView becomeFirstResponder];
 }
 
 - (void)viewDidLoad {

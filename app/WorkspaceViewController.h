@@ -17,6 +17,15 @@ extern NSString *_Nullable ISHWorkspaceToolIdentifierForViewController(UIViewCon
 - (void)workspaceOpenFileAtGuestPath:(NSString *)guestPath;
 @end
 
+// Adopted by an applet with its own keyboard-input view (e.g. MotePad's text
+// view) that should reclaim first responder whenever its window becomes
+// frontmost -- a tap, Ctrl+Tab window cycling, or Cmd+Arrow Desktop switching
+// all funnel through here. Terminal-hosted windows don't need this: they
+// already focus via hostedTerminalViewController.
+@protocol WorkspaceFocusable <NSObject>
+- (void)workspaceToolDidBecomeFrontmost;
+@end
+
 // Adopted by an applet whose content should survive an app restart (e.g. the
 // File Manager's current directory, a viewer's open file). The returned
 // dictionary is stored inside the saved window-layout descriptor in
