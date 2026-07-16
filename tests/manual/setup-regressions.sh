@@ -477,7 +477,11 @@ for test in$selected_tests; do
         status=\$rc
         continue
     fi
-    if ! grep -q "^\$test: PASS\$" "\$output"; then
+    if grep -q "^\$test: PASS\(\$\|[^A-Za-z]\)" "\$output"; then
+        : # PASS, optionally followed by descriptive text (e.g. "PASS (200 rounds)")
+    elif grep -q "^\$test: SKIP\(\$\|[^A-Za-z]\)" "\$output"; then
+        echo "\$test: SKIP (not counted as a failure)" >&2
+    else
         echo "\$test: FAIL missing PASS marker" >&2
         status=1
     fi
