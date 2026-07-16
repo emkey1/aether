@@ -779,7 +779,22 @@ void jit_invalidate_range(struct jit *jit, page_t start, page_t end) {
             struct list *blocks = blocks_list(jit, page, i);
             if (list_null(blocks))
                 continue;
+            // A single page bucket can hold at most every block on this jit, so
+            // more iterations than num_blocks means the page[i] linkage has a
+            // cycle -- observed as an unkillable 100%-CPU hang here (a store
+            // fault's SMC invalidation walking a corrupted list) after heavy
+            // guest JIT churn (node/V8 under npm). Cap the walk at that exact
+            // bound: on overrun, log loudly and stop rather than spin forever.
+            // The remaining blocks stay compiled (a bounded SMC-staleness risk,
+            // vs. an infinite hang) and the surrounding fault path proceeds.
+            size_t guard = jit->num_blocks + 1;
             list_for_each_entry_safe(blocks, block, tmp, page[i]) {
+                if (guard-- == 0) {
+                    printk("BUG: jit_invalidate_range cyclic page list "
+                           "jit=%p page=%u i=%d num_blocks=%zu; breaking\n",
+                           (void *) jit, page, i, jit->num_blocks);
+                    break;
+                }
                 jit_block_disconnect(jit, block);
                 block->is_jetsam = true;
                 list_add(&jit->jetsam, &block->jetsam);
