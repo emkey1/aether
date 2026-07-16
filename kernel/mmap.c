@@ -131,6 +131,10 @@ struct mm *mm_new(enum guest_abi abi) {
     if (mm == NULL)
         return NULL;
     mem_init(&mm->mem);
+    // mem_init deliberately leaves these alone (so mm_copy's shallow struct
+    // copy can hand them down to a fork()'d child); malloc doesn't zero, so
+    // a genuinely new mm has to clear them itself.
+    mm->mem.brk_reserve_start = mm->mem.brk_reserve_end = 0;
     mm_apply_abi_layout(mm, abi);
     ipc_mm_init(mm);
     mm->start_brk = mm->brk = 0; // should get overwritten by exec
@@ -899,14 +903,39 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
         }
         page_t start = PAGE_ROUND_UP(old_brk);
         pages_t size = PAGE_ROUND_UP(new_brk) - PAGE_ROUND_UP(old_brk);
-        if (pt_is_brk_reservation(&mm->mem, start, size)) {
-            // Claim the exec-time brk headroom reservation (kernel/exec.c)
-            // page by page instead of remapping it, same as an mprotect
-            // turning a PROT_NONE arena into real backing.
-            int err = pt_set_flags(&mm->mem, start, size, P_WRITE);
+        // brk only ever grows forward from start_brk, where the exec-time
+        // reservation (kernel/exec.c) begins, so start is always at or past
+        // brk_reserve_start once a reservation exists; it can never start
+        // before it.
+        page_t reserve_end = mm->mem.brk_reserve_start < mm->mem.brk_reserve_end
+            ? mm->mem.brk_reserve_end : start;
+        if (start < reserve_end) {
+            // Claim (a prefix of) the exec-time brk headroom reservation:
+            // map real pages and shrink the recorded range. Split at the
+            // reservation boundary if this growth spans past it -- the
+            // reserved part just needs real backing, the rest is fresh
+            // territory handled like any other brk growth below.
+            pages_t claim_size = size;
+            if (start + size > reserve_end)
+                claim_size = reserve_end - start;
+            int err = pt_map_nothing(&mm->mem, start, claim_size, P_WRITE);
             if (err < 0) {
                 expand_failed = true;
                 goto out;
+            }
+            mm->mem.brk_reserve_start = start + claim_size;
+            if (claim_size < size) {
+                page_t rest_start = start + claim_size;
+                pages_t rest_size = size - claim_size;
+                if (!pt_is_hole(&mm->mem, rest_start, rest_size)) {
+                    expand_failed = true;
+                    goto out;
+                }
+                int err2 = pt_map_nothing(&mm->mem, rest_start, rest_size, P_WRITE);
+                if (err2 < 0) {
+                    expand_failed = true;
+                    goto out;
+                }
             }
         } else if (!pt_is_hole(&mm->mem, start, size)) {
             expand_failed = true;

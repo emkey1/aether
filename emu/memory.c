@@ -542,6 +542,39 @@ static page_t mem_next_unmapped_page(struct mem *mem, page_t page) {
     return mem->page_limit;
 }
 
+// True iff `mem` currently has an active brk-headroom reservation (see
+// struct mem's brk_reserve_start/end) that overlaps [start, start+pages).
+// A plain range check -- O(1), no page-table walk -- since the reservation
+// is bookkeeping, not real page-table entries.
+static bool overlaps_brk_reservation(struct mem *mem, page_t start, page_t end) {
+    return mem->brk_reserve_start < mem->brk_reserve_end &&
+        start < mem->brk_reserve_end && mem->brk_reserve_start < end;
+}
+
+// mem_next_mapped_page/mem_next_unmapped_page wrappers that also treat the
+// brk-headroom reservation range as occupied, for pt_find_hole's search --
+// so a fresh mmap() can't land inside headroom that's earmarked for the
+// heap to grow into later. Just range math on top of the real page-table
+// scan (O(1) extra), so pt_find_hole keeps its usual cost even though the
+// reservation itself has no page-table entries to walk.
+static page_t next_mapped_page_with_reservation(struct mem *mem, page_t page) {
+    page_t real = mem_next_mapped_page(mem, page);
+    if (mem->brk_reserve_start < mem->brk_reserve_end) {
+        if (page <= mem->brk_reserve_start && mem->brk_reserve_start < real)
+            return mem->brk_reserve_start;
+        if (page >= mem->brk_reserve_start && page < mem->brk_reserve_end)
+            return page;
+    }
+    return real;
+}
+
+static page_t next_unmapped_page_with_reservation(struct mem *mem, page_t page) {
+    if (mem->brk_reserve_start < mem->brk_reserve_end &&
+            page >= mem->brk_reserve_start && page < mem->brk_reserve_end)
+        page = mem->brk_reserve_end;
+    return mem_next_unmapped_page(mem, page);
+}
+
 page_t pt_find_hole(struct mem *mem, pages_t size) {
     if (size == 0 || mem->mmap_ceiling <= mem->mmap_floor)
         return BAD_PAGE;
@@ -550,17 +583,17 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
 
     page_t best = BAD_PAGE;
     page_t prev_end = mem->mmap_floor;
-    page_t page = mem_next_mapped_page(mem, mem->mmap_floor);
+    page_t page = next_mapped_page_with_reservation(mem, mem->mmap_floor);
     while (page != BAD_PAGE && page < mem->mmap_ceiling) {
         if (page > prev_end && page - prev_end >= size)
             best = page - size;
 
-        page_t region_end = mem_next_unmapped_page(mem, page + 1);
+        page_t region_end = next_unmapped_page_with_reservation(mem, page + 1);
         if (region_end > mem->mmap_ceiling)
             region_end = mem->mmap_ceiling;
         prev_end = region_end;
         page = region_end >= mem->mmap_ceiling ? BAD_PAGE
-             : mem_next_mapped_page(mem, region_end);
+             : next_mapped_page_with_reservation(mem, region_end);
     }
     if (mem->mmap_ceiling - prev_end >= size)
         best = mem->mmap_ceiling - size;
@@ -570,19 +603,10 @@ page_t pt_find_hole(struct mem *mem, pages_t size) {
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages) {
     if (!mem_page_range_valid(mem, start, pages))
         return false;
-    for (page_t page = start; page < start + pages; page++) {
-        if (mem_pt(mem, page) != NULL)
-            return false;
-    }
-    return true;
-}
-
-bool pt_is_brk_reservation(struct mem *mem, page_t start, pages_t pages) {
-    if (!mem_page_range_valid(mem, start, pages))
+    if (overlaps_brk_reservation(mem, start, start + pages))
         return false;
     for (page_t page = start; page < start + pages; page++) {
-        struct pt_entry *entry = mem_pt(mem, page);
-        if (entry == NULL || entry->data->data != NULL || !(entry->flags & P_BRK_RESERVE))
+        if (mem_pt(mem, page) != NULL)
             return false;
     }
     return true;

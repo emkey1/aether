@@ -26,6 +26,16 @@ struct mem {
     page_t page_limit;
     page_t mmap_floor;
     page_t mmap_ceiling;
+    // [brk_reserve_start, brk_reserve_end) is address space set aside by
+    // exec.c for future brk growth (arm64/riscv64 dynamic-PIE headroom) —
+    // tracked as a plain range, NOT real page-table entries, so reserving it
+    // is O(1) and a fork() has nothing extra to walk/copy. pt_is_hole/
+    // pt_find_hole treat it as occupied; sys_brk_guest claims prefixes of it
+    // by mapping real pages and advancing brk_reserve_start. Empty iff
+    // brk_reserve_start >= brk_reserve_end (the initial all-zero state
+    // qualifies, so no separate "has a reservation" flag is needed).
+    page_t brk_reserve_start;
+    page_t brk_reserve_end;
     _Atomic int quiesce_requested;
     // Parking lot for quiesce waiters (mem_quiesce_park/mem_quiesce_wake_parked,
     // memory.c). Leaf lock: nothing else is ever taken under it.
@@ -179,15 +189,8 @@ struct pt_entry {
 #define P_ANONYMOUS (1 << 6)
 // mapping was created with MAP_SHARED, should not CoW
 #define P_SHARED (1 << 7)
-// unbacked PROT_NONE placeholder reserved by exec.c for future brk growth;
-// claimable by sys_brk_guest (see pt_is_brk_reservation), off limits to
-// everything else (mmap/pt_find_hole treat it like any other mapped page)
-#define P_BRK_RESERVE (1 << 5)
 
 bool pt_is_hole(struct mem *mem, page_t start, pages_t pages);
-// True iff [start, start+pages) is entirely a P_BRK_RESERVE placeholder
-// (still unbacked) that sys_brk_guest may claim as real heap.
-bool pt_is_brk_reservation(struct mem *mem, page_t start, pages_t pages);
 page_t pt_find_hole(struct mem *mem, pages_t size);
 
 // Map memory + offset into fake memory, unmapping existing mappings. Takes

@@ -638,12 +638,17 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
         // allocation, ...) from landing in it and colliding with a
         // subsequent brk() once the heap grows that far — sys_brk_guest
         // requires pt_is_hole() over the new range and silently refuses to
-        // grow otherwise. Reserve the headroom for real as unbacked
-        // P_BRK_RESERVE placeholder pages so pt_find_hole() skips it, and
-        // let sys_brk_guest claim it page-by-page as the heap grows into
-        // it. Best-effort: if the range isn't actually free (shouldn't
-        // happen, find_hole_for_elf sized the hole to include it) just
-        // skip the reservation rather than failing exec.
+        // grow otherwise. Record the headroom as a plain [start, end) range
+        // on mem (brk_reserve_start/end) so pt_is_hole()/pt_find_hole() treat
+        // it as occupied, and sys_brk_guest claims prefixes of it for real as
+        // the heap grows into it. Deliberately NOT materialized as real
+        // page-table entries: those would have to be walked and
+        // copy-on-write'd by every future fork() of this process, which for
+        // a 1 GiB headroom made every fork() of a dynamic-PIE arm64/riscv64
+        // binary ruinously slow (~65x measured). Best-effort: if the range
+        // isn't actually free (shouldn't happen, find_hole_for_elf sized the
+        // hole to include it) just skip the reservation rather than failing
+        // exec.
         page_t reserve_start = PAGE(BYTES_ROUND_UP(save->mm->start_brk));
         page_t mmap_ceiling = guest_abi_vm_layout(header.abi).mmap_ceiling;
         pages_t reserve_pages = brk_headroom_pages;
@@ -651,8 +656,10 @@ static intptr_t elf_exec(struct fd *fd, const char *file, struct exec_args argv,
             reserve_pages = 0;
         else if (reserve_start + reserve_pages > mmap_ceiling)
             reserve_pages = mmap_ceiling - reserve_start;
-        if (reserve_pages > 0 && pt_is_hole(save->mem, reserve_start, reserve_pages))
-            pt_map_nothing(save->mem, reserve_start, reserve_pages, P_BRK_RESERVE);
+        if (reserve_pages > 0 && pt_is_hole(save->mem, reserve_start, reserve_pages)) {
+            save->mem->brk_reserve_start = reserve_start;
+            save->mem->brk_reserve_end = reserve_start + reserve_pages;
+        }
     }
 
     qword_t entry_q = (qword_t) bias + header.entry_point;
