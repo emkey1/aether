@@ -207,6 +207,21 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinux-minirootfs-2024.04.01-x86_64.tar.xz",
                 kBundledRootDownloadSizeKey: @"~58 MB",
             },
+            @{
+                kBundledRootIdentifierKey: @"archlinuxarmaarch64",
+                kBundledRootDisplayNameKey: @"Arch Linux ARM (aarch64) (Experimental)",
+                kBundledRootArchiveNameKey: @"archlinuxarm-minirootfs-latest-aarch64",
+                // Same caveats as the x86_64 entry above, plus: this is the
+                // rootfs that originally surfaced the TCGETS2 bug (login's
+                // isatty-style startup check used the modern termios2 ioctl
+                // family, which iSH didn't implement, so it saw ENOTTY and
+                // bailed with "FATAL: bad tty" before ever trying PAM).
+                kBundledRootImportNameKey: @"ArchLinuxARM-aarch64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"arm64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinuxarm-minirootfs-latest-aarch64.tar.xz",
+                kBundledRootDownloadSizeKey: @"~70 MB",
+            },
         ];
     });
     return choices;
