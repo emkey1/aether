@@ -3521,7 +3521,17 @@ static int_t sys_getsockname_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
     dword_t sockaddr_len;
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
-    char sockaddr[sockaddr_len];
+    // A fixed-size local scratch buffer, deliberately NOT sized by the
+    // guest-requested sockaddr_len (which real callers may legitimately pass
+    // as 0, or anything smaller than sizeof(sa_family_t), to probe the
+    // required length -- getsockname/getpeername truncate on a too-small
+    // buffer rather than erroring). copy_unix_name and sockaddr_write below
+    // both read/write a family field at the front of this buffer before any
+    // truncation is applied; sizing it by the untrusted guest length made
+    // that an uninitialized-read (generic path) or, for copy_unix_name, an
+    // unsigned-underflow-driven out-of-bounds memset/memcpy (PF_LOCAL path)
+    // whenever the guest asked for a very small buffer.
+    char sockaddr[sizeof(struct sockaddr_storage)];
 
     if (sock->socket.domain == AF_NETLINK_) {
         if (sockaddr_len < sizeof(struct sockaddr_nl_))
@@ -3542,22 +3552,25 @@ static int_t sys_getsockname_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
 
     // if this is a unix socket, return the same string passed to bind
     if (sock->socket.domain == PF_LOCAL_) {
-        copy_unix_name(sockaddr, &sockaddr_len, sock);
-        if (user_write(sockaddr_addr, sockaddr, sizeof(sockaddr)))
+        dword_t real_len = sizeof(sockaddr);
+        copy_unix_name(sockaddr, &real_len, sock);
+        dword_t write_len = real_len < sockaddr_len ? real_len : sockaddr_len;
+        if (user_write(sockaddr_addr, sockaddr, write_len))
             return _EFAULT;
-        if (user_put(sockaddr_len_addr, sockaddr_len))
+        if (user_put(sockaddr_len_addr, real_len))
             return _EFAULT;
         return 0;
     }
 
-    int res = getsockname(sock->real_fd, (void *) sockaddr, &sockaddr_len);
+    dword_t real_len = sizeof(sockaddr);
+    int res = getsockname(sock->real_fd, (void *) sockaddr, &real_len);
     if (res < 0)
         return errno_map();
 
-    int err = sockaddr_write(sockaddr_addr, sockaddr, sizeof(sockaddr), &sockaddr_len);
+    int err = sockaddr_write(sockaddr_addr, sockaddr, sockaddr_len, &real_len);
     if (err < 0)
         return err;
-    if (user_put(sockaddr_len_addr, sockaddr_len))
+    if (user_put(sockaddr_len_addr, real_len))
         return _EFAULT;
     return res;
 }
@@ -3580,7 +3593,15 @@ static int_t sys_getpeername_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
     dword_t sockaddr_len;
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
-    char sockaddr[sockaddr_len];
+    // See the matching comment in sys_getsockname_common: this must be a
+    // fixed-size buffer, not one sized by the untrusted guest-requested
+    // length. stress-ng's --sock stressor's getpeername() calls with a
+    // small/zero-sized buffer were tripping exactly this: copy_unix_name and
+    // sockaddr_write read a family field at the front of the buffer before
+    // any truncation happened, which was uninitialized (or, for
+    // copy_unix_name's unsigned length subtraction, drove an out-of-bounds
+    // write) whenever the guest's requested length was too small to hold it.
+    char sockaddr[sizeof(struct sockaddr_storage)];
 
     if (sock->socket.domain == AF_NETLINK_) {
         if (sockaddr_len < sizeof(struct sockaddr_nl_))
@@ -3599,24 +3620,42 @@ static int_t sys_getpeername_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
     }
 
     if (sock->socket.domain == PF_LOCAL_) {
-        int err = copy_unix_peer_name(sockaddr, &sockaddr_len, sock);
+        dword_t real_len = sizeof(sockaddr);
+        int err = copy_unix_peer_name(sockaddr, &real_len, sock);
         if (err < 0)
             return err;
-        if (user_write(sockaddr_addr, sockaddr, sizeof(sockaddr)))
+        dword_t write_len = real_len < sockaddr_len ? real_len : sockaddr_len;
+        if (user_write(sockaddr_addr, sockaddr, write_len))
             return _EFAULT;
-        if (user_put(sockaddr_len_addr, sockaddr_len))
+        if (user_put(sockaddr_len_addr, real_len))
             return _EFAULT;
         return 0;
     }
 
-    int res = getpeername(sock->real_fd, (void *) sockaddr, &sockaddr_len);
-    if (res < 0)
+    dword_t real_len = sizeof(sockaddr);
+    int res = getpeername(sock->real_fd, (void *) sockaddr, &real_len);
+    if (res < 0) {
+        // The host call above always uses our own valid, full-size local
+        // buffer -- never the guest's requested addrlen -- so a host EINVAL
+        // here can't be a bad-addrlen complaint (Linux's only documented
+        // EINVAL case for this syscall). It's a Darwin-specific quirk: a TCP
+        // socket that's still logically connected from Linux's point of view
+        // (e.g. after a local shutdown(), or occasionally when the peer's
+        // connection state changes concurrently -- stress-ng's --sock
+        // stressor hits this once per several thousand connect/getpeername
+        // iterations) but that Darwin's getpeername refuses with EINVAL
+        // where Linux would either still succeed or report ENOTCONN. Map it
+        // to ENOTCONN -- at minimum a real Linux errno for this call, and
+        // exactly right for the concurrent-disconnect race.
+        if (errno == EINVAL)
+            return _ENOTCONN;
         return errno_map();
+    }
 
-    int err = sockaddr_write(sockaddr_addr, sockaddr, sizeof(sockaddr), &sockaddr_len);
+    int err = sockaddr_write(sockaddr_addr, sockaddr, sockaddr_len, &real_len);
     if (err < 0)
         return err;
-    if (user_put(sockaddr_len_addr, sockaddr_len))
+    if (user_put(sockaddr_len_addr, real_len))
         return _EFAULT;
     return res;
 }

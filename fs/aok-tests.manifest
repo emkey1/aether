@@ -55,6 +55,7 @@ process_conformance.c
 time_conformance.c
 mem_conformance.c
 sock_conformance.c
+getpeername_smallbuf.c
 netlink_route.c
 netlink_audit.c
 mount_flags.c
