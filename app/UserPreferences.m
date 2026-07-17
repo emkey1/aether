@@ -24,6 +24,7 @@ static NSString *const kPreferenceBacktickEscapeKey = @"Backtick Mapping Escape"
 static NSString *const kPreferenceHideExtraKeysWithExternalKeyboardKey = @"Hide Extra Keys With External Keyboard";
 static NSString *const kPreferenceMaximizeScreenSpaceKey = @"Maximize Screen Space";
 static NSString *const kPreferenceShowTerminalQuickButtonsKey = @"Show Terminal Quick Buttons";
+static NSString *const kPreferenceAutoShowKeyboardKey = @"Auto Show Keyboard";
 static NSString *const kPreferenceWorkspaceLaunchCountKey = @"Workspaces At Launch";
 static NSString *const kPreferenceOverrideControlSpaceKey = @"Override Control Space";
 static NSString *const kPreferenceFontFamilyKey = @"Font Family";
@@ -206,6 +207,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceColorSchemeKey: @(ColorSchemeAlwaysDark),
             kPreferenceWorkspaceStyleKey: @(WorkspaceStyleModern),
             kPreferenceShowTerminalQuickButtonsKey: @(YES),
+            kPreferenceAutoShowKeyboardKey: @(YES),
             kPreferenceWorkspaceLaunchCountKey: @(1),
             kPreferenceThemeKey: @"Solarized",
             kPreferenceLoginAsDefaultUserKey: @(NO),
@@ -236,6 +238,7 @@ bool (*remove_user_default)(const char *name);
             @"hide_extra_keys_with_external_keyboard": kPreferenceHideExtraKeysWithExternalKeyboardKey,
             @"maximize_screen_space": kPreferenceMaximizeScreenSpaceKey,
             @"show_terminal_quick_buttons": kPreferenceShowTerminalQuickButtonsKey,
+            @"auto_show_keyboard": kPreferenceAutoShowKeyboardKey,
             @"workspace_launch_count": kPreferenceWorkspaceLaunchCountKey,
             @"override_control_space": kPreferenceOverrideControlSpaceKey,
             @"font_family": kPreferenceFontFamilyKey,
@@ -274,6 +277,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceHideExtraKeysWithExternalKeyboardKey: property(hideExtraKeysWithExternalKeyboard),
             kPreferenceMaximizeScreenSpaceKey: property(maximizeScreenSpace),
             kPreferenceShowTerminalQuickButtonsKey: property(showTerminalQuickButtons),
+            kPreferenceAutoShowKeyboardKey: property(autoShowKeyboard),
             kPreferenceWorkspaceLaunchCountKey: property(workspaceLaunchCount),
             kPreferenceOverrideControlSpaceKey: property(overrideControlSpace),
             kPreferenceFontFamilyKey: property(fontFamily),
@@ -386,6 +390,15 @@ bool (*remove_user_default)(const char *name);
 
 - (void)setShowTerminalQuickButtons:(BOOL)showTerminalQuickButtons {
     [_defaults setBool:showTerminalQuickButtons forKey:kPreferenceShowTerminalQuickButtonsKey];
+}
+
+// MARK: autoShowKeyboard
+- (BOOL)autoShowKeyboard {
+    return [_defaults boolForKey:kPreferenceAutoShowKeyboardKey];
+}
+
+- (void)setAutoShowKeyboard:(BOOL)autoShowKeyboard {
+    [_defaults setBool:autoShowKeyboard forKey:kPreferenceAutoShowKeyboardKey];
 }
 
 // MARK: workspaceLaunchCount

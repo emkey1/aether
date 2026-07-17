@@ -4623,6 +4623,17 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
             [self presentUtilsDockActionsFromView:sourceView];
         });
     }]];
+    BOOL autoShowKeyboard = UserPreferences.shared.autoShowKeyboard;
+    [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Auto-Show Keyboard: %@", autoShowKeyboard ? @"On" : @"Off"]
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        UserPreferences.shared.autoShowKeyboard = !autoShowKeyboard;
+        // Re-present so the toggled state is reflected; see the "Terminal…"
+        // handler above for why this must defer to the next runloop.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self presentDesktopRootMenuFromView:sourceView sourceRect:sourceRect];
+        });
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Settings"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {

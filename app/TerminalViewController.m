@@ -346,6 +346,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 }
 
 - (void)focusTerminal {
+    if (!UserPreferences.shared.autoShowKeyboard)
+        return;
     [self.termView becomeFirstResponder];
 }
 
@@ -368,7 +370,8 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 #endif
 
     [self _applyCurrentTerminalToViewIfPossible];
-    [self.termView becomeFirstResponder];
+    if (UserPreferences.shared.autoShowKeyboard)
+        [self.termView becomeFirstResponder];
 
     NSNotificationCenter *center = [NSNotificationCenter defaultCenter];
     [center addObserver:self
