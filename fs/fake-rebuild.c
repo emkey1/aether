@@ -34,17 +34,17 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
     sqlite3 *db = fs->db;
     int err;
 
-    EXEC("begin");
-    EXEC("create table paths_old (path blob primary key, inode integer)");
-    EXEC("create table stats_old (inode integer primary key, stat blob)");
-    EXEC("insert into paths_old select * from paths");
-    EXEC("insert into stats_old select * from stats");
-    EXEC("delete from paths");
-    EXEC("delete from stats");
-    sqlite3_stmt *get_paths = PREPARE("select path, inode from paths_old");
-    sqlite3_stmt *read_stat = PREPARE("select stat from stats_old where inode = ?");
-    sqlite3_stmt *write_path = PREPARE("insert into paths (path, inode) values (?, ?)");
-    sqlite3_stmt *write_stat = PREPARE("replace into stats (inode, stat) values (?, ?)");
+    EXEC_RET("begin");
+    EXEC_RET("create table paths_old (path blob primary key, inode integer)");
+    EXEC_RET("create table stats_old (inode integer primary key, stat blob)");
+    EXEC_RET("insert into paths_old select * from paths");
+    EXEC_RET("insert into stats_old select * from stats");
+    EXEC_RET("delete from paths");
+    EXEC_RET("delete from stats");
+    sqlite3_stmt *get_paths = PREPARE_RET("select path, inode from paths_old");
+    sqlite3_stmt *read_stat = PREPARE_RET("select stat from stats_old where inode = ?");
+    sqlite3_stmt *write_path = PREPARE_RET("insert into paths (path, inode) values (?, ?)");
+    sqlite3_stmt *write_stat = PREPARE_RET("replace into stats (inode, stat) values (?, ?)");
     inode_t next_inode = 1;
 
     struct list hashtable[2000];
@@ -52,7 +52,7 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
     for (unsigned i = 0; i < HASH_SIZE; i++)
         list_init(&hashtable[i]);
 
-    while (STEP(get_paths)) {
+    while (STEP_RET(get_paths)) {
         const char *path = (const char *) sqlite3_column_text(get_paths, 0);
         ino_t inode = sqlite3_column_int64(get_paths, 1);
 
@@ -85,25 +85,25 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
         }
 
         // extract the stat so we can copy it
-        err = sqlite3_bind_int64(read_stat, 1, inode); CHECK_ERR();
-        if (STEP(read_stat) == false) {
-            RESET(read_stat);
+        err = sqlite3_bind_int64(read_stat, 1, inode); CHECK_ERR_RET();
+        if (STEP_RET(read_stat) == false) {
+            RESET_RET(read_stat);
             continue;
         }
         const void *stat_data = sqlite3_column_blob(read_stat, 0);
         size_t stat_data_size = sqlite3_column_bytes(read_stat, 0);
 
         // store all the information in the new database
-        err = sqlite3_bind_int64(write_stat, 1, compact_inode); CHECK_ERR();
-        err = sqlite3_bind_blob(write_stat, 2, stat_data, stat_data_size, SQLITE_TRANSIENT); CHECK_ERR();
-        STEP(write_stat);
-        RESET(write_stat);
-        err = sqlite3_bind_blob(write_path, 1, path, strlen(path), SQLITE_TRANSIENT); CHECK_ERR();
-        err = sqlite3_bind_int64(write_path, 2, compact_inode); CHECK_ERR();
-        STEP(write_path);
-        RESET(write_path);
+        err = sqlite3_bind_int64(write_stat, 1, compact_inode); CHECK_ERR_RET();
+        err = sqlite3_bind_blob(write_stat, 2, stat_data, stat_data_size, SQLITE_TRANSIENT); CHECK_ERR_RET();
+        STEP_RET(write_stat);
+        RESET_RET(write_stat);
+        err = sqlite3_bind_blob(write_path, 1, path, strlen(path), SQLITE_TRANSIENT); CHECK_ERR_RET();
+        err = sqlite3_bind_int64(write_path, 2, compact_inode); CHECK_ERR_RET();
+        STEP_RET(write_path);
+        RESET_RET(write_path);
 
-        RESET(read_stat);
+        RESET_RET(read_stat);
     }
 
     for (unsigned i = 0; i < HASH_SIZE; i++) {
@@ -115,12 +115,12 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
         }
     }
 
-    EXEC("drop table paths_old");
-    EXEC("drop table stats_old");
-    EXEC("commit");
-    FINALIZE(get_paths);
-    FINALIZE(read_stat);
-    FINALIZE(write_path);
-    FINALIZE(write_stat);
+    EXEC_RET("drop table paths_old");
+    EXEC_RET("drop table stats_old");
+    EXEC_RET("commit");
+    FINALIZE_RET(get_paths);
+    FINALIZE_RET(read_stat);
+    FINALIZE_RET(write_path);
+    FINALIZE_RET(write_stat);
     return 0;
 }

@@ -37,26 +37,26 @@ static struct migration {
 int fakefs_migrate(struct fakefs_db *fs, int UNUSED(root_fd)) {
     sqlite3 *db = fs->db;
     int err;
-    sqlite3_stmt *user_version = PREPARE("pragma user_version");
-    STEP(user_version);
+    sqlite3_stmt *user_version = PREPARE_RET("pragma user_version");
+    STEP_RET(user_version);
     int version = sqlite3_column_int(user_version, 0);
-    FINALIZE(user_version);
+    FINALIZE_RET(user_version);
 
-    EXEC("begin");
+    EXEC_RET("begin");
     int versions = sizeof(migrations)/sizeof(migrations[0]);
     while (version < versions) {
         struct migration m = migrations[version];
         if (m.sql != NULL)
-            EXEC(m.sql);
+            EXEC_RET(m.sql);
         if (m.migrate != NULL)
             m.migrate(fs);
         version++;
     }
     // for some reason placeholders aren't allowed in pragmas
     char *pragma_user_version = sqlite3_mprintf("pragma user_version = %d", version);
-    EXEC(pragma_user_version);
+    EXEC_RET(pragma_user_version);
     sqlite3_free(pragma_user_version);
-    EXEC("commit");
+    EXEC_RET("commit");
 
     return 0;
 }
