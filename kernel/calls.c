@@ -4606,15 +4606,21 @@ static bool handle_i386_read_fault_gpf(struct cpu_state *cpu) {
         return false;
 
     guest_addr_t fault_addr = 0;
-    if (i386_gpf_decode_read_addr(cpu, &fault_addr)) {
-        if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_READ))
-            return false;
-    } else if (cpu->segfault_addr != 0 && !cpu->segfault_was_write &&
-               i386_gpf_addr_needs_page_fault(cpu->segfault_addr, MEM_READ)) {
-        fault_addr = cpu->segfault_addr;
-    } else {
-        return false;
+    if (cpu->segfault_addr != 0 && !cpu->segfault_was_write) {
+        // Read gadget explicitly reported the fault address: route it through
+        // the page-fault path unconditionally (same reasoning as the write
+        // helper -- a lock-free re-check races a sibling thread resolving the
+        // page and would fall through to a spurious SIGSEGV). mem_ptr_fault
+        // is a no-op if the page is already readable; the load re-executes.
+        cpu->trapno = INT_PF;
+        cpu->segfault_was_write = false;
+        handle_page_fault_interrupt(cpu);
+        return true;
     }
+    if (!i386_gpf_decode_read_addr(cpu, &fault_addr))
+        return false;
+    if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_READ))
+        return false;
 
     cpu->trapno = INT_PF;
     cpu->segfault_addr = fault_addr;
@@ -4629,12 +4635,29 @@ static bool handle_i386_write_fault_gpf(struct cpu_state *cpu) {
 
     guest_addr_t fault_addr = 0;
     if (cpu->segfault_was_write && cpu->segfault_addr != 0) {
-        fault_addr = cpu->segfault_addr;
-    } else {
-        if (!i386_gpf_decode_write_addr(cpu, &fault_addr))
-            return false;
+        // The write gadget explicitly reported a translation failure at this
+        // exact address (segfault_write in gadgets-*/memory.S set segfault_addr
+        // + segfault_was_write before raising INT_GPF). Route it straight into
+        // the page-fault path unconditionally: mem_ptr_fault resolves a COW
+        // break / mapping under the write lock, or -- for a genuinely
+        // unwritable page -- delivers a real SIGSEGV. Do NOT gate on the
+        // lock-free i386_gpf_addr_needs_page_fault re-check here: after a
+        // fork() the parent's shared pages are P_COW, and a sibling thread can
+        // break the COW between the gadget's fault and this handler, making the
+        // page read back as writable. Gating then falls through to a spurious
+        // SIGSEGV instead of just restarting the (idempotent) faulting store --
+        // exactly the signalfd_epoll_deadlock crash on a LOCK-prefixed atomic
+        // (3 forker threads racing sibling waiters, issue #477). handle_page_
+        // fault_interrupt is a no-op when the page is already writable, so the
+        // instruction simply re-executes.
+        cpu->trapno = INT_PF;
+        cpu->segfault_was_write = true;
+        handle_page_fault_interrupt(cpu);
+        return true;
     }
 
+    if (!i386_gpf_decode_write_addr(cpu, &fault_addr))
+        return false;
     if (!i386_gpf_addr_needs_page_fault(fault_addr, MEM_WRITE))
         return false;
     cpu->trapno = INT_PF;
