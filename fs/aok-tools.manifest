@@ -13,6 +13,7 @@
 
 provision-ultimate-alpine.sh
 provision-ultimate-devuan.sh
+provision-ultimate-archlinux.sh
 mount-root.sh
 setup-wayland.sh
 start-wayland.sh
