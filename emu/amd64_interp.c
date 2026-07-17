@@ -8134,10 +8134,20 @@ restart_prefix:
         }
         if (modrm.reg != 0)
             return INT_UNDEFINED;
-        if (!amd64_pop_size(cpu, tlb, pop_size, &value))
-            goto amd64_gpf_restore;
-        if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, pop_size, value))
-            goto amd64_gpf_restore;
+        // See amd64_jit_pop_rm's identical fix (#487): amd64_pop_size() commits
+        // the RSP advance on a successful read, before the destination write
+        // below is attempted. If that write then faults, restore RSP here too
+        // -- otherwise the re-executed instruction pops from the wrong (already
+        // advanced) stack slot instead of retrying the original one.
+        {
+            qword_t rsp_before_pop = cpu->amd64_regs[amd64_rsp];
+            if (!amd64_pop_size(cpu, tlb, pop_size, &value))
+                goto amd64_gpf_restore;
+            if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, pop_size, value)) {
+                cpu->amd64_regs[amd64_rsp] = rsp_before_pop;
+                goto amd64_gpf_restore;
+            }
+        }
         break;
     }
     case 0x68: {
@@ -9322,10 +9332,27 @@ int amd64_jit_pop_rm(struct cpu_state *cpu, struct tlb *tlb,
         return INT_UNDEFINED;
 
     pop_size = operand_size_prefix ? 16 : 64;
-    if (!amd64_pop_size(cpu, tlb, pop_size, &value))
-        goto amd64_pop_rm_pf;
-    if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, pop_size, value))
-        goto amd64_pop_rm_pf;
+    {
+        // amd64_pop_size() commits the RSP advance as soon as its read succeeds,
+        // before the destination write below is attempted. If that write then
+        // faults (e.g. a first-touch or COW page needing a fault-in), the whole
+        // instruction bails to amd64_pop_rm_pf for a re-execute -- but without
+        // restoring RSP here, the retry re-reads from the *already-advanced*
+        // stack slot instead of the original one, silently dropping the real
+        // popped value (e.g. a return address) and substituting whatever
+        // garbage sits one slot up. Found via #487: musl's sigsetjmp does
+        // `popq off(%rdi)` to relocate its own return address into the
+        // jmp_buf; the first attempt's write to the jmp_buf (freshly-touched
+        // .bss) faulted, and the retry's mis-popped value corrupted the saved
+        // return address, later crashing with rip set to that garbage value.
+        qword_t rsp_before_pop = cpu->amd64_regs[amd64_rsp];
+        if (!amd64_pop_size(cpu, tlb, pop_size, &value))
+            goto amd64_pop_rm_pf;
+        if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, pop_size, value)) {
+            cpu->amd64_regs[amd64_rsp] = rsp_before_pop;
+            goto amd64_pop_rm_pf;
+        }
+    }
     cpu->amd64_rip = (qword_t) next_ip;
     amd64_sync_legacy_regs(cpu);
     return INT_NONE;
