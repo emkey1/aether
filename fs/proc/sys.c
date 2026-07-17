@@ -293,9 +293,50 @@ static int sys_show_kernel_random_entropy_avail(struct proc_entry *UNUSED(entry)
     return 0;
 }
 
+// RFC 4122 v4 (random) UUID, formatted as the canonical 8-4-4-4-12 hex string
+// real Linux reports from these two files. Missing entirely was a real gap:
+// bash >= 5.1's $RANDOM seeding and various distro profile/rc scripts (seen
+// live on Arch Linux ARM's default bash) read /proc/sys/kernel/random/{uuid,
+// boot_id} unconditionally and print "No such file or directory" to stderr
+// on every new shell when it's absent.
+static void format_random_uuid(struct proc_data *buf, const unsigned char *b) {
+    proc_printf(buf, "%02x%02x%02x%02x-%02x%02x-%02x%02x-%02x%02x-%02x%02x%02x%02x%02x%02x\n",
+            b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+            b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]);
+}
+
+static int sys_show_kernel_random_uuid(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    // A fresh random UUID on every read, matching real Linux.
+    unsigned char b[16];
+    get_random((char *) b, sizeof(b));
+    b[6] = (b[6] & 0x0f) | 0x40; // version 4
+    b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+    format_random_uuid(buf, b);
+    return 0;
+}
+
+// A single UUID generated once per iSH launch and reused for every read,
+// matching real Linux's "constant for this boot, changes across reboots"
+// contract (systemd and friends use it to detect a reboot happened).
+static bool boot_id_generated = false;
+static unsigned char boot_id[16];
+
+static int sys_show_kernel_random_boot_id(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+    if (!boot_id_generated) {
+        get_random((char *) boot_id, sizeof(boot_id));
+        boot_id[6] = (boot_id[6] & 0x0f) | 0x40;
+        boot_id[8] = (boot_id[8] & 0x3f) | 0x80;
+        boot_id_generated = true;
+    }
+    format_random_uuid(buf, boot_id);
+    return 0;
+}
+
 struct proc_dir_entry proc_sys_kernel_random[] = {
+    {"boot_id", .show = sys_show_kernel_random_boot_id},
     {"entropy_avail", .show = sys_show_kernel_random_entropy_avail},
     {"poolsize", .show = sys_show_kernel_random_poolsize},
+    {"uuid", .show = sys_show_kernel_random_uuid},
 };
 
 #define PROC_SYS_KERNEL_RANDOM_LEN sizeof(proc_sys_kernel_random)/sizeof(proc_sys_kernel_random[0])
