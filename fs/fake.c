@@ -724,9 +724,20 @@ static int fakefs_mount(struct mount *mount) {
     char db_path[PATH_MAX];
     strncpy(db_path, mount->source, PATH_MAX - 1);
     db_path[PATH_MAX - 1] = '\0';
-    char *basename = strrchr(db_path, '/') + 1;
-    assert(strcmp(basename, "data") == 0);
-    strncpy(basename, "meta.db", 8);
+    char *slash = strrchr(db_path, '/');
+    // The metadata DB lives next to the source dir as "meta.db", found by
+    // swapping the final "data" path component -- an internal convention of
+    // how this project's own root-installation code names its fakefs source
+    // dirs, not something the mount(2) syscall enforces. Any guest process
+    // with root can reach this via a raw `mount -t fake <source> <target>`
+    // with an arbitrary source path, so a mismatch (or a source with no
+    // directory component at all) must be a plain mount error, not an assert
+    // that aborts the whole host process (found via a guest-side
+    // `mount -t fake /some/other/name /AOK/roots/foo`, which used to crash
+    // the entire app instead of just failing the mount).
+    if (slash == NULL || strcmp(slash + 1, "data") != 0)
+        return _EINVAL;
+    strncpy(slash + 1, "meta.db", 8);
 
     // do this now so rebuilding can use root_fd
     int err = realfs.mount(mount);
