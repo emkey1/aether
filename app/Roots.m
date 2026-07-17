@@ -192,6 +192,21 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/pscal-pure-aarch64-rootfs.tar.xz",
                 kBundledRootDownloadSizeKey: @"~7 MB",
             },
+            @{
+                kBundledRootIdentifierKey: @"archlinux20240401x8664",
+                kBundledRootDisplayNameKey: @"Arch Linux (2024.04.01, x86_64) (Experimental)",
+                kBundledRootArchiveNameKey: @"archlinux-minirootfs-2024.04.01-x86_64",
+                // Not officially supported: real PAM-enabled util-linux login
+                // (unlike Alpine/Devuan's simplified one), no distro-specific
+                // patching applied. Marked "(Experimental)" in displayName --
+                // see kBundledRootDisplayNameKey comment above for why there's
+                // no separate flag for this.
+                kBundledRootImportNameKey: @"ArchLinux-x86_64",
+                kBundledRootInitialWindowKey: @"session-shell",
+                kBundledRootGuestABIKey: @"amd64",
+                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinux-minirootfs-2024.04.01-x86_64.tar.xz",
+                kBundledRootDownloadSizeKey: @"~58 MB",
+            },
         ];
     });
     return choices;
