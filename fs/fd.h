@@ -21,6 +21,11 @@ struct fd {
     struct list poll_fds;
     lock_t poll_lock;
     unsigned long offset;
+    // fcntl(F_SETOWN)/fcntl(F_GETOWN): the pid (positive) or process group
+    // (negative, -pgid) that would receive SIGIO/SIGURG for this fd. 0 means
+    // no owner. Stored generically here (not under the socket union) because
+    // F_SETOWN/F_GETOWN are valid on any fd type on Linux, not just sockets.
+    pid_t_ owner;
 
     // fd data
     union {

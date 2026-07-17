@@ -41,6 +41,7 @@ epoll_data_layout.c
 ptrace_exit_kill.c
 fcntl_lock.c
 fcntl_ofd.c
+fcntl_setown.c
 at_empty_path.c
 utimensat_fd.c
 copy_file_range.c

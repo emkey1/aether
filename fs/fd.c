@@ -280,6 +280,9 @@ void fdtable_do_cloexec(struct fdtable *table) {
 #define F_GETFL_ 3
 #define F_SETFL_ 4
 
+#define F_SETOWN_ 8
+#define F_GETOWN_ 9
+
 #define F_GETLK_ 5
 #define F_SETLK_ 6
 #define F_SETLKW_ 7
@@ -470,6 +473,36 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
             STRACE("fcntl(%d, F_SETFL, %#x)", f, arg);
             ret = fd_setflags(fd, arg);
             break;
+
+        case F_GETOWN_:
+            STRACE("fcntl(%d, F_GETOWN)", f);
+            ret = (dword_t) fd->owner;
+            break;
+        case F_SETOWN_: {
+            pid_t_ who = (pid_t_) arg;
+            STRACE("fcntl(%d, F_SETOWN, %d)", f, who);
+            // Linux validates the target exists: who > 0 must be a live pid,
+            // who < 0 must be a live process group (kill_group uses the same
+            // pid_get() check for -pgid). who == 0 clears the owner and is
+            // always accepted.
+            if (who == 0) {
+                fd->owner = 0;
+                ret = 0;
+                break;
+            }
+            complex_lockt(&pids_lock, 0);
+            bool target_exists = who > 0 ?
+                pid_get_task_zombie(who) != NULL :
+                pid_get(-who) != NULL;
+            unlock(&pids_lock);
+            if (!target_exists) {
+                ret = _ESRCH;
+                break;
+            }
+            fd->owner = who;
+            ret = 0;
+            break;
+        }
 
         case F_GETLK_:
             STRACE("fcntl(%d, F_GETLK, %#x)", f, arg);
