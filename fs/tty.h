@@ -21,6 +21,25 @@ struct termios_ {
     byte_t cc[19];
 };
 
+// struct termios2 (used by TCGETS2/TCSETS2/TCSETSW2/TCSETSF2): same layout as
+// termios_ above plus explicit input/output speed fields. Newer glibc/
+// util-linux prefer this over the legacy TCGETS/TCSETS family; a guest
+// program that calls TCGETS2 to sanity-check its controlling terminal (e.g.
+// util-linux login's isatty-style check) saw ENOTTY -- an unimplemented
+// ioctl, not "this really isn't a tty" -- and bailed out immediately with
+// "FATAL: bad tty" without ever attempting ttyname() resolution, even though
+// the fd was a perfectly good pty and the legacy TCGETS path worked fine.
+struct termios2_ {
+    dword_t iflags;
+    dword_t oflags;
+    dword_t cflags;
+    dword_t lflags;
+    byte_t line;
+    byte_t cc[19];
+    dword_t ispeed;
+    dword_t ospeed;
+};
+
 #define VINTR_ 0
 #define VQUIT_ 1
 #define VERASE_ 2
@@ -68,6 +87,13 @@ struct termios_ {
 #define TCSETS_ 0x5402
 #define TCSETSW_ 0x5403
 #define TCSETSF_ 0x5404
+// Generic ioctl encoding (_IOR/_IOW('T', ..., struct termios2)), identical
+// across every guest ABI iSH supports (i386/amd64/arm64/riscv64) -- unlike
+// the legacy numbers above, which are old BSD-style constants kept for compat.
+#define TCGETS2_ 0x802c542a
+#define TCSETS2_ 0x402c542b
+#define TCSETSW2_ 0x402c542c
+#define TCSETSF2_ 0x402c542d
 #define TCFLSH_ 0x540b
 #define TIOCSCTTY_ 0x540e
 #define TIOCGPGRP_ 0x540f

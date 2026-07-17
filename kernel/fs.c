@@ -1386,6 +1386,7 @@ dword_t sys_pwrite(fd_t f, addr_t buf_addr, dword_t size, off_t_ off) {
 static bool ioctl_user_arg_needs_read(dword_t cmd) {
     switch (cmd) {
         case TCGETS_:
+        case TCGETS2_:
         case TIOCGPGRP_:
         case TIOCGWINSZ_:
         case TIOCGPTN_:
@@ -1403,6 +1404,9 @@ static bool ioctl_user_arg_needs_write(dword_t cmd) {
         case TCSETS_:
         case TCSETSF_:
         case TCSETSW_:
+        case TCSETS2_:
+        case TCSETSF2_:
+        case TCSETSW2_:
         case TIOCSPGRP_:
         case TIOCSPTLCK_:
         case TIOCPKT_:

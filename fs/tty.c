@@ -798,6 +798,8 @@ static ssize_t tty_ioctl_size(int cmd) {
     switch (cmd) {
         case TCGETS_: case TCSETS_: case TCSETSF_: case TCSETSW_:
             return sizeof(struct termios_);
+        case TCGETS2_: case TCSETS2_: case TCSETSF2_: case TCSETSW2_:
+            return sizeof(struct termios2_);
         case TIOCGWINSZ_: case TIOCSWINSZ_:
             return sizeof(struct winsize_);
         case TIOCGPGRP_: case TIOCSPGRP_:
@@ -895,6 +897,40 @@ static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
         case TCSETS_:
             tty->termios = *(struct termios_ *) arg;
             break;
+
+        // termios2 variants: same fields as termios_ above, plus explicit
+        // ispeed/ospeed. iSH's virtual ttys have no real baud rate, so
+        // TCGETS2 just reports a fixed nominal speed and the SETS2 variants
+        // ignore the incoming speed fields entirely -- matching how the
+        // legacy termios_ path never modeled speed either.
+        case TCGETS2_: {
+            struct termios2_ *termios2 = arg;
+            termios2->iflags = tty->termios.iflags;
+            termios2->oflags = tty->termios.oflags;
+            termios2->cflags = tty->termios.cflags;
+            termios2->lflags = tty->termios.lflags;
+            termios2->line = tty->termios.line;
+            memcpy(termios2->cc, tty->termios.cc, sizeof(termios2->cc));
+            termios2->ispeed = 38400;
+            termios2->ospeed = 38400;
+            break;
+        }
+        case TCSETSF2_:
+            tty->bufsize = 0;
+            notify(&tty->consumed);
+                FALLTHROUGH;
+        case TCSETSW2_:
+            // we have no output buffer currently
+        case TCSETS2_: {
+            struct termios2_ *termios2 = arg;
+            tty->termios.iflags = termios2->iflags;
+            tty->termios.oflags = termios2->oflags;
+            tty->termios.cflags = termios2->cflags;
+            tty->termios.lflags = termios2->lflags;
+            tty->termios.line = termios2->line;
+            memcpy(tty->termios.cc, termios2->cc, sizeof(tty->termios.cc));
+            break;
+        }
 
         case TIOCGWINSZ_:
             *(struct winsize_ *) arg = tty->winsize;
