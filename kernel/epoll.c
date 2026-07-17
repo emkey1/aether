@@ -66,6 +66,42 @@ static bool epoll_event_aligned(void) {
 #define EPOLLET_ (1 << 31)
 #define EPOLLONESHOT_ (1 << 30)
 
+// Linux caps epoll nesting depth at EP_MAX_NESTS (fs/eventpoll.c) and treats
+// either a genuine cycle or exceeding that depth as ELOOP. There was no such
+// check here at all: adding an epoll fd `fd` that already (transitively)
+// watches `target` silently succeeded via poll_add_fd, leaving a live cycle
+// in memory. That's exactly what stress-ng's --epoll stressor probes for
+// (two epoll instances added into each other) -- since the add "succeeded"
+// (returned 0), errno was left untouched from an unrelated earlier syscall,
+// so the stressor's failure message showed a stale, misleading errno instead
+// of the real problem: the call should have failed with ELOOP and didn't.
+#define EP_MAX_NESTS 4
+
+// Would adding `target` -> `fd` (i.e. target starts watching fd) create a
+// cycle? True if `target` is reachable by following fd's own nested-epoll
+// children, or if doing so would exceed Linux's nesting depth limit.
+static bool epoll_would_loop(struct fd *target, struct fd *fd, int depth) {
+    if (fd->ops != &epoll_ops)
+        return false;
+    if (depth >= EP_MAX_NESTS)
+        return true;
+    struct poll *poll = fd->epollfd.poll;
+    lock(&poll->lock, 0);
+    bool loop = false;
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
+        struct fd *child = poll_fd->fd;
+        if (child == NULL)
+            continue;
+        if (child == target || epoll_would_loop(target, child, depth + 1)) {
+            loop = true;
+            break;
+        }
+    }
+    unlock(&poll->lock);
+    return loop;
+}
+
 int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_addr) {
     STRACE("epoll_ctl(%d, %d, %d, %#x)", epoll_f, op, f, event_addr);
     struct fd *epoll = f_get_retain(epoll_f);
@@ -136,6 +172,8 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
     if (op == EPOLL_CTL_ADD_) {
         if (poll_has_fd(epoll->epollfd.poll, fd))
             res = _EEXIST;
+        else if (epoll_would_loop(epoll, fd, 0))
+            res = _ELOOP;
         else
             res = poll_add_fd(epoll->epollfd.poll, fd, ev_events, (union poll_fd_info) ev_data);
     } else {
