@@ -580,7 +580,7 @@ static void proc_print_escaped(struct proc_data *buf, const char *str) {
     *(at_start) = false; \
 } while (0)
 
-static int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
+int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
     struct mount *mount;
     list_for_each_entry(&mounts, mount, mounts) {
         const char *point = mount->point;
