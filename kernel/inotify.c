@@ -171,8 +171,17 @@ static struct fd **inotify_snapshot_instances(size_t *count_out) {
         if (fds != NULL) {
             size_t i = 0;
             list_for_each_entry(&inotify_instances, state, all) {
-                fds[i++] = fd_retain(state->fd);
+                // state->fd may be mid-teardown in a concurrent fd_close
+                // (its refcount already hit 0, ops->close/free not yet
+                // run) -- inotify_instances_lock alone doesn't rule that
+                // out, since the generic refcount decrement in fd_close
+                // knows nothing about this lock. A plain fd_retain here
+                // would resurrect a dying fd; skip it instead.
+                struct fd *retained = fd_retain_if_live(state->fd);
+                if (retained != NULL)
+                    fds[i++] = retained;
             }
+            count = i;
         }
     }
     unlock(&inotify_instances_lock);
@@ -302,8 +311,12 @@ int_t sys_inotify_add_watch_guest(fd_t fd_no, guest_addr_t pathname_addr, uint_t
     if (err < 0)
         return err;
 
-    struct inotify_state *state = inotify_state_get(fd);
     lock(&fd->lock, 0);
+    struct inotify_state *state = inotify_state_get(fd);
+    if (state == NULL) {
+        unlock(&fd->lock);
+        return _EBADF;
+    }
     struct inotify_watch *watch = inotify_find_watch(state, path);
     if (watch != NULL) {
         watch->mask = mask;
@@ -338,8 +351,12 @@ int_t sys_inotify_rm_watch(fd_t fd_no, int_t wd) {
     if (err < 0)
         return err;
 
-    struct inotify_state *state = inotify_state_get(fd);
     lock(&fd->lock, 0);
+    struct inotify_state *state = inotify_state_get(fd);
+    if (state == NULL) {
+        unlock(&fd->lock);
+        return _EBADF;
+    }
     struct inotify_watch *watch = inotify_find_watch_by_wd(state, wd);
     if (watch == NULL) {
         unlock(&fd->lock);
@@ -359,8 +376,12 @@ static ssize_t inotify_read(struct fd *fd, void *buf, size_t bufsize) {
     if (bufsize < sizeof(struct inotify_event_))
         return _EINVAL;
 
-    struct inotify_state *state = inotify_state_get(fd);
     lock(&fd->lock, 0);
+    struct inotify_state *state = inotify_state_get(fd);
+    if (state == NULL) {
+        unlock(&fd->lock);
+        return _EBADF;
+    }
     while (list_empty(&state->events)) {
         if (fd->flags & O_NONBLOCK_) {
             unlock(&fd->lock);
@@ -369,6 +390,13 @@ static ssize_t inotify_read(struct fd *fd, void *buf, size_t bufsize) {
         if (wait_for(&fd->cond, &fd->lock, NULL)) {
             unlock(&fd->lock);
             return _EINTR;
+        }
+        // wait_for drops fd->lock while blocked; another thread may have
+        // closed this fd (freeing state) in the meantime.
+        state = inotify_state_get(fd);
+        if (state == NULL) {
+            unlock(&fd->lock);
+            return _EBADF;
         }
     }
 
@@ -395,9 +423,9 @@ static ssize_t inotify_read(struct fd *fd, void *buf, size_t bufsize) {
 }
 
 static int inotify_poll(struct fd *fd) {
-    struct inotify_state *state = inotify_state_get(fd);
     lock(&fd->lock, 0);
-    int types = list_empty(&state->events) ? 0 : POLL_READ;
+    struct inotify_state *state = inotify_state_get(fd);
+    int types = (state != NULL && !list_empty(&state->events)) ? POLL_READ : 0;
     unlock(&fd->lock);
     return types;
 }

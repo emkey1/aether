@@ -35,6 +35,15 @@ struct fd *fd_retain(struct fd *fd) {
     return fd;
 }
 
+struct fd *fd_retain_if_live(struct fd *fd) {
+    unsigned expected = atomic_load(&fd->refcount);
+    do {
+        if (expected == 0)
+            return NULL;
+    } while (!atomic_compare_exchange_weak(&fd->refcount, &expected, expected + 1));
+    return fd;
+}
+
 int fd_close(struct fd *fd) {
     int err = 0;
     if (--fd->refcount == 0) {

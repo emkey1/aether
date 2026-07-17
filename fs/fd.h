@@ -169,6 +169,13 @@ typedef sdword_t fd_t;
 
 struct fd *fd_create(const struct fd_ops *ops);
 struct fd *fd_retain(struct fd *fd);
+// Like fd_retain, but for promoting a non-owning pointer found via a
+// secondary lookup structure (e.g. a global registry keyed off fd->data)
+// whose own lock does NOT participate in fd_close's refcount-reaches-zero
+// decision. Plain fd_retain would happily resurrect an fd whose refcount
+// has already hit 0 in a concurrent fd_close, racing its ops->close/free.
+// Returns NULL (no reference taken) if the fd is already past that point.
+struct fd *fd_retain_if_live(struct fd *fd);
 int fd_close(struct fd *fd);
 
 int fd_getflags(struct fd *fd);
