@@ -67,12 +67,19 @@ struct poll_fd {
 #define POLL_NVAL 32
 #define POLL_ONESHOT (1 << 30)
 #define POLL_EDGETRIGGERED (1ul << 31)
+// Matches guest EPOLLEXCLUSIVE (1 << 28); ADD/MOD store the raw guest event
+// bits into poll_fd->types with no translation, so this bit rides along
+// automatically once registered -- no new poll_fd field needed, just a way
+// to query it back out (see poll_fd_is_exclusive).
+#define POLL_EXCLUSIVE (1 << 28)
 struct poll_event {
     struct fd *fd;
     int types;
 };
 struct poll *poll_create(void);
 bool poll_has_fd(struct poll *poll, struct fd *fd);
+// True if `fd` is currently registered on `poll` with POLL_EXCLUSIVE set.
+bool poll_fd_is_exclusive(struct poll *poll, struct fd *fd);
 int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info);
 int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info);
 int poll_del_fd(struct poll *poll, struct fd *fd);

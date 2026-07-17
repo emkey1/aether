@@ -65,6 +65,7 @@ static bool epoll_event_aligned(void) {
 #define EPOLL_CTL_MOD_ 3
 #define EPOLLET_ (1 << 31)
 #define EPOLLONESHOT_ (1 << 30)
+#define EPOLLEXCLUSIVE_ (1 << 28)
 
 // Linux caps epoll nesting depth at EP_MAX_NESTS (fs/eventpoll.c) and treats
 // either a genuine cycle or exceeding that depth as ELOOP. There was no such
@@ -166,6 +167,32 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
         printk("epoll-trace: ctl pid=%d comm=%s epfd=%d op=%d fd=%d real=%d req_events=%#x data=%#llx\n",
                current->pid, current->comm, epoll_f, op, f,
                fd->real_fd, ev_events, (unsigned long long) ev_data);
+    }
+
+    // Linux enforces three EPOLLEXCLUSIVE (bit 28) EINVAL rules (man
+    // epoll_ctl(2)) that iSH-AOK's straight pass-through of guest event bits
+    // never checked. Only the EINVAL validation is implemented here, not the
+    // full exclusive-wakeup load-balancing behavior -- stress-ng's --epoll
+    // conformance check only exercises the former.
+    if (op == EPOLL_CTL_MOD_ && (ev_events & EPOLLEXCLUSIVE_)) {
+        // Rule 1: EPOLLEXCLUSIVE is never valid on MOD, independent of
+        // whether the target fd is even registered on this epoll instance.
+        fd_close(fd);
+        fd_close(epoll);
+        return _EINVAL;
+    }
+    if (op == EPOLL_CTL_MOD_ && poll_fd_is_exclusive(epoll->epollfd.poll, fd)) {
+        // Rule 2: once registered with EPOLLEXCLUSIVE, the registration can
+        // never be modified again, even to new bits without EPOLLEXCLUSIVE.
+        fd_close(fd);
+        fd_close(epoll);
+        return _EINVAL;
+    }
+    if (op == EPOLL_CTL_ADD_ && (ev_events & EPOLLEXCLUSIVE_) && fd->ops == &epoll_ops) {
+        // Rule 3: EPOLLEXCLUSIVE on a nested epoll fd is invalid.
+        fd_close(fd);
+        fd_close(epoll);
+        return _EINVAL;
     }
 
     int_t res;

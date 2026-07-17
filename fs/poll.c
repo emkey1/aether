@@ -317,6 +317,11 @@ bool poll_has_fd(struct poll *poll, struct fd *fd) {
     return poll_find_fd(poll, fd) != NULL;
 }
 
+bool poll_fd_is_exclusive(struct poll *poll, struct fd *fd) {
+    struct poll_fd *poll_fd = poll_find_fd(poll, fd);
+    return poll_fd != NULL && (poll_fd->types & POLL_EXCLUSIVE) != 0;
+}
+
 // Wake any thread currently blocked in poll_wait on this poll so it re-scans fd
 // readiness. Caller must hold poll->lock. Emulated fds (eventfd, pipe, etc.)
 // have no host-side wait queue and no periodic rescan, so a blocked epoll_wait
