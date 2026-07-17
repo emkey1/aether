@@ -1832,10 +1832,18 @@ static void inode_release_if_exist(struct inode_data *inode) {
         inode_release(inode);
 }
 
-static struct fd *sock_getfd(fd_t sock_fd) {
+// On failure returns NULL and sets *err to _EBADF (fd doesn't exist) or
+// _ENOTSOCK (fd exists but isn't a socket), matching Linux's distinction.
+static struct fd *sock_getfd(fd_t sock_fd, int_t *err) {
     struct fd *sock = f_get(sock_fd);
-    if (sock == NULL || sock->ops != &socket_fdops)
+    if (sock == NULL) {
+        *err = _EBADF;
         return NULL;
+    }
+    if (sock->ops != &socket_fdops) {
+        *err = _ENOTSOCK;
+        return NULL;
+    }
     return sock;
 }
 
@@ -3132,9 +3140,10 @@ static void release_unix_names(struct fd *fd) {
 
 static int_t sys_bind_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t sockaddr_len) {
     STRACE("bind(%d, 0x%llx, %d)", sock_fd, (unsigned long long) sockaddr_addr, sockaddr_len);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     struct sockaddr_max_ sockaddr;
     struct inode_data *inode = NULL;
     int err = sockaddr_read_bind(sockaddr_addr, &sockaddr, &sockaddr_len, sock);
@@ -3209,9 +3218,10 @@ static bool sock_devlog_initctl_fallback(struct fd *sock, bool devlog_target, bo
 
 static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t sockaddr_len) {
     STRACE("connect(%d, 0x%llx, %d)", sock_fd, (unsigned long long) sockaddr_addr, sockaddr_len);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     sock_debug_guest_sockaddr("connect", sock, sockaddr_addr, sockaddr_len);
     // Remember whether this is a /dev/log or initctl target; try a real connect
     // first and fall back to the built-in sink only if nothing is bound there.
@@ -3381,9 +3391,10 @@ int_t sys_connect_guest(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t sockadd
 
 int_t sys_listen(fd_t sock_fd, int_t backlog) {
     STRACE("listen(%d, %d)", sock_fd, backlog);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     int err = listen(sock->real_fd, backlog);
     if (err < 0)
         return errno_map();
@@ -3407,9 +3418,10 @@ static int_t sys_accept4_common(fd_t sock_fd, guest_addr_t sockaddr_addr, guest_
             (unsigned long long) sockaddr_len_addr, flags);
     if (flags & ~(O_CLOEXEC_ | O_NONBLOCK_))
         return _EINVAL;
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     dword_t sockaddr_len = 0;
     if (sockaddr_addr != 0) {
         if (user_get(sockaddr_len_addr, sockaddr_len))
@@ -3515,9 +3527,10 @@ static int_t sys_getsockname_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
     STRACE("getsockname(%d, 0x%llx, 0x%llx)", sock_fd,
             (unsigned long long) sockaddr_addr,
             (unsigned long long) sockaddr_len_addr);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     dword_t sockaddr_len;
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
@@ -3587,9 +3600,10 @@ static int_t sys_getpeername_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
     STRACE("getpeername(%d, 0x%llx, 0x%llx)", sock_fd,
             (unsigned long long) sockaddr_addr,
             (unsigned long long) sockaddr_len_addr);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     dword_t sockaddr_len;
     if (user_get(sockaddr_len_addr, sockaddr_len))
         return _EFAULT;
@@ -3743,9 +3757,10 @@ int_t sys_socketpair_guest(dword_t domain, dword_t type, dword_t protocol, guest
 
 static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t len, dword_t flags,
         guest_addr_t sockaddr_addr, dword_t sockaddr_len) {
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     if (sock->socket.domain == AF_LOCAL_) {
         int peer_err = unix_socket_finish_peer(sock);
         if (peer_err < 0)
@@ -3881,9 +3896,10 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
             (unsigned long long) buffer_addr, len, flags,
             (unsigned long long) sockaddr_addr,
             (unsigned long long) sockaddr_len_addr);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     if (sock->socket.domain == AF_LOCAL_) {
         int peer_err = unix_socket_finish_peer(sock);
         if (peer_err < 0)
@@ -4045,9 +4061,10 @@ int_t sys_recv(fd_t sock_fd, addr_t buf, dword_t len, int_t flags) {
 
 int_t sys_shutdown(fd_t sock_fd, dword_t how) {
     STRACE("shutdown(%d, %d)", sock_fd, how);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     int err = shutdown(sock->real_fd, how);
     if (err < 0)
         return errno_map();
@@ -4063,9 +4080,10 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         guest_addr_t value_addr, dword_t value_len, enum guest_abi abi) {
     STRACE("setsockopt(%d, %d, %d, %#llx, %d)", sock_fd, level, option,
             (unsigned long long) value_addr, value_len);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     // value_len is the guest's raw setsockopt(2) optlen argument -- entirely
     // guest-controlled, with no upper bound of its own. No real socket option
     // is anywhere close to this size; reject before the VLA below turns an
@@ -4293,9 +4311,10 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         guest_addr_t value_addr, guest_addr_t len_addr, enum guest_abi abi) {
     STRACE("getsockopt(%d, %d, %d, %#llx, %#llx)", sock_fd, level, option,
             (unsigned long long) value_addr, (unsigned long long) len_addr);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
     dword_t user_value_len;
     if (user_get(len_addr, user_value_len))
         return _EFAULT;
@@ -4845,9 +4864,10 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         enum guest_abi abi) {
     int err;
     STRACE("sendmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
 
     struct msghdr msg = {};
     struct guest_msghdr_marshaled msg_fake;
@@ -5293,9 +5313,10 @@ static ssize_t recvmsg_ipv6_errqueue(struct fd *sock, struct msghdr *msg, int re
 static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t flags,
         enum guest_abi abi) {
     STRACE("recvmsg(%d, %#llx, %d)", sock_fd, (unsigned long long) msghdr_addr, flags);
-    struct fd *sock = sock_getfd(sock_fd);
+    int_t sock_err;
+    struct fd *sock = sock_getfd(sock_fd, &sock_err);
     if (sock == NULL)
-        return _EBADF;
+        return sock_err;
 
     struct msghdr msg = {};
     struct guest_msghdr_marshaled msg_fake;
