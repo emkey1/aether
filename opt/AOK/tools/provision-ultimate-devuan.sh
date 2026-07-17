@@ -22,7 +22,7 @@
 # environment to skip its prompt / run non-interactively:
 #       TZ_NAME=America/Los_Angeles    # timezone (else prompted)
 #       TARGET_USER=mke                # primary login to set up (else prompted)
-#       NEW_HOSTNAME=                  # set a hostname (else keep existing)
+#       NEW_HOSTNAME=                  # hostname to set (else prompted)
 #       SUDO_NOPASSWD=0                # 1 = passwordless sudo-group sudo
 #
 # Arch note: every package below is arch-independent in Devuan, so the same
@@ -51,6 +51,8 @@ if [ -z "$DEF_USER" ] || [ "$DEF_USER" = root ]; then
     DEF_USER="$(awk -F: '$3>=1000 && $3<2000 {print $1; exit}' /etc/passwd)"
 fi
 [ -n "$DEF_USER" ] || DEF_USER="aok"
+DEF_HOSTNAME="$(cat /etc/hostname 2>/dev/null)"
+[ -n "$DEF_HOSTNAME" ] && [ "$DEF_HOSTNAME" != localhost ] || DEF_HOSTNAME="devuan-ish"
 
 # ask <var> <prompt> <default>: keep an env-provided value; else prompt on a
 # TTY; else use the default (so piped/ssh runs never block).
@@ -68,6 +70,7 @@ ask() {
 }
 ask TZ_NAME     "Timezone (e.g. America/New_York, UTC)" "$DEF_TZ"
 ask TARGET_USER "Primary login username to set up"      "$DEF_USER"
+ask NEW_HOSTNAME "Hostname"                              "$DEF_HOSTNAME"
 
 # Create the chosen login if it does not exist yet (fresh rootfs).
 if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != root ] && ! id "$TARGET_USER" >/dev/null 2>&1; then
