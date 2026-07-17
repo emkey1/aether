@@ -6,7 +6,7 @@
 # Arch twin of provision-ultimate-alpine.sh / provision-ultimate-devuan.sh --
 # same end result, translated to pacman instead of apk/apt:
 #   * generous "ultimate terminal" CLI tool set
-#   * daemons started directly in the background (sshd, rsyslogd, chronyd,
+#   * daemons started directly in the background (sshd, syslog-ng, chronyd,
 #     crond) -- see the "Services" section below for why, and its limits
 #   * US/Pacific timezone (configurable)
 #   * chrony in iSH-aware monitoring mode (the guest clock is the host clock)
@@ -99,7 +99,7 @@ PKGS="
   coreutils findutils grep sed gawk diffutils util-linux
   procps-ng shadow file less
   openssh sudo
-  rsyslog
+  syslog-ng
   chrony cronie logrotate
   tzdata ca-certificates openssl
   man-db man-pages
@@ -113,17 +113,27 @@ PKGS="
   tar unzip zip p7zip bzip2 gzip zstd xz
   fastfetch figlet ncurses lazygit
 "
-pacman -Sy --noconfirm >/dev/null 2>&1 || note "pacman -Sy failed (continuing with cached index)"
-# pacman aborts the whole transaction if any package is unavailable, so try the
-# batch first and fall back to installing package-by-package (skipping any that
-# are unavailable in this repo set).
+pacman -Sy --noconfirm || note "pacman -Sy failed (continuing with cached index)"
+# pacman aborts the WHOLE transaction if even one package is unresolvable, so
+# try the batch first and fall back to installing package-by-package (skipping
+# any that are genuinely unavailable in this repo set). A failed/aborted batch
+# can leave /var/lib/pacman/db.lck behind; clear it before the retry loop, or
+# every single package -- including ones that are actually fine -- fails with
+# "unable to lock database", which looks identical to "not found" once stderr
+# is discarded. Keep stderr visible in the retry loop for exactly that reason.
 if pacman -S --needed --noconfirm $PKGS; then
     note "packages installed"
 else
     note "batch install failed; retrying package-by-package (skipping unavailable)"
+    [ -f /var/lib/pacman/db.lck ] && { rm -f /var/lib/pacman/db.lck; note "  cleared stale db.lck from the aborted batch"; }
     for p in $PKGS; do
-        pacman -S --needed --noconfirm "$p" >/dev/null 2>&1 \
-            || note "  skipped: $p (unavailable or failed)"
+        # Capture pacman's own exit code before piping its output through sed
+        # for indentation -- `if pacman ... | sed ...` would check sed's exit
+        # status instead (sed always succeeds), silently defeating this check.
+        _out="$(pacman -S --needed --noconfirm "$p" 2>&1)"
+        _rc=$?
+        [ -n "$_out" ] && printf '%s\n' "$_out" | sed 's/^/  /'
+        [ "$_rc" -eq 0 ] || note "  skipped: $p"
     done
 fi
 pacman -Scc --noconfirm >/dev/null 2>&1 || true
@@ -221,7 +231,7 @@ cat > /etc/motd <<'MOTD'
    Arch Linux  .  iSH-AOK  (terminal-only userspace, EXPERIMENTAL)
    ------------------------------------------------------------
    services :  no working init under iSH -- see start-aok-services
-   status   :  pgrep -fl 'sshd|rsyslogd|chronyd|crond'
+   status   :  pgrep -fl 'sshd|syslog-ng|chronyd|crond'
    time     :  chronyc -h 127.0.0.1 tracking    docs : man <command>
    ------------------------------------------------------------
 
@@ -572,9 +582,9 @@ if ! running sshd; then
     /usr/bin/sshd
     echo "started sshd"
 fi
-if ! running rsyslogd && [ -x /usr/bin/rsyslogd ]; then
-    /usr/bin/rsyslogd
-    echo "started rsyslogd"
+if ! running syslog-ng && [ -x /usr/bin/syslog-ng ]; then
+    /usr/bin/syslog-ng
+    echo "started syslog-ng"
 fi
 if ! running chronyd && [ -x /usr/bin/chronyd ]; then
     /usr/bin/chronyd -x
@@ -594,7 +604,7 @@ log "Done"
 # ===========================================================================
 printf '    %s\n' "$(date)"
 note "Running services:"
-pgrep -fl 'sshd|rsyslogd|chronyd|crond' 2>/dev/null | awk '{print $2}' | sort -u | tr '\n' ' ' | sed 's/^/      /'; echo
+pgrep -fl 'sshd|syslog-ng|chronyd|crond' 2>/dev/null | awk '{print $2}' | sort -u | tr '\n' ' ' | sed 's/^/      /'; echo
 cat <<EOF
 
     Next:
