@@ -168,12 +168,46 @@ hit the same vLLM issue before assuming any one of them is serving-safe.
   in `deepseek6.7b`'s case nearly did so through two different wrong
   root-cause claims before the actual fix was found and verified end-to-end.
 
+### Methodological note: `repair-attempts` comparisons before 2026-07-17 are not controlled experiments
+
+While investigating why `repair-attempts=1` (this board's convention) and
+`repair-attempts=2` (the guided-benchmark side's convention) gave visibly
+noisy, sometimes-worse-not-better deltas per model when re-run back to back,
+we found the harness (`tools/aether_doc_bench.py`) had **no random seed
+pinning anywhere** — every request to every destination sampled fresh at
+`temperature=0.2` with no `seed` parameter. This means two harness
+invocations of "the same" task, including the very *first* attempt (not just
+repair retries), are independent stochastic draws — confirmed empirically by
+diffing `qwen36-27b`'s attempt-0 raw generations between a `repair=1` run and
+a `repair=2` run for tasks that flipped pass/fail: the initial generations
+were textually different, not just the repair path. So a `repair-attempts=1`
+vs `repair-attempts=2` re-run is not isolating the repair-budget variable —
+it's two uncontrolled samples, and a "regression" under more repair attempts
+can simply mean the first attempt drew a worse sample that time, unrelated to
+having more retries available.
+
+**Fixed 2026-07-17**: `tools/aether_doc_bench.py` now supports a
+per-destination `"seed"` field (threaded through all three OpenAI-compatible
+request builders), verified to produce byte-identical output across repeated
+calls with the same seed. All `cs-aug4` sweep scripts now pin `seed: 42` by
+default. **Every repair-attempts / corpus-version / any other A/B comparison
+in this document from before this fix should be read as directional, not a
+controlled measurement** — this includes the `cs-aug2-builtins` vs `cs-aug3`
+guide-corpus comparisons and the repair-recovery-rate figures throughout.
+This matters most for smaller, less capable models, whose outputs are
+noisier and more sensitive to a bad initial draw than frontier models are.
+
 ### Status
 
 Full board landed in one session (2026-07-16) after two claw2 hardware
 interruptions and two tokenizer/serving fixes (one one-flag fix for
 `mistral24b`, one full backend switch for `deepseek6.7b`). The `MStream`-drill
-gap identified here is a natural target for the next corpus generation.
+gap identified here is a natural target for the next corpus generation. A
+`repair-attempts=1` vs `repair-attempts=2` re-run of the full board (2026-07-17)
+found a small net gain (+5 correct out of 441 suite-task pairs) but with
+inconsistent per-model direction — see the methodological note above; this
+was the investigation that surfaced the harness's missing seed pinning, now
+fixed.
 
 ---
 
