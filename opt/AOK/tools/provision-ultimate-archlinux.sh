@@ -129,7 +129,24 @@ if [ -f /etc/pacman.conf ] && ! grep -q '^DisableSandbox' /etc/pacman.conf; then
     sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
     note "disabled pacman's Landlock sandbox (unsupported by iSH's kernel)"
 fi
-pacman -Sy --noconfirm || note "pacman -Sy failed (continuing with cached index)"
+# iSH-AOK writes /etc/resolv.conf asynchronously during boot (AppDelegate's
+# scheduleDnsRefresh dispatches it off the boot path rather than blocking on
+# it), so a script launched right after boot can race it and see DNS lookups
+# fail ("Could not resolve host") even though resolv.conf shows up moments
+# later. Give it a few seconds to appear before syncing.
+_waited=0
+while [ ! -s /etc/resolv.conf ] && [ "$_waited" -lt 8 ]; do
+    sleep 1
+    _waited=$((_waited + 1))
+done
+if [ ! -s /etc/resolv.conf ]; then
+    note "warning: /etc/resolv.conf is still empty after ${_waited}s -- DNS may not be configured yet"
+fi
+if ! pacman -Sy --noconfirm; then
+    note "pacman -Sy failed; retrying once after 3s (transient DNS?)"
+    sleep 3
+    pacman -Sy --noconfirm || note "pacman -Sy failed again (continuing with cached index)"
+fi
 # pacman aborts the WHOLE transaction if even one package is unresolvable, so
 # try the batch first and fall back to installing package-by-package (skipping
 # any that are genuinely unavailable in this repo set). A failed/aborted batch
