@@ -205,7 +205,7 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"amd64",
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinux-minirootfs-2024.04.01-x86_64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~58 MB",
+                kBundledRootDownloadSizeKey: @"~62 MB",
             },
             @{
                 kBundledRootIdentifierKey: @"archlinuxarmaarch64",
@@ -220,7 +220,7 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"arm64",
                 kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinuxarm-minirootfs-latest-aarch64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~70 MB",
+                kBundledRootDownloadSizeKey: @"~74 MB",
             },
         ];
     });
