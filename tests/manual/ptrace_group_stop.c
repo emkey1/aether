@@ -136,7 +136,14 @@ static void test_group_stop_reported(void) {
 int main(int argc, char **argv) {
     test_init(argc, argv);
     signal(SIGALRM, on_alarm);
-    alarm(15);
+    // Generous, env-scalable watchdog. The group-stop handshake completes in
+    // tens of milliseconds even under heavy host oversubscription; the old
+    // fixed alarm(15) still false-FAILED under the release procedure's 4-way
+    // concurrent multi-arch run (4 suites compiling+running on one shared
+    // host), issue #478. 120s is ~3000x the observed worst case yet still
+    // trips on a genuine never-resumed hang; ISH_TEST_WATCHDOG_SCALE widens it
+    // further for extreme runs.
+    alarm(test_watchdog_secs(120));
     test_group_stop_reported();
     return finish_suite("ptrace_group_stop");
 }

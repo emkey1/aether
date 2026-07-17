@@ -22,6 +22,22 @@ static void test_init(int argc, char **argv) {
     }
 }
 
+// Watchdog duration for a test's alarm() safety net. Returns `base` seconds,
+// scaled by ISH_TEST_WATCHDOG_SCALE (an integer env multiplier, default 1) so
+// a known-heavy run -- e.g. the release procedure's 4-way concurrent
+// multi-arch regression, which compiles AND runs all suites on one shared
+// host and can stretch a normally-millisecond handshake by orders of
+// magnitude -- can widen every watchdog without editing sources. The alarm is
+// only a backstop against a genuine hang, so err generous: a correct run
+// finishes far under it regardless of the scale.
+static unsigned test_watchdog_secs(unsigned base) {
+    const char *s = getenv("ISH_TEST_WATCHDOG_SCALE");
+    long scale = s != NULL ? strtol(s, NULL, 10) : 1;
+    if (scale < 1)
+        scale = 1;
+    return (unsigned) (base * (unsigned long) scale);
+}
+
 static void test_logf(const char *fmt, ...) {
     if (!test_verbose)
         return;
