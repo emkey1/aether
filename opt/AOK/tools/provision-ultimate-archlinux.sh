@@ -129,6 +129,21 @@ if [ -f /etc/pacman.conf ] && ! grep -q '^DisableSandbox' /etc/pacman.conf; then
     sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf
     note "disabled pacman's Landlock sandbox (unsupported by iSH's kernel)"
 fi
+# A fresh rootfs has no populated pacman-key/gnupg keyring, and initializing
+# one (pacman-key --init / --populate) needs a working gpg-agent -- unix
+# sockets, /dev/random entropy, forked helper processes -- that's fragile
+# under iSH's kernel and shows up as "keyring is not writable" / "required
+# key missing from keyring", aborting every install. Packages already come
+# over HTTPS from the official mirrors, so drop signature verification
+# rather than fight gpg for a single-user experimental sandbox.
+if [ -f /etc/pacman.conf ]; then
+    if grep -q '^SigLevel' /etc/pacman.conf; then
+        sed -i 's/^SigLevel.*/SigLevel = Never/' /etc/pacman.conf
+    else
+        sed -i '/^\[options\]/a SigLevel = Never' /etc/pacman.conf
+    fi
+    note "disabled pacman package signature verification (gpg keyring unusable under iSH's kernel)"
+fi
 # iSH-AOK writes /etc/resolv.conf asynchronously during boot (AppDelegate's
 # scheduleDnsRefresh dispatches it off the boot path rather than blocking on
 # it), so a script launched right after boot can race it and see DNS lookups
