@@ -178,6 +178,16 @@ if ! pacman -Sy --noconfirm; then
     sleep 3
     pacman -Sy --noconfirm || note "pacman -Sy failed again (continuing with cached index)"
 fi
+# Unlike Debian's libc6/libc6-dev split, Arch's glibc package ships its C
+# headers (ctype.h, stdio.h, ...) directly under /usr/include -- there is no
+# separate "glibc-dev" package to install. Some earlier image builds pruned
+# doc/include trees to shrink download size and took /usr/include with them
+# even though glibc itself is present and working (confirmed missing
+# entirely on the ArchLinuxARM aarch64 image as of this writing). `pacman -S
+# --needed` would skip glibc here because its version already matches, so
+# force a real reinstall (no --needed) to re-extract every file in the
+# package, headers included, regardless of what shipped in the tarball.
+pacman -S --noconfirm glibc linux-api-headers || note "glibc/linux-api-headers reinstall failed (see errors above)"
 # pacman aborts the WHOLE transaction if even one package is unresolvable, so
 # try the batch first and fall back to installing package-by-package (skipping
 # any that are genuinely unavailable in this repo set). A failed/aborted batch
