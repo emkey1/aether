@@ -653,6 +653,11 @@ cat > /usr/local/sbin/start-aok-services <<'STARTSVC'
 running() { pgrep -x "$1" >/dev/null 2>&1; }
 mkdir -p /run/sshd
 if ! running sshd; then
+    # Debian/Alpine generate host keys on package install; Arch instead
+    # relies on sshdgenkeys.service (systemd) running `ssh-keygen -A` at
+    # first boot -- which never runs under iSH -- so a stock Arch sshd has
+    # no host keys and refuses to start. Generate any that are missing.
+    ssh-keygen -A >/dev/null 2>&1
     /usr/bin/sshd
     echo "started sshd"
 fi
