@@ -808,10 +808,37 @@ dword_t sys_ptrace_guest(dword_t request, dword_t pid, guest_addr_t addr, guest_
 
             if (child->abi == GUEST_ABI_AMD64) {
                 qword_t peek;
+                if (addr & (sizeof(peek) - 1)) {
+                    unlock(&child->ptrace.lock);
+                    return _EIO;
+                }
+
+                // Real struct user's u_debugreg[8] (x86_64: offsets 848..911,
+                // verified against a real kernel header) -- the hardware
+                // debug registers DR0-DR7. iSH has no hardware breakpoint/
+                // watchpoint support at all (nothing ever arms one), so these
+                // always legitimately read as zero -- truthful, not a stub.
+                // gdb's own ptrace self-test (linux_ptrace_test_ret_to_nx)
+                // and its hardware-watchpoint-capacity probe both read here
+                // at every stop; this range previously fell outside the
+                // (regs-struct-only) bounds check below and returned EIO,
+                // which gdb surfaces as an alarming "Couldn't read debug
+                // register: I/O error" instead of silently treating "0
+                // registers armed" as normal.
+                if (addr >= 848 && addr < 848 + 64) {
+                    qword_t zero = 0;
+                    if (user_put(data, zero)) {
+                        unlock(&child->ptrace.lock);
+                        return _EFAULT;
+                    }
+                    unlock(&child->ptrace.lock);
+                    return 0;
+                }
+
                 struct user_regs_struct_amd64_ user_regs_amd64 = {};
                 get_user_regs_amd64(child, &user_regs_amd64);
 
-                if (addr & (sizeof(peek) - 1) || addr >= sizeof(user_regs_amd64)) {
+                if (addr >= sizeof(user_regs_amd64)) {
                     unlock(&child->ptrace.lock);
                     return _EIO;
                 }
