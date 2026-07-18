@@ -546,7 +546,7 @@ static void enable_raw_stdin(void) {
 enum key {
     KEY_NONE = 0, KEY_QUIT, KEY_UP, KEY_DOWN, KEY_PGUP, KEY_PGDN,
     KEY_HOME, KEY_END, KEY_SORT_CPU, KEY_SORT_MEM, KEY_SORT_TIME,
-    KEY_SORT_PID, KEY_KILL, KEY_CMDLINE, KEY_OTHER
+    KEY_SORT_PID, KEY_KILL, KEY_CMDLINE, KEY_TOGGLE_CPU, KEY_OTHER
 };
 
 // Waits up to `seconds` for one key. Returns KEY_NONE on timeout.
@@ -571,6 +571,7 @@ static enum key read_key(double seconds) {
         case 'N': case 'n': return KEY_SORT_PID;
         case 'k': case 'K': return KEY_KILL;
         case 'c': case 'C': return KEY_CMDLINE;
+        case '1': return KEY_TOGGLE_CPU;
         case '\033': break; // fall through to escape-sequence decode
         default: return KEY_OTHER;
     }
@@ -660,6 +661,10 @@ static void draw_meter(const char *label, int inner_width,
 // ---- interactive (htop-style) drawing ----------------------------------------
 
 static bool show_cmdline = true;
+// Real top's '1' expands one combined meter into per-cpu bars; ktop's default
+// is already per-cpu, so '1' here does the reverse and collapses them into
+// one overall-load summary meter.
+static bool show_cpu_summary = false;
 
 // One transient status message shown in the key bar until the next keypress.
 static char status_msg[128];
@@ -693,36 +698,65 @@ static void draw_header(int cols, int ncpu,
     int inner = cols / per_row - 7; // 3 label + '[' + ']' + 2 gutter
     if (inner < 10)
         inner = 10;
-    for (int i = 0; i < ncpu; i++) {
-        // Saturating deltas: a counter that steps backward (kernel glitch,
-        // counter reset) must read as 0 ticks, not wrap to ~2^64 and blow up
-        // the fractions below.
-        unsigned long long cu = cur_cpu[i].user + cur_cpu[i].nice;
-        unsigned long long pu = prev_cpu[i].user + prev_cpu[i].nice;
-        unsigned long long cs = cur_cpu[i].system + cur_cpu[i].irq + cur_cpu[i].softirq;
-        unsigned long long ps = prev_cpu[i].system + prev_cpu[i].irq + prev_cpu[i].softirq;
-        unsigned long long ci = cur_cpu[i].idle + cur_cpu[i].iowait;
-        unsigned long long pi = prev_cpu[i].idle + prev_cpu[i].iowait;
-        unsigned long long du = cu >= pu ? cu - pu : 0;
-        unsigned long long ds = cs >= ps ? cs - ps : 0;
-        unsigned long long didle = ci >= pi ? ci - pi : 0;
+    if (show_cpu_summary) {
+        // Collapsed view: sum ticks across all CPUs into one overall-load
+        // meter instead of looping per-cpu below.
+        unsigned long long du = 0, ds = 0, didle = 0;
+        for (int i = 0; i < ncpu; i++) {
+            unsigned long long cu = cur_cpu[i].user + cur_cpu[i].nice;
+            unsigned long long pu = prev_cpu[i].user + prev_cpu[i].nice;
+            unsigned long long cs = cur_cpu[i].system + cur_cpu[i].irq + cur_cpu[i].softirq;
+            unsigned long long ps = prev_cpu[i].system + prev_cpu[i].irq + prev_cpu[i].softirq;
+            unsigned long long ci = cur_cpu[i].idle + cur_cpu[i].iowait;
+            unsigned long long pi = prev_cpu[i].idle + prev_cpu[i].iowait;
+            du += cu >= pu ? cu - pu : 0;
+            ds += cs >= ps ? cs - ps : 0;
+            didle += ci >= pi ? ci - pi : 0;
+        }
         unsigned long long dtotal = du + ds + didle;
         double fu = dtotal > 0 ? (double) du / (double) dtotal : 0;
         double fs = dtotal > 0 ? (double) ds / (double) dtotal : 0;
 
-        char label[16], text[16];
-        snprintf(label, sizeof(label), "%d", i);
+        char text[16];
         snprintf(text, sizeof(text), "%.1f%%", (fu + fs) * 100.0);
         const double fracs[2] = {fu, fs};
         const char *colors[2] = {C_BAR_GREEN, C_BAR_RED};
-        if (i % per_row == 0)
-            fputs("\033[K", stdout);
-        draw_meter(label, inner, fracs, colors, 2, text);
-        if (i % per_row == per_row - 1 || i == ncpu - 1) {
-            putchar('\n');
-            rows++;
-        } else {
-            fputs("  ", stdout);
+        fputs("\033[K", stdout);
+        draw_meter("Avg", inner, fracs, colors, 2, text);
+        putchar('\n');
+        rows++;
+    } else {
+        for (int i = 0; i < ncpu; i++) {
+            // Saturating deltas: a counter that steps backward (kernel glitch,
+            // counter reset) must read as 0 ticks, not wrap to ~2^64 and blow up
+            // the fractions below.
+            unsigned long long cu = cur_cpu[i].user + cur_cpu[i].nice;
+            unsigned long long pu = prev_cpu[i].user + prev_cpu[i].nice;
+            unsigned long long cs = cur_cpu[i].system + cur_cpu[i].irq + cur_cpu[i].softirq;
+            unsigned long long ps = prev_cpu[i].system + prev_cpu[i].irq + prev_cpu[i].softirq;
+            unsigned long long ci = cur_cpu[i].idle + cur_cpu[i].iowait;
+            unsigned long long pi = prev_cpu[i].idle + prev_cpu[i].iowait;
+            unsigned long long du = cu >= pu ? cu - pu : 0;
+            unsigned long long ds = cs >= ps ? cs - ps : 0;
+            unsigned long long didle = ci >= pi ? ci - pi : 0;
+            unsigned long long dtotal = du + ds + didle;
+            double fu = dtotal > 0 ? (double) du / (double) dtotal : 0;
+            double fs = dtotal > 0 ? (double) ds / (double) dtotal : 0;
+
+            char label[16], text[16];
+            snprintf(label, sizeof(label), "%d", i);
+            snprintf(text, sizeof(text), "%.1f%%", (fu + fs) * 100.0);
+            const double fracs[2] = {fu, fs};
+            const char *colors[2] = {C_BAR_GREEN, C_BAR_RED};
+            if (i % per_row == 0)
+                fputs("\033[K", stdout);
+            draw_meter(label, inner, fracs, colors, 2, text);
+            if (i % per_row == per_row - 1 || i == ncpu - 1) {
+                putchar('\n');
+                rows++;
+            } else {
+                fputs("  ", stdout);
+            }
         }
     }
 
@@ -795,7 +829,7 @@ static void draw_key_bar(int cols) {
     }
     static const struct { const char *key, *label; } keys[] = {
         {"P", "SortCpu"}, {"M", "SortMem"}, {"T", "SortTime"}, {"N", "SortPid"},
-        {"c", "Cmdline"}, {"k", "Kill"}, {"q", "Quit"},
+        {"c", "Cmdline"}, {"1", "CpuSum"}, {"k", "Kill"}, {"q", "Quit"},
     };
     int used = 0;
     for (size_t i = 0; i < sizeof(keys) / sizeof(keys[0]); i++) {
@@ -1171,6 +1205,10 @@ int main(int argc, char **argv) {
                 case KEY_SORT_PID: sort_mode = SORT_PID; need_resort = true; break;
                 case KEY_CMDLINE:
                     show_cmdline = !show_cmdline;
+                    need_redraw = true;
+                    break;
+                case KEY_TOGGLE_CPU:
+                    show_cpu_summary = !show_cpu_summary;
                     need_redraw = true;
                     break;
                 case KEY_KILL:
