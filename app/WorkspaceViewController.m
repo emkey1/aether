@@ -3332,6 +3332,10 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
 
     NSUUID *restoreUUID = sessionTerminalUUID ?: displayTerminalUUID;
     NSString *title = ISHWorkspaceTitleForTerminalRole(terminalRole, displayTerminal);
+    // Must be set before reconnect: a dead saved terminal makes reconnect start a
+    // fresh session, and a restored Session Shell window has to come back as root.
+    terminalViewController.alwaysLoginAsRoot =
+        [terminalRole isEqualToString:ISHWorkspaceTerminalRoleSessionShell];
     ISHWorkspaceContainedWindowView *windowView =
         [self openDesktopTerminalWindowWithTitle:title terminalViewController:terminalViewController];
     [terminalViewController reconnectSessionFromTerminalUUID:restoreUUID];
@@ -5910,8 +5914,13 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
     terminalViewController.freshSessionTerminalDisplayMode =
         preferConsole ? ISHFreshSessionTerminalDisplayModeSystemConsole
                       : ISHFreshSessionTerminalDisplayModeSessionShell;
+    // The tracked Session Shell window is the admin surface: always root. The
+    // untracked dock "Terminal" windows are ordinary terminals that honor the
+    // default-user preference, so they're titled accordingly.
+    terminalViewController.alwaysLoginAsRoot = !preferConsole && trackPrimaryRole;
 
-    NSString *title = preferConsole ? @"System Console" : @"Session Shell";
+    NSString *title = preferConsole ? @"System Console"
+                    : trackPrimaryRole ? @"Session Shell" : @"Terminal";
     ISHWorkspaceContainedWindowView *windowView =
         [self openDesktopTerminalWindowWithTitle:title terminalViewController:terminalViewController];
     [terminalViewController startNewSession];

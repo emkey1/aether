@@ -28,6 +28,11 @@ typedef NS_ENUM(NSInteger, ISHFreshSessionTerminalDisplayMode) {
 @property UISceneSession *sceneSession API_AVAILABLE(ios(13.0));
 @property (nonatomic) BOOL showsWorkspaceDashboardButton;
 @property (nonatomic) BOOL embeddedInWorkspaceWindow;
+// Session Shell surfaces always sign in as root, regardless of the "Login as
+// Default User" preference. Set by the workspace host on windows opened in
+// (or restored into) the Session Shell role; the main full-screen terminal's
+// session (the "Session Shell (pts/1)" surface) is root unconditionally.
+@property (nonatomic) BOOL alwaysLoginAsRoot;
 // Per-window terminal font size (workspace desktop windows). 0 = track the
 // global UserPreferences fontSize. Forwards to the terminal view; used by the
 // workspace host to persist/restore a window's size in the saved layout.

@@ -3560,9 +3560,9 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     if (section == [self _userAccountSectionIndex]) {
         NSString *accountName = [AppDelegate defaultUserAccountName];
         return accountName.length != 0
-            ? [NSString stringWithFormat:@"When enabled, new terminal sessions using the default login command sign in as \"%@\" (UID %d) instead of root.",
+            ? [NSString stringWithFormat:@"When enabled, new Workspace terminals and app sessions sign in as \"%@\" (UID %d) instead of root. The Session Shell always signs in as root.",
                accountName, ISHDefaultUserAccountUID]
-            : [NSString stringWithFormat:@"When enabled, new terminal sessions using the default login command sign in as the UID %d account instead of root -- but this filesystem doesn't have one yet.",
+            : [NSString stringWithFormat:@"When enabled, new Workspace terminals and app sessions sign in as the UID %d account instead of root -- but this filesystem doesn't have one yet. The Session Shell always signs in as root.",
                ISHDefaultUserAccountUID];
     }
     if (section == [self _llmSectionIndex])

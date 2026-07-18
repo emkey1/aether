@@ -1039,7 +1039,12 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 	                                            &sessionFailureTitle,
 	                                            &sessionFailureMessage,
 	                                            &sessionFailureOverlayText);
-	    command = ISHCommandWithDefaultUserSubstitution(command);
+	    // The Session Shell always opens as root: the main terminal's session (the
+	    // "Session Shell (pts/1)" surface) and workspace Session Shell windows are
+	    // the admin surface, so only workspace terminals opened outside that role
+	    // get the default-user substitution.
+	    if (self.embeddedInWorkspaceWindow && !self.alwaysLoginAsRoot)
+	        command = ISHCommandWithDefaultUserSubstitution(command);
 	    commandString = [command componentsJoinedByString:@" "];
 	    if (sessionFailureMessage.length != 0) {
 	        self.sessionFailureTitle = sessionFailureTitle;
