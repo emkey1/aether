@@ -87,6 +87,22 @@ fi
 note "timezone=$TZ_NAME  login=${TARGET_USER:-<none>}  hostname=${NEW_HOSTNAME:-<keep>}"
 
 # ===========================================================================
+log "/dev/fd (needed for bash process substitution, e.g. diff <(...))"
+# ===========================================================================
+# Debian/Alpine base rootfs images ship /dev/fd -> /proc/self/fd (plus
+# /dev/std{in,out,err}) as static symlinks baked into the tarball. Arch
+# instead creates them via systemd-tmpfiles at boot -- which iSH-AOK never
+# runs for any distro -- so a stock Arch/ArchLinuxARM minirootfs boots with
+# no /dev/fd at all. Any command using process substitution then fails with
+# "/dev/fd/NN: No such file or directory". /proc/self/fd itself works fine
+# under iSH; only the symlink is missing.
+[ -e /dev/fd ]     || ln -s /proc/self/fd   /dev/fd
+[ -e /dev/stdin ]  || ln -s /proc/self/fd/0 /dev/stdin
+[ -e /dev/stdout ] || ln -s /proc/self/fd/1 /dev/stdout
+[ -e /dev/stderr ] || ln -s /proc/self/fd/2 /dev/stderr
+note "linked /dev/fd, /dev/stdin, /dev/stdout, /dev/stderr -> /proc/self/fd"
+
+# ===========================================================================
 log "Installing packages (this is the slow part under emulation)"
 # ===========================================================================
 # Arch/pacman equivalents of the Alpine/Devuan "ultimate terminal" set. Names
