@@ -8765,6 +8765,20 @@ restart_prefix:
         amd64_reg_set(cpu, amd64_rbp, pop_size, value);
         break;
     }
+    // int3: the standard x86/x86_64 software breakpoint instruction (what gdb
+    // itself plants for every software breakpoint on this architecture, and
+    // what its own linux_ptrace_test_ret_to_nx startup self-test executes to
+    // probe host ptrace/NX behavior). Missing here entirely -- unlike the
+    // shared i386 decoder (emu/decode.h's "case 0xcc: INT(INT_BREAKPOINT)"),
+    // which already handles it -- so it fell through to the default
+    // unrecognized-opcode path and raised SIGILL instead of SIGTRAP. rip is
+    // already past this single opcode byte by this point (same as the other
+    // no-operand opcodes above), matching real int3's "trap reports PC after
+    // the instruction" semantics; kernel/calls.c's existing INT_BREAKPOINT
+    // case delivers SIGTRAP/TRAP_BRKPT_ at current_fault_ip(cpu), which reads
+    // amd64_rip for this ABI.
+    case 0xcc:
+        return INT_BREAKPOINT;
     case 0xf4:
         return INT_PRIV;
     case 0xf5:
