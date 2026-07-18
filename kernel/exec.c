@@ -246,6 +246,7 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
 
     int flags = P_READ;
     if (ph.flags & PH_W) flags |= P_WRITE;
+    if (ph.flags & PH_X) flags |= P_EXEC;
 
     guest_addr_t file_end = addr + filesize;
     guest_addr_t mem_end = addr + memsize;
