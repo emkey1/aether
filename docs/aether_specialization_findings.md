@@ -16,9 +16,9 @@ the `Tests/aether_specialization/out_<corpus>/` directory that produced the SFT 
 (`Qwen2ForCausalLM`) — an older generation despite the larger parameter count; this
 name was `qwen14b` before 2026-07-17, which read as if it were same-generation as
 `qwen3-8b` and caused a real "why does the smaller model win" confusion until the
-configs were checked. `qwen36-27b`/`q36` are Qwen3.6 (`qwen3_5`/`qwen3_5_moe` in HF's
+configs were checked. `qwen36-27b`/`qwen36-35b-a3b` are Qwen3.6 (`qwen3_5`/`qwen3_5_moe` in HF's
 own internal naming — the project uses the vendor's "3.6" branding, not HF's internal
-string). `a3b-coder30b` is Qwen3-Coder-30B-A3B (`Qwen3MoeForCausalLM`) — genuinely
+string). `qwen3-coder30b-a3b` is Qwen3-Coder-30B-A3B (`Qwen3MoeForCausalLM`) — genuinely
 Qwen3-generation despite no explicit "qwen3" in the shorthand. `mistral24b` and
 `deepseek6.7b` have no Qwen-generation ambiguity. When in doubt, check
 `config.json`'s `architectures`/`model_type` fields on the actual weights rather than
@@ -54,7 +54,7 @@ were confirmed absent from the `cs-aug4` training corpus before scoring.
 **Eval date:** 2026-07-16. **Serving:** vLLM bf16, `--enforce-eager`,
 temperature 0.2, `--repair-attempts 1`, single pass (not the 3-repeat
 convention used for `qwen36-27b-cs-aug3`). The two Qwen3.6-family models
-(`qwen36-27b`, `q36`) were served with `chat_template_kwargs: {enable_thinking:
+(`qwen36-27b`, `qwen36-35b-a3b`) were served with `chat_template_kwargs: {enable_thinking:
 false}` — with thinking on, `qwen36-27b` needed ~4 hours just for the 35-task
 simple suite (each generation was an 8-9K-character reasoning trace); with it
 off, the same suite took about 13 minutes. This is a deliberate protocol
@@ -66,7 +66,7 @@ degraded run.
 - **Same 7 models as the `cs-aug2-builtins`/`cs-aug3` cohort**, retrained
   QLoRA (bf16 for `qwen36-27b`, 4-bit for the rest) on `cs-aug4`, in size
   order: `deepseek6.7b`, `qwen3-8b-nothink`, `qwen25-14b`, `mistral24b`,
-  `qwen36-27b`, `a3b-coder30b`, `q36`.
+  `qwen36-27b`, `qwen3-coder30b-a3b`, `qwen36-35b-a3b`.
 - **`qwen35-9b` added 2026-07-18** as an eighth, size-comparison model —
   Qwen3.5-9B (`qwen3_5` architecture, released 2026-03-02), chosen as a
   newer-generation counterpart to `qwen3-8b-nothink` at a near-identical
@@ -98,10 +98,10 @@ degraded run.
 | model | corpus | simple (35) | large (9) | cs (19) |
 |---|---|---|---|---|
 | `qwen25-14b` | cs-aug4 | 34/**34**/1/0 | 9/7/3/1 | 14/12/8/1 |
-| `q36` (35B-A3B hybrid, no-think) | cs-aug4 | 34/**34**/3/2 | 6/6/4/1 | 12/**12**/7/1 |
+| `qwen36-35b-a3b` (35B-A3B hybrid, no-think) | cs-aug4 | 34/**34**/3/2 | 6/6/4/1 | 12/**12**/7/1 |
 | `qwen36-27b` (dense, no-think) | cs-aug4 | 33/33/5/3 | 7/6/7/4 | 11/9/10/2 |
 | `mistral24b` | cs-aug4 | 33/32/5/2 | 7/5/8/4 | 12/9/10/0 |
-| `a3b-coder30b` (30B-A3B MoE) | cs-aug4 | 29/28/9/2 | **8**/7/3/1 | 12/9/9/0 |
+| `qwen3-coder30b-a3b` (30B-A3B MoE) | cs-aug4 | 29/28/9/2 | **8**/7/3/1 | 12/9/9/0 |
 | `qwen3-8b-nothink` | cs-aug4 | 30/30/7/2 | 8/6/5/2 | 11/9/10/0 |
 | `deepseek6.7b`† | cs-aug4 | 30/28/7/0 | 5/4/5/0 | 12/8/13/2 |
 | `qwen35-9b` (no-think) | cs-aug4 | 31/30/10/5 | 5/4/8/3 | 14/6/12/0 |
@@ -125,8 +125,8 @@ recipe.
 
 The cs-suite gap is the most striking: 6/19 correct with **zero** of the 12
 retried tasks recovered by repair — every other model on this board recovers
-at least one retried task via repair (`qwen25-14b` and `q36` both recover 1,
-`qwen36-27b`/`mistral24b`/`a3b-coder30b` recover 2-4). Raw generations were
+at least one retried task via repair (`qwen25-14b` and `qwen36-35b-a3b` both recover 1,
+`qwen36-27b`/`mistral24b`/`qwen3-coder30b-a3b` recover 2-4). Raw generations were
 checked for the tokenizer/serving corruption class documented in
 [[tokenizer-serving-gotcha]] — none found; failures are genuine task misses
 (e.g. `cs_fibonacci` printed each value on its own line with a stray leading
@@ -190,7 +190,7 @@ hit the same vLLM issue before assuming any one of them is serving-safe.
   *frontier* models have historically held, not the 3-5/8 no-guide fine-tune
   floor (`deepseek6.7b`, the smallest model in the cohort at 6.7B, is the
   exception at 4/9 — plausibly just a capacity floor, not evidence against
-  the pattern). `qwen25-14b` and `q36` both reach 12/19 on cs-classics,
+  the pattern). `qwen25-14b` and `qwen36-35b-a3b` both reach 12/19 on cs-classics,
   matching or beating the previous best fine-tuned no-guide score on that
   instrument. Whether this is the corpus refresh (bench-log-mined drills,
   the newly fixed compiler letting more corpus cases verify cleanly), the
@@ -198,7 +198,7 @@ hit the same vLLM issue before assuming any one of them is serving-safe.
   a same-corpus/different-vintage-compiler A/B if it matters later.
 - **`qwen25-14b` is the strongest model on this board**, leading or tying the
   top score on all three suites — a change from earlier boards where the
-  30B-class MoE (`a3b-coder30b`) or the reasoning hybrid (`q36`) usually led.
+  30B-class MoE (`qwen3-coder30b-a3b`) or the reasoning hybrid (`qwen36-35b-a3b`) usually led.
 - **New-task coverage results are a clean signal of real corpus gaps, not
   eval noise.** Per-task pass counts across all 7 models: `mstream_roundtrip`
   **0/7** (total, uniform failure — the `MStream`/HTTP surface added
@@ -298,9 +298,9 @@ model when there is *nothing* in context to lean on?
 
 | model | corpus | simple (30) | large (8) | cs (19) |
 |---|---|---|---|---|
-| `a3b-coder30b` (30B-A3B) | cs-aug2-builtins | **29**/29/3/2 | 5/5/4/1 | 12/9/11/1 |
+| `qwen3-coder30b-a3b` (30B-A3B) | cs-aug2-builtins | **29**/29/3/2 | 5/5/4/1 | 12/9/11/1 |
 | `mistral24b` | cs-aug2-builtins | 28/27/4/1 | 7/3/5/0 | 8/6/15/2 |
-| `q36` (35B-A3B hybrid) | cs-aug2-builtins | 27/27/13/12 | 6/6/7/6 | 13/13/9/5 |
+| `qwen36-35b-a3b` (35B-A3B hybrid) | cs-aug2-builtins | 27/27/13/12 | 6/6/7/6 | 13/13/9/5 |
 | `qwen3-8b-nothink` | cs-aug2-builtins | 27/26/6/3 | 3/3/3/0 | 9/7/11/0 |
 | `qwen25-14b` | cs-aug2-builtins | 25/25/6/1 | 6/4/4/0 | 13/10/11/2 |
 | `mistral24b` *(baseline)* | cs-aug2 (old) | 25/25/7/2 | **0**/0/8/0 | 11/9/12/2 |
@@ -326,7 +326,7 @@ model when there is *nothing* in context to lean on?
   inside that board's small-n noise). Net: adding the builtin reference made the
   fine-tune materially more robust on novel shapes without hurting the core — exactly
   the hoped-for result.
-- **MoE punches above its active parameters.** `a3b-coder30b` (30B total, ~3B active)
+- **MoE punches above its active parameters.** `qwen3-coder30b-a3b` (30B total, ~3B active)
   tops the set at **29/30 on simple with no guide** — the closest a fine-tune comes to
   the guided frontier tier, on a fraction of the active compute.
 - **Without the guide in context, repair helps less.** The trained models retry
@@ -346,7 +346,7 @@ model when there is *nothing* in context to lean on?
 
 ### Status
 
-`q36` (Qwen3.6-35B-A3B, hybrid `qwen3_5_moe`) is now included, served as **bf16** (q8 is
+`qwen36-35b-a3b` (Qwen3.6-35B-A3B, hybrid `qwen3_5_moe`) is now included, served as **bf16** (q8 is
 broken for this hybrid arch). It needed the reasoning-model `stop:null` handling to score
 at all — note its heavy repair use (simple: 13 retried, 12 fixed), the most of any model
 here. `deepseek6.7b-cs-aug2-builtins` trained intact but is blocked from this board by an
@@ -359,7 +359,7 @@ checkpoint is preserved. Tables regenerate from the per-model result JSONs.
 
 **Corpus:** `cs-aug3` (`Tests/aether_specialization/out_cs_aug3`, generated
 2026-07-01, corpus tag `2026-07-01-1`) — retrain of the full cs-aug2-builtins model
-set (`mistral24b`, `qwen25-14b`, `qwen3-8b-nothink`, `a3b-coder30b`) plus, for the first
+set (`mistral24b`, `qwen25-14b`, `qwen3-8b-nothink`, `qwen3-coder30b-a3b`) plus, for the first
 time, a dense ~27B model (`qwen36-27b`, Qwen3.6 dense).
 **Test suite:** same three instruments/versions as above (`tasks_v2_pos.json`
 `2026-06-21-1`, `tasks_hard.json` `2026-06-21-1`, `tasks_cs.json` `2026-06-23-1`),
@@ -412,6 +412,6 @@ cs-aug3-generation dense/MoE models on this board, and consistent with the
 broader finding above that fine-tuning buys the easy set, not the hard tail.
 
 The other four cs-aug3 models (`mistral24b`, `qwen25-14b`, `qwen3-8b-nothink`,
-`a3b-coder30b`) were not re-verified in this session — their board status
+`qwen3-coder30b-a3b`) were not re-verified in this session — their board status
 should be checked the next time claw2 is back up before folding them into
 this table.

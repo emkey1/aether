@@ -55,7 +55,7 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 **Corpus/suite:** No corpus (in-context, untrained) — same 8-model cohort as
 [the `cs-aug4` fine-tuned board](aether_specialization_findings.md#cs-aug4-current-primary-board):
 `deepseek6.7b`, `qwen3-8b-nothink`, `qwen35-9b`, `qwen25-14b`, `mistral24b`,
-`qwen36-27b`, `a3b-coder30b`, `q36`, plus two cloud reference models
+`qwen36-27b`, `qwen3-coder30b-a3b`, `qwen36-35b-a3b`, plus two cloud reference models
 (`gemini-2.5-flash`, `gemini-2.5-flash-lite`). Task suite `tasks_v2_pos.json` /
 `tasks_hard.json` v`2026-07-15-1` (simple **35**, large **9**) and
 `tasks_cs.json` v`2026-06-23-1` (cs, 19) — the current manifest, **not
@@ -98,11 +98,11 @@ directional, not controlled.
 | `gemini-2.5-flash` | 35/**35**/0/0 | 35/**35**/1/1 |
 | `qwen36-27b` (no-think) | 35/**35**/0/0 | 35/**35**/0/0 |
 | `qwen3-8b-nothink` | 32/32/4/2 | 34/34/2/1 |
-| `q36` (no-think) | 35/**35**/1/1 | 34/34/1/0 |
+| `qwen36-35b-a3b` (no-think) | 35/**35**/1/1 | 34/34/1/0 |
 | `mistral24b` | 31/30/10/5 | 34/33/4/2 |
 | `qwen35-9b` (no-think) | 32/31/6/2 | 33/33/4/2 |
 | `gemini-2.5-flash-lite` | 33/32/5/2 | 33/32/4/1 |
-| `a3b-coder30b` | 29/27/11/3 | 32/32/3/1 |
+| `qwen3-coder30b-a3b` | 29/27/11/3 | 32/32/3/1 |
 | `qwen25-14b` | 31/31/4/0 | 33/31/4/0 |
 | `deepseek6.7b`† | 30/26/9/0 | — |
 
@@ -113,11 +113,11 @@ directional, not controlled.
 | `gemini-2.5-flash` | 8/8/2/1 | 8/8/3/2 |
 | `qwen36-27b` (no-think) | 9/**9**/0/0 | 9/**9**/0/0 |
 | `qwen3-8b-nothink` | 9/**9**/2/2 | 9/**9**/4/4 |
-| `q36` (no-think) | 9/8/6/5 | 6/6/0/0 |
+| `qwen36-35b-a3b` (no-think) | 9/8/6/5 | 6/6/0/0 |
 | `mistral24b` | 9/**9**/1/1 | 9/**9**/0/0 |
 | `qwen35-9b` (no-think) | 9/8/8/7 | 9/5/9/5 |
 | `gemini-2.5-flash-lite` | 9/**9**/2/2 | 9/8/9/8 |
-| `a3b-coder30b` | 5/5/4/0 | 8/8/6/5 |
+| `qwen3-coder30b-a3b` | 5/5/4/0 | 8/8/6/5 |
 | `qwen25-14b` | 7/6/9/6 | 8/8/3/2 |
 | `deepseek6.7b`†‡ | 1/0/9/0 | — |
 
@@ -128,11 +128,11 @@ directional, not controlled.
 | `gemini-2.5-flash` | 17/17/6/4 | 18/18/5/4 |
 | `qwen36-27b` (no-think) | 18/17/5/3 | 18/18/0/0 |
 | `qwen3-8b-nothink` | 13/13/10/4 | 13/13/7/2 |
-| `q36` (no-think) | 16/15/10/6 | 15/14/4/2 |
+| `qwen36-35b-a3b` (no-think) | 16/15/10/6 | 15/14/4/2 |
 | `mistral24b` | 10/6/13/0 | 13/10/10/1 |
 | `qwen35-9b` (no-think) | 12/9/11/1 | 11/8/11/0 |
 | `gemini-2.5-flash-lite` | 14/12/9/2 | 15/14/7/2 |
-| `a3b-coder30b` | 12/11/10/2 | 15/13/10/4 |
+| `qwen3-coder30b-a3b` | 12/11/10/2 | 15/13/10/4 |
 | `qwen25-14b` | 12/10/12/3 | 11/8/11/0 |
 | `deepseek6.7b`† | 8/5/14/0 | — |
 
