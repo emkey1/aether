@@ -1622,6 +1622,114 @@ done_unlocked_arm64:
     return interrupt;
 }
 
+// arm64 has no interpreter fallback (JIT-gadget-only), unlike amd64's
+// cpu_single_step_amd64_frontend, which just routes cpu->tf through to the
+// plain interpreter (already correct per-instruction). Compile and execute
+// exactly one guest instruction as a private, ephemeral one-off block --
+// never inserted into the jit's block table (no jit_insert, no cache
+// entry), so it needs none of cpu_step_to_interrupt_arm64's jetsam-lock,
+// block-cache, or chaining machinery: nothing else can ever look it up,
+// jetsam it, or race a free against it. Still needs the same crash-recovery
+// scaffolding as any other jit_enter caller, since the single stepped
+// instruction can fault like any other.
+//
+// gen_step() returning true means the instruction was NOT block-terminating
+// (an ordinary ALU/load/store op) -- gen_exit() is called to force a proper
+// "return to C at the next instruction" terminator, exactly like
+// jit_block_compile_common does when its page-size cap forces an early cut.
+// gen_step() returning false means the instruction already appended its own
+// terminator (a branch, syscall, etc.) -- calling gen_exit() again would
+// corrupt the block with a stray extra terminator.
+//
+// Mirrors the interpreters' cpu->tf contract (see amd64_interp.c): a clean
+// single-step (no other interrupt) becomes INT_DEBUG; a real interrupt
+// (fault, syscall) triggered by the single instruction is returned as-is,
+// letting the normal dispatch handle it exactly as it would outside
+// single-step.
+static int cpu_single_step_arm64(struct cpu_state *cpu, struct tlb *tlb) {
+    struct jit *jit = cpu->mmu->jit;
+
+    static __thread bool exception_handler_installed = false;
+    if (!exception_handler_installed) {
+        jit_install_thread_exception_handler();
+        if (!jit_host_fault_mach_active())
+            jit_install_host_fault_signal_handler();
+        exception_handler_installed = true;
+    }
+
+    // Same rule as cpu_step_to_interrupt_arm64: this frontend has no entry
+    // refresh, so the first call after execve can still see the TLB bound to
+    // the old, freed mm. gen_step_arm64 needs a valid TLB immediately, to
+    // fetch the instruction bytes it decodes -- skipping this crashed
+    // single-stepping the very first instruction after starti/execve
+    // (mmu_translate on a stale mmu pointer).
+    if (tlb->mmu != cpu->mmu || tlb->mem_changes != cpu->mmu->changes)
+        tlb_refresh(tlb, cpu->mmu);
+
+    struct gen_state state;
+    if (!gen_start_arm64(cpu->arm64_pc, &state))
+        return INT_GPF; // OOM allocating the block
+    state.oom_active = true;
+    if (setjmp(state.oom_recovery) != 0) {
+        free(state.block);
+        return INT_GPF;
+    }
+    if (gen_step(&state, tlb))
+        gen_exit(&state); // ordinary instruction: force a terminator here
+    gen_end(&state);
+    state.block->used = state.capacity;
+
+    struct jit_frame frame_storage = {};
+    struct jit_frame *frame = &frame_storage;
+    frame->cpu = *cpu;
+    frame->chain_budget = 8192; // see jit_frame.chain_budget; unused here (this
+                                // block never chains) but jit_enter reads it
+                                // unconditionally
+
+    // jit_crash_fn (the host fault handler) only treats a fault as JIT-internal
+    // and recoverable via siglongjmp when jit_crash_lock is non-NULL -- with it
+    // NULL, it abort()s the whole process instead. This block isn't in any
+    // shared table (no jit_insert, no cache entry), so nothing else can ever
+    // look it up, jetsam it, or race a free against it -- the real lock isn't
+    // needed for THIS block's safety. Taken anyway purely to satisfy that
+    // contract; a plain read-lock, negligible cost for what's inherently a
+    // rare, deliberate, slow-path operation (a ptrace single-step in flight).
+    pthread_rwlock_rdlock(&jit->jetsam_lock.l);
+    jit_crash_lock = &jit->jetsam_lock;
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = frame->cpu.arm64_pc;
+    if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
+        if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
+            *jit_crash_cpu = jit_crash_frame->cpu;
+        cpu->segfault_addr = jit_crash_addr;
+        cpu->segfault_was_write = false;
+        jit_crash_unwind_active = false;
+        jit_crash_mutex_lock = NULL;
+        jit_crash_frame = NULL;
+        jit_crash_cpu = NULL;
+        free(state.block);
+        return jit_crash_interrupt;
+    }
+    jit_crash_unwind_active = true;
+
+    int interrupt = jit_enter(state.block, frame, tlb);
+
+    jit_crash_lock = NULL;
+    pthread_rwlock_unlock(&jit->jetsam_lock.l);
+    jit_crash_unwind_active = false;
+    jit_crash_frame = NULL;
+    jit_crash_cpu = NULL;
+
+    *cpu = frame->cpu;
+    free(state.block);
+
+    if (interrupt == INT_NONE)
+        interrupt = INT_DEBUG;
+    return interrupt;
+}
+
 // riscv64 frontend: a mechanical clone of cpu_step_to_interrupt_arm64
 // above with the pc field and compile function swapped — same jetsam,
 // crash-unwind, cache, and chaining behavior. Kept separate like the
@@ -2165,7 +2273,8 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // return skipped that assignment entirely, so the very first
         // jit_should_yield() call dereferenced NULL. Same fix, same reason.
         cpu->poked_ptr = &cpu->_poked;
-        return cpu_step_to_interrupt_arm64(cpu, tlb);
+        return cpu->tf ? cpu_single_step_arm64(cpu, tlb)
+                       : cpu_step_to_interrupt_arm64(cpu, tlb);
     }
     if (current != NULL && current->abi == GUEST_ABI_RISCV64) {
         // Same poked_ptr rule as arm64 above.
