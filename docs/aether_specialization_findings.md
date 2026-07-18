@@ -67,6 +67,17 @@ degraded run.
   QLoRA (bf16 for `qwen36-27b`, 4-bit for the rest) on `cs-aug4`, in size
   order: `deepseek6.7b`, `qwen3-8b-nothink`, `qwen25-14b`, `mistral24b`,
   `qwen36-27b`, `a3b-coder30b`, `q36`.
+- **`qwen35-9b` added 2026-07-18** as an eighth, size-comparison model —
+  Qwen3.5-9B (`qwen3_5` architecture, released 2026-03-02), chosen as a
+  newer-generation counterpart to `qwen3-8b-nothink` at a near-identical
+  parameter count, after `mistral24b`/`qwen25-14b` both underperformed their
+  size class relative to `qwen3-8b-nothink` on this board. Trained 4-bit
+  QLoRA, same recipe/hyperparameters as `qwen3-8b-nothink` (`--lora-r 32
+  --lora-alpha 64 --learning-rate 1e-4 --epochs 3`), served with
+  `chat_template_kwargs: {enable_thinking: false}` like the other `qwen3_5`
+  family members. Seed-pinned (`seed: 42`), so this result — unlike most of
+  the rest of this board — is directly comparable to any other seed-pinned
+  run without the pre-2026-07-17 noise caveat.
 - **Training queue was interrupted twice by claw2 hardware faults** (see
   `claw2` reliability notes) mid-run; the resumable queue design (skip if
   `merged_16bit` already exists) meant no completed model was lost or
@@ -93,6 +104,7 @@ degraded run.
 | `a3b-coder30b` (30B-A3B MoE) | cs-aug4 | 29/28/9/2 | **8**/7/3/1 | 12/9/9/0 |
 | `qwen3-8b-nothink` | cs-aug4 | 30/30/7/2 | 8/6/5/2 | 11/9/10/0 |
 | `deepseek6.7b`† | cs-aug4 | 30/28/7/0 | 5/4/5/0 | 12/8/13/2 |
+| `qwen35-9b` (no-think) | cs-aug4 | 31/30/10/5 | 5/4/8/3 | 14/6/12/0 |
 
 *Cells are Compiled/Correct/Retried/Fixed (overlapping tallies, not a
 partition — they do not sum to N): Compiled = ran rc 0; Correct = exact
@@ -100,6 +112,32 @@ stdout; Retried = needed ≥2 attempts; Fixed = a repair turned a failure into
 a pass. `Compiled ≥ Correct` is not guaranteed here (a program can compile,
 run, and produce wrong output) but held in every cell on this board.
 †`deepseek6.7b` served via llama.cpp/GGUF, not vLLM — see below.*
+
+### `qwen35-9b-cs-aug4` — newer generation, similar size, still not a clean win
+
+Added specifically to test whether generation (Qwen3.5, `qwen3_5`
+architecture) beats parameter count at explaining the `qwen3-8b-nothink` vs.
+`mistral24b`/`qwen25-14b` pattern noted above. It doesn't, at least not here:
+`qwen35-9b` trails `qwen3-8b-nothink` on every suite (simple 30 vs. 30 correct
+— tied — but large 4 vs. 6, and cs a clear 6 vs. 9), despite being the newer
+architecture at a comparable parameter count and using the identical training
+recipe.
+
+The cs-suite gap is the most striking: 6/19 correct with **zero** of the 12
+retried tasks recovered by repair — every other model on this board recovers
+at least one retried task via repair (`qwen25-14b` and `q36` both recover 1,
+`qwen36-27b`/`mistral24b`/`a3b-coder30b` recover 2-4). Raw generations were
+checked for the tokenizer/serving corruption class documented in
+[[tokenizer-serving-gotcha]] — none found; failures are genuine task misses
+(e.g. `cs_fibonacci` printed each value on its own line with a stray leading
+comma, `0\n, \n1\n, \n1\n...`, instead of a single comma-joined line), not a
+detokenization artifact. Read together with the guided-benchmark board (where
+`qwen3-8b-base` also outperformed both `mistral24b-base` and
+`qwen25-14b-base`), the emerging picture is that **parameter count and
+release date are weak predictors of Aether specialization quality** for this
+task — `qwen3-8b`'s underlying base model appears to just be unusually strong
+for this narrow domain, a property that didn't carry forward into its
+`qwen3_5`-generation successor at a similar size.
 
 ### `deepseek6.7b-cs-aug4` — a vLLM serving bug, not a training defect
 
