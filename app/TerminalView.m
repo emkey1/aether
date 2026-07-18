@@ -205,8 +205,6 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
     if (!self.terminal.loaded)
         return;
     UserPreferences *prefs = [UserPreferences shared];
-    if (_overrideFontSize == prefs.fontSize.doubleValue)
-        _overrideFontSize = 0;
     Palette *palette = prefs.palette;
     if (self.overrideAppearance != OverrideAppearanceNone) {
         palette = self.overrideAppearance == OverrideAppearanceLight ? prefs.theme.lightPalette : prefs.theme.darkPalette;

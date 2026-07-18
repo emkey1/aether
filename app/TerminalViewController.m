@@ -1749,11 +1749,31 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
     [self updatePersistentFontSize:self.termView.effectiveFontSize - 1];
 }
 - (void)resetFontSize:(UIKeyCommand *)command {
+    if (self.embeddedInWorkspaceWindow) {
+        // Unpin: fall back to tracking the global preference again.
+        self.termView.overrideFontSize = 0;
+        return;
+    }
     [self updatePersistentFontSize:UserPreferences.shared.defaultFontSize.doubleValue];
+}
+
+- (CGFloat)overrideFontSize {
+    return self.termView.overrideFontSize;
+}
+
+- (void)setOverrideFontSize:(CGFloat)overrideFontSize {
+    [self loadViewIfNeeded]; // termView is an outlet; restore may apply this early
+    self.termView.overrideFontSize = overrideFontSize;
 }
 
 - (void)updatePersistentFontSize:(CGFloat)fontSize {
     NSInteger clampedFontSize = MAX(kMinimumTerminalFontSize, MIN(kMaximumTerminalFontSize, lround(fontSize)));
+    if (self.embeddedInWorkspaceWindow) {
+        // Workspace desktop windows size independently; the global preference
+        // stays the default for windows that haven't been adjusted.
+        self.termView.overrideFontSize = clampedFontSize;
+        return;
+    }
     self.termView.overrideFontSize = 0;
     UserPreferences.shared.fontSize = @(clampedFontSize);
 }

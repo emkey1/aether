@@ -28,6 +28,10 @@ typedef NS_ENUM(NSInteger, ISHFreshSessionTerminalDisplayMode) {
 @property UISceneSession *sceneSession API_AVAILABLE(ios(13.0));
 @property (nonatomic) BOOL showsWorkspaceDashboardButton;
 @property (nonatomic) BOOL embeddedInWorkspaceWindow;
+// Per-window terminal font size (workspace desktop windows). 0 = track the
+// global UserPreferences fontSize. Forwards to the terminal view; used by the
+// workspace host to persist/restore a window's size in the saved layout.
+@property (nonatomic) CGFloat overrideFontSize;
 // Set by the workspace host for an embedded terminal. Invoked (on the main queue) when the
 // shell session ends, so the host closes the contained window instead of the default relaunch
 // of the login shell. Left nil for the main full-screen terminal, which keeps relaunching.

@@ -3195,6 +3195,9 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
             descriptor[@"sessionTerminalUUID"] = sessionTerminalUUID.UUIDString;
         if (terminalRole.length > 0)
             descriptor[@"terminalRole"] = terminalRole;
+        CGFloat overrideFontSize = windowView.hostedTerminalViewController.overrideFontSize;
+        if (overrideFontSize > 0)
+            descriptor[@"fontSize"] = @(overrideFontSize);
         descriptor[@"desktopIndex"] = @(windowView.workspaceDesktopIndex);
         return descriptor;
     }
@@ -3637,6 +3640,9 @@ static UIView *ISHWorkspaceFindFirstResponder(UIView *view) {
                                        toWindow:windowView
                                    fallbackSize:ISHWorkspacePreferredTerminalContentSize()];
                 [self assignRestoredWindow:windowView toDesktopFromDescriptor:descriptor];
+                CGFloat savedFontSize = [descriptor[@"fontSize"] doubleValue];
+                if (savedFontSize > 0)
+                    windowView.hostedTerminalViewController.overrideFontSize = savedFontSize;
             }
         }
     }
