@@ -908,7 +908,7 @@ static ssize_t proc_pid_mem_pread(struct proc_entry *entry, struct proc_data *bu
         proc_put_task(task);
         return _ESRCH;
     }
-    int result = user_read_task_mem(task, &mm->mem, (addr_t)offset, buf->data, buf->size);
+    int result = user_read_task_mem(task, &mm->mem, (guest_addr_t)offset, buf->data, buf->size);
     mm_release(mm);
     proc_put_task(task);
     return result ? -1 : buf->size;
@@ -923,7 +923,7 @@ static ssize_t proc_pid_mem_pwrite(struct proc_entry *entry, struct proc_data *b
         proc_put_task(task);
         return _ESRCH;
     }
-    int result = user_write_task_ptrace_mem(task, &mm->mem, (addr_t)offset, buf->data, buf->size);
+    int result = user_write_task_ptrace_mem(task, &mm->mem, (guest_addr_t)offset, buf->data, buf->size);
     mm_release(mm);
     proc_put_task(task);
     return result ? -1 : buf->size;
