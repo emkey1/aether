@@ -50,6 +50,115 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ---
 
+## cs-aug4-matched guided board (current)
+
+**Corpus/suite:** No corpus (in-context, untrained) — same 8-model cohort as
+[the `cs-aug4` fine-tuned board](aether_specialization_findings.md#cs-aug4-current-primary-board):
+`deepseek6.7b`, `qwen3-8b-nothink`, `qwen35-9b`, `qwen25-14b`, `mistral24b`,
+`qwen36-27b`, `a3b-coder30b`, `q36`, plus two cloud reference models
+(`gemini-2.5-flash`, `gemini-2.5-flash-lite`). Task suite `tasks_v2_pos.json` /
+`tasks_hard.json` v`2026-07-15-1` (simple **35**, large **9**) and
+`tasks_cs.json` v`2026-06-23-1` (cs, 19) — the current manifest, **not
+comparable cell-by-cell** to the 30/8/19 tables below. Guide `2026-07-15-2`
+([full](aether_for_llms_and_others.md)/[concise](aether_for_llms_with_small_contexts.md)),
+`aether` `2026-07-09-1` (commit `9a44e67`) for the local models; the cloud
+pair ran against the same pinned local binary for consistency. `--docs
+full,small --repair-attempts 2`.
+
+**Seed pinning:** the 8 local models are seed-pinned (`seed: 42`, vLLM/
+llama.cpp) — see [[harness-no-seed-pinning]]. **The two Gemini rows are not**
+(their destinations config predates the fix and the Gemini API's own `seed`
+parameter is best-effort, not guaranteed deterministic like the local
+OpenAI-compatible servers) — read any close Gemini-vs-local delta as
+directional, not controlled.
+
+**Two serving-side issues surfaced and were fixed before scoring:**
+- `deepseek6.7b-base`'s full-guide variant is **omitted, not zero** — this
+  model has a hard `max_position_embeddings: 16384` ceiling and the full
+  guide alone is ~18,405 tokens; only the concise/small guide is runnable
+  (see [[tokenizer-serving-gotcha]]).
+- `qwen35-9b-base`'s large-suite, full-guide run initially came back 1/9
+  compiled — **not** a model-capability ceiling: `Qwen3.5-9B` supports
+  262144 tokens per its own config, but the shared vLLM serving container was
+  launched with a fixed `--max-model-len 32768`, and this model's tokenizer
+  happened to encode the large-suite-plus-full-guide prompt at ≥16,769
+  tokens — combined with the harness's fixed `max_output_tokens: 16000`
+  request, that's ≥32,769, just over the server's ceiling. Every other model
+  on this board stayed under it for the same guide text (their tokenizers
+  are simply more compact on this document). Bumped `--max-model-len` to
+  40960 and re-ran just that one suite; real scores below. Left as a
+  cautionary note for future models on this harness — a passing run for the
+  rest of the cohort does not guarantee a new model's tokenizer will fit the
+  same fixed ceiling.
+
+### Simple (35 tasks)
+
+| model | small guide | full guide |
+|---|---|---|
+| `gemini-2.5-flash` | 35/**35**/0/0 | 35/**35**/1/1 |
+| `qwen36-27b` (no-think) | 35/**35**/0/0 | 35/**35**/0/0 |
+| `qwen3-8b-nothink` | 32/32/4/2 | 34/34/2/1 |
+| `q36` (no-think) | 35/**35**/1/1 | 34/34/1/0 |
+| `mistral24b` | 31/30/10/5 | 34/33/4/2 |
+| `qwen35-9b` (no-think) | 32/31/6/2 | 33/33/4/2 |
+| `gemini-2.5-flash-lite` | 33/32/5/2 | 33/32/4/1 |
+| `a3b-coder30b` | 29/27/11/3 | 32/32/3/1 |
+| `qwen25-14b` | 31/31/4/0 | 33/31/4/0 |
+| `deepseek6.7b`† | 30/26/9/0 | — |
+
+### Large (9 tasks)
+
+| model | small guide | full guide |
+|---|---|---|
+| `gemini-2.5-flash` | 8/8/2/1 | 8/8/3/2 |
+| `qwen36-27b` (no-think) | 9/**9**/0/0 | 9/**9**/0/0 |
+| `qwen3-8b-nothink` | 9/**9**/2/2 | 9/**9**/4/4 |
+| `q36` (no-think) | 9/8/6/5 | 6/6/0/0 |
+| `mistral24b` | 9/**9**/1/1 | 9/**9**/0/0 |
+| `qwen35-9b` (no-think) | 9/8/8/7 | 9/5/9/5 |
+| `gemini-2.5-flash-lite` | 9/**9**/2/2 | 9/8/9/8 |
+| `a3b-coder30b` | 5/5/4/0 | 8/8/6/5 |
+| `qwen25-14b` | 7/6/9/6 | 8/8/3/2 |
+| `deepseek6.7b`†‡ | 1/0/9/0 | — |
+
+### CS-classics (19 tasks)
+
+| model | small guide | full guide |
+|---|---|---|
+| `gemini-2.5-flash` | 17/17/6/4 | 18/18/5/4 |
+| `qwen36-27b` (no-think) | 18/17/5/3 | 18/18/0/0 |
+| `qwen3-8b-nothink` | 13/13/10/4 | 13/13/7/2 |
+| `q36` (no-think) | 16/15/10/6 | 15/14/4/2 |
+| `mistral24b` | 10/6/13/0 | 13/10/10/1 |
+| `qwen35-9b` (no-think) | 12/9/11/1 | 11/8/11/0 |
+| `gemini-2.5-flash-lite` | 14/12/9/2 | 15/14/7/2 |
+| `a3b-coder30b` | 12/11/10/2 | 15/13/10/4 |
+| `qwen25-14b` | 12/10/12/3 | 11/8/11/0 |
+| `deepseek6.7b`† | 8/5/14/0 | — |
+
+*Cells are Compiled/Correct/Retried/Fixed (overlapping tallies, not a
+partition), same convention as [the fine-tuned board](aether_specialization_findings.md#cs-aug4-current-primary-board):
+Compiled = ran rc 0; Correct = exact stdout (bold = perfect score); Retried =
+needed ≥2 attempts; Fixed = a repair turned a failure into a pass.
+†`deepseek6.7b-base`'s full guide is omitted (context ceiling, see above), not
+a zero. ‡`deepseek6.7b-base`'s large-suite small-guide run genuinely nearly
+zeroed (1/9 compiled) — this suite's inputs are the largest of the three even
+on the concise guide, and this model's 16384-token ceiling bites there too;
+a real finding, not an infra artifact like the `qwen35-9b` case above.*
+
+**Reading this against the fine-tuned board:** `qwen3-8b-nothink`'s base
+model is the standout again here — it ties or beats every other local model
+on `large` and is competitive on `cs`, mirroring its unexplained strength on
+the no-guide board. `qwen35-9b`, added specifically to test whether a newer
+Qwen generation closes that gap, does not: it sits mid-pack here too,
+consistent with its no-guide result. `qwen36-27b` is the strongest local
+model on this board by a clear margin, matching expectations for a 27B
+dense model over 8-14B peers. Full-vs-small guide shows the same
+weak-model/hard-task pattern as the archived cohort below (e.g. `mistral24b`
+gains 4 `cs`-correct from the extra context; `qwen36-27b` needs none of it).
+
+---
+
 ## Setup
 
 - **Three instruments, exact-stdout scored.** The **simple** set (30 tasks, `tasks_v2_pos.json`) probes language fluency; **the
