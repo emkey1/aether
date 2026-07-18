@@ -11,18 +11,25 @@ provenance is not comparable to a later one. Test-suite versions are the `versio
 field baked into each `Tests/aether_doc_bench/tasks_*.json` file; corpus names match
 the `Tests/aether_specialization/out_<corpus>/` directory that produced the SFT data.
 
-**Model shorthand names encode generation, not just family — read them literally.**
-`qwen3-8b` is Qwen3 (`Qwen3ForCausalLM`). `qwen25-14b` is Qwen2.5-Coder-14B-Instruct
-(`Qwen2ForCausalLM`) — an older generation despite the larger parameter count; this
-name was `qwen14b` before 2026-07-17, which read as if it were same-generation as
-`qwen3-8b` and caused a real "why does the smaller model win" confusion until the
-configs were checked. `qwen36-27b`/`qwen36-35b-a3b` are Qwen3.6 (`qwen3_5`/`qwen3_5_moe` in HF's
-own internal naming — the project uses the vendor's "3.6" branding, not HF's internal
-string). `qwen3-coder30b-a3b` is Qwen3-Coder-30B-A3B (`Qwen3MoeForCausalLM`) — genuinely
-Qwen3-generation despite no explicit "qwen3" in the shorthand. `mistral24b` and
-`deepseek6.7b` have no Qwen-generation ambiguity. When in doubt, check
-`config.json`'s `architectures`/`model_type` fields on the actual weights rather than
-trusting a name at face value.
+**Model shorthand names encode generation and MoE-vs-dense, not just family —
+read them literally.** `qwen3-8b` is Qwen3 (`Qwen3ForCausalLM`). `qwen25-14b`
+is Qwen2.5-Coder-14B-Instruct (`Qwen2ForCausalLM`) — an older generation
+despite the larger parameter count; this name was `qwen14b` before
+2026-07-17, which read as if it were same-generation as `qwen3-8b` and
+caused a real "why does the smaller model win" confusion until the configs
+were checked. `qwen36-27b` (dense) and `qwen36-35b-a3b` (MoE, 256
+experts/8 active) are both Qwen3.6 (`qwen3_5`/`qwen3_5_moe` in HF's own
+internal naming — the project uses the vendor's "3.6" branding, not HF's
+internal string); `qwen36-35b-a3b` was `q36` before 2026-07-18, a name that
+gave no hint of size or MoE-ness and was easy to misread as a 3.6B or 36B
+dense model. `qwen3-coder30b-a3b` (MoE, 128 experts/8 active,
+`Qwen3MoeForCausalLM`) was `a3b-coder30b` before the same date — that name
+had no Qwen/generation prefix at all. **"A3B" means ~3B *active* parameters
+per token, not total size** — don't read `qwen36-35b-a3b`'s "3b" as its
+real size (35B total) or `qwen3-coder30b-a3b`'s (30B total). `mistral24b`
+and `deepseek6.7b` have no Qwen-generation ambiguity. When in doubt, check
+`config.json`'s `architectures`/`model_type` fields on the actual weights
+rather than trusting a name at face value.
 
 ---
 
