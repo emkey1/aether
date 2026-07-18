@@ -110,6 +110,9 @@ UINavigationController *ISHCreateAboutNavigationController(BOOL recoveryMode, BO
 @interface LLMSettingsViewController : UITableViewController
 @end
 
+@interface LLMProviderPickerViewController : UITableViewController
+@end
+
 UIViewController *ISHCreateDiagnosticsViewController(void) {
     return [DiagnosticsViewController new];
 }
@@ -1297,12 +1300,50 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 
 static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 
+// UITextView that remembers the modifier flags of the most recent hardware key
+// press. UIKit reports plain Return and Shift+Return identically through
+// insertText/shouldChangeTextInRange, but the UIPress that precedes the
+// insertion carries modifierFlags -- so the delegate can tell "Enter = send"
+// apart from "Shift+Enter = newline". Software-keyboard Return never goes
+// through pressesBegan, leaving the flags at 0 (i.e. it sends).
+@interface LLMPromptTextView : UITextView
+@property (nonatomic, readonly) BOOL shiftKeyDown;
+@end
+
+@implementation LLMPromptTextView {
+    UIKeyModifierFlags _activeModifierFlags;
+}
+
+- (BOOL)shiftKeyDown {
+    return (_activeModifierFlags & UIKeyModifierShift) != 0;
+}
+
+- (void)pressesBegan:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    for (UIPress *press in presses) {
+        if (press.key != nil)
+            _activeModifierFlags = press.key.modifierFlags;
+    }
+    [super pressesBegan:presses withEvent:event];
+}
+
+- (void)pressesEnded:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    _activeModifierFlags = 0;
+    [super pressesEnded:presses withEvent:event];
+}
+
+- (void)pressesCancelled:(NSSet<UIPress *> *)presses withEvent:(UIPressesEvent *)event {
+    _activeModifierFlags = 0;
+    [super pressesCancelled:presses withEvent:event];
+}
+
+@end
+
 @implementation LLMClientViewController {
     UIStackView *_toolbarStackView;
     UITableView *_transcriptTable;
     NSArray<NSNumber *> *_visibleMessageIndices; // indices into _messages, skipping role=="tool"
     UILabel *_emptyStateLabel; // shown over the table when there's nothing to display yet
-    UITextView *_promptField;
+    LLMPromptTextView *_promptField;
     UILabel *_promptPlaceholderLabel; // UITextView has no built-in placeholder
     UIButton *_sendButton;
     NSMutableArray<NSDictionary<NSString *, id> *> *_messages;
@@ -1366,7 +1407,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     // Multi-line, word-wrapping, auto-growing composer (capped, then scrolls
     // internally) -- Return/Shift+Return insert a newline like any text
     // view; only the Send button submits.
-    _promptField = [UITextView new];
+    _promptField = [LLMPromptTextView new];
     _promptField.translatesAutoresizingMaskIntoConstraints = NO;
     _promptField.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     _promptField.textContainerInset = UIEdgeInsetsMake(8.0, 6.0, 8.0, 6.0);
@@ -2563,10 +2604,20 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     [_activeTask resume];
 }
 
-// Only the Send button sends; Return (and Shift+Return, which iOS reports
-// identically to plain Return -- there's no separate "shift" signal for a
-// software or hardware Return key here) just inserts a newline, which is
-// UITextView's default behavior, so there's nothing to intercept.
+// Return sends the prompt; Shift+Return inserts a newline. UIKit delivers
+// both as a "\n" replacement here, so the shift state comes from the prompt
+// field's pressesBegan bookkeeping (see LLMPromptTextView). The software
+// keyboard has no Shift+Return, so its Return always sends; multi-character
+// insertions (paste, dictation) containing newlines pass through untouched.
+- (BOOL)textView:(UITextView *)textView shouldChangeTextInRange:(NSRange)range replacementText:(NSString *)text {
+    (void) range;
+    if (textView == _promptField && [text isEqualToString:@"\n"] && !_promptField.shiftKeyDown) {
+        [self sendPrompt:nil];
+        return NO;
+    }
+    return YES;
+}
+
 - (void)textViewDidChange:(UITextView *)textView {
     if (textView == _promptField)
         [self promptFieldTextDidChange];
@@ -2859,6 +2910,11 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
                                                                                           action:@selector(done:)];
 }
 
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self.tableView reloadData];
+}
+
 - (void)done:(id)sender {
     (void) sender;
     if (self.navigationController.viewControllers.firstObject == self) {
@@ -2943,7 +2999,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         return;
     }
     if (indexPath.row == 0) {
-        [self showProviderPickerFromView:[tableView cellForRowAtIndexPath:indexPath]];
+        [self.navigationController pushViewController:[LLMProviderPickerViewController new] animated:YES];
         return;
     }
     if (indexPath.row == 3)
@@ -3003,28 +3059,6 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         UserPreferences.shared.llmToolsEnabled = YES;
         [self.tableView reloadData];
     }]];
-    [self presentViewController:alert animated:YES completion:nil];
-}
-
-- (void)showProviderPickerFromView:(UIView *)sourceView {
-    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"LLM Provider"
-                                                                   message:@"Choose a provider preset. Custom values can still be edited afterward."
-                                                            preferredStyle:UIAlertControllerStyleActionSheet];
-    for (NSDictionary<NSString *, NSString *> *preset in ISHLLMProviderPresets()) {
-        NSString *name = preset[@"name"];
-        NSString *title = [name isEqualToString:UserPreferences.shared.llmProvider]
-            ? [name stringByAppendingString:@"  Current"]
-            : name;
-        [alert addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
-            UserPreferences.shared.llmProvider = name;
-            UserPreferences.shared.llmServerURL = preset[@"url"] ?: @"";
-            if (preset[@"model"].length > 0)
-                UserPreferences.shared.llmModel = preset[@"model"];
-            [self.tableView reloadData];
-        }]];
-    }
-    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
-    [self anchorPopoverForAlertController:alert toSource:sourceView];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -3167,6 +3201,47 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:title message:message preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"OK" style:UIAlertActionStyleDefault handler:nil]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+@end
+
+@implementation LLMProviderPickerViewController
+
+- (void)viewDidLoad {
+    [super viewDidLoad];
+    self.title = @"LLM Provider";
+}
+
+- (NSInteger)tableView:(UITableView *)tableView numberOfRowsInSection:(NSInteger)section {
+    (void) tableView;
+    (void) section;
+    return ISHLLMProviderPresets().count;
+}
+
+- (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
+    (void) tableView;
+    (void) section;
+    return @"Choose a provider preset. Custom values can still be edited afterward.";
+}
+
+- (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
+    UITableViewCell *cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleDefault reuseIdentifier:nil];
+    NSString *name = ISHLLMProviderPresets()[indexPath.row][@"name"];
+    cell.textLabel.text = name;
+    cell.accessoryType = [name isEqualToString:UserPreferences.shared.llmProvider]
+        ? UITableViewCellAccessoryCheckmark
+        : UITableViewCellAccessoryNone;
+    return cell;
+}
+
+- (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
+    [tableView deselectRowAtIndexPath:indexPath animated:YES];
+    NSDictionary<NSString *, NSString *> *preset = ISHLLMProviderPresets()[indexPath.row];
+    UserPreferences.shared.llmProvider = preset[@"name"];
+    UserPreferences.shared.llmServerURL = preset[@"url"] ?: @"";
+    if (preset[@"model"].length > 0)
+        UserPreferences.shared.llmModel = preset[@"model"];
+    [self.navigationController popViewControllerAnimated:YES];
 }
 
 @end
