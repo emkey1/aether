@@ -156,6 +156,33 @@ examples using `while`/`for` were rewritten to `loop` before import
 regardless, since the raw-corpus exporter's own `NON_CANONICAL_PATTERNS`
 filter already treats both as non-canonical and would silently drop them.
 
+**Resolved (docs-only) 2026-07-19.** Investigated path (1) first, since it
+was the stated preference. `ast_parser.c`'s statement dispatcher routes
+`while`/`for` to their own `parseWhileLoop`/`parseForLoop` functions (not a
+byproduct of `loop` parsing), each carrying an explicit comment describing
+itself as "a spelling of" the corresponding `loop` form that "the rewriter
+lowers ... identically" -- this reads as a deliberate design choice (lenient
+Pascal-heritage acceptance), not an accidental gap, and mechanically
+rejecting it would be cheap on its own. But `tests/for_range_pass.aether` --
+an existing, wired-in **PASS** fixture (`tests/run.sh`, `FOR_RANGE_PASS_FIXTURE`)
+-- asserts `for i in 0..5 { ... }` compiles and produces the correct summed
+output. Enforcement would turn this already-covered, intentionally-tested
+behavior into a regression, which is exactly the "real conflict" case the
+task called out rather than something to silently work around. That
+resolved the choice: took path (2). Softened both guides from a hard
+"never generate" ban to the existing **Accepted** tier (mirroring the
+`itoa`/`int_to_text` pattern): `while`/`for` still work and are documented
+as such (new row in the quick-reference table; `Never Generate These` /
+Rule #2 / the small-context guide's SYN-001 rule all reworded), but `loop`
+remains canonical and is called out as the thing to generate in new code.
+Also fixed two now-inaccurate troubleshooting entries in both guides'
+`[SYN-001]` diagnostic-code writeups that told readers a `for`/`while`
+program would be rejected with a `loop not for/while` fix -- it isn't, so
+that line was actively misleading and is removed. No VERSION bump (docs
+only, no compiler behavior changed; consistent with the precedent set by
+the `itoa`/`int_to_text` docs-only fix and the `socket*` docs-only entry
+above, neither of which bumped the guide version tag either).
+
 ### `s[i]`'s single-character result isn't accepted everywhere a `Text` is — *gap, 2026-07-19*
 `Text` supports 1-based bracket indexing (`s[1]` is the first character,
 matching `copy`'s convention) and the result concatenates fine with `+`

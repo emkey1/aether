@@ -27,7 +27,8 @@ If you only read one part of this document, read **Highest-Value Rules** and
    (`sqlite*`). Pure builtins (math, string, conversion) do not need `fx`.
 2. **SYN-001.** Use Aether keywords: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`. Do not import syntax from Python, Rust, JavaScript,
-   Go, or Pascal.
+   or Go (`while`/`for` are the sole Pascal-heritage exception — Accepted,
+   not canonical; see the quick-reference table).
 3. **TYPE-001.** Prefer explicit types when inference is not obviously safe.
 4. **MUT-001.** `let` bindings are already mutable. Generate plain `let`;
    never `let mut` in new code.
@@ -101,7 +102,10 @@ when unsure about a type, add it explicitly.
 
 - `return`; use `ret` (SYN-001)
 - `class`; use `type` (SYN-001)
-- `for`, `while`, `var`, `func`, `def`, `=>`, Python-style colons (SYN-001)
+- `var`, `func`, `def`, `=>`, Python-style colons (SYN-001)
+- `for`/`while` as your first choice of loop keyword — they compile (Pascal
+  heritage; **Accepted**, see the quick-reference table below), but `loop` is
+  canonical and covers every form (condition, range, infinite) they do
 - a field or method named after a reserved word — a type (`word`, `text`,
   `int`), a keyword (`new`, `for`, `match`), or an operator word (`mul`, `div`,
   `mod`, `xor`); rename the member (SYN-001)
@@ -143,6 +147,7 @@ Generate the canonical form unless preserving existing code.
 | Topic | Canonical | Accepted | Avoid |
 |---|---|---|---|
 | Mutable binding | `let x: Int = 0;` | `let mut x: Int = 0;` | treating `let` as immutable |
+| Loop keyword | `loop` (condition/range/infinite) | `while cond { }`, `for x in a..b { }` (Pascal heritage) | inventing other loop syntax |
 | Return | `ret value;` (`ret;` for Void) | — | `return value;` |
 | Output | variadic `println(a, b)` in `fx` | text-only `+` concatenation | `Text + Int` guessing |
 | Text equality | `a == b` | `string_eq(a, b)` | inventing `.equals(...)` |
@@ -1491,7 +1496,7 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` (with Aether field
-  syntax) not `class`, `loop` not `for`/`while`; drop `var`, `def`, `=>`. Also a
+  syntax) not `class`; drop `var`, `def`, `=>`. Also a
   **field or method named after a reserved word** (`word`, `mul`, `new`, `for`,
   ...) → rename the member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:

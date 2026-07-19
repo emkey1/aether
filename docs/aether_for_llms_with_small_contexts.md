@@ -12,8 +12,9 @@ compiler, and VM. It is not a separate runtime.
    console input, `http*`/`socket*`, `sqlite*`. Pure math/string/conversion do
    not need `fx`, and `@pure` functions may call none of the effectful ones.
 2. **SYN-001.** Aether syntax only: `fn`, `let`, `const`, `ret`, `if`, `loop`,
-   `type`, `mod`, `use`. Never `return`, `class`, `for`, `while`, `var`,
-   `def`, `func`, `=>`.
+   `type`, `mod`, `use`. Never `return`, `class`, `var`, `def`, `func`, `=>`.
+   `while cond { }` / `for x in a..b { }` compile (Pascal heritage, accepted)
+   but `loop` is canonical and covers every form — prefer it.
 3. **BUILT-001.** The builtins named here are the supported surface. Do not
    invent helpers (`substring`, `to_upper`, `replace`, ...) or guess names. More
    exist (discover via `builtin_info(...)`), but never assume an unlisted name.
@@ -775,8 +776,8 @@ The compiler prints a stable code in brackets, and on newer builds a
 
 - **[FX-001]** an output, task, or `ai_chat` call outside an effect block → wrap
   it in `fx { ... }`.
-- **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`,
-  `loop` not `for`/`while`; drop `var`, `def`, `=>`. Also a **field or method
+- **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`;
+  drop `var`, `def`, `=>`. Also a **field or method
   named after a reserved word** (`word`, `mul`, `new`, `for`, ...) → rename the
   member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
