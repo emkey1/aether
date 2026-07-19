@@ -19,6 +19,65 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### `while` and `for` are fully accepted, working synonyms for `loop`, despite the guide banning both outright — *gap, 2026-07-19*
+Both guides state, prominently and repeatedly, that `while`/`for` must
+never be generated: Highest-Value Rule #2 ("Use Aether keywords: `fn`,
+`let`, `const`, `ret`, `if`, `loop`, `type`, `mod`, `use`. Do not import
+syntax from Python, Rust, JavaScript, Go, or Pascal.") and the *Never
+Generate These* list ("`for`, `while`, `var`, `func`, `def`, `=>`,
+Python-style colons (SYN-001)") both frame this as a hard rejection.
+Empirically, both compile and run identically to `loop`:
+
+```aether
+fn main() -> Void {
+    let i: Int = 0;
+    while i < 5 {
+        fx { println("i=", i); }
+        i = i + 1;
+    }
+    ret;
+}
+```
+
+prints `i=0` through `i=4` and exits 0 — no diagnostic, no difference from
+the `loop i < 5 { ... }` form. Same for `for i in 0..5 { ... }` against
+`loop i in 0..5 { ... }`. Found because a generated batch used `while` for
+three of its twelve programs and every one compiled and ran fine on the
+first try, unlike every other guide-violation this session has produced
+(which reliably error).
+
+This is likely Pascal/PSCAL heritage the guide's ban was never actually
+wired into the parser to enforce -- the rule appears to be aspirational
+style guidance dressed as a hard compile-time restriction. Two ways to
+close the gap, in order of preference: (1) if `while`/`for` should really
+be rejected, add the enforcement (cheap: reject these two keywords at the
+statement-parse level with a SYN-001 pointing at `loop`); (2) if lenient
+parsing is intentional/desired for robustness, downgrade the guide's
+language from a hard "never generate, do not import" ban to the existing
+**Accepted** tier used elsewhere (`itoa` vs `int_to_text`, etc.) --
+"accepted, but `loop` is canonical" -- so the guide stops overclaiming
+strictness it doesn't have. Not fixed either way this round; corpus
+examples using `while`/`for` were rewritten to `loop` before import
+regardless, since the raw-corpus exporter's own `NON_CANONICAL_PATTERNS`
+filter already treats both as non-canonical and would silently drop them.
+
+### `s[i]`'s single-character result isn't accepted everywhere a `Text` is — *gap, 2026-07-19*
+`Text` supports 1-based bracket indexing (`s[1]` is the first character,
+matching `copy`'s convention) and the result concatenates fine with `+`
+(`reversed = reversed + s[i];` works), but is rejected by at least
+`parse_int`: `parse_int(s[i])` fails at runtime with `parse_int argument
+must be a string`, while `parse_int(copy(s, i, 1))` (same character,
+extracted via `copy` instead of `[]`) works. Whatever internal type
+`s[i]` produces (likely a narrower "char" representation than a full
+`Text`/`UnicodeString`) isn't uniformly accepted by every `Text`-typed
+builtin parameter -- `println`/`+` tolerate it, `parse_int` doesn't.
+Neither guide documents `Text` bracket indexing at all (1-based or
+otherwise), so this wasn't reachable as a "known caveat" before hitting
+it. Worked around here with `copy(s, i, 1)`, which is unambiguously a
+real `Text` everywhere. Not investigated further -- would need to trace
+what type `s[i]` actually produces and either widen the acceptor builtins
+or document the narrowing explicitly.
+
 ### A top-level function named `<TypeName>_word` is unconditionally rejected, even when correctly declared — *fixed 2026-07-19-5*
 Any unqualified call to a function whose name is `prefix_rest` was rejected
 outright with `Legacy method call 'prefix_rest' is no longer supported; use
