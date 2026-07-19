@@ -19,6 +19,65 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### Bitwise operations don't exist at all, despite `xor` being reserved as if they did — *gap, 2026-07-19*
+Aether has no way to perform bitwise AND/OR/XOR/shift. Confirmed absent as
+symbol operators (`<<`, `>>`, `|`, `^` all fail with `[SYN-001] unexpected
+token in block; expected a statement`), as Pascal-style word operators
+(`shl`, `shr`, `and`, `or`, `xor` all fail with `[SCOPE-001] identifier
+'...' not in scope` -- i.e. not even recognized as keywords), and as
+builtin functions (`builtin_info` returns `null` for every plausible name:
+`bitand`, `bitor`, `bitxor`, `bitshift`, etc. -- confirmed via a full dump
+of `builtins_json(true)`, no bit-* or shl/shr-* entries exist anywhere).
+Yet `xor` is explicitly reserved as an operator word models cannot use as a
+field/method name (FIELD-002-adjacent rule, grouped with `mul`/`div`/`mod`
+in both guides), which strongly implies bitwise xor was *meant* to exist as
+a word operator like `div`/`mod` do, but was never wired up -- the
+reservation is real, the functionality behind it isn't. Found because a
+generated batch included an XOR cipher and a custom bit-mixing hash
+function, both fundamentally impossible to write in Aether as a result;
+both were dropped from that batch rather than force-fitting a
+non-equivalent arithmetic substitute. Not fixed this round -- worth a
+decision on whether to add real bitwise support (the underlying PSCAL VM
+likely already has bitwise opcodes/builtins for its own use; the gap may
+just be in what Aether's frontend exposes) or to soften the guide's
+reservation of `xor` if it's never going to back anything.
+
+### A method call chained onto another method call's result falls back to name-only builtin matching for FX-001 — *gap, 2026-07-19*
+`receiver.someMethod()` correctly resolves against the receiver's static
+type and doesn't false-positive against a same-named builtin. But
+`receiver.otherMethod().someMethod()` -- chaining a second method call onto
+the *result* of a first one -- loses that type resolution and falls back to
+matching `someMethod`'s name against the builtin table, so a user-defined
+method that happens to share a name with an effectful builtin (`mkdir` is
+the confirmed case) incorrectly trips `[FX-001] call to 'mkdir' requires an
+fx block`, even though a human reader has no ambiguity about which `mkdir`
+is meant. Minimal repro:
+
+```aether
+type Foo {
+    fn self_ref() -> Foo { ret self; }
+    fn mkdir(name: Text) -> Bool { ret true; }
+}
+fn main() -> Void {
+    let f: Foo = new Foo {};
+    f.mkdir("test");           // fine
+    f.self_ref().mkdir("test"); // [FX-001] false positive
+}
+```
+
+This is a different bug from "`swap` collides with the `swap` PSCAL
+vm_builtin" above (that one was about a bare top-level function call
+falling back to builtin lookup, fixed 2026-07-19-3) -- this is specifically
+about *method* calls losing receiver-type information across a chain, a
+resolution-path gap the earlier fix didn't cover. Found via a generated
+"virtual filesystem" example chaining `root.find_child(name).mkdir(...)`.
+Worked around there by binding the intermediate result to a local variable
+first (`let parent: FSNode = root.find_child(name); parent.mkdir(...);`).
+Not fixed this round; likely needs the same kind of receiver-type-aware
+resolution the FX-001 checker already does for the single-call case,
+extended to walk through a chain instead of only handling the innermost
+call.
+
 ### `while` and `for` are fully accepted, working synonyms for `loop`, despite the guide banning both outright — *gap, 2026-07-19*
 Both guides state, prominently and repeatedly, that `while`/`for` must
 never be generated: Highest-Value Rule #2 ("Use Aether keywords: `fn`,
