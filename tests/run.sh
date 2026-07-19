@@ -2495,4 +2495,18 @@ if ! cmp -s /tmp/aether_chained_method_call_shadow_builtin_expected.out /tmp/aet
     exit 1
 fi
 
+# `s[i]` (Text bracket indexing) produces a TYPE_WIDECHAR value that
+# parse_int/parse_float/parse_bool/trim used to reject with "argument must be
+# a string" even though println/+/copy() tolerated it fine (docs/ideas_and_todo.md
+# "s[i]'s single-character result isn't accepted everywhere a Text is"). Covers
+# ASCII indexing plus a multi-byte UTF-8 codepoint and a whitespace char trimmed
+# to empty.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/text_index_char_builtins_pass.aether" >/tmp/aether_text_index_char_builtins_pass.out
+printf '5\n5.000000\nfalse\n5\n\xc3\xa9\n\n' >/tmp/aether_text_index_char_builtins_expected.out
+if ! cmp -s /tmp/aether_text_index_char_builtins_expected.out /tmp/aether_text_index_char_builtins_pass.out; then
+    echo "unexpected output for Text-index char passed into parse_int/parse_float/parse_bool/trim" >&2
+    cat /tmp/aether_text_index_char_builtins_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

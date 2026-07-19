@@ -183,22 +183,53 @@ only, no compiler behavior changed; consistent with the precedent set by
 the `itoa`/`int_to_text` docs-only fix and the `socket*` docs-only entry
 above, neither of which bumped the guide version tag either).
 
-### `s[i]`'s single-character result isn't accepted everywhere a `Text` is — *gap, 2026-07-19*
+### `s[i]`'s single-character result isn't accepted everywhere a `Text` is — *fixed 2026-07-19-8*
 `Text` supports 1-based bracket indexing (`s[1]` is the first character,
 matching `copy`'s convention) and the result concatenates fine with `+`
-(`reversed = reversed + s[i];` works), but is rejected by at least
-`parse_int`: `parse_int(s[i])` fails at runtime with `parse_int argument
+(`reversed = reversed + s[i];` works), but was rejected by at least
+`parse_int`: `parse_int(s[i])` failed at runtime with `parse_int argument
 must be a string`, while `parse_int(copy(s, i, 1))` (same character,
-extracted via `copy` instead of `[]`) works. Whatever internal type
-`s[i]` produces (likely a narrower "char" representation than a full
-`Text`/`UnicodeString`) isn't uniformly accepted by every `Text`-typed
-builtin parameter -- `println`/`+` tolerate it, `parse_int` doesn't.
-Neither guide documents `Text` bracket indexing at all (1-based or
-otherwise), so this wasn't reachable as a "known caveat" before hitting
-it. Worked around here with `copy(s, i, 1)`, which is unambiguously a
-real `Text` everywhere. Not investigated further -- would need to trace
-what type `s[i]` actually produces and either widen the acceptor builtins
-or document the narrowing explicitly.
+extracted via `copy` instead of `[]`) worked.
+
+**Root cause:** `s[i]` on a `Text` (VM type `TYPE_UNICODE_STRING`) lowers to
+the `GET_CHAR_FROM_STRING` opcode (`external/pscal-core/src/vm/vm.c`, case
+`GET_CHAR_FROM_STRING`), which decodes the UTF-8 codepoint at that index and
+pushes it via `makeWideChar()` -- producing a `TYPE_WIDECHAR` value. This is
+a *third* scalar type, distinct from both `TYPE_STRING`/`TYPE_UNICODE_STRING`
+(what `copy()`/`split()` return) and `TYPE_CHAR` (what indexing a narrow
+single-byte `TYPE_STRING` literal produces, or what a `'x'`-style single-char
+literal is). `parse_int`/`parse_float`/`parse_bool`/`split`
+(`external/pscal-core/src/ext_builtins/strings/parse.c`) shared a local
+`string_arg()` helper that special-cased `TYPE_STRING`, `TYPE_UNICODE_STRING`,
+and `TYPE_CHAR`, but had no branch for `TYPE_WIDECHAR` -- so it fell through
+to `NULL` and every one of those builtins rejected an `s[i]` result. `trim`
+had the identical gap via a separate helper pair
+(`builtinValueIsStringLike`/`builtinValueToCString` in
+`external/pscal-core/src/backend_ast/builtin.c`) that never learned about
+either char type. Meanwhile `copy`, `pos`, `upcase`, and `length`/`string_len`
+each handle `TYPE_CHAR`/`TYPE_WIDECHAR` inline (encoding the widechar back to
+UTF-8 via `encodeUtf8Codepoint()`), which is why those already worked.
+
+**Fix:** widened `string_arg()` in `parse.c` to add a `TYPE_WIDECHAR` branch
+(encoding the codepoint into a 5-byte scratch buffer, matching the pattern
+already used by `copy`/`pos`), which fixes `parse_int`, `parse_float`,
+`parse_bool`, and `split` in one place since they all share the helper.
+Widened `trim` (`builtin.c`) the same way, inline, rather than touching the
+shared `builtinValueIsStringLike`/`builtinValueToCString` pair -- that pair
+has 6 call sites and no scratch-buffer parameter, so generalizing it would be
+a larger API change than this bug warranted. Did not touch `atoi`, which has
+the same narrow check but wasn't part of this pass's `Text`-builtin survey
+and is a distinct/legacy entry point from `parse_int`.
+
+**Verified:** `pos`, `string_len`/`length`, and `upcase` were spot-checked
+against an `s[i]` argument and already worked (no change needed). Added
+`tests/text_index_char_builtins_pass.aether` (wired into `tests/run.sh`),
+covering `s[i]` passed into `parse_int`/`parse_float`/`parse_bool`/`trim`,
+plus a multi-byte UTF-8 codepoint index and a whitespace char trimmed to
+empty. Confirmed the fixture fails with the pre-fix code (reverted the
+`external/pscal-core` changes, rebuilt, reproduced the `parse_float argument
+must be a string` failure) and passes after restoring the fix. Full
+`tests/run.sh` suite passes.
 
 ### A top-level function named `<TypeName>_word` is unconditionally rejected, even when correctly declared — *fixed 2026-07-19-5*
 Any unqualified call to a function whose name is `prefix_rest` was rejected

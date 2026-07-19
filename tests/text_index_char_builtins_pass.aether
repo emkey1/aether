@@ -1,0 +1,29 @@
+// Regression: `s[i]` (Text bracket indexing) produces a TYPE_WIDECHAR value,
+// distinct from the TYPE_CHAR a string-literal single-char index yields and
+// from the TYPE_STRING/TYPE_UNICODE_STRING copy()/split() return. parse_int,
+// parse_float, parse_bool, and trim all rejected TYPE_WIDECHAR with "argument
+// must be a string" even though println/+ /copy tolerated it fine (see
+// docs/ideas_and_todo.md "s[i]'s single-character result isn't accepted
+// everywhere a Text is"). Covers both ASCII indexing and a multi-byte UTF-8
+// codepoint (the "é" in "héllo"), since GET_CHAR_FROM_STRING's widechar path
+// is only reachable via UnicodeString/Text indexing, never via TYPE_CHAR.
+fn main() -> Void {
+    let s: Text = "5";
+    let c: Text = s[1];
+    let n: Int = parse_int(c);
+    let f: Real = parse_float(s[1]);
+    let b: Bool = parse_bool(s[1]);
+    let t: Text = trim(s[1]);
+    let padded: Text = "  9  ";
+    let wide: Text = "héllo";
+    let e: Text = wide[2];
+    fx {
+        println(n);
+        println(f);
+        println(b);
+        println(t);
+        println(e);
+        println(trim(padded[1]));
+    }
+    ret;
+}
