@@ -19,6 +19,26 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### Tuples have no `.0`/`.1`/`.2` field access, only destructuring — *gap, 2026-07-19*
+`let t: (Text, Real, Bool) = f(); let a: Text = t.0;` fails with
+`[SYN-001] unexpected token in block; expected a statement` (the parser
+appears to read `.0` as the start of a real-number literal rather than an
+indexed field access). The only working way to pull values out of a tuple
+is destructuring at the binding site (`let (a, b, c) = f();`), which TUP-001
+already documents as the sole supported form — so this isn't a doc gap, just
+confirmation that "destructure only" is a hard limitation, not a stylistic
+preference: a tuple that needs to be stored first and unpacked later (e.g.
+returned from a loop-body helper call, or passed through another function)
+has no way to access individual elements other than re-destructuring
+immediately at each call site. Found via a generated example that stored
+`parseRecord(...)`'s 3-tuple result in a loop and tried `triple.0`/`.1`/
+`.2`; fixed by destructuring directly at the call (`let (label, value,
+flag) = parseRecord(input[i]);`), which is fine when the tuple is consumed
+immediately but wouldn't help if the whole tuple needed to be threaded
+through unpacked. Not fixed this round -- worth a decision on whether
+numeric field access is worth adding, given tuples are already narrow/
+special-cased (TUP-001) and this may be intentionally out of scope.
+
 ### Bitwise operations don't exist at all, despite `xor` being reserved as if they did — *fixed 2026-07-19-9*
 Aether has no way to perform bitwise AND/OR/XOR/shift. Confirmed absent as
 symbol operators (`<<`, `>>`, `|`, `^` all fail with `[SYN-001] unexpected
