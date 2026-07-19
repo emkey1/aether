@@ -152,6 +152,8 @@ Generate the canonical form unless preserving existing code.
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Int → Text | `int_to_text(n)` | `itoa(n)` | inventing `n.toString()` |
 | Real → Text | `formatfloat(r, prec)` | `realtostr(r)` (always 6 dp) | `r:0:prec` as a value (it is `println`-only) |
+| Char → Int code | `ord(ch)` | — | `int(ch)` (silently returns `0` for `Text`; it casts `Real`/`Bool`, not `Text`) |
+| Int code → Char | `chr(code)` | — | inventing a lookup table |
 | Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |
 | Dynamic array length | `length(xs)` | `len(xs)`, `xs.len` | `toon_len(xs)` |
 | TOON array length | `toon_len(node)` | — | `length(node)` |
@@ -495,13 +497,16 @@ Do not write a non-`Void` helper with one branch that returns and another that
 falls through to the closing brace. Add an explicit final `ret ...` on every
 reachable top-level path.
 
-Inline conditional expressions are allowed on the right-hand side of
-declarations, assignments, and returns — but never directly inside
-`println(...)` argument lists; bind first:
+Inline conditional expressions are allowed anywhere a value is expected —
+declarations, assignments, returns, and call arguments including
+`println(...)`:
 
 ```aether
 let label: Text = if ready { "ready" } else { "blocked" };
-fx { println(label); }
+fx {
+    println(label);
+    println("status: ", if ready { "ready" } else { "blocked" });
+}
 ```
 
 ## Loops
@@ -832,6 +837,11 @@ let ys: Int[] = [1, 2, 3];
 - multi-element literals such as `[1, 2, 3]` are supported
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
 - never `toon_len(xs)` on a dynamic array (LEN-001)
+- `println`/`print` do not stringify arrays. `println("data: ", xs)` compiles
+  and runs, but silently prints the array's internal representation
+  (`ARRAY(dims:1, base_type:INT64, elements_at:0x...)`) instead of its
+  elements -- there is no error to catch this. Loop and print each element:
+  `loop i in 0..length(xs) { print(xs[i], " "); } println("");`
 
 ## Structured data: TOON
 

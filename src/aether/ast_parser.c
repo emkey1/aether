@@ -4238,7 +4238,16 @@ static AST *parseLoopRange(AetherParser *p) {
     }
     aetherAdvance(p); /* consume 'in' */
 
-    AST *low = parseExpr(p);
+    /* Bounds are parsed at additive precedence (parseAdd), not the full
+     * parseExpr ladder: parseExpr would happily keep consuming into
+     * comparison/equality/logical operators, so `loop i in 0..5 && cond`
+     * silently parsed as `loop i in 0..(5 && cond)` -- a Bool upper bound
+     * that coerced to 0/1, turning the intended range into a single
+     * iteration with no error. parseAdd still covers every legitimate bound
+     * (literals, identifiers, calls, indexing, +/-/ * // /div/mod, unary,
+     * parens, if-expressions), just not the operators that indicate the
+     * author meant something other than a number. */
+    AST *low = parseAdd(p);
     if (!low || p->current.type != AE_TOKEN_DOTDOT) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "expected '<low>..<high>' in loop range.", NULL);
@@ -4247,13 +4256,34 @@ static AST *parseLoopRange(AetherParser *p) {
         free(nameBuf);
         return NULL;
     }
+    if (low->var_type == TYPE_BOOLEAN) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
+                "loop range bound must be numeric (Int/Real), not Bool -- "
+                "did you mean a separate condition, e.g. `loop cond { ... }` "
+                "or `if placed { break; }` inside the loop body?", NULL);
+        p->hadError = true;
+        freeAST(low);
+        free(nameBuf);
+        return NULL;
+    }
     aetherAdvance(p); /* consume '..' */
-    AST *high = parseExpr(p);
+    AST *high = parseAdd(p);
     if (!high) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "could not parse loop range bounds.", NULL);
         p->hadError = true;
         freeAST(low);
+        free(nameBuf);
+        return NULL;
+    }
+    if (high->var_type == TYPE_BOOLEAN) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
+                "loop range bound must be numeric (Int/Real), not Bool -- "
+                "did you mean a separate condition, e.g. `loop cond { ... }` "
+                "or `if placed { break; }` inside the loop body?", NULL);
+        p->hadError = true;
+        freeAST(low);
+        freeAST(high);
         free(nameBuf);
         return NULL;
     }

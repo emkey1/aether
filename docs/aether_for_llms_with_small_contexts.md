@@ -125,11 +125,13 @@ ret "blocked";
 
 Statement-level `else` is supported.
 
-Inline `if ... else ...` expressions are allowed only on the right-hand side
-of declarations, assignments, and `ret` — never inside `println(...)` args:
+Inline `if ... else ...` expressions are allowed anywhere a value is expected
+— declarations, assignments, `ret`, and call arguments including
+`println(...)`:
 
 ```aether
 let label: Text = if ready { "ready" } else { "blocked" };
+println("status: ", if ready { "ready" } else { "blocked" });
 ```
 
 Loops (`break` exits; range is half-open):
@@ -269,14 +271,20 @@ let r: Real = parse_float("3.5");          // Text -> Real
 let ok: Bool = parse_bool("true");         // Text -> Bool
 let s: Text = int_to_text(99);             // Int  -> Text  (itoa(n) also accepted)
 let f: Text = formatfloat(3.14159, 2);     // Real -> Text  "3.14" (realtostr(r) = 6 dp)
+let code: Int = ord("A");                  // Text(1 char) -> Int  65
+let ch: Text = chr(65);                    // Int -> Text(1 char)  "A"
 ```
 
 The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
 `parse_float`, `parse_bool`, `itoa`/`int_to_text`, `formatfloat`/`realtostr`,
-plus `copy(s, start, count)` (substring, 1-based), `pos(needle, s)` (1-based, 0
-if absent), `trim(s)`, `stringofchar(ch, n)`. Do not invent richer helpers (no
-`replace`; no whole-string `to_upper`). Note: the `value:width:precision` spec
-only works inside `println`; use `formatfloat` to build a `Text`.
+`ord`/`chr` (character <-> code point), plus `copy(s, start, count)`
+(substring, 1-based), `pos(needle, s)` (1-based, 0 if absent), `trim(s)`,
+`stringofchar(ch, n)`. Do not invent richer helpers (no `replace`; no
+whole-string `to_upper`). Note: the `value:width:precision` spec only works
+inside `println`; use `formatfloat` to build a `Text`. `int(x)` is a numeric
+cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
+code point of `Text`; passing it a `Text` silently returns `0`. Use
+`parse_int` for numeric strings and `ord` for character codes.
 
 ## Math
 
@@ -354,6 +362,18 @@ multi-element literals are supported.
 
 Use distinct local names inside one scope. Do not redeclare `xs`, `count`, or
 other loop variables later in the same function.
+
+`println`/`print` do not stringify arrays -- `println("data: ", xs)` silently
+prints the array's internal representation (`ARRAY(dims:1, base_type:...,
+elements_at:0x...)`), not its elements, and this is not an error. Loop over
+the array and print each element yourself:
+
+```aether
+loop i in 0..length(xs) {
+    print(xs[i], " ");
+}
+println("");
+```
 
 ## TOON rules
 

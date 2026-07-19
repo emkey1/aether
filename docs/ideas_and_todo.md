@@ -505,6 +505,78 @@ Still open: homogeneous array-literal element-type inference (`let xs = [1, 2, 3
 still requires the explicit `: Int[]` annotation) is unrelated to this fix and
 remains a separate gap.
 
+### `swap` collides with the `swap` PSCAL vm_builtin, false-positive FX-001 — *deferred 2026-07-19, still open*
+A user-defined `fn swap(...)` with no effectful calls in its body still trips
+`[FX-001] call to 'swap' requires an fx block`, because `swap` is also a real,
+effectful PSCAL `vm_builtin` (confirmed via `builtin_info("swap")`) and the
+effect-checker matches call targets by name only, with no way to distinguish
+"the user's pure function named swap" from "the builtin named swap." Repro:
+a plain array-swap helper (`fn swap(xs: Int[], i: Int, j: Int) -> Void { ... }`,
+no `fx`, no I/O) called from an unmarked `fn`, outside any `fx` block, still
+faults. Workaround verified: rename the function (e.g. `swap_vals`) — no
+functional loss, since `swap` was never anything but a name collision.
+**Root cause not yet fixed:** the effect-checker needs to prefer a
+same-scope/user-declared function over a same-named builtin when resolving a
+call target for FX-001 purposes (shadowing), not fail closed on name alone.
+Deferred at the user's explicit request while other corpus work was in
+flight; not yet resumed.
+
+### Range-loop bound silently accepted a `Bool` expression, causing a single-iteration/hang footgun — *fixed 2026-07-19-2*
+`loop i in 0..N && cond { ... }` compiled with **no error** and ran the loop
+body once (or zero times) instead of iterating `0..N`, because
+`parseLoopRange()`'s upper-bound parse used the full expression grammar
+(`parseExpr`), which doesn't stop at `&&`/`||` — the entire `N && cond` tail
+was absorbed into the upper bound, producing a `Bool`-typed bound that
+silently coerced to `0`/`1` at the `i < HIGH` comparison. Found via a
+generated Tic-Tac-Toe example (`loop r in 0..3 && !placed { loop c in 0..3 &&
+!placed { ... } } }`, attempting a for-loop-with-early-exit idiom that
+doesn't exist in Aether): the inner scan only ever checked cell `(0,0)` on
+every pass, `placed` never advanced past the first move, and the outer
+`loop !gameOver` ran forever — a genuine hang, not just wrong output, worse
+than a compile error because there's nothing to catch it.
+
+Fix (`ast_parser.c`, `parseLoopRange`): both bounds now parse at additive
+precedence (`parseAdd`, i.e. `+`/`-`/`*`/`/`/`div`/`mod`/unary/calls/
+indexing/parens/if-expressions — everything a numeric bound legitimately
+needs) instead of the full ladder, so a trailing `&&`/`||`/comparison is left
+unconsumed and correctly falls through to the existing "expected '{' to open
+loop body" `SYN-001` error instead of silently type-punning. Added a second,
+explicit guard rejecting a `TYPE_BOOLEAN` bound outright (`"loop range bound
+must be numeric (Int/Real), not Bool"`) as defense-in-depth for the
+still-reachable `0..(N && cond)` explicitly-parenthesized form, where the
+parens re-enter the full expression grammar by design and the precedence
+restriction alone can't catch it. Verified: legitimate arithmetic/call/paren
+bounds (`0..length(xs)`, `(a-1)..(a+b)`, `0..half(10)`) still work; full
+existing suite (`tests/run.sh`) passes unchanged; new regression fixture
+`tests/loop_range_bool_bound_fail.aether`. Language version bumped to
+`2026-07-19-2`. The example itself was fixed to use the *actual* early-exit
+idiom (`break`, already supported and documented) instead of the invalid
+range-condition hybrid.
+
+### Two stale documentation gaps found alongside the range-loop bug (docs-only, 2026-07-19)
+- **`ord`/`chr` (character ↔ code point) were real, working builtins
+  (`ord("A")` → `65`, `chr(65)` → `"A"`, confirmed via `builtin_info` and
+  direct testing) but appeared in neither guide.** A model reached for
+  `int(ch)` instead, assuming it meant "char code" — `int(Text)` is actually
+  a numeric-only cast that silently returns `0` for `Text` input (it *does*
+  cast `Real`→`Int` and `Bool`→`Int`), so the resulting cipher silently
+  no-op'd every character with no error. Added `ord`/`chr` to both guides'
+  conversion-helper lists plus a note that `int(Text)` is not a char-code
+  read.
+- **`println`/`print` do not stringify arrays, and nothing said so.**
+  `println("data: ", xs)` compiles and runs but prints the array's internal
+  representation (`ARRAY(dims:1, base_type:INT64, elements_at:0x...)`), not
+  its elements — no error, just silently wrong output. Hit independently in
+  two files from the same generated batch. Documented in both guides'
+  *Dynamic arrays* sections with the correct iterate-and-print idiom.
+- **The small and large guides both stated inline `if ... else ...`
+  expressions are never allowed inside `println(...)` call arguments** — this
+  was flatly wrong and contradicted an existing, passing regression fixture
+  (`tests/inline_if_call_args_pass.aether`) that has verified the opposite
+  for some time. Corrected both guides; the false restriction was likely
+  true at some earlier stage of the parser and never updated after it was
+  generalized.
+
 ### Inline `//` comments on `@pre`/`@post` lines leak into the contract expression — *fixed 2026-06-30-2*
 The AST frontend captured the rest of an annotation line as the contract
 expression **without stripping a trailing `//` comment**, so the comment text was

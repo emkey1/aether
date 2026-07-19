@@ -144,6 +144,7 @@ METHOD_FIELD_INFERENCE_PASS_FIXTURE="$TESTS_DIR/method_field_inference_pass.aeth
 INFERRED_OBJECT_MUTATION_PASS_FIXTURE="$TESTS_DIR/inferred_object_mutation_pass.aether"
 ARRAY_RECORD_LITERAL_PASS_FIXTURE="$TESTS_DIR/array_record_literal_pass.aether"
 SELF_CONDITION_METHOD_PASS_FIXTURE="$TESTS_DIR/self_condition_method_pass.aether"
+LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE="$TESTS_DIR/loop_range_bool_bound_fail.aether"
 TEXT_FIELD_METHOD_PARAM_PASS_FIXTURE="$TESTS_DIR/text_field_method_param_pass.aether"
 TOON_JSON_HELPERS_PASS_FIXTURE="$TESTS_DIR/toon_json_helpers_pass.aether"
 TOON_HANDLE_HELPERS_PASS_FIXTURE="$TESTS_DIR/toon_handle_helpers_pass.aether"
@@ -352,6 +353,7 @@ for fixture in \
     "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" \
     "$HTTP_SESSION_FX_FAIL_FIXTURE" \
     "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" \
+    "$LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE" \
     "$SHOWCASE_EXAMPLE"
 do
     if [ ! -f "$fixture" ]; then
@@ -1985,6 +1987,24 @@ fi
 if ! grep -q "\[SYN-001\].*expected ')' to close argument list" /tmp/aether_unclosed_call_fail.out; then
     echo "missing unclosed-call SYN-001 diagnostic" >&2
     cat /tmp/aether_unclosed_call_fail.out >&2
+    exit 1
+fi
+
+# A range-loop bound like `0..5 && !stop` used to be parsed by the full
+# expression grammar (parseExpr), which doesn't stop at `&&`/`||`, so the
+# whole `5 && !stop` silently became the upper bound -- a Bool that coerced
+# to 0/1, running the loop once instead of erroring or iterating as intended.
+# Bounds are now parsed at additive precedence (parseAdd), so this must be a
+# hard parser error (existing "expected '{' to open loop body" path, since
+# parseAdd correctly stops at `5` and leaves `&&` unconsumed).
+if "$AETHER_BIN" --no-cache "$LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE" >/tmp/aether_loop_range_bool_bound_fail.out 2>&1; then
+    echo "expected loop-range Bool-bound failure but program succeeded" >&2
+    cat /tmp/aether_loop_range_bool_bound_fail.out >&2
+    exit 1
+fi
+if ! grep -q "\[SYN-001\].*expected '{' to open loop body" /tmp/aether_loop_range_bool_bound_fail.out; then
+    echo "missing loop-range Bool-bound SYN-001 diagnostic" >&2
+    cat /tmp/aether_loop_range_bool_bound_fail.out >&2
     exit 1
 fi
 # Fixed-size array types (Int[3]) are a single clear SYN-001 with the Int[]

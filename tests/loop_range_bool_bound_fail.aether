@@ -1,0 +1,12 @@
+// A range-loop upper bound must be numeric. `0..5 && !stop` used to be
+// parsed by the full expression grammar (parseExpr), which doesn't stop at
+// `&&`/`||`, so the whole `5 && !stop` became the upper bound -- a Bool that
+// silently coerced to 0/1, running the loop once instead of erroring. This
+// must now be a hard parser error instead of a silent single-iteration loop.
+fn main() -> Void {
+    let stop: Bool = false;
+    loop i in 0..5 && !stop {
+        fx { println(i); }
+    }
+    ret;
+}
