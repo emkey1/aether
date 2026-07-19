@@ -291,6 +291,40 @@ void fdtable_do_cloexec(struct fdtable *table) {
 
 #define F_SETOWN_ 8
 #define F_GETOWN_ 9
+#define F_SETOWN_EX_ 15
+#define F_GETOWN_EX_ 16
+
+// struct f_owner_ex.type values (arch-independent; int fields).
+#define F_OWNER_TID_ 0
+#define F_OWNER_PID_ 1
+#define F_OWNER_PGRP_ 2
+
+// struct f_owner_ex { int type; pid_t pid; } -- identical 8-byte layout on
+// every guest ABI (i386/amd64/arm64/riscv64 all use int for both fields).
+struct f_owner_ex_ {
+    int_t type;
+    pid_t_ pid;
+};
+
+// F_SETOWN validation, shared by F_SETOWN and F_SETOWN_EX. Linux validates the
+// target exists: who > 0 must be a live pid, who < 0 must be a live process
+// group (kill_group uses the same pid_get() check for -pgid). who == 0 clears
+// the owner and is always accepted. Returns 0 on success, _ESRCH otherwise.
+static int fd_setown(struct fd *fd, pid_t_ who) {
+    if (who == 0) {
+        fd->owner = 0;
+        return 0;
+    }
+    complex_lockt(&pids_lock, 0);
+    bool target_exists = who > 0 ?
+        pid_get_task_zombie(who) != NULL :
+        pid_get(-who) != NULL;
+    unlock(&pids_lock);
+    if (!target_exists)
+        return _ESRCH;
+    fd->owner = who;
+    return 0;
+}
 
 #define F_GETLK_ 5
 #define F_SETLK_ 6
@@ -490,26 +524,57 @@ static dword_t sys_fcntl_common(fd_t f, dword_t cmd, guest_addr_t arg, bool gues
         case F_SETOWN_: {
             pid_t_ who = (pid_t_) arg;
             STRACE("fcntl(%d, F_SETOWN, %d)", f, who);
-            // Linux validates the target exists: who > 0 must be a live pid,
-            // who < 0 must be a live process group (kill_group uses the same
-            // pid_get() check for -pgid). who == 0 clears the owner and is
-            // always accepted.
-            if (who == 0) {
-                fd->owner = 0;
-                ret = 0;
+            ret = fd_setown(fd, who);
+            break;
+        }
+
+        // glibc implements fcntl(fd, F_GETOWN) by issuing F_GETOWN_EX with a
+        // pointer to struct f_owner_ex (to avoid the signed-pid ambiguity of
+        // the plain return value), so a program calling F_GETOWN never reaches
+        // the F_GETOWN_ case above -- F_GETOWN_EX must be handled or every
+        // F_GETOWN returns EINVAL.
+        case F_GETOWN_EX_: {
+            STRACE("fcntl(%d, F_GETOWN_EX)", f);
+            struct f_owner_ex_ owner_ex;
+            pid_t_ who = fd->owner;
+            if (who < 0) {
+                owner_ex.type = F_OWNER_PGRP_;
+                owner_ex.pid = -who;
+            } else {
+                // who == 0 (no owner) reports as F_OWNER_TID with pid 0, like
+                // Linux; who > 0 is a pid owner.
+                owner_ex.type = who > 0 ? F_OWNER_PID_ : F_OWNER_TID_;
+                owner_ex.pid = who;
+            }
+            if (user_write(arg, &owner_ex, sizeof(owner_ex))) {
+                ret = _EFAULT;
                 break;
             }
-            complex_lockt(&pids_lock, 0);
-            bool target_exists = who > 0 ?
-                pid_get_task_zombie(who) != NULL :
-                pid_get(-who) != NULL;
-            unlock(&pids_lock);
-            if (!target_exists) {
-                ret = _ESRCH;
-                break;
-            }
-            fd->owner = who;
             ret = 0;
+            break;
+        }
+        case F_SETOWN_EX_: {
+            STRACE("fcntl(%d, F_SETOWN_EX)", f);
+            struct f_owner_ex_ owner_ex;
+            if (user_read(arg, &owner_ex, sizeof(owner_ex))) {
+                ret = _EFAULT;
+                break;
+            }
+            pid_t_ who;
+            switch (owner_ex.type) {
+                case F_OWNER_TID_:
+                case F_OWNER_PID_:
+                    who = owner_ex.pid;
+                    break;
+                case F_OWNER_PGRP_:
+                    who = -owner_ex.pid;
+                    break;
+                default:
+                    ret = _EINVAL;
+                    goto owner_ex_done;
+            }
+            ret = fd_setown(fd, who);
+        owner_ex_done:
             break;
         }
 
