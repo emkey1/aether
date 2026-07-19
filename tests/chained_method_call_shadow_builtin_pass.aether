@@ -1,0 +1,16 @@
+type Foo {
+    fn self_ref() -> Foo { ret self; }
+    fn mkdir(name: Text) -> Bool { ret true; }
+}
+
+fn main() -> Void {
+    let f: Foo = new Foo {};
+    let direct: Bool = f.mkdir("test");
+    let chained2: Bool = f.self_ref().mkdir("test");
+    let chained3: Bool = f.self_ref().self_ref().mkdir("test");
+    fx {
+        println(direct);
+        println(chained2);
+        println(chained3);
+    }
+}

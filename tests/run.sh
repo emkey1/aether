@@ -2480,4 +2480,19 @@ if ! cmp -s /tmp/aether_array_concat_let_expected.out /tmp/aether_array_concat_l
     exit 1
 fi
 
+# A method call chained onto another method call's RESULT (`f.self_ref().mkdir(...)`)
+# must resolve the receiver type through the chain, not fall back to bare-name
+# builtin matching (docs/ideas_and_todo.md "A method call chained onto another
+# method call's result falls back to name-only builtin matching for FX-001").
+# `mkdir` here is a user method on Foo that shares its name with an effectful
+# PSCAL vm_builtin; calling it via a 2-deep and 3-deep chain outside any fx
+# block must NOT trip FX-001, exactly like the direct `f.mkdir(...)` call.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/chained_method_call_shadow_builtin_pass.aether" >/tmp/aether_chained_method_call_shadow_builtin_pass.out
+printf 'true\ntrue\ntrue\n' >/tmp/aether_chained_method_call_shadow_builtin_expected.out
+if ! cmp -s /tmp/aether_chained_method_call_shadow_builtin_expected.out /tmp/aether_chained_method_call_shadow_builtin_pass.out; then
+    echo "unexpected chained-method-call shadow-builtin output" >&2
+    cat /tmp/aether_chained_method_call_shadow_builtin_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

@@ -1986,6 +1986,18 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                  * rewriter does (it composes <receiver-type>.<method>). */
                 cls = bindingTableGet(p->bindings, node->token->value,
                                       strlen(node->token->value));
+            } else if (node->type == AST_PROCEDURE_CALL && node->token && node->token->value) {
+                /* Chained call receiver (`f.self_ref().mkdir(...)`): `node` is
+                 * itself a previously-resolved call whose (possibly-mangled)
+                 * name was recorded in funcReturns -> Aether return type when
+                 * its own declaration was parsed (forward-scanned before this
+                 * pass runs, so declaration order doesn't matter). Look that up
+                 * to get the receiver type for THIS call, so the chain resolves
+                 * recursively no matter how many calls deep it goes -- without
+                 * this, a chained call fell back to an unmangled bare name and
+                 * could false-positive against a same-named builtin (FX-001). */
+                cls = bindingTableGet(p->funcReturns, node->token->value,
+                                      strlen(node->token->value));
             }
             /* Only mangle for user class/record receivers. A builtin-typed
              * receiver (Int/Real/Text/Bool/...) has no user methods, so e.g.
