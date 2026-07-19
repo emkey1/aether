@@ -19,6 +19,76 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### A top-level function named `<TypeName>_word` is unconditionally rejected, even when correctly declared — *gap, 2026-07-19*
+Any unqualified call to a function whose name is `prefix_rest` is rejected
+outright with `Legacy method call 'prefix_rest' is no longer supported; use
+instance.rest() instead` if `prefix` case-insensitively matches ANY declared
+type/class name in scope — regardless of whether `prefix_rest` is a
+perfectly valid, normally-resolvable top-level `fn`. Root cause
+(`external/rea/src/rea/semantic.c:3932`, in the Rea semantic analyzer): the
+check does `strchr(name, '_')`, takes everything before the first
+underscore, and calls `lookupClass()` on it; if that matches, it emits the
+hard error unconditionally, *without first checking whether the call already
+resolved to a real declared function* (the adjacent `callDecl`-gated check
+a few lines below it, for comparison, does look before leaping). Confirmed
+with a minimal repro: `type DB { data: Int; }` plus a plain `fn db_open()
+-> Int { ret 42; }` called as `db_open()` fails to compile, with `type Db`
+(different casing) failing identically -- `lookupClass` matches
+case-insensitively.
+
+This is a real trap for an extremely common naming convention (prefixing a
+free function with an abbreviation of the type it operates on --
+`db_open`/`db_put`/`db_get`, `list_append`, `queue_push`, etc.), which is
+exactly the shape a generated "Simple Database" example reached for and
+failed on. The diagnostic text ("no longer supported") implies this used to
+be real sugar for `instance.method()` dispatch that has since been removed,
+with this check left behind as a migration hint -- but it fires as a blanket
+veto ahead of normal call resolution rather than as a fallback for names
+that don't otherwise resolve, so it now also rejects code that was never
+using the removed feature at all.
+
+**Suggested fix:** gate this check on the call having *failed* normal
+function-name resolution first (mirroring the `callDecl` check just below
+it), so it only fires for genuine leftover legacy-dispatch syntax, not for
+any coincidentally-prefixed valid function. Needs a regression test
+confirming a `TypeName_word`-shaped function that IS declared still compiles
+and runs, alongside one confirming the diagnostic still fires for an
+undeclared name in that shape (if that's still a desired hint).
+
+### `xs + [a, b]` / `arr1 + arr2` (array concatenation beyond single-element append) has no VM operator — *gap, 2026-07-19*
+The single-element append idiom (`xs = xs + [v];`, used throughout this
+corpus) works because the Aether parser specifically pattern-matches
+`target = src + [item]` with a **one-element** array literal and lowers it
+to a setlength + indexed-assign expansion
+(`ast_parser.c:4752`, `buildArrayAppend`) -- the comment there is explicit:
+"target = src + [item] (single-element literal)". Any other array `+` shape
+-- a literal with 2+ elements (`xs + [1, 2]`), or `+` between two
+already-built arrays/array-valued expressions (`ys + two`) -- isn't
+special-cased by that lowering and falls through to a raw `ARRAY + ARRAY`
+VM binary op that has no arithmetic meaning, producing `Runtime Error:
+Operands must be numbers for arithmetic operation '+' ... Got ARRAY and
+ARRAY`. Minimal repro: `let b: Int[] = []; b = b + [1, 2];` fails (`[] +
+[1]` succeeds); `ys + two` where `two: Int[] = [1, 2]` fails identically --
+confirms it's about the right operand's *element count*, not
+literal-vs-variable. Found via a generated "Simple Database" example
+appending a `[key, value]` pair in one `+` (worked around here with two
+sequential single-element appends).
+
+Neither guide documents this restriction -- the *Dynamic arrays* section
+shows `xs = xs + [7]; // append pattern` with no caveat that only exactly
+one element is supported, so a model (or a human) has every reason to
+expect `xs + [a, b]` or `arr1 + arr2` to just concatenate.
+
+**Suggested fix, in order of value:** (1) generalize the literal case in
+`buildArrayAppend`'s call site to expand an N-element literal into N
+sequential single-element append lowerings (cheap, covers the common case
+above); (2) for genuine `array_expr + array_expr` concatenation (both sides
+arbitrary, not necessarily literals), either add a real VM opcode/builtin
+for array concatenation, or at minimum have the semantic analyzer reject it
+with a clear diagnostic pointing at the loop-and-append idiom instead of
+falling through to the generic arithmetic error. Needs a regression test for
+each shape once fixed.
+
 ### Real socket API (`socket*`) exists and works but was completely undocumented; models invent a fictional `tcpsocket*`/`udpsocket*` namespace — *documented (docs-only), 2026-07-19*
 A generated batch of 12 examples included 5 built entirely around
 `tcpsocketlisten`/`tcpsocketaccept`/`tcpsocketread`/`tcpsocketsend`/
@@ -1170,3 +1240,97 @@ Minimal example (model `qwen3.5-9b-mlx`, intent: Prime number finder using trial
 **Suggested action:** Candidate **language gap**: add the builtin/construct, or add a guide entry steering models to the existing equivalent. Repair did not rescue it.
 
 Models: qwen3.5-9b-mlx.
+
+---
+
+## Mined from generative idea-mining — 2026-07-19
+
+*Auto-generated by `tools/aether_idea_miner.py` (the no-oracle, free-form sibling of `aether_doc_bench.py`): 2 models freely wrote 6 Aether programs against `aether` 2026-07-19-4; 6 compiled+ran. Findings below are where models reached for something missing or tripped on an existing rule, ranked by distinct-model breadth. Curate into the sections above as they are triaged.*
+
+### Tripped on `SYN-001` — 2 model(s) — *idea*
+`SYN-001` (Use Aether keywords: `fn`, `let`, `const`, `ret`, `if`, `loop`,) · hit by 2 distinct model(s), 2 occurrence(s), 0 not rescued by repair.
+
+Compiler diagnostic: `Aether parser error: unexpected token in block; expected a statement.`
+
+Minimal example (model `gemini-2.5-flash`, intent: Parses a TOON array of tasks, calculates total estimated hours for 'active' tasks, and prints a summary.):
+
+```
+           self.totalTasks = self.totalTasks + 1;
+           if status == "active" {
+>>             self.activeTasks = self.activeTasks +
+```
+
+**Suggested action:** Recurring trip-up on an existing rule — candidate **guide clarification** (make the rule harder to miss) or a friendlier diagnostic.
+
+Models: gemini-2.5-flash, gemini-2.5-flash-lite.
+
+---
+
+## Mined from generative idea-mining — 2026-07-19
+
+*Auto-generated by `tools/aether_idea_miner.py` (the no-oracle, free-form sibling of `aether_doc_bench.py`): 5 models freely wrote 25 Aether programs against `aether` 2026-07-19-4; 16 compiled+ran. Findings below are where models reached for something missing or tripped on an existing rule, ranked by distinct-model breadth. Curate into the sections above as they are triaged.*
+
+### Tripped on `FX-001` — 2 model(s) — *idea*
+`FX-001` (Every effectful builtin must be inside `fx { ... }`: output) · hit by 2 distinct model(s), 2 occurrence(s), 2 not rescued by repair.
+
+Compiler diagnostic: `Aether effect error: call to 'paramcount' requires an fx block.`
+
+Minimal example (model `qwen3.5-9b-mlx`, intent: JSON report parsing with TOON showing nested key extraction and formatted output generation):
+
+```
+       }
+   
+>>     let doc: ToonDoc = toon_parse_file("sample.json");
+   
+       fx {
+```
+
+**Suggested action:** Recurring trip-up on an existing rule — candidate **guide clarification** (make the rule harder to miss) or a friendlier diagnostic.
+
+Models: ibm/granite-4-h-tiny, qwen3.5-9b-mlx.
+
+### Reached for `file` — not in scope (does not exist) — 1 model(s) — *idea*
+`SCOPE-001` (A name must be declared before use and still be in scope at) · hit by 1 distinct model(s), 1 occurrence(s), 1 not rescued by repair.
+
+Compiler diagnostic: `identifier 'file' not in scope.`
+
+Minimal example (model `ibm/granite-4-h-tiny`, intent: Create a directory, write "Hello from Aether" to a file inside it, and then read the file back within an effect block.):
+
+```
+       fx {
+           mkdir(dirName);
+>>         assign(file, dirName + "/greeting.txt");
+           rewrite(file);
+           writeln(file, "Hello from Aether");
+```
+
+**Suggested action:** Candidate **language gap**: add the builtin/construct, or add a guide entry steering models to the existing equivalent. Repair did not rescue it.
+
+Models: ibm/granite-4-h-tiny.
+
+### Reached for `toon_get_text_value` — not in scope (does not exist) — 1 model(s) — *idea*
+`SCOPE-001` (A name must be declared before use and still be in scope at) · hit by 1 distinct model(s), 1 occurrence(s), 1 not rescued by repair.
+
+Compiler diagnostic: `identifier 'toon_get_text_value' not in scope.`
+
+Minimal example (model `ibm/granite-4-h-tiny`, intent: Generate a random password of length 12 using lowercase letters and digits, print it within an effect block.):
+
+```
+           loop i in 0..passLen {
+               let randIndex: Int = random(0, charset.len - 1);
+>>             let char: Text = toon_get_text_value(charset)[randIndex];
+               pass = pass + char;
+           }
+```
+
+**Suggested action:** Candidate **language gap**: add the builtin/construct, or add a guide entry steering models to the existing equivalent. Repair did not rescue it.
+
+Models: ibm/granite-4-h-tiny.
+
+---
+
+## Mined from generative idea-mining — 2026-07-19
+
+*Auto-generated by `tools/aether_idea_miner.py` (the no-oracle, free-form sibling of `aether_doc_bench.py`): 2 models freely wrote 5 Aether programs against `aether` 2026-07-19-4; 3 compiled+ran. Findings below are where models reached for something missing or tripped on an existing rule, ranked by distinct-model breadth. Curate into the sections above as they are triaged.*
+
+_No findings met the breadth threshold this run._
