@@ -2273,6 +2273,24 @@ int cpu_run_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         // return skipped that assignment entirely, so the very first
         // jit_should_yield() call dereferenced NULL. Same fix, same reason.
         cpu->poked_ptr = &cpu->_poked;
+        // ISH_ARM64_FORCE_INTERP=1: bisection escape hatch for suspected
+        // gadget-JIT semantics bugs. Routes execution through
+        // cpu_run_to_interrupt_arm64 (emu/arm64_interp.c) -- unmaintained
+        // and not the performance path, but still passes its own tests --
+        // instead of the gadget JIT below, so a JIT-only symptom can be
+        // A/B'd against the interpreter to confirm the JIT (vs. shared
+        // kernel/emu code) is where the bug lives. NOT a general-purpose
+        // execution mode: the interpreter doesn't implement everything the
+        // JIT does (observed SIGSEGV on a bare `/bin/echo` under this flag
+        // during the brk-reservation investigation, unrelated to that bug)
+        // -- expect it to crash on anything nontrivial, and use it only to
+        // run a targeted repro far enough to compare behavior at the point
+        // of interest.
+        static int force_interp = -1;
+        if (force_interp == -1)
+            force_interp = getenv("ISH_ARM64_FORCE_INTERP") != NULL;
+        if (force_interp)
+            return cpu_run_to_interrupt_arm64(cpu, tlb);
         return cpu->tf ? cpu_single_step_arm64(cpu, tlb)
                        : cpu_step_to_interrupt_arm64(cpu, tlb);
     }

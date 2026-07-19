@@ -665,6 +665,48 @@ void dump_mem(guest_addr_t start, uint_t len);
 
 void arm64_trace_probe(struct cpu_state *cpu, struct tlb *tlb, uint64_t ip) {
     static _Atomic int hits;
+    // ISH_ARM64_TRACE_LOOKUP=1 (paired with ISH_ARM64_TRACE_IP=<hex guest
+    // pc>, see arm64_trace_ip_target above): call-site tracer for a specific
+    // function whose calling convention is "(void *table, const char
+    // *name, ...)" -- x1 is read as a NUL-terminated guest C string, x2/x3
+    // and the return address (x30/LR) are logged alongside it. Written to
+    // watch bfd_hash_lookup()/bfd_link_hash_lookup() calls (symbol name in
+    // x1, create/copy flags in x2/x3) while diagnosing a GNU ld hang traced
+    // to heap corruption in bfd's symbol hash table -- see
+    // project_brk_reserve_shrink_regrow_corruption in the project's Claude
+    // memory for the actual bug and fix (kernel/mmap.c, brk_reserve_start
+    // shrink handling). General-purpose beyond that one investigation: any
+    // "log every call to guest function at address X, with a C-string
+    // second argument" question reuses this by pointing ISH_ARM64_TRACE_IP
+    // at the new function's entry PC. Caps at 20000 logged calls so a hot
+    // function traced by mistake doesn't flood the log.
+    static int lookup_mode = -1;
+    if (lookup_mode == -1)
+        lookup_mode = getenv("ISH_ARM64_TRACE_LOOKUP") != NULL;
+    if (lookup_mode) {
+        static _Atomic int lhits;
+        int n = atomic_fetch_add(&lhits, 1);
+        if (n < 20000) {
+            char namebuf[128];
+            namebuf[0] = '\0';
+            uint64_t strp = cpu->arm64_regs[1];
+            for (int i = 0; i < 127; i++) {
+                char c = 0;
+                if (!tlb_read(tlb, strp + i, &c, 1))
+                    break;
+                namebuf[i] = c;
+                namebuf[i + 1] = '\0';
+                if (c == 0)
+                    break;
+            }
+            printk("lookup#%d name=\"%s\" create=%llu copy=%llu caller=%llx\n", n,
+                   namebuf,
+                   (unsigned long long) cpu->arm64_regs[2],
+                   (unsigned long long) cpu->arm64_regs[3],
+                   (unsigned long long) cpu->arm64_regs[30]);
+        }
+        return;
+    }
     uint64_t base = cpu->arm64_regs[arm64_trace_rn];
     uint64_t idx = cpu->arm64_regs[arm64_trace_rm];
     uint64_t addr = base + idx;
