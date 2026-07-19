@@ -369,6 +369,21 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
         return found ? 0 : _EINVAL;
     }
 
+    // devtmpfs has no iSH-side backing: on real Linux the kernel populates it
+    // by mirroring its live device model (hotplug included), but iSH's /dev
+    // is a static set of device nodes already baked into the rootfs image at
+    // build time, dispatched by rdev major/minor regardless of which fs they
+    // live on (see fs/dev.c). Mounting a fresh (empty) fs over /dev would
+    // hide that pre-populated content instead of augmenting it, so accept
+    // the mount as a no-op -- matching the existing MS_PROPAGATION no-op
+    // below -- rather than rejecting it with EINVAL, which froze systemd's
+    // "mount API" boot sequence (Failed to mount devtmpfs ... Freezing
+    // execution) since it has no fallback for a hard mount failure here.
+    if (strcmp(type, "devtmpfs") == 0) {
+        unlock(&mounts_lock);
+        return 0;
+    }
+
     const struct fs_ops *fs = NULL;
     for (size_t i = 0; i < sizeof(filesystems)/sizeof(filesystems[0]); i++) {
         if (filesystems[i] && (strcmp(filesystems[i]->name, type) == 0)) {

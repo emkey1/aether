@@ -72,6 +72,9 @@ int generic_seek(struct fd *fd, off_t_ off, int whence, size_t size);
 #define AC_F 0
 int generic_accessat(struct fd *dirfd, const char *path, int mode);
 int generic_statat(struct fd *at, const char *path, struct statbuf *stat, int flags);
+// Same as generic_statat, but also reports (via is_mount_root, when non-NULL)
+// whether path resolved to exactly the root of its mount.
+int generic_statat_ext(struct fd *at, const char *path, struct statbuf *stat, int flags, bool *is_mount_root);
 // fstat with the mount's anonymous st_dev stamped when the fs leaves dev 0
 int generic_fstat(struct fd *fd, struct statbuf *stat);
 int generic_setattrat(struct fd *at, const char *path, struct attr attr, bool follow_links);

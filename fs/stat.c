@@ -28,6 +28,8 @@
 
 #define AT_STATX_SYNC_TYPE_     0x6000
 
+#define STATX_ATTR_MOUNT_ROOT_  0x00002000U
+
 static bool http_resolver_trace_enabled(void) {
     static int enabled = -1;
     if (enabled < 0)
@@ -295,11 +297,14 @@ int generic_fstat(struct fd *fd, struct statbuf *stat) {
     return err;
 }
 
-int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, int flags) {
+int generic_statat_ext(struct fd *at, const char *path_raw, struct statbuf *stat, int flags, bool *is_mount_root) {
     int err;
 
     bool empty_path = flags & AT_EMPTY_PATH_;
     bool follow_links = !(flags & AT_SYMLINK_NOFOLLOW_);
+
+    if (is_mount_root)
+        *is_mount_root = false;
 
     char path[MAX_PATH];
     if (empty_path && (strcmp(path_raw, "") == 0)) {
@@ -313,6 +318,10 @@ int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, in
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
+    // find_mount_and_trim_path trims the mount point prefix off path in
+    // place; an empty remainder means path was exactly the mount's root.
+    if (is_mount_root)
+        *is_mount_root = path[0] == '\0';
     memset(stat, 0, sizeof(*stat));
     // fakefs_stat reads its SQLite ish_stat metadata and the real host stat()
     // as two separate, unlocked steps; without inodes_lock here, a concurrent
@@ -329,6 +338,10 @@ int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, in
         stat_stamp_fake_dev(mount, stat);
     mount_release(mount);
     return err;
+}
+
+int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, int flags) {
+    return generic_statat_ext(at, path_raw, stat, flags, NULL);
 }
 
 // TODO get rid of this and maybe everything else in the file
@@ -586,13 +599,23 @@ static dword_t sys_statx_guest_abi(fd_t at_f, guest_addr_t path_addr, dword_t fl
     }
 
     struct statbuf stat = {};
-    int err = generic_statat(at, path, &stat, flags);
+    bool is_mount_root = false;
+    int err = generic_statat_ext(at, path, &stat, flags, &is_mount_root);
     if (err < 0) {
         dpkg_stat_trace_result("statx", at_f, path, err, NULL, false);
         return err;
     }
 
     struct statx_ statx = stat_convert_statx(stat);
+    // Modern userspace (systemd's fd_is_mount_point()/path_is_mount_point())
+    // determines mount-root-ness from this attribute bit instead of walking
+    // /proc/self/mountinfo; leaving it unset made statx() on /proc, /sys, and
+    // /dev look like ordinary directories to systemd, which treated that as
+    // a hard failure ("Failed to determine whether ... is a mount point")
+    // and froze boot on Arch Linux ARM's aarch64 guest.
+    statx.stx_attributes_mask |= STATX_ATTR_MOUNT_ROOT_;
+    if (is_mount_root)
+        statx.stx_attributes |= STATX_ATTR_MOUNT_ROOT_;
     if (user_write(statxbuf_addr, &statx, sizeof(statx)))
         return _EFAULT;
     dpkg_stat_trace_result("statx", at_f, path, 0, &stat, true);
