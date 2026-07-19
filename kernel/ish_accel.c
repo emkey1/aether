@@ -70,11 +70,26 @@ dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
     if (user_read(req.key, key, sizeof(key)) || user_read(req.nonce, nonce, sizeof(nonce)))
         return _EFAULT;
 
+    // Reusable per-thread scratch for the common case (SSH records are
+    // <= ~32 KiB), so the hot path never mallocs; only oversized requests
+    // fall back to a heap allocation. aad is always small (<= ISH_AEAD_MAX_AAD).
+    enum { SCRATCH = 64u << 10 };
+    static __thread uint8_t scratch_in[SCRATCH], scratch_out[SCRATCH];
+    static __thread uint8_t scratch_aad[ISH_AEAD_MAX_AAD];
+
     dword_t ret = 0;
     uint8_t *aad = NULL, *in = NULL, *out = NULL;
-    if (req.aadlen) { aad = malloc(req.aadlen); if (!aad) { ret = _ENOMEM; goto out; } }
-    if (req.inlen)  { in  = malloc(req.inlen);  if (!in)  { ret = _ENOMEM; goto out; }
-                      out = malloc(req.inlen);  if (!out) { ret = _ENOMEM; goto out; } }
+    bool in_heap = false, out_heap = false;
+    if (req.aadlen)
+        aad = scratch_aad; // aadlen bounded to ISH_AEAD_MAX_AAD above
+    if (req.inlen) {
+        if (req.inlen <= SCRATCH) { in = scratch_in; out = scratch_out; }
+        else {
+            in  = malloc(req.inlen); in_heap = true;
+            out = malloc(req.inlen); out_heap = true;
+            if (!in || !out) { ret = _ENOMEM; goto out; }
+        }
+    }
     if (req.aadlen && user_read(req.aad, aad, req.aadlen)) { ret = _EFAULT; goto out; }
     if (req.inlen  && user_read(req.in,  in,  req.inlen))  { ret = _EFAULT; goto out; }
 
@@ -92,10 +107,12 @@ dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
     }
 
 out:
-    // Wipe key material and plaintext staging before freeing.
+    // Wipe key material and plaintext staging (scratch persists across calls,
+    // so clearing it matters). Only free the heap fallbacks.
     memset(key, 0, sizeof(key));
-    if (out) { memset(out, 0, req.inlen); free(out); }
-    if (in)  { free(in); }
-    if (aad) { free(aad); }
+    if (out) memset(out, 0, req.inlen);
+    if (in && req.inlen <= SCRATCH) memset(in, 0, req.inlen);
+    if (out_heap) free(out);
+    if (in_heap)  free(in);
     return ret;
 }
