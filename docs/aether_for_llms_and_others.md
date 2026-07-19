@@ -771,6 +771,54 @@ fn main() -> Void {
 }
 ```
 
+### File content: read/write
+
+The table above only covers existence/metadata. To read or write a file's
+*contents*, declare a variable of type `File` (a Pascal-style line-oriented
+file handle) and use the classic `assign`/`reset`/`rewrite`/`readln`/
+`writeln`/`eof`/`close` sequence — same effect rules as above, all inside
+`fx`:
+
+| Builtin | Signature |
+|---|---|
+| `assign(f, path)` | `(File, Text) -> Void` — binds `f` to `path`, no I/O yet |
+| `rewrite(f)` | `(File) -> Void` — truncate/create for writing |
+| `reset(f)` | `(File) -> Void` — open for reading |
+| `append(f)` | `(File) -> Void` — open for writing at end-of-file |
+| `readln(f, line)` | `(File, Text) -> Void` — reads one line into `line` |
+| `writeln(f, ...)` | `(File, ...) -> Void` — writes args plus a newline |
+| `eof(f)` | `(File) -> Bool` — true once no more lines remain |
+| `close(f)` | `(File) -> Void` |
+| `erase(f)` | `(File) -> Void` — deletes the file named by a prior `assign` |
+| `rename(f, newPath)` | `(File, Text) -> Void` |
+
+```aether
+fn main() -> Void {
+    let f: File;
+    fx {
+        assign(f, "notes.txt");
+        rewrite(f);
+        writeln(f, "first line");
+        close(f);
+
+        reset(f);
+        loop {
+            if eof(f) { break; }
+            let line: Text;
+            readln(f, line);
+            println(line);
+        }
+        close(f);
+    }
+    ret;
+}
+```
+
+`readln(f, line)` writing its result into `line` is a special case built into
+this one builtin — Aether does not have general by-reference parameters, so
+this pattern only works with the file builtins above, not with user-defined
+functions.
+
 Sockets (`socket*`), database (`sqlite*`), `random`/`randomize`, and the
 clock are also effectful but are not part of the curated surface; reach for
 them via `builtin_info(...)` discovery.

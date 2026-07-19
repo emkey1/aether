@@ -2398,4 +2398,16 @@ if ! cmp -s /tmp/aether_socket_echo_expected.out /tmp/aether_socket_echo_pass.ou
     exit 1
 fi
 
+# File type end to end: assign/rewrite/writeln/close then reset/readln/eof/
+# close then erase, using Aether's own `File` type (lowers to rea's `text`
+# keyword / TYPE_FILE). Regression for "no file-content read/write API
+# reachable from Aether's own type system" (docs/ideas_and_todo.md).
+"$AETHER_BIN" --no-cache "$TESTS_DIR/file_io_pass.aether" >/tmp/aether_file_io_pass.out
+printf 'read 1: alpha\nread 2: beta\nexists_after_erase=false\n' >/tmp/aether_file_io_pass_expected.out
+if ! cmp -s /tmp/aether_file_io_pass_expected.out /tmp/aether_file_io_pass.out; then
+    echo "unexpected File type output (assign/rewrite/writeln/reset/readln/eof/close/erase)" >&2
+    cat /tmp/aether_file_io_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

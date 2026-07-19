@@ -316,6 +316,29 @@ banned in `@pure` functions:
 fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }
 ```
 
+To read/write file *contents*, declare a `File` variable (Pascal-style handle;
+distinct from `Text`) and use `assign`/`reset`/`rewrite`/`readln`/`writeln`/
+`eof`/`close`/`erase`/`rename`, all inside `fx`:
+
+```aether
+let f: File;
+fx {
+    assign(f, "notes.txt");
+    rewrite(f);
+    writeln(f, "first line");
+    close(f);
+
+    reset(f);
+    loop {
+        if eof(f) { break; }
+        let line: Text;
+        readln(f, line);   // writes into `line` -- a special case for this builtin only
+        println(line);
+    }
+    close(f);
+}
+```
+
 Sockets (`socket*`), `sqlite*`, `random`, and the clock are also effectful;
 discover them via `builtin_info(...)`.
 

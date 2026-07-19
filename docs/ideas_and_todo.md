@@ -57,7 +57,7 @@ regression check, same 20s-hang guard). Full existing suite
 (`tests/run.sh`) passes unchanged. Doc/example changes only -- no compiler or
 language change, so no language-version bump.
 
-### No file-content read/write API reachable from Aether's own type system — *gap, 2026-07-19*
+### No file-content read/write API reachable from Aether's own type system — *fixed 2026-07-19-4*
 A generated "File Line Counter" example invented `fileopen`/`fileeof`/
 `filereadline`/`fileclose` (none exist). The *real* file I/O is classic
 Pascal-style (`assign`, `reset`, `rewrite`, `append`, `read`, `readln`,
@@ -65,19 +65,51 @@ Pascal-style (`assign`, `reset`, `rewrite`, `append`, `read`, `readln`,
 confirmed via `builtins_json(true)`), but it requires a Pascal "file
 variable" binding that Aether's own declared-type surface (`Int`, `Real`,
 `Text`, `Bool`, `Void`, records, arrays, tuples, `ToonDoc`/`ToonNode`,
-`MStream`) has no syntax for: `assign(f, path)` with `f` declared as plain
-`Text` fails outright with `"First arg to Assign must be a file variable."`,
-and no `File`/`TextFile`-shaped type exists to declare `f` as instead. As far
-as this pass could determine, **there is currently no way to read or write
-file contents from Aether source** -- only existence/metadata operations
-(`fileexists`, `filesize`, `mkdir`, `rmdir`, `getcurrentdir`) are reachable.
-Both guides already correctly limit "Files and environment" to those
-existence/metadata operations, so this isn't a doc gap so much as a real
-capability gap; worth a decision on whether to expose a `File`-like type in
-Aether someday, or to explicitly state in the guide that content I/O isn't
-available so models stop reaching for it. The affected example was rewritten
-to demonstrate the same line/word/char-counting logic over an in-memory
-`Text[]` instead of pretending file I/O exists.
+`MStream`) had no syntax for: `assign(f, path)` with `f` declared as plain
+`Text` failed outright with `"First arg to Assign must be a file variable."`,
+and no `File`/`TextFile`-shaped type existed to declare `f` as instead.
+
+**Root cause / investigation:** the error string lives in pscal-core's
+`backend_ast/builtin.c` (`assign`/`reset`/`rewrite`/etc. all guard on
+`VALUE_TYPE(*fileVarLValue) != TYPE_FILE`), and `TYPE_FILE` is a real
+`VarType` (`core/var_type.h`). Rea -- the C-like frontend Aether's
+`ast_parser.c` lowers into -- already has a working surface for it: rea's
+*lowercase* `text` keyword (`external/rea/src/rea/parser.c`'s `mapType`)
+maps to `TYPE_FILE`, distinct from Aether's own *capitalized* `Text` string
+type (which maps to rea's `str` / `TYPE_UNICODE_STRING`). rea's own examples
+(`external/rea/examples/base/hangman5`, `sqlite_spotify_demo`,
+`archive/openweather_forecast`) already exercise the full `text f;
+assign(f, path); reset(f); readln(f, line); eof(f); close(f);` idiom end to
+end. Critically, `readln(f, line)`'s write-back into `line` needs no general
+by-reference-parameter support: it's handled entirely inside pscal-core's
+shared `compiler.c`, which special-cases argument-lvalue evaluation by
+builtin *name* (`assign`/`reset`/`readln`/... around the `is_read_proc` /
+`hasFileArg` checks), keyed on `arg_node->var_type == TYPE_FILE` -- a
+compiler-level mechanism, invisible to and unaffected by whichever frontend
+(rea or Aether) produced the AST. So the entire gap reduced to: Aether's
+frontend had no binding-table entry that would produce a `TYPE_FILE` AST
+node for a declared variable.
+
+**Fix (`src/aether/ast_parser.c`):** added one entry to the `mapAetherType`
+binding table -- `{ "File", "text", TYPE_FILE }` -- so `let f: File;` lowers
+to the exact same `AST_TYPE_IDENTIFIER` shape rea's own parser builds for
+`text f;`, and a matching `TYPE_FILE -> "File"` case in
+`aetherTypeNameForVarType` for the reverse direction. No parser, semantic, or
+VM-boundary changes were needed beyond that single table row -- every
+compiler-level file-builtin mechanism (declaration bytecode, argument lvalue
+evaluation, runtime dispatch) is pscal-core code shared by both frontends and
+already worked on `TYPE_FILE` nodes regardless of origin.
+
+**Verified:** a hand-written program declaring `let f: File;` inside `fx`,
+doing `assign`/`rewrite`/`writeln`/`close` then `reset`/`readln`+`eof` loop/
+`close` then `erase`, ran correctly end to end (timeout-guarded) against a
+real temp file -- both the write and read-back paths, plus cleanup. New
+regression fixture `tests/file_io_pass.aether` pins the same sequence
+(exact-stdout check), wired into `tests/run.sh`; full existing suite passes
+unchanged. Both guides' "Files and environment" sections now document `File`
+and the content-I/O builtin table/example alongside the pre-existing
+existence/metadata-only builtins. Language version bumped to `2026-07-19-4`
+(real type-system addition, not docs-only).
 
 ### Three silent-failure gaps in the AST frontend now emit coded diagnostics — *fixed 2026-07-01-1*
 A program that exits non-zero with **no message at all** (empty stderr, empty

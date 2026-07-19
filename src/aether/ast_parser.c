@@ -1223,6 +1223,15 @@ static bool mapAetherType(const char *name, size_t len,
          * it lowers to rea's `mstream` keyword / TYPE_MEMORYSTREAM so the
          * backend assigns the real MEMORY_STREAM value. */
         { "MStream", "mstream", TYPE_MEMORYSTREAM },
+        /* Pascal-style file handle for the assign/reset/rewrite/append/read/
+         * readln/write/writeln/close/eof/erase/rename builtins (real vm_builtins,
+         * confirmed via builtins_json(true)). Lowers to rea's `text` keyword /
+         * TYPE_FILE -- rea's own `text f; assign(f, path); ...` idiom (see
+         * external/rea/examples/base/hangman5) already exercises this exact
+         * VarType end to end, so File just gives Aether source the same
+         * declaration surface. Note rea's `text` is this file handle, NOT a
+         * string -- Aether's string type is "Text", spelled distinctly. */
+        { "File",    "text",  TYPE_FILE },
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         size_t alen = strlen(table[i].aether);
@@ -2949,6 +2958,8 @@ static const char *aetherTypeNameForVarType(VarType vt) {
             return "Text";
         case TYPE_MEMORYSTREAM:
             return "MStream";
+        case TYPE_FILE:
+            return "File";
         default:
             return NULL;
     }

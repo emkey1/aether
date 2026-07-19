@@ -12,6 +12,36 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-19-4
+
+**Added a `File` type, closing the "no file-content read/write API reachable
+from Aether's own type system" gap.** The underlying VM's Pascal-style file
+I/O builtins (`assign`, `reset`, `rewrite`, `append`, `read`, `readln`,
+`write`, `writeln`, `close`, `eof`, `erase`, `rename`) were always real and
+working, but Aether's declared-type surface (`Int`, `Real`, `Text`, `Bool`,
+`Void`, records, arrays, tuples, `ToonDoc`/`ToonNode`, `MStream`) had no
+syntax for the "file variable" binding those builtins require -- `let f:
+Text; assign(f, path);` failed at runtime with "First arg to Assign must be
+a file variable.", and there was no type name that would satisfy that check.
+Investigation found rea (the C-like frontend Aether lowers into) already has
+exactly this: its lowercase `text` keyword (distinct from Aether's own
+capitalized `Text` string type) maps to `TYPE_FILE`, and
+`external/rea/examples/base/hangman5` already exercises the full
+`text f; assign(f, path); reset(f); readln(f, line); eof(f); close(f);`
+idiom end to end through the shared pscal-core compiler/VM. So this needed
+no VAR-parameter-by-reference generality or new opaque-handle machinery --
+`readln(f, line)`'s write-back into `line` is handled by compiler.c's
+existing per-builtin-name lvalue-argument evaluation (`compiler.c` around
+the `is_read_proc` / file-builtin-name checks), keyed purely on the arg's
+`var_type == TYPE_FILE`, not on general by-ref params. The fix is a single
+binding-table entry in `ast_parser.c`'s `mapAetherType` --
+`{ "File", "text", TYPE_FILE }` -- so `let f: File;` now lowers to the same
+AST shape rea's own parser produces for `text f;`. New fixture
+`tests/file_io_pass.aether` exercises write (`assign`/`rewrite`/`writeln`/
+`close`) then read-back (`reset`/`readln`/`eof`/`close`) then `erase`, and
+both guides' "Files and environment" sections now document `File` and the
+content-I/O builtins alongside the existing existence/metadata ones.
+
 ## 2026-07-15-2
 
 **`ret expr` now coerces the value to the function's declared return type,

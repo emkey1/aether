@@ -1,0 +1,30 @@
+// Regression: Aether's own `File` type (lowers to rea's `text` keyword /
+// pscal-core's TYPE_FILE) satisfies the assign/rewrite/writeln/reset/readln/
+// eof/close/erase builtins' "must be a file variable" runtime check. Exercises
+// both the write and read paths plus erase, matching rea's own
+// `text f; assign(f, path); ...` idiom (examples/base/hangman5).
+fn main() -> Void {
+    let f: File;
+    fx {
+        assign(f, "aether_file_io_pass_tmp.txt");
+        rewrite(f);
+        writeln(f, "alpha");
+        writeln(f, "beta");
+        close(f);
+
+        reset(f);
+        let count: Int = 0;
+        loop {
+            if eof(f) { break; }
+            let line: Text;
+            readln(f, line);
+            count = count + 1;
+            println("read ", count, ": ", line);
+        }
+        close(f);
+
+        erase(f);
+        println("exists_after_erase=", fileexists("aether_file_io_pass_tmp.txt"));
+    }
+    ret;
+}
