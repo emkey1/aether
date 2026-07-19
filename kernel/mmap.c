@@ -952,6 +952,20 @@ guest_addr_t sys_brk_guest(guest_addr_t new_brk) {
         // first page to unmap is PAGE(new_brk)
         // last page to unmap is PAGE(old_brk)
         pt_unmap_always(&mm->mem, PAGE(new_brk), PAGE(old_brk) - PAGE(new_brk));
+        // If this shrink dips below the brk-headroom reservation's already-
+        // claimed boundary (brk_reserve_start), roll that boundary back to
+        // match: the pages just unmapped return to being "reserved but not
+        // yet claimed" territory. Without this, pt_find_hole (which only
+        // treats [brk_reserve_start, brk_reserve_end) as off-limits) sees
+        // the freed-but-still-logically-claimed pages as ordinary free
+        // space and can hand them to an unrelated mmap() -- which a later
+        // brk regrowth then silently maps straight over, corrupting
+        // whatever that mmap placed there. Real-world trigger: glibc malloc
+        // trims the heap (brk shrink) between two unrelated mmap() calls
+        // during dynamic linking, then grows the heap again.
+        if (mm->mem.brk_reserve_start < mm->mem.brk_reserve_end &&
+                PAGE(new_brk) < mm->mem.brk_reserve_start)
+            mm->mem.brk_reserve_start = PAGE(new_brk);
     }
 
     mm->brk = new_brk;
