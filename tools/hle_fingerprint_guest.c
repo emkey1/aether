@@ -22,6 +22,13 @@ static const struct { const char *sym; const char *fn; } FNS[] = {
     { "strncmp", "HLE_STRNCMP" },
     { "memchr", "HLE_MEMCHR" },
     { "strchr", "HLE_STRCHR" },
+    { "strcpy", "HLE_STRCPY" },
+    { "stpcpy", "HLE_STPCPY" },
+    { "strncpy", "HLE_STRNCPY" },
+    { "strcat", "HLE_STRCAT" },
+    { "strrchr", "HLE_STRRCHR" },
+    { "strnlen", "HLE_STRNLEN" },
+    { "memrchr", "HLE_MEMRCHR" },
 };
 
 int main(int argc, char **argv) {

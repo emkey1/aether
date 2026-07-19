@@ -59,6 +59,13 @@ enum hle_fn {
     HLE_STRNCMP,  // a, b, n -> sign
     HLE_MEMCHR,   // s, c, n -> ptr or NULL
     HLE_STRCHR,   // s, c -> ptr or NULL (incl. the NUL when c==0)
+    HLE_STRCPY,   // dst, src -> dst
+    HLE_STPCPY,   // dst, src -> dst + len (end)
+    HLE_STRNCPY,  // dst, src, n -> dst (NUL-pad to n)
+    HLE_STRCAT,   // dst, src -> dst
+    HLE_STRRCHR,  // s, c -> last occurrence or NULL
+    HLE_STRNLEN,  // s, n -> min(strlen, n)
+    HLE_MEMRCHR,  // s, c, n -> last occurrence in n bytes or NULL
 };
 
 #define HLE_PROLOGUE_LEN 64
@@ -393,6 +400,101 @@ static bool hle_chr(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_i
     }
 }
 
+// strcpy / stpcpy: copy src (including its NUL) to dst. Single pass -- scan
+// each src page span for the NUL, copy up to it (or the page/dst-page limit)
+// with a native memcpy. stpcpy returns dst+len (the NUL); strcpy returns dst.
+// `limit` bounds it for strncpy (~0 for strcpy/stpcpy); `pad` requests the
+// strncpy NUL-fill of the tail. Result (end address) is returned via end_out.
+static bool hle_stpcpy(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t dst, guest_addr_t src, uint64_t limit, bool pad,
+        guest_addr_t *end_out) {
+    guest_addr_t d = dst, s = src;
+    uint64_t copied = 0;
+    for (;;) {
+        if (copied == limit) { // strncpy hit n with no NUL: no terminator written
+            *end_out = d;
+            return true;
+        }
+        uint64_t span = hle_to_page_end(s);
+        uint64_t dspan = hle_to_page_end(d);
+        if (span > dspan) span = dspan;
+        if (span > limit - copied) span = limit - copied;
+        const uint8_t *sh = __tlb_read_ptr(tlb, s);
+        if (sh == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        uint8_t *dh = __tlb_write_ptr(tlb, d);
+        if (dh == NULL) return hle_fault(cpu, tlb, entry_ip, true);
+        const uint8_t *nul = memchr(sh, 0, span);
+        uint64_t take = nul != NULL ? (uint64_t) (nul - sh) + 1 : span;
+        memcpy(dh, sh, take);
+        if (nul != NULL) {
+            *end_out = d + (uint64_t) (nul - sh);   // address of the written NUL
+            if (pad) {                              // strncpy: zero-fill to limit
+                guest_addr_t pd = d + take;
+                uint64_t rem = limit - (copied + take);
+                if (!hle_set(cpu, tlb, entry_ip, pd, 0, rem))
+                    return false;
+            }
+            return true;
+        }
+        s += span; d += span; copied += span;
+    }
+}
+
+static bool hle_strrchr(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t s, uint8_t c, guest_addr_t *res_out) {
+    guest_addr_t last = 0; bool found = false;
+    for (;;) {
+        uint64_t span = hle_to_page_end(s);
+        const uint8_t *p = __tlb_read_ptr(tlb, s);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        for (uint64_t i = 0; i < span; i++) {
+            if (p[i] == c) { last = s + i; found = true; }
+            if (p[i] == 0) { // include the NUL as a candidate when c==0
+                if (c == 0) { last = s + i; found = true; }
+                *res_out = found ? last : 0;
+                return true;
+            }
+        }
+        s += span;
+    }
+}
+
+static bool hle_strnlen(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t s, uint64_t maxlen, uint64_t *len_out) {
+    uint64_t len = 0;
+    while (len < maxlen) {
+        uint64_t span = hle_to_page_end(s + len);
+        if (span > maxlen - len) span = maxlen - len;
+        const uint8_t *p = __tlb_read_ptr(tlb, s + len);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        const uint8_t *nul = memchr(p, 0, span);
+        if (nul != NULL) { *len_out = len + (uint64_t) (nul - p); return true; }
+        len += span;
+    }
+    *len_out = maxlen;
+    return true;
+}
+
+// memrchr: last occurrence of c in n bytes. Must examine all n bytes; scan
+// each page span with the native memrchr-free approach (walk forward tracking
+// the last match -- one native pass per span, cache-friendly).
+static bool hle_memrchr(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t s, uint8_t c, uint64_t n, guest_addr_t *res_out) {
+    guest_addr_t last = 0; bool found = false;
+    uint64_t done = 0;
+    while (done < n) {
+        uint64_t span = hle_to_page_end(s);
+        if (span > n - done) span = n - done;
+        const uint8_t *p = __tlb_read_ptr(tlb, s);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        for (uint64_t i = 0; i < span; i++)
+            if (p[i] == c) { last = s + i; found = true; }
+        s += span; done += span;
+    }
+    *res_out = found ? last : 0;
+    return true;
+}
+
 // Gadget entry point. Reads args from the guest ABI registers, performs the
 // operation, writes the return register, and sets the guest pc to the return
 // address. Returns INT_NONE on success (the gadget then exits the block via
@@ -451,6 +553,53 @@ int hle_call(struct cpu_state *cpu, struct tlb *tlb, unsigned long fn,
     case HLE_STRCHR: {
         guest_addr_t p = 0;
         ok = hle_chr(cpu, tlb, entry_ip, a0, (uint8_t) a1, 0, true, &p);
+        result = p;
+        break;
+    }
+    case HLE_STRCPY: {
+        guest_addr_t end = 0;
+        ok = hle_stpcpy(cpu, tlb, entry_ip, a0, a1, ~0ull, false, &end);
+        result = a0; // strcpy returns dst
+        break;
+    }
+    case HLE_STPCPY: {
+        guest_addr_t end = 0;
+        ok = hle_stpcpy(cpu, tlb, entry_ip, a0, a1, ~0ull, false, &end);
+        result = end; // stpcpy returns the address of the written NUL
+        break;
+    }
+    case HLE_STRNCPY: {
+        guest_addr_t end = 0;
+        ok = hle_stpcpy(cpu, tlb, entry_ip, a0, a1, a2, true, &end);
+        result = a0;
+        break;
+    }
+    case HLE_STRCAT: {
+        // strcat = strcpy(dst + strlen(dst), src); returns dst.
+        uint64_t dlen = 0;
+        ok = hle_strlen(cpu, tlb, entry_ip, a0, &dlen);
+        if (ok) {
+            guest_addr_t end = 0;
+            ok = hle_stpcpy(cpu, tlb, entry_ip, a0 + dlen, a1, ~0ull, false, &end);
+        }
+        result = a0;
+        break;
+    }
+    case HLE_STRRCHR: {
+        guest_addr_t p = 0;
+        ok = hle_strrchr(cpu, tlb, entry_ip, a0, (uint8_t) a1, &p);
+        result = p;
+        break;
+    }
+    case HLE_STRNLEN: {
+        uint64_t len = 0;
+        ok = hle_strnlen(cpu, tlb, entry_ip, a0, a1, &len);
+        result = len;
+        break;
+    }
+    case HLE_MEMRCHR: {
+        guest_addr_t p = 0;
+        ok = hle_memrchr(cpu, tlb, entry_ip, a0, (uint8_t) a1, a2, &p);
         result = p;
         break;
     }
