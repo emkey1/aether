@@ -226,6 +226,75 @@ hit the same vLLM issue before assuming any one of them is serving-safe.
   in `deepseek6.7b`'s case nearly did so through two different wrong
   root-cause claims before the actual fix was found and verified end-to-end.
 
+### Precision experiment: does bf16 beat 4-bit on this corpus size? (2026-07-18/19)
+
+Motivated by `qwen35-9b`'s bf16-vs-4bit note above (a newer generation didn't
+close the gap) — the follow-up question was whether **precision itself**
+matters given how small `cs-aug4` is (434 training records). `qwen36-27b` was
+already trained bf16 for capacity reasons (see Setup); this experiment
+retrained the four remaining ≤27B models — `qwen3-8b-nothink`, `qwen25-14b`,
+`mistral24b`, `qwen35-9b` — at full bf16 (`--no-load-in-4bit`), same recipe
+otherwise, and compared against their existing 4-bit results above.
+(`deepseek6.7b` was retrained bf16 too — the attempt initially hit
+`num_samples=0` mid-training, root-caused to Unsloth's `train_on_responses_only`
+masking silently dropping every record because the default instruction/response
+markers are ChatML, and this model's chat template isn't; fixed by passing its
+actual `### Instruction:` / `### Response:` markers explicitly, at which point
+training succeeded — but it was never re-evaluated, since the eval sweep's
+default vLLM serving path is the same broken one described above for this
+model, and setting up a fresh GGUF/llama.cpp path for it wasn't reached this
+round. Its 4-bit numbers above stand as its current board entry.)
+
+| model | suite | 4-bit correct | bf16 correct | delta |
+|---|---|---|---|---|
+| `qwen3-8b-nothink` | simple/large/cs | 30/6/9 | 29/4/6 | −1/−2/−3 |
+| `qwen25-14b` | simple/large/cs | 34/7/12 | 33/5/8 | −1/−2/−4 |
+| `mistral24b` | simple/large/cs | 32/5/9 | 30/4/11 | −2/−1/**+2** |
+| `qwen35-9b` | simple/large/cs | 30/4/6 | 32/4/9 | **+2**/0/**+3** |
+
+**Not a clean win either way.** `qwen3-8b-nothink` and `qwen25-14b` regress
+across all three suites under bf16. `mistral24b` and `qwen35-9b` instead
+*improve* on `cs` (the hardest, most discriminating suite) while holding
+roughly flat or softening slightly on the easier ones. Checked the `large`-suite
+regressions for the known tokenizer-corruption failure class — none found,
+genuine misses. The split doesn't line up cleanly by architecture family
+either, so this isn't simply "bf16 is worse" — the effect is real but mixed.
+
+**Follow-up: is this an early-stopping artifact, not a precision effect?**
+Every run here uses `EarlyStoppingCallback(patience=2)` — training stops once
+eval loss (on a 12-example internal holdout) stops improving for 2 consecutive
+checks, and `load_best_model_at_end=True` exports whichever checkpoint had the
+best internal eval loss, not necessarily the last one. Comparing
+`qwen35-9b`'s actual training curves: 4-bit stopped at step ~65/165 (epoch
+1.18) with eval_loss 0.1251; bf16 stopped *earlier*, at step 60/165 (epoch
+1.09), with a *better* internal eval_loss of 0.1178 — so bf16 wasn't
+undertrained by this internal metric, it just optimized a thin 12-example
+proxy more tightly without that translating to better task generalization.
+
+To test whether more raw exposure (independent of the early-stopping
+criterion) would help, `qwen3-8b-nothink` and `qwen35-9b` were retrained a
+third way: full 3 epochs / 165 steps forced (`--early-stopping-patience 999`
++ a new `--no-load-best-model-at-end` flag, exporting the actual final-step
+weights instead of the internally-best checkpoint):
+
+| model | suite | 4-bit | bf16 (early-stopped) | bf16 (full 3 epochs) |
+|---|---|---|---|---|
+| `qwen3-8b-nothink` | simple/large/cs | 30/6/9 | 29/4/6 | **34**/2/8 |
+| `qwen35-9b` | simple/large/cs | 30/4/6 | 32/4/9 | 32/3/8 |
+
+Forcing the full schedule recovers (and for `qwen3-8b-nothink`, exceeds) the
+4-bit baseline on `simple`, but makes `large` *worse* than even the
+early-stopped bf16 run for both models — below the 4-bit baseline too. That
+pattern — more steps helping the easy suite while actively hurting the
+hardest one — reads as genuine overfitting to the 434-example corpus, not
+"just needed more exposure." **Conclusion: corpus size, not epoch count or
+precision alone, looks like the binding constraint for `large`/`cs`** — which
+is what motivated the corpus-expansion work (see `ideas_and_todo.md` and the
++24-candidate import) rather than further precision/schedule tuning. This
+board's existing rows stay 4-bit (`qwen36-27b` excepted, already bf16 for
+capacity reasons); the bf16/full-epoch variants above are not (yet) adopted
+as the primary board.
+
 ### Methodological note: `repair-attempts` comparisons before 2026-07-17 are not controlled experiments
 
 While investigating why `repair-attempts=1` (this board's convention) and
