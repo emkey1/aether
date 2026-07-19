@@ -2580,6 +2580,95 @@ amd64_v_neon16_binop psubb, sub
 # 66 0F 74 pcmpeqb: per-byte compare-equal -> 0xFF/0x00
 amd64_v_neon16_binop pcmpeqb, cmeq
 
+# Same reg-reg shape as amd64_v_neon16_binop but with the NEON arrangement as a
+# parameter, for lane widths other than bytes. dst = dst OP src; operand word:
+# src id bits 0-3, dst id bits 4-7. These are the remaining hot SSE2 integer
+# ops from the JIT bridge histogram (glibc's SSE2 str*/mem* and zlib's
+# adler32/crc paths): interleaves, packed word arith, and 128-bit OR.
+.macro amd64_v_neon_binop name, op, arr
+    .gadget amd64_v_\name\()_reg
+        ldr x8, [_ip]
+        and x9, x8, 0xf
+        ubfx x10, x8, 4, 4
+        add x11, _cpu, CPU_xmm
+        add x9, x11, x9, lsl 4
+        add x10, x11, x10, lsl 4
+        ldr q0, [x10]
+        ldr q1, [x9]
+        \op v0.\arr, v0.\arr, v1.\arr
+        str q0, [x10]
+        gret 1
+.endm
+
+# 66 0F FD paddw: packed 16-bit add
+amd64_v_neon_binop paddw, add, 8h
+# 66 0F D9 psubusw: packed 16-bit subtract with unsigned saturation
+amd64_v_neon_binop psubusw, uqsub, 8h
+# 66 0F EB por: 128-bit bitwise OR
+amd64_v_neon_binop por, orr, 16b
+# 66 0F 60/61/62/6C punpcklbw/wd/dq/qdq: interleave low elements, dst first.
+# x86 PUNPCKL* takes dst[0], src[0], dst[1], src[1], ... from the LOW halves --
+# exactly NEON zip1 with Vn=dst, Vm=src at the matching lane width.
+amd64_v_neon_binop punpcklbw, zip1, 16b
+amd64_v_neon_binop punpcklwd, zip1, 8h
+amd64_v_neon_binop punpckldq, zip1, 4s
+amd64_v_neon_binop punpcklqdq, zip1, 2d
+
+# movq xmm, xmm (F3 0F 7E mod==3, or 66 0F D6 mod==3 with src/dst swapped by
+# gen.c's operand packing): copy the low 64 bits, zero the high 64. Operand:
+# src id bits 0-3, dst id bits 4-7.
+.gadget amd64_v_movq_xx_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_xmm
+    add x9, x11, x9, lsl 4
+    add x10, x11, x10, lsl 4
+    ldr x12, [x9]
+    stp x12, xzr, [x10]
+    gret 1
+
+# movd/movq r/m, xmm (66 0F 7E), mod==3: store the low 32 (movd) or 64 (movq,
+# REX.W bit 8) bits of xmm[src] into a GPR. The 32-bit form zero-extends into
+# the full 64-bit register (all 32-bit GPR writes do). Writes a GPR, so gen.c
+# flushes the reg cache first (flush also invalidates -- same contract as
+# gadget_amd64_arith_reg_reg). Operand: GPR dst id bits 0-3, xmm src id bits
+# 4-7, REX.W bit 8.
+.gadget amd64_v_movd_store_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x12, _cpu, CPU_amd64_regs
+    add x12, x12, x9, lsl 3
+    add x13, _cpu, CPU_xmm
+    add x13, x13, x10, lsl 4
+    tbz x8, 8, 1f
+    ldr x14, [x13]
+    str x14, [x12]
+    gret 1
+1:  ldr w14, [x13]                  /* zero-extends into x14 */
+    str x14, [x12]
+    gret 1
+
+# Generic 16-byte shuffle: dst = tbl(src, mask), mask baked into the code
+# stream by gen.c at translation time (the shuffle imm8 is a compile-time
+# constant). tbl yields 0 for any index byte >= 16, which encodes the
+# zero-fill of pslldq/psrldq and makes one gadget serve pshufd, pshuflw,
+# pshufhw (identity indices for the untouched half), and both byte shifts.
+# Operands: [src | dst<<4][mask bytes 0-7][mask bytes 8-15].
+.gadget amd64_v_tbl_reg
+    ldr x8, [_ip]
+    and x9, x8, 0xf
+    ubfx x10, x8, 4, 4
+    add x11, _cpu, CPU_xmm
+    add x9, x11, x9, lsl 4
+    add x10, x11, x10, lsl 4
+    ldr q0, [x9]
+    ldr q1, [_ip, 8]
+    tbl v0.16b, {v0.16b}, v1.16b
+    str q0, [x10]
+    gret 3
+
 # movd/movq xmm, r/m (66 0F 6E), reg-reg: load a 32-bit (movd) or 64-bit (movq,
 # REX.W bit 8) GPR into the low lane of xmm[dst] and ZERO the rest of the 128 bits.
 # Reads a GPR, so gen.c flushes the reg cache first. Operand: GPR src id bits 0-3,
@@ -2862,6 +2951,118 @@ amd64_vmem_segfault_write:
     amd64_vwrite_done 16, store128
     gret 3
     amd64_vwrite_bullshit 16, store128
+
+# Memory-source variant of the NEON binops above: dst = dst OP [addr], the
+# 128-bit source read through the vread TLB fast path. Same operand layout as
+# load128_mem ([meta][disp][next_ip], dst xmm id in meta bits 8-11); the reg
+# cache and rip are flushed by gen.c so base/index regs are in memory and a
+# fault re-executes the instruction. x10 (dst id) survives the prep macro:
+# the fast path clobbers only x8/x11/x12/x13 and the miss helpers bracket
+# their C calls with save_c/restore_c.
+.macro amd64_v_neon_binop_mem name, op, arr
+    .gadget amd64_v_\name\()_mem
+        ldr  x8, [_ip]
+        ldr  x9, [_ip, 8]
+        ubfx x10, x8, 8, 4
+        amd64_vmem_addr
+        amd64_vread_prep 16, \name\()m
+        ldr  q1, [x9]
+        add  x14, _cpu, CPU_xmm
+        add  x14, x14, x10, lsl 4
+        ldr  q0, [x14]
+        \op  v0.\arr, v0.\arr, v1.\arr
+        str  q0, [x14]
+        gret 3
+        amd64_vread_bullshit 16, \name\()m
+.endm
+
+amd64_v_neon_binop_mem paddw, add, 8h
+amd64_v_neon_binop_mem psubusw, uqsub, 8h
+amd64_v_neon_binop_mem por, orr, 16b
+amd64_v_neon_binop_mem punpcklbw, zip1, 16b
+amd64_v_neon_binop_mem punpcklwd, zip1, 8h
+amd64_v_neon_binop_mem punpckldq, zip1, 4s
+amd64_v_neon_binop_mem punpcklqdq, zip1, 2d
+amd64_v_neon_binop_mem pcmpeqb, cmeq, 16b
+
+# movq xmm, m64 (F3 0F 7E mem form, or 66 0F 6E with REX.W): load 8 bytes into
+# the low lane of xmm[reg], zero the high lane.
+.gadget amd64_v_load64_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 8, load64
+    ldr  x12, [x9]
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    stp  x12, xzr, [x14]
+    gret 3
+    amd64_vread_bullshit 8, load64
+
+# movd xmm, m32 (66 0F 6E without REX.W): load 4 bytes, zero the other 12.
+.gadget amd64_v_load32_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 4, load32
+    ldr  w12, [x9]                  /* zero-extends into x12 */
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    stp  x12, xzr, [x14]
+    gret 3
+    amd64_vread_bullshit 4, load32
+
+# movq m64, xmm (66 0F D6 mem form, or 66 0F 7E with REX.W): store the low 8
+# bytes of xmm[reg].
+.gadget amd64_v_store64_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vwrite_prep 8, store64
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldr  x12, [x14]
+    str  x12, [x9]
+    amd64_vwrite_done 8, store64
+    gret 3
+    amd64_vwrite_bullshit 8, store64
+
+# movd m32, xmm (66 0F 7E without REX.W): store the low 4 bytes of xmm[reg].
+.gadget amd64_v_store32_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vwrite_prep 4, store32
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    ldr  w12, [x14]
+    str  w12, [x9]
+    amd64_vwrite_done 4, store32
+    gret 3
+    amd64_vwrite_bullshit 4, store32
+
+# Memory-source variant of amd64_v_tbl_reg (pshufd/pshuflw/pshufhw xmm, m128,
+# imm8): dst = tbl([addr], mask). Operands: [meta][disp][next_ip][mask 0-7]
+# [mask 8-15] -- next_ip (which includes the imm8 byte) keeps the RIP-relative
+# path in amd64_vmem_addr correct, and the mask rides after it.
+.gadget amd64_v_tbl_mem
+    ldr  x8, [_ip]
+    ldr  x9, [_ip, 8]
+    ubfx x10, x8, 8, 4
+    amd64_vmem_addr
+    amd64_vread_prep 16, tblm
+    ldr  q0, [x9]
+    ldr  q1, [_ip, 24]
+    tbl  v0.16b, {v0.16b}, v1.16b
+    add  x14, _cpu, CPU_xmm
+    add  x14, x14, x10, lsl 4
+    str  q0, [x14]
+    gret 5
+    amd64_vread_bullshit 16, tblm
 
 # amd64 push reg (0x50+r; REX.B selects r8-r15): always a 64-bit stack push in
 # long mode -- the 0x66 operand-size form is excluded by gen.c. The reg cache and
