@@ -33,6 +33,7 @@
 // entries from offline extraction of the .so's dynamic symbols (see that
 // tool's header comment).
 
+#include <stdatomic.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -124,6 +125,53 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
         else
             state->arm64_ip = ip + HLE_PROLOGUE_LEN;
         return true;
+    }
+    // Near-miss candidate discovery (trace mode only): count recurring
+    // unmatched block-start prologues so future fingerprints come from data.
+    // Tiny open-addressed table keyed by a 64-bit FNV of the prologue; the
+    // top recurrers are dumped at powers-of-two totals. Zero cost when
+    // ISH_HLE_TRACE is off.
+    if (hle_trace_enabled()) {
+        uint64_t h = 0xcbf29ce484222325ull;
+        for (unsigned b = 0; b < HLE_PROLOGUE_LEN; b++)
+            h = (h ^ code[b]) * 0x100000001b3ull;
+        enum { NM_SLOTS = 4096 };
+        static struct { _Atomic uint64_t hash; _Atomic uint64_t count;
+                        _Atomic uint64_t ip; } nm[NM_SLOTS];
+        static _Atomic uint64_t nm_total;
+        unsigned slot = (unsigned) (h % NM_SLOTS);
+        for (unsigned probe = 0; probe < 8; probe++, slot = (slot + 1) % NM_SLOTS) {
+            uint64_t expect = 0;
+            if (atomic_load(&nm[slot].hash) == h ||
+                    atomic_compare_exchange_strong(&nm[slot].hash, &expect, h)) {
+                atomic_store(&nm[slot].ip, ip);
+                atomic_fetch_add(&nm[slot].count, 1);
+                break;
+            }
+        }
+        uint64_t total = atomic_fetch_add(&nm_total, 1) + 1;
+        if (total >= 4096 && (total & (total - 1)) == 0) {
+            // A block translates roughly once (then it's cached), so a given
+            // prologue's count is "how many distinct translation events hit
+            // this exact function" -- a function used across many processes
+            // (each fork/exec re-translates its libc) recurs; a one-off does
+            // not. Print the recurring ones (count >= 2), highest first, so
+            // the output is a ranked candidate list, not 4096 singletons.
+            // Selection sort over the small hot subset, capped at 24 lines.
+            fprintf(stderr, "hle: near-miss candidates at %llu unmatched blocks (count ip hash):\n",
+                    (unsigned long long) total);
+            unsigned lines = 0;
+            for (unsigned i2 = 0; i2 < NM_SLOTS && lines < 24; i2++) {
+                uint64_t c = atomic_load(&nm[i2].count);
+                if (c >= 2) {
+                    fprintf(stderr, "hle:   %8llu %#llx %016llx\n",
+                            (unsigned long long) c,
+                            (unsigned long long) atomic_load(&nm[i2].ip),
+                            (unsigned long long) atomic_load(&nm[i2].hash));
+                    lines++;
+                }
+            }
+        }
     }
     return false;
 }

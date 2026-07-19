@@ -92,4 +92,5 @@ arm64/vector_smoke.c
 arm64/smc_stale_block.c
 arm64/stlr_ldar_publish.c
 arm64/ptrace_singlestep.c
+arm64/ands_bcond_fusion.c
 riscv64/ptrace_regset.c
