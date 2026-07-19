@@ -309,6 +309,23 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
     return [NSNumber numberWithUnsignedLongLong:statbuf.st_size];
 }
 
+// Files app calls this per visible item when rendering a folder listing (for
+// the "N items" subtitle), so it has to be cheap on every call, not just on
+// average -- and it's requested from the FileProvider extension process,
+// under that extension's strict wall-clock execution budget, not the main
+// app. A plain unbounded readdir() loop is neither: it's O(entries) *every
+// single call*, so a large directory (a big vendor/cache/package-archive
+// tree, or -- worse -- something like a pseudo-fs directory with a huge or
+// slow-to-enumerate entry set) pays that full cost repeatedly and can blow
+// the extension's time budget, observed on real devices as both outright
+// crashes and NO_CRASH_STACK watchdog terminations inside readdir(). Cap the
+// scan: for anything within the cap, the count is still exact; past it,
+// returning a truncated (and therefore wrong) number would be worse than no
+// number at all, and NSFileProviderItem.childItemCount is documented
+// nullable specifically for cases like this where the value isn't cheaply
+// available.
+static const unsigned ISHFileProviderChildItemCountCap = 2000;
+
 - (NSNumber *)childItemCount {
     if (self.isDomainRoot)
         return nil; // unknown; the enumerator produces the root list
@@ -317,13 +334,25 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
     int fd = [self openNewFDWithError:nil];
     if (fd == -1)
         return @0;
-    unsigned n = 0;
     DIR *dir = fdopendir(fd);
+    if (dir == NULL) {
+        // fdopendir can fail (ENOMEM, or the directory raced out from under
+        // us between the earlier stat and this open) -- readdir(NULL) is
+        // undefined behavior, and a leaked fd here is a real leak since
+        // there's no DIR* to closedir() it through.
+        close(fd);
+        return @0;
+    }
+    unsigned n = 0;
     struct dirent *dirent;
     while ((dirent = readdir(dir))) {
         if (strcmp(dirent->d_name, ".") == 0 || strcmp(dirent->d_name, "..") == 0)
             continue;
         n++;
+        if (n > ISHFileProviderChildItemCountCap) {
+            closedir(dir);
+            return nil; // too many to count cheaply; a truncated number would mislead
+        }
     }
     closedir(dir);
     return @(n);

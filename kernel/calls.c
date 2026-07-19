@@ -2470,7 +2470,8 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
     case 115: result = (dword_t) sys_clock_nanosleep_amd64_guest( (dword_t) raw_args[0], (int_t) raw_args[1], raw_args[2], raw_args[3]); break; // clock_nanosleep
     case 117: result = (dword_t) sys_ptrace_guest( (dword_t) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3]); break; // ptrace
     case 119: result = (dword_t) sys_sched_setscheduler_guest( (pid_t_) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // sched_setscheduler
-    case 121: result = (dword_t) sys_sched_getparam_guest( (pid_t_) raw_args[0], raw_args[1]); break; // sched_getparam
+    // case 121 (sched_getparam) is handled below, grouped with the other
+    // sched_*/setdomainname/adjtimex entries added together.
     case 122: result = (dword_t) sys_sched_setaffinity_guest( (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break; // sched_setaffinity
     case 123: result = (dword_t) sys_sched_getaffinity_guest( (pid_t_) raw_args[0], (dword_t) raw_args[1], raw_args[2]); break; // sched_getaffinity
     case 132: result = (dword_t) sys_sigaltstack_guest( raw_args[0], raw_args[1]); break; // sigaltstack
