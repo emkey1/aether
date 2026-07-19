@@ -1,0 +1,12 @@
+// Flip side of legacy_method_call_shadow_pass.aether: `db_missing` has the
+// same `<TypeName>_word` shape and `DB` is in scope, but no `db_missing`
+// function is declared anywhere. This must still fail to compile -- fixing
+// the legacy-method-call check to look before leaping must not silently
+// make genuine undefined-identifier errors disappear.
+type DB { data: Int; }
+
+fn main() -> Void {
+    let x: Int = db_missing();
+    fx { println(x); }
+    ret;
+}

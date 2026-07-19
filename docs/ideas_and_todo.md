@@ -19,41 +19,60 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
-### A top-level function named `<TypeName>_word` is unconditionally rejected, even when correctly declared — *gap, 2026-07-19*
-Any unqualified call to a function whose name is `prefix_rest` is rejected
+### A top-level function named `<TypeName>_word` is unconditionally rejected, even when correctly declared — *fixed 2026-07-19-5*
+Any unqualified call to a function whose name is `prefix_rest` was rejected
 outright with `Legacy method call 'prefix_rest' is no longer supported; use
-instance.rest() instead` if `prefix` case-insensitively matches ANY declared
-type/class name in scope — regardless of whether `prefix_rest` is a
-perfectly valid, normally-resolvable top-level `fn`. Root cause
-(`external/rea/src/rea/semantic.c:3932`, in the Rea semantic analyzer): the
-check does `strchr(name, '_')`, takes everything before the first
-underscore, and calls `lookupClass()` on it; if that matches, it emits the
-hard error unconditionally, *without first checking whether the call already
-resolved to a real declared function* (the adjacent `callDecl`-gated check
-a few lines below it, for comparison, does look before leaping). Confirmed
-with a minimal repro: `type DB { data: Int; }` plus a plain `fn db_open()
--> Int { ret 42; }` called as `db_open()` fails to compile, with `type Db`
+instance.rest() instead` if `prefix` case-insensitively matched ANY declared
+type/class name in scope — regardless of whether `prefix_rest` was a
+perfectly valid, normally-resolvable top-level `fn`. This was a real trap
+for an extremely common naming convention (prefixing a free function with an
+abbreviation of the type it operates on -- `db_open`/`db_put`/`db_get`,
+`list_append`, `queue_push`, etc.), which is exactly the shape a generated
+"Simple Database" example reached for and failed on. Confirmed with a
+minimal repro: `type DB { data: Int; }` plus a plain `fn db_open() -> Int {
+ret 42; }` called as `db_open()` failed to compile, with `type Db`
 (different casing) failing identically -- `lookupClass` matches
 case-insensitively.
 
-This is a real trap for an extremely common naming convention (prefixing a
-free function with an abbreviation of the type it operates on --
-`db_open`/`db_put`/`db_get`, `list_append`, `queue_push`, etc.), which is
-exactly the shape a generated "Simple Database" example reached for and
-failed on. The diagnostic text ("no longer supported") implies this used to
-be real sugar for `instance.method()` dispatch that has since been removed,
-with this check left behind as a migration hint -- but it fires as a blanket
-veto ahead of normal call resolution rather than as a fallback for names
-that don't otherwise resolve, so it now also rejects code that was never
-using the removed feature at all.
+**Root cause** (`external/rea/src/rea/semantic.c:3932`, in the Rea semantic
+analyzer): the check did `strchr(name, '_')`, took everything before the
+first underscore, and called `lookupClass()` on it; if that matched, it
+emitted the hard error unconditionally, *without first checking whether the
+call already resolved to a real declared function*. The diagnostic text
+("no longer supported") implies this used to be real sugar for
+`instance.method()` dispatch that had since been removed, with this check
+left behind as a migration hint -- but it fired as a blanket veto ahead of
+normal call resolution rather than as a fallback for names that don't
+otherwise resolve, so it also rejected code that was never using the
+removed feature at all. A few lines below it, a separate `!callDecl`-gated
+check (same function) got this right: `callDecl` is resolved once, earlier
+in the same `AST_PROCEDURE_CALL` handling block (`findStaticDeclarationInAST`
+/ `findGlobalFunctionDecl` / `findFunctionInSubtree`, in that order), as the
+authoritative "did this call name already resolve to a real declared
+function or procedure" answer -- the legacy-method-call check just never
+consulted it.
 
-**Suggested fix:** gate this check on the call having *failed* normal
-function-name resolution first (mirroring the `callDecl` check just below
-it), so it only fires for genuine leftover legacy-dispatch syntax, not for
-any coincidentally-prefixed valid function. Needs a regression test
-confirming a `TypeName_word`-shaped function that IS declared still compiles
-and runs, alongside one confirming the diagnostic still fires for an
-undeclared name in that shape (if that's still a desired hint).
+**Fix (`external/rea/src/rea/semantic.c:3932`):** added `!callDecl` to the
+legacy-method-call check's guard condition, mirroring the adjacent
+`callDecl`-gated check. The check is now a fallback: it only fires when
+normal call resolution has already failed to find a matching declared
+function or procedure for that exact name, so it no longer overrides a
+valid declaration -- it just stops being consulted at all once `callDecl`
+is non-NULL.
+
+**Verified:** both repro casings (`type DB` and `type Db`) now compile and
+run, printing `42`. A control case with `DB` in scope and an
+underscore-prefixed call to a name that is NOT declared anywhere
+(`db_missing()`) still correctly fails, now surfacing both the legacy-method
+hint and the normal `[SCOPE-001] identifier 'db_missing' not in scope`
+diagnostic (previously only the legacy-method hint fired, unconditionally,
+for any prefix match) -- confirming the fix is gating, not blanket
+suppression, and undefined-identifier errors in this shape still surface.
+Full existing suite (`tests/run.sh`) passes unchanged; new regression
+fixtures `tests/legacy_method_call_shadow_pass.aether` (the `db_open` case)
+and `tests/legacy_method_call_undefined_fail.aether` (the still-must-fault
+control), wired into `run.sh`. Language version bumped to `2026-07-19-5`
+(real compiler behavior change, not docs-only).
 
 ### `xs + [a, b]` / `arr1 + arr2` (array concatenation beyond single-element append) has no VM operator — *gap, 2026-07-19*
 The single-element append idiom (`xs = xs + [v];`, used throughout this

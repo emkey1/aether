@@ -1,0 +1,18 @@
+// Regression for docs/ideas_and_todo.md "A top-level function named
+// `<TypeName>_word` is unconditionally rejected, even when correctly
+// declared". `db_open` is a plain top-level fn with no relation to `DB`
+// beyond sharing a name prefix; the legacy-method-call check used to fire on
+// the underscore split alone (`db` case-insensitively matches `DB`) before
+// normal call resolution had a chance to prove `db_open` is a real,
+// unambiguous declared function.
+type DB { data: Int; }
+
+fn db_open() -> Int {
+    ret 42;
+}
+
+fn main() -> Void {
+    let x: Int = db_open();
+    fx { println(x); }
+    ret;
+}

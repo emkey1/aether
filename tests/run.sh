@@ -184,6 +184,8 @@ SWAP_SHADOW_BUILTIN_PASS_FIXTURE="$TESTS_DIR/swap_shadow_builtin_pass.aether"
 SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE="$TESTS_DIR/swap_builtin_unshadowed_fail.aether"
 HTTP_SESSION_FX_FAIL_FIXTURE="$TESTS_DIR/http_session_fx_fail.aether"
 HTTP_MSTREAM_COMPILE_PASS_FIXTURE="$TESTS_DIR/http_mstream_compile_pass.aether"
+LEGACY_METHOD_CALL_SHADOW_PASS_FIXTURE="$TESTS_DIR/legacy_method_call_shadow_pass.aether"
+LEGACY_METHOD_CALL_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/legacy_method_call_undefined_fail.aether"
 SHOWCASE_EXAMPLE="$EX_DIR/showcase/agent_report"
 
 if [ ! -x "$AETHER_BIN" ]; then
@@ -358,6 +360,8 @@ for fixture in \
     "$SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE" \
     "$HTTP_SESSION_FX_FAIL_FIXTURE" \
     "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" \
+    "$LEGACY_METHOD_CALL_SHADOW_PASS_FIXTURE" \
+    "$LEGACY_METHOD_CALL_UNDEFINED_FAIL_FIXTURE" \
     "$LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE" \
     "$SHOWCASE_EXAMPLE"
 do
@@ -2407,6 +2411,33 @@ printf 'read 1: alpha\nread 2: beta\nexists_after_erase=false\n' >/tmp/aether_fi
 if ! cmp -s /tmp/aether_file_io_pass_expected.out /tmp/aether_file_io_pass.out; then
     echo "unexpected File type output (assign/rewrite/writeln/reset/readln/eof/close/erase)" >&2
     cat /tmp/aether_file_io_pass.out >&2
+    exit 1
+fi
+
+# Legacy-method-call check must look before leaping: docs/ideas_and_todo.md
+# "A top-level function named `<TypeName>_word` is unconditionally rejected,
+# even when correctly declared". `db_open` is a real, unambiguous top-level
+# fn -- the check used to fire on the underscore split alone (`db` matches
+# `DB` case-insensitively) ahead of normal call resolution.
+"$AETHER_BIN" --no-cache "$LEGACY_METHOD_CALL_SHADOW_PASS_FIXTURE" >/tmp/aether_legacy_method_call_shadow_pass.out
+printf '42\n' >/tmp/aether_legacy_method_call_shadow_expected.out
+if ! cmp -s /tmp/aether_legacy_method_call_shadow_expected.out /tmp/aether_legacy_method_call_shadow_pass.out; then
+    echo "unexpected legacy-method-call shadow output (regression: TypeName_word fn rejected despite valid declaration)" >&2
+    cat /tmp/aether_legacy_method_call_shadow_pass.out >&2
+    exit 1
+fi
+# The flip side: an underscore-prefixed call in the same shape but with no
+# matching declaration anywhere must still fail to compile -- fixing the
+# check to look before leaping must not silently make genuine
+# undefined-identifier errors disappear.
+if "$AETHER_BIN" --no-cache "$LEGACY_METHOD_CALL_UNDEFINED_FAIL_FIXTURE" >/tmp/aether_legacy_method_call_undefined_fail.out 2>&1; then
+    echo "expected legacy-method-call undefined failure but program succeeded" >&2
+    cat /tmp/aether_legacy_method_call_undefined_fail.out >&2
+    exit 1
+fi
+if ! grep -q "identifier 'db_missing' not in scope" /tmp/aether_legacy_method_call_undefined_fail.out; then
+    echo "missing legacy-method-call undefined-identifier diagnostic" >&2
+    cat /tmp/aether_legacy_method_call_undefined_fail.out >&2
     exit 1
 fi
 
