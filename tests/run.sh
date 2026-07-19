@@ -180,6 +180,8 @@ MSTREAM_HANDLE_PASS_FIXTURE="$TESTS_DIR/mstream_handle_pass.aether"
 MSTREAM_DECL_INT_FAIL_FIXTURE="$TESTS_DIR/mstream_decl_int_fail.aether"
 MSTREAM_HANDLE_ARITH_FAIL_FIXTURE="$TESTS_DIR/mstream_handle_arithmetic_fail.aether"
 MSTREAM_CROSS_KIND_FAIL_FIXTURE="$TESTS_DIR/mstream_cross_kind_fail.aether"
+SWAP_SHADOW_BUILTIN_PASS_FIXTURE="$TESTS_DIR/swap_shadow_builtin_pass.aether"
+SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE="$TESTS_DIR/swap_builtin_unshadowed_fail.aether"
 HTTP_SESSION_FX_FAIL_FIXTURE="$TESTS_DIR/http_session_fx_fail.aether"
 HTTP_MSTREAM_COMPILE_PASS_FIXTURE="$TESTS_DIR/http_mstream_compile_pass.aether"
 SHOWCASE_EXAMPLE="$EX_DIR/showcase/agent_report"
@@ -352,6 +354,8 @@ for fixture in \
     "$MSTREAM_DECL_INT_FAIL_FIXTURE" \
     "$MSTREAM_HANDLE_ARITH_FAIL_FIXTURE" \
     "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" \
+    "$SWAP_SHADOW_BUILTIN_PASS_FIXTURE" \
+    "$SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE" \
     "$HTTP_SESSION_FX_FAIL_FIXTURE" \
     "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" \
     "$LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE" \
@@ -2191,6 +2195,34 @@ fi
 if ! grep -q "FX-001" /tmp/aether_http_session_fx_fail.out; then
     echo "httpsession fx diagnostic missing FX-001 code" >&2
     cat /tmp/aether_http_session_fx_fail.out >&2
+    exit 1
+fi
+
+# A user-declared top-level `fn swap` shadows the same-named, effectful PSCAL
+# vm_builtin for FX-001 purposes: calling the user's OWN swap from outside any
+# fx block must compile and run (previously misfired FX-001 on name alone).
+"$AETHER_BIN" --no-cache "$SWAP_SHADOW_BUILTIN_PASS_FIXTURE" >/tmp/aether_swap_shadow_builtin_pass.out
+printf '12345\n' >/tmp/aether_swap_shadow_builtin_expected.out
+if ! cmp -s /tmp/aether_swap_shadow_builtin_expected.out /tmp/aether_swap_shadow_builtin_pass.out; then
+    echo "unexpected swap-shadows-builtin bubble sort output" >&2
+    cat /tmp/aether_swap_shadow_builtin_pass.out >&2
+    exit 1
+fi
+
+# Without a user-declared `swap`, the real vm_builtin still requires fx: the
+# shadowing fix must not blanket-suppress FX-001 for the builtin itself.
+if "$AETHER_BIN" --no-cache "$SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE" >/tmp/aether_swap_builtin_unshadowed_fail.out 2>&1; then
+    echo "expected swap builtin fx failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "call to 'swap' requires an fx block" /tmp/aether_swap_builtin_unshadowed_fail.out; then
+    echo "missing swap builtin fx failure message" >&2
+    cat /tmp/aether_swap_builtin_unshadowed_fail.out >&2
+    exit 1
+fi
+if ! grep -q "FX-001" /tmp/aether_swap_builtin_unshadowed_fail.out; then
+    echo "swap builtin fx diagnostic missing FX-001 code" >&2
+    cat /tmp/aether_swap_builtin_unshadowed_fail.out >&2
     exit 1
 fi
 

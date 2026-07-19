@@ -569,21 +569,60 @@ Still open: homogeneous array-literal element-type inference (`let xs = [1, 2, 3
 still requires the explicit `: Int[]` annotation) is unrelated to this fix and
 remains a separate gap.
 
-### `swap` collides with the `swap` PSCAL vm_builtin, false-positive FX-001 — *deferred 2026-07-19, still open*
-A user-defined `fn swap(...)` with no effectful calls in its body still trips
+### `swap` collides with the `swap` PSCAL vm_builtin, false-positive FX-001 — *fixed 2026-07-19-3*
+A user-defined `fn swap(...)` with no effectful calls in its body still tripped
 `[FX-001] call to 'swap' requires an fx block`, because `swap` is also a real,
 effectful PSCAL `vm_builtin` (confirmed via `builtin_info("swap")`) and the
-effect-checker matches call targets by name only, with no way to distinguish
+effect-checker matched call targets by name only, with no way to distinguish
 "the user's pure function named swap" from "the builtin named swap." Repro:
 a plain array-swap helper (`fn swap(xs: Int[], i: Int, j: Int) -> Void { ... }`,
 no `fx`, no I/O) called from an unmarked `fn`, outside any `fx` block, still
-faults. Workaround verified: rename the function (e.g. `swap_vals`) — no
-functional loss, since `swap` was never anything but a name collision.
-**Root cause not yet fixed:** the effect-checker needs to prefer a
-same-scope/user-declared function over a same-named builtin when resolving a
-call target for FX-001 purposes (shadowing), not fail closed on name alone.
-Deferred at the user's explicit request while other corpus work was in
-flight; not yet resumed.
+faulted. Workaround verified pre-fix: rename the function (e.g. `swap_vals`) —
+no functional loss, since `swap` was never anything but a name collision.
+
+**Root cause:** `aetherCheckCallNode` (`src/aether/semantic.c`) decided a call's
+effectfulness purely from `aetherIsEffectfulBuiltin(canonical, ...)`, a lookup
+against the live PSCAL builtin registry keyed only on the call's bare name.
+Nothing in that path ever consulted the parser's own declaration table to ask
+"did the program itself declare a function called `swap`?" — so a user's
+top-level `fn swap` and the builtin `swap` were indistinguishable at the call
+site, and the builtin's effect mask always won.
+
+**Fix (`src/aether/ast_parser.c`, `src/aether/parser.h`, `src/aether/semantic.c`):**
+added a new parser-side registry, `g_aetherTopLevelFns` (`aetherAstRegisterTopLevelFunction`
+/ `aetherAstIsTopLevelUserFunction`), recorded at the same declaration site that
+already tracks `@pure` state (`parseFunctionDecl`'s post-parse registration
+block). It records the bare name of every `fn` declared where `isMethod` is
+false — i.e. NOT inside a `type { ... }` body — the parser's own existing
+criterion for "this is a plain top-level function," already used one branch
+over to decide whether to mangle the name to `Type.method`. `aetherCheckCallNode`
+now checks this registry immediately after the builtin lookup: if the call's
+canonical name is both builtin-effectful AND a registered top-level user
+function, the builtin verdict is discarded (`isEffectful = 0`) and the call
+falls through to the existing `aetherAstLookupFunctionPurity` path instead,
+so a pure caller correctly gets "cannot call non-pure function 'swap'" rather
+than a builtin-flavored message when that's what actually applies. A same-named
+builtin call with no user declaration of that name is untouched — the registry
+lookup simply misses and the original builtin check governs FX-001 as before.
+Type-body methods deliberately do NOT get this shadowing (mirrors the still-open
+method case tracked under *Reserved words collide with member names* above —
+`fn print()` inside a `type` body colliding with the `print` builtin remains a
+separate, harder problem since a method call site's bare name is ambiguous
+between multiple types).
+
+**Verified:** the exact repro now compiles and runs; a bubble-sort-with-swap
+end-to-end program (`fn swap(...) -> Int[]` returning the mutated array — arrays
+pass by value at every Aether function boundary, including a plain direct call,
+so the swap-then-return idiom is required, not just an outer-boundary
+workaround) sorts correctly when called from a plain `fn` outside any `fx`
+block. A control program that calls the real `swap` builtin with no user
+function of that name still correctly faults with `[FX-001] ... requires an fx
+block`, confirming the fix is shadowing, not blanket suppression. Full existing
+suite (`tests/run.sh`) passes unchanged; new regression fixtures
+`tests/swap_shadow_builtin_pass.aether` (the bubble-sort case) and
+`tests/swap_builtin_unshadowed_fail.aether` (the still-must-fault control),
+wired into `run.sh`. Language version bumped to `2026-07-19-3` (real
+effect-checker behavior change, not docs-only).
 
 ### Range-loop bound silently accepted a `Bool` expression, causing a single-iteration/hang footgun — *fixed 2026-07-19-2*
 `loop i in 0..N && cond { ... }` compiled with **no error** and ran the loop

@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    swap(xs, 0, 2);
+}

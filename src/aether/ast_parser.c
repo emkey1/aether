@@ -135,6 +135,7 @@ typedef struct {
 
 static AetherNodePtrSet g_aetherFxBlocks;
 static struct { AetherFnPurityEntry *items; size_t count; size_t cap; } g_aetherFnPurity;
+static struct { char **items; size_t count; size_t cap; } g_aetherTopLevelFns;
 static struct { AetherCallSurfaceEntry *items; size_t count; size_t cap; } g_aetherCallSurfaces;
 static struct { const AST **items; size_t count; size_t cap; } g_aetherSynthesized;
 
@@ -204,6 +205,33 @@ int aetherAstLookupFunctionPurity(const char *name, int *isPure) {
             if (isPure) *isPure = g_aetherFnPurity.items[i].isPure;
             return 1;
         }
+    }
+    return 0;
+}
+
+void aetherAstRegisterTopLevelFunction(const char *name) {
+    if (!name || !*name) return;
+    for (size_t i = 0; i < g_aetherTopLevelFns.count; i++) {
+        if (strcmp(g_aetherTopLevelFns.items[i], name) == 0) return;
+    }
+    if (g_aetherTopLevelFns.count == g_aetherTopLevelFns.cap) {
+        size_t newCap = g_aetherTopLevelFns.cap ? g_aetherTopLevelFns.cap * 2 : 16;
+        char **grown = (char **)realloc(g_aetherTopLevelFns.items, newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherTopLevelFns.items = grown;
+        g_aetherTopLevelFns.cap = newCap;
+    }
+    {
+        char *copy = strdup(name);
+        if (!copy) return;
+        g_aetherTopLevelFns.items[g_aetherTopLevelFns.count++] = copy;
+    }
+}
+
+int aetherAstIsTopLevelUserFunction(const char *name) {
+    if (!name) return 0;
+    for (size_t i = 0; i < g_aetherTopLevelFns.count; i++) {
+        if (strcmp(g_aetherTopLevelFns.items[i], name) == 0) return 1;
     }
     return 0;
 }
@@ -316,6 +344,14 @@ void aetherAstClearSemanticRegistries(void) {
     g_aetherFnPurity.items = NULL;
     g_aetherFnPurity.count = 0;
     g_aetherFnPurity.cap = 0;
+
+    for (size_t i = 0; i < g_aetherTopLevelFns.count; i++) {
+        free(g_aetherTopLevelFns.items[i]);
+    }
+    free(g_aetherTopLevelFns.items);
+    g_aetherTopLevelFns.items = NULL;
+    g_aetherTopLevelFns.count = 0;
+    g_aetherTopLevelFns.cap = 0;
 
     for (size_t i = 0; i < g_aetherCallSurfaces.count; i++) {
         free(g_aetherCallSurfaces.items[i].surface);
@@ -5384,6 +5420,11 @@ static AST *parseFnDecl(AetherParser *p) {
             if (dot && dot[1]) {
                 aetherAstRegisterFunctionPurity(dot + 1, fnIsPure);
             }
+        } else {
+            /* Not a `type { ... }`-body method: this bare name shadows any
+             * same-named vm_builtin for FX-001/ANN-001 purposes (see the
+             * `swap` collision writeup in docs/ideas_and_todo.md). */
+            aetherAstRegisterTopLevelFunction(nameTok->value);
         }
     }
     /* A tuple-return @post must reference positional slots (`result.0`/`result.1`),

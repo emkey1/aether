@@ -40,6 +40,15 @@ void aetherAstRegisterFunctionPurity(const char *name, int isPure);
 /* Returns 1 if `name` is a declared Aether function; *isPure set when known. */
 int aetherAstLookupFunctionPurity(const char *name, int *isPure);
 
+/* Record a top-level (non-method, i.e. not declared inside a `type { ... }`
+ * body) function declaration's bare name. Used to let a user's own function
+ * shadow a same-named PSCAL vm_builtin for FX-001/ANN-001 purposes: a call
+ * site should be judged against the user's declaration, not a name collision
+ * with an unrelated builtin (see docs/ideas_and_todo.md, the `swap` entry). */
+void aetherAstRegisterTopLevelFunction(const char *name);
+/* Returns 1 if `name` names a top-level user-declared function. */
+int aetherAstIsTopLevelUserFunction(const char *name);
+
 /* Remember the surface spelling of an aliased builtin call (e.g. the user
  * wrote `println`, the AST node says `writeln`) so diagnostics can quote the
  * name the user actually typed. Returns NULL when the call was not aliased. */

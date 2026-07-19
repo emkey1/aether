@@ -1,0 +1,28 @@
+fn swap(xs: Int[], i: Int, j: Int) -> Int[] {
+    let tmp: Int = xs[i];
+    xs[i] = xs[j];
+    xs[j] = tmp;
+    ret xs;
+}
+
+fn bubbleSort(input: Int[], n: Int) -> Int[] {
+    let xs: Int[] = input;
+    let i: Int = 0;
+    loop i in 0..n {
+        let j: Int = 0;
+        loop j in 0..(n - i - 1) {
+            if (xs[j] > xs[j + 1]) {
+                xs = swap(xs, j, j + 1);
+            }
+        }
+    }
+    ret xs;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [5, 3, 4, 1, 2];
+    let sorted: Int[] = bubbleSort(xs, 5);
+    fx {
+        println(sorted[0], sorted[1], sorted[2], sorted[3], sorted[4]);
+    }
+}

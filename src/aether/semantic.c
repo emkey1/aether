@@ -2551,6 +2551,15 @@ static void aetherCheckCallNode(const AST *node,
         display = canonical;
     }
     isEffectful = aetherIsEffectfulBuiltin(canonical, strlen(canonical));
+    if (isEffectful && aetherAstIsTopLevelUserFunction(canonical)) {
+        /* A user-declared top-level function shadows a same-named vm_builtin
+         * for effect purposes: the call targets the user's own declaration,
+         * not the builtin, so it is judged by aetherAstLookupFunctionPurity
+         * below instead (see the `swap` collision writeup in
+         * docs/ideas_and_todo.md). A same-named builtin with no user
+         * declaration still falls through to the check unchanged. */
+        isEffectful = 0;
+    }
 
     if (isEffectful && fxDepth == 0) {
         snprintf(detail, sizeof(detail), "call to '%s' requires an fx block.", display);
