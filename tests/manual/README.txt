@@ -48,6 +48,18 @@ Focused tests (arm64/, aarch64 guests):
                        three-same int, saturating, pairwise, across-lanes,
                        widening/narrowing, shifts, permute (zip/uzp/ext/tbl),
                        two-reg misc, FP arithmetic/compares/converts/FMA
+  ands_bcond_fusion.c  ANDS+B.cond gadget fusion (jit/guest-arm64/control.S
+                       fused_andsi/fused_andsr): all 14 conditions x
+                       {imm,reg} x {32,64-bit} x {TST,normal-Rd}, checking
+                       branch-taken outcome against the real ARM64
+                       condition truth table (with C=V=0 forced, per ANDS),
+                       NZCV correctness, result-register write (skipped for
+                       TST/Rd=31), and scratch-register leakage via
+                       canaries. Portable host-native AArch64 -- can be
+                       compiled and run directly on an Apple Silicon Mac to
+                       validate the test itself before running it under the
+                       JIT. Compare against ISH_ARM64_NO_FUSE=1 to isolate
+                       a failure to the fused gadgets specifically.
 
 Portable focused tests (all guest arches):
   signal_core.c        Core signal delivery, wait, and signalfd coverage
