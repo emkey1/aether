@@ -431,6 +431,9 @@ int_t sys_capset_guest(guest_addr_t header_addr, guest_addr_t data_addr);
 int_t sys_keyctl(dword_t cmd, dword_t arg2, dword_t arg3, dword_t arg4, dword_t arg5);
 dword_t sys_getcwd(addr_t buf_addr, dword_t size);
 dword_t sys_getcwd_guest(guest_addr_t buf_addr, dword_t size);
+// iSH crypto accelerator (kernel/ish_accel.c). ISH_SYS_AEAD = 0xacc0.
+dword_t sys_ish_aead_guest(guest_addr_t req_addr);
+void ish_accel_init(void);
 dword_t sys_chdir(addr_t path_addr);
 dword_t sys_chdir_guest(guest_addr_t path_addr);
 dword_t sys_chroot(addr_t path_addr);

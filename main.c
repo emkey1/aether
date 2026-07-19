@@ -225,6 +225,17 @@ int main(int argc, char *const argv[]) {
                 strcasecmp(hle, "no") != 0 && strcasecmp(hle, "off") != 0)
             doEnableHLE = true;
     }
+    // Crypto accelerator (kernel/ish_accel.c): host-native ChaCha20-Poly1305
+    // via ISH_SYS_AEAD. Default OFF; ISH_CRYPTO_ACCEL=1 enables it (only takes
+    // effect if the RFC 8439 self-test passes).
+    ish_accel_init();
+    {
+        extern bool doEnableCryptoAccel;
+        const char *ca = getenv("ISH_CRYPTO_ACCEL");
+        if (ca != NULL && strcmp(ca, "0") != 0 && strcasecmp(ca, "false") != 0 &&
+                strcasecmp(ca, "no") != 0 && strcasecmp(ca, "off") != 0)
+            doEnableCryptoAccel = true;
+    }
     halt_hook = cli_halt;
 
     char *envp = build_envp_from_term();

@@ -2570,6 +2570,8 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
     case 425: case 426: case 427: case 438: case 440:
     case 449: // futex_waitv
         result = _ENOSYS; break;
+    case 0xacc0: // iSH crypto accelerator: AEAD seal/open (ISH_SYS_AEAD)
+        result = sys_ish_aead_guest(raw_args[0]); break;
     default:
         return false; // not handled here: fall through to the legacy-marshalled table
     }
@@ -4098,6 +4100,15 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     qword_t raw_args[6];
     dword_t args[6];
     qword_t syscall_num = dispatch->syscall_number(cpu);
+    // iSH-private syscalls live above the real asm-generic range (ISH_SYS_AEAD
+    // = 0xacc0), so they'd fail the range check below and index the table out
+    // of bounds. Intercept them here (arm64/riscv64 only) before that check.
+    if ((dispatch->abi == GUEST_ABI_ARM64 || dispatch->abi == GUEST_ABI_RISCV64) &&
+            syscall_num == 0xacc0) {
+        dispatch->syscall_args(cpu, raw_args);
+        handle_asm_generic_native_syscall(cpu, syscall_num, raw_args);
+        return;
+    }
     if (syscall_num >= dispatch->num_syscalls) {
         printk("ERROR: %d(%s) missing %s syscall %d\n",
                current->pid, current->comm, dispatch->name, (int) syscall_num);
