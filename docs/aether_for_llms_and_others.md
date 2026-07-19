@@ -968,16 +968,23 @@ fn main() -> Void {
 
 ```aether
 let xs: Int[] = [];
-xs = xs + [7];          // append pattern
+xs = xs + [7];          // append pattern (any literal length: [7], [7, 8], even [])
 let n: Int = length(xs);
 let first: Int = xs[0]; // indexed read
 xs[0] = 9;              // indexed write
 let ys: Int[] = [1, 2, 3];
+let zs: Int[] = xs + ys; // concatenation: `arr1 + arr2`, both already-built arrays
+xs = xs + ys;            // same idiom, self-reassignment form
 ```
 
 - `Type[]` declares; `[]` is the empty literal
 - indexed reads/writes such as `xs[0]` and `xs[0] = v;` are supported
 - multi-element literals such as `[1, 2, 3]` are supported
+- `xs = xs + [a, b, ...];` appends every element of a literal, in order,
+  regardless of the literal's length (one element, many, or even `[]`, a no-op)
+- `xs = xs + ys;` / `let zs: T[] = xs + ys;` (`+` between two array-valued
+  expressions, neither necessarily a literal) concatenates: the RHS is
+  evaluated once and every one of its elements is appended, in order
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
 - never `toon_len(xs)` on a dynamic array (LEN-001)
 - `println`/`print` do not stringify arrays. `println("data: ", xs)` compiles

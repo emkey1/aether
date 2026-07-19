@@ -74,7 +74,7 @@ and `tests/legacy_method_call_undefined_fail.aether` (the still-must-fault
 control), wired into `run.sh`. Language version bumped to `2026-07-19-5`
 (real compiler behavior change, not docs-only).
 
-### `xs + [a, b]` / `arr1 + arr2` (array concatenation beyond single-element append) has no VM operator — *gap, 2026-07-19*
+### `xs + [a, b]` / `arr1 + arr2` (array concatenation beyond single-element append) has no VM operator — *fixed 2026-07-19-6*
 The single-element append idiom (`xs = xs + [v];`, used throughout this
 corpus) works because the Aether parser specifically pattern-matches
 `target = src + [item]` with a **one-element** array literal and lowers it
@@ -107,6 +107,47 @@ for array concatenation, or at minimum have the semantic analyzer reject it
 with a clear diagnostic pointing at the loop-and-append idiom instead of
 falling through to the generic arithmetic error. Needs a regression test for
 each shape once fixed.
+
+**Resolved 2026-07-19-6.** Fixed both cases, entirely at the `ast_parser.c`
+parse-time lowering level (no VM changes):
+
+1. **N-element literal append.** `buildArrayAppend`'s call sites (the
+   `target = src + [items...];` statement lowering and the `let x: T[] =
+   src + [items...];` initializer lowering) now loop over however many
+   elements the array literal has -- 0, 1, or more -- emitting one
+   setlength+indexed-assign pair per item, instead of requiring exactly one.
+   An empty literal (`src + []`) is a no-op (just the copy, if any). `xs =
+   xs + [v];` (the pre-existing single-element idiom used throughout this
+   corpus) is unchanged since N==1 is just the first iteration of the same
+   loop.
+2. **General `array_expr + array_expr` concatenation.** Investigated a real
+   VM-level opcode first: `ArrayObj` (`pscal-core/src/core/types.h:216`) has
+   non-uniform ownership (refcounted dynamic arrays vs. deep-copied static
+   arrays, guarded by `dynamic_array_refcount_mutex`) that the codebase's own
+   in-flight "VM 2.0" rewrite plan flags as its highest-risk type family, and
+   no existing runtime helper concatenates two already-built arrays -- so a
+   VM opcode was medium-to-high risk, not low. Went with the frontend-only
+   approach instead: `target = src + other;` / `let x: T[] = src + other;`,
+   where `other`'s inferred type is array-shaped ("[]"-suffixed, so ordinary
+   Text/Int/Real `+` is untouched), now lowers to `other` hoisted into a temp
+   local (evaluated exactly once, even if it's a call with side effects),
+   then `setlength(target, oldLen + length(other))` followed by an index loop
+   copying `other`'s elements in -- reusing the same hardened
+   setlength/indexed-assign primitives the append idiom already relies on,
+   with zero VM/runtime array-ownership changes.
+
+Verified: the multi-element literal case (2- and 3-element self-reassignment
+and `let`-initializer appends, plus an empty-literal no-op), the general
+concatenation case (`ys = ys + two;` for `Text[]`, `let zs: Int[] = xs + ys;`,
+and a call-valued RHS confirmed evaluated exactly once via a side-effecting
+counter), and that ordinary string concatenation (`Text + Text`) and the
+original single-element append idiom are both unchanged. Full existing suite
+(`tests/run.sh`) passes unchanged. New regression fixtures
+`tests/dynamic_array_append_multi_pass.aether`,
+`tests/dynamic_array_concat_pass.aether`, and
+`tests/dynamic_array_concat_let_pass.aether`, wired into `run.sh`. Both
+guides' *Dynamic arrays* sections updated. Language version bumped to
+`2026-07-19-6` (real compiler behavior change, not docs-only).
 
 ### Real socket API (`socket*`) exists and works but was completely undocumented; models invent a fictional `tcpsocket*`/`udpsocket*` namespace — *documented (docs-only), 2026-07-19*
 A generated batch of 12 examples included 5 built entirely around

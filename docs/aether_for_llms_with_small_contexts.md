@@ -448,15 +448,20 @@ fn main() -> Void {
 
 ```aether
 let xs: Int[] = [];
-xs = xs + [7];              // append
+xs = xs + [7];              // append (any literal length, incl. [7, 8] or [])
 let n: Int = length(xs);    // len(xs) and xs.len accepted
 let first: Int = xs[0];     // indexed read
 xs[0] = 9;                  // indexed write
 let ys: Int[] = [1, 2, 3];  // multi-element literal
+xs = xs + ys;                // concatenation: `arr1 + arr2`, both already-built arrays
 ```
 
 Never `toon_len(xs)` on a dynamic array. Indexed reads/writes and
-multi-element literals are supported.
+multi-element literals are supported. `xs = xs + [a, b, ...]` appends every
+element of a literal of any length. `xs = xs + ys` / `let zs: T[] = xs + ys`
+(`+` between two array-valued expressions, not necessarily literals)
+concatenates them -- the RHS is evaluated once, then every element is
+appended in order.
 
 Use distinct local names inside one scope. Do not redeclare `xs`, `count`, or
 other loop variables later in the same function.

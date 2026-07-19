@@ -2441,4 +2441,43 @@ if ! grep -q "identifier 'db_missing' not in scope" /tmp/aether_legacy_method_ca
     exit 1
 fi
 
+# `xs = xs + [items...]` must lower for an array literal of ANY length, not just
+# exactly one element (docs/ideas_and_todo.md "`xs + [a, b]` / `arr1 + arr2`
+# ... has no VM operator"). Covers a 2-element self-reassignment append, a
+# 0-element (empty-literal) append as a no-op, and a `let` initializer append
+# onto a different, already-declared array.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_append_multi_pass.aether" >/tmp/aether_array_append_multi_pass.out
+printf '3\n1\n2\n3\n0\n4\n10\n20\n30\n40\n' >/tmp/aether_array_append_multi_expected.out
+if ! cmp -s /tmp/aether_array_append_multi_expected.out /tmp/aether_array_append_multi_pass.out; then
+    echo "unexpected multi-element array append output" >&2
+    cat /tmp/aether_array_append_multi_pass.out >&2
+    exit 1
+fi
+
+# `target = src + other;` where `other` is an array-*valued expression* (not a
+# literal) now lowers to real concatenation instead of falling through to a raw
+# VM ARRAY+ARRAY op (docs/ideas_and_todo.md, same entry). Covers the
+# self-reassignment idiom (`ys = ys + two;`) and confirms a call-valued RHS
+# (`xs + makeArr()`) is evaluated exactly once (callCount == 1), not twice.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_concat_pass.aether" >/tmp/aether_array_concat_pass.out
+printf '3\na\nb\nc\n1\n3\n1\n100\n200\n' >/tmp/aether_array_concat_expected.out
+if ! cmp -s /tmp/aether_array_concat_expected.out /tmp/aether_array_concat_pass.out; then
+    echo "unexpected array concatenation output" >&2
+    cat /tmp/aether_array_concat_pass.out >&2
+    exit 1
+fi
+
+# The same array-valued-expression concatenation, but as a `let` initializer
+# (`let zs: T[] = xs + ys;`) rather than a self-reassignment statement --
+# confirms `xs` itself is untouched (concatenation copies, doesn't mutate the
+# left operand) and the declaration path lowers this the same way parseStmt's
+# buildArrayConcat does.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_concat_let_pass.aether" >/tmp/aether_array_concat_let_pass.out
+printf '4\n9\n1\n2\n3\n1\n' >/tmp/aether_array_concat_let_expected.out
+if ! cmp -s /tmp/aether_array_concat_let_expected.out /tmp/aether_array_concat_let_pass.out; then
+    echo "unexpected let-initializer array concatenation output" >&2
+    cat /tmp/aether_array_concat_let_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

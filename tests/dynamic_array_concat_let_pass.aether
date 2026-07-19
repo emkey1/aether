@@ -1,0 +1,15 @@
+fn main() -> Void {
+    let xs: Int[] = [9];
+    let ys: Int[] = [1, 2, 3];
+    let zs: Int[] = xs + ys;
+
+    fx {
+        println(length(zs));
+        println(zs[0]);
+        println(zs[1]);
+        println(zs[2]);
+        println(zs[3]);
+        println(length(xs));
+    }
+    ret;
+}

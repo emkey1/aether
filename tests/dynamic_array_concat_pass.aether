@@ -1,0 +1,29 @@
+let callCount: Int = 0;
+
+fn makeArr() -> Int[] {
+    callCount = callCount + 1;
+    ret [100, 200];
+}
+
+fn main() -> Void {
+    let ys: Text[] = ["a"];
+    let two: Text[] = ["b", "c"];
+    ys = ys + two;
+
+    let xs: Int[] = [1];
+    xs = xs + makeArr();
+
+    fx {
+        println(length(ys));
+        println(ys[0]);
+        println(ys[1]);
+        println(ys[2]);
+
+        println(callCount);
+        println(length(xs));
+        println(xs[0]);
+        println(xs[1]);
+        println(xs[2]);
+    }
+    ret;
+}
