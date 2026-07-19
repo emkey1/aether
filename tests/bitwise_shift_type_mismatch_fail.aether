@@ -1,0 +1,6 @@
+fn main() -> Void {
+    fx {
+        println("abc" << 1);
+    }
+    ret;
+}

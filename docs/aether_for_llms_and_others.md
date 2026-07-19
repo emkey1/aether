@@ -235,9 +235,16 @@ guessing conversion helpers or `Text + Int` coercions.
 | Arithmetic | `+ - * /` on `Int`/`Real`; `Int / Int` is integer-style division |
 | Modulo | `%` (example: `7 % 3` = `1`) |
 | Comparison | `== != < <= > >=` |
-| Logical | `!` for negation; `&&` and `||` for conjunction/disjunction |
+| Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit) |
+| Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`) |
 | Text | `+` concatenation (text-compatible operands only); `==` equality |
-| Array | `xs + [v]` append only; do not assume `xs + ys` concatenates arrays |
+| Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions |
+
+`&`/`|`/`^` are bitwise, not logical -- use `&&`/`||` for Bool conjunction/
+disjunction. `xor` may be spelled as the word `xor` or the symbol `^`
+(both lex to the same operator); there is no word form for `&`/`|`.
+Precedence (loosest to tightest): `|| , && , | , ^ , & , == != , < <= > >= ,
+<< >> , + - , * / %`.
 
 Unary minus on numeric literals and expressions is supported.
 

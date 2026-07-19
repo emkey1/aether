@@ -1,0 +1,21 @@
+fn main() -> Void {
+    let a: Int = 6;
+    let b: Int = 3;
+    let t: Bool = true;
+    let f: Bool = false;
+    fx {
+        println(a << 1);
+        println(a >> 1);
+        println(a & b);
+        println(a | b);
+        println(a ^ b);
+        println(a xor b);
+        println(t && f);
+        println(t || f);
+        println(t && (a & b) == 2);
+        println(1 + 2 << 1);
+        println(1 << 2 > 3);
+        println(1 | 2 & 3);
+    }
+    ret;
+}

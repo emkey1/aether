@@ -19,7 +19,7 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
-### Bitwise operations don't exist at all, despite `xor` being reserved as if they did — *gap, 2026-07-19*
+### Bitwise operations don't exist at all, despite `xor` being reserved as if they did — *fixed 2026-07-19-9*
 Aether has no way to perform bitwise AND/OR/XOR/shift. Confirmed absent as
 symbol operators (`<<`, `>>`, `|`, `^` all fail with `[SYN-001] unexpected
 token in block; expected a statement`), as Pascal-style word operators
@@ -41,6 +41,64 @@ decision on whether to add real bitwise support (the underlying PSCAL VM
 likely already has bitwise opcodes/builtins for its own use; the gap may
 just be in what Aether's frontend exposes) or to soften the guide's
 reservation of `xor` if it's never going to back anything.
+
+**Fixed 2026-07-19-9.** Investigated per the "worth a decision" note above:
+rea's own grammar (`external/rea/src/rea/lexer.c`/`parser.c`) already
+tokenizes and parses all of this -- `REA_TOKEN_SHIFT_LEFT`/`SHIFT_RIGHT` for
+`<<`/`>>`, `REA_TOKEN_AND`/`OR`/`XOR` for `&`/`|`/`^` (and `xor` lexes to the
+*same* `REA_TOKEN_XOR` as `^`, which is exactly why the word was already
+reserved) -- and the underlying PSCAL VM (`external/pscal-core/src/vm/vm.c`)
+already has real opcodes behind every one of them: `case SHL: case SHR:`
+and `case AND: case OR: case XOR:`, the latter confirmed to do double duty
+as bitwise-on-`Int` and eager (non-short-circuit) boolean-on-`Bool`,
+dispatched by the compiler (`compiler.c`'s `AST_BINARY_OP` case) off the
+node's annotated result type. Aether's own frontend (`ast_parser.c`) just
+never had a grammar rule that reached any of it -- purely a "wire up
+existing plumbing" gap, the same class as the recent File-type work.
+
+Fix: added `<<`/`>>`/`&`/`|`/`^` (and word `xor`) to Aether's own precedence
+ladder in `ast_parser.c`, at the same points rea's own parser uses them --
+`parseShift` between `parseAdd` and `parseComparison`; `parseBitwiseAnd`/
+`Xor`/`Or` between `parseEquality` and `parseLogicalAnd` -- each emitting
+`AST_BINARY_OP` with the matching `TOKEN_SHL`/`SHR`/`AND`/`OR`/`XOR` token to
+reach the opcodes above, with type-promotion logic mirrored verbatim from
+rea's parser (matching the "verbatim from rea parser.c" convention already
+used for `+`/`-`/`*`/`/`/`%`). Deliberately did *not* add word forms `and`/
+`or`: `&&`/`||` already own logical conjunction/disjunction throughout the
+~500-example corpus, and a second, non-short-circuiting word spelling of the
+same thing risks exactly the confusion this entry's own "worth a decision"
+note warned against; `&`/`|`/`^` are symbol-only, standard C/Rust-style
+bitwise operators that happen to also do eager (not short-circuit) boolean
+combination on `Bool` operands, distinct in both spelling and evaluation
+order from `&&`/`||`. `xor` keeps working as a word too, at no extra cost --
+rea's lexer already produces the identical token for `xor` and `^`, so this
+resolves the "reserved but backs nothing" half of the original gap for
+free. Also deliberately did *not* add a parse-time Int-only type check (an
+earlier draft of this fix did, and it broke on the very first non-literal
+test): a plain identifier's `var_type` is still `TYPE_UNKNOWN` at the point
+`ast_parser.c` parses a binary expression -- real type resolution happens in
+a later pass, before codegen -- so a parse-time check rejected ordinary
+variable operands like `x & y` outright. The existing VM-level type guards
+(the `AND`/`OR`/`XOR` and `SHL`/`SHR` opcode handlers in `vm.c`) are the
+real safety net, exactly as for every other Aether binary operator, none of
+which validate operand types at parse time either.
+
+Verified: `6 << 1` = `12`, `6 >> 1` = `3`, `6 & 3` = `2`, `6 | 1` = `7`,
+`6 ^ 3` = `6 xor 3` = `5`; `&&`/`||` short-circuit logic and ordinary
+arithmetic (`+ - * / %`) are unaffected; the full precedence ladder
+(`+ - `, then `<< >>`, then comparison, then `== !=`, then `&`, then `^`,
+then `|`, then `&&`, then `||`, tightest to loosest) composes correctly --
+including a right-hand-side-of-`&&` expression parsing all the way through
+the new bitwise layers, a regression the first draft of this fix introduced
+and testing caught before landing (the `&&` loop's right-operand recursion
+target wasn't updated when its base case was, silently truncating parses
+like `a && x & y`). The full existing suite (`tests/run.sh`, ~2000
+fixtures) passes unchanged. New regression fixtures
+`tests/bitwise_shift_ops_pass.aether` (each operator plus precedence
+composition) and `tests/bitwise_shift_type_mismatch_fail.aether` (confirms
+the VM-level type guard still fires on real misuse), both wired into
+`run.sh`. Both LLM guides updated with the new operator row/line and a
+precedence note. Language version bumped to `2026-07-19-9`.
 
 ### A method call chained onto another method call's result falls back to name-only builtin matching for FX-001 — *fixed 2026-07-19-7*
 `receiver.someMethod()` correctly resolves against the receiver's static

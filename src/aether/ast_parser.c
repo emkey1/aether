@@ -2519,14 +2519,47 @@ static AST *parseAdd(AetherParser *p) {
     return node;
 }
 
-static AST *parseComparison(AetherParser *p) {
+/* Shift/bitwise-and/xor/or (below) mirror rea's parseShift / parseBitwiseAnd /
+ * parseBitwiseXor / parseBitwiseOr verbatim (external/rea/src/rea/parser.c),
+ * consistent with the "Type promotion helpers (verbatim from rea parser.c)"
+ * reuse above. Deliberately not restricted to Int operands: an identifier
+ * reference is typed TYPE_UNKNOWN until a later pass resolves it (see
+ * AST_VARIABLE in parsePrimary), so a parse-time Int-only check would reject
+ * `x & y` for any plain variable `x`/`y` -- the real type check already lives
+ * in the VM opcode handlers (vm.c `case AND: case OR: case XOR:` and `case
+ * SHL: case SHR:`), which accept Int (bitwise) or Bool (eager, non-short-
+ * circuit logical -- distinct from `&&`/`||`'s short-circuit evaluation) and
+ * reject everything else at runtime. */
+static AST *parseShift(AetherParser *p) {
     AST *node = parseAdd(p);
+    if (!node) return NULL;
+    while (p->current.type == REA_TOKEN_SHIFT_LEFT || p->current.type == REA_TOKEN_SHIFT_RIGHT) {
+        ReaToken op = p->current;
+        aetherAdvance(p);
+        AST *right = parseAdd(p);
+        if (!right) return NULL;
+        TokenType tt = (op.type == REA_TOKEN_SHIFT_LEFT) ? TOKEN_SHL : TOKEN_SHR;
+        const char *lex = (tt == TOKEN_SHL) ? "<<" : ">>";
+        Token *tok = newToken(tt, lex, op.line, 0);
+        AST *bin = newASTNode(AST_BINARY_OP, tok);
+        setLeft(bin, node);
+        setRight(bin, right);
+        VarType lt = node->var_type, rt = right->var_type;
+        VarType res = (lt == TYPE_INT64 || rt == TYPE_INT64) ? TYPE_INT64 : TYPE_INT32;
+        setTypeAST(bin, res);
+        node = bin;
+    }
+    return node;
+}
+
+static AST *parseComparison(AetherParser *p) {
+    AST *node = parseShift(p);
     if (!node) return NULL;
     while (p->current.type == REA_TOKEN_GREATER || p->current.type == REA_TOKEN_GREATER_EQUAL ||
            p->current.type == REA_TOKEN_LESS || p->current.type == REA_TOKEN_LESS_EQUAL) {
         ReaToken op = p->current;
         aetherAdvance(p);
-        AST *right = parseAdd(p);
+        AST *right = parseShift(p);
         if (!right) return NULL;
         TokenType tt;
         const char *lex;
@@ -2603,13 +2636,81 @@ static AST *parseEquality(AetherParser *p) {
     return node;
 }
 
-static AST *parseLogicalAnd(AetherParser *p) {
+static AST *parseBitwiseAnd(AetherParser *p) {
     AST *node = parseEquality(p);
+    if (!node) return NULL;
+    while (p->current.type == REA_TOKEN_AND) {
+        ReaToken op = p->current;
+        aetherAdvance(p);
+        AST *right = parseEquality(p);
+        if (!right) return NULL;
+        Token *tok = newToken(TOKEN_AND, "&", op.line, 0);
+        AST *bin = newASTNode(AST_BINARY_OP, tok);
+        setLeft(bin, node);
+        setRight(bin, right);
+        VarType lt = node->var_type, rt = right->var_type;
+        VarType res = (lt == TYPE_INT64 || rt == TYPE_INT64) ? TYPE_INT64 : TYPE_INT32;
+        setTypeAST(bin, res);
+        node = bin;
+    }
+    return node;
+}
+
+static AST *parseBitwiseXor(AetherParser *p) {
+    AST *node = parseBitwiseAnd(p);
+    if (!node) return NULL;
+    while (p->current.type == REA_TOKEN_XOR) {
+        ReaToken op = p->current;
+        aetherAdvance(p);
+        AST *right = parseBitwiseAnd(p);
+        if (!right) return NULL;
+        const char *lexeme = (strncmp(op.start, "xor", op.length) == 0) ? "xor" : "^";
+        Token *tok = newToken(TOKEN_XOR, lexeme, op.line, 0);
+        AST *bin = newASTNode(AST_BINARY_OP, tok);
+        setLeft(bin, node);
+        setRight(bin, right);
+        VarType lt = node->var_type, rt = right->var_type;
+        VarType res;
+        if (lt == TYPE_BOOLEAN && rt == TYPE_BOOLEAN) {
+            res = TYPE_BOOLEAN;
+        } else if (lt == TYPE_INT64 || rt == TYPE_INT64) {
+            res = TYPE_INT64;
+        } else {
+            res = TYPE_INT32;
+        }
+        setTypeAST(bin, res);
+        node = bin;
+    }
+    return node;
+}
+
+static AST *parseBitwiseOr(AetherParser *p) {
+    AST *node = parseBitwiseXor(p);
+    if (!node) return NULL;
+    while (p->current.type == REA_TOKEN_OR) {
+        ReaToken op = p->current;
+        aetherAdvance(p);
+        AST *right = parseBitwiseXor(p);
+        if (!right) return NULL;
+        Token *tok = newToken(TOKEN_OR, "|", op.line, 0);
+        AST *bin = newASTNode(AST_BINARY_OP, tok);
+        setLeft(bin, node);
+        setRight(bin, right);
+        VarType lt = node->var_type, rt = right->var_type;
+        VarType res = (lt == TYPE_INT64 || rt == TYPE_INT64) ? TYPE_INT64 : TYPE_INT32;
+        setTypeAST(bin, res);
+        node = bin;
+    }
+    return node;
+}
+
+static AST *parseLogicalAnd(AetherParser *p) {
+    AST *node = parseBitwiseOr(p);
     if (!node) return NULL;
     while (p->current.type == REA_TOKEN_AND_AND) {
         ReaToken op = p->current;
         aetherAdvance(p);
-        AST *right = parseEquality(p);
+        AST *right = parseBitwiseOr(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_AND, "&&", op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);

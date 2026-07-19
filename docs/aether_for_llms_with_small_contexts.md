@@ -96,7 +96,9 @@ flags the authoring-only ones.
   `ToonDoc`/`ToonNode`/`MStream`. `println(boolValue)` prints `true` or `false`. For mixed
   output use variadic `println` (never `+`); to build a `Text`, use the
   conversion helpers (`itoa`, `formatfloat`, `realtostr`, `parse_int/float/bool`).
-- Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||`.
+- Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit).
+- Bitwise/shift (Int only): `& | ^`/`xor` (`^` and `xor` are the same operator), `<< >>`.
+  Example: `6 & 3` = `2`, `6 << 1` = `12`. Not logical -- use `&&`/`||` for Bool.
 - Numeric literals allow `_` digit separators between digits: `1_000_000`, `0xFF_FF`.
 
 ```aether

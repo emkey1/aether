@@ -2509,4 +2509,39 @@ if ! cmp -s /tmp/aether_text_index_char_builtins_expected.out /tmp/aether_text_i
     exit 1
 fi
 
+# Bitwise/shift operators (docs/ideas_and_todo.md "Bitwise operations don't
+# exist at all, despite `xor` being reserved as if they did"): `<<`, `>>`, `&`,
+# `|`, `^`/`xor` now reach the existing SHL/SHR/AND/OR/XOR VM opcodes (rea
+# already lexes/parses all of these; Aether's frontend just didn't expose
+# them). Covers each operator's basic result, that `&&`/`||` short-circuit
+# logic is unaffected, and the precedence ladder (add < shift < comparison <
+# equality < & < ^ < | < && < ||) -- including a right-hand-side-of-`&&`
+# expression that must parse all the way through the new bitwise layers
+# instead of stopping at equality (a regression this feature could easily
+# introduce: `&&`'s operand parser has to recurse through the new rungs, not
+# just skip past them).
+"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_ops_pass.aether" >/tmp/aether_bitwise_shift_ops_pass.out
+printf '12\n3\n2\n7\n5\n5\nfalse\ntrue\ntrue\n6\ntrue\n3\n' >/tmp/aether_bitwise_shift_ops_expected.out
+if ! cmp -s /tmp/aether_bitwise_shift_ops_expected.out /tmp/aether_bitwise_shift_ops_pass.out; then
+    echo "unexpected bitwise/shift operator output" >&2
+    cat /tmp/aether_bitwise_shift_ops_pass.out >&2
+    exit 1
+fi
+
+# A non-Int operand to a shift operator must still fail at runtime with a
+# clear VM diagnostic (the frontend deliberately does not re-validate operand
+# types at parse time -- see the comment above parseShift in ast_parser.c --
+# so this exercises the existing VM-level SHL/SHR type guard as the actual
+# safety net for the new operators).
+if "$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_type_mismatch_fail.aether" >/tmp/aether_bitwise_shift_type_mismatch_fail.out 2>&1; then
+    echo "expected bitwise/shift type-mismatch failure but program succeeded" >&2
+    cat /tmp/aether_bitwise_shift_type_mismatch_fail.out >&2
+    exit 1
+fi
+if ! grep -q "Operands for 'shl' and 'shr' must be integers" /tmp/aether_bitwise_shift_type_mismatch_fail.out; then
+    echo "missing shift type-mismatch diagnostic" >&2
+    cat /tmp/aether_bitwise_shift_type_mismatch_fail.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"
