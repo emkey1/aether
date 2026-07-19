@@ -66,6 +66,12 @@ enum hle_fn {
     HLE_STRRCHR,  // s, c -> last occurrence or NULL
     HLE_STRNLEN,  // s, n -> min(strlen, n)
     HLE_MEMRCHR,  // s, c, n -> last occurrence in n bytes or NULL
+    HLE_STRNCAT,  // dst, src, n -> dst
+    HLE_STPNCPY,  // dst, src, n -> dst + strnlen(src, n)
+    HLE_RAWMEMCHR,// s, c -> first occurrence (c assumed present)
+    HLE_STRSPN,   // s, accept -> len of initial all-in-accept run
+    HLE_STRCSPN,  // s, reject -> len of initial none-in-reject run
+    HLE_STRPBRK,  // s, accept -> first byte in accept, or NULL
 };
 
 #define HLE_PROLOGUE_LEN 64
@@ -495,6 +501,76 @@ static bool hle_memrchr(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t ent
     return true;
 }
 
+// rawmemchr: like memchr but unbounded -- the caller guarantees c is present,
+// so the scan finds it before running off into unmapped memory (a fault here
+// means the guarantee was violated, i.e. a genuine guest bug -> guest SIGSEGV).
+static bool hle_rawmemchr(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t s, uint8_t c, guest_addr_t *res_out) {
+    for (;;) {
+        uint64_t span = hle_to_page_end(s);
+        const uint8_t *p = __tlb_read_ptr(tlb, s);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        const uint8_t *hit = memchr(p, c, span);
+        if (hit != NULL) { *res_out = s + (uint64_t) (hit - p); return true; }
+        s += span;
+    }
+}
+
+// Read a guest C string into a 256-entry membership set (for strspn/cspn/pbrk).
+// Bounded work: stops at the NUL or once all 256 byte values are marked.
+static bool hle_build_set(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t set_str, bool set[256]) {
+    memset(set, 0, 256 * sizeof(bool));
+    guest_addr_t s = set_str;
+    unsigned distinct = 0;
+    for (;;) {
+        uint64_t span = hle_to_page_end(s);
+        const uint8_t *p = __tlb_read_ptr(tlb, s);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        for (uint64_t i = 0; i < span; i++) {
+            if (p[i] == 0)
+                return true;
+            if (!set[p[i]]) { set[p[i]] = true; if (++distinct == 255) { /* all non-NUL seen */ } }
+        }
+        s += span;
+    }
+}
+
+// strspn/strcspn: length of the initial run of s whose bytes are (in_set ?
+// members : non-members) of the accept/reject set. strpbrk (via ptr_out !=
+// NULL) instead returns the address of the first set member, or 0.
+static bool hle_spn(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t s, guest_addr_t set_str, bool want_in_set,
+        uint64_t *len_out, guest_addr_t *ptr_out) {
+    bool set[256];
+    if (!hle_build_set(cpu, tlb, entry_ip, set_str, set))
+        return false;
+    guest_addr_t cur = s;
+    for (;;) {
+        uint64_t span = hle_to_page_end(cur);
+        const uint8_t *p = __tlb_read_ptr(tlb, cur);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        for (uint64_t i = 0; i < span; i++) {
+            bool member = set[p[i]];
+            // strspn stops at first non-member (also at NUL, which is a
+            // non-member unless '\0' is in accept -- but strspn's accept never
+            // meaningfully contains NUL since build_set stops at it, so NUL
+            // always terminates the run). strcspn/strpbrk stop at first member
+            // or the NUL.
+            bool stop = want_in_set ? !member : member;
+            if (p[i] == 0) stop = true;
+            if (stop) {
+                if (ptr_out != NULL)
+                    *ptr_out = (p[i] != 0 && member) ? cur + i : 0; // strpbrk
+                if (len_out != NULL)
+                    *len_out = (uint64_t) (cur + i - s);
+                return true;
+            }
+        }
+        cur += span;
+    }
+}
+
 // Gadget entry point. Reads args from the guest ABI registers, performs the
 // operation, writes the return register, and sets the guest pc to the return
 // address. Returns INT_NONE on success (the gadget then exits the block via
@@ -600,6 +676,50 @@ int hle_call(struct cpu_state *cpu, struct tlb *tlb, unsigned long fn,
     case HLE_MEMRCHR: {
         guest_addr_t p = 0;
         ok = hle_memrchr(cpu, tlb, entry_ip, a0, (uint8_t) a1, a2, &p);
+        result = p;
+        break;
+    }
+    case HLE_STRNCAT: {
+        // strncat = copy min(strlen(src), n) bytes after dst's NUL, then
+        // always terminate. Returns dst.
+        uint64_t dlen = 0;
+        ok = hle_strlen(cpu, tlb, entry_ip, a0, &dlen);
+        if (ok) {
+            guest_addr_t end = 0;
+            ok = hle_stpcpy(cpu, tlb, entry_ip, a0 + dlen, a1, a2, false, &end);
+            if (ok)
+                ok = hle_set(cpu, tlb, entry_ip, end, 0, 1); // terminate (no-op if already NUL)
+        }
+        result = a0;
+        break;
+    }
+    case HLE_STPNCPY: {
+        guest_addr_t end = 0;
+        ok = hle_stpcpy(cpu, tlb, entry_ip, a0, a1, a2, true, &end);
+        result = end; // dst + strnlen(src, n)
+        break;
+    }
+    case HLE_RAWMEMCHR: {
+        guest_addr_t p = 0;
+        ok = hle_rawmemchr(cpu, tlb, entry_ip, a0, (uint8_t) a1, &p);
+        result = p;
+        break;
+    }
+    case HLE_STRSPN: {
+        uint64_t len = 0;
+        ok = hle_spn(cpu, tlb, entry_ip, a0, a1, true, &len, NULL);
+        result = len;
+        break;
+    }
+    case HLE_STRCSPN: {
+        uint64_t len = 0;
+        ok = hle_spn(cpu, tlb, entry_ip, a0, a1, false, &len, NULL);
+        result = len;
+        break;
+    }
+    case HLE_STRPBRK: {
+        guest_addr_t p = 0;
+        ok = hle_spn(cpu, tlb, entry_ip, a0, a1, false, NULL, &p);
         result = p;
         break;
     }
