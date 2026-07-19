@@ -19,6 +19,55 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
+### Real socket API (`socket*`) exists and works but is completely undocumented; models invent a fictional `tcpsocket*`/`udpsocket*` namespace — *gap, 2026-07-19*
+A generated batch of 12 examples included 5 built entirely around
+`tcpsocketlisten`/`tcpsocketaccept`/`tcpsocketread`/`tcpsocketsend`/
+`tcpsocketclose`, `udpsocket`/`udpsend`/`udpreceive`/`udplisten`/
+`udpreceivefrom`, and `resolve` -- **none of these exist** (`builtin_info`
+returns `null` for all of them). The real, working API is a unified
+BSD-socket-style `socket*` family (`socketcreate`, `socketbind`,
+`socketbindaddr`, `socketlisten`, `socketaccept`, `socketconnect`,
+`socketsend`, `socketreceive`, `socketclose`, `socketpoll`,
+`socketsetblocking`, `socketpeeraddr`, `socketlasterror`) plus `dnslookup`
+(forward hostname->IP only, single `Text` arg -- no reverse lookup). Neither
+guide mentions any of this; the small guide's *Files and environment* section
+says only "Sockets (`socket*`) ... discover them via `builtin_info(...)`",
+which is not enough for a model to reconstruct argument order or blocking
+semantics. Confirmed via source (not just `builtin_info`, which only returns
+`"usage":"socketcreate(...)"` with no argument detail) that at least
+`socketcreate(type[, family])` (`type`: `0`=TCP/SOCK_STREAM, `1`=UDP/
+SOCK_DGRAM; `family`: `4`=IPv4 default, `6`=IPv6) and
+`socketconnect(socket, host, port)` have real, sane signatures --
+`builtin_network_api.c` in pscal-core has the rest.
+**Not fixed this round:** documenting 8+ socket functions with correct
+argument order, blocking-vs-nonblocking semantics, and a runnable
+client+server-in-one-process example (needed since a real `accept()`/
+`receive()` blocks indefinitely with no counterpart) is a substantial
+standalone task, scoped out of a corpus-import pass. The 5 affected examples
+were dropped from this batch rather than guessed-and-hoped-into-working.
+
+### No file-content read/write API reachable from Aether's own type system — *gap, 2026-07-19*
+A generated "File Line Counter" example invented `fileopen`/`fileeof`/
+`filereadline`/`fileclose` (none exist). The *real* file I/O is classic
+Pascal-style (`assign`, `reset`, `rewrite`, `append`, `read`, `readln`,
+`write`, `close`, `eof`, `erase`, `rename` -- all real `vm_builtin`s,
+confirmed via `builtins_json(true)`), but it requires a Pascal "file
+variable" binding that Aether's own declared-type surface (`Int`, `Real`,
+`Text`, `Bool`, `Void`, records, arrays, tuples, `ToonDoc`/`ToonNode`,
+`MStream`) has no syntax for: `assign(f, path)` with `f` declared as plain
+`Text` fails outright with `"First arg to Assign must be a file variable."`,
+and no `File`/`TextFile`-shaped type exists to declare `f` as instead. As far
+as this pass could determine, **there is currently no way to read or write
+file contents from Aether source** -- only existence/metadata operations
+(`fileexists`, `filesize`, `mkdir`, `rmdir`, `getcurrentdir`) are reachable.
+Both guides already correctly limit "Files and environment" to those
+existence/metadata operations, so this isn't a doc gap so much as a real
+capability gap; worth a decision on whether to expose a `File`-like type in
+Aether someday, or to explicitly state in the guide that content I/O isn't
+available so models stop reaching for it. The affected example was rewritten
+to demonstrate the same line/word/char-counting logic over an in-memory
+`Text[]` instead of pretending file I/O exists.
+
 ### Three silent-failure gaps in the AST frontend now emit coded diagnostics — *fixed 2026-07-01-1*
 A program that exits non-zero with **no message at all** (empty stderr, empty
 `--diagnostics-json`) — or that crashes the VM outright — is the worst case for
