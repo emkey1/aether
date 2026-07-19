@@ -170,6 +170,35 @@
                                             </constraints>
                                         </tableViewCellContentView>
                                     </tableViewCell>
+                                    <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="none" indentationWidth="10" id="HLE-Ac-TCe" userLabel="HLE Accel">
+                                        <rect key="frame" x="0.0" y="279" width="320" height="43.5"/>
+                                        <autoresizingMask key="autoresizingMask"/>
+                                        <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="HLE-Ac-TCe" id="HLE-Ac-Con">
+                                            <rect key="frame" x="0.0" y="0.0" width="320" height="43.5"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <subviews>
+                                                <label opaque="NO" multipleTouchEnabled="YES" contentMode="left" insetsLayoutMarginsFromSafeArea="NO" text="HLE Accel (arm64/riscv64)" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="HLE-Ac-Lab">
+                                                    <rect key="frame" x="16" y="11.5" width="200" height="21"/>
+                                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                    <nil key="textColor"/>
+                                                    <nil key="highlightedColor"/>
+                                                </label>
+                                                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" contentHorizontalAlignment="center" contentVerticalAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="HLE-Ac-Swi">
+                                                    <rect key="frame" x="255" y="6.5" width="51" height="31"/>
+                                                    <connections>
+                                                        <action selector="enableHLEChanged:" destination="yJz-O7-jlW" eventType="valueChanged" id="HLE-Ac-Act"/>
+                                                    </connections>
+                                                </switch>
+                                            </subviews>
+                                            <constraints>
+                                                <constraint firstItem="HLE-Ac-Swi" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="HLE-Ac-Lab" secondAttribute="trailing" constant="8" symbolic="YES" id="HLE-Ac-C1"/>
+                                                <constraint firstItem="HLE-Ac-Lab" firstAttribute="leading" secondItem="HLE-Ac-Con" secondAttribute="leadingMargin" id="HLE-Ac-C2"/>
+                                                <constraint firstItem="HLE-Ac-Swi" firstAttribute="centerY" secondItem="HLE-Ac-Con" secondAttribute="centerY" id="HLE-Ac-C3"/>
+                                                <constraint firstAttribute="trailingMargin" secondItem="HLE-Ac-Swi" secondAttribute="trailing" id="HLE-Ac-C4"/>
+                                                <constraint firstItem="HLE-Ac-Lab" firstAttribute="centerY" secondItem="HLE-Ac-Con" secondAttribute="centerY" id="HLE-Ac-C5"/>
+                                            </constraints>
+                                        </tableViewCellContentView>
+                                    </tableViewCell>
                                 </cells>
                             </tableViewSection>
                             <tableViewSection id="u3N-3a-97w">
@@ -452,6 +481,7 @@
                             <outlet property="diagnosticsCell" destination="QYd-Ux-B9j" id="R7m-cB-CVC"/>
                             <outlet property="disableDimmingSwitch" destination="cPj-sQ-qsh" id="Kjp-xA-A0Y"/>
                             <outlet property="enableExperimentalAmd64JitSwitch" destination="A64-JI-Swi" id="A64-JI-Out"/>
+                            <outlet property="enableHLESwitch" destination="HLE-Ac-Swi" id="HLE-Ac-Out"/>
                             <outlet property="exportContainerCell" destination="OIE-9g-Btx" id="qxo-l5-0Mq"/>
                             <outlet property="initialWindowCell" destination="Qz7-Xf-6fk" id="ef3-px-VI0"/>
                             <outlet property="launchCommandField" destination="gDx-hv-hhV" id="RQn-gk-Dx8"/>

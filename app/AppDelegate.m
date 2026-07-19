@@ -3267,6 +3267,13 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
             doEnableMulticore = UserPreferences.shared.shouldEnableMulticore;
         });
     }];
+    [UserPreferences.shared observe:@[@"shouldEnableHLE"] options:NSKeyValueObservingOptionInitial
+                              owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            extern bool doEnableHLE;
+            doEnableHLE = UserPreferences.shared.shouldEnableHLE;
+        });
+    }];
     [UserPreferences.shared observe:@[@"shouldEnableExtraLocking"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{

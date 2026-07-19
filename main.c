@@ -216,6 +216,15 @@ int main(int argc, char *const argv[]) {
                            strcasecmp(mc, "no") == 0 || strcasecmp(mc, "off") == 0))
             doEnableMulticore = false;
     }
+    // HLE of fingerprinted guest libc functions (jit/hle.c). Default OFF;
+    // ISH_HLE=1 enables it (arm64/riscv64 guests only).
+    {
+        extern bool doEnableHLE;
+        const char *hle = getenv("ISH_HLE");
+        if (hle != NULL && strcmp(hle, "0") != 0 && strcasecmp(hle, "false") != 0 &&
+                strcasecmp(hle, "no") != 0 && strcasecmp(hle, "off") != 0)
+            doEnableHLE = true;
+    }
     halt_hook = cli_halt;
 
     char *envp = build_envp_from_term();

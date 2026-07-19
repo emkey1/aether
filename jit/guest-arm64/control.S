@@ -149,6 +149,32 @@ arm64_chain_poked:
     str x10, [_cpu, #CPU_pc]
     b jit_ret
 
+// HLE "giant gadget": the whole block is one fingerprinted libc function
+// (jit/hle.c). Bridges to hle_call(cpu, tlb, fn, entry_ip), which performs
+// the function against guest memory, writes the return register, and sets
+// cpu->pc to the guest return address. Result INT_NONE -> exit the block
+// via jit_ret (dispatcher continues at the new pc); any other interrupt
+// (INT_PF after a guest memory fault, pc rewound to entry) -> jit_exit.
+// x27 carries the result across restore_c (x0-x18 + lr are reloaded).
+// Code stream: [fn | abi<<8][entry_ip].
+.gadget hle_call
+    ldr x8, [_ip]
+    ldr x9, [_ip, #8]
+    save_c
+    mov x0, x1                 // cpu   (x1 = _cpu; read before x1 is written)
+    sub x1, x2, #TLB_entries   // tlb   (consumes x2 before x2 is written)
+    mov x2, x8                 // fn word
+    mov x3, x9                 // entry ip
+    bl NAME(hle_call)
+    mov x27, x0
+    restore_c
+    tbnz w27, #31, 1f          // INT_NONE (-1): success, pc updated
+    mov w0, w27
+    b jit_exit
+1:  b jit_ret
+
+.extern hle_call
+
 // RET has identical semantics to BR (branch to register value) -- same
 // gadget body, just invoked for a different guest mnemonic/encoding.
 .gadget ret

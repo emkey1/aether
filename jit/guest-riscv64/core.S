@@ -17,6 +17,29 @@
     strb wzr, [_cpu, #CPU_segfault_was_write]
     b jit_exit
 
+// HLE "giant gadget" -- riscv64 twin of guest-arm64 control.S's hle_call
+// (see that gadget's comment for the full contract). Bridges to
+// hle_call(cpu, tlb, fn, entry_ip); INT_NONE -> jit_ret with the pc the C
+// side stored, any real interrupt code -> jit_exit. x27 carries the result
+// across restore_c. Code stream: [fn | abi<<8][entry_ip].
+.gadget hle_call
+    ldr x8, [_ip]
+    ldr x9, [_ip, #8]
+    save_c
+    mov x0, x1                 // cpu   (x1 = _cpu; read before x1 is written)
+    sub x1, x2, #TLB_entries   // tlb   (consumes x2 before x2 is written)
+    mov x2, x8                 // fn word
+    mov x3, x9                 // entry ip
+    bl NAME(hle_call)
+    mov x27, x0
+    restore_c
+    tbnz w27, #31, 1f          // INT_NONE (-1): success, pc updated
+    mov w0, w27
+    b jit_exit
+1:  b jit_ret
+
+.extern hle_call
+
 // ECALL. Code stream: [gadget][next_pc]. PC is left at the instruction
 // AFTER the ecall; prepare_syscall_restart rewinds by 4 when needed.
 .gadget ecall

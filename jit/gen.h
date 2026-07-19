@@ -65,4 +65,12 @@ int gen_step_amd64(struct gen_state *state, struct tlb *tlb);
 int gen_step_arm64(struct gen_state *state, struct tlb *tlb);
 int gen_step_riscv64(struct gen_state *state, struct tlb *tlb);
 
+// Append one raw code-stream word (external emitters, e.g. jit/hle.c).
+void gen_raw(struct gen_state *state, unsigned long word);
+// jit/hle.c: if the block starting at ip is a fingerprinted libc function
+// and HLE is enabled, emit the whole block as one HLE gadget. The caller
+// must skip per-instruction translation and go straight to gen_end.
+bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
+        bool riscv64);
+
 #endif

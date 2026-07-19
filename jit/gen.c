@@ -324,6 +324,10 @@ static void gen(struct gen_state *state, unsigned long thing) {
     state->block->code[state->size++] = thing;
 }
 
+void gen_raw(struct gen_state *state, unsigned long word) {
+    gen(state, word);
+}
+
 static void gen_amd64_emit_rip(struct gen_state *state, guest_addr_t rip) {
     state->amd64_deferred_rip_valid = false;
 #if defined(__aarch64__)

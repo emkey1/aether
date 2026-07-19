@@ -32,6 +32,7 @@ static NSString *const kPreferenceFontSizeKey = @"Font Size";
 static NSString *const kPreferenceThemeKey = @"ModernTheme";
 static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
+static NSString *const kPreferenceEnableHLEKey = @"Enable HLE Accel";
 static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
 static NSString *const kPreferenceEnableExperimentalAmd64JitKey = @"Enable Experimental amd64 JIT";
 static NSString *const kPreferenceEnableLLMClientKey = @"Enable LLM Client";
@@ -185,6 +186,7 @@ bool (*remove_user_default)(const char *name);
         _defaults = [NSUserDefaults standardUserDefaults];
         [_defaults registerDefaults:@{
             kPreferenceEnableMulticoreKey: @(YES),
+            kPreferenceEnableHLEKey: @(NO),
             kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceEnableExperimentalAmd64JitKey: @(YES),
             kPreferenceEnableLLMClientKey: @(NO),
@@ -231,6 +233,7 @@ bool (*remove_user_default)(const char *name);
         amd64_jit_set_enabled([_defaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey]);
         friendlyPreferenceMapping = @{
             @"enable_multicore": kPreferenceEnableMulticoreKey,
+            @"enable_hle": kPreferenceEnableHLEKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,
             @"caps_lock_mapping": kPreferenceCapsLockMappingKey,
             @"option_mapping": kPreferenceOptionMappingKey,
@@ -270,6 +273,7 @@ bool (*remove_user_default)(const char *name);
 #define property(x) NSStringFromSelector(@selector(x))
         kvoProperties = @{
             kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
+            kPreferenceEnableHLEKey: property(shouldEnableHLE),
 	        kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
             kPreferenceCapsLockMappingKey: property(capsLockMapping),
             kPreferenceOptionMappingKey: property(optionMapping),
@@ -653,6 +657,19 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldEnableMulticore:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: ShouldEnableHLE
+- (BOOL)shouldEnableHLE {
+    return [_defaults boolForKey:kPreferenceEnableHLEKey];
+}
+
+- (void)setShouldEnableHLE:(BOOL)dim {
+    [_defaults setBool:dim forKey:kPreferenceEnableHLEKey];
+}
+
+- (BOOL)validateShouldEnableHLE:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

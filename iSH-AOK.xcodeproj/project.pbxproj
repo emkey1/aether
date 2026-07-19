@@ -71,6 +71,7 @@
 		497F6D16254E5EA600C82F46 /* tty-real.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C05254E5C0E00C82F46 /* tty-real.c */; };
 		497F6D17254E5EA600C82F46 /* tty.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BE2254E5C0D00C82F46 /* tty.c */; };
 		497F6D18254E5EA600C82F46 /* gen.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C3D254E5C4F00C82F46 /* gen.c */; };
+		4B1EA0012F53100100000001 /* hle.c in Sources */ = {isa = PBXBuildFile; fileRef = 4B1EA0012F53100100000002 /* hle.c */; };
 		497F6D19254E5EA600C82F46 /* helpers.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C3B254E5C4F00C82F46 /* helpers.c */; };
 		497F6D1A254E5EA600C82F46 /* jit.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C40254E5C4F00C82F46 /* jit.c */; };
 		497F6D1B254E5EA600C82F46 /* offsets.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C3C254E5C4F00C82F46 /* offsets.c */; };
@@ -569,6 +570,8 @@
 		497F6C3B254E5C4F00C82F46 /* helpers.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = helpers.c; sourceTree = "<group>"; };
 		497F6C3C254E5C4F00C82F46 /* offsets.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = offsets.c; sourceTree = "<group>"; };
 		497F6C3D254E5C4F00C82F46 /* gen.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = gen.c; sourceTree = "<group>"; };
+		4B1EA0012F53100100000002 /* hle.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = hle.c; sourceTree = "<group>"; };
+		4B1EA0012F53100100000003 /* hle-table.inc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "hle-table.inc"; sourceTree = "<group>"; };
 		497F6C3E254E5C4F00C82F46 /* gen.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gen.h; sourceTree = "<group>"; };
 		497F6C3F254E5C4F00C82F46 /* frame.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = frame.h; sourceTree = "<group>"; };
 		497F6C40254E5C4F00C82F46 /* jit.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = jit.c; sourceTree = "<group>"; };
@@ -1450,6 +1453,8 @@
 				497F6C30254E5C4F00C82F46 /* gadgets-generic.h */,
 				497F6C27254E5C4F00C82F46 /* gadgets-x86_64 */,
 				497F6C3D254E5C4F00C82F46 /* gen.c */,
+				4B1EA0012F53100100000002 /* hle.c */,
+				4B1EA0012F53100100000003 /* hle-table.inc */,
 				497F6C3E254E5C4F00C82F46 /* gen.h */,
 				497F6C3B254E5C4F00C82F46 /* helpers.c */,
 				497F6C40254E5C4F00C82F46 /* jit.c */,
@@ -2370,6 +2375,7 @@
 				497F6D16254E5EA600C82F46 /* tty-real.c in Sources */,
 				497F6D17254E5EA600C82F46 /* tty.c in Sources */,
 				497F6D18254E5EA600C82F46 /* gen.c in Sources */,
+				4B1EA0012F53100100000001 /* hle.c in Sources */,
 				497F6D19254E5EA600C82F46 /* helpers.c in Sources */,
 				497F6D1A254E5EA600C82F46 /* jit.c in Sources */,
 				497F6D1B254E5EA600C82F46 /* offsets.c in Sources */,

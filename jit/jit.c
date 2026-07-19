@@ -923,7 +923,11 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
         free(state.block);
         return NULL;
     }
-    while (true) {
+    // HLE (jit/hle.c): if this block starts at a fingerprinted libc function
+    // and the feature is enabled, the whole block is one hle_call gadget --
+    // skip per-instruction translation entirely.
+    bool hle_block = (arm64 || riscv64) && hle_try_emit(&state, tlb, ip, riscv64);
+    while (!hle_block) {
         if (!gen_step(&state, tlb))
             break;
         // no block should span more than 2 pages
