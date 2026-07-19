@@ -56,22 +56,6 @@ static void chacha20_init(uint32_t st[16], const uint8_t key[32], uint32_t count
     st[15] = load32le(nonce + 8);
 }
 
-// XOR the keystream (starting at block `counter`) over in -> out, len bytes.
-static void chacha20_xor(const uint8_t key[32], uint32_t counter, const uint8_t nonce[12],
-        const uint8_t *in, uint8_t *out, size_t len) {
-    uint32_t st[16];
-    chacha20_init(st, key, counter, nonce);
-    uint8_t ks[64];
-    while (len > 0) {
-        chacha20_block(st, ks);
-        st[12]++; // next block counter
-        size_t n = len < 64 ? len : 64;
-        for (size_t i = 0; i < n; i++)
-            out[i] = in[i] ^ ks[i];
-        in += n; out += n; len -= n;
-    }
-}
-
 // ---- Poly1305 (RFC 8439 sect 2.5), 64-bit-limb reference ----------------
 
 struct poly1305 {
@@ -166,21 +150,6 @@ static void poly1305_finish(struct poly1305 *st, uint8_t mac[16]) {
 
 static const uint8_t poly_pad[16] = {0};
 
-static void poly1305_tag(const uint8_t otk[32], const uint8_t *aad, size_t aadlen,
-        const uint8_t *ct, size_t ctlen, uint8_t tag[16]) {
-    struct poly1305 st;
-    poly1305_init(&st, otk);
-    poly1305_update(&st, aad, aadlen);
-    if (aadlen % 16) poly1305_update(&st, poly_pad, 16 - (aadlen % 16));
-    poly1305_update(&st, ct, ctlen);
-    if (ctlen % 16) poly1305_update(&st, poly_pad, 16 - (ctlen % 16));
-    uint8_t lengths[16];
-    for (int i = 0; i < 8; i++) lengths[i]     = (uint8_t) ((uint64_t) aadlen >> (8 * i));
-    for (int i = 0; i < 8; i++) lengths[8 + i] = (uint8_t) ((uint64_t) ctlen >> (8 * i));
-    poly1305_update(&st, lengths, 16);
-    poly1305_finish(&st, tag);
-}
-
 static void aead_otk(const uint8_t key[32], const uint8_t nonce[12], uint8_t otk[32]) {
     uint32_t st[16];
     chacha20_init(st, key, 0, nonce);
@@ -189,26 +158,107 @@ static void aead_otk(const uint8_t key[32], const uint8_t nonce[12], uint8_t otk
     memcpy(otk, block0, 32);
 }
 
+// The one-shot entry points are now thin wrappers over the streaming API
+// (defined below), so there is a single implementation of the AEAD
+// construction to audit and validate.
 void ish_chacha20_poly1305_seal(const uint8_t key[32], const uint8_t nonce[12],
         const uint8_t *aad, size_t aadlen, const uint8_t *pt, size_t ptlen,
         uint8_t *ct, uint8_t tag[16]) {
-    uint8_t otk[32];
-    aead_otk(key, nonce, otk);
-    chacha20_xor(key, 1, nonce, pt, ct, ptlen); // counter starts at 1
-    poly1305_tag(otk, aad, aadlen, ct, ptlen, tag); // ciphertext len == plaintext len
+    struct ish_aead_stream s;
+    ish_aead_begin(&s, key, nonce, aad, aadlen, 0);
+    if (ptlen) ish_aead_update(&s, pt, ct, ptlen);
+    ish_aead_finish(&s, NULL, tag);
 }
 
 int ish_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12],
         const uint8_t *aad, size_t aadlen, const uint8_t *ct, size_t ctlen,
         const uint8_t tag[16], uint8_t *pt) {
-    uint8_t otk[32], want[16];
+    struct ish_aead_stream s;
+    ish_aead_begin(&s, key, nonce, aad, aadlen, 1);
+    if (ctlen) ish_aead_update(&s, ct, pt, ctlen); // decrypts eagerly into pt
+    if (ish_aead_finish(&s, tag, NULL) != 0) {
+        if (ctlen) memset(pt, 0, ctlen); // auth failed: do not release plaintext
+        return -1;
+    }
+    return 0;
+}
+
+// ---- Streaming AEAD -----------------------------------------------------
+// Reuses the validated chacha20_block / poly1305_* primitives; only the
+// span-buffering plumbing is new. The Poly1305 tag is always computed over
+// the CIPHERTEXT (out for seal, in for open), matching the one-shot path.
+
+struct aead_stream {
+    uint8_t key[32], nonce[12];
+    uint32_t counter;      // next chacha data block (starts at 1)
+    uint8_t ks[64];        // current keystream block
+    unsigned ks_pos;       // 0..64; 64 => needs refill
+    struct poly1305 poly;
+    uint64_t aadlen, datalen;
+    int is_open;
+};
+_Static_assert(sizeof(struct aead_stream) <= sizeof(struct ish_aead_stream),
+        "ish_aead_stream opaque buffer too small");
+
+void ish_aead_begin(struct ish_aead_stream *sp, const uint8_t key[32],
+        const uint8_t nonce[12], const uint8_t *aad, size_t aadlen, int is_open) {
+    struct aead_stream *s = (struct aead_stream *) sp;
+    memcpy(s->key, key, 32);
+    memcpy(s->nonce, nonce, 12);
+    s->counter = 1;
+    s->ks_pos = 64; // force a refill on the first data byte
+    s->aadlen = aadlen;
+    s->datalen = 0;
+    s->is_open = is_open;
+    uint8_t otk[32];
     aead_otk(key, nonce, otk);
-    poly1305_tag(otk, aad, aadlen, ct, ctlen, want);
-    // constant-time tag compare
-    uint8_t diff = 0;
-    for (int i = 0; i < 16; i++) diff |= want[i] ^ tag[i];
-    if (diff != 0) return -1;
-    chacha20_xor(key, 1, nonce, ct, pt, ctlen);
+    poly1305_init(&s->poly, otk);
+    if (aadlen) poly1305_update(&s->poly, aad, aadlen);
+    if (aadlen % 16) poly1305_update(&s->poly, poly_pad, 16 - (aadlen % 16));
+}
+
+void ish_aead_update(struct ish_aead_stream *sp, const uint8_t *in, uint8_t *out, size_t len) {
+    struct aead_stream *s = (struct aead_stream *) sp;
+    s->datalen += len;
+    // For open, Poly1305 is over the input ciphertext -- feed it directly
+    // (the whole span is contiguous). For seal it's over the output, fed
+    // below after we produce it.
+    if (s->is_open)
+        poly1305_update(&s->poly, in, len);
+    size_t i = 0;
+    while (i < len) {
+        if (s->ks_pos == 64) {
+            uint32_t st[16];
+            chacha20_init(st, s->key, s->counter++, s->nonce);
+            chacha20_block(st, s->ks);
+            s->ks_pos = 0;
+        }
+        unsigned take = 64 - s->ks_pos;
+        if (take > len - i) take = (unsigned) (len - i);
+        for (unsigned j = 0; j < take; j++)
+            out[i + j] = in[i + j] ^ s->ks[s->ks_pos + j];
+        s->ks_pos += take;
+        i += take;
+    }
+    if (!s->is_open)
+        poly1305_update(&s->poly, out, len);
+}
+
+int ish_aead_finish(struct ish_aead_stream *sp, const uint8_t *tag_in, uint8_t *tag_out) {
+    struct aead_stream *s = (struct aead_stream *) sp;
+    if (s->datalen % 16) poly1305_update(&s->poly, poly_pad, 16 - (s->datalen % 16));
+    uint8_t lengths[16];
+    for (int i = 0; i < 8; i++) lengths[i]     = (uint8_t) (s->aadlen  >> (8 * i));
+    for (int i = 0; i < 8; i++) lengths[8 + i] = (uint8_t) (s->datalen >> (8 * i));
+    poly1305_update(&s->poly, lengths, 16);
+    uint8_t tag[16];
+    poly1305_finish(&s->poly, tag);
+    if (s->is_open) {
+        uint8_t diff = 0;
+        for (int i = 0; i < 16; i++) diff |= tag[i] ^ tag_in[i];
+        return diff == 0 ? 0 : -1;
+    }
+    memcpy(tag_out, tag, 16);
     return 0;
 }
 

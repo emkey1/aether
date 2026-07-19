@@ -15,6 +15,24 @@ int ish_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12],
         const uint8_t *aad, size_t aadlen, const uint8_t *ct, size_t ctlen,
         const uint8_t tag[16], uint8_t *pt);
 
+// ---- Streaming AEAD (lets a caller process the data one page-span at a
+// time straight out of / into guest memory, no bounce buffer) --------------
+// Opaque, stack-allocatable. Sized generously to hold the real context.
+struct ish_aead_stream { _Alignas(16) unsigned char opaque[320]; };
+
+// is_open: 0 = seal (in=pt, out=ct), 1 = open (in=ct, out=pt). aad is consumed
+// up front. The total data length must be known so the final length block is
+// correct; it is accumulated from the update calls.
+void ish_aead_begin(struct ish_aead_stream *s, const uint8_t key[32],
+        const uint8_t nonce[12], const uint8_t *aad, size_t aadlen, int is_open);
+// Process one contiguous span. Spans of any length are fine; keystream and
+// Poly1305 state carry across calls. For open, out receives the decrypted
+// bytes eagerly -- the caller MUST discard/zero them if finish() fails.
+void ish_aead_update(struct ish_aead_stream *s, const uint8_t *in, uint8_t *out, size_t len);
+// seal: writes the 16-byte tag to tag_out. open: returns 0 iff tag_in matches
+// (constant-time), else -1.
+int ish_aead_finish(struct ish_aead_stream *s, const uint8_t *tag_in, uint8_t *tag_out);
+
 // Validates the implementation against the RFC 8439 test vectors. Returns
 // true on success. Called once before the accelerator is enabled.
 _Bool ish_accel_crypto_selftest(void);
