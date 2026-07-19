@@ -55,6 +55,10 @@ enum hle_fn {
     HLE_MEMSET,   // dst, c, n -> dst
     HLE_STRLEN,   // s -> len
     HLE_MEMCMP,   // a, b, n -> sign
+    HLE_STRCMP,   // a, b -> sign
+    HLE_STRNCMP,  // a, b, n -> sign
+    HLE_MEMCHR,   // s, c, n -> ptr or NULL
+    HLE_STRCHR,   // s, c -> ptr or NULL (incl. the NUL when c==0)
 };
 
 #define HLE_PROLOGUE_LEN 64
@@ -325,6 +329,70 @@ static bool hle_cmp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_i
     return true;
 }
 
+// strcmp / strncmp: compare byte-by-byte within each page span, stopping at
+// the first difference or at a shared NUL. The result is the unsigned-char
+// difference of the first differing bytes (musl's exact behavior; POSIX
+// only guarantees the sign, which every conforming caller relies on). For
+// strncmp, `limit` bounds the comparison; strcmp passes ~0.
+static bool hle_strcmp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t a, guest_addr_t b, uint64_t limit, int64_t *res_out) {
+    uint64_t done = 0;
+    while (done < limit) {
+        uint64_t span = limit - done;
+        uint64_t ap = hle_to_page_end(a), bp = hle_to_page_end(b);
+        if (span > ap) span = ap;
+        if (span > bp) span = bp;
+        const uint8_t *ah = __tlb_read_ptr(tlb, a);
+        if (ah == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        const uint8_t *bh = __tlb_read_ptr(tlb, b);
+        if (bh == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        for (uint64_t i = 0; i < span; i++) {
+            if (ah[i] != bh[i]) {
+                *res_out = (int64_t) ah[i] - (int64_t) bh[i];
+                return true;
+            }
+            if (ah[i] == 0) { // shared terminator: strings equal up to here
+                *res_out = 0;
+                return true;
+            }
+        }
+        a += span; b += span; done += span;
+    }
+    *res_out = 0; // strncmp hit its limit with no difference
+    return true;
+}
+
+// memchr / strchr: scan for byte `c`. memchr is bounded by `n`; strchr is
+// unbounded and also matches the terminating NUL when c==0 (its documented
+// behavior). Returns the guest address of the match, or 0 for "not found".
+// strchr never reads past the NUL (matches a page-safe vector strchr).
+static bool hle_chr(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
+        guest_addr_t s, uint8_t c, uint64_t n, bool is_str, guest_addr_t *res_out) {
+    uint64_t done = 0;
+    for (;;) {
+        if (!is_str && done >= n) {
+            *res_out = 0;
+            return true;
+        }
+        uint64_t span = hle_to_page_end(s);
+        if (!is_str && span > n - done)
+            span = n - done;
+        const uint8_t *p = __tlb_read_ptr(tlb, s);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        for (uint64_t i = 0; i < span; i++) {
+            if (p[i] == c) {
+                *res_out = s + i;
+                return true;
+            }
+            if (is_str && p[i] == 0) { // reached end of string without a match
+                *res_out = 0;          // (c==0 matched above, so c!=0 here)
+                return true;
+            }
+        }
+        s += span; done += span;
+    }
+}
+
 // Gadget entry point. Reads args from the guest ABI registers, performs the
 // operation, writes the return register, and sets the guest pc to the return
 // address. Returns INT_NONE on success (the gadget then exits the block via
@@ -360,6 +428,30 @@ int hle_call(struct cpu_state *cpu, struct tlb *tlb, unsigned long fn,
         int64_t res = 0;
         ok = hle_cmp(cpu, tlb, entry_ip, a0, a1, a2, &res);
         result = (qword_t) res;
+        break;
+    }
+    case HLE_STRCMP: {
+        int64_t res = 0;
+        ok = hle_strcmp(cpu, tlb, entry_ip, a0, a1, ~0ull, &res);
+        result = (qword_t) res;
+        break;
+    }
+    case HLE_STRNCMP: {
+        int64_t res = 0;
+        ok = hle_strcmp(cpu, tlb, entry_ip, a0, a1, a2, &res);
+        result = (qword_t) res;
+        break;
+    }
+    case HLE_MEMCHR: {
+        guest_addr_t p = 0;
+        ok = hle_chr(cpu, tlb, entry_ip, a0, (uint8_t) a1, a2, false, &p);
+        result = p;
+        break;
+    }
+    case HLE_STRCHR: {
+        guest_addr_t p = 0;
+        ok = hle_chr(cpu, tlb, entry_ip, a0, (uint8_t) a1, 0, true, &p);
+        result = p;
         break;
     }
     default:

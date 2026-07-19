@@ -18,6 +18,10 @@ static const struct { const char *sym; const char *fn; } FNS[] = {
     { "memset", "HLE_MEMSET" },
     { "strlen", "HLE_STRLEN" },
     { "memcmp", "HLE_MEMCMP" },
+    { "strcmp", "HLE_STRCMP" },
+    { "strncmp", "HLE_STRNCMP" },
+    { "memchr", "HLE_MEMCHR" },
+    { "strchr", "HLE_STRCHR" },
 };
 
 int main(int argc, char **argv) {
