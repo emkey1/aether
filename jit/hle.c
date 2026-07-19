@@ -189,10 +189,21 @@ bool hle_try_emit(struct gen_state *UNUSED(state), struct tlb *UNUSED(tlb),
 
 // ---- Runtime implementations (called from the hle_call gadgets) ---------
 
-// Chunked guest-memory helpers: tlb_read/tlb_write already handle TLB
-// misses (through mmu_translate) and cross-page spans; a failure is a
-// genuine guest memory fault.
-#define HLE_CHUNK 256
+// These resolve a DIRECT host pointer to guest memory, one page at a time,
+// and run a single native host memcpy/memset/memcmp over each in-page span
+// -- the same direct-host-access the JIT's TLB fast path uses, but as one
+// fully-vectorized libc call per page instead of a per-16-byte gadget loop.
+// (An earlier revision bounced every 256 bytes through a stack buffer via
+// tlb_read/tlb_write: 2x memory traffic plus a TLB lookup per chunk, which
+// benchmarked ~2x SLOWER than the plain translated glibc memcpy. Direct
+// pointers remove both costs.) __tlb_{read,write}_ptr handle TLB misses and
+// write-revalidation and return NULL on a genuine fault.
+//
+// Note: unlike tlb_write, the direct write path does not invoke
+// arm64_watch_scan_value (the ISH_ARM64_WATCH_LO16 debug store watchpoint).
+// That instrumentation is a debug-only diagnostic, not correctness, so HLE
+// stores are simply invisible to it -- acceptable, and HLE is off by default
+// anyway.
 
 // The fault path needs to know which guest pc to rewind; threaded through
 // from hle_call's fn word rather than sniffing cpu state.
@@ -211,30 +222,47 @@ static bool hle_fault(struct cpu_state *cpu, struct tlb *tlb,
     return false;
 }
 
+// Bytes from addr to the end of its page.
+static inline uint64_t hle_to_page_end(guest_addr_t addr) {
+    return PAGE_SIZE - (addr & (PAGE_SIZE - 1));
+}
+
 static bool hle_copy(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
         guest_addr_t dst, guest_addr_t src, uint64_t n) {
-    uint8_t buf[HLE_CHUNK];
     if (dst == src || n == 0)
         return true;
     if (dst < src || src + n <= dst) {
-        // Forward copy (no overlap hazard in this direction).
+        // Forward: safe when dst is below src or the ranges don't overlap.
         while (n > 0) {
-            unsigned chunk = n > HLE_CHUNK ? HLE_CHUNK : (unsigned) n;
-            if (!tlb_read(tlb, src, buf, chunk))
-                return hle_fault(cpu, tlb, entry_ip, false);
-            if (!tlb_write(tlb, dst, buf, chunk))
-                return hle_fault(cpu, tlb, entry_ip, true);
-            src += chunk; dst += chunk; n -= chunk;
+            uint64_t span = n;
+            uint64_t sp = hle_to_page_end(src), dp = hle_to_page_end(dst);
+            if (span > sp) span = sp;
+            if (span > dp) span = dp;
+            void *sh = __tlb_read_ptr(tlb, src);
+            if (sh == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+            void *dh = __tlb_write_ptr(tlb, dst);
+            if (dh == NULL) return hle_fault(cpu, tlb, entry_ip, true);
+            memcpy(dh, sh, span);
+            src += span; dst += span; n -= span;
         }
     } else {
-        // Overlapping with dst above src: copy backwards.
+        // Overlapping with dst above src: copy back-to-front, still one
+        // native memcpy per (min-aligned) span.
+        guest_addr_t s = src + n, d = dst + n;
         while (n > 0) {
-            unsigned chunk = n > HLE_CHUNK ? HLE_CHUNK : (unsigned) n;
-            n -= chunk;
-            if (!tlb_read(tlb, src + n, buf, chunk))
-                return hle_fault(cpu, tlb, entry_ip, false);
-            if (!tlb_write(tlb, dst + n, buf, chunk))
-                return hle_fault(cpu, tlb, entry_ip, true);
+            // Span backward is bounded by each address's offset within its
+            // page (distance to page START), min 1.
+            uint64_t so = (s & (PAGE_SIZE - 1)); if (so == 0) so = PAGE_SIZE;
+            uint64_t doff = (d & (PAGE_SIZE - 1)); if (doff == 0) doff = PAGE_SIZE;
+            uint64_t span = n;
+            if (span > so) span = so;
+            if (span > doff) span = doff;
+            s -= span; d -= span; n -= span;
+            void *sh = __tlb_read_ptr(tlb, s);
+            if (sh == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+            void *dh = __tlb_write_ptr(tlb, d);
+            if (dh == NULL) return hle_fault(cpu, tlb, entry_ip, true);
+            memmove(dh, sh, span);
         }
     }
     return true;
@@ -242,58 +270,56 @@ static bool hle_copy(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_
 
 static bool hle_set(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
         guest_addr_t dst, uint8_t c, uint64_t n) {
-    uint8_t buf[HLE_CHUNK];
-    memset(buf, c, n > HLE_CHUNK ? HLE_CHUNK : (size_t) n);
     while (n > 0) {
-        unsigned chunk = n > HLE_CHUNK ? HLE_CHUNK : (unsigned) n;
-        if (!tlb_write(tlb, dst, buf, chunk))
-            return hle_fault(cpu, tlb, entry_ip, true);
-        dst += chunk; n -= chunk;
+        uint64_t span = n, dp = hle_to_page_end(dst);
+        if (span > dp) span = dp;
+        void *dh = __tlb_write_ptr(tlb, dst);
+        if (dh == NULL) return hle_fault(cpu, tlb, entry_ip, true);
+        memset(dh, c, span);
+        dst += span; n -= span;
     }
     return true;
 }
 
 static bool hle_strlen(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
         guest_addr_t s, uint64_t *len_out) {
-    uint8_t buf[HLE_CHUNK];
     uint64_t len = 0;
     for (;;) {
-        // Never read past the NUL's page: cap each chunk at the page end so a
-        // string ending just before an unmapped page doesn't fault (a real
-        // byte-wise strlen would not touch the next page either; the vector
-        // ones only read within the aligned page, same guarantee).
-        unsigned to_page = (unsigned) (PAGE_SIZE - ((s + len) & (PAGE_SIZE - 1)));
-        unsigned chunk = to_page > HLE_CHUNK ? HLE_CHUNK : to_page;
-        if (!tlb_read(tlb, s + len, buf, chunk))
-            return hle_fault(cpu, tlb, entry_ip, false);
-        for (unsigned i = 0; i < chunk; i++) {
-            if (buf[i] == 0) {
-                *len_out = len + i;
-                return true;
-            }
+        // Scan one page at a time (never touching the next page until the
+        // current one has no NUL -- matches what a page-aligned vector strlen
+        // is allowed to read, so a string ending just before an unmapped page
+        // doesn't spuriously fault).
+        uint64_t span = hle_to_page_end(s + len);
+        const uint8_t *p = __tlb_read_ptr(tlb, s + len);
+        if (p == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        const uint8_t *nul = memchr(p, 0, span);
+        if (nul != NULL) {
+            *len_out = len + (uint64_t) (nul - p);
+            return true;
         }
-        len += chunk;
+        len += span;
     }
 }
 
 static bool hle_cmp(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_ip,
         guest_addr_t a, guest_addr_t b, uint64_t n, int64_t *res_out) {
-    uint8_t ba[HLE_CHUNK], bb[HLE_CHUNK];
     while (n > 0) {
-        unsigned chunk = n > HLE_CHUNK ? HLE_CHUNK : (unsigned) n;
-        if (!tlb_read(tlb, a, ba, chunk))
-            return hle_fault(cpu, tlb, entry_ip, false);
-        if (!tlb_read(tlb, b, bb, chunk))
-            return hle_fault(cpu, tlb, entry_ip, false);
-        if (memcmp(ba, bb, chunk) != 0) {
-            for (unsigned i = 0; i < chunk; i++) {
-                if (ba[i] != bb[i]) {
-                    *res_out = (int64_t) ba[i] - (int64_t) bb[i];
+        uint64_t span = n, ap = hle_to_page_end(a), bp = hle_to_page_end(b);
+        if (span > ap) span = ap;
+        if (span > bp) span = bp;
+        const uint8_t *ah = __tlb_read_ptr(tlb, a);
+        if (ah == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        const uint8_t *bh = __tlb_read_ptr(tlb, b);
+        if (bh == NULL) return hle_fault(cpu, tlb, entry_ip, false);
+        if (memcmp(ah, bh, span) != 0) {
+            for (uint64_t i = 0; i < span; i++) {
+                if (ah[i] != bh[i]) {
+                    *res_out = (int64_t) ah[i] - (int64_t) bh[i];
                     return true;
                 }
             }
         }
-        a += chunk; b += chunk; n -= chunk;
+        a += span; b += span; n -= span;
     }
     *res_out = 0;
     return true;
