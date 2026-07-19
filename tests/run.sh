@@ -142,6 +142,7 @@ SELF_ALIAS_PASS_FIXTURE="$TESTS_DIR/self_alias_pass.aether"
 SELF_MUTATION_PASS_FIXTURE="$TESTS_DIR/self_mutation_pass.aether"
 METHOD_FIELD_INFERENCE_PASS_FIXTURE="$TESTS_DIR/method_field_inference_pass.aether"
 INFERRED_OBJECT_MUTATION_PASS_FIXTURE="$TESTS_DIR/inferred_object_mutation_pass.aether"
+ARRAY_RECORD_LITERAL_PASS_FIXTURE="$TESTS_DIR/array_record_literal_pass.aether"
 SELF_CONDITION_METHOD_PASS_FIXTURE="$TESTS_DIR/self_condition_method_pass.aether"
 TEXT_FIELD_METHOD_PARAM_PASS_FIXTURE="$TESTS_DIR/text_field_method_param_pass.aether"
 TOON_JSON_HELPERS_PASS_FIXTURE="$TESTS_DIR/toon_json_helpers_pass.aether"
@@ -936,6 +937,16 @@ fi
 if ! grep -qx "42" /tmp/aether_inferred_object_mutation_pass.out; then
     echo "unexpected inferred object mutation output (regression: inferred receiver POINTER/VOID)" >&2
     cat /tmp/aether_inferred_object_mutation_pass.out >&2
+    exit 1
+fi
+# Bare object literal `T { f: v }` used as a general expression (array
+# element, call argument), not just directly after `let x: T =`. Regression
+# for "[SYN-001] Expected ']' to close array literal" on `[T{...}, T{...}]`.
+"$AETHER_BIN" --no-cache "$ARRAY_RECORD_LITERAL_PASS_FIXTURE" >/tmp/aether_array_record_literal_pass.out
+printf '3\n4\n9\n25\n2\n100\n' >/tmp/aether_array_record_literal_expected.out
+if ! cmp -s /tmp/aether_array_record_literal_expected.out /tmp/aether_array_record_literal_pass.out; then
+    echo "unexpected array-record-literal output (regression: object literal as a non-let-position expression)" >&2
+    cat /tmp/aether_array_record_literal_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$SELF_CONDITION_METHOD_PASS_FIXTURE" >/tmp/aether_self_condition_method_pass.out

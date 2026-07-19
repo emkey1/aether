@@ -434,7 +434,7 @@ that returns a record, `let x = Foo { ... }.makeBar();`) got the same fix. Built
 and un-inferable initializers are unchanged (the "cannot infer" diagnostic still
 fires). Regression: `tests/inferred_object_mutation_pass.aether` (prints 42).
 
-### Array literals need an explicit type; arrays of record literals fail to parse — *gap*
+### Array literals need an explicit type; arrays of record literals fail to parse — *record-literal case fixed 2026-07-19-1; element-type inference still open*
 - `let xs = [1, 2, 3];` → `[TYPE-001] cannot infer the type of 'xs'`; needs
   `let xs: Int[] = [...]` (verified). Hit by `mistral-small-24b` (2 programs:
   `[Int]` and `[Real]`).
@@ -453,8 +453,57 @@ array literals require an explicit type (`let xs: Int[] = [...]`) and show
 building an array-of-records by append-in-loop (`ps = ps + [p];`, verified on
 `2026-06-30-2`); it is called out in the new *Constructing records and typing
 bindings* section, in *Never Generate These* / inference, and in Repair rules.
-Still open (compiler): infer homogeneous element types, and fix the nested
-record-literal-in-array parse (`Expected ']' to close array literal`).
+Still open (compiler): infer homogeneous element types.
+
+**Reconfirmed 2026-07-19 by generative idea-mining** (3 more distinct models —
+`qwen/qwen3-coder-30b`, `ibm/granite-4-h-tiny`, `qwen3.5-9b-mlx` — hit the same
+`Expected ']' to close array literal` on the exact reported shape, one
+occurrence each even with a single-element, single-line array), which is what
+prompted the actual fix below.
+
+**Resolved (2026-07-19-1).** Root cause: `T { field: value }` (bare, no `new`)
+was never a general expression at all — it was special-cased *only* inside
+`let x: T = ...` parsing, where it desugars into `new T()` + one
+`x.field = value;` assignment statement per field, spliced into the enclosing
+block. That lowering needs a name to hang the assignments on, so it
+structurally couldn't apply anywhere else; `parsePrimary` had no branch for
+`Identifier '{'` at all, so inside `[...]` the array-literal loop parsed the
+bare type name as an ordinary identifier, left `{ ... }` completely
+unconsumed, and failed to find the closing `]`. (`new T { field: value }`,
+the guide's *canonical* record-literal spelling, was unaffected the whole
+time — `parseNew` already builds a self-contained `AST_NEW` with the field
+inits attached, no desugaring needed, so it already worked as a general
+expression everywhere, arrays included.)
+
+Fix: `parsePrimary` now recognizes `Identifier '{' ... '}'` where the
+identifier resolves (via `buildTypeNode`) to a record type, and desugars it
+via the *same* `new T()` + field-assign lowering the let-position form
+already used (`buildObjectInitDecl`) — but hung on a synthesized temp
+(`__aether_lit_N`) instead of a real `let` name, since there's no enclosing
+declaration to name here. The synthesized declaration + assignments are
+queued on the parser (`pendingObjLits`) and flushed by a new `parseStatement`
+wrapper once the statement currently being parsed finishes, spliced in
+immediately before it via the existing `i_val==1` `AST_COMPOUND` mechanism
+`parseBlock` already flattens (the same splice convention the let-position
+form and array-append initializer already rely on) — with an expression-site
+reference to the temp substituted at the original position. This is general,
+not array-specific: also verified working as a direct function-call argument,
+nested inside another record literal's field value, inside an `if` condition,
+with multiple hoists in one statement, and inside an unbraced single-
+statement `if`-body (recursive `parseStatement`, correctly isolated via a
+mark/release pattern on the pending list so a nested statement's hoists don't
+leak into an outer one's splice point). Full existing suite
+(`tests/run.sh`) passes unchanged; new regression:
+`tests/array_record_literal_pass.aether`. Both guides' *Constructing records
+and typing bindings* section updated — the old "do not nest record literals
+inside a single array literal" guidance was flatly wrong for `new T { ... }`
+(always worked) and is now also wrong for the bare form; both guides now show
+`[new Point { x: 1, y: 2 }, ...]` as supported. Language version bumped to
+`2026-07-19-1` (real parser-accepted-syntax change, not docs-only).
+
+Still open: homogeneous array-literal element-type inference (`let xs = [1, 2, 3];`
+still requires the explicit `: Int[]` annotation) is unrelated to this fix and
+remains a separate gap.
 
 ### Inline `//` comments on `@pre`/`@post` lines leak into the contract expression — *fixed 2026-06-30-2*
 The AST frontend captured the rest of an annotation line as the contract
@@ -862,3 +911,55 @@ hint on out-of-range string ops; nested-fn declarations get a misleading
 diagnostic; `match` statements (8 families) could get a targeted "use if"
 SYN-001 the way not/and/or word-ops are being handled.
 
+
+---
+
+## Mined from generative idea-mining — 2026-07-19
+
+*Auto-generated by `tools/aether_idea_miner.py` (the no-oracle, free-form sibling of `aether_doc_bench.py`): 2 models freely wrote 9 Aether programs against `aether` 2026-07-15-2; 8 compiled+ran. Findings below are where models reached for something missing or tripped on an existing rule, ranked by distinct-model breadth. Curate into the sections above as they are triaged.*
+
+_No findings met the breadth threshold this run._
+
+---
+
+## Mined from generative idea-mining — 2026-07-19
+
+*Auto-generated by `tools/aether_idea_miner.py` (the no-oracle, free-form sibling of `aether_doc_bench.py`): 14 models freely wrote 237 Aether programs against `aether` 2026-07-15-2; 228 compiled+ran. Findings below are where models reached for something missing or tripped on an existing rule, ranked by distinct-model breadth. Curate into the sections above as they are triaged.*
+
+### Tripped on `SYN-001` — 3 model(s) — *idea*
+`SYN-001` (Use Aether keywords: `fn`, `let`, `const`, `ret`, `if`, `loop`,) · hit by 3 distinct model(s), 5 occurrence(s), 5 not rescued by repair.
+
+Compiler diagnostic: `Aether parser error: Expected ']' to close array literal.`
+
+Minimal example (model `qwen/qwen3-coder-30b`, intent: Generates a formatted report of sales data with filtering, ranking, and summary statistics using pure helpers and effectful output.):
+
+```
+   fn main() -> Void {
+       let sales: Sale[] = [
+>>         Sale { product: "Widget A", amount: 150.0, region: "North" },
+           Sale { product: "Gadget B", amount: 200.0, region: "South" },
+           Sale { product: "Tool C", amount: 100.0, region: "East" }
+```
+
+**Suggested action:** Recurring trip-up on an existing rule — candidate **guide clarification** (make the rule harder to miss) or a friendlier diagnostic.
+
+Models: ibm/granite-4-h-tiny, qwen/qwen3-coder-30b, qwen3.5-9b-mlx.
+
+### Reached for `length` — not in scope (does not exist) — 1 model(s) — *idea*
+`SCOPE-001` (A name must be declared before use and still be in scope at) · hit by 1 distinct model(s), 2 occurrence(s), 2 not rescued by repair.
+
+Compiler diagnostic: `identifier 'length' not in scope.`
+
+Minimal example (model `qwen3.5-9b-mlx`, intent: Prime number finder using trial division with output formatting discipline for exact decimal precision when computing percentages):
+
+```
+           }
+           
+>>         loop i in 0..primes.length {
+               let p: Int = primes[i];
+               fx {
+```
+
+**Suggested action:** Candidate **language gap**: add the builtin/construct, or add a guide entry steering models to the existing equivalent. Repair did not rescue it.
+
+Models: qwen3.5-9b-mlx.

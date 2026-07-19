@@ -1,0 +1,60 @@
+// Regression: a bare object literal `T { f: v, ... }` used as a general
+// expression (array element, function-call argument) rather than directly
+// after `let x: T = ...` (the one position that already worked -- it lowers
+// to `new T()` + field-assign statements hung on the `let`'s own name).
+//
+// Before the fix, `T { ... }` was only ever recognized in that one
+// let-declaration call site; parsePrimary had no branch for it, so an array
+// literal like `[Point { x: 1, y: 2 }]` parsed `Point` as a bare identifier,
+// left `{ x: 1, y: 2 }` completely unconsumed, and the array-literal loop
+// failed with "[SYN-001] Expected ']' to close array literal."
+//
+// Fix: parsePrimary now detects `Identifier { ... }` where the identifier
+// resolves (via buildTypeNode) to a record type, and desugars it the same
+// way -- `new T()` + field assigns -- but hung on a synthesized temp instead
+// of a real `let` name, hoisted into the enclosing statement (parseStatement
+// flushes anything queued while parsing that statement's expressions) with a
+// reference to the temp substituted at the original expression site.
+type Point {
+    x: Int;
+    y: Int;
+}
+
+fn dist2(p: Point) -> Int {
+    ret p.x * p.x + p.y * p.y;
+}
+
+fn sumX(pts: Point[]) -> Int {
+    let total: Int = 0;
+    loop i in 0..length(pts) {
+        total = total + pts[i].x;
+    }
+    ret total;
+}
+
+fn main() -> Void {
+    // Array of record literals, multiple elements.
+    let pts: Point[] = [
+        Point { x: 1, y: 2 },
+        Point { x: 3, y: 4 },
+        Point { x: 5, y: 6 }
+    ];
+    // Record literal as a direct function-call argument (not in an array at
+    // all -- proves the fix is general, not array-specific).
+    let d: Int = dist2(Point { x: 3, y: 4 });
+    // Two hoists in one statement (a call argument each), plus the original
+    // let-position form (unaffected -- must still take the direct path, no
+    // hoist needed) in the same function body.
+    let sumAB: Int = dist2(Point { x: 1, y: 0 }) + dist2(Point { x: 0, y: 1 });
+    let solo: Point = Point { x: 100, y: 200 };
+
+    fx {
+        println(length(pts));
+        println(pts[1].y);
+        println(sumX(pts));
+        println(d);
+        println(sumAB);
+        println(solo.x);
+    }
+    ret;
+}

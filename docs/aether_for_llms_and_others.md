@@ -457,8 +457,11 @@ Write a top-level factory `fn` with a non-reserved name
 - `let xs = [1, 2, 3];` fails with `cannot infer the type of 'xs'`. Write
   `let xs: Int[] = [1, 2, 3];`.
 
-To build an array of records, declare the typed array and append in a loop
-(`ps = ps + [p];`); do not nest record literals inside a single array literal.
+Record literals (`new T { ... }` or bare `T { ... }`) may appear directly
+inside an array literal: `let ps: Point[] = [new Point { x: 1, y: 2 }, new
+Point { x: 3, y: 4 }];`. Building the array with append-in-a-loop (`ps = ps +
+[p];`) still works too and is a reasonable alternative when each element's
+fields come from a computation rather than a literal.
 
 ## Conditionals
 

@@ -198,8 +198,9 @@ Always annotate a binding that holds a `new` instance or an array literal
 (TYPE-001): `let c = new C();` then `c.inc();` fails (`argument 1 to 'c.inc'
 expects type POINTER but got VOID`), and `let xs = [1, 2, 3];` fails (`cannot
 infer the type of 'xs'`). Write `let c: C = new C();` and
-`let xs: Int[] = [1, 2, 3];`. Build an array of records by appending in a loop
-(`ps = ps + [p];`), not by nesting record literals in one `[...]`.
+`let xs: Int[] = [1, 2, 3];`. Record literals may nest directly in an array
+literal: `let ps: Point[] = [new Point { x: 1, y: 2 }, new Point { x: 3, y: 4 }];`.
+Appending in a loop (`ps = ps + [p];`) also still works.
 
 ## Safe inference
 

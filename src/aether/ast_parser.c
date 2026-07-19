@@ -808,6 +808,15 @@ typedef struct {
     int pendingAnnotCount;
     char pendingAnnotName[8];
     int pendingAnnotLine;
+    /* Object literals hoisted out of expression position (array elements,
+     * call args, etc.) awaiting splice into the enclosing statement -- each
+     * entry is an AST_COMPOUND (i_val==1) from buildObjectInitDecl: a
+     * synthesized temp var-decl plus its field assigns. Flushed by the
+     * parseStatement wrapper once the statement finishes parsing. */
+    AST **pendingObjLits;
+    int pendingObjLitCount;
+    int pendingObjLitCapacity;
+    int nextObjLitId;          /* monotonic counter for unique temp names */
 } AetherParser;
 
 /* Raw next token straight from the rea lexer (no `..` synthesis), honoring the
@@ -940,6 +949,28 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->pendingAnnotCount = 0;
     p->pendingAnnotName[0] = '\0';
     p->pendingAnnotLine = 0;
+    p->pendingObjLits = NULL;
+    p->pendingObjLitCount = 0;
+    p->pendingObjLitCapacity = 0;
+    p->nextObjLitId = 0;
+}
+
+/* Queue a hoisted object-literal declaration (an i_val==1 AST_COMPOUND from
+ * buildObjectInitDecl) for splice into the statement currently being parsed.
+ * See the parseStatement wrapper below for where these get flushed. */
+static void pushPendingObjLit(AetherParser *p, AST *hoisted) {
+    if (!hoisted) return;
+    if (p->pendingObjLitCount == p->pendingObjLitCapacity) {
+        int newCap = p->pendingObjLitCapacity ? p->pendingObjLitCapacity * 2 : 4;
+        AST **grown = (AST **)realloc(p->pendingObjLits, sizeof(AST *) * (size_t)newCap);
+        if (!grown) {
+            freeAST(hoisted); /* can't queue it; drop rather than crash */
+            return;
+        }
+        p->pendingObjLits = grown;
+        p->pendingObjLitCapacity = newCap;
+    }
+    p->pendingObjLits[p->pendingObjLitCount++] = hoisted;
 }
 
 /* True if the current token's text equals `kw` exactly. Aether keywords come
@@ -1554,6 +1585,8 @@ static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, b
 static AST *parseExpr(AetherParser *p);
 static AST *parseStatement(AetherParser *p);
 static AST *parseBlock(AetherParser *p);
+static AST *buildObjectInitDecl(Token *nameTok, AST *typeNode, VarType vtype,
+                                const char *typeName, AST *lit, int line);
 static AST *parseFnDecl(AetherParser *p);
 static AST *parseTypeDecl(AetherParser *p);
 static AST *parseConstDeclTop(AetherParser *p);
@@ -2209,6 +2242,47 @@ static AST *parsePrimary(AetherParser *p) {
         if (!tok) return NULL;
         int idLine = p->current.line;
         aetherAdvance(p); /* consume identifier */
+
+        /* Bare object literal `T { f: v, ... }` used as a general expression
+         * (array element, call argument, nested operand, ...) rather than
+         * directly after `let x: T =` (that position is handled earlier, in
+         * the let-declaration parser, and never reaches parsePrimary). Only
+         * treated as a literal when the identifier actually resolves to a
+         * record type -- this can't be confused with e.g. a bare variable
+         * immediately followed by an unrelated `{` because that shape isn't
+         * legal Aether anywhere else. Desugars via the same
+         * new T() + field-assignment lowering the let-position form already
+         * uses, but since there's no enclosing `let` to hang the field
+         * assignments on here, they're hoisted onto a synthesized temp and
+         * queued for splice into the statement currently being parsed (see
+         * the parseStatement wrapper) -- this expression position then just
+         * becomes a reference to that temp. */
+        if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+            VarType litVarType = TYPE_VOID;
+            AST *litTypeNode = buildTypeNode(tok->value ? tok->value : "",
+                                              tok->value ? strlen(tok->value) : 0,
+                                              idLine, &litVarType);
+            if (litTypeNode && litVarType == TYPE_POINTER) {
+                AST *inits = parseRecordInitDelimited(p, REA_TOKEN_RIGHT_BRACE);
+                AST *lit = newASTNode(AST_NEW, tok);
+                setTypeAST(lit, TYPE_POINTER);
+                setExtra(lit, inits);
+
+                char tempName[40];
+                snprintf(tempName, sizeof(tempName), "__aether_lit_%d", p->nextObjLitId++);
+                Token *tempTok = newToken(TOKEN_IDENTIFIER, tempName, idLine, 0);
+                AST *hoisted = buildObjectInitDecl(tempTok, litTypeNode, litVarType,
+                                                   tok->value, lit, idLine);
+                pushPendingObjLit(p, hoisted);
+                bindingTableSet(p->bindings, tempName, tok->value);
+
+                Token *refTok = newToken(TOKEN_IDENTIFIER, tempName, idLine, 0);
+                AST *ref = newASTNode(AST_VARIABLE, refTok);
+                setTypeAST(ref, litVarType);
+                return parsePostfix(p, ref);
+            }
+            if (litTypeNode) freeAST(litTypeNode);
+        }
 
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             /* Only names that are immediately called get the stdlib alias
@@ -4517,7 +4591,7 @@ static AST *parseParBlock(AetherParser *p) {
     return block;
 }
 
-static AST *parseStatement(AetherParser *p) {
+static AST *parseStatementInner(AetherParser *p) {
     /* Empty statement `;` -- consume it and return a no-op block. Without this, a
      * stray/trailing `;` (e.g. `fx {…};`, or a bare `;`) would fall to the
      * expression-statement path, parseExpr would return NULL, and parseBlock's
@@ -4627,6 +4701,49 @@ static AST *parseStatement(AetherParser *p) {
     AST *stmt = newASTNode(AST_EXPR_STMT, expr->token);
     setLeft(stmt, expr);
     return stmt;
+}
+
+/* Wraps parseStatementInner to flush any object literals hoisted while
+ * parsing this statement's expressions (see the parsePrimary bare-object-
+ * literal branch). Uses a mark/release pattern on p->pendingObjLits rather
+ * than assuming the list is empty on entry: parseStatementInner recurses
+ * into parseStatement for nested single-statement bodies (an unbraced `if`/
+ * `loop` body), and each such nested call already flushes its own hoists
+ * before returning here, so in practice the mark is always the count at
+ * entry -- but marking explicitly keeps this correct regardless of that
+ * nesting shape rather than relying on it.
+ *
+ * When hoists exist, the result is an AST_COMPOUND (i_val==1) containing the
+ * flattened hoisted var-decl/field-assign statements followed by the real
+ * statement, in that order -- parseBlock already knows how to splice an
+ * i_val==1 compound's children in as siblings (used for the let-position
+ * object-literal expansion), so this composes with zero changes there. */
+static AST *parseStatement(AetherParser *p) {
+    int mark = p->pendingObjLitCount;
+    AST *stmt = parseStatementInner(p);
+    if (p->pendingObjLitCount <= mark) {
+        return stmt;
+    }
+    AST *wrapper = newASTNode(AST_COMPOUND, NULL);
+    wrapper->i_val = 1;
+    for (int i = mark; i < p->pendingObjLitCount; i++) {
+        AST *hoisted = p->pendingObjLits[i];
+        if (!hoisted) continue;
+        if (hoisted->type == AST_COMPOUND && hoisted->i_val == 1) {
+            for (int j = 0; j < hoisted->child_count; j++) {
+                if (hoisted->children[j]) addChild(wrapper, hoisted->children[j]);
+                hoisted->children[j] = NULL;
+            }
+            hoisted->child_count = 0;
+            freeAST(hoisted);
+        } else {
+            addChild(wrapper, hoisted);
+        }
+        p->pendingObjLits[i] = NULL;
+    }
+    p->pendingObjLitCount = mark;
+    if (stmt) addChild(wrapper, stmt);
+    return wrapper;
 }
 
 static AST *parseBlock(AetherParser *p) {
