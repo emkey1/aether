@@ -6470,7 +6470,7 @@ AST *parseAetherAst(const char *rawSource) {
                     "[ANN-001] Aether contract error: @%s must annotate the next function declaration.\n",
                     p.pendingAnnotName);
             aetherDiagf(
-                    "help: see ANN-001 in the Aether guide (aether_for_llms_with_small_contexts.md)\n");
+                    "help: see ANN-001 in the Aether guide\n");
             p.hadError = true;
             break;
         }
