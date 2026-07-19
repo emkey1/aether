@@ -69,6 +69,17 @@ static NSString *const kBundledRootArchiveNameKey = @"archiveName";
 static NSString *const kBundledRootImportNameKey = @"importName";
 static NSString *const kBundledRootInitialWindowKey = @"initialWindow";
 static NSString *const kBundledRootGuestABIKey = @"guestABI";
+// Groups arch variants of the same distro together in the picker UI (e.g. the
+// four Alpine entries below share family "alpine3233") so RootsTableViewController
+// can show one row per distro and offer architecture as a sub-choice, instead of
+// one flat row per distro_arch combination.
+static NSString *const kBundledRootFamilyKey = @"family";
+static NSString *const kBundledRootFamilyDisplayNameKey = @"familyDisplayName";
+// "official" (maintained as part of iSH-AOK's regression-tested base images) vs
+// "community" (contributed/experimental, no distro-specific patching guarantees).
+static NSString *const kBundledRootTierKey = @"tier";
+static NSString *const kBundledRootTierOfficial = @"official";
+static NSString *const kBundledRootTierCommunity = @"community";
 // Present only for choices whose archive isn't shipped in the app bundle --
 // importing them downloads this URL into /AOK/persist/roots on demand
 // instead (see DownloadBundledArchive / importBundledRootChoice:).
@@ -80,18 +91,87 @@ static NSString *const kRootMetadataGuestABIKey = @"guestABI";
 
 NSNotificationName const RootsDidFinishInitialSelectionNotification = @"RootsDidFinishInitialSelectionNotification";
 
+// The download-backed choices (everything with a kBundledRootDownloadURLKey)
+// live in the deps/rootfs-manifest submodule (github.com/emkey1/ish-AOK-rootfs)
+// as manifest.json, bundled into the app as the "rootfs-manifest" resource --
+// see that repo's README for the entry schema and how to contribute a new
+// rootfs without touching this file. Required keys are validated here so a
+// malformed community PR degrades to "entry silently dropped", never a crash.
+static NSArray<NSString *> *RequiredManifestKeys(void) {
+    static NSArray<NSString *> *keys;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        keys = @[kBundledRootIdentifierKey, kBundledRootDisplayNameKey, kBundledRootArchiveNameKey,
+                 kBundledRootImportNameKey, kBundledRootInitialWindowKey, kBundledRootGuestABIKey,
+                 kBundledRootDownloadURLKey, kBundledRootDownloadSizeKey, kBundledRootFamilyKey,
+                 kBundledRootFamilyDisplayNameKey];
+    });
+    return keys;
+}
+
+static NSArray<NSDictionary<NSString *, NSString *> *> *LoadDownloadableRootChoicesFromManifest(void) {
+    NSURL *manifestURL = [NSBundle.mainBundle URLForResource:@"manifest" withExtension:@"json"];
+    if (manifestURL == nil) {
+        NSLog(@"manifest.json not found in app bundle (deps/rootfs-manifest submodule) -- no downloadable filesystem choices available");
+        return @[];
+    }
+    NSData *data = [NSData dataWithContentsOfURL:manifestURL];
+    NSError *error = nil;
+    id parsed = data != nil ? [NSJSONSerialization JSONObjectWithData:data options:0 error:&error] : nil;
+    if (![parsed isKindOfClass:NSArray.class]) {
+        NSLog(@"rootfs-manifest.json could not be parsed: %@", error);
+        return @[];
+    }
+
+    NSMutableArray<NSDictionary<NSString *, NSString *> *> *entries = [NSMutableArray array];
+    NSMutableSet<NSString *> *seenIdentifiers = [NSMutableSet set];
+    for (id rawEntry in (NSArray *) parsed) {
+        if (![rawEntry isKindOfClass:NSDictionary.class]) {
+            NSLog(@"rootfs-manifest.json: skipping non-object entry");
+            continue;
+        }
+        NSDictionary<NSString *, NSString *> *entry = rawEntry;
+        BOOL valid = YES;
+        for (NSString *key in RequiredManifestKeys()) {
+            id value = entry[key];
+            if (![value isKindOfClass:NSString.class] || [(NSString *) value length] == 0) {
+                NSLog(@"rootfs-manifest.json: entry missing required key '%@', skipping", key);
+                valid = NO;
+                break;
+            }
+        }
+        if (!valid)
+            continue;
+        NSString *identifier = entry[kBundledRootIdentifierKey];
+        if ([seenIdentifiers containsObject:identifier]) {
+            NSLog(@"rootfs-manifest.json: duplicate identifier '%@', skipping", identifier);
+            continue;
+        }
+        [seenIdentifiers addObject:identifier];
+
+        NSString *tier = entry[kBundledRootTierKey];
+        if (![tier isEqualToString:kBundledRootTierOfficial] && ![tier isEqualToString:kBundledRootTierCommunity]) {
+            NSMutableDictionary<NSString *, NSString *> *fixedUp = [entry mutableCopy];
+            fixedUp[kBundledRootTierKey] = kBundledRootTierCommunity;
+            entry = fixedUp;
+        }
+        [entries addObject:entry];
+    }
+    return entries;
+}
+
 static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void) {
     static NSArray<NSDictionary<NSString *, NSString *> *> *choices;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-        choices = @[
-            // Bundled-in-the-app choices come first (arm64 guests -- the only
-            // architecture still shipped in the IPA); the download-backed
-            // x86/x86_64 choices follow. RootsTableViewController splits these
-            // into two table sections ("Bundled Filesystems" / "Downloadable")
-            // along the same kBundledRootDownloadURLKey boundary, so keep all
-            // bundled (no download key) entries first and all downloadable
-            // entries after.
+        NSMutableArray<NSDictionary<NSString *, NSString *> *> *mutableChoices = [@[
+            // Bundled-in-the-app choices (arm64 guests -- the only architecture
+            // still shipped in the IPA); every download-backed choice comes from
+            // the rootfs-manifest submodule instead (loaded below).
+            // RootsTableViewController groups these by kBundledRootFamilyKey
+            // (one row per distro, architecture picked as a sub-choice) and
+            // splits into "Official Distributions" / "Community Distributions"
+            // table sections along kBundledRootTierKey.
             @{
                 kBundledRootIdentifierKey: @"alpine3233arm64",
                 kBundledRootDisplayNameKey: @"Alpine3.23.3(arm64)",
@@ -102,6 +182,9 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootImportNameKey: @"Alpine3.23.3-arm64",
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"arm64",
+                kBundledRootFamilyKey: @"alpine3233",
+                kBundledRootFamilyDisplayNameKey: @"Alpine 3.23.3",
+                kBundledRootTierKey: kBundledRootTierOfficial,
             },
             @{
                 kBundledRootIdentifierKey: @"devuan6arm64",
@@ -110,119 +193,13 @@ static NSArray<NSDictionary<NSString *, NSString *> *> *BundledRootChoices(void)
                 kBundledRootImportNameKey: @"Devuan6-arm64",
                 kBundledRootInitialWindowKey: @"session-shell",
                 kBundledRootGuestABIKey: @"arm64",
+                kBundledRootFamilyKey: @"devuan6",
+                kBundledRootFamilyDisplayNameKey: @"Devuan 6 (excalibur)",
+                kBundledRootTierKey: kBundledRootTierOfficial,
             },
-            @{
-                kBundledRootIdentifierKey: @"alpine3233",
-                kBundledRootDisplayNameKey: @"Alpine3.23.3",
-                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86",
-                kBundledRootImportNameKey: @"Alpine3.23.3",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"i386",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/alpine-minirootfs-3.23.3-x86.tar.xz",
-                kBundledRootDownloadSizeKey: @"~3 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"alpine3233x8664",
-                kBundledRootDisplayNameKey: @"Alpine3.23.3(x86_64)",
-                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-x86_64",
-                // importName becomes a directory name and the whitespace-delimited
-                // mount "source" string parsed by guest init scripts, so it must
-                // pass RootNameIsValid (no shell/path metacharacters). The pretty
-                // parenthesized form lives in displayName, which is all the UI shows.
-                kBundledRootImportNameKey: @"Alpine3.23.3-x86_64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"amd64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/alpine-minirootfs-3.23.3-x86_64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~3 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"alpine3233riscv64",
-                kBundledRootDisplayNameKey: @"Alpine3.23.3(riscv64)",
-                kBundledRootArchiveNameKey: @"alpine-minirootfs-3.23.3-riscv64",
-                // RISC-V guest (riscv64_guest_plan.md); import name follows
-                // the RootNameIsValid rules like the x86_64 entry above.
-                kBundledRootImportNameKey: @"Alpine3.23.3-riscv64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"riscv64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/alpine-minirootfs-3.23.3-riscv64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~3 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"devuan6x86",
-                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur)",
-                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86",
-                kBundledRootImportNameKey: @"Devuan6",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"i386",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-x86.tar.xz",
-                kBundledRootDownloadSizeKey: @"~32 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"devuan6x8664",
-                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, x86_64)",
-                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-x86_64",
-                kBundledRootImportNameKey: @"Devuan6-x86_64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"amd64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-x86_64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~31 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"devuan6riscv64",
-                kBundledRootDisplayNameKey: @"Devuan 6 (excalibur, riscv64)",
-                kBundledRootArchiveNameKey: @"devuan-minirootfs-6.0-riscv64",
-                kBundledRootImportNameKey: @"Devuan6-riscv64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"riscv64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/devuan-minirootfs-6.0-riscv64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~31 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"pscalaarch64",
-                kBundledRootDisplayNameKey: @"PSCAL + SmallCLUE (arm64)",
-                kBundledRootArchiveNameKey: @"pscal-pure-aarch64-rootfs",
-                // Pure PSCAL/SmallCLUE userland (exsh shell, PSCAL frontends
-                // under /usr/local/pscal, SmallCLUE applets on PATH) -- no
-                // Alpine/Devuan base, no GPL userland. Download-backed like
-                // the other non-bundled entries above, even though it's
-                // arm64, to keep IPA size down for this optional root.
-                kBundledRootImportNameKey: @"PSCAL-arm64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"arm64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/pscal-pure-aarch64-rootfs.tar.xz",
-                kBundledRootDownloadSizeKey: @"~7 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"archlinux20240401x8664",
-                kBundledRootDisplayNameKey: @"Arch Linux (2024.04.01, x86_64) (Experimental)",
-                kBundledRootArchiveNameKey: @"archlinux-minirootfs-2024.04.01-x86_64",
-                // Not officially supported: real PAM-enabled util-linux login
-                // (unlike Alpine/Devuan's simplified one), no distro-specific
-                // patching applied. Marked "(Experimental)" in displayName --
-                // see kBundledRootDisplayNameKey comment above for why there's
-                // no separate flag for this.
-                kBundledRootImportNameKey: @"ArchLinux-x86_64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"amd64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinux-minirootfs-2024.04.01-x86_64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~62 MB",
-            },
-            @{
-                kBundledRootIdentifierKey: @"archlinuxarmaarch64",
-                kBundledRootDisplayNameKey: @"Arch Linux ARM (aarch64) (Experimental)",
-                kBundledRootArchiveNameKey: @"archlinuxarm-minirootfs-latest-aarch64",
-                // Same caveats as the x86_64 entry above, plus: this is the
-                // rootfs that originally surfaced the TCGETS2 bug (login's
-                // isatty-style startup check used the modern termios2 ioctl
-                // family, which iSH didn't implement, so it saw ENOTTY and
-                // bailed with "FATAL: bad tty" before ever trying PAM).
-                kBundledRootImportNameKey: @"ArchLinuxARM-aarch64",
-                kBundledRootInitialWindowKey: @"session-shell",
-                kBundledRootGuestABIKey: @"arm64",
-                kBundledRootDownloadURLKey: @"https://github.com/emkey1/ish-AOK/releases/download/rootfs-assets/archlinuxarm-minirootfs-latest-aarch64.tar.xz",
-                kBundledRootDownloadSizeKey: @"~74 MB",
-            },
-        ];
+        ] mutableCopy];
+        [mutableChoices addObjectsFromArray:LoadDownloadableRootChoicesFromManifest()];
+        choices = mutableChoices;
     });
     return choices;
 }

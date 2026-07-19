@@ -24,6 +24,7 @@
 		038E6826142CC067416D4684 /* DisplayRFBShaders.metal in Sources */ = {isa = PBXBuildFile; fileRef = C64EFBFD4819B3516B73356F /* DisplayRFBShaders.metal */; };
 		07430ECDFB3BADD4102D3854 /* MediaPlayer.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = EDE84B56A5A0D9AC87E4DABB /* MediaPlayer.framework */; };
 		0FC2383C2991FBA6004C09EC /* mmx.c in Sources */ = {isa = PBXBuildFile; fileRef = 0FC2383B2991FB82004C09EC /* mmx.c */; };
+		1A4DC4F2374508A4B1CEC666 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = B943617711E6F6314E471864 /* manifest.json */; };
 		29DEBACFDDF2AA4566B488EF /* audiocodecs.xcframework in Frameworks */ = {isa = PBXBuildFile; fileRef = 3F264C7242E0E51BAA5B5CF3 /* audiocodecs.xcframework */; };
 		2E93B4EE793B2F3424392363 /* DisplayViewController.m in Sources */ = {isa = PBXBuildFile; fileRef = 336DFB895C466449FA941BEF /* DisplayViewController.m */; };
 		3507455F518BE9C7E4BBB938 /* AudioPCMDecoder_Vorbis.m in Sources */ = {isa = PBXBuildFile; fileRef = 340B757F7B6F0A41BD73AE7D /* AudioPCMDecoder_Vorbis.m */; };
@@ -71,7 +72,6 @@
 		497F6D16254E5EA600C82F46 /* tty-real.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C05254E5C0E00C82F46 /* tty-real.c */; };
 		497F6D17254E5EA600C82F46 /* tty.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6BE2254E5C0D00C82F46 /* tty.c */; };
 		497F6D18254E5EA600C82F46 /* gen.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C3D254E5C4F00C82F46 /* gen.c */; };
-		4B1EA0012F53100100000001 /* hle.c in Sources */ = {isa = PBXBuildFile; fileRef = 4B1EA0012F53100100000002 /* hle.c */; };
 		497F6D19254E5EA600C82F46 /* helpers.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C3B254E5C4F00C82F46 /* helpers.c */; };
 		497F6D1A254E5EA600C82F46 /* jit.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C40254E5C4F00C82F46 /* jit.c */; };
 		497F6D1B254E5EA600C82F46 /* offsets.c in Sources */ = {isa = PBXBuildFile; fileRef = 497F6C3C254E5C4F00C82F46 /* offsets.c */; };
@@ -111,6 +111,7 @@
 		497F6D3D254E5EA600C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D5C254E609700C82F46 /* main.c in Sources */ = {isa = PBXBuildFile; fileRef = BB7D93822087C2890008DA78 /* main.c */; };
 		497F6D87254E62E100C82F46 /* libish.a in Frameworks */ = {isa = PBXBuildFile; fileRef = BB13F7DC200AD81D003D1C4D /* libish.a */; };
+		4B1EA0012F53100100000001 /* hle.c in Sources */ = {isa = PBXBuildFile; fileRef = 4B1EA0012F53100100000002 /* hle.c */; };
 		54D528EF4254773BF6EDC8AB /* WorkspaceImageViewer.m in Sources */ = {isa = PBXBuildFile; fileRef = 8C79AE703940107B279572E7 /* WorkspaceImageViewer.m */; };
 		5C673E18D378FA13A793371F /* MotePadDocumentStore.m in Sources */ = {isa = PBXBuildFile; fileRef = 4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */; };
 		5D4E7DF82B1E68EB006BA7D4 /* ro_locks.c in Sources */ = {isa = PBXBuildFile; fileRef = 5D59DADB2B179A2300FA995C /* ro_locks.c */; };
@@ -292,6 +293,7 @@
 		C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
 		C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */ = {isa = PBXBuildFile; fileRef = C0A000042E00000400000003 /* iSH_benchmark.tgz */; };
 		C3060403DA76F382061A1170 /* DisplayRFBClient.m in Sources */ = {isa = PBXBuildFile; fileRef = 704575CA466EF25ECC14EA7B /* DisplayRFBClient.m */; };
+		CB0A85D17BF34C213CC1D019 /* manifest.json in Resources */ = {isa = PBXBuildFile; fileRef = B943617711E6F6314E471864 /* manifest.json */; };
 		D655F8B9294AA603BF1C430A /* AVFoundation.framework in Frameworks */ = {isa = PBXBuildFile; fileRef = 27540C36CB55E575C077AB88 /* AVFoundation.framework */; };
 		DC09D58C8595F3ACD279A0D2 /* AudioPlayerEngine.m in Sources */ = {isa = PBXBuildFile; fileRef = 59516B05C7A2120D1EE19975 /* AudioPlayerEngine.m */; };
 		E02D963E8F2A7D5D58954A0D /* MarkdownRenderer.m in Sources */ = {isa = PBXBuildFile; fileRef = 57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */; };
@@ -570,8 +572,6 @@
 		497F6C3B254E5C4F00C82F46 /* helpers.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = helpers.c; sourceTree = "<group>"; };
 		497F6C3C254E5C4F00C82F46 /* offsets.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = offsets.c; sourceTree = "<group>"; };
 		497F6C3D254E5C4F00C82F46 /* gen.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = gen.c; sourceTree = "<group>"; };
-		4B1EA0012F53100100000002 /* hle.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = hle.c; sourceTree = "<group>"; };
-		4B1EA0012F53100100000003 /* hle-table.inc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "hle-table.inc"; sourceTree = "<group>"; };
 		497F6C3E254E5C4F00C82F46 /* gen.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = gen.h; sourceTree = "<group>"; };
 		497F6C3F254E5C4F00C82F46 /* frame.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = frame.h; sourceTree = "<group>"; };
 		497F6C40254E5C4F00C82F46 /* jit.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = jit.c; sourceTree = "<group>"; };
@@ -652,6 +652,8 @@
 		497F6CD3254E5CC800C82F46 /* bits.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = bits.h; sourceTree = "<group>"; };
 		497F6CE4254E5E4C00C82F46 /* MakeXcodeAutoCompleteWork */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = MakeXcodeAutoCompleteWork; sourceTree = BUILT_PRODUCTS_DIR; };
 		497F6D47254E605F00C82F46 /* ish */ = {isa = PBXFileReference; explicitFileType = "compiled.mach-o.executable"; includeInIndex = 0; path = ish; sourceTree = BUILT_PRODUCTS_DIR; };
+		4B1EA0012F53100100000002 /* hle.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = hle.c; sourceTree = "<group>"; };
+		4B1EA0012F53100100000003 /* hle-table.inc */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = "hle-table.inc"; sourceTree = "<group>"; };
 		4EB3F3EC2B21C7D6F418D1C2 /* MotePadDocumentStore.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MotePadDocumentStore.m; sourceTree = "<group>"; };
 		56027C3DBA1338FABD4FD61A /* MotePadDocumentStore.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = MotePadDocumentStore.h; sourceTree = "<group>"; };
 		57D6250B1A93D2423FF389EB /* MarkdownRenderer.m */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.objc; path = MarkdownRenderer.m; sourceTree = "<group>"; };
@@ -690,6 +692,7 @@
 		A1C46BFA5283C8409E80F5EC /* FoundationModels.framework */ = {isa = PBXFileReference; lastKnownFileType = wrapper.framework; name = FoundationModels.framework; path = System/Library/Frameworks/FoundationModels.framework; sourceTree = SDKROOT; };
 		A6CA9F3287E76895B984C378 /* DisplayRFBClient.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = DisplayRFBClient.h; sourceTree = "<group>"; };
 		B023928FD74F4E108378A110 /* AudioPlayerEngine.h */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.c.h; path = AudioPlayerEngine.h; sourceTree = "<group>"; };
+		B943617711E6F6314E471864 /* manifest.json */ = {isa = PBXFileReference; includeInIndex = 1; name = manifest.json; path = manifest.json; sourceTree = "<group>"; };
 		BB0B848E2586A4CF00208600 /* XcodeDefault.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDefault.xcconfig; sourceTree = "<group>"; };
 		BB0B859B2586F13200208600 /* XcodeDebug.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeDebug.xcconfig; sourceTree = "<group>"; };
 		BB0B859C2586F19000208600 /* XcodeRelease.xcconfig */ = {isa = PBXFileReference; lastKnownFileType = text.xcconfig; path = XcodeRelease.xcconfig; sourceTree = "<group>"; };
@@ -1004,6 +1007,15 @@
 			name = "Recovered References";
 			sourceTree = "<group>";
 		};
+		A5C1811CD3E53ECFB7D9B42D /* rootfs-manifest */ = {
+			isa = PBXGroup;
+			children = (
+				B943617711E6F6314E471864 /* manifest.json */,
+			);
+			name = "rootfs-manifest";
+			path = "deps/rootfs-manifest";
+			sourceTree = "<group>";
+		};
 		BB0B848D2586A4B100208600 /* Configs */ = {
 			isa = PBXGroup;
 			children = (
@@ -1168,6 +1180,7 @@
 				BB792B511F96D90D00FFB7A4 /* Products */,
 				BB792B7D1F96E32B00FFB7A4 /* Frameworks */,
 				5D56B8D42FE8DF230072732D /* Recovered References */,
+				A5C1811CD3E53ECFB7D9B42D /* rootfs-manifest */,
 			);
 			sourceTree = "<group>";
 			usesTabs = 0;
@@ -2018,6 +2031,7 @@
 				C0A000022E00000200000003 /* test-tone-48k-s16le-stereo.raw in Resources */,
 				C0A000022E00000200000004 /* test-tone-48k-s16le-stereo.wav in Resources */,
 				C0A000042E00000400000001 /* iSH_benchmark.tgz in Resources */,
+				1A4DC4F2374508A4B1CEC666 /* manifest.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -2067,6 +2081,7 @@
 				C0A000022E00000200000005 /* test-tone-48k-s16le-stereo.raw in Resources */,
 				C0A000022E00000200000006 /* test-tone-48k-s16le-stereo.wav in Resources */,
 				C0A000042E00000400000002 /* iSH_benchmark.tgz in Resources */,
+				CB0A85D17BF34C213CC1D019 /* manifest.json in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

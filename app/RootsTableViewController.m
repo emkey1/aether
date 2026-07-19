@@ -80,35 +80,54 @@
     return Roots.instance.bundledRootChoices;
 }
 
-// bundledChoices split along the same boundary Roots.m groups them by: choices
-// shipped in the app bundle (no download key -- currently the arm64 guests)
-// vs. choices fetched on demand into /AOK/persist/roots when selected. Shown
-// as two table sections so the "Downloadable" ones read as a distinct group,
-// not silently-slower bundled entries.
-- (NSArray<NSDictionary<NSString *, NSString *> *> *)builtInBundledChoices {
-    NSMutableArray<NSDictionary<NSString *, NSString *> *> *choices = [NSMutableArray array];
+// Groups bundledChoices by distro family (kBundledRootFamilyKey in Roots.m) so
+// each distro shows as one row, with architecture offered as a sub-choice
+// instead of one flat row per distro_arch combination. Each group dictionary
+// has "displayName" (NSString), "tier" (NSString), and "variants"
+// (NSArray<NSDictionary> of the underlying choice dicts, in declared order).
+- (NSArray<NSDictionary<NSString *, id> *> *)_familyGroupsForTier:(NSString *)tier {
+    NSMutableArray<NSString *> *order = [NSMutableArray array];
+    NSMutableDictionary<NSString *, NSMutableArray<NSDictionary<NSString *, NSString *> *> *> *byFamily = [NSMutableDictionary dictionary];
     for (NSDictionary<NSString *, NSString *> *choice in self.bundledChoices) {
-        if (choice[@"downloadURL"].length == 0)
-            [choices addObject:choice];
+        if (![choice[@"tier"] isEqualToString:tier])
+            continue;
+        NSString *family = choice[@"family"] ?: choice[@"identifier"];
+        NSMutableArray<NSDictionary<NSString *, NSString *> *> *variants = byFamily[family];
+        if (variants == nil) {
+            variants = [NSMutableArray array];
+            byFamily[family] = variants;
+            [order addObject:family];
+        }
+        [variants addObject:choice];
     }
-    return choices;
-}
-
-- (NSArray<NSDictionary<NSString *, NSString *> *> *)downloadableBundledChoices {
-    NSMutableArray<NSDictionary<NSString *, NSString *> *> *choices = [NSMutableArray array];
-    for (NSDictionary<NSString *, NSString *> *choice in self.bundledChoices) {
-        if (choice[@"downloadURL"].length != 0)
-            [choices addObject:choice];
+    NSMutableArray<NSDictionary<NSString *, id> *> *groups = [NSMutableArray array];
+    for (NSString *family in order) {
+        NSArray<NSDictionary<NSString *, NSString *> *> *variants = byFamily[family];
+        NSString *displayName = variants.firstObject[@"familyDisplayName"] ?: variants.firstObject[@"displayName"];
+        [groups addObject:@{
+            @"family": family,
+            @"displayName": displayName,
+            @"tier": tier,
+            @"variants": variants,
+        }];
     }
-    return choices;
+    return groups;
 }
 
-- (BOOL)showsBuiltInChoicesSection {
-    return self.builtInBundledChoices.count != 0;
+- (NSArray<NSDictionary<NSString *, id> *> *)officialFamilyGroups {
+    return [self _familyGroupsForTier:@"official"];
 }
 
-- (BOOL)showsDownloadableChoicesSection {
-    return self.downloadableBundledChoices.count != 0;
+- (NSArray<NSDictionary<NSString *, id> *> *)communityFamilyGroups {
+    return [self _familyGroupsForTier:@"community"];
+}
+
+- (BOOL)showsOfficialChoicesSection {
+    return self.officialFamilyGroups.count != 0;
+}
+
+- (BOOL)showsCommunityChoicesSection {
+    return self.communityFamilyGroups.count != 0;
 }
 
 - (BOOL)showsInstalledRootsSection {
@@ -124,7 +143,7 @@
 }
 
 // Sections appear in this fixed order, each shown only when non-empty:
-// Installed Filesystems, Root Cached Filesystems, Bundled Filesystems, Downloadable.
+// Installed Filesystems, Root Cached Filesystems, Official Distributions, Community Distributions.
 - (NSInteger)installedRootsSectionIndex {
     return self.showsInstalledRootsSection ? 0 : NSNotFound;
 }
@@ -133,8 +152,8 @@
         return NSNotFound;
     return self.showsInstalledRootsSection ? 1 : 0;
 }
-- (NSInteger)builtInChoicesSectionIndex {
-    if (!self.showsBuiltInChoicesSection)
+- (NSInteger)officialChoicesSectionIndex {
+    if (!self.showsOfficialChoicesSection)
         return NSNotFound;
     NSInteger index = 0;
     if (self.showsInstalledRootsSection)
@@ -143,15 +162,15 @@
         index++;
     return index;
 }
-- (NSInteger)downloadableChoicesSectionIndex {
-    if (!self.showsDownloadableChoicesSection)
+- (NSInteger)communityChoicesSectionIndex {
+    if (!self.showsCommunityChoicesSection)
         return NSNotFound;
     NSInteger index = 0;
     if (self.showsInstalledRootsSection)
         index++;
     if (self.showsCachedRootsSection)
         index++;
-    if (self.showsBuiltInChoicesSection)
+    if (self.showsOfficialChoicesSection)
         index++;
     return index;
 }
@@ -164,12 +183,12 @@
     return self.showsCachedRootsSection && section == self.cachedRootsSectionIndex;
 }
 
-- (BOOL)sectionShowsBuiltInChoices:(NSInteger)section {
-    return self.showsBuiltInChoicesSection && section == self.builtInChoicesSectionIndex;
+- (BOOL)sectionShowsOfficialChoices:(NSInteger)section {
+    return self.showsOfficialChoicesSection && section == self.officialChoicesSectionIndex;
 }
 
-- (BOOL)sectionShowsDownloadableChoices:(NSInteger)section {
-    return self.showsDownloadableChoicesSection && section == self.downloadableChoicesSectionIndex;
+- (BOOL)sectionShowsCommunityChoices:(NSInteger)section {
+    return self.showsCommunityChoicesSection && section == self.communityChoicesSectionIndex;
 }
 
 - (NSIndexPath *)selectedIndexPathForSender:(id)sender {
@@ -230,18 +249,91 @@
     });
 }
 
-- (void)presentImportOptionsFromSender:(id)sender {
-    UIAlertController *alert =
-        [UIAlertController alertControllerWithTitle:@"Import Filesystem"
-                                            message:@"Choose a bundled filesystem or import a root archive from Files."
-                                     preferredStyle:UIAlertControllerStyleActionSheet];
+- (void)_configurePopoverForAlert:(UIAlertController *)alert sender:(id)sender {
+    UIPopoverPresentationController *popover = alert.popoverPresentationController;
+    if (popover != nil) {
+        if ([sender isKindOfClass:UIBarButtonItem.class]) {
+            popover.barButtonItem = sender;
+        } else if ([sender isKindOfClass:UIView.class]) {
+            popover.sourceView = sender;
+            popover.sourceRect = ((UIView *) sender).bounds;
+        } else {
+            popover.sourceView = self.view;
+            popover.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
+        }
+    }
+}
 
-    for (NSDictionary<NSString *, NSString *> *choice in self.bundledChoices) {
-        NSString *displayName = choice[@"displayName"];
-        [alert addAction:[UIAlertAction actionWithTitle:displayName
+// One-line label for an architecture variant when offering it as a sub-choice
+// under a distro-family row -- distinct from _bundledChoiceSubtitle, which is
+// a full sentence used under a single-variant family's own row.
+- (NSString *)_archChoiceActionTitle:(NSDictionary<NSString *, NSString *> *)choice {
+    NSString *abi = choice[@"guestABI"];
+    NSString *label;
+    if ([abi isEqualToString:@"amd64"]) {
+        label = @"x86_64 (amd64)";
+    } else if ([abi isEqualToString:@"arm64"]) {
+        label = @"arm64";
+    } else if ([abi isEqualToString:@"riscv64"]) {
+        label = @"riscv64";
+    } else {
+        label = @"i386";
+    }
+    if ([Roots.instance bundledRootChoiceNeedsDownload:choice]) {
+        NSString *size = choice[@"downloadSize"];
+        return size.length != 0
+            ? [NSString stringWithFormat:@"%@ — Downloads %@", label, size]
+            : [NSString stringWithFormat:@"%@ — Downloads on first use", label];
+    }
+    return [NSString stringWithFormat:@"%@ (Bundled)", label];
+}
+
+// Distro-family rows with more than one architecture variant present an
+// architecture-choice action sheet instead of importing directly, so a distro
+// with several supported guest ABIs doesn't need its own long-list row per ABI.
+- (void)_chooseArchitectureForGroup:(NSDictionary<NSString *, id> *)group sender:(id)sender {
+    NSArray<NSDictionary<NSString *, NSString *> *> *variants = group[@"variants"];
+    if (variants.count <= 1) {
+        if (variants.count == 1)
+            [self _confirmBundledImportChoiceIfNeeded:variants.firstObject];
+        return;
+    }
+
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:group[@"displayName"]
+                                             message:@"Choose an architecture."
+                                      preferredStyle:UIAlertControllerStyleActionSheet];
+    for (NSDictionary<NSString *, NSString *> *choice in variants) {
+        [alert addAction:[UIAlertAction actionWithTitle:[self _archChoiceActionTitle:choice]
                                                   style:UIAlertActionStyleDefault
                                                 handler:^(__unused UIAlertAction *action) {
             [self _confirmBundledImportChoiceIfNeeded:choice];
+        }]];
+    }
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel"
+                                              style:UIAlertActionStyleCancel
+                                            handler:nil]];
+    [self _configurePopoverForAlert:alert sender:sender];
+    [self presentViewController:alert animated:YES completion:nil];
+}
+
+- (void)presentImportOptionsFromSender:(id)sender {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Import Filesystem"
+                                            message:@"Choose a distribution or import a root archive from Files."
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+
+    NSArray<NSDictionary<NSString *, id> *> *groups =
+        [self.officialFamilyGroups arrayByAddingObjectsFromArray:self.communityFamilyGroups];
+    for (NSDictionary<NSString *, id> *group in groups) {
+        NSString *displayName = group[@"displayName"];
+        NSString *title = [group[@"tier"] isEqualToString:@"community"]
+            ? [NSString stringWithFormat:@"%@ (Community)", displayName]
+            : displayName;
+        [alert addAction:[UIAlertAction actionWithTitle:title
+                                                  style:UIAlertActionStyleDefault
+                                                handler:^(__unused UIAlertAction *action) {
+            [self _chooseArchitectureForGroup:group sender:sender];
         }]];
     }
 
@@ -262,19 +354,7 @@
                                               style:UIAlertActionStyleCancel
                                             handler:nil]];
 
-    UIPopoverPresentationController *popover = alert.popoverPresentationController;
-    if (popover != nil) {
-        if ([sender isKindOfClass:UIBarButtonItem.class]) {
-            popover.barButtonItem = sender;
-        } else if ([sender isKindOfClass:UIView.class]) {
-            popover.sourceView = sender;
-            popover.sourceRect = ((UIView *) sender).bounds;
-        } else {
-            popover.sourceView = self.view;
-            popover.sourceRect = CGRectMake(CGRectGetMidX(self.view.bounds), CGRectGetMidY(self.view.bounds), 1, 1);
-        }
-    }
-
+    [self _configurePopoverForAlert:alert sender:sender];
     [self presentViewController:alert animated:YES completion:nil];
 }
 
@@ -360,9 +440,9 @@
         sections++;
     if (self.showsCachedRootsSection)
         sections++;
-    if (self.showsBuiltInChoicesSection)
+    if (self.showsOfficialChoicesSection)
         sections++;
-    if (self.showsDownloadableChoicesSection)
+    if (self.showsCommunityChoicesSection)
         sections++;
     return MAX(sections, 1);
 }
@@ -371,29 +451,29 @@
         return Roots.instance.roots.count;
     if ([self sectionShowsCachedRoots:section])
         return self.cachedRootArchives.count;
-    if ([self sectionShowsBuiltInChoices:section])
-        return self.builtInBundledChoices.count;
-    if ([self sectionShowsDownloadableChoices:section])
-        return self.downloadableBundledChoices.count;
+    if ([self sectionShowsOfficialChoices:section])
+        return self.officialFamilyGroups.count;
+    if ([self sectionShowsCommunityChoices:section])
+        return self.communityFamilyGroups.count;
     return 0;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForHeaderInSection:(NSInteger)section {
     if ([self sectionShowsInstalledRoots:section]) {
-        if (self.showsBuiltInChoicesSection || self.showsDownloadableChoicesSection || self.showsCachedRootsSection)
+        if (self.showsOfficialChoicesSection || self.showsCommunityChoicesSection || self.showsCachedRootsSection)
             return @"Installed Filesystems";
         return self.choosesRootOnSelection ? @"Choose a Filesystem" : nil;
     }
     if ([self sectionShowsCachedRoots:section]) {
         return @"Root Cached Filesystems (/AOK/persist/roots)";
     }
-    if ([self sectionShowsBuiltInChoices:section]) {
-        if (self.showsInstalledRootsSection || self.showsCachedRootsSection || self.showsDownloadableChoicesSection)
-            return @"Bundled Filesystems";
+    if ([self sectionShowsOfficialChoices:section]) {
+        if (self.showsInstalledRootsSection || self.showsCachedRootsSection || self.showsCommunityChoicesSection)
+            return @"Official Distributions";
         return @"Choose a Filesystem";
     }
-    if ([self sectionShowsDownloadableChoices:section]) {
-        return @"Downloadable";
+    if ([self sectionShowsCommunityChoices:section]) {
+        return @"Community Distributions";
     }
     return nil;
 }
@@ -405,28 +485,46 @@
     if ([self sectionShowsCachedRoots:section]) {
         return @"Archives in /AOK/persist/roots (shared across all filesystems). Tap one to install it as a new filesystem. Swipe to delete.";
     }
-    if ([self sectionShowsBuiltInChoices:section]) {
+    if ([self sectionShowsOfficialChoices:section]) {
         if (!self.showsInstalledRootsSection)
-            return @"Choose one of the bundled filesystems below, or tap Import to browse for another archive.";
-        return @"These bundled filesystems can be imported again at any time.";
+            return @"Choose a distribution below (you'll be asked which architecture if more than one is available), or tap Import to browse for another archive.";
+        return @"Maintained and regression-tested as part of iSH-AOK. Can be imported again at any time.";
     }
-    if ([self sectionShowsDownloadableChoices:section]) {
-        return @"Not bundled with the app. Downloaded on first use into /AOK/persist/roots, where they can be deleted afterward.";
+    if ([self sectionShowsCommunityChoices:section]) {
+        return @"Contributed or experimental, without the same support guarantees as the official distributions above. Downloaded on first use into /AOK/persist/roots, where they can be deleted afterward.";
     }
     return nil;
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self sectionShowsBuiltInChoices:indexPath.section] || [self sectionShowsDownloadableChoices:indexPath.section]) {
+    if ([self sectionShowsOfficialChoices:indexPath.section] || [self sectionShowsCommunityChoices:indexPath.section]) {
         UITableViewCell *cell = [tableView dequeueReusableCellWithIdentifier:@"BundledRootChoice"];
         if (cell == nil)
             cell = [[UITableViewCell alloc] initWithStyle:UITableViewCellStyleSubtitle reuseIdentifier:@"BundledRootChoice"];
-        NSDictionary<NSString *, NSString *> *choice = [self sectionShowsBuiltInChoices:indexPath.section]
-            ? self.builtInBundledChoices[indexPath.row]
-            : self.downloadableBundledChoices[indexPath.row];
-        cell.textLabel.text = choice[@"displayName"];
-        cell.detailTextLabel.text = [self _bundledChoiceSubtitle:choice];
-        cell.accessoryType = UITableViewCellAccessoryNone;
+        NSDictionary<NSString *, id> *group = [self sectionShowsOfficialChoices:indexPath.section]
+            ? self.officialFamilyGroups[indexPath.row]
+            : self.communityFamilyGroups[indexPath.row];
+        NSArray<NSDictionary<NSString *, NSString *> *> *variants = group[@"variants"];
+        cell.textLabel.text = group[@"displayName"];
+        if (variants.count == 1) {
+            cell.detailTextLabel.text = [self _bundledChoiceSubtitle:variants.firstObject];
+            cell.accessoryType = UITableViewCellAccessoryNone;
+        } else {
+            NSMutableArray<NSString *> *archLabels = [NSMutableArray array];
+            for (NSDictionary<NSString *, NSString *> *choice in variants) {
+                NSString *abi = choice[@"guestABI"];
+                if ([abi isEqualToString:@"amd64"])
+                    [archLabels addObject:@"x86_64"];
+                else if (abi.length != 0)
+                    [archLabels addObject:abi];
+                else
+                    [archLabels addObject:@"i386"];
+            }
+            cell.detailTextLabel.text = [NSString stringWithFormat:@"%lu architectures: %@",
+                                          (unsigned long) variants.count,
+                                          [archLabels componentsJoinedByString:@", "]];
+            cell.accessoryType = UITableViewCellAccessoryDisclosureIndicator;
+        }
         cell.accessibilityTraits &= ~UIAccessibilityTraitSelected;
         cell.selectionStyle = UITableViewCellSelectionStyleDefault;
         return cell;
@@ -464,14 +562,16 @@
 }
 
 - (void)tableView:(UITableView *)tableView didSelectRowAtIndexPath:(NSIndexPath *)indexPath {
-    if ([self sectionShowsBuiltInChoices:indexPath.section]) {
+    if ([self sectionShowsOfficialChoices:indexPath.section]) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
         [tableView deselectRowAtIndexPath:indexPath animated:YES];
-        [self _confirmBundledImportChoiceIfNeeded:self.builtInBundledChoices[indexPath.row]];
+        [self _chooseArchitectureForGroup:self.officialFamilyGroups[indexPath.row] sender:cell];
         return;
     }
-    if ([self sectionShowsDownloadableChoices:indexPath.section]) {
+    if ([self sectionShowsCommunityChoices:indexPath.section]) {
+        UITableViewCell *cell = [tableView cellForRowAtIndexPath:indexPath];
         [tableView deselectRowAtIndexPath:indexPath animated:YES];
-        [self _confirmBundledImportChoiceIfNeeded:self.downloadableBundledChoices[indexPath.row]];
+        [self _chooseArchitectureForGroup:self.communityFamilyGroups[indexPath.row] sender:cell];
         return;
     }
     if ([self sectionShowsCachedRoots:indexPath.section]) {
@@ -522,7 +622,7 @@
 
 - (BOOL)shouldPerformSegueWithIdentifier:(NSString *)identifier sender:(id)sender {
     NSIndexPath *indexPath = [self selectedIndexPathForSender:sender];
-    if (indexPath != nil && ([self sectionShowsBuiltInChoices:indexPath.section] || [self sectionShowsDownloadableChoices:indexPath.section]))
+    if (indexPath != nil && ([self sectionShowsOfficialChoices:indexPath.section] || [self sectionShowsCommunityChoices:indexPath.section]))
         return NO;
     if (indexPath != nil && [self sectionShowsCachedRoots:indexPath.section])
         return NO;

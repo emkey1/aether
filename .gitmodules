@@ -9,3 +9,6 @@
 	url = https://github.com/ish-app/linux
 	update = none
 	shallow = true
+[submodule "deps/rootfs-manifest"]
+	path = deps/rootfs-manifest
+	url = git@github.com:emkey1/ish-AOK-rootfs.git
