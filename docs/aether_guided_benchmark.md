@@ -116,10 +116,34 @@ directional, not controlled.
 | `qwen36-35b-a3b` (no-think) | 9/8/6/5 | 6/6/0/0 |
 | `mistral24b` | 9/**9**/1/1 | 9/**9**/0/0 |
 | `qwen35-9b` (no-think) | 9/8/8/7 | 9/5/9/5 |
+| `qwen35-9b-base` (think)§ | 9/6/6/1/1 | 9/5/5/2/2 |
 | `gemini-2.5-flash-lite` | 9/**9**/2/2 | 9/8/9/8 |
 | `qwen3-coder30b-a3b` | 5/5/4/0 | 8/8/6/5 |
 | `qwen25-14b` | 7/6/9/6 | 8/8/3/2 |
 | `deepseek6.7b`†‡ | 1/0/9/0 | — |
+
+§ `qwen35-9b-base` (think) is a **scoped, not directly comparable** follow-up
+run, not part of the controlled cs-aug4-matched sweep above: same seed
+(`42`), same guide (`2026-07-15-2`), same `--max-model-len 40960` bump, same
+`tasks_hard.json` (`2026-07-15-1`) and `--repair-attempts 2`, but against
+`aether 2026-07-19-1` (vs the board's `2026-07-09-1`) and with thinking
+enabled instead of the model's default no-think mode. Cell format here is
+`N/Compiled/Correct/Retried/Fixed` (5 numbers) since a meaningful fraction
+of tasks never produced a program at all within the 1800s-per-attempt cap —
+worth spelling out separately from `Correct` rather than folding into it.
+**The finding:** thinking mode is far more likely to *time out generating
+entirely* than to generate and be wrong — every task that finished compiled
+correctly (`Correct == Compiled` in both columns, a 100% hit rate on
+whatever it actually produced), but only 5–6 of 9 tasks finished within 30
+minutes per attempt at all (vs no-think's 9/9 always compiling). The same
+three tasks (`hard_expense_outliers`, `hard_account_ledger`,
+`hard_sensor_streak`) timed out under **both** guide sizes, suggesting a
+runaway-reasoning failure mode on those specific prompts rather than a
+context-budget problem. Net effect on this suite: thinking trades away
+completion rate for a cleaner "correct or absent" split, and comes out
+*behind* no-think on raw task count (5–6/9 vs 5–8/9) because the timeouts
+dominate. Full run: `/home/claw/guided_sweep_base/qwen35-9b-base-think_large.json`
+on claw2.
 
 ### CS-classics (19 tasks)
 
@@ -503,6 +527,16 @@ dry) — an account funding issue, not a model or harness problem. `glm-5.2`'s
 row above is still the `2026-06-28` result; the current-guide re-run was
 discarded rather than published, and will be redone once the account is
 funded.
+
+**`qwen35-9b-base` thinking-mode scoped test (2026-07-19):** targeted
+follow-up on the large suite only, since it was this model's biggest
+full-guide gap vs `qwen3-8b-nothink` (5/9 vs 9/9) in the main board. Result
+is in the Large table (marked §) — thinking mode did not close the gap; it
+traded compile-failures for timeout-failures (every task that finished
+compiled correctly, but 3–4 of 9 never finished within the 1800s-per-attempt
+cap even with repair), coming out at 5–6/9 vs no-think's 5–8/9. Same three
+tasks timed out under both guide sizes, pointing at a runaway-reasoning
+failure mode on those specific prompts rather than a context-budget issue.
 
 **Guide version note (2026-07-03):** the language hardened materially this session
 (stricter parser, new coded diagnostics, contract/effect changes), and the guide
