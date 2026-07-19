@@ -19,7 +19,7 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
-### Real socket API (`socket*`) exists and works but is completely undocumented; models invent a fictional `tcpsocket*`/`udpsocket*` namespace — *gap, 2026-07-19*
+### Real socket API (`socket*`) exists and works but was completely undocumented; models invent a fictional `tcpsocket*`/`udpsocket*` namespace — *documented (docs-only), 2026-07-19*
 A generated batch of 12 examples included 5 built entirely around
 `tcpsocketlisten`/`tcpsocketaccept`/`tcpsocketread`/`tcpsocketsend`/
 `tcpsocketclose`, `udpsocket`/`udpsend`/`udpreceive`/`udplisten`/
@@ -30,21 +30,32 @@ BSD-socket-style `socket*` family (`socketcreate`, `socketbind`,
 `socketsend`, `socketreceive`, `socketclose`, `socketpoll`,
 `socketsetblocking`, `socketpeeraddr`, `socketlasterror`) plus `dnslookup`
 (forward hostname->IP only, single `Text` arg -- no reverse lookup). Neither
-guide mentions any of this; the small guide's *Files and environment* section
-says only "Sockets (`socket*`) ... discover them via `builtin_info(...)`",
+guide mentioned any of this; the small guide's *Files and environment* section
+said only "Sockets (`socket*`) ... discover them via `builtin_info(...)`",
 which is not enough for a model to reconstruct argument order or blocking
-semantics. Confirmed via source (not just `builtin_info`, which only returns
-`"usage":"socketcreate(...)"` with no argument detail) that at least
-`socketcreate(type[, family])` (`type`: `0`=TCP/SOCK_STREAM, `1`=UDP/
-SOCK_DGRAM; `family`: `4`=IPv4 default, `6`=IPv6) and
-`socketconnect(socket, host, port)` have real, sane signatures --
-`builtin_network_api.c` in pscal-core has the rest.
-**Not fixed this round:** documenting 8+ socket functions with correct
-argument order, blocking-vs-nonblocking semantics, and a runnable
-client+server-in-one-process example (needed since a real `accept()`/
-`receive()` blocks indefinitely with no counterpart) is a substantial
-standalone task, scoped out of a corpus-import pass. The 5 affected examples
-were dropped from this batch rather than guessed-and-hoped-into-working.
+semantics.
+
+**Resolved (docs-only) 2026-07-19.** Read the full implementation of every `socket*`
+function plus `dnslookup` in `builtin_network_api.c` (each `runtimeError()`
+call at the top of a `vmBuiltin*` gives the exact expected argument shape) and
+confirmed all 14 signatures, return-value meanings, and the blocking calls:
+`socketaccept`/`socketreceive` block the calling task until a peer
+connects/sends (a `0`-length `socketreceive` result means the peer closed the
+connection, not failure), and a failed `dnslookup` sets
+`vm->abort_requested` on the owning task thread. Added a new **Sockets**
+section to both guides (signatures table, the `type`/`family` int constants,
+the blocking-accept/receive gotcha and its two fixes) plus a verified,
+runnable same-process TCP client+server example: the listening socket is
+created/bound/put into listen state *before* a `par` block (not inside one of
+its branches), so the client branch can never race ahead of a
+not-yet-listening server, and `par`'s existing join semantics mean no
+extra synchronization is needed. Confirmed it runs to completion in well
+under a second (not a hang) across repeated runs via a background-run +
+`kill -0`-poll + hard-kill-after-20s harness, both standalone and now wired
+into `tests/run.sh` as `tests/socket_echo_pass.aether` (exact-stdout
+regression check, same 20s-hang guard). Full existing suite
+(`tests/run.sh`) passes unchanged. Doc/example changes only -- no compiler or
+language change, so no language-version bump.
 
 ### No file-content read/write API reachable from Aether's own type system — *gap, 2026-07-19*
 A generated "File Line Counter" example invented `fileopen`/`fileeof`/
@@ -264,7 +275,7 @@ left ungated. Documentation surfaced **filesystem + Pascal string ops**
 (`copy`/`pos`/`trim`/`stringofchar`) in both guides; BUILT-001 softened to
 "supported surface, discover others via `builtin_info`."
 
-### HTTP / sockets / SQLite — *HTTP done 2026-07-09-1; sockets/SQLite deferred*
+### HTTP / sockets / SQLite — *HTTP done 2026-07-09-1; sockets done (docs-only) 2026-07-19; SQLite deferred*
 These are correctly fx-gated (effectful). Status:
 - **HTTP — surfaced 2026-07-09-1.** `MStream` is now a first-class opaque
   Aether type (lowers to rea `mstream`/`TYPE_MEMORYSTREAM`; explicit decls and
@@ -278,9 +289,13 @@ These are correctly fx-gated (effectful). Status:
   live on an `AETHER_ENABLE_CURL=ON` build. A convenience alias layer
   (`http_get(url) -> Text`, `http_post(url, body) -> Text`) is still a
   possible future ergonomics addition, but no longer a prereq.
-- **Sockets** (`socket*`, `dnslookup`) and **SQLite** (`sqlite*`, ~21 fns): real
-  and coherent, but large; surface only on demand. SQLite is the strongest
-  candidate if a DB use case appears.
+- **Sockets — documented 2026-07-19 (docs-only).** See the dedicated entry
+  above; both guides now have a full **Sockets** section (signatures, the
+  `type`/`family` constants, the blocking-accept/receive gotcha) with a
+  verified `par`-coordinated client+server example, and
+  `tests/socket_echo_pass.aether` is wired into `tests/run.sh`.
+- **SQLite** (`sqlite*`, ~21 fns): real and coherent, but large; surface only
+  on demand if a DB use case appears.
 - **CRT/console** (`gotoxy`, `clrscr`, `textcolor`, ...): terminal UI; leave
   discovery-only. SDL/graphics/GL/audio/landscape stay undocumented (excluded).
 

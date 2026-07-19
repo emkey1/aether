@@ -346,6 +346,81 @@ fx {
 never `let stream: Int = ...`. JSON responses pair with TOON:
 `toon_parse(mstreambuffer(out))`.
 
+## Sockets
+
+Real BSD-socket-style API (`socket*`) and `dnslookup` — not `tcpsocket*`/
+`udpsocket*`/`resolve`, which do not exist. All effectful (FX-001).
+`socketreceive` returns an `MStream` (MS-001), never `Text`/`Int` directly.
+
+- `socketcreate(type[, family]) -> Int`: `type` `0`=TCP, `1`=UDP; `family`
+  `4`=IPv4 (default), `6`=IPv6
+- `socketconnect(socket, host, port) -> Int`,
+  `socketbind(socket, port) -> Int` (all interfaces),
+  `socketbindaddr(socket, host, port) -> Int` (one address),
+  `socketlisten(socket, backlog) -> Int`, `socketclose(socket) -> Int`
+  (all `0`/`-1`)
+- `socketaccept(socket) -> Int` (new socket handle) **blocks** until a peer
+  connects; `socketreceive(socket, maxlen) -> MStream` **blocks** until data
+  arrives (`0`-length result = peer closed, not failure)
+- `socketsend(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
+- `socketpeeraddr(socket) -> Text`, `socketlasterror() -> Int`
+- `socketsetblocking(socket, blocking: Bool) -> Int`,
+  `socketpoll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
+  `2`=writable, bitwise-or; `0` on timeout) — the non-blocking alternative to
+  a bare `socketaccept`/`socketreceive`
+- `dnslookup(hostname) -> Text` (forward only; `""` on failure)
+
+`socketaccept`/`socketreceive` hang forever with no peer. Either run a
+same-process client+server pair via `par` (create/bind/listen *before* the
+`par` block so the client can't race a not-yet-listening server; `par`
+joins), or use `socketsetblocking(s, false)` + poll `socketpoll` in a loop.
+
+```aether
+type Message {
+    payload: Text;
+}
+fn server(listenSock: Int, out: Message) -> Void {
+    fx {
+        let conn: Int = socketaccept(listenSock);
+        let ms: MStream = socketreceive(conn, 256);
+        out.payload = mstreambuffer(ms);
+        socketsend(conn, "pong");
+        mstreamfree(ms);
+        socketclose(conn);
+        socketclose(listenSock);
+    }
+    ret;
+}
+fn client(port: Int, out: Message) -> Void {
+    fx {
+        let sock: Int = socketcreate(0);
+        socketconnect(sock, "127.0.0.1", port);
+        socketsend(sock, "ping");
+        let ms: MStream = socketreceive(sock, 256);
+        out.payload = mstreambuffer(ms);
+        mstreamfree(ms);
+        socketclose(sock);
+    }
+    ret;
+}
+fn main() -> Void {
+    let port: Int = 23557;
+    let listenSock: Int = 0;
+    let serverMsg: Message = new Message();
+    let clientMsg: Message = new Message();
+    fx {
+        listenSock = socketcreate(0);
+        socketbind(listenSock, port);
+        socketlisten(listenSock, 1);
+    }
+    par {
+        server(listenSock, serverMsg);
+        client(port, clientMsg);
+    }
+    ret;
+}
+```
+
 ## Dynamic arrays
 
 ```aether

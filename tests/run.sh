@@ -88,6 +88,7 @@ PAR_PASS_FIXTURE="$TESTS_DIR/par_pass.aether"
 PAR_FAIL_NON_CALL_FIXTURE="$TESTS_DIR/par_fail_non_call.aether"
 PAR_SHARED_RECORD_FAIL_FIXTURE="$TESTS_DIR/par_shared_record_fail.aether"
 PAR_SHARED_TUPLE_CALL_PASS_FIXTURE="$TESTS_DIR/par_shared_tuple_call_pass.aether"
+SOCKET_ECHO_PASS_FIXTURE="$TESTS_DIR/socket_echo_pass.aether"
 METHOD_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/method_undefined_fail.aether"
 UNKNOWN_CONSTRUCT_FAIL_FIXTURE="$TESTS_DIR/unknown_construct_fail.aether"
 UNCLOSED_BLOCK_FAIL_FIXTURE="$TESTS_DIR/unclosed_block_fail.aether"
@@ -2332,6 +2333,36 @@ printf 'count = 4\n' >/tmp/aether_oneliner_array_append_expected.out
 if ! cmp -s /tmp/aether_oneliner_array_append_expected.out /tmp/aether_oneliner_array_append.out; then
     echo "unexpected one-liner array-append output" >&2
     cat /tmp/aether_oneliner_array_append.out >&2
+    exit 1
+fi
+
+# Real socket* API end to end: same-process TCP client+server pair
+# coordinated with par (listener created/bound/listening before the par
+# block starts, so the client branch can't race a not-yet-listening server).
+# socketaccept/socketreceive block the calling task until a peer shows up, so
+# this runs in the background with a hard kill after 20s instead of a bare
+# foreground call — a regression here should fail loudly, not hang the suite.
+"$AETHER_BIN" --no-cache "$SOCKET_ECHO_PASS_FIXTURE" >/tmp/aether_socket_echo_pass.out 2>&1 &
+socket_echo_pid=$!
+socket_echo_waited=0
+while kill -0 "$socket_echo_pid" 2>/dev/null; do
+    sleep 1
+    socket_echo_waited=$((socket_echo_waited + 1))
+    if [ "$socket_echo_waited" -ge 20 ]; then
+        kill -9 "$socket_echo_pid" 2>/dev/null
+        echo "socket echo fixture hung past 20s (accept/receive blocked with no peer?)" >&2
+        exit 1
+    fi
+done
+if ! wait "$socket_echo_pid"; then
+    echo "socket echo fixture exited non-zero" >&2
+    cat /tmp/aether_socket_echo_pass.out >&2
+    exit 1
+fi
+printf 'server got: ping\nclient got: pong\ndone\n' >/tmp/aether_socket_echo_expected.out
+if ! cmp -s /tmp/aether_socket_echo_expected.out /tmp/aether_socket_echo_pass.out; then
+    echo "unexpected socket echo output" >&2
+    cat /tmp/aether_socket_echo_pass.out >&2
     exit 1
 fi
 

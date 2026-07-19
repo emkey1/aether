@@ -1,0 +1,54 @@
+// Same-process TCP client+server pair over the real socket* API, coordinated
+// with par so accept()/receive() never block indefinitely: the listening
+// socket is created, bound, and put into listen state before the par block
+// starts, so the client branch can never race ahead of a not-yet-listening
+// server.
+type Message {
+    payload: Text;
+}
+
+fn server(listenSock: Int, out: Message) -> Void {
+    fx {
+        let conn: Int = socketaccept(listenSock);
+        let ms: MStream = socketreceive(conn, 256);
+        out.payload = mstreambuffer(ms);
+        println("server got: ", out.payload);
+        socketsend(conn, "pong");
+        mstreamfree(ms);
+        socketclose(conn);
+        socketclose(listenSock);
+    }
+    ret;
+}
+
+fn client(port: Int, out: Message) -> Void {
+    fx {
+        let sock: Int = socketcreate(0);
+        socketconnect(sock, "127.0.0.1", port);
+        socketsend(sock, "ping");
+        let ms: MStream = socketreceive(sock, 256);
+        out.payload = mstreambuffer(ms);
+        println("client got: ", out.payload);
+        mstreamfree(ms);
+        socketclose(sock);
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let port: Int = 23557;
+    let listenSock: Int = 0;
+    let serverMsg: Message = new Message();
+    let clientMsg: Message = new Message();
+    fx {
+        listenSock = socketcreate(0);
+        socketbind(listenSock, port);
+        socketlisten(listenSock, 1);
+    }
+    par {
+        server(listenSock, serverMsg);
+        client(port, clientMsg);
+    }
+    fx { println("done"); }
+    ret;
+}

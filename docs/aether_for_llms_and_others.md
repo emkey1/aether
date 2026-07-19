@@ -821,6 +821,101 @@ fn main() -> Void {
 - `MStream` handles are opaque: no arithmetic, no cross-assignment with
   `ToonDoc`/`ToonNode`/`Int` (MS-001)
 
+## Sockets
+
+A real, working BSD-socket-style API — not the `tcpsocket*`/`udpsocket*`/
+`resolve` names a model might guess by analogy with other languages; those do
+not exist. All `socket*` calls and `dnslookup` are effectful (FX-001, inside
+`fx`). `socketreceive` returns its data in an `MStream` (MS-001), same as
+`http*` — never `Int`, never `Text` directly.
+
+| Builtin | Signature | Notes |
+|---|---|---|
+| `socketcreate(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`); `family`: `4` = IPv4 (default), `6` = IPv6 |
+| `socketconnect(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | resolves `host` (hostname or literal address) and connects |
+| `socketbind(socket, port)` | `(Int, Int) -> Int` (`0`/`-1`) | binds on all local interfaces (`INADDR_ANY`) |
+| `socketbindaddr(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | binds to one specific local address |
+| `socketlisten(socket, backlog)` | `(Int, Int) -> Int` (`0`/`-1`) | |
+| `socketaccept(socket)` | `(Int) -> Int` (new connected-socket handle, `-1` on failure) | **blocks** until a peer connects |
+| `socketpeeraddr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
+| `socketsend(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
+| `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstreambuffer(...)` to read it |
+| `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Int` (`0`/`-1`) | flips a socket to non-blocking mode |
+| `socketpoll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
+| `socketclose(socket)` | `(Int) -> Int` (`0`/`-1`) | |
+| `socketlasterror()` | `() -> Int` | last socket error code (errno/WSA), `0` if the last call succeeded |
+| `dnslookup(hostname)` | `(Text) -> Text` | forward lookup only (no reverse lookup); returns `""` on failure |
+
+The gotcha every generated socket example must handle: `socketaccept` and
+`socketreceive` **block the calling task indefinitely** until a peer shows up
+— call either one with no counterpart running concurrently and the program
+hangs forever. Two ways to avoid that:
+
+1. **Same-process client + server via `par`** (recommended for a
+   self-contained demo). Create, bind, and put the listening socket into
+   listen state *before* the `par` block — not inside one of its branches —
+   so the client branch can never race ahead of a not-yet-listening server;
+   `par` already joins (waits for both) before continuing (see
+   **Concurrency**).
+2. **Non-blocking + `socketpoll`.** Call `socketsetblocking(socket, false)`,
+   then loop on `socketpoll(socket, timeoutMs, 1)` until it reports readable
+   (or a deadline passes) before calling `socketaccept`/`socketreceive`.
+
+Golden shape — a same-process TCP echo, listener set up before `par`, verified
+to run to completion in well under a second:
+
+```aether
+type Message {
+    payload: Text;
+}
+
+fn server(listenSock: Int, out: Message) -> Void {
+    fx {
+        let conn: Int = socketaccept(listenSock);
+        let ms: MStream = socketreceive(conn, 256);
+        out.payload = mstreambuffer(ms);
+        println("server got: ", out.payload);
+        socketsend(conn, "pong");
+        mstreamfree(ms);
+        socketclose(conn);
+        socketclose(listenSock);
+    }
+    ret;
+}
+
+fn client(port: Int, out: Message) -> Void {
+    fx {
+        let sock: Int = socketcreate(0);
+        socketconnect(sock, "127.0.0.1", port);
+        socketsend(sock, "ping");
+        let ms: MStream = socketreceive(sock, 256);
+        out.payload = mstreambuffer(ms);
+        println("client got: ", out.payload);
+        mstreamfree(ms);
+        socketclose(sock);
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let port: Int = 23557;
+    let listenSock: Int = 0;
+    let serverMsg: Message = new Message();
+    let clientMsg: Message = new Message();
+    fx {
+        listenSock = socketcreate(0);
+        socketbind(listenSock, port);
+        socketlisten(listenSock, 1);
+    }
+    par {
+        server(listenSock, serverMsg);
+        client(port, clientMsg);
+    }
+    fx { println("done"); }
+    ret;
+}
+```
+
 ## Dynamic arrays
 
 ```aether
