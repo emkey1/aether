@@ -150,7 +150,7 @@ Generate the canonical form unless preserving existing code.
 | Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
-| Int → Text | `itoa(n)` | `int_to_text(n)` | inventing `n.toString()` |
+| Int → Text | `int_to_text(n)` | `itoa(n)` | inventing `n.toString()` |
 | Real → Text | `formatfloat(r, prec)` | `realtostr(r)` (always 6 dp) | `r:0:prec` as a value (it is `println`-only) |
 | Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |
 | Dynamic array length | `length(xs)` | `len(xs)`, `xs.len` | `toon_len(xs)` |
@@ -541,6 +541,21 @@ fn report(msg: Text) -> Void {
 ```
 
 Wrong: `println("hi");` at function scope. Right: wrap it in `fx { ... }`.
+
+Control flow (`if`, `loop`, blocks) nests inside `fx` with no restriction —
+only the *builtin calls* are gated, not the surrounding structure:
+
+```aether
+fx {
+    loop i in 0..count {
+        println("item ", i, " of ", count);
+    }
+}
+```
+
+There's no need to hoist a loop out of `fx` and re-enter `fx` on every
+iteration; put the whole loop inside one `fx` block when every iteration's
+work is effectful.
 
 ## Printing and formatting
 

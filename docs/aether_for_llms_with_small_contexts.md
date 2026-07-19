@@ -229,6 +229,9 @@ fn main() -> Void {
 ```
 
 `println("hello");` at function scope is wrong — wrap it in `fx { ... }`.
+`if`/`loop`/blocks nest inside `fx` freely — only the builtin calls are
+gated, not the structure — so a whole loop can go in one `fx` block:
+`fx { loop i in 0..n { println(i); } }`.
 
 ## Printing and Real formatting
 
@@ -264,7 +267,7 @@ let parts: Text[] = split("12,7,5", ",");  // Text -> Text[]  ["12","7","5"]
 let n: Int = parse_int(parts[0]);          // Text -> Int
 let r: Real = parse_float("3.5");          // Text -> Real
 let ok: Bool = parse_bool("true");         // Text -> Bool
-let s: Text = itoa(99);                    // Int  -> Text  (int_to_text alias)
+let s: Text = int_to_text(99);             // Int  -> Text  (itoa(n) also accepted)
 let f: Text = formatfloat(3.14159, 2);     // Real -> Text  "3.14" (realtostr(r) = 6 dp)
 ```
 
