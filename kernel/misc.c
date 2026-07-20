@@ -12,6 +12,7 @@
 #define PRCTL_GET_SECCOMP_ 21
 #define PRCTL_SET_SECCOMP_ 22
 #define PRCTL_CAPBSET_READ_ 23
+#define PRCTL_CAPBSET_DROP_ 24
 #define PRCTL_GET_SECUREBITS_ 27
 #define PRCTL_SET_SECUREBITS_ 28
 #define PRCTL_SET_TIMERSLACK_ 29
@@ -113,6 +114,20 @@ int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t UNUSED
             // We do not model a separate bounding set. Use the permitted set so
             // capability probes see a coherent answer instead of EINVAL.
             return prctl_cap_test(current->cap_permitted, arg2) ? 1 : 0;
+        case PRCTL_CAPBSET_DROP_:
+            // As above, we don't model a separate bounding set to shrink --
+            // just validate the capability number and accept. Every
+            // process's exec_context capability-dropping sequence
+            // (CapabilityBoundingSet=, systemd's exec_context_apply, PAM's
+            // pam_cap, etc.) calls this once per capability it wants gone
+            // before ever calling capset(); rejecting it outright with
+            // EINVAL aborted the whole spawn ("Failed to drop capabilities")
+            // before the exec'd program ever ran, which blocked every
+            // service using CapabilityBoundingSet= (systemd-logind among
+            // them) during Arch aarch64 boot.
+            if (!prctl_cap_valid(arg2))
+                return _EINVAL;
+            return 0;
         case PRCTL_GET_SECUREBITS_:
             return 0;
         case PRCTL_SET_SECUREBITS_:

@@ -562,7 +562,7 @@ dword_t sys_clone3_guest(guest_addr_t uargs_addr, dword_t size) {
 
     if ((args.flags >> 32) != 0)
         return _ENOSYS;
-    if (args.pidfd != 0 || args.set_tid != 0 || args.set_tid_size != 0 || args.cgroup != 0)
+    if (args.set_tid != 0 || args.set_tid_size != 0 || args.cgroup != 0)
         return _ENOSYS;
 
     dword_t flags = (dword_t) args.flags;
@@ -573,13 +573,19 @@ dword_t sys_clone3_guest(guest_addr_t uargs_addr, dword_t size) {
         return _EINVAL;
     flags = (flags & ~CSIGNAL_) | exit_signal;
 
-    if (flags & CLONE_PIDFD_)
-        return _ENOSYS;
-
     qword_t child_stack = args.stack;
     if (child_stack != 0 && args.stack_size != 0)
         child_stack += args.stack_size;
-    return sys_clone_common(flags, child_stack, args.parent_tid, args.tls, args.child_tid);
+    // clone3's `pidfd` field is CLONE_PIDFD's output slot -- sys_clone_common
+    // already implements CLONE_PIDFD by writing the new pidfd's fd number to
+    // whatever `ptid` address it's given (the same argument plain clone(2)
+    // repurposes for CLONE_PARENT_SETTID vs CLONE_PIDFD; see its comment).
+    // Reuse that here instead of rejecting clone3(CLONE_PIDFD) outright --
+    // glibc's pidfd_spawn (systemd's posix_spawn_wrapper for every service
+    // start) probes clone3+CLONE_PIDFD support before ever calling it for
+    // real, so an unconditional ENOSYS here made every service spawn fail.
+    guest_addr_t ptid = (flags & CLONE_PIDFD_) ? (guest_addr_t) args.pidfd : (guest_addr_t) args.parent_tid;
+    return sys_clone_common(flags, child_stack, ptid, args.tls, args.child_tid);
 }
 
 dword_t sys_clone3(addr_t uargs_addr, dword_t size) {

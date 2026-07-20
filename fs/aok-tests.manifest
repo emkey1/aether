@@ -86,6 +86,7 @@ inotify_close_race.c
 statx_mnt_id_timerfd.c
 opath_symlink_pidfd_wait.c
 pidfd_self_exit_deadlock.c
+prctl_capbset_drop.c
 x86/amd64_regress.c
 x86/amd64_jit_bench.sh
 setup-regressions.sh
