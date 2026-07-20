@@ -1204,6 +1204,20 @@ static syscall_t i386_syscall_table[] = {
     [460] = (syscall_t) syscall_stub_silent, // lsm_set_self_attr
     [461] = (syscall_t) syscall_stub_silent, // lsm_list_modules
     [462] = (syscall_t) syscall_stub_silent, // mseal
+    // 463-469: xattrat family (6.13), open_tree_attr (6.15),
+    // file_getattr/file_setattr (6.17). Same silent-ENOSYS treatment as
+    // 442-462 -- a real 4.20 kernel (what uname advertises) returns ENOSYS
+    // for all of these, and callers fall back to the classic xattr path
+    // (which reports ENOTSUP like a no-xattr filesystem). Observed: Arch
+    // aarch64 useradd -m probing getxattrat/464 during the /etc/skel copy
+    // got SIGSYS-killed by the out-of-table "missing syscall" path.
+    [463] = (syscall_t) syscall_stub_silent, // setxattrat
+    [464] = (syscall_t) syscall_stub_silent, // getxattrat
+    [465] = (syscall_t) syscall_stub_silent, // listxattrat
+    [466] = (syscall_t) syscall_stub_silent, // removexattrat
+    [467] = (syscall_t) syscall_stub_silent, // open_tree_attr
+    [468] = (syscall_t) syscall_stub_silent, // file_getattr
+    [469] = (syscall_t) syscall_stub_silent, // file_setattr
 };
 /*
 SYS_MSGRCV                       = 401
@@ -1272,7 +1286,7 @@ struct syscall_abi_dispatch {
     void (*syscall_result)(struct cpu_state *cpu, dword_t result);
 };
 
-static syscall_t amd64_syscall_table[463] = {
+static syscall_t amd64_syscall_table[470] = {
     // This table covers amd64 syscalls that either reuse an existing i386
     // implementation safely or have a small amd64 shim for 64-bit arg packing.
     [0] = (syscall_t) sys_read,
@@ -1585,6 +1599,16 @@ static syscall_t amd64_syscall_table[463] = {
     [460] = (syscall_t) syscall_stub_silent, // lsm_set_self_attr
     [461] = (syscall_t) syscall_stub_silent, // lsm_list_modules
     [462] = (syscall_t) syscall_stub_silent, // mseal
+    // 463-469: see the i386 table's matching comment (xattrat family,
+    // open_tree_attr, file_getattr/file_setattr). 0-arg classifier entries
+    // below as usual for this ABI.
+    [463] = (syscall_t) syscall_stub_silent, // setxattrat
+    [464] = (syscall_t) syscall_stub_silent, // getxattrat
+    [465] = (syscall_t) syscall_stub_silent, // listxattrat
+    [466] = (syscall_t) syscall_stub_silent, // removexattrat
+    [467] = (syscall_t) syscall_stub_silent, // open_tree_attr
+    [468] = (syscall_t) syscall_stub_silent, // file_getattr
+    [469] = (syscall_t) syscall_stub_silent, // file_setattr
 };
 
 // AArch64 Linux syscall table. Numbering (asm-generic based — no
@@ -1615,7 +1639,7 @@ static dword_t sys_riscv_flush_icache(void) {
     return 0; // translated blocks are invalidated on guest code writes
 }
 
-static syscall_t arm64_syscall_table[463] = {
+static syscall_t arm64_syscall_table[470] = {
     // I/O
     [2]   = (syscall_t) syscall_stub, // io_submit
     [5 ... 16] = (syscall_t) sys_xattr_stub,
@@ -1966,6 +1990,19 @@ static syscall_t arm64_syscall_table[463] = {
     [460] = (syscall_t) syscall_stub_silent, // lsm_set_self_attr
     [461] = (syscall_t) syscall_stub_silent, // lsm_list_modules
     [462] = (syscall_t) syscall_stub_silent, // mseal
+    // 463-469: see the i386 table's matching comment (xattrat family,
+    // open_tree_attr, file_getattr/file_setattr). This is the table that
+    // took the observed hit: Arch aarch64 useradd -m probing getxattrat/464
+    // fell off the old [463] bound into the SIGSYS "missing syscall" path.
+    // 0-arg classifier entries below as usual for this ABI (riscv64 shares
+    // both this table and the classifier).
+    [463] = (syscall_t) syscall_stub_silent, // setxattrat
+    [464] = (syscall_t) syscall_stub_silent, // getxattrat
+    [465] = (syscall_t) syscall_stub_silent, // listxattrat
+    [466] = (syscall_t) syscall_stub_silent, // removexattrat
+    [467] = (syscall_t) syscall_stub_silent, // open_tree_attr
+    [468] = (syscall_t) syscall_stub_silent, // file_getattr
+    [469] = (syscall_t) syscall_stub_silent, // file_setattr
 };
 
 static const struct syscall_abi_dispatch i386_syscall_dispatch = {
@@ -3531,6 +3568,9 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 460: // lsm_set_self_attr
     case 461: // lsm_list_modules
     case 462: // mseal
+    // 463-469: xattrat family / open_tree_attr / file_[gs]etattr silent
+    // stubs -- path/name/args pointers are full 64-bit guest addresses.
+    case 463: case 464: case 465: case 466: case 467: case 468: case 469:
         return 0;
     case 3:   // close
     case 12:  // brk
@@ -3822,6 +3862,10 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 460: // lsm_set_self_attr
     case 461: // lsm_list_modules
     case 462: // mseal
+    // 463-469: xattrat family / open_tree_attr / file_[gs]etattr silent
+    // stubs -- path/name/args pointers are full 64-bit guest addresses
+    // (getxattrat/464 is the one Arch useradd's skel copy actually probes).
+    case 463: case 464: case 465: case 466: case 467: case 468: case 469:
         return 0;
     case 20:  // epoll_create1
     case 23:  // dup
