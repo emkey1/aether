@@ -841,7 +841,22 @@ static int netlink_handle_route_request(struct fd *sock, const struct nlmsghdr_ 
         case RTM_GETROUTE_:
             return netlink_append_route_routes(sock, hdr, payload, payload_len);
         default:
-            return netlink_append_done(sock, hdr->nlmsg_seq);
+            // A bare NLMSG_DONE here is wrong for anything but a multi-part
+            // dump terminator -- it doesn't match what a caller doing a
+            // synchronous request/ack call (e.g. sd_netlink_call()-style,
+            // matching on NLMSG_ERROR for its nlmsg_seq) is waiting for, so
+            // that caller's recvmsg() never sees a satisfying reply and
+            // blocks forever. Real Linux only replies at all when NLM_F_ACK
+            // is set on the request; when it does, an accepted-but-
+            // unimplemented request (RTM_NEWLINK/RTM_SETLINK/RTM_DELADDR/...
+            // -- iSH doesn't actually configure anything) gets an
+            // NLMSG_ERROR with error=0, the real ack, not EOPNOTSUPP: a
+            // hard failure here would make callers that treat "the kernel
+            // rejected my request" as fatal (as opposed to "iSH silently
+            // no-ops it") abort setup entirely.
+            if (hdr->nlmsg_flags & NLM_F_ACK_)
+                return netlink_append_error(sock, hdr->nlmsg_seq, hdr, 0);
+            return 0;
     }
 }
 
@@ -4277,6 +4292,32 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
                 sock->socket.netlink_get_strict_chk = enabled;
             return 0;
         }
+        // NETLINK_PKTINFO_ is deliberately NOT accepted here. sd-netlink
+        // sets it unconditionally when creating an rtnetlink manager
+        // socket, and failing it makes managers that only need one-shot
+        // dumps (resolved) bail out cleanly with "Could not create
+        // manager: Protocol not available" instead of ever binding. That
+        // failure is load-bearing: a manager that gets past it typically
+        // also subscribes to multicast groups (RTNLGRP_LINK etc, via
+        // bind()'s nl_groups or NETLINK_ADD_MEMBERSHIP) expecting future
+        // RTM_NEWLINK/RTM_DELADDR/... notifications when the link/address
+        // state changes -- and nothing in this file ever generates one
+        // (verified: netlink_groups is written by bind/setsockopt and read
+        // ONLY by getsockopt(NETLINK_LIST_MEMBERSHIPS) to echo it back; no
+        // host-side interface-change monitor feeds these fake sockets).
+        // Confirmed by direct repro: accepting NETLINK_PKTINFO here made
+        // PID 1 itself (not resolved) permanently poll()+recvmsg() a single
+        // netlink fd every 5s forever, before spawning a single child --
+        // it got real dump replies to its first couple of requests, then
+        // waited on a group notification that can never arrive. That's a
+        // strictly worse failure mode (a silent, permanent, single-fd hang
+        // during synchronous PID 1 startup) than the current graceful
+        // "manager creation failed, retry-and-eventually-rate-limit" one.
+        // Making resolved's manager creation actually succeed requires
+        // real multicast notification delivery (a host-side interface
+        // change watcher fanning RTM_* messages out to every subscribed
+        // socket), not a one-line accept -- see fs/sock.c's netlink
+        // handling for the full picture before touching this again.
         return _ENOPROTOOPT;
     }
     if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
@@ -4311,6 +4352,11 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
                  option == SO_REUSEADDR_ || option == SO_REUSEPORT_)) {
             return 0;
         }
+        // SO_BINDTODEVICE_/SO_BINDTOIFINDEX_ deliberately NOT accepted here
+        // -- see the NETLINK_PKTINFO_ comment above (SOL_NETLINK block):
+        // this is the other half of what sd-netlink sets unconditionally
+        // on an rtnetlink manager socket, and accepting both together is
+        // what let PID 1 reach the permanent multicast-wait hang.
     }
     if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
         if (value_len < guest_timeval_size(abi))

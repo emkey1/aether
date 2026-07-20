@@ -300,6 +300,7 @@ static inline int sock_flags_from_real(int real) {
 #define NETLINK_GENERIC_ 16
 #define NETLINK_ADD_MEMBERSHIP_ 1
 #define NETLINK_DROP_MEMBERSHIP_ 2
+#define NETLINK_PKTINFO_ 3
 #define NETLINK_LIST_MEMBERSHIPS_ 9
 #define NETLINK_CAP_ACK_ 10
 #define NETLINK_EXT_ACK_ 11
@@ -321,6 +322,7 @@ static inline int sock_flags_from_real(int real) {
 #define SO_RCVTIMEO_OLD_ 20
 #define SO_SNDTIMEO_OLD_ 21
 #define SO_BINDTODEVICE_ 25
+#define SO_BINDTOIFINDEX_ 62
 #define SO_ATTACH_FILTER_ 26
 #define SO_DETACH_FILTER_ 27
 #define SO_TIMESTAMP_ 29
