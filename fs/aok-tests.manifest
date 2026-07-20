@@ -95,4 +95,5 @@ arm64/smc_stale_block.c
 arm64/stlr_ldar_publish.c
 arm64/ptrace_singlestep.c
 arm64/ands_bcond_fusion.c
+arm64/hle_loop.c
 riscv64/ptrace_regset.c
