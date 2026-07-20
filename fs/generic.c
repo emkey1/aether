@@ -166,7 +166,15 @@ static const struct fd_ops opath_link_ops = {
 };
 
 bool fd_is_opath_link(struct fd *fd) {
-    return fd != NULL && fd->ops == &opath_link_ops;
+    // AT_PWD (fs/path.h) is a non-dereferenceable sentinel meaning "current
+    // directory", not a real struct fd* -- generic_statat_full's
+    // AT_EMPTY_PATH branch runs whenever a caller passes AT_FDCWD together
+    // with AT_EMPTY_PATH and an empty path (e.g. systemd's chase() internals
+    // do this), so `at` can legitimately be AT_PWD here. Without this check
+    // fd->ops dereferenced (struct fd *)-2 + offsetof(ops), which wraps
+    // (mod 2^64) to a low, easily-reached address and crashed with SIGSEGV
+    // during Arch aarch64 boot.
+    return fd != NULL && fd != AT_PWD && fd->ops == &opath_link_ops;
 }
 
 struct fd *opath_link_fd_create(struct mount *mount, const char *path) {

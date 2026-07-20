@@ -251,6 +251,12 @@ noreturn void do_exit(struct task *task, int status) {
                task->parent != NULL ? task->parent->pid : -1);
     }
 
+    // Must run before the wait loops below: a self-referencing pidfd this
+    // task never closed would otherwise inflate its own reference count
+    // forever, since the fd table close that would drop it is itself gated
+    // behind those same waits. See pidfd_close_self_refs for the full story.
+    pidfd_close_self_refs(task);
+
     lock(&task->general_lock, 0);
 
     // has to happen before mm_release

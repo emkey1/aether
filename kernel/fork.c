@@ -206,7 +206,10 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
             err = PTR_ERR(pidfd);
             goto fail_unlink_group;
         }
-        fd_t pidfd_num = f_install(pidfd, 0);
+        // Linux unconditionally sets close-on-exec on a CLONE_PIDFD fd (same
+        // as pidfd_open); see kernel/pidfd.c's sys_pidfd_open for why an
+        // uncloseexeced self-pidfd deadlocks do_exit.
+        fd_t pidfd_num = f_install(pidfd, O_CLOEXEC_);
         if (pidfd_num < 0) {
             err = pidfd_num;
             goto fail_unlink_group;

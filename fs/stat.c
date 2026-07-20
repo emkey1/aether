@@ -314,13 +314,26 @@ int generic_statat_full(struct fd *at, const char *path_raw, struct statbuf *sta
         *mnt_id = 1;
 
     char path[MAX_PATH];
-    if (empty_path && (strcmp(path_raw, "") == 0)) {
-        struct mount *at_mount = fd_is_opath_link(at) ? opath_link_get_mount(at) : at->mount;
-        if (mnt_id && at_mount != NULL)
-            *mnt_id = mount_id(at_mount);
+    // AT_PWD (fs/path.h) is a non-dereferenceable sentinel meaning "current
+    // directory", not a real struct fd* -- `at` lands here whenever a
+    // caller passes AT_FDCWD together with AT_EMPTY_PATH and an empty path
+    // (systemd's chase() internals do exactly this; it should behave like
+    // stat(".")). Route that combination through the normal path-based
+    // resolution below (which already knows how to resolve AT_PWD) instead
+    // of treating the sentinel as a real fd to fstat -- fd->mount or
+    // fd->ops on AT_PWD wraps (mod 2^64) to a low, easily-reached address
+    // and previously crashed with SIGSEGV during Arch aarch64 boot.
+    if (empty_path && (strcmp(path_raw, "") == 0) && at != AT_PWD) {
+        if (mnt_id) {
+            struct mount *at_mount = fd_is_opath_link(at) ? opath_link_get_mount(at) : at->mount;
+            if (at_mount != NULL)
+                *mnt_id = mount_id(at_mount);
+        }
         return generic_fstat(at, stat);
     } else {
-        err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
+        const char *resolve_path =
+            (empty_path && at == AT_PWD && strcmp(path_raw, "") == 0) ? "." : path_raw;
+        err = path_normalize(at, resolve_path, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
         if (err < 0)
             return err;
     }

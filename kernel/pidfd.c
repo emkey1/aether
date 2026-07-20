@@ -81,7 +81,16 @@ int_t sys_pidfd_open(pid_t_ pid, dword_t flags) {
     task_ref_cnt_mod(task, -1); // drop pid_get_task_ref's ref; pidfd_create took its own
     if (IS_ERR(fd))
         return PTR_ERR(fd);
-    return f_install(fd, (flags & PIDFD_NONBLOCK_) ? O_NONBLOCK_ : 0);
+    // Linux unconditionally sets close-on-exec on every pidfd regardless of
+    // the flags argument (only PIDFD_NONBLOCK is a valid input bit). Without
+    // this, a self-pidfd opened just before exec (e.g. systemd's
+    // exec-invoke helper watching its own PID) survives into the exec'd
+    // program and keeps the extra reference alive -- do_exit's very first
+    // step busy-waits for exactly that reference to drop before it can reach
+    // the fd-table teardown that would close it, so the task can never
+    // finish exiting and everything waiting on it (waitid up the parent
+    // chain) wedges forever.
+    return f_install(fd, O_CLOEXEC_ | ((flags & PIDFD_NONBLOCK_) ? O_NONBLOCK_ : 0));
 }
 
 // Resolve a pidfd fd number to its task's pid, for waitid(P_PIDFD, fd, ...)
@@ -98,6 +107,34 @@ int_t pidfd_get_pid(fd_t f) {
     pid_t_ pid = data->task->pid;
     unlock(&pids_lock);
     return pid;
+}
+
+// A self-referencing pidfd (pidfd_open(getpid())) that a task never gets
+// around to closing before its OWN exit would otherwise deadlock every
+// exit_wait_needed() gate in do_exit forever: the extra task reference it
+// holds can only be dropped by closing this very fd, which normally only
+// happens once fdtable_release runs in do_exit -- but that's itself gated
+// behind those same checks. Real-world trigger: systemd >= 260's
+// exec-invoke helper opens a self-pidfd, then (depending on the code path)
+// exits without ever closing it. Called once, at the very top of do_exit,
+// before any wait loop.
+//
+// Only touches fds when this task solely owns its fd table (refcount == 1):
+// a CLONE_FILES-shared table might still be legitimately used by a live
+// sibling thread, so leave those alone -- whichever thread exits last (and
+// by then solely owns the table) will clean it up.
+void pidfd_close_self_refs(struct task *task) {
+    struct fdtable *files = task->files;
+    if (files == NULL || files->refcount != 1)
+        return;
+    for (fd_t f = 0; (unsigned) f < files->size; f++) {
+        struct fd *fd = files->files[f];
+        if (fd != NULL && fd->ops == &pidfd_ops) {
+            struct pidfd_data *data = fd->data;
+            if (data->task == task)
+                f_close(f);
+        }
+    }
 }
 
 int_t sys_pidfd_send_signal(fd_t pidfd, dword_t sig, addr_t UNUSED(info_addr), dword_t flags) {
