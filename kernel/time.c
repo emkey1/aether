@@ -95,6 +95,13 @@ static struct itimerspec64_ timer_spec_from_real64(struct timer_spec spec) {
 };
 
 #define TIMER_ABSTIME_ (1 << 0)
+// timerfd_settime only. Linux accepts this flag for any timerfd and merely
+// activates clock-set cancellation on CLOCK_REALTIME; we can't observe host
+// clock discontinuities, so the timer simply never cancels (the arm itself
+// must still succeed -- systemd's sd-event timechange source arms
+// TFD_TIMER_ABSTIME|TFD_TIMER_CANCEL_ON_SET at TIME_T_MAX and treats EINVAL
+// as fatal to manager allocation, freezing boot as PID 1).
+#define TFD_TIMER_CANCEL_ON_SET_ (1 << 1)
 
 static int timespec_is_valid(struct timespec ts) {
     return ts.tv_sec >= 0 && ts.tv_nsec >= 0 && ts.tv_nsec < 1000000000;
@@ -1463,7 +1470,7 @@ static int_t sys_timerfd_settime_common(fd_t f, int_t flags, guest_addr_t new_va
     if (time_warning_trace_enabled())
         printk("WARNING: timerfd_settime pid=%d tgid=%d comm=%s fd=%d flags=%d new=%#x old=%#x time64=%d\n",
                current->pid, current->tgid, current->comm, f, flags, new_value_addr, old_value_addr, time64);
-    if (flags & ~(TIMER_ABSTIME_))
+    if (flags & ~(TIMER_ABSTIME_ | TFD_TIMER_CANCEL_ON_SET_))
         return _EINVAL;
     struct fd *fd;
     int err = timerfd_lookup(f, &fd);

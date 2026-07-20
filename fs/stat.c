@@ -25,6 +25,7 @@
 #define STATX_SIZE_        0x00000200U
 #define STATX_BLOCKS_      0x00000400U
 #define STATX_BASIC_STATS_ 0x000007ffU
+#define STATX_MNT_ID_ 0x00001000U
 
 #define AT_STATX_SYNC_TYPE_     0x6000
 
@@ -297,7 +298,8 @@ int generic_fstat(struct fd *fd, struct statbuf *stat) {
     return err;
 }
 
-int generic_statat_ext(struct fd *at, const char *path_raw, struct statbuf *stat, int flags, bool *is_mount_root) {
+int generic_statat_full(struct fd *at, const char *path_raw, struct statbuf *stat, int flags,
+        bool *is_mount_root, int *mnt_id) {
     int err;
 
     bool empty_path = flags & AT_EMPTY_PATH_;
@@ -305,9 +307,13 @@ int generic_statat_ext(struct fd *at, const char *path_raw, struct statbuf *stat
 
     if (is_mount_root)
         *is_mount_root = false;
+    if (mnt_id)
+        *mnt_id = 1;
 
     char path[MAX_PATH];
     if (empty_path && (strcmp(path_raw, "") == 0)) {
+        if (mnt_id && at->mount != NULL)
+            *mnt_id = mount_id(at->mount);
         return generic_fstat(at, stat);
     } else {
         err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
@@ -336,12 +342,18 @@ int generic_statat_ext(struct fd *at, const char *path_raw, struct statbuf *stat
     unlock(&inodes_lock);
     if (err >= 0)
         stat_stamp_fake_dev(mount, stat);
+    if (mnt_id)
+        *mnt_id = mount_id(mount);
     mount_release(mount);
     return err;
 }
 
+int generic_statat_ext(struct fd *at, const char *path_raw, struct statbuf *stat, int flags, bool *is_mount_root) {
+    return generic_statat_full(at, path_raw, stat, flags, is_mount_root, NULL);
+}
+
 int generic_statat(struct fd *at, const char *path_raw, struct statbuf *stat, int flags) {
-    return generic_statat_ext(at, path_raw, stat, flags, NULL);
+    return generic_statat_full(at, path_raw, stat, flags, NULL, NULL);
 }
 
 // TODO get rid of this and maybe everything else in the file
@@ -600,13 +612,21 @@ static dword_t sys_statx_guest_abi(fd_t at_f, guest_addr_t path_addr, dword_t fl
 
     struct statbuf stat = {};
     bool is_mount_root = false;
-    int err = generic_statat_ext(at, path, &stat, flags, &is_mount_root);
+    int mnt_id = 1;
+    int err = generic_statat_full(at, path, &stat, flags, &is_mount_root, &mnt_id);
     if (err < 0) {
         dpkg_stat_trace_result("statx", at_f, path, err, NULL, false);
         return err;
     }
 
     struct statx_ statx = stat_convert_statx(stat);
+    // systemd >= 260 statx()s with STATX_MNT_ID mandatory (xstatx_full's
+    // XSTATX_MNT_ID_BEST): a success whose stx_mask lacks a mount-id bit is
+    // turned into -EUNATCH ("Protocol driver not attached"), which killed
+    // every chase()-based open (system.conf, os-release, machine-id) during
+    // Arch aarch64 boot. Report the same id mountinfo shows.
+    statx.stx_mask |= STATX_MNT_ID_;
+    statx.stx_mnt_id = (qword_t) mnt_id;
     // Modern userspace (systemd's fd_is_mount_point()/path_is_mount_point())
     // determines mount-root-ness from this attribute bit instead of walking
     // /proc/self/mountinfo; leaving it unset made statx() on /proc, /sys, and

@@ -99,6 +99,24 @@ void mount_release(struct mount *mount) {
     unlock(&mounts_lock);
 }
 
+// Mount ID as exposed in /proc/self/mountinfo and statx's stx_mnt_id:
+// 1-based position in the mounts list. The two consumers must agree --
+// systemd cross-checks statx STATX_MNT_ID against mountinfo.
+int mount_id(struct mount *target) {
+    lock(&mounts_lock, 0);
+    int id = 1;
+    struct mount *mount;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (mount == target) {
+            unlock(&mounts_lock);
+            return id;
+        }
+        id++;
+    }
+    unlock(&mounts_lock);
+    return 1;
+}
+
 int do_mount(const struct fs_ops *fs, const char *source, const char *point, const char *info, int flags) {
     struct mount *new_mount = malloc(sizeof(struct mount));
     if (new_mount == NULL)

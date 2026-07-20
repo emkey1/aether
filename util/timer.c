@@ -63,7 +63,17 @@ static void *timer_thread(void *param) {
                 timer->generation == generation &&
                 timespec_positive(remaining)) {
             unlock(&timer->lock);
-            nanosleep(&remaining, NULL);
+            // An effectively-infinite arm (e.g. systemd's TFD_TIMER_CANCEL_ON_SET
+            // sentinel at TIME_T_MAX) yields a tv_sec near INT64_MAX; Darwin's
+            // nanosleep converts to absolute mach-time nanoseconds, which
+            // overflows and can return immediately -- turning this loop into a
+            // busy spin. Nap in bounded chunks; the loop re-derives remaining.
+            struct timespec nap = remaining;
+            if (nap.tv_sec > 86400 || nap.tv_sec < 0) {
+                nap.tv_sec = 86400;
+                nap.tv_nsec = 0;
+            }
+            nanosleep(&nap, NULL);
             lock(&timer->lock, 0);
             remaining = timespec_subtract(timer->end, timespec_now(timer->clockid));
         }
@@ -138,6 +148,10 @@ int timer_set(struct timer *timer, struct timer_spec spec, struct timer_spec *ol
     timer->generation++;
     timer->start = now;
     timer->end = timespec_add(timer->start, spec.value);
+    // now + TIME_T_MAX-ish wraps negative, which would read as already
+    // expired and fire the callback in a tight loop; pin it far future.
+    if (spec.value.tv_sec >= 0 && timer->end.tv_sec < timer->start.tv_sec)
+        timer->end = (struct timespec) {.tv_sec = INT64_MAX, .tv_nsec = 0};
     timer->interval = spec.interval;
     timer->active = !timespec_is_zero(spec.value);
     if (timer_warning_trace_enabled()) {

@@ -75,6 +75,9 @@ int generic_statat(struct fd *at, const char *path, struct statbuf *stat, int fl
 // Same as generic_statat, but also reports (via is_mount_root, when non-NULL)
 // whether path resolved to exactly the root of its mount.
 int generic_statat_ext(struct fd *at, const char *path, struct statbuf *stat, int flags, bool *is_mount_root);
+// Also reports (via mnt_id, when non-NULL) the mountinfo/statx mount ID the
+// path (or fd, for AT_EMPTY_PATH) resolved into.
+int generic_statat_full(struct fd *at, const char *path, struct statbuf *stat, int flags, bool *is_mount_root, int *mnt_id);
 // fstat with the mount's anonymous st_dev stamped when the fs leaves dev 0
 int generic_fstat(struct fd *fd, struct statbuf *stat);
 int generic_setattrat(struct fd *at, const char *path, struct attr attr, bool follow_links);
@@ -137,6 +140,8 @@ extern lock_t mounts_lock;
 struct mount *mount_find(char *path);
 void mount_retain(struct mount *mount);
 void mount_release(struct mount *mount);
+// mountinfo/statx mount ID (1-based list position); see fs/mount.c
+int mount_id(struct mount *mount);
 
 // must hold mounts_lock while calling these, or traversing mounts
 int do_mount(const struct fs_ops *fs, const char *source, const char *point, const char *info, int flags);

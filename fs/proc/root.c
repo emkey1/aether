@@ -607,14 +607,7 @@ int proc_show_mounts(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
 }
 
 static int proc_mountinfo_id(struct mount *target) {
-    int id = 1;
-    struct mount *mount;
-    list_for_each_entry(&mounts, mount, mounts) {
-        if (mount == target)
-            return id;
-        id++;
-    }
-    return 1;
+    return mount_id(target);
 }
 
 static int proc_mountinfo_parent_id(struct mount *target) {
