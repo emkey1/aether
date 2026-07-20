@@ -3,9 +3,9 @@ fn pair() -> (Int, Int) {
 }
 
 fn main() -> Void {
-    let value = pair();
+    let t = pair();
     fx {
-        println(value);
+        println(t.2);
     }
     ret;
 }

@@ -76,9 +76,11 @@ ARRAY_APPEND_PASS_FIXTURE="$TESTS_DIR/dynamic_array_append_pass.aether"
 ARRAY_FIELD_INDEX_PASS_FIXTURE="$TESTS_DIR/array_field_index_pass.aether"
 EXTENSION_CALL_ALIAS_PASS_FIXTURE="$TESTS_DIR/extension_call_alias_pass.aether"
 EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE="$TESTS_DIR/extension_method_dot_call_pass.aether"
-TUPLE_DIRECT_BIND_FAIL_FIXTURE="$TESTS_DIR/tuple_return_unsupported_fail.aether"
+TUPLE_CHAINED_INDEX_FAIL_FIXTURE="$TESTS_DIR/tuple_index_chained_call_unsupported_fail.aether"
 TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE="$TESTS_DIR/tuple_let_destructure_unsupported_fail.aether"
 TUPLE_POST_INVALID_RESULT_FAIL_FIXTURE="$TESTS_DIR/tuple_post_invalid_result_fail.aether"
+TUPLE_INDEX_ACCESS_PASS_FIXTURE="$TESTS_DIR/tuple_index_access_pass.aether"
+TUPLE_INDEX_OUT_OF_RANGE_FAIL_FIXTURE="$TESTS_DIR/tuple_index_out_of_range_fail.aether"
 PURE_PASS_FIXTURE="$TESTS_DIR/pure_pass.aether"
 PURE_FAIL_EFFECTFUL_FIXTURE="$TESTS_DIR/pure_fail_effectful.aether"
 PURE_FAIL_NON_PURE_CALL_FIXTURE="$TESTS_DIR/pure_fail_non_pure_call.aether"
@@ -260,8 +262,10 @@ for fixture in \
     "$ARRAY_APPEND_PASS_FIXTURE" \
     "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" \
     "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" \
-    "$TUPLE_DIRECT_BIND_FAIL_FIXTURE" \
+    "$TUPLE_CHAINED_INDEX_FAIL_FIXTURE" \
     "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" \
+    "$TUPLE_INDEX_ACCESS_PASS_FIXTURE" \
+    "$TUPLE_INDEX_OUT_OF_RANGE_FAIL_FIXTURE" \
     "$PURE_PASS_FIXTURE" \
     "$PURE_FAIL_EFFECTFUL_FIXTURE" \
     "$PURE_FAIL_NON_PURE_CALL_FIXTURE" \
@@ -670,13 +674,34 @@ if ! grep -qx "12" /tmp/aether_extension_method_dot_call_pass.out; then
     cat /tmp/aether_extension_method_dot_call_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TUPLE_DIRECT_BIND_FAIL_FIXTURE" >/tmp/aether_tuple_direct_bind_fail.out 2>&1; then
-    echo "expected tuple direct bind failure but program succeeded" >&2
+"$AETHER_BIN" --no-cache "$TUPLE_INDEX_ACCESS_PASS_FIXTURE" >/tmp/aether_tuple_index_access_pass.out
+printf '7\nhi\ntrue\n' >/tmp/aether_tuple_index_access_expected.out
+if ! cmp -s /tmp/aether_tuple_index_access_expected.out /tmp/aether_tuple_index_access_pass.out; then
+    echo "unexpected tuple index access output" >&2
+    cat /tmp/aether_tuple_index_access_pass.out >&2
     exit 1
 fi
-if ! grep -q "tuple-return calls must be destructured directly" /tmp/aether_tuple_direct_bind_fail.out; then
-    echo "missing tuple direct bind failure message" >&2
-    cat /tmp/aether_tuple_direct_bind_fail.out >&2
+if "$AETHER_BIN" --no-cache "$TUPLE_INDEX_OUT_OF_RANGE_FAIL_FIXTURE" >/tmp/aether_tuple_index_oob_fail.out 2>&1; then
+    echo "expected tuple index out-of-range failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "tuple index .2 is out of range" /tmp/aether_tuple_index_oob_fail.out; then
+    echo "missing tuple index out-of-range failure message" >&2
+    cat /tmp/aether_tuple_index_oob_fail.out >&2
+    exit 1
+fi
+# Binding a tuple-return call to a single name is legal now that .0/.1/.2
+# index access exists (the old blanket rejection predated it); chaining an
+# index directly onto the call result is the part still unsupported (see the
+# parsePostfix comment on why -- it parses and type-checks but codegen has no
+# path from a call expression to its record type).
+if "$AETHER_BIN" --no-cache "$TUPLE_CHAINED_INDEX_FAIL_FIXTURE" >/tmp/aether_tuple_chained_index_fail.out 2>&1; then
+    echo "expected tuple chained-index failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "tuple index .0 access is only supported on a variable" /tmp/aether_tuple_chained_index_fail.out; then
+    echo "missing tuple chained-index failure message" >&2
+    cat /tmp/aether_tuple_chained_index_fail.out >&2
     exit 1
 fi
 if "$AETHER_BIN" --no-cache "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" >/tmp/aether_tuple_bad_destructure_fail.out 2>&1; then

@@ -42,11 +42,12 @@ If you only read one part of this document, read **Highest-Value Rules** and
 9. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
    dynamic arrays.
 10. **TUP-001.** Tuples are narrow: destructure direct top-level helper
-    returns (`let (a, b) = pair();`) only. Assume nothing else. Recursive
-    tuple-returning functions (direct or indirect) and concurrent
-    `par`-branch calls to the same tuple-returning function are fully
-    supported (tuple returns lower to a record returned by value, reentrant
-    per call).
+    returns (`let (a, b) = pair();`), or bind to one variable and read a
+    single field with `.0`/`.1`/`.2` (`let t = pair(); t.0;`) -- but not
+    `pair().0` directly. Assume nothing else. Recursive tuple-returning
+    functions (direct or indirect) and concurrent `par`-branch calls to the
+    same tuple-returning function are fully supported (tuple returns lower
+    to a record returned by value, reentrant per call).
 11. **OUT-001.** When asked to generate code, return raw Aether source only.
     No Markdown fences.
 12. **BUILT-001.** The builtins listed here are the supported, recommended
@@ -132,7 +133,8 @@ when unsure about a type, add it explicitly.
 - `let stream: Int = mstreamfromstring(...)` — memory streams are `MStream`
   handles, not integers (MS-001)
 - annotations inside a function body (ANN-001)
-- a tuple-return call bound to one variable: `let value = pair();` (TUP-001)
+- a tuple index chained directly onto a call: `pair().0` — bind it first,
+  `let t = pair(); t.0;` (TUP-001)
 - mixed-type output that guesses `+` will stringify numbers
 - foreign object/JSON APIs such as `JsonDoc`, `JsonNode`, `json.parseFile(...)`,
   `root.get(...)`, `Int.MIN`, and `value.toString()`
@@ -288,10 +290,32 @@ fn main() -> Void {
 ```
 
 Limits: top-level helper functions only; destructuring must be a direct call;
-no binding to a single name; no tuple-return methods. Tuple returns lower to a
-record returned by value, so recursion (direct or indirect, e.g.
-`a() -> b() -> a()`) and calling the same tuple-returning function from more
-than one concurrent `par` branch are both fully supported and reentrant.
+no tuple-return methods. Tuple returns lower to a record returned by value,
+so recursion (direct or indirect, e.g. `a() -> b() -> a()`) and calling the
+same tuple-returning function from more than one concurrent `par` branch are
+both fully supported and reentrant.
+
+To read a single element instead of destructuring the whole tuple, bind the
+call to a variable and use `.0`, `.1`, `.2`, ... (zero-based positional
+field access):
+
+```aether
+fn pairSquares(n: Int) -> (Int, Int) {
+    ret (n * n, n * n * n);
+}
+
+fn main() -> Void {
+    let t = pairSquares(6);
+    fx { println(t.0, " ", t.1); }
+    ret;
+}
+```
+
+An index at or past the tuple's arity is a compile-time `TUP-001` error
+("tuple index .N is out of range"), not a runtime crash. `.N` only works on
+a variable -- chaining an index directly onto a call result
+(`pairSquares(6).0`, no intermediate `let`) is not supported yet and reports
+`TUP-001` with a hint to bind the call first.
 
 When the values do not come from a direct call to a defined top-level
 tuple-return function (for example a method, an undefined helper, or a nested
@@ -1540,9 +1564,11 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   → give the return a value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function; keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call only, or the
-  callee isn't a known top-level tuple-returning function → return a record
-  instead and read its fields.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call
+  (`let (a, b) = pair();`), or bind it and read one field (`let t = pair();
+  t.0;`); an index past the arity or chained directly onto the call
+  (`pair().0`) both fail here too. If the callee isn't a known top-level
+  tuple-returning function, return a record instead and read its fields.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
@@ -1583,6 +1609,7 @@ Before submitting Aether code, verify:
 - `toon_len` for TOON arrays, `length` for dynamic arrays (LEN-001)
 - real arithmetic has a `Real` operand where decimals matter; stable decimal
   output uses `value:width:precision`
-- tuple returns destructured directly (TUP-001)
+- tuple returns destructured directly, or bound to a variable and read with
+  `.0`/`.1`/`.2` — never chained directly onto the call (TUP-001)
 - annotations sit above their functions (ANN-001)
 - canonical forms used unless preserving accepted-but-non-canonical source

@@ -1,0 +1,13 @@
+fn triple() -> (Int, Text, Bool) {
+    ret (7, "hi", true);
+}
+
+fn main() -> Void {
+    let t = triple();
+    fx {
+        println(t.0);
+        println(t.1);
+        println(t.2);
+    }
+    ret;
+}

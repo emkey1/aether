@@ -31,13 +31,16 @@ compiler, and VM. It is not a separate runtime.
 11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays.
 12. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
-    top-level helper call only. Never `let value = pair();`. If the producer is
-    a method, undefined, or an expression, return a record/object and read its
-    fields instead. Tuple `@post` checks must use positional slots like
-    `result.0`, `result.1`. Recursive tuple-returning functions (direct or
-    indirect) and concurrent `par`-branch calls to the same tuple-returning
-    function are fully supported (tuple returns lower to a record returned by
-    value, reentrant per call).
+    top-level helper call only. To read one field instead, bind it first --
+    `let t = pair(); t.0;` (zero-based) -- never `pair().0` directly on the
+    call. If the producer is a method, undefined, or an expression, return a
+    record/object and read its fields instead. An index at or past the
+    tuple's arity is a compile-time TUP-001 error, not a crash. Tuple
+    `@post` checks must use positional slots like `result.0`, `result.1`.
+    Recursive tuple-returning functions (direct or indirect) and concurrent
+    `par`-branch calls to the same tuple-returning function are fully
+    supported (tuple returns lower to a record returned by value, reentrant
+    per call).
 13. **OUT-001.** Return raw Aether source only. No Markdown fences.
 14. **ROOT-001.** If the JSON starts with `{`, extract the named array with
     `toon_key(root, "...")` before iterating. Only iterate `root` directly
@@ -818,7 +821,7 @@ The compiler prints a stable code in brackets, and on newer builds a
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call only, `let (a, b) = pair();`; otherwise return a record/object and read its fields. Recursion (direct or indirect) and concurrent `par`-branch calls through a tuple-returning function are fine — tuple returns are reentrant (lowered to a record returned by value).
+- **[TUP-001]** tuple misuse → destructure a direct top-level call, `let (a, b) = pair();`, or bind and read one field, `let t = pair(); t.0;` (never `pair().0` directly); otherwise return a record/object and read its fields. Recursion (direct or indirect) and concurrent `par`-branch calls through a tuple-returning function are fine — tuple returns are reentrant (lowered to a record returned by value).
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
@@ -848,4 +851,5 @@ FIELD-001). Re-read the prompt and match it exactly.
   (KEY-001); intermediates guarded before `_or` (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)
 - `Real` operand where decimals matter; `value:width:precision` for stable output
-- tuples destructured directly (TUP-001); annotations above functions (ANN-001)
+- tuples destructured directly, or bound and read with `.0`/`.1`/`.2`, never
+  chained onto the call (TUP-001); annotations above functions (ANN-001)

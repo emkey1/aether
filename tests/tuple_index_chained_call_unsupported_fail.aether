@@ -1,0 +1,10 @@
+fn pair() -> (Int, Int) {
+    ret (1, 2);
+}
+
+fn main() -> Void {
+    fx {
+        println(pair().0);
+    }
+    ret;
+}

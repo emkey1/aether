@@ -699,6 +699,39 @@ static const AetherTupleSig *tupleTableGet(const AetherTupleTable *t, const char
     return NULL;
 }
 
+/* Look up a tuple signature by its synthesized record type's id (the N in
+ * "__AetherTupleN") rather than by owning-function name. Used to recover a
+ * tuple's arity from a receiver's *type name* alone (e.g. a `let`-bound
+ * variable's recorded binding type, or a call's recorded return type), which
+ * is all `t.0`/`pair().0` field-index parsing has to work with -- neither
+ * necessarily still has the original function name in scope. Every
+ * registered signature has a distinct typeId (assigned once per tuple-return
+ * `fn`, see nextTupleTypeId in aetherRegisterTupleGlobals), so this is a
+ * simple linear scan, not a name collision hazard. */
+static const AetherTupleSig *tupleTableGetByTypeId(const AetherTupleTable *t, int typeId) {
+    if (!t) return NULL;
+    for (size_t i = 0; i < t->count; i++) {
+        if (t->items[i].typeId == typeId) return &t->items[i];
+    }
+    return NULL;
+}
+
+/* True if `name` is a synthesized tuple record type name ("__AetherTupleN"),
+ * and if so, extracts N into *outTypeId. Mirrors the naming convention from
+ * aetherTupleSyntheticTypeName (the inverse operation). */
+static bool aetherParseSyntheticTupleTypeId(const char *name, int *outTypeId) {
+    static const char kPrefix[] = "__AetherTuple";
+    static const size_t kPrefixLen = sizeof(kPrefix) - 1;
+    if (!name || strncmp(name, kPrefix, kPrefixLen) != 0) return false;
+    const char *digits = name + kPrefixLen;
+    if (!*digits) return false;
+    for (const char *c = digits; *c; c++) {
+        if (!isdigit((unsigned char)*c)) return false;
+    }
+    if (outTypeId) *outTypeId = atoi(digits);
+    return true;
+}
+
 /* Deterministic synthetic type name for a tuple signature's record lowering,
  * e.g. "__AetherTuple3" for typeId 3. Written into a caller-supplied buffer
  * (no storage needed on AetherTupleSig -- every use site can re-derive it from
@@ -886,6 +919,24 @@ static bool numberFoldsTrailingDot(const ReaToken *t) {
  * produced the high bound of a `<id>..N` range as NUMBER ".5". */
 static bool numberFoldsLeadingDot(const ReaToken *t) {
     return t->type == REA_TOKEN_NUMBER && t->length > 0 && t->start[0] == '.';
+}
+
+/* True if a NUMBER token is exactly '.' followed by one or more digits and
+ * nothing else (no second '.', no exponent) -- i.e. the rea lexer folded a
+ * tuple field index like `t.0` into a single NUMBER(".0") token instead of
+ * DOT + NUMBER("0") (there is no whitespace-independent way to tell the
+ * lexer "digits after a dot on a receiver are a field index, not a real
+ * literal" -- it has no lookback, see numberFoldsLeadingDot). parsePostfix
+ * treats this token the same as DOT + identifier-like("N"), synthesizing a
+ * `.itemN` field access. Deliberately narrower than numberFoldsLeadingDot:
+ * `.0e5` or `.0.5` fall through to ordinary number-literal handling instead
+ * of being misread as an index. */
+static bool aetherIsTupleIndexToken(const ReaToken *t) {
+    if (!t || t->type != REA_TOKEN_NUMBER || t->length < 2 || t->start[0] != '.') return false;
+    for (size_t i = 1; i < t->length; i++) {
+        if (!isdigit((unsigned char)t->start[i])) return false;
+    }
+    return true;
 }
 
 static ReaToken makeDotDot(const char *at, int line) {
@@ -1893,9 +1944,99 @@ static AST *parseRecordInitBlock(AetherParser *p) {
  * no name mangling for an ordinary receiver -- the bare method name resolves via
  * the alias rea registers for each class method). `myself`/`self` receivers DO
  * get mangled to ClassName.method, matching rea. */
+/* Resolve the recorded Aether type name of a bare-variable postfix receiver,
+ * for tuple index bounds-checking (`let t = pair(); t.0`) -- the same
+ * binding-table lookup parsePostfix already uses above for `.len` and
+ * method-call receiver resolution. Returns NULL when the type was never
+ * recorded (e.g. an untyped/unknown receiver); callers must treat NULL as
+ * "arity unknown", not "not a tuple". Only variable receivers reach here:
+ * chaining `.N` directly onto a call result is rejected earlier in
+ * parsePostfix (see the comment there for why). */
+static const char *aetherPostfixReceiverTypeName(AetherParser *p, AST *node) {
+    if (!node || node->type != AST_VARIABLE || !node->token || !node->token->value) return NULL;
+    return bindingTableGet(p->bindings, node->token->value, strlen(node->token->value));
+}
+
 static AST *parsePostfix(AetherParser *p, AST *base) {
     AST *node = base;
-    while (p->current.type == REA_TOKEN_DOT || p->current.type == REA_TOKEN_LEFT_BRACKET) {
+    while (p->current.type == REA_TOKEN_DOT || p->current.type == REA_TOKEN_LEFT_BRACKET ||
+           aetherIsTupleIndexToken(&p->current)) {
+        if (aetherIsTupleIndexToken(&p->current)) {
+            /* Tuple field index: `t.0`, `t.1`, ... on a tuple-typed variable.
+             * The rea lexer folds the dot and digits into one NUMBER token
+             * (see aetherIsTupleIndexToken); there is no separate DOT token
+             * to consume. Lower to the exact same AST_FIELD_ACCESS(recv,
+             * "item<N>") shape destructuring already builds
+             * (parseLetTupleDestructure), so semantic analysis and codegen
+             * need no tuple-specific handling.
+             *
+             * Only a bare variable receiver is supported: chaining directly
+             * onto a call result (`pair().0`) parses and passes semantic
+             * analysis (resolveExprClass in rea's shared semantic.c has no
+             * case for AST_PROCEDURE_CALL receivers), but pscal-core's
+             * codegen (getRecordTypeFromExpr in compiler.c) also has no path
+             * from a call expression to its record type, so it fails deep in
+             * codegen with a confusing "Unknown field 'item0'" -- worse than
+             * a clean rejection. Fixing that needs changes to how ordinary
+             * (non-tuple) call expressions carry their return type through
+             * codegen generally, which is out of scope here; reject early
+             * with an actionable message instead. `let t = pair(); t.0;`
+             * (now legal -- see the removed direct-bind rejection in
+             * parseLetDeclAfterKeyword) is the supported workaround. */
+            int idxLine = p->current.line;
+            const char *digits = p->current.start + 1;
+            size_t digitLen = p->current.length - 1;
+            long index = 0;
+            bool indexOverflowed = (digitLen > 9); /* generously more digits than any real tuple has */
+            if (!indexOverflowed) {
+                for (size_t i = 0; i < digitLen; i++) index = index * 10 + (digits[i] - '0');
+            }
+
+            if (node->type != AST_VARIABLE) {
+                char detail[160];
+                snprintf(detail, sizeof(detail),
+                         "tuple index .%.*s access is only supported on a variable, not directly on a call result.",
+                         (int)digitLen, digits);
+                reportAetherAstError(aetherSemanticGetSourcePath(), idxLine, "tuple", detail,
+                                     "bind the call first, for example `let t = pair(); t.0;`.");
+                p->hadError = true;
+                aetherAdvance(p); /* consume the folded '.N' token so parsing can continue */
+                continue;
+            }
+
+            const char *recvTypeName = aetherPostfixReceiverTypeName(p, node);
+            int tupleTypeId = 0;
+            const AetherTupleSig *sig = NULL;
+            if (recvTypeName && aetherParseSyntheticTupleTypeId(recvTypeName, &tupleTypeId)) {
+                sig = tupleTableGetByTypeId(p->tuples, tupleTypeId);
+            }
+            if (sig && (indexOverflowed || (size_t)index >= sig->itemCount)) {
+                char detail[160];
+                char hint[96];
+                snprintf(detail, sizeof(detail),
+                         "tuple index .%.*s is out of range (tuple has %zu element%s).",
+                         (int)digitLen, digits, sig->itemCount, sig->itemCount == 1 ? "" : "s");
+                snprintf(hint, sizeof(hint), "valid indices are .0 through .%zu.",
+                         sig->itemCount - 1);
+                reportAetherAstError(aetherSemanticGetSourcePath(), idxLine, "tuple", detail, hint);
+                p->hadError = true;
+            }
+
+            char fieldName[32];
+            if (indexOverflowed) {
+                snprintf(fieldName, sizeof(fieldName), "item%.*s", (int)digitLen, digits);
+            } else {
+                snprintf(fieldName, sizeof(fieldName), "item%ld", index);
+            }
+            Token *nameTok = newToken(TOKEN_IDENTIFIER, fieldName, idxLine, 0);
+            aetherAdvance(p); /* consume the folded '.N' token */
+            AST *fieldVar = newASTNode(AST_VARIABLE, nameTok);
+            AST *fa = newASTNode(AST_FIELD_ACCESS, nameTok);
+            setLeft(fa, node);
+            setRight(fa, fieldVar);
+            node = fa;
+            continue;
+        }
         if (p->current.type == REA_TOKEN_LEFT_BRACKET) {
             /* array index: base[expr] -> AST_ARRAY_ACCESS (rea parseArrayAccess). */
             int openLine = p->current.line;
@@ -3595,23 +3736,16 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         }
     }
 
-    /* Binding a tuple-return call to a single name is unsupported: `let v = pair();`
-     * where `pair` returns `(...)`. Match the rewriter's specific diagnostic rather
-     * than the generic "cannot infer type" so error-message parity holds. Applies
-     * regardless of explicit type, like the rewriter. */
-    if (init && init->type == AST_PROCEDURE_CALL && init->token && init->token->value &&
-        p->tuples &&
-        tupleTableGet(p->tuples, init->token->value, strlen(init->token->value))) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "tuple",
-                             "tuple-return calls must be destructured directly.",
-                             "use `let (a, b) = pair();` rather than binding the tuple call to one name.");
-        p->hadError = true;
-        freeToken(nameTok);
-        if (typeNode) freeAST(typeNode);
-        free(declaredTypeName);
-        freeAST(init);
-        return NULL;
-    }
+    /* Binding a tuple-return call to a single name (`let v = pair();`) used to
+     * be rejected outright here, forcing `let (a, b) = pair();` destructuring
+     * as the only way to consume a tuple. That restriction predated tuple
+     * .0/.1/.2 field-index access (see parsePostfix): without a way to read a
+     * single element later, a bound-but-undestructured tuple was useless, so
+     * disallowing it early gave a clearer error than "unused variable" ever
+     * would have. Now that `.N` field access exists, `v` is a normal
+     * variable of the synthesized tuple record type (bindingTableSet below
+     * records that type name, same as any other let), and later `v.0`/`v.1`
+     * read its slots with compile-time bounds checking. */
 
     /* Inferred type: derive from the initializer, like the rewriter. */
     if (!explicitType) {
@@ -5804,6 +5938,13 @@ static AST *parseFnDecl(AetherParser *p) {
                         char synthName[40];
                         aetherTupleSyntheticTypeName(synthName, sizeof(synthName), tupleSig->typeId);
                         returnTypeNode = buildTypeNode(synthName, strlen(synthName), fnLine, &vtype);
+                        /* Unlike the scalar/record branch, parseTypeWithArraySuffix
+                         * (which normally fills retTypeName) never runs here -- so
+                         * without this, p->funcReturns never learns this function's
+                         * return type, and `let t = pair();` type inference
+                         * (inferLetTypeName) would silently see no recorded return
+                         * type and fail to infer `t`'s type at all. */
+                        retTypeName = strdup(synthName);
                     } else {
                         vtype = TYPE_VOID;
                         returnTypeNode = NULL;

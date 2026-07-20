@@ -19,25 +19,34 @@ Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 
 ## Open ideas
 
-### Tuples have no `.0`/`.1`/`.2` field access, only destructuring — *gap, 2026-07-19*
-`let t: (Text, Real, Bool) = f(); let a: Text = t.0;` fails with
-`[SYN-001] unexpected token in block; expected a statement` (the parser
-appears to read `.0` as the start of a real-number literal rather than an
-indexed field access). The only working way to pull values out of a tuple
-is destructuring at the binding site (`let (a, b, c) = f();`), which TUP-001
-already documents as the sole supported form — so this isn't a doc gap, just
-confirmation that "destructure only" is a hard limitation, not a stylistic
-preference: a tuple that needs to be stored first and unpacked later (e.g.
-returned from a loop-body helper call, or passed through another function)
-has no way to access individual elements other than re-destructuring
-immediately at each call site. Found via a generated example that stored
-`parseRecord(...)`'s 3-tuple result in a loop and tried `triple.0`/`.1`/
-`.2`; fixed by destructuring directly at the call (`let (label, value,
-flag) = parseRecord(input[i]);`), which is fine when the tuple is consumed
-immediately but wouldn't help if the whole tuple needed to be threaded
-through unpacked. Not fixed this round -- worth a decision on whether
-numeric field access is worth adding, given tuples are already narrow/
-special-cased (TUP-001) and this may be intentionally out of scope.
+### Tuples have no `.0`/`.1`/`.2` field access, only destructuring — *fixed 2026-07-19-10*
+`let t = f(); let a: Text = t.0;` used to fail with `[SYN-001] unexpected
+token in block; expected a statement` -- the rea lexer folds a `.` followed
+by a digit into a single NUMBER token (`t.0` lexes as IDENT + NUMBER(".0"),
+never DOT + NUMBER), so `parsePostfix` never even saw a `.` to react to; the
+only working way to pull values out of a tuple was destructuring at the
+binding site (`let (a, b, c) = f();`). Fixed by recognizing that folded
+`.<digits>` token shape directly in `parsePostfix` and lowering it to the
+same `AST_FIELD_ACCESS(recv, "item<N>")` shape `let (a, b) = f();`
+destructuring already builds, with a compile-time (not runtime) bounds
+check: `t.2` on a 2-element tuple is a TUP-001 "tuple index .2 is out of
+range (tuple has 2 elements)" parser error, not a crash. This also required
+loosening the old blanket rejection of `let v = pair();` (binding a
+tuple-return call to one name) -- that restriction predated `.N` access and
+existed only because a bound-but-undestructured tuple was otherwise useless;
+`v` is now an ordinary variable of the synthesized tuple record type, same
+as any other `let`.
+
+Chaining an index directly onto a call result (`pair().0`, no intermediate
+variable) is still explicitly rejected, with a message pointing at the
+`let t = pair(); t.0;` workaround -- not because the parser can't build the
+AST (it can, and rea's shared semantic analyzer can even resolve the
+receiver's class), but because pscal-core's codegen (`getRecordTypeFromExpr`
+in compiler.c) has no path from a call expression to its record type, and
+extending that touches how *all* record-returning calls carry their return
+type through codegen, not just tuples -- out of scope for this pass. Landing
+that would remove this fixture's restriction:
+`tests/tuple_index_chained_call_unsupported_fail.aether`.
 
 ### Bitwise operations don't exist at all, despite `xor` being reserved as if they did — *fixed 2026-07-19-9*
 Aether has no way to perform bitwise AND/OR/XOR/shift. Confirmed absent as
