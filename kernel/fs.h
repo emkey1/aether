@@ -143,6 +143,13 @@ void mount_release(struct mount *mount);
 // mountinfo/statx mount ID (1-based list position); see fs/mount.c
 int mount_id(struct mount *mount);
 
+// O_PATH|O_NOFOLLOW fd referring to a symlink itself; see fs/generic.c
+bool fd_is_opath_link(struct fd *fd);
+struct fd *opath_link_fd_create(struct mount *mount, const char *path);
+int opath_link_fstat(struct fd *fd, struct statbuf *stat);
+struct mount *opath_link_get_mount(struct fd *fd);
+ssize_t opath_link_readlink(struct fd *fd, char *buf, size_t bufsize);
+
 // must hold mounts_lock while calling these, or traversing mounts
 int do_mount(const struct fs_ops *fs, const char *source, const char *point, const char *info, int flags);
 int do_umount(const char *point);
@@ -165,6 +172,15 @@ bool mount_param_flag(const char *info, const char *flag);
 #define O_DIRECTORY_ (1 << 16)
 #define O_NOFOLLOW_ (1 << 17)
 #define O_CLOEXEC_ (1 << 19)
+// O_PATH: same value (010000000) on i386, amd64, and asm-generic (arm64/
+// riscv64), so no per-ABI translation is needed. Combined with O_NOFOLLOW on
+// a final symlink it opens the symlink ITSELF (fstat sees S_IFLNK,
+// readlinkat(fd, "") returns the target, read/write give EBADF) -- the
+// primitive systemd's chase() uses for every path component. Without it,
+// any chase() ending on a symlink got ELOOP ("Too many levels of symbolic
+// links" for /etc/os-release and, fatally, the /etc/localtime timezone
+// watch during Arch aarch64 boot).
+#define O_PATH_ (1 << 21)
 
 // generic ioctls
 #define FIONREAD_ 0x541b

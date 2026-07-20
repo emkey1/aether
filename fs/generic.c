@@ -149,6 +149,61 @@ bool contains_mount_point(const char *path) {
     return false;
 }
 
+// fd referring to a symlink itself, from openat(O_PATH|O_NOFOLLOW) on a
+// final symlink component (the primitive systemd's chase() is built on).
+// No read/write/... ops -> those fail with EBADF, matching Linux O_PATH.
+// Owns one mount reference and a malloc'd copy of the mount-relative path;
+// fd->mount is deliberately left NULL (fd_close must not run the backend's
+// close on an fd the backend never opened).
+static int opath_link_close(struct fd *fd) {
+    mount_release(fd->opath_link.mount);
+    free(fd->opath_link.path);
+    return 0;
+}
+
+static const struct fd_ops opath_link_ops = {
+    .close = opath_link_close,
+};
+
+bool fd_is_opath_link(struct fd *fd) {
+    return fd != NULL && fd->ops == &opath_link_ops;
+}
+
+struct fd *opath_link_fd_create(struct mount *mount, const char *path) {
+    struct fd *fd = adhoc_fd_create(&opath_link_ops);
+    if (fd == NULL)
+        return NULL;
+    fd->opath_link.path = strdup(path);
+    if (fd->opath_link.path == NULL) {
+        fd->ops = NULL; // nothing to clean up; don't run opath_link_close
+        fd_close(fd);
+        return NULL;
+    }
+    fd->opath_link.mount = mount; // takes over the caller's reference
+    fd->type = S_IFLNK;
+    return fd;
+}
+
+// Live stat of the symlink an O_PATH-link fd refers to (fstat/AT_EMPTY_PATH).
+int opath_link_fstat(struct fd *fd, struct statbuf *stat) {
+    memset(stat, 0, sizeof(*stat));
+    struct mount *mount = fd->opath_link.mount;
+    int err = mount->fs->stat(mount, fd->opath_link.path, stat);
+    if (err >= 0 && stat->dev == 0)
+        stat->dev = mount->fake_dev;
+    return err;
+}
+
+struct mount *opath_link_get_mount(struct fd *fd) {
+    return fd->opath_link.mount;
+}
+
+// readlinkat(fd, "", ...) on an O_PATH symlink fd (Linux allows exactly this).
+ssize_t opath_link_readlink(struct fd *fd, char *buf, size_t bufsize) {
+    struct mount *mount = fd->opath_link.mount;
+    return mount->fs->readlink(mount, fd->opath_link.path, buf, bufsize);
+}
+
 struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mode) {
     if (flags & O_RDWR_ && flags & O_WRONLY_)
         return ERR_PTR(_EINVAL);
@@ -236,21 +291,44 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
             return ERR_PTR(err);
         }
     } else {
-        // O_NOFOLLOW: a final symlink we deliberately did not resolve is an error.
+        // O_NOFOLLOW: a final symlink we deliberately did not resolve is an
+        // error -- unless O_PATH is also set, in which case Linux opens the
+        // symlink ITSELF (fstat sees S_IFLNK, readlinkat(fd, "") returns the
+        // target, read/write give EBADF). systemd's chase() opens every path
+        // component this way, so without this any chase ending on a symlink
+        // failed with ELOOP.
         if ((flags & O_NOFOLLOW_) && S_ISLNK(stat.mode)) {
             unlock(&inodes_lock);
+            if (flags & O_PATH_) {
+                if (flags & O_DIRECTORY_) {
+                    mount_release(mount);
+                    return ERR_PTR(_ENOTDIR);
+                }
+                struct fd *lfd = opath_link_fd_create(mount, path);
+                if (lfd == NULL) {
+                    mount_release(mount);
+                    return ERR_PTR(_ENOMEM);
+                }
+                // opath_link_fd_create took over the mount reference.
+                lfd->flags = flags;
+                return lfd;
+            }
             mount_release(mount);
             return ERR_PTR(_ELOOP);
         }
-        int accmode;
-        if (flags & O_RDWR_) accmode = AC_R | AC_W;
-        else if (flags & O_WRONLY_) accmode = AC_W;
-        else accmode = AC_R;
-        err = access_check(&stat, accmode);
-        if (err < 0) {
-            unlock(&inodes_lock);
-            mount_release(mount);
-            return ERR_PTR(err);
+        // O_PATH ignores the access mode: Linux performs no read/write
+        // permission check for O_PATH opens (the fd can't do I/O anyway).
+        if (!(flags & O_PATH_)) {
+            int accmode;
+            if (flags & O_RDWR_) accmode = AC_R | AC_W;
+            else if (flags & O_WRONLY_) accmode = AC_W;
+            else accmode = AC_R;
+            err = access_check(&stat, accmode);
+            if (err < 0) {
+                unlock(&inodes_lock);
+                mount_release(mount);
+                return ERR_PTR(err);
+            }
         }
     }
 
@@ -264,7 +342,12 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     bool open_may_block = !created && S_ISFIFO(stat.mode) && !(flags & O_NONBLOCK_);
     if (open_may_block)
         unlock(&inodes_lock);
-    struct fd *fd = mount->fs->open(mount, path, flags, mode);
+    // Strip O_PATH before handing flags to the backend: its bit value
+    // (0x200000) is Darwin's O_SYMLINK, so realfs would otherwise pass a
+    // meaningfully different flag to the host open(). A non-symlink O_PATH
+    // open behaves like an ordinary open downstream (a deliberate
+    // simplification: read() on it succeeds where Linux gives EBADF).
+    struct fd *fd = mount->fs->open(mount, path, flags & ~O_PATH_, mode);
     if (open_may_block)
         lock(&inodes_lock, 0);
     if (IS_ERR(fd)) {
@@ -337,6 +420,18 @@ struct fd *generic_open(const char *path, int flags, int mode) {
 }
 
 int generic_getpath(struct fd *fd, char *buf) {
+    if (fd_is_opath_link(fd)) {
+        struct mount *mount = fd->opath_link.mount;
+        size_t point_len = mount->point_len;
+        size_t path_len = strlen(fd->opath_link.path);
+        if (point_len + path_len >= MAX_PATH)
+            return _ENAMETOOLONG;
+        memcpy(buf, mount->point, point_len);
+        memcpy(buf + point_len, fd->opath_link.path, path_len + 1);
+        if (buf[0] == '\0')
+            memcpy(buf, "/", 2);
+        return 0;
+    }
     if(fd->ops != NULL) {
         int err = fd->mount->fs->getpath(fd, buf);
         if (err < 0)

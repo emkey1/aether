@@ -807,8 +807,20 @@ dword_t sys_waitid(int_t idtype, pid_t_ id, addr_t info_addr, int_t options) {
     return sys_waitid_guest(idtype, id, info_addr, options);
 }
 
+#define P_PIDFD_ 3
+
 dword_t sys_waitid_guest(int_t idtype, pid_t_ id, guest_addr_t info_addr, int_t options) {
     STRACE("waitid(%d, %d, %#x, %#x)", idtype, id, info_addr, options);
+    // waitid(P_PIDFD, pidfd, ...): wait on the process the pidfd references.
+    // systemd >= 260 waits for every child (generators, executor forks) this
+    // way; without it each wait failed EINVAL ("Failed to wait for ...").
+    if (idtype == P_PIDFD_) {
+        int_t pid = pidfd_get_pid(id);
+        if (pid < 0)
+            return pid;
+        idtype = P_PID_;
+        id = pid;
+    }
     struct siginfo_ info = {};
     int_t res = 0;
     TASK_MAY_BLOCK {

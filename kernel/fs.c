@@ -584,7 +584,14 @@ static dword_t sys_readlinkat_common(fd_t at_f, guest_addr_t path_addr, guest_ad
     if (bufsize > MAX_PATH)
         bufsize = MAX_PATH;
     char buf[bufsize];
-    ssize_t size = generic_readlinkat(at, path, buf, bufsize);
+    ssize_t size;
+    // readlinkat(fd, "", ...) is valid on exactly one kind of fd: an
+    // O_PATH|O_NOFOLLOW fd referring to a symlink (how systemd's chase()
+    // reads each link it walks). Anything else keeps returning ENOENT.
+    if (path[0] == '\0' && fd_is_opath_link(at))
+        size = opath_link_readlink(at, buf, bufsize);
+    else
+        size = generic_readlinkat(at, path, buf, bufsize);
     if (size >= 0) {
         STRACE(" \"%.*s\"", size, buf);
         if (user_write(buf_addr, buf, size))

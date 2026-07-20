@@ -291,6 +291,9 @@ static void stat_stamp_fake_dev(struct mount *mount, struct statbuf *stat) {
 }
 
 int generic_fstat(struct fd *fd, struct statbuf *stat) {
+    // O_PATH symlink fds have no backend open file; stat the link by path.
+    if (fd_is_opath_link(fd))
+        return opath_link_fstat(fd, stat);
     memset(stat, 0, sizeof(*stat));
     int err = fd->mount->fs->fstat(fd, stat);
     if (err >= 0)
@@ -312,8 +315,9 @@ int generic_statat_full(struct fd *at, const char *path_raw, struct statbuf *sta
 
     char path[MAX_PATH];
     if (empty_path && (strcmp(path_raw, "") == 0)) {
-        if (mnt_id && at->mount != NULL)
-            *mnt_id = mount_id(at->mount);
+        struct mount *at_mount = fd_is_opath_link(at) ? opath_link_get_mount(at) : at->mount;
+        if (mnt_id && at_mount != NULL)
+            *mnt_id = mount_id(at_mount);
         return generic_fstat(at, stat);
     } else {
         err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);

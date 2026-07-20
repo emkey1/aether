@@ -84,6 +84,22 @@ int_t sys_pidfd_open(pid_t_ pid, dword_t flags) {
     return f_install(fd, (flags & PIDFD_NONBLOCK_) ? O_NONBLOCK_ : 0);
 }
 
+// Resolve a pidfd fd number to its task's pid, for waitid(P_PIDFD, fd, ...)
+// (how systemd >= 260 waits for every process it forks, e.g. generators).
+int_t pidfd_get_pid(fd_t f) {
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    // A valid fd that isn't a pidfd is EBADF too (Linux pidfd_pid()).
+    if (fd->ops != &pidfd_ops)
+        return _EBADF;
+    struct pidfd_data *data = fd->data;
+    complex_lockt(&pids_lock, 0);
+    pid_t_ pid = data->task->pid;
+    unlock(&pids_lock);
+    return pid;
+}
+
 int_t sys_pidfd_send_signal(fd_t pidfd, dword_t sig, addr_t UNUSED(info_addr), dword_t flags) {
     STRACE("pidfd_send_signal(%d, %d, flags=%#x)", pidfd, sig, flags);
     if (flags != 0)

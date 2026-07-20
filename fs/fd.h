@@ -50,6 +50,14 @@ struct fd {
             struct timer *timer;
             uint64_t expirations;
         } timerfd;
+        // O_PATH|O_NOFOLLOW fd referring to a symlink itself (see
+        // generic_openat). Owns one reference on the mount and a malloc'd
+        // mount-relative path; fd->mount stays NULL so fd_close doesn't run
+        // the filesystem's close on an fd it never opened.
+        struct {
+            struct mount *mount;
+            char *path;
+        } opath_link;
         struct {
             int domain;
             int type;
