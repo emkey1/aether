@@ -3194,6 +3194,37 @@ static void fill_cred(struct ucred_ *cred) {
     cred->gid = current->egid;
 }
 
+// Per-datagram sender credentials for AF_LOCAL SOCK_DGRAM sockets: every
+// guest datagram travels on the host socket with this header prepended
+// (added by every send path, stripped by every recv path), so the sender's
+// guest ucred arrives WITH the datagram -- no side-channel queues, no
+// ordering races, MSG_PEEK-safe by construction. Linux attaches the
+// SENDER's credentials to each unix datagram; the connected-peer cred this
+// codebase already tracked (unix_peer_cred) is only correct for stream/
+// connected pairs, not for many-senders-one-receiver datagram sockets like
+// systemd's /run/systemd/notify. Without per-datagram creds, systemd drops
+// every sd_notify READY=1 ("Got notification datagram lacking valid
+// credential information, ignoring"), so every Type=notify service
+// (journald, udevd, userdbd, ...) hangs in "activating" until its start
+// timeout. All ends of a guest unix dgram socket live inside this emulator
+// (the host-side socket files are private to it), so the wire format is
+// ours to define.
+struct unix_dgram_cred_hdr {
+    uint32_t magic;
+    struct ucred_ cred;
+};
+#define UNIX_DGRAM_CRED_MAGIC 0x1D6CC12D
+
+static bool sock_is_unix_dgram(struct fd *sock) {
+    return sock->socket.domain == AF_LOCAL_ && sock->socket.type == SOCK_DGRAM_ &&
+        sock->real_fd >= 0;
+}
+
+static void unix_dgram_cred_hdr_fill(struct unix_dgram_cred_hdr *hdr) {
+    hdr->magic = UNIX_DGRAM_CRED_MAGIC;
+    fill_cred(&hdr->cred);
+}
+
 // /dev/log and /run|/dev/initctl have a built-in fallback sink so guests can
 // log (or send initctl messages) even when no daemon is running. But if a real
 // daemon (e.g. syslog-ng) has bound the socket, we must connect to it for real
@@ -3814,11 +3845,30 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
         return err;
     }
 
+    // AF_LOCAL datagrams carry the sender's guest creds in-band; see
+    // struct unix_dgram_cred_hdr.
+    bool unix_dgram = sock_is_unix_dgram(sock);
+    struct unix_dgram_cred_hdr dgram_hdr;
+    struct iovec dgram_iov[2];
+    struct msghdr dgram_msg = {};
+    if (unix_dgram) {
+        unix_dgram_cred_hdr_fill(&dgram_hdr);
+        dgram_iov[0] = (struct iovec) {.iov_base = &dgram_hdr, .iov_len = sizeof(dgram_hdr)};
+        dgram_iov[1] = (struct iovec) {.iov_base = buffer, .iov_len = len};
+        dgram_msg.msg_iov = dgram_iov;
+        dgram_msg.msg_iovlen = 2;
+        if (sockaddr_addr != 0) {
+            dgram_msg.msg_name = (void *) &sockaddr;
+            dgram_msg.msg_namelen = sockaddr_len;
+        }
+    }
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         while (1) {
             errno = 0;
-            if (sockaddr_addr == 0) {
+            if (unix_dgram) {
+                res = sendmsg(sock->real_fd, &dgram_msg, real_flags);
+            } else if (sockaddr_addr == 0) {
                 res = send(sock->real_fd, buffer, len, real_flags);
             } else {
                 res = sendto(sock->real_fd, buffer, len, real_flags,
@@ -3871,6 +3921,9 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
             sock_x11_event("sendto-err", sock, -1, mapped_err, len);
         return mapped_err;
     }
+    // The in-band cred header is emulator plumbing, not payload.
+    if (unix_dgram && res >= (ssize_t) sizeof(dgram_hdr))
+        res -= sizeof(dgram_hdr);
     sock_trace("sendto", sock, res, 0);
     sock_debug_event("sendto", sock, res, 0);
     if ((size_t) res != len)
@@ -3919,6 +3972,11 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
     size_t recv_cap = len;
     if (dgram_trunc && recv_cap < 65536)
         recv_cap = 65536;
+    // AF_LOCAL datagrams arrive with an in-band cred header (see struct
+    // unix_dgram_cred_hdr); receive into extra headroom and strip it below.
+    bool unix_dgram = sock_is_unix_dgram(sock);
+    if (unix_dgram)
+        recv_cap += sizeof(struct unix_dgram_cred_hdr);
     uint_t sockaddr_len = 0;
     if (sockaddr_len_addr != 0)
         if (user_get(sockaddr_len_addr, sockaddr_len))
@@ -4020,6 +4078,16 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
         return mapped_err;
     }
 
+    // Strip the in-band cred header off AF_LOCAL datagrams (this bare
+    // recvfrom/recv surface has nowhere to deliver creds; recvmsg does).
+    if (unix_dgram && res >= (ssize_t) sizeof(struct unix_dgram_cred_hdr)) {
+        struct unix_dgram_cred_hdr stripped_hdr;
+        memcpy(&stripped_hdr, buffer, sizeof(stripped_hdr));
+        if (stripped_hdr.magic == UNIX_DGRAM_CRED_MAGIC) {
+            res -= sizeof(stripped_hdr);
+            memmove(buffer, buffer + sizeof(stripped_hdr), res);
+        }
+    }
     // With MSG_TRUNC on a datagram the real length (res) can exceed the user
     // buffer; copy only what fits but report the true length below.
     size_t copy_len = (size_t) res < len ? (size_t) res : len;
@@ -5062,11 +5130,30 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 #endif
 
     size_t requested = sock_iov_requested(msg.msg_iov, msg.msg_iovlen);
+    // AF_LOCAL datagrams carry the sender's guest creds in-band (see struct
+    // unix_dgram_cred_hdr). Use a shadow msghdr with a prepended header iov
+    // so the original msg (and its cleanup paths) stay untouched.
+    bool unix_dgram_send = sock_is_unix_dgram(sock);
+    struct unix_dgram_cred_hdr dgram_hdr;
+    struct iovec *dgram_iov = NULL;
+    struct msghdr host_send_msg = msg;
+    if (unix_dgram_send) {
+        unix_dgram_cred_hdr_fill(&dgram_hdr);
+        dgram_iov = malloc((msg.msg_iovlen + 1) * sizeof(struct iovec));
+        if (dgram_iov == NULL) {
+            err = _ENOMEM;
+            goto out_free_scm;
+        }
+        dgram_iov[0] = (struct iovec) {.iov_base = &dgram_hdr, .iov_len = sizeof(dgram_hdr)};
+        memcpy(&dgram_iov[1], msg.msg_iov, msg.msg_iovlen * sizeof(struct iovec));
+        host_send_msg.msg_iov = dgram_iov;
+        host_send_msg.msg_iovlen = msg.msg_iovlen + 1;
+    }
     ssize_t send_res = 0;
     TASK_MAY_BLOCK {
         while (1) {
             errno = 0;
-            send_res = sendmsg(sock->real_fd, &msg, real_flags);
+            send_res = sendmsg(sock->real_fd, unix_dgram_send ? &host_send_msg : &msg, real_flags);
             if (send_res >= 0)
                 break;
             if (socket_should_retry_io_eintr(sock, real_flags))
@@ -5082,6 +5169,9 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             break;
         }
     }
+    free(dgram_iov);
+    if (unix_dgram_send && send_res >= (ssize_t) sizeof(dgram_hdr))
+        send_res -= sizeof(dgram_hdr);
     if (send_res < 0) {
         if (send_res > -4096 && send_res < 0 && errno == 0) {
             err = (int) send_res;
@@ -5462,6 +5552,31 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         }
     }
 
+    // AF_LOCAL datagrams arrive with an in-band cred header (see struct
+    // unix_dgram_cred_hdr): receive through a shadow msghdr whose first iov
+    // lands the header in a scratch struct, leaving the caller's iovs to
+    // receive only real payload. The original msg (and its cleanup paths)
+    // stay untouched; mutated fields are copied back after the call.
+    bool unix_dgram = sock_is_unix_dgram(sock);
+    struct unix_dgram_cred_hdr dgram_hdr = {};
+    struct iovec *dgram_iov = NULL;
+    struct msghdr host_recv_msg = msg;
+    if (unix_dgram) {
+        dgram_iov = malloc((msg.msg_iovlen + 1) * sizeof(struct iovec));
+        if (dgram_iov == NULL) {
+            free_msghdr_iov(msg_iov, msg.msg_iovlen);
+            free(msg_iov_fake);
+            free(real_msg_control);
+            if (msg_name != msg_name_stack)
+                free(msg_name);
+            return _ENOMEM;
+        }
+        dgram_iov[0] = (struct iovec) {.iov_base = &dgram_hdr, .iov_len = sizeof(dgram_hdr)};
+        memcpy(&dgram_iov[1], msg.msg_iov, msg.msg_iovlen * sizeof(struct iovec));
+        host_recv_msg.msg_iov = dgram_iov;
+        host_recv_msg.msg_iovlen = msg.msg_iovlen + 1;
+    }
+    struct msghdr *host_msg = unix_dgram ? &host_recv_msg : &msg;
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         bool use_ipv6_errqueue =
@@ -5478,9 +5593,9 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             }
             errno = 0;
             if (use_ipv6_errqueue)
-                res = recvmsg_ipv6_errqueue(sock, &msg, real_flags);
+                res = recvmsg_ipv6_errqueue(sock, host_msg, real_flags);
             else
-                res = recvmsg(sock->real_fd, &msg, real_flags);
+                res = recvmsg(sock->real_fd, host_msg, real_flags);
             socket_blocking_syscall_end();
             if (res >= 0)
                 break;
@@ -5496,6 +5611,18 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
                 continue;
             }
             break;
+        }
+    }
+    bool have_dgram_cred = false;
+    if (unix_dgram) {
+        // Copy back the fields the kernel mutates in the msghdr it was given.
+        msg.msg_namelen = host_recv_msg.msg_namelen;
+        msg.msg_controllen = host_recv_msg.msg_controllen;
+        msg.msg_flags = host_recv_msg.msg_flags;
+        free(dgram_iov);
+        if (res >= (ssize_t) sizeof(dgram_hdr) && dgram_hdr.magic == UNIX_DGRAM_CRED_MAGIC) {
+            res -= sizeof(dgram_hdr);
+            have_dgram_cred = true;
         }
     }
     size_t requested = sock_iov_requested(msg.msg_iov, msg.msg_iovlen);
@@ -5589,7 +5716,19 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         size_t guest_msg_control_len = 0;
         size_t required_msg_control = 0;
         struct ucred_ cred = {};
-        bool have_passcred = want_passcred && unix_socket_get_peer_cred(sock, &cred);
+        // Prefer the per-datagram sender cred that traveled with this exact
+        // datagram (many-senders-one-receiver sockets like systemd's notify
+        // socket have no meaningful connected-peer cred); fall back to the
+        // connected peer's for stream/connected sockets.
+        bool have_passcred = false;
+        if (want_passcred) {
+            if (have_dgram_cred) {
+                cred = dgram_hdr.cred;
+                have_passcred = true;
+            } else {
+                have_passcred = unix_socket_get_peer_cred(sock, &cred);
+            }
+        }
 
         for (struct cmsghdr *iter = cmsg; iter != NULL; iter = host_cmsg_next(&msg, iter)) {
             if (iter->cmsg_len < CMSG_LEN(0))
@@ -5896,11 +6035,24 @@ static ssize_t sock_read(struct fd *fd, void *buf, size_t size) {
         if (err < 0)
             return err;
     }
+    // AF_LOCAL datagrams arrive with an in-band cred header (see struct
+    // unix_dgram_cred_hdr): land it in a scratch struct via a 2-iov recvmsg
+    // so the caller's buffer receives only real payload.
+    bool unix_dgram = sock_is_unix_dgram(fd);
+    struct unix_dgram_cred_hdr dgram_hdr = {};
+    struct iovec dgram_iov[2] = {
+        {.iov_base = &dgram_hdr, .iov_len = sizeof(dgram_hdr)},
+        {.iov_base = buf, .iov_len = size},
+    };
+    struct msghdr dgram_msg = {.msg_iov = dgram_iov, .msg_iovlen = 2};
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         while (1) {
             errno = 0;
-            res = read(fd->real_fd, buf, size);
+            if (unix_dgram)
+                res = recvmsg(fd->real_fd, &dgram_msg, 0);
+            else
+                res = read(fd->real_fd, buf, size);
             if (res >= 0)
                 break;
             if (socket_should_retry_io_eintr(fd, 0))
@@ -5935,6 +6087,9 @@ out_read:
             sock_x11_event("read-err", fd, -1, err, size);
         return err;
     }
+    if (unix_dgram && res >= (ssize_t) sizeof(dgram_hdr) &&
+            dgram_hdr.magic == UNIX_DGRAM_CRED_MAGIC)
+        res -= sizeof(dgram_hdr);
     sock_trace("read", fd, res, 0);
     if (res == 0)
         sock_x11_event("read-eof", fd, 0, 0, size);
@@ -5964,11 +6119,27 @@ static ssize_t sock_write(struct fd *fd, const void *buf, size_t size) {
     if (fd->real_fd < 0)
         return _EOPNOTSUPP;
     sock_trace_write_preview(fd, buf, size);
+    // AF_LOCAL datagrams carry the sender's guest creds in-band; see
+    // struct unix_dgram_cred_hdr.
+    bool unix_dgram = sock_is_unix_dgram(fd);
+    struct unix_dgram_cred_hdr dgram_hdr;
+    struct iovec dgram_iov[2];
+    struct msghdr dgram_msg = {};
+    if (unix_dgram) {
+        unix_dgram_cred_hdr_fill(&dgram_hdr);
+        dgram_iov[0] = (struct iovec) {.iov_base = &dgram_hdr, .iov_len = sizeof(dgram_hdr)};
+        dgram_iov[1] = (struct iovec) {.iov_base = (void *) buf, .iov_len = size};
+        dgram_msg.msg_iov = dgram_iov;
+        dgram_msg.msg_iovlen = 2;
+    }
     ssize_t res = 0;
     TASK_MAY_BLOCK {
         while (1) {
             errno = 0;
-            res = write(fd->real_fd, buf, size);
+            if (unix_dgram)
+                res = sendmsg(fd->real_fd, &dgram_msg, 0);
+            else
+                res = write(fd->real_fd, buf, size);
             if (res >= 0)
                 break;
             if (socket_should_retry_io_eintr(fd, 0))
@@ -6003,6 +6174,8 @@ out_write:
             sock_x11_event("write-err", fd, -1, err, size);
         return err;
     }
+    if (unix_dgram && res >= (ssize_t) sizeof(dgram_hdr))
+        res -= sizeof(dgram_hdr);
     sock_trace("write", fd, res, 0);
     if ((size_t) res != size)
         sock_x11_event("write-short", fd, res, 0, size);

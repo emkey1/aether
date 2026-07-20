@@ -56,6 +56,7 @@ fsopen_move_mount.c
 keyctl_link.c
 mountinfo_epollet.c
 tmpfs_nlink.c
+unix_dgram_cred.c
 fs_conformance.c
 process_conformance.c
 time_conformance.c
