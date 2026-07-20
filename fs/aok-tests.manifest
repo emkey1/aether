@@ -54,6 +54,7 @@ pidfd_clone.c
 pidfd_fdinfo_pid.c
 fsopen_move_mount.c
 keyctl_link.c
+mountinfo_epollet.c
 fs_conformance.c
 process_conformance.c
 time_conformance.c

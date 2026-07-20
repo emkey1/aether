@@ -144,6 +144,12 @@ struct fd {
             struct proc_entry entry;
             unsigned dir_index;
             struct proc_data data;
+            // Open /proc/.../mountinfo fds, linked into the global
+            // mountinfo-watch list (fs/proc.c) so mount-table changes can
+            // poll_wakeup them (libmount's kernel mount monitor -- systemd --
+            // registers mountinfo in epoll with EPOLLIN|EPOLLET and relies on
+            // a new edge per mount change). Null links for other proc fds.
+            struct list mountinfo_link;
         } proc;
         struct {
             int num;

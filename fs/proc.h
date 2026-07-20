@@ -72,6 +72,11 @@ extern struct proc_children proc_sys_children;
 extern struct proc_dir_entry proc_root_entries[];
 
 int proc_show_mountinfo(struct proc_entry *entry, struct proc_data *buf);
+// Wakes pollers of every open mountinfo fd (fs/proc.c). Call after any
+// guest-visible mount-table change (mount/umount/move_mount/...), with
+// mounts_lock NOT held. libmount's kernel mount monitor (systemd) depends
+// on an edge per change; see the comment at the definition.
+void proc_mountinfo_notify_changed(void);
 int proc_show_mounts(struct proc_entry *entry, struct proc_data *buf);
 
 mode_t_ proc_entry_mode(struct proc_entry *entry);

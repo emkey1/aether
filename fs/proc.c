@@ -5,6 +5,7 @@
 #include "kernel/fs.h"
 #include "fs/proc.h"
 #include "fs/path.h"
+#include "fs/poll.h"
 
 static pthread_once_t proc_tree_once = PTHREAD_ONCE_INIT;
 
@@ -56,6 +57,17 @@ found:
 
 extern const struct fd_ops procfs_fdops;
 
+// Open mountinfo fds, so mount-table changes can wake their pollers.
+// libmount's kernel mount monitor (what systemd uses to notice every
+// mount/umount) registers /proc/self/mountinfo in epoll with
+// EPOLLIN|EPOLLET and expects the kernel to generate a fresh edge each
+// time the mount table changes -- it never reads the fd, so without a
+// poll_wakeup per change, systemd's drain_libmount() sees no events and
+// skips its mountinfo rescan entirely ("Mount process finished, but
+// there is no mount", failing every mount unit).
+static struct list mountinfo_fds = LIST_INITIALIZER(mountinfo_fds);
+static lock_t mountinfo_fds_lock = LOCK_INITIALIZER;
+
 static struct fd *proc_open(struct mount *UNUSED(mount), const char *path, int UNUSED(flags), int UNUSED(mode)) {
     struct proc_entry entry = {0};
     int err = proc_lookup(path, &entry);
@@ -64,7 +76,26 @@ static struct fd *proc_open(struct mount *UNUSED(mount), const char *path, int U
     struct fd *fd = fd_create(&procfs_fdops);
     fd->proc.entry = entry;
     fd->proc.data.data = NULL;
+    // Covers both /proc/mountinfo (fs/proc/root.c) and
+    // /proc/<pid>/mountinfo (fs/proc/pid.c): distinct proc_dir_entry
+    // structs sharing the same show callback.
+    if (entry.meta->show == proc_show_mountinfo) {
+        lock(&mountinfo_fds_lock, 0);
+        list_add(&mountinfo_fds, &fd->proc.mountinfo_link);
+        unlock(&mountinfo_fds_lock);
+    }
     return fd;
+}
+
+void proc_mountinfo_notify_changed(void) {
+    lock(&mountinfo_fds_lock, 0);
+    struct fd *fd;
+    list_for_each_entry(&mountinfo_fds, fd, proc.mountinfo_link)
+        // Re-arms the edge for EPOLLET registrations (fs/poll.c clears the
+        // fd's triggered_types) and wakes any blocked poll/epoll_wait.
+        // proc_poll takes no locks, satisfying poll_wakeup's contract.
+        poll_wakeup(fd, POLL_READ);
+    unlock(&mountinfo_fds_lock);
 }
 
 static int proc_getpath(struct fd *fd, char *buf) {
@@ -231,10 +262,25 @@ static int proc_readdir(struct fd *fd, struct dir_entry *entry) {
 }
 
 static int proc_close(struct fd *fd) {
+    if (!list_null(&fd->proc.mountinfo_link)) {
+        lock(&mountinfo_fds_lock, 0);
+        list_remove(&fd->proc.mountinfo_link);
+        unlock(&mountinfo_fds_lock);
+    }
     if (fd->proc.data.data != NULL)
         free(fd->proc.data.data);
     proc_entry_cleanup(&fd->proc.entry);
     return 0;
+}
+
+// Regular proc files are always readable, matching Linux (poll on a proc
+// file reports POLLIN immediately). This level state is also what makes
+// the mountinfo EPOLLIN|EPOLLET edge machinery work: the edge-triggered
+// mask (fs/poll.c triggered_types) suppresses re-delivery after the first
+// event, and proc_mountinfo_notify_changed's poll_wakeup re-arms it per
+// mount-table change.
+static int proc_poll(struct fd *UNUSED(fd)) {
+    return POLL_READ;
 }
 
 const struct fd_ops procfs_fdops = {
@@ -242,6 +288,7 @@ const struct fd_ops procfs_fdops = {
     .pwrite = proc_pwrite,
     .lseek = proc_seek,
     .readdir = proc_readdir,
+    .poll = proc_poll,
     .close = proc_close,
 };
 

@@ -336,8 +336,12 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
 
     // A bind shares the source mount's backing; do_bind_mount resolves the source
     // and takes mounts_lock itself, so dispatch it before we lock here.
-    if (flags & MS_BIND_)
-        return do_bind_mount(op_source, point, data, flags & MS_FLAGS);
+    if (flags & MS_BIND_) {
+        err = do_bind_mount(op_source, point, data, flags & MS_FLAGS);
+        if (err >= 0)
+            proc_mountinfo_notify_changed();
+        return err;
+    }
 
     lock(&mounts_lock, 0);
     if (flags & MS_MOVE_) {
@@ -369,6 +373,7 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
         }
         list_add_before(&after->mounts, &found->mounts);
         unlock(&mounts_lock);
+        proc_mountinfo_notify_changed();
         return 0;
     }
 
@@ -384,6 +389,8 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
             }
         }
         unlock(&mounts_lock);
+        if (found)
+            proc_mountinfo_notify_changed();
         return found ? 0 : _EINVAL;
     }
 
@@ -424,6 +431,8 @@ dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t point_addr, guest
 
     err = do_mount(fs, source, point, data, flags & MS_FLAGS);
     unlock(&mounts_lock);
+    if (err >= 0)
+        proc_mountinfo_notify_changed();
     if (mount_trace_elogind())
         printk("INFO: elogind mount-result pid=%d comm=%s target=%s result=%d\n",
                current->pid, current->comm, point, err);
@@ -450,6 +459,8 @@ dword_t sys_umount2_guest(guest_addr_t target_addr, dword_t flags) {
     lock(&mounts_lock, 0);
     err = do_umount(target);
     unlock(&mounts_lock);
+    if (err >= 0)
+        proc_mountinfo_notify_changed();
     return err;
 }
 
@@ -595,6 +606,7 @@ dword_t sys_fsconfig_guest(fd_t f, dword_t cmd, guest_addr_t key_addr, guest_add
             if (err < 0)
                 return err;
             data->created = true;
+            proc_mountinfo_notify_changed();
             return 0;
         }
         case FSCONFIG_CMD_RECONFIGURE_: {
@@ -612,6 +624,8 @@ dword_t sys_fsconfig_guest(fd_t f, dword_t cmd, guest_addr_t key_addr, guest_add
                 }
             }
             unlock(&mounts_lock);
+            if (found)
+                proc_mountinfo_notify_changed();
             return found ? 0 : _EINVAL;
         }
         default:
@@ -723,7 +737,10 @@ dword_t sys_move_mount_guest(fd_t from_dfd, guest_addr_t from_path_addr, fd_t to
     if (err < 0)
         return err;
 
-    return mount_relocate(from_point, to_point);
+    err = mount_relocate(from_point, to_point);
+    if (err >= 0)
+        proc_mountinfo_notify_changed();
+    return err;
 }
 
 dword_t sys_move_mount(fd_t from_dfd, addr_t from_path_addr, fd_t to_dfd, addr_t to_path_addr,
