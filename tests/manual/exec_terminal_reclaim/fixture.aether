@@ -1,0 +1,16 @@
+// Run under a real pty by verify.py. Execs rogue_shell (built from
+// rogue_shell.c beside this file), which seizes the controlling terminal
+// for its own process group and exits without restoring it -- then calls
+// readkey() itself. Without the terminal-reclaim fix in vmBuiltinDosExec,
+// that readkey() call never returns (EIO busy-loop or a SIGTTIN stop);
+// with the fix, it returns as soon as a keystroke is available.
+fn main() -> Void {
+    fx {
+        let roguePath: Text = getenv("ROGUE_SHELL_PATH");
+        exec(roguePath, "");
+        println("before-readkey");
+        readkey();
+        println("after-readkey");
+    }
+    ret;
+}
