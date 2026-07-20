@@ -3274,6 +3274,13 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
             doEnableHLE = UserPreferences.shared.shouldEnableHLE;
         });
     }];
+    [UserPreferences.shared observe:@[@"shouldEnableCryptoAccel"] options:NSKeyValueObservingOptionInitial
+                              owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            extern bool doEnableCryptoAccel;
+            doEnableCryptoAccel = UserPreferences.shared.shouldEnableCryptoAccel;
+        });
+    }];
     [UserPreferences.shared observe:@[@"shouldEnableExtraLocking"] options:NSKeyValueObservingOptionInitial
                               owner:self usingBlock:^(typeof(self) self) {
         dispatch_async(dispatch_get_main_queue(), ^{

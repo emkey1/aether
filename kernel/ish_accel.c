@@ -11,21 +11,34 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <pthread.h>
 #include "kernel/calls.h"
 #include "kernel/task.h"
 #include "kernel/errno.h"
 #include "kernel/ish_accel_crypto.h"
 #include "debug.h"
 
-// Set from ISH_CRYPTO_ACCEL (main.c) or the app preference. Only ever set
-// true if ish_accel_crypto_selftest() passed (see ish_accel_init).
+// Set from ISH_CRYPTO_ACCEL (main.c) or the app crypto-accel preference. The
+// accelerator only actually runs if the RFC 8439 self-test passed -- which is
+// checked lazily (pthread_once) on first use, so neither the CLI nor the app
+// has to remember an init call. ish_accel_init() forces it eagerly.
 bool doEnableCryptoAccel = false;
 static bool accel_selftest_ok = false;
+static pthread_once_t accel_selftest_once = PTHREAD_ONCE_INIT;
 
-void ish_accel_init(void) {
+static void run_accel_selftest(void) {
     accel_selftest_ok = ish_accel_crypto_selftest();
     if (!accel_selftest_ok)
         printk("ish-accel: crypto self-test FAILED, accelerator disabled\n");
+}
+
+static bool accel_ready(void) {
+    pthread_once(&accel_selftest_once, run_accel_selftest);
+    return accel_selftest_ok;
+}
+
+void ish_accel_init(void) {
+    (void) accel_ready();
 }
 
 // Guest ABI. Fixed-layout, all 64-bit fields after the two u32s so the
@@ -65,7 +78,7 @@ static void ish_chacha_span(const void *in_host, void *out_host, size_t span, vo
 // Returns 0 on success, or a negative guest errno. _ENOSYS signals "not
 // available" so a caller/provider falls back to its own software path.
 dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
-    if (!doEnableCryptoAccel || !accel_selftest_ok)
+    if (!doEnableCryptoAccel || !accel_ready())
         return _ENOSYS;
 
     struct ish_aead_req req;

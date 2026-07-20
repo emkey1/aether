@@ -144,6 +144,7 @@ BOOL ISHLLMClientEnabled(void) {
 @property (weak, nonatomic) IBOutlet UISwitch *enableExperimentalAmd64JitSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableHLESwitch;
+@property (weak, nonatomic) IBOutlet UISwitch *enableCryptoAccelSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableExtraLockingSwitch;
 @property (weak, nonatomic) IBOutlet UITextField *launchCommandField;
 @property (weak, nonatomic) IBOutlet UITextField *bootCommandField;
@@ -3345,6 +3346,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     self.enableExperimentalAmd64JitSwitch.on = UserPreferences.shared.shouldEnableExperimentalAmd64Jit;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableHLESwitch.on = UserPreferences.shared.shouldEnableHLE;
+    self.enableCryptoAccelSwitch.on = UserPreferences.shared.shouldEnableCryptoAccel;
     self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
     self.initialWindowCell.textLabel.text = @"Startup Mode";
     self.initialWindowCell.detailTextLabel.text = [self _initialWindowTitle];
@@ -3686,6 +3688,10 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 
 - (IBAction)enableExperimentalAmd64JitChanged:(id)sender {
     UserPreferences.shared.shouldEnableExperimentalAmd64Jit = self.enableExperimentalAmd64JitSwitch.on;
+}
+
+- (IBAction)enableCryptoAccelChanged:(id)sender {
+    UserPreferences.shared.shouldEnableCryptoAccel = self.enableCryptoAccelSwitch.on;
 }
 
 - (IBAction)enableHLEChanged:(id)sender {

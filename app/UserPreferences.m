@@ -33,6 +33,7 @@ static NSString *const kPreferenceThemeKey = @"ModernTheme";
 static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
 static NSString *const kPreferenceEnableHLEKey = @"Enable HLE Accel";
+static NSString *const kPreferenceEnableCryptoAccelKey = @"Enable Crypto Accel";
 static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
 static NSString *const kPreferenceEnableExperimentalAmd64JitKey = @"Enable Experimental amd64 JIT";
 static NSString *const kPreferenceEnableLLMClientKey = @"Enable LLM Client";
@@ -187,6 +188,7 @@ bool (*remove_user_default)(const char *name);
         [_defaults registerDefaults:@{
             kPreferenceEnableMulticoreKey: @(YES),
             kPreferenceEnableHLEKey: @(NO),
+            kPreferenceEnableCryptoAccelKey: @(NO),
             kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceEnableExperimentalAmd64JitKey: @(YES),
             kPreferenceEnableLLMClientKey: @(NO),
@@ -234,6 +236,7 @@ bool (*remove_user_default)(const char *name);
         friendlyPreferenceMapping = @{
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_hle": kPreferenceEnableHLEKey,
+            @"enable_crypto_accel": kPreferenceEnableCryptoAccelKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,
             @"caps_lock_mapping": kPreferenceCapsLockMappingKey,
             @"option_mapping": kPreferenceOptionMappingKey,
@@ -274,6 +277,7 @@ bool (*remove_user_default)(const char *name);
         kvoProperties = @{
             kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
             kPreferenceEnableHLEKey: property(shouldEnableHLE),
+            kPreferenceEnableCryptoAccelKey: property(shouldEnableCryptoAccel),
 	        kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
             kPreferenceCapsLockMappingKey: property(capsLockMapping),
             kPreferenceOptionMappingKey: property(optionMapping),
@@ -670,6 +674,19 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldEnableHLE:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: ShouldEnableCryptoAccel
+- (BOOL)shouldEnableCryptoAccel {
+    return [_defaults boolForKey:kPreferenceEnableCryptoAccelKey];
+}
+
+- (void)setShouldEnableCryptoAccel:(BOOL)dim {
+    [_defaults setBool:dim forKey:kPreferenceEnableCryptoAccelKey];
+}
+
+- (BOOL)validateShouldEnableCryptoAccel:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

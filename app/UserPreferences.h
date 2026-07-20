@@ -69,6 +69,7 @@ extern NSString *const kThemeBackgroundColor;
 @property BOOL shouldDisableDimming;
 @property BOOL shouldEnableMulticore;
 @property BOOL shouldEnableHLE;
+@property BOOL shouldEnableCryptoAccel;
 @property BOOL shouldEnableExtraLocking;
 @property BOOL shouldEnableExperimentalAmd64Jit;
 @property BOOL shouldEnableLLMClient;
