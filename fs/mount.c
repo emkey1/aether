@@ -459,3 +459,274 @@ dword_t sys_umount2(addr_t target_addr, dword_t flags) {
 
 struct list mounts = {&mounts, &mounts};
 lock_t mounts_lock = LOCK_INITIALIZER;
+
+// -- new mount API (fsopen/fsconfig/fsmount/move_mount) --
+//
+// systemd >= 254 unconditionally sets up a private credentials tmpfs for
+// EVERY service it spawns (not just ones with LoadCredential=), via exactly
+// this sequence: fsopen("tmpfs") -> fsconfig(..., FSCONFIG_CMD_CREATE) ->
+// fsmount() -> [write credential files through the returned fd] ->
+// fsconfig(..., FSCONFIG_CMD_RECONFIGURE) [apply "ro"] -> move_mount() to
+// place it at /run/credentials/<unit>. Before this, all four syscalls were
+// silent ENOSYS stubs, so every unit's credential setup failed with "Failed
+// to set up credentials: Function not implemented" and the unit never ran.
+//
+// iSH has no per-task mount namespaces, so "detached mount, not yet visible
+// anywhere" is modeled as a real mount at a private, hidden mountpoint
+// (/.ish-fsmount/<n>) -- fsmount()'s returned fd is an ordinary, fully
+// functional directory fd on it (so callers can write into it immediately,
+// exactly as real Linux's detached-mount semantics allow), and move_mount()
+// simply relocates that mount's point in the global mounts list, matching
+// sys_mount's own MS_MOVE handling above. This only supports the one usage
+// pattern real callers of this API actually exercise (a fresh fsopen'd
+// filesystem, immediately fsmount'd and then move_mount'd into place via
+// MOVE_MOUNT_F_EMPTY_PATH) -- not open_tree-sourced moves or in-place
+// (MOVE_MOUNT_T_EMPTY_PATH) placement, which remain unimplemented.
+struct fscontext_data {
+    const struct fs_ops *fs;
+    bool created;
+    bool readonly;
+    char point[MAX_PATH];
+};
+
+static int fscontext_close(struct fd *fd) {
+    free(fd->data);
+    return 0;
+}
+
+static struct fd_ops fscontext_ops = {
+    .anon_inode_class = "[fscontext]",
+    .close = fscontext_close,
+};
+
+#define FSOPEN_CLOEXEC_ 1
+
+fd_t sys_fsopen_guest(guest_addr_t fsname_addr, dword_t flags) {
+    char fsname[100] = "";
+    if (user_read_string(fsname_addr, fsname, sizeof(fsname)))
+        return _EFAULT;
+    STRACE("fsopen(\"%s\", %#x)", fsname, flags);
+    if (flags & ~FSOPEN_CLOEXEC_)
+        return _EINVAL;
+
+    const struct fs_ops *fs = NULL;
+    for (size_t i = 0; i < sizeof(filesystems) / sizeof(filesystems[0]); i++) {
+        if (filesystems[i] != NULL && strcmp(filesystems[i]->name, fsname) == 0) {
+            fs = filesystems[i];
+            break;
+        }
+    }
+    if (fs == NULL)
+        return _ENODEV;
+
+    struct fscontext_data *data = malloc(sizeof(struct fscontext_data));
+    if (data == NULL)
+        return _ENOMEM;
+    *data = (struct fscontext_data) {.fs = fs};
+    struct fd *fd = adhoc_fd_create(&fscontext_ops);
+    if (fd == NULL) {
+        free(data);
+        return _ENOMEM;
+    }
+    fd->data = data;
+    return f_install(fd, (flags & FSOPEN_CLOEXEC_) ? O_CLOEXEC_ : 0);
+}
+
+fd_t sys_fsopen(addr_t fsname_addr, dword_t flags) {
+    return sys_fsopen_guest(fsname_addr, flags);
+}
+
+#define FSCONFIG_SET_FLAG_ 0
+#define FSCONFIG_SET_STRING_ 1
+#define FSCONFIG_SET_BINARY_ 2
+#define FSCONFIG_SET_PATH_ 3
+#define FSCONFIG_SET_PATH_EMPTY_ 4
+#define FSCONFIG_SET_FD_ 5
+#define FSCONFIG_CMD_CREATE_ 6
+#define FSCONFIG_CMD_RECONFIGURE_ 7
+
+dword_t sys_fsconfig_guest(fd_t f, dword_t cmd, guest_addr_t key_addr, guest_addr_t value_addr, int_t aux) {
+    char key[100] = "";
+    if (key_addr != 0 && user_read_string(key_addr, key, sizeof(key)))
+        return _EFAULT;
+    STRACE("fsconfig(%d, %u, \"%s\", %#llx, %d)", f, cmd, key,
+            (unsigned long long) value_addr, aux);
+
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    if (fd->ops != &fscontext_ops)
+        return _EINVAL;
+    struct fscontext_data *data = fd->data;
+
+    switch (cmd) {
+        case FSCONFIG_SET_FLAG_:
+        case FSCONFIG_SET_STRING_:
+            // We only act on the one option this codebase's mount model has
+            // an equivalent for ("ro"); everything else (size=, mode=,
+            // source=, SELinux context=, ...) is silently accepted, matching
+            // this project's existing "don't model X" precedent for mount
+            // options iSH has no backing concept for (see do_mount's
+            // MS_IGNORED).
+            if (strcmp(key, "ro") == 0)
+                data->readonly = true;
+            return 0;
+        case FSCONFIG_SET_BINARY_:
+        case FSCONFIG_SET_PATH_:
+        case FSCONFIG_SET_PATH_EMPTY_:
+        case FSCONFIG_SET_FD_:
+            return 0; // accepted, not modeled
+        case FSCONFIG_CMD_CREATE_: {
+            if (data->created)
+                return _EBUSY;
+            static _Atomic unsigned next_fscontext_id = 0;
+            snprintf(data->point, sizeof(data->point), "/.ish-fsmount/%u",
+                    next_fscontext_id++);
+            // generic_mkdirat resolves its path via mount_find, which takes
+            // mounts_lock itself -- must run before we take the lock below,
+            // or this self-deadlocks (mounts_lock isn't recursive).
+            int mkerr = generic_mkdirat(AT_PWD, "/.ish-fsmount", 0700);
+            if (mkerr < 0 && mkerr != _EEXIST)
+                return mkerr;
+            lock(&mounts_lock, 0);
+            int err = do_mount(data->fs, "", data->point, "",
+                    data->readonly ? MS_READONLY_ : 0);
+            unlock(&mounts_lock);
+            if (err < 0)
+                return err;
+            data->created = true;
+            return 0;
+        }
+        case FSCONFIG_CMD_RECONFIGURE_: {
+            if (!data->created)
+                return _EINVAL;
+            lock(&mounts_lock, 0);
+            struct mount *mount;
+            bool found = false;
+            list_for_each_entry(&mounts, mount, mounts) {
+                if (strcmp(mount->point, data->point) == 0) {
+                    mount->flags = (mount->flags & ~MS_READONLY_) |
+                        (data->readonly ? MS_READONLY_ : 0);
+                    found = true;
+                    break;
+                }
+            }
+            unlock(&mounts_lock);
+            return found ? 0 : _EINVAL;
+        }
+        default:
+            return 0; // lenient: unrecognized cmd accepted as a no-op
+    }
+}
+
+dword_t sys_fsconfig(fd_t f, dword_t cmd, addr_t key_addr, addr_t value_addr, int_t aux) {
+    return sys_fsconfig_guest(f, cmd, key_addr, value_addr, aux);
+}
+
+fd_t sys_fsmount_guest(fd_t f, dword_t flags, dword_t attr_flags) {
+    STRACE("fsmount(%d, %#x, %#x)", f, flags, attr_flags);
+    struct fd *fd = f_get(f);
+    if (fd == NULL)
+        return _EBADF;
+    if (fd->ops != &fscontext_ops)
+        return _EINVAL;
+    struct fscontext_data *data = fd->data;
+    if (!data->created)
+        return _EINVAL;
+
+    struct fd *dirfd = generic_openat(AT_PWD, data->point,
+            O_RDONLY_ | O_DIRECTORY_ | O_CLOEXEC_, 0);
+    if (IS_ERR(dirfd))
+        return PTR_ERR(dirfd);
+    return f_install(dirfd, O_CLOEXEC_);
+}
+
+fd_t sys_fsmount(fd_t f, dword_t flags, dword_t attr_flags) {
+    return sys_fsmount_guest(f, flags, attr_flags);
+}
+
+// Relocates an existing mount's point in the mounts list -- the same
+// list-resplice logic as sys_mount's MS_MOVE handling above, factored out
+// separately (rather than shared) so this new code path can't regress the
+// already-exercised classic mount(2) MS_MOVE behavior.
+static int mount_relocate(const char *from_point, const char *to_point) {
+    lock(&mounts_lock, 0);
+    struct mount *mount, *found = NULL;
+    list_for_each_entry(&mounts, mount, mounts) {
+        if (strcmp(mount->point, from_point) == 0) {
+            found = mount;
+            break;
+        }
+    }
+    if (found == NULL) {
+        unlock(&mounts_lock);
+        return _EINVAL;
+    }
+    const char *new_point = strdup(to_point);
+    if (new_point == NULL) {
+        unlock(&mounts_lock);
+        return _ENOMEM;
+    }
+    free((void *) found->point);
+    found->point = new_point;
+    found->point_len = strlen(new_point);
+    list_remove(&found->mounts);
+    struct mount *after;
+    list_for_each_entry(&mounts, after, mounts) {
+        if (after->point_len <= found->point_len)
+            break;
+    }
+    list_add_before(&after->mounts, &found->mounts);
+    unlock(&mounts_lock);
+    return 0;
+}
+
+#define MOVE_MOUNT_F_EMPTY_PATH_ 0x00000004
+
+dword_t sys_move_mount_guest(fd_t from_dfd, guest_addr_t from_path_addr, fd_t to_dfd,
+        guest_addr_t to_path_addr, dword_t flags) {
+    char from_path[MAX_PATH] = "";
+    if (from_path_addr != 0 && user_read_string(from_path_addr, from_path, sizeof(from_path)))
+        return _EFAULT;
+    char to_path_raw[MAX_PATH];
+    int path_err = user_read_path(to_path_addr, to_path_raw, sizeof(to_path_raw));
+    if (path_err)
+        return path_err;
+    STRACE("move_mount(%d, \"%s\", %d, \"%s\", %#x)", from_dfd, from_path, to_dfd,
+            to_path_raw, flags);
+
+    // Only the one usage pattern real callers exercise is supported: from_dfd
+    // is a detached mount fd (from fsmount()) referenced via
+    // MOVE_MOUNT_F_EMPTY_PATH, and to_path is resolved the same dfd-less way
+    // sys_mount's point already is (classic mount(2) has no dfd concept
+    // either, so to_dfd besides AT_FDCWD was never supported there).
+    if (!(flags & MOVE_MOUNT_F_EMPTY_PATH_) || from_path[0] != '\0')
+        return _EINVAL;
+
+    struct fd *fd = f_get(from_dfd);
+    if (fd == NULL)
+        return _EBADF;
+    char from_point[MAX_PATH];
+    int err = generic_getpath(fd, from_point);
+    if (err < 0)
+        return err;
+
+    struct statbuf stat;
+    err = generic_statat(AT_PWD, to_path_raw, &stat, 0);
+    if (err < 0)
+        return err;
+    if (!S_ISDIR(stat.mode))
+        return _ENOTDIR;
+
+    char to_point[MAX_PATH];
+    err = path_normalize(AT_PWD, to_path_raw, to_point, N_SYMLINK_FOLLOW);
+    if (err < 0)
+        return err;
+
+    return mount_relocate(from_point, to_point);
+}
+
+dword_t sys_move_mount(fd_t from_dfd, addr_t from_path_addr, fd_t to_dfd, addr_t to_path_addr,
+        dword_t flags) {
+    return sys_move_mount_guest(from_dfd, from_path_addr, to_dfd, to_path_addr, flags);
+}

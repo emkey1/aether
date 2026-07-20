@@ -52,6 +52,7 @@ sendfile_vhangup.c
 pidfd_open.c
 pidfd_clone.c
 pidfd_fdinfo_pid.c
+fsopen_move_mount.c
 fs_conformance.c
 process_conformance.c
 time_conformance.c

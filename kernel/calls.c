@@ -1161,10 +1161,10 @@ static syscall_t i386_syscall_table[] = {
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
     [428] = (syscall_t) syscall_stub_silent, // open_tree (new mount API; util-linux falls back to mount(2) on ENOSYS)
-    [429] = (syscall_t) syscall_stub_silent, // move_mount
-    [430] = (syscall_t) syscall_stub_silent, // fsopen
-    [431] = (syscall_t) syscall_stub_silent, // fsconfig
-    [432] = (syscall_t) syscall_stub_silent, // fsmount
+    [429] = (syscall_t) sys_move_mount,
+    [430] = (syscall_t) sys_fsopen,
+    [431] = (syscall_t) sys_fsconfig,
+    [432] = (syscall_t) sys_fsmount,
     [433] = (syscall_t) syscall_stub_silent, // fspick
     [434] = (syscall_t) sys_pidfd_open,
     [435] = (syscall_t) sys_clone3, // clone3
@@ -1542,10 +1542,10 @@ static syscall_t amd64_syscall_table[463] = {
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
     [428] = (syscall_t) syscall_stub_silent, // open_tree (new mount API; util-linux falls back to mount(2) on ENOSYS)
-    [429] = (syscall_t) syscall_stub_silent, // move_mount
-    [430] = (syscall_t) syscall_stub_silent, // fsopen
-    [431] = (syscall_t) syscall_stub_silent, // fsconfig
-    [432] = (syscall_t) syscall_stub_silent, // fsmount
+    [429] = (syscall_t) sys_move_mount,
+    [430] = (syscall_t) sys_fsopen,
+    [431] = (syscall_t) sys_fsconfig,
+    [432] = (syscall_t) sys_fsmount,
     [433] = (syscall_t) syscall_stub_silent, // fspick
     [434] = (syscall_t) sys_pidfd_open,
     [435] = (syscall_t) sys_clone3,
@@ -1865,10 +1865,10 @@ static syscall_t arm64_syscall_table[463] = {
     [426] = (syscall_t) syscall_stub_silent, // io_uring_enter
     [427] = (syscall_t) syscall_stub_silent, // io_uring_register
     [428] = (syscall_t) syscall_stub_silent, // open_tree (new mount API; util-linux falls back to mount(2) on ENOSYS)
-    [429] = (syscall_t) syscall_stub_silent, // move_mount
-    [430] = (syscall_t) syscall_stub_silent, // fsopen
-    [431] = (syscall_t) syscall_stub_silent, // fsconfig
-    [432] = (syscall_t) syscall_stub_silent, // fsmount
+    [429] = (syscall_t) sys_move_mount,
+    [430] = (syscall_t) sys_fsopen,
+    [431] = (syscall_t) sys_fsconfig,
+    [432] = (syscall_t) sys_fsmount,
     [433] = (syscall_t) syscall_stub_silent, // fspick
     [434] = (syscall_t) sys_pidfd_open,
     [438] = (syscall_t) syscall_stub_silent, // pidfd_getfd
@@ -2303,6 +2303,20 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
 
     // -- dword results (shared restart/sign-extend tail below) --
     case 17: result = sys_getcwd_guest(raw_args[0], (dword_t) raw_args[1]); break;
+    // fsopen/fsconfig/move_mount (new mount API, fs/mount.c) carry real
+    // 64-bit guest pointer args (fsname/key/value/from_path/to_path) that
+    // the legacy marshalled dispatch's dword-fit check would reject on a
+    // typical arm64 mmap address (e.g. 0x7fff...) -- route them natively,
+    // same reasoning as getcwd's path buffer above. fsmount has no pointer
+    // args and stays on the plain legacy path (see its arg-count entries).
+    case 430: // fsopen(fsname, flags)
+        result = (dword_t) sys_fsopen_guest(raw_args[0], (dword_t) raw_args[1]); break;
+    case 431: // fsconfig(fd, cmd, key, value, aux)
+        result = (dword_t) sys_fsconfig_guest((fd_t) raw_args[0], (dword_t) raw_args[1],
+                raw_args[2], raw_args[3], (int_t) raw_args[4]); break;
+    case 429: // move_mount(from_dfd, from_path, to_dfd, to_path, flags)
+        result = (dword_t) sys_move_mount_guest((fd_t) raw_args[0], raw_args[1],
+                (fd_t) raw_args[2], raw_args[3], (dword_t) raw_args[4]); break;
     case 25: { // fcntl — F_SETFL takes, and F_GETFL returns, open flags in the
                // aarch64 encoding; translate both directions at this boundary
                // (same four relocated O_ constants as openat's flags, above).
@@ -3411,6 +3425,26 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
                 (fd_t) raw_args[0], raw_args[1], (dword_t) raw_args[2],
                 (off_t_) (raw_args[3] | (raw_args[4] << 32)), (uint_t) raw_args[5]));
         return true;
+    // fsopen/fsconfig/move_mount (new mount API, fs/mount.c) carry real
+    // 64-bit guest pointer args (fsname/key/value/from_path/to_path) that
+    // would trip the legacy marshalled dispatch's dword-fit check on a
+    // typical amd64 mmap address -- native, same reasoning as sendfile/
+    // copy_file_range above. fsmount has no pointer args and stays on the
+    // plain legacy path (see amd64_syscall_legacy_arg_count).
+    case 430: // fsopen(fsname, flags)
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fsopen_guest(
+                raw_args[0], (dword_t) raw_args[1]));
+        return true;
+    case 431: // fsconfig(fd, cmd, key, value, aux)
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_fsconfig_guest(
+                (fd_t) raw_args[0], (dword_t) raw_args[1], raw_args[2], raw_args[3],
+                (int_t) raw_args[4]));
+        return true;
+    case 429: // move_mount(from_dfd, from_path, to_dfd, to_path, flags)
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_move_mount_guest(
+                (fd_t) raw_args[0], raw_args[1], (fd_t) raw_args[2], raw_args[3],
+                (dword_t) raw_args[4]));
+        return true;
     default:
         return false;
     }
@@ -3465,10 +3499,9 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 426: // io_uring_enter
     case 427: // io_uring_register
     case 428: // open_tree   (silent ENOSYS stub; args ignored, so skip full-width arg validation)
-    case 429: // move_mount
-    case 430: // fsopen
-    case 431: // fsconfig
-    case 432: // fsmount
+    // move_mount/fsopen/fsconfig/fsmount (429-432) are now real implementations
+    // (fs/mount.c) taking genuine pointer args -- removed from this 0-arg
+    // group so the default full-width classification below validates them.
     case 433: // fspick
     case 438: // pidfd_getfd
     case 440: // process_madvise
@@ -3705,6 +3738,12 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 414: // ppoll_time64
     case 417: // recvmmsg_time64
         return 5;
+    // fsopen/fsconfig/move_mount (429-431) are handled natively in
+    // handle_amd64_native_memory_syscall (their pointer args need full
+    // width) and never reach this classifier. fsmount (432, no pointer
+    // args) is the one new-mount-API syscall still on this legacy path.
+    case 432: // fsmount(fd, flags, attr_flags)
+        return 3;
     case 9:   // mmap
     case 44:  // sendto
     case 45:  // recvfrom
@@ -3750,11 +3789,11 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     // filename/path pointers -- ordinary 64-bit guest addresses that would
     // otherwise trip the legacy dword-fit check and SIGSYS the caller
     // instead of the intended silent ENOSYS (mount(8) probing the new API).
+    // move_mount/fsopen/fsconfig/fsmount (429-432) are now real
+    // implementations (fs/mount.c) taking genuine pointer args -- removed
+    // from this 0-arg group so the default full-width classification below
+    // validates them.
     case 428: // open_tree
-    case 429: // move_mount
-    case 430: // fsopen
-    case 431: // fsconfig
-    case 432: // fsmount
     case 433: // fspick
     // Same reasoning: silent ENOSYS stubs (arm64_syscall_table) that never
     // read their args, several of which take real 64-bit guest pointers
@@ -3831,6 +3870,10 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 201: // listen
     case 210: // shutdown
     case 434: // pidfd_open(pid, flags)
+    case 430: // fsopen(fsname, flags) -- real implementation (fs/mount.c); must
+              // classify its true arg count, not fall to the default(6) below,
+              // or an unused upper register full of caller garbage SIGSYS's
+              // the marshaller.
         return 2;
     case 24:  // dup3
     case 30:  // ioprio_set
@@ -3842,12 +3885,16 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 149: // setresgid
     case 198: // socket
     case 436: // close_range
+    case 432: // fsmount(fd, flags, attr_flags) -- same reasoning as fsopen above
         return 3;
     case 424: // pidfd_send_signal(pidfd, sig, info, flags) -- info is ignored
               // (UNUSED, never dereferenced), so the raw pointer arg is safe here
         return 4;
     case 286: // preadv2(fd, iov, iovcnt, offset, flags)
     case 287: // pwritev2(fd, iov, iovcnt, offset, flags)
+    case 429: // move_mount(from_dfd, from_path, to_dfd, to_path, flags) -- same
+              // reasoning as fsopen above
+    case 431: // fsconfig(fd, cmd, key, value, aux) -- same reasoning
         return 5;
     default:
         return 6;

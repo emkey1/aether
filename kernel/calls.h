@@ -384,6 +384,16 @@ dword_t sys_mount(addr_t source_addr, addr_t target_addr, addr_t type_addr, dwor
 dword_t sys_mount_guest(guest_addr_t source_addr, guest_addr_t target_addr, guest_addr_t type_addr, dword_t flags, guest_addr_t data_addr);
 dword_t sys_umount2(addr_t target_addr, dword_t flags);
 dword_t sys_umount2_guest(guest_addr_t target_addr, dword_t flags);
+// New mount API (fsopen/fsconfig/fsmount/move_mount), fs/mount.c -- see its
+// implementation comment for scope (systemd's per-service credentials tmpfs).
+fd_t sys_fsopen(addr_t fsname_addr, dword_t flags);
+fd_t sys_fsopen_guest(guest_addr_t fsname_addr, dword_t flags);
+dword_t sys_fsconfig(fd_t f, dword_t cmd, addr_t key_addr, addr_t value_addr, int_t aux);
+dword_t sys_fsconfig_guest(fd_t f, dword_t cmd, guest_addr_t key_addr, guest_addr_t value_addr, int_t aux);
+fd_t sys_fsmount(fd_t f, dword_t flags, dword_t attr_flags);
+fd_t sys_fsmount_guest(fd_t f, dword_t flags, dword_t attr_flags);
+dword_t sys_move_mount(fd_t from_dfd, addr_t from_path_addr, fd_t to_dfd, addr_t to_path_addr, dword_t flags);
+dword_t sys_move_mount_guest(fd_t from_dfd, guest_addr_t from_path_addr, fd_t to_dfd, guest_addr_t to_path_addr, dword_t flags);
 
 dword_t sys_xattr_stub(addr_t path_addr, addr_t name_addr, addr_t value_addr, dword_t size, dword_t flags);
 dword_t sys_setxattr_guest(guest_addr_t path_addr, guest_addr_t name_addr, guest_addr_t value_addr, dword_t size, dword_t flags);
