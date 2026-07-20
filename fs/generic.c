@@ -338,6 +338,36 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
                 return ERR_PTR(err);
             }
         }
+        // O_PATH on a socket or FIFO must not open the object itself: Linux
+        // creates a pure path handle (a real open of a socket is ENXIO, and
+        // a FIFO open would block on a peer -- both wrong under O_PATH).
+        // Reuse the opath pseudo-fd built for symlinks, with the real file
+        // type. Concretely: systemd's recursive chown of an existing
+        // RuntimeDirectory= (exec-invoke's "special execution directory")
+        // O_PATH-opens every entry; on systemd-resolved's
+        // /run/systemd/resolve -- which already holds its two varlink
+        // LISTENING SOCKETS from the socket units -- the ENXIO from the
+        // fallthrough real open aborted the spawn at step RUNTIME_DIRECTORY
+        // ("Failed to set up special execution directory in /run: No such
+        // device or address") and resolved could never start. Directories
+        // and regular files keep the real-open path: their O_PATH fds are
+        // routinely used as dirfds, which the pseudo-fd doesn't support.
+        if ((flags & O_PATH_) && (S_ISSOCK(stat.mode) || S_ISFIFO(stat.mode))) {
+            unlock(&inodes_lock);
+            if (flags & O_DIRECTORY_) {
+                mount_release(mount);
+                return ERR_PTR(_ENOTDIR);
+            }
+            struct fd *pfd = opath_link_fd_create(mount, path);
+            if (pfd == NULL) {
+                mount_release(mount);
+                return ERR_PTR(_ENOMEM);
+            }
+            // opath_link_fd_create took over the mount reference.
+            pfd->type = stat.mode & S_IFMT;
+            pfd->flags = flags;
+            return pfd;
+        }
     }
 
     // mount->fs->open can issue a host open() that blocks indefinitely -- most
