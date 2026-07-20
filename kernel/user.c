@@ -197,6 +197,72 @@ int user_write_task(struct task *task, guest_addr_t addr, const void *buf, size_
     return res;
 }
 
+// Zero a guest buffer directly (used to scrub an AEAD-open output buffer when
+// authentication fails). Same locking discipline as user_transform_two.
+int user_zero(guest_addr_t addr, size_t count) {
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return 1;
+    int res = 0;
+    if (!user_range_valid_mem(current, mem, addr, count))
+        res = 1;
+    guest_addr_t p = addr;
+    qword_t end = (qword_t) addr + count;
+    while (res == 0 && (qword_t) p < end) {
+        qword_t page_end = ((qword_t) PAGE(p) + 1) << PAGE_BITS;
+        if (page_end > end) page_end = end;
+        void *host = mem_ptr(mem, p, MEM_WRITE);
+        if (host == NULL) { res = 1; break; }
+        memset(host, 0, page_end - p);
+        p = (guest_addr_t) page_end;
+    }
+    task_mem_read_unlock(&handle);
+    return res;
+}
+
+// Walk two guest buffers ([in, count) read, [out, count) write) in lockstep
+// spans -- each bounded by BOTH buffers' page boundaries -- and hand the
+// caller DIRECT host pointers for each span, so a bulk transform (e.g. the
+// crypto accelerator) runs straight over guest memory with no bounce buffer.
+//
+// Safe against mem_ptr's internal lock upgrades (COW on the write side,
+// growsdown): the mem read lock is held throughout, and within each span the
+// write pointer is resolved FIRST (it's the one that can COW-upgrade, which
+// briefly drops/retakes the lock) while no other pointer is live, then the
+// read pointer (which never upgrades for an already-resident buffer). No
+// resolved pointer is ever held across the next span's resolve. Returns 0 on
+// success, 1 on fault (a partial prefix of out may have been written -- the
+// caller treats that as EFAULT, same as a torn user_write).
+int user_transform_two(guest_addr_t in, guest_addr_t out, size_t count,
+        void (*fn)(const void *in_host, void *out_host, size_t span, void *ctx),
+        void *ctx) {
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return 1;
+    int res = 0;
+    guest_addr_t ip = in, op = out;
+    size_t left = count;
+    if (!user_range_valid_mem(current, mem, in, count) ||
+            !user_range_valid_mem(current, mem, out, count))
+        res = 1;
+    while (res == 0 && left > 0) {
+        qword_t in_page_end  = ((qword_t) PAGE(ip) + 1) << PAGE_BITS;
+        qword_t out_page_end = ((qword_t) PAGE(op) + 1) << PAGE_BITS;
+        size_t span = left;
+        if (span > in_page_end - ip)   span = in_page_end - ip;
+        if (span > out_page_end - op)  span = out_page_end - op;
+        void *out_host = mem_ptr(mem, op, MEM_WRITE); // resolve write first
+        const void *in_host = out_host ? mem_ptr(mem, ip, MEM_READ) : NULL;
+        if (out_host == NULL || in_host == NULL) { res = 1; break; }
+        fn(in_host, out_host, span, ctx);
+        ip += span; op += span; left -= span;
+    }
+    task_mem_read_unlock(&handle);
+    return res;
+}
+
 int user_write_task_ptrace(struct task *task, guest_addr_t addr, const void *buf, size_t count) {
     struct task_mem_read_handle handle;
     struct mem *mem = task_mem_read_lock(task, &handle);

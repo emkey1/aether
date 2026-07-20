@@ -434,6 +434,12 @@ dword_t sys_getcwd_guest(guest_addr_t buf_addr, dword_t size);
 // iSH crypto accelerator (kernel/ish_accel.c). ISH_SYS_AEAD = 0xacc0.
 dword_t sys_ish_aead_guest(guest_addr_t req_addr);
 void ish_accel_init(void);
+// Direct-host-pointer transform over two guest buffers (kernel/user.c); see
+// its definition for the contract. Used by the accelerator to avoid copies.
+int user_transform_two(guest_addr_t in, guest_addr_t out, size_t count,
+        void (*fn)(const void *in_host, void *out_host, size_t span, void *ctx),
+        void *ctx);
+int user_zero(guest_addr_t addr, size_t count);
 dword_t sys_chdir(addr_t path_addr);
 dword_t sys_chdir_guest(guest_addr_t path_addr);
 dword_t sys_chroot(addr_t path_addr);

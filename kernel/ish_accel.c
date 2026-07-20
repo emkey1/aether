@@ -45,6 +45,13 @@ struct ish_aead_req {
 };
 
 enum { ISH_AEAD_ALG_CHACHA20_POLY1305 = 0 };
+
+// Per-span callback for user_transform_two: feed one page-span through the
+// streaming cipher (keystream + Poly1305 state carry across calls).
+static void ish_aead_span(const void *in_host, void *out_host, size_t span, void *ctx) {
+    ish_aead_update((struct ish_aead_stream *) ctx,
+            (const uint8_t *) in_host, (uint8_t *) out_host, span);
+}
 // Bound per-call sizes so a bogus request can't drive a huge host malloc.
 // SSH records are <= ~256 KiB; anything larger just falls back to the guest.
 #define ISH_AEAD_MAX_IN   (4u << 20)   // 4 MiB
@@ -69,50 +76,44 @@ dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
     uint8_t key[32], nonce[12], tag[16];
     if (user_read(req.key, key, sizeof(key)) || user_read(req.nonce, nonce, sizeof(nonce)))
         return _EFAULT;
-
-    // Reusable per-thread scratch for the common case (SSH records are
-    // <= ~32 KiB), so the hot path never mallocs; only oversized requests
-    // fall back to a heap allocation. aad is always small (<= ISH_AEAD_MAX_AAD).
-    enum { SCRATCH = 64u << 10 };
-    static __thread uint8_t scratch_in[SCRATCH], scratch_out[SCRATCH];
+    // aad is small and bounded; staging it in a per-thread scratch avoids a
+    // second direct-pointer walk (the streaming begin consumes it up front).
     static __thread uint8_t scratch_aad[ISH_AEAD_MAX_AAD];
+    if (req.aadlen && user_read(req.aad, scratch_aad, req.aadlen)) {
+        memset(key, 0, sizeof(key));
+        return _EFAULT;
+    }
 
     dword_t ret = 0;
-    uint8_t *aad = NULL, *in = NULL, *out = NULL;
-    bool in_heap = false, out_heap = false;
-    if (req.aadlen)
-        aad = scratch_aad; // aadlen bounded to ISH_AEAD_MAX_AAD above
-    if (req.inlen) {
-        if (req.inlen <= SCRATCH) { in = scratch_in; out = scratch_out; }
-        else {
-            in  = malloc(req.inlen); in_heap = true;
-            out = malloc(req.inlen); out_heap = true;
-            if (!in || !out) { ret = _ENOMEM; goto out; }
-        }
+    struct ish_aead_stream stream;
+    ish_aead_begin(&stream, key, nonce, scratch_aad, req.aadlen, (int) req.op);
+    // The data is transformed IN PLACE over guest memory, no bounce buffer:
+    // the streaming cipher runs directly on each page-span (user_transform_two
+    // resolves direct host pointers under the mem lock; seal encrypts pt->ct
+    // and Poly1305s the ciphertext, open decrypts ct->pt eagerly).
+    if (req.inlen &&
+            user_transform_two(req.in, req.out, req.inlen, ish_aead_span, &stream)) {
+        ret = _EFAULT;
+        goto out;
     }
-    if (req.aadlen && user_read(req.aad, aad, req.aadlen)) { ret = _EFAULT; goto out; }
-    if (req.inlen  && user_read(req.in,  in,  req.inlen))  { ret = _EFAULT; goto out; }
 
     if (req.op == 0) { // seal
-        ish_chacha20_poly1305_seal(key, nonce, aad, req.aadlen, in, req.inlen, out, tag);
-        if (req.inlen && user_write(req.out, out, req.inlen)) { ret = _EFAULT; goto out; }
+        ish_aead_finish(&stream, NULL, tag);
         if (user_write(req.tag, tag, sizeof(tag))) { ret = _EFAULT; goto out; }
     } else { // open
         if (user_read(req.tag, tag, sizeof(tag))) { ret = _EFAULT; goto out; }
-        if (ish_chacha20_poly1305_open(key, nonce, aad, req.aadlen, in, req.inlen, tag, out) != 0) {
-            ret = _EBADMSG; // authentication failed; out left untouched
-            goto out;
+        if (ish_aead_finish(&stream, tag, NULL) != 0) {
+            // Authentication failed. open decrypted eagerly into req.out, so
+            // scrub the guest buffer before returning -- the guest must never
+            // observe unauthenticated plaintext.
+            if (req.inlen)
+                user_zero(req.out, req.inlen);
+            ret = _EBADMSG;
         }
-        if (req.inlen && user_write(req.out, out, req.inlen)) { ret = _EFAULT; goto out; }
     }
 
 out:
-    // Wipe key material and plaintext staging (scratch persists across calls,
-    // so clearing it matters). Only free the heap fallbacks.
     memset(key, 0, sizeof(key));
-    if (out) memset(out, 0, req.inlen);
-    if (in && req.inlen <= SCRATCH) memset(in, 0, req.inlen);
-    if (out_heap) free(out);
-    if (in_heap)  free(in);
+    memset(&stream, 0, sizeof(stream)); // holds keystream + poly state
     return ret;
 }
