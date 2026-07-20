@@ -129,15 +129,16 @@ if score >= 90 {
 ret "blocked";
 ```
 
-Statement-level `else` is supported.
+Statement-level `else` and chained `else if` are supported.
 
 Inline `if ... else ...` expressions are allowed anywhere a value is expected
 — declarations, assignments, `ret`, and call arguments including
-`println(...)`:
+`println(...)`. Chained `else if` works in expression position too:
 
 ```aether
 let label: Text = if ready { "ready" } else { "blocked" };
 println("status: ", if ready { "ready" } else { "blocked" });
+let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 ```
 
 Loops (`break` exits; range is half-open):
@@ -460,6 +461,7 @@ let first: Int = xs[0];     // indexed read
 xs[0] = 9;                  // indexed write
 let ys: Int[] = [1, 2, 3];  // multi-element literal
 xs = xs + ys;                // concatenation: `arr1 + arr2`, both already-built arrays
+let mid: Int[] = ys[0..2];  // slice: half-open range, elements 0 and 1 (a copy, not a view)
 ```
 
 Never `toon_len(xs)` on a dynamic array. Indexed reads/writes and
@@ -467,7 +469,27 @@ multi-element literals are supported. `xs = xs + [a, b, ...]` appends every
 element of a literal of any length. `xs = xs + ys` / `let zs: T[] = xs + ys`
 (`+` between two array-valued expressions, not necessarily literals)
 concatenates them -- the RHS is evaluated once, then every element is
-appended in order.
+appended in order. `xs[a..b]` slices out a **copy** of elements `a` through
+`b - 1` (half-open, same convention as `loop i in a..b`) -- there is no
+first-class Range value, `a..b` is only meaningful directly inside `[...]`.
+
+**Arrays are value-copied at the call boundary; records are not.** Passing
+`xs` into a function gives that function its own copy -- mutating it there
+(`arr[0] = 9;`) never changes the caller's array. If you want a function to
+transform an array, return the new array and reassign at the call site:
+
+```aether
+fn doubleAll(arr: Int[]) -> Int[] {
+    loop i in 0..length(arr) { arr[i] = arr[i] * 2; }
+    ret arr;                    // <-- required; the caller never sees in-place writes otherwise
+}
+xs = doubleAll(xs);
+```
+
+A `Void` function that writes into an array parameter and never returns it
+gets an `[ARR-001]` warning (compiles fine, but almost certainly not what you
+meant) -- this is exactly the array/record asymmetry above: the identical
+pattern on a record parameter works, because records are pointer-backed.
 
 Use distinct local names inside one scope. Do not redeclare `xs`, `count`, or
 other loop variables later in the same function.

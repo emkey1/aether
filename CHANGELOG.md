@@ -12,6 +12,66 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-20-1
+
+**Three language-level fixes for gaps the corpus/specialization board had been
+compensating for with training data instead:** chained `else if` in
+if-expression position, array slicing sugar, and a new compile-time warning
+for the array-value-copy/record-reference-backed mutation trap. All three
+were previously tracked as `docs/ideas_and_todo.md` gaps/ideas; corpus
+drilling was the fallback plan for the third, but a static check protects
+every future model and human, not just whatever fine-tune got drilled on it.
+
+- **Chained `else if` in if-expression position.** Statement-position
+  `if`/`else if`/`else` already supported chains; the expression form
+  (`let g: Text = if a {x} else if b {y} else {z};`) only accepted a single
+  `else`, rejecting the chained form with a SYN-001. `parseIfExpr`
+  (`src/aether/ast_parser.c`) now recurses into itself on `else if`, exactly
+  mirroring `parseIfStmt`'s existing chain handling -- each nested branch is
+  itself a fully-typed `AST_TERNARY`, so no changes were needed to
+  `resolveConditionalType`.
+
+- **Array slicing `xs[a..b]`.** Previously unsupported (`SYN-001: expected
+  ']' to close index expression`) -- the most-reached-for missing collection
+  operation across 13 model families per the idea-miner findings. Implemented
+  as sugar scoped to indexing brackets (`parsePostfix`'s `[` handling),
+  **not** a first-class Range value -- consistent with the earlier
+  no-closures decision to avoid constructs that can float around ambiguously.
+  Lowers to a hoisted temp-array declaration plus a presize-and-copy loop
+  (`setlength` + indexed writes, the same idiom `buildArrayAppendSteps`
+  already used for `xs + [item]`), spliced into the enclosing statement via
+  the existing pending-object-literal mechanism. Half-open range, matching
+  `loop i in a..b`'s convention. The element type is inferred from the base
+  array's own type (reusing `inferLetTypeName`, the same inference `let x =
+  e;` uses) so `xs[a..b]` works for `Int[]`/`Text[]`/`Real[]`/record arrays
+  alike, both as a `let` initializer and directly as a call argument.
+
+- **New warning `[ARR-001]`: array-parameter mutation with no observable
+  effect on the caller.** Arrays are value-copied at the call boundary,
+  unlike records (pointer-backed) -- a `Void` function that writes into an
+  array parameter via indexed assignment can never have that mutation
+  observed by its caller. This was the single largest compiled-but-wrong
+  failure class the specialization board had found (17 identical unsorted
+  `quick_sort` outputs across 10 model families). `ARR-001` is a genuine
+  **warning**, not an error -- a new `reportAetherWarningCoded`/
+  `reportAetherWarning` pair in `src/aether/semantic.c` deliberately does not
+  increment `pascal_semantic_error_count`, so it never fails a build (a
+  function may legitimately use an array parameter as pure internal scratch
+  space). The check (`aetherValidateArrayParamMutation`) is a real AST walk
+  modeled on the existing FX-001 effect-fence walk, not a source-text scan.
+  Sweeping the full 682-item specialization corpus through this new check
+  immediately found 3 real hits -- two were promoted training examples
+  (`insertion_sort`, `bubbleSort`) whose verified "expected" stdout was
+  *literally the unsorted input*, meaning the corpus itself had been
+  training models that this no-op output is what correct sorting looks
+  like; both fixed to return-and-reassign and reverified. See the
+  Aether-specialization-findings doc / PBuild commit history for the corpus
+  side of that fix.
+
+New fixtures: `tests/else_if_expression_pass.aether`,
+`tests/array_mutation_warning_pass.aether`, `tests/array_slice_pass.aether`.
+Both guide docs updated (if-expression section, Dynamic arrays section).
+
 ## 2026-07-19-4
 
 **Added a `File` type, closing the "no file-content read/write API reachable

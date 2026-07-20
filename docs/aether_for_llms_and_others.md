@@ -535,7 +535,8 @@ reachable top-level path.
 
 Inline conditional expressions are allowed anywhere a value is expected —
 declarations, assignments, returns, and call arguments including
-`println(...)`:
+`println(...)`. Chained `else if` works in expression position too, exactly
+like the statement form above:
 
 ```aether
 let label: Text = if ready { "ready" } else { "blocked" };
@@ -543,6 +544,7 @@ fx {
     println(label);
     println("status: ", if ready { "ready" } else { "blocked" });
 }
+let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 ```
 
 ## Loops
@@ -1011,6 +1013,7 @@ xs[0] = 9;              // indexed write
 let ys: Int[] = [1, 2, 3];
 let zs: Int[] = xs + ys; // concatenation: `arr1 + arr2`, both already-built arrays
 xs = xs + ys;            // same idiom, self-reassignment form
+let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like loop ranges)
 ```
 
 - `Type[]` declares; `[]` is the empty literal
@@ -1021,6 +1024,10 @@ xs = xs + ys;            // same idiom, self-reassignment form
 - `xs = xs + ys;` / `let zs: T[] = xs + ys;` (`+` between two array-valued
   expressions, neither necessarily a literal) concatenates: the RHS is
   evaluated once and every one of its elements is appended, in order
+- `xs[a..b]` slices out a **copy** of elements `a` through `b - 1`
+  (half-open, same convention as `loop i in a..b`). This is sugar scoped to
+  indexing brackets, not a first-class Range value -- `a..b` has no meaning
+  outside `[...]`
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
 - never `toon_len(xs)` on a dynamic array (LEN-001)
 - `println`/`print` do not stringify arrays. `println("data: ", xs)` compiles
@@ -1028,6 +1035,28 @@ xs = xs + ys;            // same idiom, self-reassignment form
   (`ARRAY(dims:1, base_type:INT64, elements_at:0x...)`) instead of its
   elements -- there is no error to catch this. Loop and print each element:
   `loop i in 0..length(xs) { print(xs[i], " "); } println("");`
+
+**Arrays are value-copied where they cross a function boundary; records are
+pointer-backed and are not.** Passing `xs` into a function hands that
+function its own copy: mutating it there (`arr[0] = 9;` inside the callee)
+never changes the caller's array, unlike the identical pattern on a record
+parameter (which *does* propagate, since records are reference-backed). If a
+function needs to transform an array for its caller, return the new array
+and reassign at the call site:
+
+```aether
+fn doubleAll(arr: Int[]) -> Int[] {
+    loop i in 0..length(arr) { arr[i] = arr[i] * 2; }
+    ret arr;                    // required -- in-place writes alone are invisible to the caller
+}
+xs = doubleAll(xs);
+```
+
+A `Void` function that indexes into an array parameter to assign a value,
+and never returns that array, gets a compile-time `[ARR-001]` warning (the
+build still succeeds -- it's a warning, not an error -- but the diagnostic is
+almost always pointing at a real bug: the mutation the code appears to
+intend can never be observed by the caller).
 
 ## Structured data: TOON
 

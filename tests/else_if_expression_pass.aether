@@ -1,0 +1,14 @@
+// Chained `else if` in if-EXPRESSION position (not just statement position).
+fn classify(n: Int) -> Text {
+    ret if n > 8 { "big" } else if n > 4 { "medium" } else if n > 0 { "small" } else { "non-positive" };
+}
+
+fn main() -> Void {
+    fx {
+        println(classify(10));
+        println(classify(6));
+        println(classify(2));
+        println(classify(-1));
+    }
+    ret;
+}

@@ -1,0 +1,23 @@
+// Array slicing sugar `xs[a..b]`: half-open range, lowered to a hoisted
+// temp-array decl + copy loop (not a first-class Range value).
+fn sumArr(arr: Int[]) -> Int {
+    let total: Int = 0;
+    loop i in 0..length(arr) {
+        total = total + arr[i];
+    }
+    ret total;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [10, 20, 30, 40, 50];
+    let mid: Int[] = xs[1..4];
+    fx {
+        println("len=", length(mid));
+        loop i in 0..length(mid) {
+            println(mid[i]);
+        }
+        println("sum of xs[1..4] as direct arg=", sumArr(xs[1..4]));
+        println("xs[0] unaffected=", xs[0]);
+    }
+    ret;
+}

@@ -2569,4 +2569,45 @@ if ! grep -q "Operands for 'shl' and 'shr' must be integers" /tmp/aether_bitwise
     exit 1
 fi
 
+# Chained `else if` in if-EXPRESSION position (statement position already
+# supported this; the expression form only accepted a single `else`).
+"$AETHER_BIN" --no-cache "$TESTS_DIR/else_if_expression_pass.aether" >/tmp/aether_else_if_expression_pass.out
+printf 'big\nmedium\nsmall\nnon-positive\n' >/tmp/aether_else_if_expression_expected.out
+if ! cmp -s /tmp/aether_else_if_expression_expected.out /tmp/aether_else_if_expression_pass.out; then
+    echo "unexpected else-if-in-expression output" >&2
+    cat /tmp/aether_else_if_expression_pass.out >&2
+    exit 1
+fi
+
+# ARR-001: mutating an array parameter in a Void function warns (arrays are
+# value-copied at the call boundary, unlike records) but must NOT fail the
+# build -- this is a warning, not an error.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_mutation_warning_pass.aether" >/tmp/aether_array_mutation_warning_pass.out 2>&1
+if [ $? -ne 0 ]; then
+    echo "ARR-001 must warn, not fail the build" >&2
+    cat /tmp/aether_array_mutation_warning_pass.out >&2
+    exit 1
+fi
+if ! grep -q "warning: \[ARR-001\]" /tmp/aether_array_mutation_warning_pass.out; then
+    echo "missing ARR-001 warning" >&2
+    cat /tmp/aether_array_mutation_warning_pass.out >&2
+    exit 1
+fi
+if ! grep -qx "xs\[0\]=1" /tmp/aether_array_mutation_warning_pass.out; then
+    echo "unexpected array-mutation-warning program output (caller's array should be unchanged)" >&2
+    cat /tmp/aether_array_mutation_warning_pass.out >&2
+    exit 1
+fi
+
+# Array slicing sugar `xs[a..b]`: half-open range, works as a let-binding
+# initializer and directly as a call argument; does not disturb the source
+# array (confirms it copies rather than aliasing).
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_slice_pass.aether" >/tmp/aether_array_slice_pass.out
+printf 'len=3\n20\n30\n40\nsum of xs[1..4] as direct arg=90\nxs[0] unaffected=10\n' >/tmp/aether_array_slice_expected.out
+if ! cmp -s /tmp/aether_array_slice_expected.out /tmp/aether_array_slice_pass.out; then
+    echo "unexpected array-slice output" >&2
+    cat /tmp/aether_array_slice_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

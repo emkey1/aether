@@ -1474,6 +1474,38 @@ static void reportAetherError(const char *kind, int line, const char *detail) {
     reportAetherErrorCoded(aetherInferDiagnosticCode(kind, detail), kind, line, detail);
 }
 
+/* Like reportAetherErrorCoded, but for diagnostics that should NOT fail
+ * compilation -- deliberately does not touch pascal_semantic_error_count.
+ * First user: ARR-001 (array-parameter mutation with no observable caller
+ * effect), which is a strong "you probably meant something else" signal but
+ * not something that should block a build the way a real error does (a
+ * function may legitimately mutate an array parameter as pure internal
+ * scratch space and never intend the caller to see it). */
+static void reportAetherWarningCoded(const char *code, const char *kind, int line,
+                                     const char *detail) {
+    if (code) {
+        fprintf(stderr,
+                "%s:%d: warning: [%s] Aether %s warning: %s\n",
+                g_aether_source_path ? g_aether_source_path : "<aether>",
+                line,
+                code,
+                kind,
+                detail ? detail : "unknown warning");
+    } else {
+        fprintf(stderr,
+                "%s:%d: warning: Aether %s warning: %s\n",
+                g_aether_source_path ? g_aether_source_path : "<aether>",
+                line,
+                kind,
+                detail ? detail : "unknown warning");
+    }
+    aetherReportGuideHelp(code);
+}
+
+static void reportAetherWarning(const char *kind, int line, const char *detail) {
+    reportAetherWarningCoded(aetherInferDiagnosticCode(kind, detail), kind, line, detail);
+}
+
 static int parseOpaqueTypeName(const char *start, const char *end, int *kind) {
     while (start < end && isspace((unsigned char)*start)) {
         start++;
@@ -2668,6 +2700,105 @@ static void aetherValidateEffectsAndPurity(const AST *root) {
     aetherWalkEffectsAndPurity(root, 0, NULL);
 }
 
+/* --------------------------------------------------------------------------
+ * ARR-001 (warning): array-parameter mutation with no observable effect on
+ * the caller.
+ *
+ * Aether arrays are value-copied at the call boundary, unlike records, which
+ * are pointer-backed -- see docs/ideas_and_todo.md, "Arrays are value
+ * copies; records are pointer-backed": the single largest compiled-but-wrong
+ * failure class the specialization board has found (17 identical unsorted
+ * quick_sort outputs across 10 model families, all from indexed-assigning
+ * into an array parameter and expecting the caller to see it, the way it
+ * would for a record). A Void function that writes into an array parameter
+ * via indexed assignment can never have that mutation observed by its
+ * caller, so this fires unconditionally for that shape -- it does not try
+ * to prove the mutation is the function's ONLY effect, since the trap is
+ * the array/record asymmetry itself, not whether the function is otherwise
+ * useless. A non-Void function is not flagged: it may legitimately return
+ * the mutated array, which is the correct idiom this warning's message
+ * points readers toward.
+ * -------------------------------------------------------------------------- */
+
+/* Recursively scans `node` for AST_ASSIGN nodes writing into `xs[i]` where
+ * `xs` is one of `paramNames` (`paramCount` entries), warning ARR-001 at
+ * each site. Runs within a single function's body, so no function-boundary
+ * special case is needed here (aetherWalkArrayParamMutation below handles
+ * finding/entering function bodies). */
+static void aetherScanArrayParamMutation(const AST *node, const char **paramNames, int paramCount) {
+    int i;
+    if (!node) {
+        return;
+    }
+    if (node->type == AST_ASSIGN && node->left &&
+        node->left->type == AST_ARRAY_ACCESS && node->left->left &&
+        node->left->left->type == AST_VARIABLE && node->left->left->token &&
+        node->left->left->token->value) {
+        const char *base = node->left->left->token->value;
+        for (i = 0; i < paramCount; i++) {
+            if (paramNames[i] && strcmp(paramNames[i], base) == 0) {
+                char detail[224];
+                snprintf(detail, sizeof(detail),
+                         "array parameter '%s' is mutated here, but arrays are value-copied "
+                         "at the call boundary, so this change is not visible to the caller; "
+                         "return the array explicitly if the caller should see the update.",
+                         base);
+                reportAetherWarning("array-mutation", aetherAstNodeLine(node->left), detail);
+                break;
+            }
+        }
+    }
+    aetherScanArrayParamMutation(node->left, paramNames, paramCount);
+    aetherScanArrayParamMutation(node->right, paramNames, paramCount);
+    aetherScanArrayParamMutation(node->extra, paramNames, paramCount);
+    for (i = 0; i < node->child_count; i++) {
+        aetherScanArrayParamMutation(node->children[i], paramNames, paramCount);
+    }
+}
+
+#define AETHER_ARR001_MAX_PARAMS 64
+
+static void aetherWalkArrayParamMutation(const AST *node) {
+    int i;
+    if (!node) {
+        return;
+    }
+    if (node->type == AST_PROCEDURE_DECL) {
+        /* Void function: collect its array-typed parameters (children[] are
+         * AST_VAR_DECL after parseFnDecl moves them there; each carries an
+         * AST_VARIABLE child with the param name and var_type == TYPE_ARRAY),
+         * then scan the body (on `right`, per the Void-function convention)
+         * for indexed writes into any of them. */
+        const char *names[AETHER_ARR001_MAX_PARAMS];
+        int count = 0;
+        for (i = 0; i < node->child_count && count < AETHER_ARR001_MAX_PARAMS; i++) {
+            AST *paramDecl = node->children[i];
+            if (paramDecl && paramDecl->var_type == TYPE_ARRAY &&
+                paramDecl->child_count > 0 && paramDecl->children[0] &&
+                paramDecl->children[0]->type == AST_VARIABLE &&
+                paramDecl->children[0]->token && paramDecl->children[0]->token->value) {
+                names[count++] = paramDecl->children[0]->token->value;
+            }
+        }
+        if (count > 0) {
+            aetherScanArrayParamMutation(node->right, names, count);
+        }
+        /* Fall through to the generic recursion below rather than returning:
+         * a `type` declared inside this function's body owns its own
+         * methods, which still need to be reached and checked. */
+    }
+    aetherWalkArrayParamMutation(node->left);
+    aetherWalkArrayParamMutation(node->right);
+    aetherWalkArrayParamMutation(node->extra);
+    for (i = 0; i < node->child_count; i++) {
+        aetherWalkArrayParamMutation(node->children[i]);
+    }
+}
+
+static void aetherValidateArrayParamMutation(const AST *root) {
+    aetherWalkArrayParamMutation(root);
+}
+
 void aetherPerformSemanticAnalysis(AST *root) {
     const char *source = aetherGetLastSource();
     int errorCountBefore = pascal_semantic_error_count;
@@ -2721,6 +2852,9 @@ void aetherPerformSemanticAnalysis(AST *root) {
     if (pascal_semantic_error_count > errorCountBefore) {
         return;
     }
+    /* ARR-001 is a warning, not an error -- runs regardless of the error-count
+     * gate above (there's nothing to gate: it never increments the counter). */
+    aetherValidateArrayParamMutation(root);
     reaPerformSemanticAnalysis(root);
 }
 

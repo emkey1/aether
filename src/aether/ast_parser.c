@@ -1690,6 +1690,8 @@ static char *inferLetTypeName(AetherParser *p, AST *init);
 static void buildArrayAppendSteps(const AST *target, AST *item, int line,
                                   AST **outSetlenStmt, AST **outIdxAssign);
 static bool aetherTypeNameIsArray(const char *name);
+static AST *parseAdd(AetherParser *p);
+static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
 static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *other,
                                   char *otherTypeName, int line);
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
@@ -2042,6 +2044,41 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
             int openLine = p->current.line;
             aetherAdvance(p); /* consume '[' */
             AST *index = parseExpr(p);
+            if (p->current.type == AE_TOKEN_DOTDOT) {
+                /* Slice sugar: base[lo..hi]. NOT a first-class Range value --
+                 * docs/ideas_and_todo.md's array-slicing entry explicitly
+                 * endorses sugar scoped to indexing brackets over introducing
+                 * one, matching the no-closures decision's spirit (avoid a
+                 * construct that can float around ambiguously). Lowered
+                 * below to a hoisted temp-array decl + copy loop. */
+                aetherAdvance(p); /* consume '..' */
+                /* High bound via parseAdd, not parseExpr, mirroring
+                 * parseLoopRange's documented rationale: full parseExpr would
+                 * over-consume into &&/comparison operators (`xs[a..b && c]`
+                 * silently becoming `xs[a..(b && c)]`). The low bound above
+                 * doesn't need the same guard: '..' isn't a valid expression
+                 * continuation for any parse rule, so parseExpr(p) for `a`
+                 * already stops cleanly at it. */
+                AST *hi = parseAdd(p);
+                if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
+                    aetherAdvance(p);
+                } else if (!p->hadError) {
+                    char msg[104];
+                    snprintf(msg, sizeof(msg),
+                            "expected ']' to close slice expression (opened at line %d).", openLine);
+                    reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
+                    p->hadError = true;
+                }
+                if (!index || !hi || p->hadError) {
+                    if (index) freeAST(index);
+                    if (hi) freeAST(hi);
+                    freeAST(node);
+                    return NULL;
+                }
+                node = buildArraySlice(p, node, index, hi, openLine);
+                if (!node) { p->hadError = true; return NULL; }
+                continue;
+            }
             if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
                 aetherAdvance(p);
             } else if (!p->hadError) {
@@ -2251,27 +2288,38 @@ static AST *parseIfExpr(AetherParser *p) {
         return NULL;
     }
     aetherAdvance(p); /* consume 'else' */
-    if (p->current.type != REA_TOKEN_LEFT_BRACE) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
-                "expected '{' after 'else' in if-expression.", NULL);
-        p->hadError = true;
-        freeAST(cond); freeAST(thenExpr);
-        return NULL;
+    AST *elseExpr = NULL;
+    if (p->current.type == REA_TOKEN_IF) {
+        /* Chained 'else if' in value position: recurse exactly like
+         * parseIfStmt's statement-position chain, so
+         * `if a {x} else if b {y} else {z}` works as a single AST_TERNARY
+         * tree (each nested else-if is itself a fully-typed AST_TERNARY,
+         * so resolveConditionalType below needs no special-casing). */
+        elseExpr = parseIfExpr(p);
+        if (!elseExpr) { p->hadError = true; freeAST(cond); freeAST(thenExpr); return NULL; }
+    } else {
+        if (p->current.type != REA_TOKEN_LEFT_BRACE) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                    "expected '{' or 'if' after 'else' in if-expression.", NULL);
+            p->hadError = true;
+            freeAST(cond); freeAST(thenExpr);
+            return NULL;
+        }
+        aetherAdvance(p); /* consume '{' */
+        elseExpr = parseExpr(p);
+        if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+        if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
+            aetherAdvance(p);
+        } else if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                    "expected '}' to close if-expression branch.", NULL);
+            p->hadError = true;
+            freeAST(cond); freeAST(thenExpr);
+            if (elseExpr) freeAST(elseExpr);
+            return NULL;
+        }
+        if (!elseExpr) { p->hadError = true; freeAST(cond); freeAST(thenExpr); return NULL; }
     }
-    aetherAdvance(p); /* consume '{' */
-    AST *elseExpr = parseExpr(p);
-    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
-    if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
-        aetherAdvance(p);
-    } else if (!p->hadError) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
-                "expected '}' to close if-expression branch.", NULL);
-        p->hadError = true;
-        freeAST(cond); freeAST(thenExpr);
-        if (elseExpr) freeAST(elseExpr);
-        return NULL;
-    }
-    if (!elseExpr) { p->hadError = true; freeAST(cond); freeAST(thenExpr); return NULL; }
 
     Token *tok = newToken(TOKEN_IF, "?", line, 0);
     AST *node = newASTNode(AST_TERNARY, tok);
@@ -3999,6 +4047,201 @@ static AST *buildArrayAppend(AST *assign, AST *target, AST **items, int itemCoun
      * now-detached `+` expression (items were moved out, so detach them first). */
     freeAST(assign);
     return outer;
+}
+
+/* Lower `base[lo..hi]` (slice sugar -- see the parsePostfix call site) into a
+ * hoisted temp-array declaration plus a presize-and-copy loop, spliced into
+ * the enclosing statement the same way buildObjectInitDecl/buildArrayAppend
+ * splice theirs (an i_val==1 AST_COMPOUND, flushed by the parseStatement
+ * wrapper):
+ *
+ *   let __aether_slice_N: T[] = [];
+ *   setlength(__aether_slice_N, HI - LO);
+ *   let __aether_slice_idx_N: Int = 0;
+ *   while (__aether_slice_idx_N < (HI - LO)) {
+ *       __aether_slice_N[__aether_slice_idx_N] = base[LO + __aether_slice_idx_N];
+ *       __aether_slice_idx_N = __aether_slice_idx_N + 1;
+ *   }
+ *
+ * The presize-then-index-assign shape mirrors buildArrayAppendSteps rather
+ * than repeated `+ [item]` appends, for the same reason: it's the idiom the
+ * rest of this file already uses for building arrays element-by-element.
+ *
+ * `base`, `lo`, `hi` are consumed (freed or moved into the result). Returns
+ * an AST_VARIABLE referencing the temp slice (so the caller can keep
+ * chaining postfix operations on it, exactly like the bare-object-literal
+ * case in parsePrimary), or NULL on a hard failure (frees its inputs first).
+ */
+static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
+    if (!base || !lo || !hi) {
+        if (base) freeAST(base);
+        if (lo) freeAST(lo);
+        if (hi) freeAST(hi);
+        return NULL;
+    }
+
+    char tempName[40];
+    char idxName[40];
+    snprintf(tempName, sizeof(tempName), "__aether_slice_%d", p->nextObjLitId);
+    snprintf(idxName, sizeof(idxName), "__aether_slice_idx_%d", p->nextObjLitId);
+    p->nextObjLitId++;
+
+    /* Infer the slice's declared type from the base array's own type name
+     * (e.g. base is "Int[]" -> the slice is also "Int[]"), reusing the same
+     * inference `let x = e;` uses. Falls back to an untyped decl (var_type
+     * TYPE_ARRAY, no type node -- same as an inferred `let x = [];` would
+     * produce) if inference fails; the backend still handles a dynamically
+     * typed empty array literal, just without the extra static-type info. */
+    VarType sliceVtype = TYPE_ARRAY;
+    AST *sliceTypeNode = NULL;
+    char *inferredName = inferLetTypeName(p, copyAST(base));
+    if (inferredName) {
+        sliceTypeNode = buildTypeNodeFromName(inferredName, strlen(inferredName), line, &sliceVtype);
+        if (!sliceTypeNode) {
+            sliceVtype = TYPE_ARRAY;
+        }
+    }
+
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+
+    /* let __aether_slice_N: T[] = []; */
+    Token *sliceNameTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *sliceVar = newASTNode(AST_VARIABLE, sliceNameTok);
+    setTypeAST(sliceVar, sliceVtype);
+    AST *emptyLit = newASTNode(AST_ARRAY_LITERAL, NULL);
+    setTypeAST(emptyLit, TYPE_ARRAY);
+    AST *sliceDecl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(sliceDecl, sliceVar);
+    setLeft(sliceDecl, emptyLit);
+    setRight(sliceDecl, sliceTypeNode);
+    setTypeAST(sliceDecl, sliceVtype);
+    addChild(outer, sliceDecl);
+    if (inferredName) {
+        bindingTableSet(p->bindings, tempName, inferredName);
+    }
+    free(inferredName);
+
+    /* HI - LO, built once and reused for both setlength's argument and the
+     * while condition (copied each use; AST nodes aren't shared). */
+    Token *widthMinusTok = newToken(TOKEN_MINUS, "-", line, 0);
+    AST *widthExpr = newASTNode(AST_BINARY_OP, widthMinusTok);
+    setLeft(widthExpr, copyAST(hi));
+    setRight(widthExpr, copyAST(lo));
+    setTypeAST(widthExpr, TYPE_INTEGER);
+
+    /* setlength(__aether_slice_N, HI - LO); */
+    Token *sliceRefTok1 = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *sliceRef1 = newASTNode(AST_VARIABLE, sliceRefTok1);
+    setTypeAST(sliceRef1, sliceVtype);
+    Token *slTok = newToken(TOKEN_IDENTIFIER, "setlength", line, 0);
+    AST *setlen = newASTNode(AST_PROCEDURE_CALL, slTok);
+    addChild(setlen, sliceRef1);
+    addChild(setlen, widthExpr);
+    setTypeAST(setlen, TYPE_VOID);
+    AST *setlenStmt = newASTNode(AST_EXPR_STMT, setlen->token);
+    setLeft(setlenStmt, setlen);
+    addChild(outer, setlenStmt);
+
+    /* let __aether_slice_idx_N: Int = 0; */
+    Token *idxNameTok = newToken(TOKEN_IDENTIFIER, idxName, line, 0);
+    AST *idxVar = newASTNode(AST_VARIABLE, idxNameTok);
+    setTypeAST(idxVar, TYPE_INT64);
+    Token *intTypeTok = newToken(TOKEN_IDENTIFIER, "int", line, 0);
+    AST *intTypeNode = newASTNode(AST_TYPE_IDENTIFIER, intTypeTok);
+    setTypeAST(intTypeNode, TYPE_INT64);
+    AST *idxDecl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(idxDecl, idxVar);
+    setLeft(idxDecl, buildIntLiteral(0, line));
+    setRight(idxDecl, intTypeNode);
+    setTypeAST(idxDecl, TYPE_INT64);
+    addChild(outer, idxDecl);
+
+    /* while (__aether_slice_idx_N < (HI - LO)) { ... } */
+    Token *condIdxTok = newToken(TOKEN_IDENTIFIER, idxName, line, 0);
+    AST *condIdx = newASTNode(AST_VARIABLE, condIdxTok);
+    setTypeAST(condIdx, TYPE_INT64);
+    Token *ltTok = newToken(TOKEN_LESS, "<", line, 0);
+    AST *cond = newASTNode(AST_BINARY_OP, ltTok);
+    setLeft(cond, condIdx);
+    setRight(cond, copyAST(widthExpr));
+    setTypeAST(cond, TYPE_BOOLEAN);
+
+    /* __aether_slice_N[__aether_slice_idx_N] = base[LO + __aether_slice_idx_N]; */
+    Token *sliceRefTok2 = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *sliceRef2 = newASTNode(AST_VARIABLE, sliceRefTok2);
+    setTypeAST(sliceRef2, sliceVtype);
+    Token *lhsIdxTok = newToken(TOKEN_IDENTIFIER, idxName, line, 0);
+    AST *lhsIdx = newASTNode(AST_VARIABLE, lhsIdxTok);
+    setTypeAST(lhsIdx, TYPE_INT64);
+    AST *lhsAccess = newASTNode(AST_ARRAY_ACCESS, NULL);
+    setLeft(lhsAccess, sliceRef2);
+    addChild(lhsAccess, lhsIdx);
+    setTypeAST(lhsAccess, TYPE_UNKNOWN);
+
+    Token *srcIdxBaseTok = newToken(TOKEN_IDENTIFIER, idxName, line, 0);
+    AST *srcIdxBase = newASTNode(AST_VARIABLE, srcIdxBaseTok);
+    setTypeAST(srcIdxBase, TYPE_INT64);
+    Token *srcPlusTok = newToken(TOKEN_PLUS, "+", line, 0);
+    AST *srcIdxExpr = newASTNode(AST_BINARY_OP, srcPlusTok);
+    setLeft(srcIdxExpr, copyAST(lo));
+    setRight(srcIdxExpr, srcIdxBase);
+    setTypeAST(srcIdxExpr, TYPE_INTEGER);
+    AST *rhsAccess = newASTNode(AST_ARRAY_ACCESS, NULL);
+    setLeft(rhsAccess, copyAST(base));
+    addChild(rhsAccess, srcIdxExpr);
+    setTypeAST(rhsAccess, TYPE_UNKNOWN);
+
+    Token *copyAssignTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+    AST *copyAssign = newASTNode(AST_ASSIGN, copyAssignTok);
+    setLeft(copyAssign, lhsAccess);
+    setRight(copyAssign, rhsAccess);
+    setTypeAST(copyAssign, sliceVtype);
+    AST *copyStmt = newASTNode(AST_EXPR_STMT, copyAssign->token);
+    setLeft(copyStmt, copyAssign);
+
+    /* __aether_slice_idx_N = __aether_slice_idx_N + 1; */
+    Token *postLhsTok = newToken(TOKEN_IDENTIFIER, idxName, line, 0);
+    AST *postLhs = newASTNode(AST_VARIABLE, postLhsTok);
+    setTypeAST(postLhs, TYPE_INT64);
+    Token *postAddLhsTok = newToken(TOKEN_IDENTIFIER, idxName, line, 0);
+    AST *postAddLhs = newASTNode(AST_VARIABLE, postAddLhsTok);
+    setTypeAST(postAddLhs, TYPE_INT64);
+    Token *postPlusTok = newToken(TOKEN_PLUS, "+", line, 0);
+    AST *postAddExpr = newASTNode(AST_BINARY_OP, postPlusTok);
+    setLeft(postAddExpr, postAddLhs);
+    setRight(postAddExpr, buildIntLiteral(1, line));
+    setTypeAST(postAddExpr, TYPE_INT64);
+    Token *postAssignTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+    AST *postAssign = newASTNode(AST_ASSIGN, postAssignTok);
+    setLeft(postAssign, postLhs);
+    setRight(postAssign, postAddExpr);
+    setTypeAST(postAssign, TYPE_INT64);
+    AST *postStmt = newASTNode(AST_EXPR_STMT, postAssign->token);
+    setLeft(postStmt, postAssign);
+
+    AST *whileBody = newASTNode(AST_COMPOUND, NULL);
+    addChild(whileBody, copyStmt);
+    addChild(whileBody, postStmt);
+    AST *whileNode = newASTNode(AST_WHILE, NULL);
+    setLeft(whileNode, cond);
+    setRight(whileNode, whileBody);
+    addChild(outer, whileNode);
+
+    /* `base`, `lo`, `hi` are fully consumed now (copied where reused above,
+     * originals no longer needed). */
+    freeAST(base);
+    freeAST(lo);
+    freeAST(hi);
+
+    pushPendingObjLit(p, outer);
+
+    /* Reference to the temp slice for the caller to keep chaining postfix
+     * operations on, exactly like the bare-object-literal case. */
+    Token *refTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
+    AST *ref = newASTNode(AST_VARIABLE, refTok);
+    setTypeAST(ref, sliceVtype);
+    return ref;
 }
 
 /* Is `name` (an Aether type name from the binding table, e.g. "Int[]") an

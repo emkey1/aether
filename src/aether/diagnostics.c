@@ -50,6 +50,15 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "field-default") == 0) {
             return "FIELD-003";
         }
+        /* Array-parameter mutation with no observable effect on the caller:
+         * arrays are value-copied at the call boundary (unlike records,
+         * which are pointer-backed), so an indexed write into an array
+         * parameter inside a Void function never propagates back. Points
+         * at the ARR-001 guide section explaining the value/reference
+         * asymmetry and the mutate-and-return idiom. */
+        if (strcmp(kind, "array-mutation") == 0) {
+            return "ARR-001";
+        }
     }
 
     if (!detail) {

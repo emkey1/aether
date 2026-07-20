@@ -1,0 +1,13 @@
+// Mutating an array parameter in a Void function has no effect on the
+// caller (arrays are value-copied) -- ARR-001 warns about this on stderr,
+// but it must still compile and run (exit 0), not fail the build.
+fn noop_mutate(arr: Int[]) -> Void {
+    arr[0] = 999;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    noop_mutate(xs);
+    fx { println("xs[0]=", xs[0]); }
+    ret;
+}
