@@ -1076,6 +1076,13 @@ static int proc_pid_fdinfo_show(struct proc_entry *entry, struct proc_data *buf)
     proc_printf(buf, "pos:\t%lu\n", fd->offset);
     proc_printf(buf, "flags:\t0%o\n", fd_getflags(fd));
     proc_printf(buf, "mnt_id:\t1\n");
+    // Real Linux appends a "Pid:" line for pidfds (fs/proc/fd.c's
+    // pidfd_show_fdinfo); glibc's pidfd_get_pid() reads exactly this as its
+    // fallback when the PIDFD_GET_INFO ioctl isn't supported, and treats a
+    // missing line as "not a pidfd" (-ENOTTY). See fd_pidfd_pid's comment.
+    pid_t_ pidfd_pid = fd_pidfd_pid(fd);
+    if (pidfd_pid != -1)
+        proc_printf(buf, "Pid:\t%d\n", pidfd_pid);
     fd_close(fd);
     proc_put_task(task);
     return 0;

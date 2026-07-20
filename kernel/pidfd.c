@@ -109,6 +109,25 @@ int_t pidfd_get_pid(fd_t f) {
     return pid;
 }
 
+// Linux's fdinfo for a pidfd (fs/proc/fd.c's pidfd_show_fdinfo) appends a
+// "Pid:" line beyond the generic pos/flags/mnt_id fields. glibc's
+// pidfd_get_pid() (systemd's posix_spawn_wrapper, used for every clone3
+// service spawn) reads exactly this line as its fallback when the newer
+// PIDFD_GET_INFO ioctl isn't supported -- if the line is absent it treats
+// the fd as "not a pidfd" and returns ENOTTY, which is exactly what
+// surfaced as "Failed to spawn executor: Inappropriate ioctl for device"
+// for every clone3-spawned service before this fix. Returns -1 if `fd`
+// isn't a pidfd.
+pid_t_ fd_pidfd_pid(struct fd *fd) {
+    if (fd->ops != &pidfd_ops)
+        return -1;
+    struct pidfd_data *data = fd->data;
+    complex_lockt(&pids_lock, 0);
+    pid_t_ pid = data->task->pid;
+    unlock(&pids_lock);
+    return pid;
+}
+
 // A self-referencing pidfd (pidfd_open(getpid())) that a task never gets
 // around to closing before its OWN exit would otherwise deadlock every
 // exit_wait_needed() gate in do_exit forever: the extra task reference it

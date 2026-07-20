@@ -203,6 +203,7 @@ struct fd *pidfd_create(struct task *task);
 void pidfd_notify_exit(struct task *task);
 int_t sys_pidfd_open(pid_t_ pid, dword_t flags);
 int_t pidfd_get_pid(fd_t f); // waitid(P_PIDFD) support, kernel/pidfd.c
+pid_t_ fd_pidfd_pid(struct fd *fd); // -1 if not a pidfd; for fdinfo's "Pid:" line, kernel/pidfd.c
 void pidfd_close_self_refs(struct task *task); // self-pidfd exit deadlock guard, kernel/pidfd.c
 int_t sys_pidfd_send_signal(fd_t pidfd, dword_t sig, addr_t info_addr, dword_t flags);
 int_t sys_inotify_init(void);

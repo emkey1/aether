@@ -51,6 +51,7 @@ name_to_handle_at.c
 sendfile_vhangup.c
 pidfd_open.c
 pidfd_clone.c
+pidfd_fdinfo_pid.c
 fs_conformance.c
 process_conformance.c
 time_conformance.c
