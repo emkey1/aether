@@ -82,6 +82,17 @@ struct jit_block {
 struct jit *jit_new(struct mmu *mmu);
 void jit_free(struct jit *jit);
 
+// Exclude any CLONE_VM sibling thread still executing chained JIT code in
+// this jit before a full-address-space teardown (mem_destroy) invalidates
+// and frees every block. Returns true if the exclusion was actually
+// acquired (call jit_teardown_unlock to release it); false on timeout, in
+// which case the caller must proceed without it (the teardown cannot be
+// abandoned) and no unlock call should follow. Mirrors the write_wanted +
+// jetsam write-lock protocol every other block-freeing path already uses --
+// see jit.c's jit_teardown_lock for why mem_destroy needs this too.
+bool jit_teardown_lock(struct jit *jit);
+void jit_teardown_unlock(struct jit *jit);
+
 // Invalidate all jit blocks in pages start (inclusive) to end (exclusive).
 // Locks the jit. Should only be called by memory.c in conjunction with
 // mem_changed.

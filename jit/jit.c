@@ -735,6 +735,44 @@ struct jit *jit_new(struct mmu *mmu) {
     return jit;
 }
 
+// Exclude any CLONE_VM sibling thread still executing chained JIT code in
+// this jit before a full-address-space teardown (mem_destroy) invalidates
+// and frees every block. do_exit_group() SIGKILLs sibling threads
+// asynchronously and does not wait for them to actually stop, so without
+// this a live sibling can still be mid-jit_enter, reading/patching block-
+// chain jump_ip backlinks concurrently with the teardown -- corrupting a
+// jumps_from[] list so jit_block_disconnect later dereferences a freed/
+// garbage prev_block, taking a wild host write that aborts the whole
+// process (jit_crash_bus_fn's "untranslatable bad access" path, since this
+// runs outside guest-execution's sigsetjmp region and can't be translated
+// into a guest signal). Every OTHER block-freeing path already excludes
+// readers this way (write_wanted + jetsam_write_lock_timed) before touching
+// a block; mem_destroy's pt_unmap_always/jit_free sweep didn't, which is
+// exactly the gap this closes. Returns false on timeout (a permanently
+// stuck reader, e.g. one that crashed under a debugger before releasing its
+// lock) -- the caller must still proceed with teardown and must not call
+// jit_teardown_unlock in that case.
+bool jit_teardown_lock(struct jit *jit) {
+    if (jit == NULL)
+        return false;
+    __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
+    bool got_lock = jetsam_write_lock_timed(jit);
+    __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
+    if (!got_lock)
+        printk("JIT: teardown_lock timed out waiting for a stuck jit_enter reader; "
+               "proceeding with process-exit teardown unprotected\n");
+    return got_lock;
+}
+
+void jit_teardown_unlock(struct jit *jit) {
+    if (jit == NULL)
+        return;
+    pthread_rwlock_unlock(&jit->jetsam_lock.l);
+}
+
+// Callers must wrap this (and any preceding jit_invalidate_range sweep of
+// the same jit, e.g. mem_destroy's pt_unmap_always) with
+// jit_teardown_lock/jit_teardown_unlock -- see jit_teardown_lock for why.
 void jit_free(struct jit *jit) {
     if (!jit) return;
     lock(&jit->lock, 0);
@@ -749,11 +787,6 @@ void jit_free(struct jit *jit) {
     jit_free_jetsam(jit);
     free(jit->page_hash);
     free(jit->hash);
-    // jetsam_lock uses the raw pthread_rwlock `.l` directly on its per-block
-    // hot path (rdlock/trywrlock), so this teardown drain must too — the
-    // wrlock_t API now drives a separate mutex+condvar (rw_locks.h) and would
-    // desync from those `.l` acquires.
-    pthread_rwlock_wrlock(&jit->jetsam_lock.l);
     unlock(&jit->lock);
     free(jit);
 }

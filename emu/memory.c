@@ -388,10 +388,19 @@ void mem_init(struct mem *mem) {
 
 void mem_destroy(struct mem *mem) {
     write_lock(&mem->lock);
+#if ENGINE_JIT
+    // Hold this across both the invalidation sweep below and jit_free --
+    // dropping it in between would reopen the exact race it exists to close.
+    // See jit_teardown_lock's comment for why full-teardown invalidation
+    // needs this and ordinary partial munmap doesn't.
+    bool jit_torn_down = jit_teardown_lock(mem->mmu.jit);
+#endif
     pt_unmap_always(mem, 0, mem->page_limit);
 
 #if ENGINE_JIT
     jit_free(mem->mmu.jit);
+    if (jit_torn_down)
+        jit_teardown_unlock(mem->mmu.jit);
 #endif
     for (size_t root = 0; root < MEM_PGDIR_ROOT_SIZE; root++) {
         struct pt_directory_chunk *chunk =
