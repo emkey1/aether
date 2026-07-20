@@ -4142,6 +4142,9 @@ int_t sys_shutdown(fd_t sock_fd, dword_t how) {
 static void sock_init_emulation_defaults(struct fd *fd) {
     strcpy(fd->socket.tcp_congestion, DEFAULT_TCP_CONGESTION);
     fd->socket.ipv6_recverr_fd = -1;
+    // Linux's net.core.rmem_default/wmem_default default.
+    fd->socket.netlink_rcvbuf = 212992;
+    fd->socket.netlink_sndbuf = 212992;
 }
 
 static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t option,
@@ -4277,12 +4280,35 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         return _ENOPROTOOPT;
     }
     if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
+        // No real fd to ask the host kernel for these, so track what was
+        // requested (Linux's kernel doubles SO_RCVBUF/SO_SNDBUF/the FORCE
+        // variants) and hand it back on getsockopt.
         if (level == SOL_SOCKET_ &&
-                (option == SO_RCVBUF_ || option == SO_SNDBUF_ ||
-                 option == SO_SNDBUFFORCE_ || option == SO_RCVTIMEO_OLD_ ||
-                 option == SO_SNDTIMEO_OLD_ || option == SO_RCVTIMEO_ ||
-                 option == SO_SNDTIMEO_ || option == SO_ATTACH_FILTER_ ||
-                 option == SO_DETACH_FILTER_)) {
+                (option == SO_RCVBUF_ || option == SO_RCVBUFFORCE_ ||
+                 option == SO_SNDBUF_ || option == SO_SNDBUFFORCE_)) {
+            if (value_len < sizeof(dword_t))
+                return _EINVAL;
+            dword_t requested = *(dword_t *) value;
+            dword_t doubled = requested * 2;
+            if (option == SO_RCVBUF_ || option == SO_RCVBUFFORCE_)
+                sock->socket.netlink_rcvbuf = doubled;
+            else
+                sock->socket.netlink_sndbuf = doubled;
+            return 0;
+        }
+        // A fake socket is never actually put on the wire, so REUSEADDR/PORT
+        // are meaningless here -- but systemd sets SO_REUSEADDR unconditionally
+        // on every listening socket it creates, including its kobject-uevent
+        // netlink socket, before this option list existed to catch it. That
+        // fell through to a real setsockopt(-1, ...) call and got EBADF
+        // ("Failed to create listening socket (kobject-uevent 1): Bad file
+        // descriptor"), so systemd-udevd.service (and therefore udev as a
+        // whole) never started.
+        if (level == SOL_SOCKET_ &&
+                (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_ ||
+                 option == SO_RCVTIMEO_ || option == SO_SNDTIMEO_ ||
+                 option == SO_ATTACH_FILTER_ || option == SO_DETACH_FILTER_ ||
+                 option == SO_REUSEADDR_ || option == SO_REUSEPORT_)) {
             return 0;
         }
     }
@@ -4439,6 +4465,12 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         // it through leaked that error where Linux reports 0/1.
         dword_t acceptconn = sock->socket.listening ? 1 : 0;
         sockopt_store_value(value, user_value_len, &value_len, &acceptconn, sizeof(acceptconn));
+    } else if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0 && level == SOL_SOCKET_ &&
+            (option == SO_RCVBUF_ || option == SO_SNDBUF_)) {
+        // Mirrors the setsockopt tracking above -- no real fd to ask the host
+        // for these on a fake netlink socket.
+        dword_t bufsize = option == SO_RCVBUF_ ? sock->socket.netlink_rcvbuf : sock->socket.netlink_sndbuf;
+        sockopt_store_value(value, user_value_len, &value_len, &bufsize, sizeof(bufsize));
     } else if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0 && level == SOL_NETLINK_) {
         if (option == NETLINK_CAP_ACK_ || option == NETLINK_EXT_ACK_ || option == NETLINK_GET_STRICT_CHK_) {
             dword_t enabled =

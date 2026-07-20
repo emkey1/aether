@@ -121,6 +121,12 @@ struct fd {
             bool netlink_cap_ack;
             bool netlink_ext_ack;
             bool netlink_get_strict_chk;
+            // SO_RCVBUF/SO_SNDBUF on a fake (real_fd < 0) netlink socket: no
+            // real fd to ask the host kernel, so track what setsockopt was
+            // given (Linux-kernel-style doubled) and hand it back verbatim on
+            // getsockopt. See sock_init_emulation_defaults for the default.
+            dword_t netlink_rcvbuf;
+            dword_t netlink_sndbuf;
         } socket;
 
         // See app/Pasteboard.m
