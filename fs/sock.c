@@ -5453,7 +5453,16 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     uint_t guest_controllen_max = msg_fake.msg_controllen;
     char local_rights_msg_control[CMSG_SPACE(sizeof(int))] = {};
     void *real_msg_control = NULL;
-    if (msg_fake.msg_controllen != 0) {
+    // On MSG_PEEK over an AF_LOCAL socket, do NOT request ancillary data from
+    // the host. macOS duplicates the SCM_RIGHTS sentinel fd on a peek and that
+    // disturbs the control data still queued for the message, so the following
+    // real recvmsg delivered a corrupt/mismatched fd (reproduced: peek then
+    // read yields the sentinel/directory fd -> EBADF on the guest's first
+    // read). Peeking only the data leaves our scm queue and the host's
+    // ancillary pristine; the fds arrive correctly on the real read, which is
+    // exactly what peek-to-size callers (dbus, systemd) do.
+    bool peek_af_local = (flags & MSG_PEEK_) && sock->socket.domain == AF_LOCAL_;
+    if (msg_fake.msg_controllen != 0 && !peek_af_local) {
         size_t real_msg_controllen = guest_controllen_max;
         if (sock->socket.domain == AF_LOCAL_ && real_msg_controllen < sizeof(local_rights_msg_control))
             real_msg_controllen = sizeof(local_rights_msg_control);
@@ -5698,12 +5707,24 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         close(dummy_fd);
 
         lock(&sock->lock, 0);
-        assert(!list_empty(&sock->socket.unix_scm));
-        scm = list_first_entry(&sock->socket.unix_scm, struct scm, queue);
-        list_remove(&scm->queue);
-        unlock(&sock->lock);
+        if (list_empty(&sock->socket.unix_scm)) {
+            // Defensive: the host delivered our SCM_RIGHTS sentinel fd but no
+            // struct scm is queued on this socket -- the two channels (the
+            // host-side sentinel carrying the message and our own scm queue
+            // carrying the real guest fds) have desynced. Never abort the
+            // emulator over it: an assert here SIGABRT'd all of iSH mid-boot
+            // on amd64 Arch (the desync came from MSG_PEEK duplicating the
+            // sentinel -- now suppressed above). Deliver the message without
+            // the fds instead of crashing.
+            unlock(&sock->lock);
+            have_rights = false;
+        } else {
+            scm = list_first_entry(&sock->socket.unix_scm, struct scm, queue);
+            list_remove(&scm->queue);
+            unlock(&sock->lock);
+        }
 
-        if (res < 0) {
+        if (scm != NULL && res < 0) {
             scm_free(scm);
             free(real_msg_control);
             if (msg_name != msg_name_stack)
