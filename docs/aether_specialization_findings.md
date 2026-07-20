@@ -295,6 +295,69 @@ board's existing rows stay 4-bit (`qwen36-27b` excepted, already bf16 for
 capacity reasons); the bf16/full-epoch variants above are not (yet) adopted
 as the primary board.
 
+### Filling the 8-bit gap, re-tested on a larger corpus (2026-07-19/20)
+
+The precision experiment above never covered 8-bit — `unsloth_qwen_coder_30b_sft.py`
+only had `--load-in-4bit`/`--no-load-in-4bit`. Added a genuine `--load-in-8bit` flag
+(bitsandbytes 8-bit, mirroring the 4-bit plumbing through both
+`FastLanguageModel.from_pretrained` call sites), verified empirically before use —
+Unsloth `2026.6.6` supports `load_in_8bit=True` for both `Qwen3ForCausalLM` and the
+`qwen3_5` hybrid-attention arch, confirmed with a real LoRA forward+backward step, not
+just a load check. At the same time, re-ran the full precision comparison on the
+*current* corpus (`out_cs_aug18`, 649 instruction / 38 repair records, `aether_version
+2026-07-19-9`) instead of the old 434-record `cs-aug4`, for `qwen3-8b-nothink` and
+`qwen35-9b` — the same recipe as the original precision experiment (r=32, alpha=64,
+lr=1e-4, epochs=3, bs=1, ga=8), each now at all three precisions (4-bit/8-bit/16-bit),
+a clean 2x3 grid.
+
+| model | precision | simple (35) | large (9) | cs (19) |
+|---|---|---|---|---|
+| `qwen3-8b-nothink` | 4-bit | 29 | 4 | 11 |
+| `qwen3-8b-nothink` | 8-bit | **32** | **7** | 10 |
+| `qwen3-8b-nothink` | 16-bit | 30 | 3 | 9 |
+| `qwen35-9b` | 4-bit | 26 | 1 | 7 |
+| `qwen35-9b` | 8-bit | **32** | **6** | **9** |
+| `qwen35-9b` | 16-bit | 29 | 2 | 7 |
+
+**8-bit is the strongest precision on every suite in both families except
+`qwen3-8b-nothink`'s `cs`**, where 4-bit edges ahead by a single task (11 vs 10) —
+not a meaningful gap on a 19-item suite (standard error on a ~55% success rate is
+roughly ±11 percentage points at this n, so a 1-task swing is inside the noise band).
+**16-bit is never the strongest precision on the harder suites in either family** — it's
+the weakest or near-weakest on `large` for both (3/9 and 2/9, vs 8-bit's 7/9 and 6/9).
+This replicates, on an independent corpus (~55% larger) and a second model family, the
+overfitting pattern the original precision experiment above already found for bf16 on
+`cs-aug4`: full precision optimizes the small internal eval-loss proxy more tightly
+without that translating to held-out task generalization, while quantization noise
+during training appears to act as a mild, useful regularizer. Training-step convergence
+was notably tighter for `qwen35-9b` (all three precisions stopped within steps 94-95 of
+255) than for `qwen3-8b-nothink` (steps 65-95) — an interesting asymmetry that doesn't
+obviously explain the score pattern (both families still show the same 8-bit-strong,
+16-bit-weak shape) but is worth a closer look if this experiment is repeated again.
+
+Corpus growth (434 → 675 effective training records, ~55%) did not close the `large`/`cs`
+gap fine-tunes have shown throughout this board — `qwen3-8b-nothink-4bit`'s absolute
+early-stopping step count (~65) was actually *unchanged* from its `cs-aug4` run, while
+the other five configurations needed more steps (~90-95) to plateau. Read together with
+the original precision experiment's "corpus size, not epoch count or precision alone,
+looks like the binding constraint" conclusion, this round's data doesn't contradict that
+— but a ~55% larger corpus clearly wasn't enough on its own to eliminate the
+full-precision overfitting signature, so whatever the real fix is (much larger corpus,
+different regularization, fewer LoRA params), it isn't fully explained by corpus size
+alone either.
+
+Several infra bugs surfaced and were fixed along the way (see commit history in the
+`PBuild` repo, `tools/unsloth_qwen_coder_30b_sft.py` and
+`Tests/aether_doc_bench/bench_cs_aug18_precision*.sh`): an Unsloth 8-bit export crash
+(a monkeypatched `get_loading_attributes` lambda on the quantization config isn't
+JSON-serializable, and `unsloth_zoo`'s merge path serializes it before its own cleanup
+runs); a `peft` LoRA-dispatcher crash specific to non-quantized 16-bit loads on an
+older-`torchao` image; a claw2 host-memory leak that accumulates across vLLM container
+lifecycles (worked around with a pre-flight free-memory check + auto-reboot, not yet
+root-caused); and a benchmark-harness config bug that silently left `qwen35-9b` thinking
+enabled during eval (wrong destination-config key), which inflated its apparent
+repair-recovery rate before being caught and re-run clean.
+
 ### Methodological note: `repair-attempts` comparisons before 2026-07-17 are not controlled experiments
 
 While investigating why `repair-attempts=1` (this board's convention) and
