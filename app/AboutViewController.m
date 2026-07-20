@@ -3261,7 +3261,6 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
                                                                        target:self
                                                                        action:@selector(showWorkspace:)];
     if (self.recoveryMode) {
-        self.includeDebugPanel = YES;
         self.navigationItem.title = @"Recovery Mode";
         self.navigationItem.leftBarButtonItem = workspaceButton;
         self.navigationItem.rightBarButtonItem = [[UIBarButtonItem alloc] initWithTitle:@"Exit"
@@ -3364,10 +3363,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 }
 
 - (NSInteger)_visibleStoryboardSectionCount {
-    NSInteger sections = [super numberOfSectionsInTableView:self.tableView];
-    if (!self.includeDebugPanel)
-        sections--;
-    return sections;
+    return [super numberOfSectionsInTableView:self.tableView];
 }
 
 // Appended sections live past the storyboard's static ones, in a fixed order:

@@ -25,7 +25,6 @@ typedef NS_ENUM(NSInteger, AOKLLMBackend) {
 
 @interface AboutViewController : UITableViewController
 
-@property BOOL includeDebugPanel;
 @property BOOL recoveryMode;
 @property BOOL startInDiagnostics;
 

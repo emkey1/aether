@@ -1526,15 +1526,6 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
 
 - (IBAction)showAbout:(id)sender {
     UINavigationController *navigationController = [[UIStoryboard storyboardWithName:@"About" bundle:nil] instantiateInitialViewController];
-    if ([sender isKindOfClass:[UIGestureRecognizer class]]) {
-        UIGestureRecognizer *recognizer = sender;
-        if (recognizer.state == UIGestureRecognizerStateBegan) {
-            AboutViewController *aboutViewController = (AboutViewController *) navigationController.topViewController;
-            aboutViewController.includeDebugPanel = YES;
-        } else {
-            return;
-        }
-    }
     [self presentViewController:navigationController animated:YES completion:nil];
     [self.termView resignFirstResponder];
 }
