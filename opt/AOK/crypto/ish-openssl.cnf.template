@@ -1,0 +1,14 @@
+openssl_conf = openssl_init
+[openssl_init]
+providers = provider_sect
+alg_section = evp_properties
+[evp_properties]
+default_properties = ?provider=ish
+[provider_sect]
+ish = ish_sect
+default = default_sect
+[ish_sect]
+module = /realmnt/ish.so
+activate = 1
+[default_sect]
+activate = 1
