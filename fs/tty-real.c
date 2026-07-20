@@ -19,12 +19,33 @@ static void *real_tty_read_thread(void *_tty) {
     struct tty *tty = _tty;
     char ch;
     for (;;) {
-        int err = read(STDIN_FILENO, &ch, 1);
+        ssize_t err = read(STDIN_FILENO, &ch, 1);
         if (err != 1) {
-            printk("ERROR: tty read returned %d\n", err);
-            if (err < 0)
-                printk("ERROR:real_tty_read_thread() %s\n", strerror(errno));
-            continue;
+            if (err < 0 && errno == EINTR)
+                continue;
+            if (err < 0 && errno == EAGAIN) {
+                // stdin might have O_NONBLOCK set (inherited from the
+                // invoking shell); don't spin on it
+                usleep(10000);
+                continue;
+            }
+            // EOF, or an error that won't go away by retrying (e.g. stdin
+            // redirected from /dev/null or a directory). Hang up the tty
+            // instead of retrying in a tight printk loop.
+            if (err == 0)
+                printk("real tty: EOF on stdin, hanging up console\n");
+            else
+                printk("real tty: read failed (%s), hanging up console\n", strerror(errno));
+            lock(&tty->lock, 0);
+            tty_hangup(tty);
+            unlock(&tty->lock);
+            // Park rather than return: the thread is detached, and
+            // real_tty_cleanup's pthread_cancel (which requires the thread
+            // to still exist) reclaims it -- pause() is a cancellation
+            // point. Can't join in cleanup instead: tty_release calls it
+            // holding tty->lock, which this thread takes just above.
+            for (;;)
+                pause();
         }
         if (ch == '\x1c') {
             // ^\ (so ^C still works for emulated SIGINT)
