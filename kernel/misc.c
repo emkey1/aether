@@ -40,6 +40,7 @@
 #define KEYCTL_GET_KEYRING_ID_ 0
 #define KEYCTL_JOIN_SESSION_KEYRING_ 1
 #define KEYCTL_SETPERM_ 5
+#define KEYCTL_LINK_ 8
 #define KEYCTL_SESSION_TO_PARENT_ 18
 
 #define ARCH_SET_GS_ 0x1001
@@ -255,6 +256,13 @@ int_t sys_keyctl(dword_t cmd, dword_t arg2, dword_t arg3, dword_t arg4, dword_t 
             return 1;
         case KEYCTL_SETPERM_:
         case KEYCTL_SESSION_TO_PARENT_:
+        // Links one keyring's key into another (e.g. the user keyring into
+        // the session keyring, systemd-executor's setup_keyring() for every
+        // service with KeyringMode=shared, the default). We have no real
+        // kernel keyring backing store -- every keyring ID this stub hands
+        // out is already the same placeholder (1) -- so there's nothing to
+        // actually link; accept as a no-op, matching KEYCTL_SETPERM above.
+        case KEYCTL_LINK_:
             return 0;
         default:
             return _ENOSYS;
