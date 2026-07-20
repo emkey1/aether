@@ -129,9 +129,20 @@ int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t UNUSED
             if (!prctl_cap_valid(arg2))
                 return _EINVAL;
             return 0;
+        // Model exactly the SECBIT_KEEP_CAPS bit (1 << 4), mapping it onto
+        // the same task->keepcaps flag PR_SET_KEEPCAPS uses -- on Linux the
+        // two are literally the same bit. systemd's enforce_user() (every
+        // service with User= plus AmbientCapabilities=/SecureBits=) arms
+        // keep-caps ONLY via PR_SET_SECUREBITS before its setresuid;
+        // accepting the call while dropping the bit meant the uid change
+        // wiped the permitted set and the follow-up capset ("Failed to keep
+        // CAP_SYS_ADMIN") EPERM'd, killing systemd-resolved at step USER.
+        // Other securebits describe policy we don't model (no privilege
+        // boundary here); accept and ignore them.
         case PRCTL_GET_SECUREBITS_:
-            return 0;
+            return current->keepcaps ? (1 << 4) : 0;
         case PRCTL_SET_SECUREBITS_:
+            current->keepcaps = (arg2 & (1 << 4)) != 0;
             return 0;
         case PRCTL_SET_TIMERSLACK_:
             return 0;
@@ -181,18 +192,38 @@ int_t sys_prctl_guest(dword_t option, qword_t arg2, qword_t arg3, qword_t UNUSED
             return 0;
         case PRCTL_GET_NO_NEW_PRIVS_:
             return 0;
+        // A real ambient set (kernel/task.h cap_ambient), not a no-op:
+        // ambient bits survive the root-to-nonroot uid transition into
+        // permitted+effective (kernel/getset.c cap_emulate_setxuid), which
+        // is what lets systemd's AmbientCapabilities= services (e.g.
+        // systemd-resolved with CAP_NET_RAW/CAP_NET_BIND_SERVICE, plus the
+        // CAP_SYS_ADMIN systemd itself raises for post-setuid seccomp
+        // setup) re-assert those caps with capset after enforce_user's
+        // setuid -- capset's permitted-subset check EPERM'd otherwise
+        // ("Failed to keep CAP_SYS_ADMIN", exit 217/USER).
         case PRCTL_CAP_AMBIENT_:
             switch (arg2) {
                 case PRCTL_CAP_AMBIENT_IS_SET_:
                     if (!prctl_cap_valid((uint_t) arg3))
                         return _EINVAL;
-                    return 0;
+                    return prctl_cap_test(current->cap_ambient, (uint_t) arg3) ? 1 : 0;
                 case PRCTL_CAP_AMBIENT_RAISE_:
+                    if (!prctl_cap_valid((uint_t) arg3))
+                        return _EINVAL;
+                    // Linux requires the cap in both permitted and
+                    // inheritable to raise it into the ambient set.
+                    if (!prctl_cap_test(current->cap_permitted, (uint_t) arg3) ||
+                            !prctl_cap_test(current->cap_inheritable, (uint_t) arg3))
+                        return _EPERM;
+                    current->cap_ambient[arg3 / 32] |= 1u << (arg3 % 32);
+                    return 0;
                 case PRCTL_CAP_AMBIENT_LOWER_:
                     if (!prctl_cap_valid((uint_t) arg3))
                         return _EINVAL;
+                    current->cap_ambient[arg3 / 32] &= ~(1u << (arg3 % 32));
                     return 0;
                 case PRCTL_CAP_AMBIENT_CLEAR_ALL_:
+                    current->cap_ambient[0] = current->cap_ambient[1] = 0;
                     return 0;
                 default:
                     return _EINVAL;

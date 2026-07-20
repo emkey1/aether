@@ -95,6 +95,13 @@ struct task {
     dword_t cap_effective[2];
     dword_t cap_permitted[2];
     dword_t cap_inheritable[2];
+    // Ambient set (prctl PR_CAP_AMBIENT): capabilities that survive a
+    // root-to-nonroot uid transition into the permitted+effective sets --
+    // how systemd's AmbientCapabilities= keeps caps across enforce_user's
+    // setuid (and re-asserts them with capset afterwards, which our
+    // permitted-subset check would otherwise EPERM). Inherited across fork
+    // via the struct copy, like the other sets.
+    dword_t cap_ambient[2];
     bool keepcaps;
 #define MAX_GROUPS 32
     unsigned ngroups;

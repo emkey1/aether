@@ -60,18 +60,29 @@ static void cap_emulate_setxuid(uid_t_ old_ruid, uid_t_ old_euid, uid_t_ old_sui
 
     // Linux drops all capabilities once a root-originating task has fully
     // transitioned to non-root credentials unless PR_SET_KEEPCAPS or
-    // securebits say otherwise. We only model the keepcaps bit here.
+    // securebits say otherwise -- EXCEPT the ambient set, whose bits stay in
+    // permitted and effective across the transition (that is the entire
+    // point of ambient capabilities; systemd's AmbientCapabilities= relies
+    // on it, and then re-asserts the bits with capset which our
+    // permitted-subset check would reject if they had been cleared).
     if (old_any_root && !new_any_root) {
-        current->cap_effective[0] = current->cap_effective[1] = 0;
-        if (!current->keepcaps)
-            current->cap_permitted[0] = current->cap_permitted[1] = 0;
+        current->cap_effective[0] = current->cap_ambient[0];
+        current->cap_effective[1] = current->cap_ambient[1];
+        if (!current->keepcaps) {
+            current->cap_permitted[0] = current->cap_ambient[0];
+            current->cap_permitted[1] = current->cap_ambient[1];
+        } else {
+            current->cap_permitted[0] |= current->cap_ambient[0];
+            current->cap_permitted[1] |= current->cap_ambient[1];
+        }
         return;
     }
 
     // Dropping only the effective uid from 0 disables effective capabilities
-    // until/unless the task returns to euid 0.
+    // (minus ambient ones) until/unless the task returns to euid 0.
     if (old_euid == 0 && current->euid != 0) {
-        current->cap_effective[0] = current->cap_effective[1] = 0;
+        current->cap_effective[0] = current->cap_ambient[0];
+        current->cap_effective[1] = current->cap_ambient[1];
         return;
     }
 
@@ -346,7 +357,9 @@ int_t sys_capget_guest(guest_addr_t header_addr, guest_addr_t data_addr) {
             return _EFAULT;
         return _EINVAL;
     }
-    if (header.pid != 0 && header.pid != current->pid)
+    // Accept the tgid too: glibc/systemd pass getpid() (the tgid) here,
+    // while current->pid is the tid.
+    if (header.pid != 0 && header.pid != current->pid && header.pid != current->tgid)
         return _EPERM;
 
     struct cap_user_data_ data[2] = {};
@@ -397,7 +410,17 @@ int_t sys_capset_guest(guest_addr_t header_addr, guest_addr_t data_addr) {
     if (!superuser()) {
         if (!cap_words_subset(new_permitted, current->cap_permitted, count))
             return _EPERM;
-        if (!cap_words_subset(new_inheritable, current->cap_inheritable, count))
+        // Linux permits raising inheritable bits from the PERMITTED set too
+        // (pI' must be a subset of pI | pP, not of pI alone): systemd's
+        // keep_capability() after enforce_user's setresuid re-asserts a cap
+        // in all three of effective/permitted/inheritable, and the cap is
+        // in permitted (kept across the uid switch via SECBIT_KEEP_CAPS)
+        // but typically NOT in the pre-existing inheritable set.
+        dword_t inheritable_limit[2] = {
+            current->cap_inheritable[0] | current->cap_permitted[0],
+            current->cap_inheritable[1] | current->cap_permitted[1],
+        };
+        if (!cap_words_subset(new_inheritable, inheritable_limit, count))
             return _EPERM;
         if (!cap_words_subset(new_effective, new_permitted, count))
             return _EPERM;

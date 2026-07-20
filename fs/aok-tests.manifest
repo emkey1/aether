@@ -57,6 +57,7 @@ keyctl_link.c
 mountinfo_epollet.c
 tmpfs_nlink.c
 unix_dgram_cred.c
+ambient_caps.c
 fs_conformance.c
 process_conformance.c
 time_conformance.c
