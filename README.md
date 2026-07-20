@@ -30,7 +30,7 @@ The amd64 work in this repo is experimental.
 
 Relevant files:
 
-- [amd64_port_plan.md](amd64_port_plan.md)
+- [amd64_port_plan.md](docs/amd64_port_plan.md)
 - [emu/amd64_interp.c](emu/amd64_interp.c)
 - [kernel/exec.c](kernel/exec.c)
 - [kernel/calls.c](kernel/calls.c)
@@ -304,7 +304,7 @@ At the time of writing:
 - `main` tracks merged, stable code and is updated from `working` when a release ships.
 - `amd64` is the active branch for x86_64 guest bring-up.
 - `aarch64` is the active branch for native ARM64 guest bring-up (see
-  [aarch64_guest_plan.md](aarch64_guest_plan.md)).
+  [aarch64_guest_plan.md](docs/aarch64_guest_plan.md)).
 
 If you update cross-cutting documentation, keep all relevant branches in sync.
 
@@ -324,7 +324,7 @@ That means:
 The `aarch64` branch's native ARM64 guest work is motivated by, and in
 places adapted from, [OpenMinis/ish-arm64](https://github.com/OpenMinis/ish-arm64),
 a GPLv3 fork of `ish-app/ish` that added the same capability independently.
-See [CREDITS-aarch64.md](CREDITS-aarch64.md) for file-level attribution.
+See [CREDITS-aarch64.md](docs/CREDITS-aarch64.md) for file-level attribution.
 
 ## License
 
