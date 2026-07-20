@@ -132,6 +132,72 @@ candidates. Caveat learned in use: it ranks by *processes-touching*, not
 *executions*, so on fork-heavy workloads it surfaces `ld.so` startup code, not
 compute hot loops.
 
+### 3d. riscv64 RVC alignment fix — four "covered" functions were never attaching (`2b11bc4b`)
+
+`hle_try_emit` rejected any block start with `ip & 3` before consulting the
+table, assuming 4-aligned function entries. riscv64 with RVC places entries at
+2-byte alignment: Alpine's musl-riscv64 has `memcpy`, `strcmp`, `memchr` and
+`strnlen` at 2-mod-4 addresses, so those fingerprints were dead entries — the
+four hottest string functions had **never** run under HLE on riscv64 (a
+tar-over-/usr battery that makes ~380k HLE memcpy calls on arm64 made zero on
+riscv64). The gate is now `ip & (riscv64 ? 1 : 3)`. This one-liner, not any
+missing table entry, was riscv64's real HLE coverage gap.
+
+### 3e. Symbol-table attach — HLE now survives libc upgrades (`56cadc03`)
+
+Fingerprints only match the exact libc builds they were extracted from; one
+`apk upgrade musl` used to silently disable HLE. On a fingerprint miss, a
+block start inside a mapping whose file looks like a libc
+(`ld-musl-*` / `libc.musl-*` / `libc.so.6` / `libc-*`) is now matched against
+the ELF's **dynamic symbol table**, parsed once per file through the mapping's
+retained fd (`DT_HASH`/`DT_GNU_HASH`) and cached globally by a content hash of
+the ELF header. The cache stores file-relative offsets only; the load bias is
+recomputed from the live page tables on every lookup, so remaps can never act
+on stale addresses. glibc `STT_GNU_IFUNC` entries are skipped (their
+`st_value` is the resolver; the dlsym-captured fingerprints keep covering
+those). `ISH_HLE_SYMTAB=0` disables; `ISH_HLE_FP=0` disables the fingerprint
+table for testing — the arm64 guest regression suite passes symtab-only.
+
+### 3f. Call statistics + named near-miss ranking (`56cadc03`)
+
+`ISH_HLE_STATS=1` dumps per-function call counts and a size histogram at exit
+(through a startup `dup` of stderr — guest teardown closes host fd 2 before
+`cli_halt` runs), and in trace mode the near-miss ranking now resolves
+candidate addresses to libc symbol **names** via the symtab machinery.
+What the data settled:
+
+- A 2.4M-call tar/find/grep/fork battery shows **no missing high-count string
+  function** — the 22-function set is complete; only TLS/lock/syscall wrappers
+  (`__errno_location`, `pthread_mutex_lock`, `mmap`) recur, a different class.
+- Per-call bridge overhead is **zero vs translated code even at n=8** (and
+  5–10× ahead at 4K), killing a planned small-n fast path.
+- The whole 7-Zip benchmark makes only ~5.7k libc string calls — clearing HLE
+  of a suspected SMP regression there (interleaved A/B confirmed: variance).
+
+### 3g. Copy/fill loop idiom JIT, arm64 guest (`56cadc03`, test `7cbaedb3`)
+
+A fingerprint can only catch a libc *call*; open-coded loops (inlined memcpy
+at -O0/-O1, LZMA match copy, hand-rolled byte loops) have no entry to attach
+to. But the backward branch makes the loop head a block start, so the same
+hook recognizes 3–4-instruction self-loops — `LDR`/`STR` post-index with
+`SUBS`+`B.NE`, `SUB`+`CBNZ`, or `CMP`+`B.NE` counters, plus store-only fills —
+and turns the whole block into one bulk gadget (reusing the `hle_call` bridge,
+zero new assembly). The executor preserves the loop's exact architectural
+contract: registers advance per iteration, the data register holds the last
+loaded element, NZCV matches the last executed `SUBS`/`CMP`, work is chunked
+(1M iterations per entry, re-entering the block), zero counts wrap 2^64
+do-while style, faults land on the precise iteration boundary (or
+mid-iteration with pc on the store for a copy store-fault), and
+forward-overlapping copies (LZ77 match with distance < length) reproduce
+byte-forward propagation via periodic tiling — never memmove. 15 such loops
+attach in a single 7z run (isolating them measures +3–13% on decompression);
+musl's startup fill loop attaches in every process. Guarded by
+`ISH_HLE_LOOPS=0`; exercised deterministically by the inline-asm guest test
+`tests/manual/arm64/hle_loop.c` (all shapes, overlap distances 1/3/7/255,
+chunking, PROT_NONE fault semantics), which passes identically with HLE off.
+The riscv64 recognizer is deferred: RVC's 2-byte encodings make the pattern
+space combinatorial, and riscv64's bigger win was 3d.
+
 ---
 
 ## 4. Crypto accelerator — host-native ChaCha20-Poly1305 (arm64 / riscv64)
@@ -224,5 +290,7 @@ and a README).
 | ANDS+B.cond fusion | arm64 | fewer dispatches on branch-dense code | on |
 | amd64 SSE gadgets | amd64 | 128× fewer interpreter bridges | on |
 | HLE libc (22 fns) | arm64/riscv64 | sort +22%, memcpy micro up to 7× | off |
+| HLE symtab attach + riscv64 RVC fix | arm64/riscv64 | survives libc upgrades; riscv64 memcpy/strcmp/memchr/strnlen finally live | off (with HLE) |
+| HLE copy-loop idiom JIT | arm64 | bulk gadget for open-coded copy/fill loops; 7z decode +3–13% | off (with HLE) |
 | Crypto accelerator (AEAD) | arm64/riscv64 | riscv64 33.6×, arm64 6.8× | off |
 | ChaCha20 via OpenSSL provider | arm64/riscv64 | ssh cipher ~15× transparently (riscv64) | off |
