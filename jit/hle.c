@@ -111,9 +111,11 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
     }
     if (!doEnableHLE)
         return false;
-    // Function entries are at least 4-aligned on both guest arches; skip the
-    // table scan for addresses that cannot be one.
-    if (ip & 3)
+    // Skip addresses that cannot be a function entry: arm64 instructions are
+    // 4-aligned, but riscv64 with RVC has 2-aligned entries -- musl-riscv64
+    // really does place memcpy/strcmp/memchr/strnlen at 2-mod-4 addresses,
+    // and an `ip & 3` test here silently excluded them from HLE entirely.
+    if (ip & (riscv64 ? 1 : 3))
         return false;
     uint8_t code[HLE_PROLOGUE_LEN];
     if (!tlb_read(tlb, ip, code, sizeof(code)))
