@@ -1,4 +1,5 @@
 #include <string.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <inttypes.h>
 #ifdef __APPLE__
@@ -300,6 +301,47 @@ static int proc_pid_stat_show(struct proc_entry *entry, struct proc_data *buf) {
     proc_printf(buf, "%d", 0); // exit_code
     proc_printf(buf, "\n");
 
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_pid_oom_score_adj_show(struct proc_entry *entry, struct proc_data *buf) {
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    proc_printf(buf, "%d\n", task->oom_score_adj);
+    proc_put_task(task);
+    return 0;
+}
+
+static int proc_pid_oom_score_adj_update(struct proc_entry *entry, struct proc_data *data) {
+    size_t start = 0;
+    size_t end = data->size;
+    while (start < end && (data->data[start] == ' ' || data->data[start] == '\t' ||
+            data->data[start] == '\r' || data->data[start] == '\n'))
+        start++;
+    while (end > start && (data->data[end - 1] == ' ' || data->data[end - 1] == '\t' ||
+            data->data[end - 1] == '\r' || data->data[end - 1] == '\n'))
+        end--;
+    if (start == end)
+        return _EINVAL;
+
+    char buf[16];
+    size_t len = end - start;
+    if (len >= sizeof(buf))
+        return _EINVAL;
+    memcpy(buf, data->data + start, len);
+    buf[len] = '\0';
+
+    char *endptr;
+    long value = strtol(buf, &endptr, 10);
+    if (*endptr != '\0' || value < -1000 || value > 1000)
+        return _EINVAL;
+
+    struct task *task = proc_get_task(entry);
+    if (task == NULL)
+        return _ESRCH;
+    task->oom_score_adj = (int) value;
     proc_put_task(task);
     return 0;
 }
@@ -1243,6 +1285,7 @@ struct proc_children proc_pid_children = PROC_CHILDREN({
     {"mountinfo", .show = proc_show_mountinfo},
     {"mounts", .show = proc_show_mounts},
     {"ns", S_IFDIR, .readdir = proc_pid_ns_readdir},
+    {"oom_score_adj", .show = proc_pid_oom_score_adj_show, .update = proc_pid_oom_score_adj_update},
     {"root", S_IFLNK, .readlink = proc_pid_root_readlink},
     {"sched", .show = proc_pid_sched_show},
     {"smaps", .show = proc_pid_smaps_show},

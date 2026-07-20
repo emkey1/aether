@@ -210,8 +210,10 @@ static ssize_t proc_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t
     }
     
     struct proc_data data = {(char *)buf, bufsize, bufsize};
-    fd->proc.entry.meta->update(&fd->proc.entry, &data);
-    
+    int err = fd->proc.entry.meta->update(&fd->proc.entry, &data);
+    if (err < 0)
+        return err;
+
     return bufsize;
 }
 

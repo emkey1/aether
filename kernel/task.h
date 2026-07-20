@@ -163,6 +163,13 @@ struct task {
     guest_addr_t clear_tid;
     guest_addr_t robust_list;
     dword_t pdeath_signal;
+    // /proc/<pid>/oom_score_adj (Linux range -1000..1000, default 0).
+    // Inherited across fork via task_create_'s struct copy, matching Linux.
+    // We don't model a real OOM killer, so this is stored purely so
+    // ExecStart's mandatory oom_score_adj write/verify (systemd-executor
+    // calls exit(EXIT_OOM_ADJUST) if this file is missing or rejects a
+    // valid value) succeeds.
+    int oom_score_adj;
 
     // locked by pids_lock
     dword_t exit_code;
