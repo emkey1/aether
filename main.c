@@ -5,9 +5,12 @@
 #include <string.h>
 #include <unistd.h>
 
+#include "fs/dev.h"
+#include "fs/devices.h"
 #include "fs/fd.h"
 #include "fs/path.h"
 #include "fs/real.h"
+#include "fs/stat.h"
 #include "jit/jit.h"
 #include "kernel/calls.h"
 #include "kernel/fs.h"
@@ -126,6 +129,10 @@ static noreturn void cli_halt(int status) {
         extern void quiesce_stats_dump(const char *tag);
         quiesce_stats_dump("exit");
     }
+    {
+        extern void hle_stats_dump(void); // no-op unless ISH_HLE_STATS counted calls
+        hle_stats_dump();
+    }
     fflush(NULL);
     if ((status & 0x7f) == 0)          // WIFEXITED
         _exit((status >> 8) & 0xff);
@@ -137,8 +144,34 @@ static void ignore_eexist(int err) {
         fprintf(stderr, "warning: setup step failed: %s\n", strerror(-err));
 }
 
+// iSH has no devtmpfs (fs/mount.c accepts the guest's mount as a no-op and
+// relies on the rootfs image already having these baked in). Many
+// Docker-exported rootfs tarballs (Arch's included) can't ship real device
+// nodes and instead pack a plain regular-file stand-in at /dev/null (or omit
+// the rest of the standard set entirely) -- opening or writing that "device"
+// then just accumulates real bytes on the fakefs backing store forever
+// instead of discarding them. Repair the standard set here at every boot so
+// it doesn't matter what the source tarball shipped.
+static void ensure_dev_node(const char *path, int major, int minor) {
+    dev_t_ dev = dev_make(major, minor);
+    struct statbuf stat;
+    int err = generic_statat(AT_PWD, path, &stat, false);
+    if (err == 0 && S_ISCHR(stat.mode) && stat.rdev == dev)
+        return;
+    if (err == 0)
+        generic_unlinkat(AT_PWD, path);
+    ignore_eexist(generic_mknodat(AT_PWD, path, S_IFCHR | 0666, dev));
+}
+
 static void setup_host_mounts(void) {
     ignore_eexist(generic_mkdirat(AT_PWD, "/dev", 0755));
+    ensure_dev_node("/dev/null", MEM_MAJOR, DEV_NULL_MINOR);
+    ensure_dev_node("/dev/zero", MEM_MAJOR, DEV_ZERO_MINOR);
+    ensure_dev_node("/dev/full", MEM_MAJOR, DEV_FULL_MINOR);
+    ensure_dev_node("/dev/random", MEM_MAJOR, DEV_RANDOM_MINOR);
+    ensure_dev_node("/dev/urandom", MEM_MAJOR, DEV_URANDOM_MINOR);
+    ensure_dev_node("/dev/tty", TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR);
+    ensure_dev_node("/dev/ptmx", TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR);
     ignore_eexist(generic_mkdirat(AT_PWD, "/dev/pts", 0755));
     // Not every bundled root's base tarball ships /dev/shm, and iSH has no
     // boot-time tmpfs auto-mount for it; create it unconditionally so POSIX
@@ -237,6 +270,14 @@ int main(int argc, char *const argv[]) {
             doEnableCryptoAccel = true;
     }
     halt_hook = cli_halt;
+    // hle_stats_dump runs from cli_halt, after guest teardown has closed the
+    // (possibly shared) host stderr fd -- give it a private dup now.
+    if (getenv("ISH_HLE_STATS") != NULL) {
+        extern int hle_stats_fd;
+        int fd = dup(STDERR_FILENO);
+        if (fd >= 0)
+            hle_stats_fd = fd;
+    }
 
     char *envp = build_envp_from_term();
     if (envp == NULL) {
