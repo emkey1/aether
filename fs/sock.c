@@ -118,11 +118,17 @@ struct audit_features_ {
 #define IFNAMSIZ_ 16
 
 #define RTM_NEWLINK_ 16
+#define RTM_DELLINK_ 17
 #define RTM_GETLINK_ 18
 #define RTM_NEWADDR_ 20
+#define RTM_DELADDR_ 21
 #define RTM_GETADDR_ 22
 #define RTM_NEWROUTE_ 24
 #define RTM_GETROUTE_ 26
+
+#define RTNLGRP_LINK_ 1
+#define RTNLGRP_IPV4_IFADDR_ 5
+#define RTNLGRP_IPV6_IFADDR_ 9
 
 #define IFLA_ADDRESS_ 1
 #define IFLA_BROADCAST_ 2
@@ -314,6 +320,8 @@ static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
 static int netlink_append_error(struct fd *sock, uint32_t seq,
         const struct nlmsghdr_ *req, int err_code);
 static int netlink_append_done(struct fd *sock, uint32_t seq);
+static void netlink_notify_register(struct fd *sock);
+static void netlink_notify_unregister(struct fd *sock);
 
 struct inet_diag_sockid_ {
     uint16_t idiag_sport;
@@ -604,10 +612,16 @@ static uint8_t netlink_prefixlen_from_sockaddr(const struct sockaddr *sa) {
     return prefix;
 }
 
-static int netlink_append_route_link(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+// Fills payload/payload_len with one RTM_NEWLINK-shaped ifinfomsg_+attrs
+// record for ifname. Shared by the dump path (netlink_append_route_link,
+// tagged with the requesting socket's seq and NLM_F_MULTI) and the
+// multicast-notification path (netlink_notify_route_link, untagged and
+// unflagged like a real spontaneous kernel notification) -- see
+// netlink_notify_link_change.
+static int netlink_build_link_payload(char *payload, size_t cap, size_t *payload_len_out,
         const char *ifname, unsigned ifflags, const struct netlink_link_info *info) {
-    char payload[256] = {};
     size_t payload_len = sizeof(struct ifinfomsg_);
+    memset(payload, 0, cap);
     struct ifinfomsg_ *msg = (struct ifinfomsg_ *) payload;
     msg->ifi_family = AF_UNSPEC;
     msg->ifi_type = (strcmp(ifname, "lo0") == 0 || strcmp(ifname, "lo") == 0)
@@ -617,32 +631,44 @@ static int netlink_append_route_link(struct fd *sock, const struct nlmsghdr_ *re
     msg->ifi_flags = netlink_linux_if_flags(ifflags);
     msg->ifi_change = 0xffffffffu;
 
-    int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+    int err = netlink_append_attr_raw(payload, cap, &payload_len,
             IFLA_IFNAME_, ifname, strlen(ifname) + 1);
     if (err < 0)
         return err;
-    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+    err = netlink_append_attr_raw(payload, cap, &payload_len,
             IFLA_MTU_, &info->mtu, sizeof(info->mtu));
     if (err < 0)
         return err;
     if (info->address_len != 0) {
-        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+        err = netlink_append_attr_raw(payload, cap, &payload_len,
                 IFLA_ADDRESS_, info->address, info->address_len);
         if (err < 0)
             return err;
     }
     if (info->broadcast_len != 0) {
-        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+        err = netlink_append_attr_raw(payload, cap, &payload_len,
                 IFLA_BROADCAST_, info->broadcast, info->broadcast_len);
         if (err < 0)
             return err;
     }
-    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+    err = netlink_append_attr_raw(payload, cap, &payload_len,
             IFLA_TXQLEN_, &info->txqlen, sizeof(info->txqlen));
     if (err < 0)
         return err;
-    err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+    err = netlink_append_attr_raw(payload, cap, &payload_len,
             IFLA_OPERSTATE_, &info->operstate, sizeof(info->operstate));
+    if (err < 0)
+        return err;
+    *payload_len_out = payload_len;
+    return 0;
+}
+
+static int netlink_append_route_link(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const char *ifname, unsigned ifflags, const struct netlink_link_info *info) {
+    char payload[256];
+    size_t payload_len;
+    int err = netlink_build_link_payload(payload, sizeof(payload), &payload_len,
+            ifname, ifflags, info);
     if (err < 0)
         return err;
     return netlink_append_nlmsg(sock, RTM_NEWLINK_, NLM_F_MULTI_,
@@ -683,10 +709,17 @@ static int netlink_append_route_links(struct fd *sock, const struct nlmsghdr_ *r
     return err;
 }
 
-static int netlink_append_route_addr(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+// Fills payload/payload_len with one RTM_NEWADDR-shaped ifaddrmsg_+attrs
+// record for ifa. *payload_len_out == 0 on return with err == 0 means
+// "nothing to send" (an address family this emulation doesn't represent),
+// not an error -- mirrors netlink_append_route_addr's pre-existing
+// "return 0" no-op for that case. Shared by the dump path
+// (netlink_append_route_addr) and the notification path
+// (netlink_notify_route_addr) -- see netlink_build_link_payload's comment.
+static int netlink_build_addr_payload(char *payload, size_t cap, size_t *payload_len_out,
         const struct ifaddrs *ifa) {
-    char payload[256] = {};
     size_t payload_len = sizeof(struct ifaddrmsg_);
+    memset(payload, 0, cap);
     struct ifaddrmsg_ *msg = (struct ifaddrmsg_ *) payload;
     msg->ifa_family = netlink_guest_family_from_host(ifa->ifa_addr->sa_family);
     msg->ifa_prefixlen = netlink_prefixlen_from_sockaddr(ifa->ifa_netmask);
@@ -696,45 +729,59 @@ static int netlink_append_route_addr(struct fd *sock, const struct nlmsghdr_ *re
 
     if (ifa->ifa_addr->sa_family == AF_INET) {
         const struct in_addr *addr = &((const struct sockaddr_in *) ifa->ifa_addr)->sin_addr;
-        int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+        int err = netlink_append_attr_raw(payload, cap, &payload_len,
                 IFA_LOCAL_, addr, sizeof(*addr));
         if (err < 0)
             return err;
-        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+        err = netlink_append_attr_raw(payload, cap, &payload_len,
                 IFA_ADDRESS_, addr, sizeof(*addr));
         if (err < 0)
             return err;
         if (ifa->ifa_dstaddr != NULL && (ifa->ifa_flags & IFF_POINTOPOINT)) {
             const struct in_addr *dst = &((const struct sockaddr_in *) ifa->ifa_dstaddr)->sin_addr;
-            err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            err = netlink_append_attr_raw(payload, cap, &payload_len,
                     IFA_BROADCAST_, dst, sizeof(*dst));
             if (err < 0)
                 return err;
         } else if (ifa->ifa_broadaddr != NULL && (ifa->ifa_flags & IFF_BROADCAST)) {
             const struct in_addr *bcast = &((const struct sockaddr_in *) ifa->ifa_broadaddr)->sin_addr;
-            err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+            err = netlink_append_attr_raw(payload, cap, &payload_len,
                     IFA_BROADCAST_, bcast, sizeof(*bcast));
             if (err < 0)
                 return err;
         }
     } else if (ifa->ifa_addr->sa_family == AF_INET6) {
         const struct in6_addr *addr6 = &((const struct sockaddr_in6 *) ifa->ifa_addr)->sin6_addr;
-        int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+        int err = netlink_append_attr_raw(payload, cap, &payload_len,
                 IFA_LOCAL_, addr6, sizeof(*addr6));
         if (err < 0)
             return err;
-        err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+        err = netlink_append_attr_raw(payload, cap, &payload_len,
                 IFA_ADDRESS_, addr6, sizeof(*addr6));
         if (err < 0)
             return err;
     } else {
+        *payload_len_out = 0;
         return 0;
     }
 
-    int err = netlink_append_attr_raw(payload, sizeof(payload), &payload_len,
+    int err = netlink_append_attr_raw(payload, cap, &payload_len,
             IFA_LABEL_, ifa->ifa_name, strlen(ifa->ifa_name) + 1);
     if (err < 0)
         return err;
+    *payload_len_out = payload_len;
+    return 0;
+}
+
+static int netlink_append_route_addr(struct fd *sock, const struct nlmsghdr_ *req_hdr,
+        const struct ifaddrs *ifa) {
+    char payload[256];
+    size_t payload_len = 0;
+    int err = netlink_build_addr_payload(payload, sizeof(payload), &payload_len, ifa);
+    if (err < 0)
+        return err;
+    if (payload_len == 0)
+        return 0;
     return netlink_append_nlmsg(sock, RTM_NEWADDR_, NLM_F_MULTI_,
             req_hdr->nlmsg_seq, payload, payload_len);
 }
@@ -763,6 +810,349 @@ static int netlink_append_route_addrs(struct fd *sock, const struct nlmsghdr_ *r
     if (err >= 0)
         err = netlink_append_done(sock, req_hdr->nlmsg_seq);
     return err;
+}
+
+// ---------------------------------------------------------------------
+// Multicast link/address-change notifications for RTNLGRP_LINK/
+// RTNLGRP_IPV4_IFADDR/RTNLGRP_IPV6_IFADDR subscribers.
+//
+// iSH has no real kernel to generate these spontaneously, so a dedicated
+// background thread (netlink_link_watch_thread, started once from main.c)
+// polls getifaddrs() periodically, diffs against the previous snapshot,
+// and for each interface/address that appeared or disappeared, appends an
+// RTM_NEWLINK/RTM_DELLINK/RTM_NEWADDR/RTM_DELADDR message (seq=0, no
+// NLM_F_MULTI -- exactly what a real spontaneous kernel notification looks
+// like, as opposed to a dump reply) to every currently-open netlink socket
+// whose subscribed groups match, then wakes any poller blocked on it.
+//
+// This exists specifically because subscribing to these groups and then
+// waiting for a notification that never arrives is what makes sd-netlink
+// managers (systemd-resolved, systemd's own PID 1 netlink setup) hang
+// forever once NETLINK_PKTINFO/SO_BINDTOIFINDEX are accepted -- see the
+// comments on those two option handlers in sys_setsockopt_guest_abi.
+// ---------------------------------------------------------------------
+
+static int netlink_notify_route_link(struct fd *sock, const char *ifname, unsigned ifflags,
+        const struct netlink_link_info *info, bool is_new) {
+    char payload[256];
+    size_t payload_len;
+    int err = netlink_build_link_payload(payload, sizeof(payload), &payload_len,
+            ifname, ifflags, info);
+    if (err < 0)
+        return err;
+    return netlink_append_nlmsg(sock, is_new ? RTM_NEWLINK_ : RTM_DELLINK_, 0, 0, payload, payload_len);
+}
+
+static int netlink_notify_route_addr(struct fd *sock, const struct ifaddrs *ifa, bool is_new) {
+    char payload[256];
+    size_t payload_len = 0;
+    int err = netlink_build_addr_payload(payload, sizeof(payload), &payload_len, ifa);
+    if (err < 0)
+        return err;
+    if (payload_len == 0)
+        return 0;
+    return netlink_append_nlmsg(sock, is_new ? RTM_NEWADDR_ : RTM_DELADDR_, 0, 0, payload, payload_len);
+}
+
+// Process-wide registry of every currently-open AF_NETLINK socket, so the
+// watcher thread has something to fan notifications out to. Membership is
+// unconditional (every netlink socket is registered at creation and
+// unregistered at close, regardless of its current subscribed groups) --
+// the group-match filter is applied per-notification at delivery time
+// instead, which keeps registration/deregistration free of any need to
+// track group-membership transitions in setsockopt/bind.
+static lock_t netlink_notify_registry_lock = LOCK_INITIALIZER;
+static struct list netlink_notify_registry = LIST_INITIALIZER(netlink_notify_registry);
+
+static void netlink_notify_register(struct fd *sock) {
+    lock(&netlink_notify_registry_lock, 0);
+    if (!sock->socket.netlink_notify_registered) {
+        list_add(&netlink_notify_registry, &sock->socket.netlink_notify_link);
+        sock->socket.netlink_notify_registered = true;
+    }
+    unlock(&netlink_notify_registry_lock);
+}
+
+static void netlink_notify_unregister(struct fd *sock) {
+    lock(&netlink_notify_registry_lock, 0);
+    if (sock->socket.netlink_notify_registered) {
+        list_remove(&sock->socket.netlink_notify_link);
+        sock->socket.netlink_notify_registered = false;
+    }
+    unlock(&netlink_notify_registry_lock);
+}
+
+// Delivers one notification (built via the callback) to every registered
+// netlink socket whose netlink_groups has `group`'s bit set. Takes a
+// temporary fd_retain_if_live() reference per candidate so a concurrent
+// sock_close() can't free the fd out from under this thread; releases it
+// (via fd_close, ordinary refcounted release, not a real close since this
+// is not the last reference while the guest still holds its own) before
+// moving to the next one. poll_wakeup() is called with no lock of ours
+// held -- netlink_append_nlmsg takes and releases netlink_reply_lock
+// internally, so by the time we call poll_wakeup() here we hold nothing
+// that fd's own sock_poll could need, avoiding the lock-order hazard
+// documented on poll_wakeup itself (see fs/poll.c).
+#define NETLINK_NOTIFY_MAX_CANDIDATES 64
+
+// Snapshots every registered fd subscribed to `group` into `candidates`,
+// each held with a temporary fd_retain_if_live() reference (so a
+// concurrent sock_close() can't free it out from under the caller), and
+// returns how many. The registry lock's critical section stays short --
+// callers deliver outside it and release each reference with fd_close()
+// when done. Silently drops candidates past NETLINK_NOTIFY_MAX_CANDIDATES
+// (no real deployment should ever have anywhere near that many concurrent
+// netlink subscribers; dropping the excess is far better than an unbounded
+// stack array or blocking allocation from this thread).
+static size_t netlink_notify_snapshot_candidates(uint32_t group,
+        struct fd *candidates[NETLINK_NOTIFY_MAX_CANDIDATES]) {
+    uint32_t bit = 1u << (group - 1);
+    size_t candidate_count = 0;
+    lock(&netlink_notify_registry_lock, 0);
+    struct fd *sock;
+    list_for_each_entry(&netlink_notify_registry, sock, socket.netlink_notify_link) {
+        if (!(sock->socket.netlink_groups & bit))
+            continue;
+        struct fd *retained = fd_retain_if_live(sock);
+        if (retained == NULL)
+            continue;
+        if (candidate_count < NETLINK_NOTIFY_MAX_CANDIDATES)
+            candidates[candidate_count++] = retained;
+        else
+            fd_close(retained);
+    }
+    unlock(&netlink_notify_registry_lock);
+    return candidate_count;
+}
+
+// poll_wakeup() is called with no lock of ours held -- netlink_append_nlmsg
+// (called from the two *_route_link/_route_addr builders below) takes and
+// releases netlink_reply_lock internally, so by the time poll_wakeup() runs
+// here this thread holds nothing that fd's own sock_poll could need,
+// avoiding the lock-order hazard documented on poll_wakeup itself (fs/poll.c).
+static void netlink_notify_deliver_link(uint32_t group, const char *ifname, unsigned ifflags,
+        const struct netlink_link_info *info, bool is_new) {
+    struct fd *candidates[NETLINK_NOTIFY_MAX_CANDIDATES];
+    size_t count = netlink_notify_snapshot_candidates(group, candidates);
+    for (size_t i = 0; i < count; i++) {
+        netlink_notify_route_link(candidates[i], ifname, ifflags, info, is_new);
+        poll_wakeup(candidates[i], POLL_READ);
+        fd_close(candidates[i]);
+    }
+}
+
+static void netlink_notify_deliver_addr(uint32_t group, const struct ifaddrs *ifa, bool is_new) {
+    struct fd *candidates[NETLINK_NOTIFY_MAX_CANDIDATES];
+    size_t count = netlink_notify_snapshot_candidates(group, candidates);
+    for (size_t i = 0; i < count; i++) {
+        netlink_notify_route_addr(candidates[i], ifa, is_new);
+        poll_wakeup(candidates[i], POLL_READ);
+        fd_close(candidates[i]);
+    }
+}
+
+// ---------------------------------------------------------------------
+// Host network-state polling: periodically snapshots getifaddrs(), diffs
+// against the previous snapshot, and delivers a notification for each
+// interface/address that appeared or disappeared. Bounded arrays (no
+// dynamic allocation per interface/address) sized generously past any
+// real iSH deployment's interface count; entries past the bound are
+// silently dropped from watching, same tradeoff as
+// NETLINK_NOTIFY_MAX_CANDIDATES above.
+// ---------------------------------------------------------------------
+
+#define NETLINK_WATCH_MAX_LINKS 32
+#define NETLINK_WATCH_MAX_ADDRS 64
+
+struct netlink_watch_link {
+    char name[IFNAMSIZ_];
+    unsigned flags;
+    struct netlink_link_info info;
+};
+
+struct netlink_watch_addr {
+    char ifname[IFNAMSIZ_];
+    unsigned ifflags;
+    struct sockaddr_storage addr;
+    struct sockaddr_storage netmask;
+    struct sockaddr_storage dstaddr;
+    struct sockaddr_storage broadaddr;
+    bool has_dstaddr;
+    bool has_broadaddr;
+};
+
+struct netlink_watch_snapshot {
+    struct netlink_watch_link links[NETLINK_WATCH_MAX_LINKS];
+    size_t link_count;
+    struct netlink_watch_addr addrs[NETLINK_WATCH_MAX_ADDRS];
+    size_t addr_count;
+};
+
+static void netlink_watch_capture(struct netlink_watch_snapshot *snap) {
+    memset(snap, 0, sizeof(*snap));
+    struct ifaddrs *addrs = NULL;
+    if (getifaddrs(&addrs) != 0)
+        return;
+    for (const struct ifaddrs *cursor = addrs; cursor != NULL; cursor = cursor->ifa_next) {
+        if (cursor->ifa_name == NULL)
+            continue;
+        bool seen_link = false;
+        for (size_t i = 0; i < snap->link_count; i++) {
+            if (strcmp(snap->links[i].name, cursor->ifa_name) == 0) {
+                seen_link = true;
+                break;
+            }
+        }
+        if (!seen_link && snap->link_count < NETLINK_WATCH_MAX_LINKS) {
+            struct netlink_watch_link *link = &snap->links[snap->link_count++];
+            strncpy(link->name, cursor->ifa_name, sizeof(link->name) - 1);
+            link->flags = cursor->ifa_flags;
+            netlink_fill_link_info(addrs, cursor, &link->info);
+        }
+
+        if (cursor->ifa_addr == NULL ||
+                (cursor->ifa_addr->sa_family != AF_INET && cursor->ifa_addr->sa_family != AF_INET6) ||
+                snap->addr_count >= NETLINK_WATCH_MAX_ADDRS)
+            continue;
+        struct netlink_watch_addr *a = &snap->addrs[snap->addr_count++];
+        strncpy(a->ifname, cursor->ifa_name, sizeof(a->ifname) - 1);
+        a->ifflags = cursor->ifa_flags;
+        size_t slen = cursor->ifa_addr->sa_family == AF_INET
+            ? sizeof(struct sockaddr_in) : sizeof(struct sockaddr_in6);
+        memcpy(&a->addr, cursor->ifa_addr, slen);
+        if (cursor->ifa_netmask != NULL)
+            memcpy(&a->netmask, cursor->ifa_netmask, slen);
+        if ((cursor->ifa_flags & IFF_POINTOPOINT) && cursor->ifa_dstaddr != NULL) {
+            memcpy(&a->dstaddr, cursor->ifa_dstaddr, slen);
+            a->has_dstaddr = true;
+        } else if ((cursor->ifa_flags & IFF_BROADCAST) && cursor->ifa_broadaddr != NULL) {
+            memcpy(&a->broadaddr, cursor->ifa_broadaddr, slen);
+            a->has_broadaddr = true;
+        }
+    }
+    freeifaddrs(addrs);
+}
+
+static bool netlink_watch_link_eq(const struct netlink_watch_link *a, const struct netlink_watch_link *b) {
+    return strcmp(a->name, b->name) == 0 && a->flags == b->flags &&
+        memcmp(&a->info, &b->info, sizeof(a->info)) == 0;
+}
+
+static bool netlink_watch_addr_eq(const struct netlink_watch_addr *a, const struct netlink_watch_addr *b) {
+    return strcmp(a->ifname, b->ifname) == 0 && memcmp(&a->addr, &b->addr, sizeof(a->addr)) == 0;
+}
+
+// Reconstructs a self-contained struct ifaddrs from a captured snapshot
+// entry, so the same netlink_notify_route_addr/netlink_build_addr_payload
+// path used for dumps also serves DEL notifications, whose real interface
+// state (needed to build the payload) is already gone from the host by the
+// time we notice it's missing.
+static void netlink_watch_addr_to_ifaddrs(const struct netlink_watch_addr *a, struct ifaddrs *out) {
+    memset(out, 0, sizeof(*out));
+    out->ifa_name = (char *) a->ifname;
+    out->ifa_flags = a->ifflags;
+    out->ifa_addr = (struct sockaddr *) &a->addr;
+    out->ifa_netmask = (struct sockaddr *) &a->netmask;
+    if (a->has_dstaddr)
+        out->ifa_dstaddr = (struct sockaddr *) &a->dstaddr;
+    if (a->has_broadaddr)
+        out->ifa_broadaddr = (struct sockaddr *) &a->broadaddr;
+}
+
+static void netlink_watch_diff_and_notify(const struct netlink_watch_snapshot *old,
+        const struct netlink_watch_snapshot *cur) {
+    for (size_t i = 0; i < old->link_count; i++) {
+        bool still_present = false;
+        for (size_t j = 0; j < cur->link_count; j++) {
+            if (netlink_watch_link_eq(&old->links[i], &cur->links[j])) {
+                still_present = true;
+                break;
+            }
+        }
+        if (!still_present)
+            netlink_notify_deliver_link(RTNLGRP_LINK_, old->links[i].name,
+                    old->links[i].flags, &old->links[i].info, false);
+    }
+    for (size_t j = 0; j < cur->link_count; j++) {
+        bool existed_before = false;
+        for (size_t i = 0; i < old->link_count; i++) {
+            if (netlink_watch_link_eq(&old->links[i], &cur->links[j])) {
+                existed_before = true;
+                break;
+            }
+        }
+        if (!existed_before)
+            netlink_notify_deliver_link(RTNLGRP_LINK_, cur->links[j].name,
+                    cur->links[j].flags, &cur->links[j].info, true);
+    }
+
+    for (size_t i = 0; i < old->addr_count; i++) {
+        bool still_present = false;
+        for (size_t j = 0; j < cur->addr_count; j++) {
+            if (netlink_watch_addr_eq(&old->addrs[i], &cur->addrs[j])) {
+                still_present = true;
+                break;
+            }
+        }
+        if (!still_present) {
+            struct ifaddrs fake;
+            netlink_watch_addr_to_ifaddrs(&old->addrs[i], &fake);
+            uint32_t group = old->addrs[i].addr.ss_family == AF_INET6
+                ? RTNLGRP_IPV6_IFADDR_ : RTNLGRP_IPV4_IFADDR_;
+            netlink_notify_deliver_addr(group, &fake, false);
+        }
+    }
+    for (size_t j = 0; j < cur->addr_count; j++) {
+        bool existed_before = false;
+        for (size_t i = 0; i < old->addr_count; i++) {
+            if (netlink_watch_addr_eq(&old->addrs[i], &cur->addrs[j])) {
+                existed_before = true;
+                break;
+            }
+        }
+        if (!existed_before) {
+            struct ifaddrs fake;
+            netlink_watch_addr_to_ifaddrs(&cur->addrs[j], &fake);
+            uint32_t group = cur->addrs[j].addr.ss_family == AF_INET6
+                ? RTNLGRP_IPV6_IFADDR_ : RTNLGRP_IPV4_IFADDR_;
+            netlink_notify_deliver_addr(group, &fake, true);
+        }
+    }
+}
+
+// One dedicated thread for the whole process (started once from
+// xX_main_Xx, see fs/sock.h). Heap-allocated snapshots: each is tens of KB
+// (32 links + 64 addrs, mostly sockaddr_storage), too large to keep on a
+// thread stack twice over comfortably. Sleeps in a single bounded interval
+// (not the multi-chunk pattern util/timer.c uses for arbitrary/huge
+// durations) since this interval is a small fixed constant, not
+// guest-controlled.
+static void *netlink_link_watch_thread(void *unused) {
+    (void) unused;
+    struct netlink_watch_snapshot *prev = malloc(sizeof(*prev));
+    struct netlink_watch_snapshot *cur = malloc(sizeof(*cur));
+    if (prev == NULL || cur == NULL) {
+        free(prev);
+        free(cur);
+        return NULL;
+    }
+    netlink_watch_capture(prev);
+    while (true) {
+        struct timespec interval = {.tv_sec = 5, .tv_nsec = 0};
+        nanosleep(&interval, NULL);
+        netlink_watch_capture(cur);
+        netlink_watch_diff_and_notify(prev, cur);
+        struct netlink_watch_snapshot *tmp = prev;
+        prev = cur;
+        cur = tmp;
+    }
+    return NULL;
+}
+
+void netlink_link_watch_start(void) {
+    pthread_t thread;
+    if (pthread_create(&thread, NULL, netlink_link_watch_thread, NULL) == 0)
+        pthread_detach(thread);
 }
 
 static int netlink_append_route_route(struct fd *sock, const struct nlmsghdr_ *req_hdr,
@@ -1801,6 +2191,7 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
         sock_init_emulation_defaults(fd);
         fd->socket.netlink_port_id = netlink_next_port_id();
         fd->fake_inode = fd->socket.netlink_port_id;
+        netlink_notify_register(fd);
         return f_install(fd, type & ~SOCKET_TYPE_MASK);
     }
     int real_domain = sock_family_to_real(domain);
@@ -1871,14 +2262,28 @@ static uint32_t netlink_next_port_id(void) {
     return port_id;
 }
 
-static void netlink_reply_reset(struct fd *sock) {
+// netlink_reply* is read/written by the owning guest thread's own sendmsg/
+// recvmsg/poll calls, and (once a socket is subscribed to a multicast group)
+// also by the background link-change notifier thread appending spontaneous
+// messages -- see netlink_notify_link_change. sock->socket.netlink_reply_lock
+// guards all of it; the _locked variants below assume the caller already
+// holds it, the public ones take/release it themselves. Never call a public
+// variant while already holding the lock (plain non-recursive mutex).
+
+static void netlink_reply_reset_locked(struct fd *sock) {
     free(sock->socket.netlink_reply);
     sock->socket.netlink_reply = NULL;
     sock->socket.netlink_reply_len = 0;
     sock->socket.netlink_reply_off = 0;
 }
 
-static int netlink_reply_append(struct fd *sock, const void *data, size_t len) {
+static void netlink_reply_reset(struct fd *sock) {
+    lock(&sock->socket.netlink_reply_lock, 0);
+    netlink_reply_reset_locked(sock);
+    unlock(&sock->socket.netlink_reply_lock);
+}
+
+static int netlink_reply_append_locked(struct fd *sock, const void *data, size_t len) {
     size_t old_len = sock->socket.netlink_reply_len;
     char *new_reply = realloc(sock->socket.netlink_reply, old_len + len);
     if (new_reply == NULL)
@@ -1889,6 +2294,11 @@ static int netlink_reply_append(struct fd *sock, const void *data, size_t len) {
     return 0;
 }
 
+// Appends one complete nlmsg (header+payload+padding) atomically under the
+// lock, so a background notification can never land its header, get
+// interleaved with a guest thread's own append, and corrupt message framing
+// -- a fully self-contained nlmsg record is the smallest unit that's safe to
+// interleave with others in the reply stream.
 static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
         uint32_t seq, const void *payload, size_t payload_len) {
     struct nlmsghdr_ hdr = {
@@ -1900,23 +2310,24 @@ static int netlink_append_nlmsg(struct fd *sock, uint16_t type, uint16_t flags,
         // port ID, and glibc getifaddrs() filters on this value.
         .nlmsg_pid = sock->socket.netlink_port_id,
     };
-    int err = netlink_reply_append(sock, &hdr, sizeof(hdr));
+    lock(&sock->socket.netlink_reply_lock, 0);
+    int err = netlink_reply_append_locked(sock, &hdr, sizeof(hdr));
     if (err < 0)
-        return err;
+        goto out;
     if (payload_len != 0) {
-        err = netlink_reply_append(sock, payload, payload_len);
+        err = netlink_reply_append_locked(sock, payload, payload_len);
         if (err < 0)
-            return err;
+            goto out;
     }
     size_t aligned_len = NLMSG_ALIGN(hdr.nlmsg_len);
     size_t pad_len = aligned_len - hdr.nlmsg_len;
     if (pad_len != 0) {
         static const char zeros[NLMSG_ALIGNTO] = {};
-        err = netlink_reply_append(sock, zeros, pad_len);
-        if (err < 0)
-            return err;
+        err = netlink_reply_append_locked(sock, zeros, pad_len);
     }
-    return 0;
+out:
+    unlock(&sock->socket.netlink_reply_lock);
+    return err;
 }
 
 static int netlink_append_error(struct fd *sock, uint32_t seq,
@@ -2635,16 +3046,19 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
 }
 
 static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg, int fake_flags) {
+    lock(&sock->socket.netlink_reply_lock, 0);
     size_t available = sock->socket.netlink_reply_len - sock->socket.netlink_reply_off;
     bool peek = (fake_flags & MSG_PEEK_) != 0;
     bool want_trunc_len = (fake_flags & MSG_TRUNC_) != 0;
     size_t capacity = diag_iov_capacity(msg->msg_iov, msg->msg_iovlen);
-    if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
-        return _EAGAIN;
+    int ret;
+    if (sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len) {
+        ret = _EAGAIN;
+        goto out;
+    }
     if (capacity == 0) {
-        if (want_trunc_len)
-            return (int) available;
-        return 0;
+        ret = want_trunc_len ? (int) available : 0;
+        goto out;
     }
 
     size_t copied = 0;
@@ -2661,8 +3075,10 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg, int fake_
         }
         int err = diag_copy_to_iov(msg->msg_iov, msg->msg_iovlen, copied,
                 sock->socket.netlink_reply + reply_off, msg_len);
-        if (err < 0)
-            return err;
+        if (err < 0) {
+            ret = err;
+            goto out;
+        }
         copied += msg_len;
         reply_off += NLMSG_ALIGN(hdr->nlmsg_len);
         if (msg_len < NLMSG_ALIGN(hdr->nlmsg_len))
@@ -2687,10 +3103,14 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg, int fake_
     if (!peek)
         sock->socket.netlink_reply_off = reply_off;
     if (!peek && sock->socket.netlink_reply_off >= sock->socket.netlink_reply_len)
-        netlink_reply_reset(sock);
+        netlink_reply_reset_locked(sock);
     if ((msg->msg_flags & MSG_TRUNC) && want_trunc_len)
-        return (int) available;
-    return (int) copied;
+        ret = (int) available;
+    else
+        ret = (int) copied;
+out:
+    unlock(&sock->socket.netlink_reply_lock);
+    return ret;
 }
 
 static int netlink_sockaddr_write(guest_addr_t sockaddr_addr, const void *sockaddr, uint_t *sockaddr_len) {
@@ -4160,6 +4580,8 @@ static void sock_init_emulation_defaults(struct fd *fd) {
     // Linux's net.core.rmem_default/wmem_default default.
     fd->socket.netlink_rcvbuf = 212992;
     fd->socket.netlink_sndbuf = 212992;
+    lock_init(&fd->socket.netlink_reply_lock, "netlink_reply\0");
+    fd->socket.netlink_notify_registered = false;
 }
 
 static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t option,
@@ -4292,32 +4714,32 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
                 sock->socket.netlink_get_strict_chk = enabled;
             return 0;
         }
-        // NETLINK_PKTINFO_ is deliberately NOT accepted here. sd-netlink
-        // sets it unconditionally when creating an rtnetlink manager
-        // socket, and failing it makes managers that only need one-shot
-        // dumps (resolved) bail out cleanly with "Could not create
-        // manager: Protocol not available" instead of ever binding. That
-        // failure is load-bearing: a manager that gets past it typically
-        // also subscribes to multicast groups (RTNLGRP_LINK etc, via
-        // bind()'s nl_groups or NETLINK_ADD_MEMBERSHIP) expecting future
-        // RTM_NEWLINK/RTM_DELADDR/... notifications when the link/address
-        // state changes -- and nothing in this file ever generates one
-        // (verified: netlink_groups is written by bind/setsockopt and read
-        // ONLY by getsockopt(NETLINK_LIST_MEMBERSHIPS) to echo it back; no
-        // host-side interface-change monitor feeds these fake sockets).
-        // Confirmed by direct repro: accepting NETLINK_PKTINFO here made
-        // PID 1 itself (not resolved) permanently poll()+recvmsg() a single
-        // netlink fd every 5s forever, before spawning a single child --
-        // it got real dump replies to its first couple of requests, then
-        // waited on a group notification that can never arrive. That's a
-        // strictly worse failure mode (a silent, permanent, single-fd hang
-        // during synchronous PID 1 startup) than the current graceful
-        // "manager creation failed, retry-and-eventually-rate-limit" one.
-        // Making resolved's manager creation actually succeed requires
-        // real multicast notification delivery (a host-side interface
-        // change watcher fanning RTM_* messages out to every subscribed
-        // socket), not a one-line accept -- see fs/sock.c's netlink
-        // handling for the full picture before touching this again.
+        // NETLINK_PKTINFO_ is deliberately NOT accepted here, even now that
+        // netlink_link_watch_thread (below) delivers real multicast
+        // notifications. That infrastructure closes ONE gap but not the
+        // one that actually matters: direct repro (twice) shows PID 1's
+        // own early netlink setup doesn't hang waiting on a multicast
+        // group at all (its bind() uses nl_groups=0 -- confirmed by
+        // instrumenting bind() and netlink_handle_sendmsg directly). It
+        // sends RTM_NEWADDR/RTM_SETLINK requests with NLM_F_ACK expecting
+        // them to have REAL effect (configuring an address, bringing a
+        // link up), gets our synthesized "success" ack (via
+        // netlink_handle_route_request's default case, which is otherwise
+        // correct -- see its own comment), reads it successfully via
+        // recvmsg, and then polls the same fd forever anyway: it's waiting
+        // for something contingent on the configuration ACTUALLY having
+        // taken effect, not just having been acknowledged. iSH has no
+        // guest-side network interface state to mutate -- "lo"/"eth0" are
+        // synthesized read-only from the HOST's real getifaddrs() on every
+        // dump -- so there is no way to make an RTM_NEWADDR/RTM_SETLINK
+        // request genuinely succeed. Making sd-netlink managers work fully
+        // needs a real (if virtual) per-guest network interface/address
+        // state model that setsockopt/bind/mutating rtnetlink requests can
+        // actually change and dumps reflect back -- a materially bigger
+        // feature than netlink protocol-level correctness, out of scope
+        // here. Rejecting this option is what makes managers that only
+        // need one-shot dumps (resolved) bail out cleanly instead of
+        // hanging; don't accept it without that state model in place.
         return _ENOPROTOOPT;
     }
     if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
@@ -4354,9 +4776,9 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         }
         // SO_BINDTODEVICE_/SO_BINDTOIFINDEX_ deliberately NOT accepted here
         // -- see the NETLINK_PKTINFO_ comment above (SOL_NETLINK block):
-        // this is the other half of what sd-netlink sets unconditionally
-        // on an rtnetlink manager socket, and accepting both together is
-        // what let PID 1 reach the permanent multicast-wait hang.
+        // the other half of what sd-netlink sets unconditionally on an
+        // rtnetlink manager socket, rejected for the same underlying
+        // reason (no real guest network state to configure).
     }
     if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
         if (value_len < guest_timeval_size(abi))
@@ -6107,8 +6529,16 @@ static int sock_poll(struct fd *fd) {
         return POLL_READ | POLL_WRITE | POLL_HUP;
     if (fd->real_fd < 0) {
         int types = POLL_WRITE;
-        if (fd->socket.netlink_reply_off < fd->socket.netlink_reply_len)
-            types |= POLL_READ;
+        // netlink_reply_lock (and the fields it guards) only exists in the
+        // "socket" arm of fd->'s union -- other real_fd<0 fd kinds (e.g.
+        // Pasteboard) alias the same bytes for unrelated fields, so this
+        // must stay gated on the domain check.
+        if (fd->socket.domain == AF_NETLINK_) {
+            lock(&fd->socket.netlink_reply_lock, 0);
+            if (fd->socket.netlink_reply_off < fd->socket.netlink_reply_len)
+                types |= POLL_READ;
+            unlock(&fd->socket.netlink_reply_lock);
+        }
         return types;
     }
     int types = realfs_poll(fd);
@@ -6373,8 +6803,10 @@ static int sock_setflags(struct fd *fd, dword_t flags) {
 
 static int sock_close(struct fd *fd) {
     sockrestart_end_listen(fd);
-    if (fd->socket.domain == AF_NETLINK_)
+    if (fd->socket.domain == AF_NETLINK_) {
+        netlink_notify_unregister(fd);
         netlink_reply_reset(fd);
+    }
     release_unix_names(fd);
     lock(&peer_lock, 0);
     struct fd *peer = fd->socket.unix_peer;

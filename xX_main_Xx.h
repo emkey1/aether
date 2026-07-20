@@ -6,6 +6,7 @@
 #include "kernel/fs.h"
 #include "fs/devices.h"
 #include "fs/real.h"
+#include "fs/sock.h"
 #ifdef __APPLE__
 #include <sys/resource.h>
 #define IOPOL_TYPE_VFS_HFS_CASE_SENSITIVITY 1
@@ -80,6 +81,7 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
 
     become_first_process();
     current->thread = pthread_self();
+    netlink_link_watch_start();
     char cwd[MAX_PATH + 1];
     if (root == NULL && workdir == NULL) {
         getcwd(cwd, sizeof(cwd));

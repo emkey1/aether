@@ -456,4 +456,12 @@ struct tcp_info_ {
     uint32_t total_retrans;
 };
 
+// Starts the background thread that watches the host's network interfaces/
+// addresses for changes and delivers RTM_NEWLINK/RTM_DELLINK/RTM_NEWADDR/
+// RTM_DELADDR notifications to any netlink socket subscribed to the
+// relevant multicast group. Call once, early, from the process's single
+// shared entry point (xX_main_Xx) -- not per-task, per-architecture, or
+// per-engine; there is exactly one of these threads per iSH process.
+void netlink_link_watch_start(void);
+
 #endif

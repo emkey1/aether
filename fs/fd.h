@@ -118,6 +118,20 @@ struct fd {
             char *netlink_reply;
             size_t netlink_reply_len;
             size_t netlink_reply_off;
+            // Guards the three netlink_reply* fields above (and the
+            // notification-append path below) against a background
+            // notifier thread racing the guest thread's own sendmsg/
+            // recvmsg/poll on this fd -- see netlink_notify_link_change in
+            // fs/sock.c. Nothing else in this file touched these fields
+            // from more than one thread before that feature existed, so
+            // there was previously no lock here at all.
+            lock_t netlink_reply_lock;
+            // Membership in the process-wide list of netlink sockets
+            // subscribed to at least one multicast group (netlink_groups
+            // != 0), maintained in fs/sock.c. Only valid while
+            // netlink_notify_registered is true.
+            struct list netlink_notify_link;
+            bool netlink_notify_registered;
             bool netlink_cap_ack;
             bool netlink_ext_ack;
             bool netlink_get_strict_chk;
