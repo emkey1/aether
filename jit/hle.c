@@ -94,12 +94,714 @@ static bool hle_trace_enabled(void) {
     return enabled == 1;
 }
 
+// ---- Optional call statistics (ISH_HLE_STATS=1) -------------------------
+// Per-function call counts plus a size histogram for the length-bearing
+// calls, dumped to stderr when the emulator exits. The point is to answer
+// "how many HLE calls does workload X make, of what sizes" -- the sizing
+// data that decides whether per-call overhead (bridge + block exit) can
+// matter and where a small-n cutoff should sit.
+
+static const char *const hle_fn_names[] = {
+    "memcpy", "memmove", "memset", "strlen", "memcmp", "strcmp", "strncmp",
+    "memchr", "strchr", "strcpy", "stpcpy", "strncpy", "strcat", "strrchr",
+    "strnlen", "memrchr", "strncat", "stpncpy", "rawmemchr", "strspn",
+    "strcspn", "strpbrk",
+};
+#define HLE_FN_COUNT (sizeof(hle_fn_names)/sizeof(hle_fn_names[0]))
+static _Atomic uint64_t hle_stat_calls[HLE_FN_COUNT];
+// Size buckets: 0-15, 16-63, 64-255, 256-1023, 1k-4k, 4k-64k, >=64k;
+// [7] counts calls with no length argument (unbounded str functions).
+static _Atomic uint64_t hle_stat_sizes[8];
+
+// Dump target. cli_halt runs after do_exit has torn down the guest fd
+// table, which (when stdio is piped) closes the underlying host fd 2 --
+// so main.c saves a dup of stderr here at startup and the dump uses raw
+// dprintf on it.
+int hle_stats_fd = 2;
+
+static void hle_nm_dump_final(void); // near-miss ranking, trace mode only
+
+void hle_stats_dump(void) {
+    uint64_t total = 0;
+    for (unsigned i = 0; i < HLE_FN_COUNT; i++)
+        total += atomic_load(&hle_stat_calls[i]);
+    if (total == 0)
+        return;
+    dprintf(hle_stats_fd, "hle stats: %llu calls\n", (unsigned long long) total);
+    for (unsigned i = 0; i < HLE_FN_COUNT; i++) {
+        uint64_t c = atomic_load(&hle_stat_calls[i]);
+        if (c != 0)
+            dprintf(hle_stats_fd, "hle stats:   %-10s %llu\n", hle_fn_names[i],
+                    (unsigned long long) c);
+    }
+    static const char *const bucket_names[8] = {
+        "0-15", "16-63", "64-255", "256-1023", "1k-4k", "4k-64k", ">=64k",
+        "unsized" };
+    for (unsigned i = 0; i < 8; i++) {
+        uint64_t c = atomic_load(&hle_stat_sizes[i]);
+        if (c != 0)
+            dprintf(hle_stats_fd, "hle stats:   size %-8s %llu\n",
+                    bucket_names[i], (unsigned long long) c);
+    }
+    hle_nm_dump_final();
+}
+
+// Dumped from cli_halt (main.c) on emulator exit, same pattern as
+// quiesce_stats_dump -- atexit is deliberately not used there.
+static bool hle_stats_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_HLE_STATS") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
+static void hle_stats_note(unsigned fn, qword_t a1, qword_t a2) {
+    atomic_fetch_add(&hle_stat_calls[fn], 1);
+    uint64_t n;
+    switch ((enum hle_fn) fn) {
+    case HLE_MEMCPY: case HLE_MEMMOVE: case HLE_MEMSET: case HLE_MEMCMP:
+    case HLE_STRNCMP: case HLE_MEMCHR: case HLE_STRNCPY: case HLE_MEMRCHR:
+    case HLE_STRNCAT: case HLE_STPNCPY:
+        n = a2;
+        break;
+    case HLE_STRNLEN:
+        n = a1;
+        break;
+    default:
+        atomic_fetch_add(&hle_stat_sizes[7], 1);
+        return;
+    }
+    unsigned b = n < 16 ? 0 : n < 64 ? 1 : n < 256 ? 2 : n < 1024 ? 3
+               : n < 4096 ? 4 : n < 65536 ? 5 : 6;
+    atomic_fetch_add(&hle_stat_sizes[b], 1);
+}
+
 #if defined(__aarch64__)
+
+// Near-miss candidate table (trace mode only): recurring unmatched
+// block-start prologues, so future fingerprints/functions come from data.
+// File-scope so the exit-time stats dump can print the final ranking.
+enum { NM_SLOTS = 4096 };
+static struct hle_nm_slot { _Atomic uint64_t hash; _Atomic uint64_t count;
+                            _Atomic uint64_t ip;
+                            _Atomic(const char *) name; _Atomic bool ifunc;
+                          } nm[NM_SLOTS];
+static _Atomic uint64_t nm_total;
+
+// ---- Symbol-table-driven attach -----------------------------------------
+// The fingerprint table only matches the exact libc builds it was extracted
+// from; one `apk upgrade musl` and every fingerprint goes stale, silently
+// disabling HLE. This second attach path is content-independent: when a
+// block-start address misses the fingerprint table but lies inside a
+// file-backed mapping whose name looks like a libc (musl's ld-musl-*.so.1 /
+// libc.musl-*.so.1, glibc's libc.so.6 / libc-*.so), the ELF's dynamic
+// symbol table is parsed (via the mapping's retained struct fd) and the
+// address is matched against the known function names directly. Parsed
+// results are cached globally, keyed by a content hash of the ELF header
+// block, so identical libc files parse once and remaps can never leave the
+// cache stale (it stores file-relative offsets, never guest addresses; the
+// load bias is recomputed from the live page tables on every lookup).
+//
+// glibc's STT_GNU_IFUNC string functions are deliberately skipped -- their
+// st_value is the resolver, not the implementation; the bundled-glibc
+// fingerprints (taken via dlsym inside the guest) keep covering those.
+// ISH_HLE_SYMTAB=0 turns this path off for debugging.
+
+#include "emu/memory.h"
+
+struct hle_load { uint64_t vaddr, offset, filesz; };
+struct hle_module {
+    uint64_t key;                  // FNV of ELF header block ^ file size
+    bool usable;                   // parsed and contains at least one match
+    unsigned nloads, nsyms;
+    struct hle_load loads[8];
+    struct { uint64_t vaddr; uint8_t fn; } syms[48];
+    // Trace-only (ISH_HLE_TRACE): every defined function symbol, so the
+    // near-miss tracker can print candidate NAMES instead of raw hashes.
+    struct hle_allsym { uint64_t vaddr; uint32_t name_off; bool ifunc; } *all;
+    unsigned nall;
+    char *all_names;               // strtab copy the name_offs index into
+};
+static struct hle_module hle_modules[16];
+static unsigned hle_module_count;
+static pthread_mutex_t hle_modules_lock = PTHREAD_MUTEX_INITIALIZER;
+
+static bool hle_symtab_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char *v = getenv("ISH_HLE_SYMTAB");
+        enabled = (v == NULL || strcmp(v, "0") != 0) ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+// ISH_HLE_FP=0 disables the fingerprint table (debug/testing: forces every
+// attach through the symbol-table path so it can be exercised against libcs
+// whose prologues happen to still match the shipped fingerprints).
+static bool hle_fingerprints_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char *v = getenv("ISH_HLE_FP");
+        enabled = (v == NULL || strcmp(v, "0") != 0) ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+static bool hle_pread_all(struct fd *fd, void *buf, size_t size, uint64_t off) {
+    if (fd == NULL || fd->ops == NULL || fd->ops->pread == NULL)
+        return false;
+    size_t done = 0;
+    while (done < size) {
+        ssize_t n = fd->ops->pread(fd, (char *) buf + done, size - done,
+                (off_t) (off + done));
+        if (n <= 0)
+            return false;
+        done += (size_t) n;
+    }
+    return true;
+}
+
+// Does this /proc/maps-style mapping name look like a libc?
+static bool hle_libc_name(const char *name) {
+    if (name == NULL)
+        return false;
+    const char *base = strrchr(name, '/');
+    base = base != NULL ? base + 1 : name;
+    return strncmp(base, "ld-musl-", 8) == 0
+        || strncmp(base, "libc.musl-", 10) == 0
+        || strcmp(base, "libc.so.6") == 0
+        || strncmp(base, "libc-", 5) == 0;
+}
+
+// vaddr -> file offset via the module's PT_LOADs; ~0 if outside any.
+static uint64_t hle_vaddr_to_off(const struct hle_module *m, uint64_t vaddr) {
+    for (unsigned i = 0; i < m->nloads; i++) {
+        const struct hle_load *l = &m->loads[i];
+        if (vaddr >= l->vaddr && vaddr < l->vaddr + l->filesz)
+            return vaddr - l->vaddr + l->offset;
+    }
+    return ~0ull;
+}
+
+// ELF64 constants, local to avoid host <elf.h> availability questions.
+#define HLE_EM_AARCH64 183
+#define HLE_EM_RISCV 243
+#define HLE_PT_LOAD 1
+#define HLE_PT_DYNAMIC 2
+#define HLE_DT_HASH 4
+#define HLE_DT_STRTAB 5
+#define HLE_DT_SYMTAB 6
+#define HLE_DT_STRSZ 10
+#define HLE_DT_GNU_HASH 0x6ffffef5ull
+#define HLE_STT_FUNC 2
+#define HLE_STT_GNU_IFUNC 10
+
+struct hle_elf_sym {           // Elf64_Sym, packed exactly
+    uint32_t st_name;
+    uint8_t st_info, st_other;
+    uint16_t st_shndx;
+    uint64_t st_value, st_size;
+};
+
+// Parse the ELF at `fd` into `m`. Returns with m->usable set iff the file is
+// a loadable little-endian ELF64 shared object for `abi` whose dynsym
+// contains at least one function we implement. Bounded work: header block,
+// phdrs (<=64), dynamic (<=1024 entries), strtab <=1MB, dynsym <=64k syms.
+static void hle_module_parse(struct hle_module *m, struct fd *fd,
+        enum guest_abi abi) {
+    uint8_t ehdr[64];
+    if (!hle_pread_all(fd, ehdr, sizeof(ehdr), 0))
+        return;
+    if (memcmp(ehdr, "\x7f""ELF", 4) != 0 || ehdr[4] != 2 /*ELFCLASS64*/ ||
+            ehdr[5] != 1 /*little-endian*/)
+        return;
+    uint16_t machine; memcpy(&machine, ehdr + 18, 2);
+    if (machine != (abi == GUEST_ABI_RISCV64 ? HLE_EM_RISCV : HLE_EM_AARCH64))
+        return;
+    uint64_t phoff; memcpy(&phoff, ehdr + 32, 8);
+    uint16_t phnum; memcpy(&phnum, ehdr + 56, 2);
+    if (phnum == 0 || phnum > 64)
+        return;
+
+    uint64_t dyn_off = 0, dyn_size = 0;
+    for (unsigned i = 0; i < phnum; i++) {
+        uint8_t ph[56];
+        if (!hle_pread_all(fd, ph, sizeof(ph), phoff + i * 56ull))
+            return;
+        uint32_t type; memcpy(&type, ph, 4);
+        uint64_t off, vaddr, filesz;
+        memcpy(&off, ph + 8, 8);
+        memcpy(&vaddr, ph + 16, 8);
+        memcpy(&filesz, ph + 32, 8);
+        if (type == HLE_PT_LOAD && m->nloads < 8) {
+            m->loads[m->nloads].vaddr = vaddr;
+            m->loads[m->nloads].offset = off;
+            m->loads[m->nloads].filesz = filesz;
+            m->nloads++;
+        } else if (type == HLE_PT_DYNAMIC) {
+            dyn_off = off;
+            dyn_size = filesz;
+        }
+    }
+    if (m->nloads == 0 || dyn_off == 0 || dyn_size < 16)
+        return;
+
+    uint64_t symtab_va = 0, strtab_va = 0, hash_va = 0, gnu_hash_va = 0,
+             strsz = 0;
+    unsigned ndyn = (unsigned) (dyn_size / 16);
+    if (ndyn > 1024)
+        ndyn = 1024;
+    for (unsigned i = 0; i < ndyn; i++) {
+        uint64_t tag, val;
+        uint8_t d[16];
+        if (!hle_pread_all(fd, d, sizeof(d), dyn_off + i * 16ull))
+            return;
+        memcpy(&tag, d, 8);
+        memcpy(&val, d + 8, 8);
+        if (tag == 0)
+            break;
+        else if (tag == HLE_DT_SYMTAB) symtab_va = val;
+        else if (tag == HLE_DT_STRTAB) strtab_va = val;
+        else if (tag == HLE_DT_HASH) hash_va = val;
+        else if (tag == HLE_DT_GNU_HASH) gnu_hash_va = val;
+        else if (tag == HLE_DT_STRSZ) strsz = val;
+    }
+    if (symtab_va == 0 || strtab_va == 0 || strsz == 0 || strsz > (1u << 20))
+        return;
+    uint64_t symtab_off = hle_vaddr_to_off(m, symtab_va);
+    uint64_t strtab_off = hle_vaddr_to_off(m, strtab_va);
+    if (symtab_off == ~0ull || strtab_off == ~0ull)
+        return;
+
+    // Symbol count: DT_HASH's nchain when present, else walk DT_GNU_HASH.
+    uint64_t nsyms = 0;
+    if (hash_va != 0) {
+        uint64_t off = hle_vaddr_to_off(m, hash_va);
+        uint32_t words[2];
+        if (off == ~0ull || !hle_pread_all(fd, words, sizeof(words), off))
+            return;
+        nsyms = words[1];
+    } else if (gnu_hash_va != 0) {
+        uint64_t off = hle_vaddr_to_off(m, gnu_hash_va);
+        uint32_t h[4];
+        if (off == ~0ull || !hle_pread_all(fd, h, sizeof(h), off))
+            return;
+        uint32_t nbuckets = h[0], symoffset = h[1], bloom_size = h[2];
+        if (nbuckets == 0 || nbuckets > (1u << 20))
+            return;
+        uint64_t buckets_off = off + 16 + (uint64_t) bloom_size * 8;
+        uint32_t maxsym = 0;
+        for (uint32_t i = 0; i < nbuckets; i++) {
+            uint32_t b;
+            if (!hle_pread_all(fd, &b, 4, buckets_off + i * 4ull))
+                return;
+            if (b > maxsym)
+                maxsym = b;
+        }
+        if (maxsym < symoffset)
+            return;
+        uint64_t chain_off = buckets_off + (uint64_t) nbuckets * 4;
+        for (;;) {
+            uint32_t c;
+            if (!hle_pread_all(fd, &c, 4,
+                        chain_off + (uint64_t) (maxsym - symoffset) * 4))
+                return;
+            if (c & 1)
+                break;
+            maxsym++;
+            if (maxsym - symoffset > (1u << 20))
+                return;
+        }
+        nsyms = (uint64_t) maxsym + 1;
+    } else {
+        return;
+    }
+    if (nsyms < 2 || nsyms > (1u << 16))
+        return;
+
+    char *strtab = malloc(strsz);
+    if (strtab == NULL)
+        return;
+    if (!hle_pread_all(fd, strtab, strsz, strtab_off)) {
+        free(strtab);
+        return;
+    }
+    strtab[strsz - 1] = '\0';
+
+    if (hle_trace_enabled()) {
+        m->all = calloc(4096, sizeof(*m->all));
+        m->all_names = malloc(strsz);
+        if (m->all_names != NULL)
+            memcpy(m->all_names, strtab, strsz);
+    }
+    for (uint64_t i = 1; i < nsyms; i++) {
+        struct hle_elf_sym sym;
+        if (!hle_pread_all(fd, &sym, 24, symtab_off + i * 24))
+            break;
+        unsigned type = sym.st_info & 0xf;
+        if (type != HLE_STT_FUNC && type != HLE_STT_GNU_IFUNC)
+            continue;
+        if (sym.st_shndx == 0 || sym.st_value == 0)
+            continue;
+        if (sym.st_name >= strsz)
+            continue;
+        if (m->all != NULL && m->all_names != NULL && m->nall < 4096) {
+            m->all[m->nall].vaddr = sym.st_value;
+            m->all[m->nall].name_off = sym.st_name;
+            m->all[m->nall].ifunc = type == HLE_STT_GNU_IFUNC;
+            m->nall++;
+        }
+        if (type == HLE_STT_GNU_IFUNC)  // st_value is the resolver, not code
+            continue;
+        const char *name = strtab + sym.st_name;
+        for (unsigned f = 0; f < HLE_FN_COUNT && m->nsyms < 48; f++) {
+            if (strcmp(name, hle_fn_names[f]) == 0) {
+                m->syms[m->nsyms].vaddr = sym.st_value;
+                m->syms[m->nsyms].fn = (uint8_t) f;
+                m->nsyms++;
+                break;
+            }
+        }
+    }
+    free(strtab);
+    m->usable = m->nsyms > 0;
+}
+
+// Find (or parse) the module for this fd. Returns NULL when the file can't
+// be identified/parsed; a cached not-usable entry also returns NULL.
+static struct hle_module *hle_module_get(struct fd *fd, enum guest_abi abi) {
+    uint8_t head[256];
+    if (!hle_pread_all(fd, head, sizeof(head), 0))
+        return NULL;
+    uint64_t key = 0xcbf29ce484222325ull ^ (uint64_t) abi;
+    for (unsigned i = 0; i < sizeof(head); i++)
+        key = (key ^ head[i]) * 0x100000001b3ull;
+    if (key == 0)
+        key = 1;
+
+    pthread_mutex_lock(&hle_modules_lock);
+    struct hle_module *m = NULL;
+    for (unsigned i = 0; i < hle_module_count; i++) {
+        if (hle_modules[i].key == key) {
+            m = &hle_modules[i];
+            break;
+        }
+    }
+    if (m == NULL && hle_module_count < 16) {
+        m = &hle_modules[hle_module_count++];
+        memset(m, 0, sizeof(*m));
+        m->key = key;
+        hle_module_parse(m, fd, abi);
+        if (hle_trace_enabled())
+            fprintf(stderr, "hle: symtab parse %s: %u loads, %u known syms\n",
+                    m->usable ? "usable" : "unusable", m->nloads, m->nsyms);
+    }
+    pthread_mutex_unlock(&hle_modules_lock);
+    return m;
+}
+
+// Resolve ip to its libc module and load bias, or return false. The bias is
+// recomputed from the live page tables on every call, so a remap of the
+// library can never act on stale addresses.
+static bool hle_module_and_bias(guest_addr_t ip, enum guest_abi abi,
+        struct hle_module **m_out, uint64_t *bias_out) {
+    if (!hle_symtab_enabled() || current == NULL || current->mem == NULL)
+        return false;
+    struct pt_entry *pt = mem_pt(current->mem, PAGE(ip));
+    if (pt == NULL || pt->data == NULL)
+        return false;
+    struct data *data = pt->data;
+    if (data->fd == NULL)
+        return false;
+    // Mapping name: exec-loader/mmap mappings usually leave data->name NULL
+    // and /proc/maps derives the path from the retained fd; do the same.
+    const char *name = data->name;
+    char pathbuf[MAX_PATH];
+    if (name == NULL) {
+        extern int generic_getpath(struct fd *fd, char *buf);
+        if (generic_getpath(data->fd, pathbuf) != 0)
+            return false;
+        name = pathbuf;
+    }
+    if (!hle_libc_name(name))
+        return false;
+    struct hle_module *m = hle_module_get(data->fd, abi);
+    if (m == NULL)
+        return false;
+    // Bias from the live mapping: this page's guest address minus the vaddr
+    // its file offset corresponds to.
+    uint64_t page_guest = (uint64_t) PAGE(ip) << PAGE_BITS;
+    // pt->offset is the byte offset of this page within data's allocation;
+    // data->file_offset is the file offset the allocation starts at.
+    uint64_t page_file_off = (uint64_t) data->file_offset + pt->offset;
+    uint64_t page_vaddr = ~0ull;
+    for (unsigned i = 0; i < m->nloads; i++) {
+        const struct hle_load *l = &m->loads[i];
+        if (page_file_off >= l->offset &&
+                page_file_off < l->offset + l->filesz) {
+            page_vaddr = page_file_off - l->offset + l->vaddr;
+            break;
+        }
+    }
+    if (page_vaddr == ~0ull || page_guest < page_vaddr)
+        return false;
+    *m_out = m;
+    *bias_out = page_guest - page_vaddr;
+    return true;
+}
+
+// Fingerprint-table miss fallback: is `ip` the entry of a known function per
+// the dynamic symbol table of the libc mapped at this address?
+static bool hle_symtab_lookup(guest_addr_t ip, enum guest_abi abi,
+        enum hle_fn *fn_out, const char **name_out) {
+    struct hle_module *m;
+    uint64_t bias;
+    if (!hle_module_and_bias(ip, abi, &m, &bias) || !m->usable)
+        return false;
+    for (unsigned i = 0; i < m->nsyms; i++) {
+        if (bias + m->syms[i].vaddr == ip) {
+            *fn_out = (enum hle_fn) m->syms[i].fn;
+            *name_out = hle_fn_names[m->syms[i].fn];
+            return true;
+        }
+    }
+    return false;
+}
+
+// Trace-only: name of the libc function whose entry is exactly ip, or NULL.
+// Feeds the near-miss tracker so its candidate list is a ranked list of
+// function NAMES -- the data that decides what to implement next.
+static const char *hle_symtab_resolve_name(guest_addr_t ip, enum guest_abi abi,
+        bool *ifunc_out) {
+    struct hle_module *m;
+    uint64_t bias;
+    if (!hle_module_and_bias(ip, abi, &m, &bias))
+        return NULL;
+    if (m->all == NULL || m->all_names == NULL)
+        return NULL;
+    for (unsigned i = 0; i < m->nall; i++) {
+        if (bias + m->all[i].vaddr == ip) {
+            *ifunc_out = m->all[i].ifunc;
+            return m->all_names + m->all[i].name_off;
+        }
+    }
+    return NULL;
+}
 
 // ---- Emission (called from jit.c at block-translation start) ------------
 
 extern void gadget_arm64_hle_call(void);
 extern void gadget_riscv64_hle_call(void);
+
+// Emit the whole-block hle_call gadget with code-stream word `word` at guest
+// address `ip`, claiming `len` guest bytes so gen_end's end_addr covers them
+// and the block invalidates if those bytes are ever rewritten/unmapped.
+static void hle_emit_word(struct gen_state *state, unsigned long word,
+        guest_addr_t ip, unsigned len, bool riscv64) {
+    gen_raw(state, (unsigned long) (riscv64
+                ? (void (*)(void)) gadget_riscv64_hle_call
+                : (void (*)(void)) gadget_arm64_hle_call));
+    gen_raw(state, word);
+    gen_raw(state, (unsigned long) ip);
+    if (riscv64)
+        state->riscv64_ip = ip + len;
+    else
+        state->arm64_ip = ip + len;
+}
+
+// Emit for a plain fingerprinted/symtab libc function.
+static void hle_emit(struct gen_state *state, enum hle_fn fn, guest_addr_t ip,
+        bool riscv64) {
+    // Bit 8 of the word tells hle_call which guest ABI's registers to use
+    // (cpu_state itself carries no abi field).
+    hle_emit_word(state, (unsigned long) fn | (riscv64 ? 0x100ul : 0), ip,
+            HLE_PROLOGUE_LEN, riscv64);
+}
+
+// ---- Copy/set loop idiom recognition (arm64 guest) ----------------------
+// A fingerprint or symbol can only catch a libc CALL; an open-coded copy
+// loop (inlined memcpy at -O0/-O1, LZMA's match-copy, hand-rolled byte
+// loops) never has an entry to attach to. But such a loop IS a block: the
+// backward conditional branch makes its head a block start, so the same
+// translation hook can recognize the whole block as one bulk operation.
+//
+// Recognized shapes (all post-index, forward, unit stride of the element
+// size; the trailing branch must target the block start exactly):
+//   copy: LDR{B,H,W,X} Rt,[Rs],#k ; STR Rt,[Rd],#k ; <counter> ; <branch>
+//   fill:                          STR Rt,[Rd],#k ; <counter> ; <branch>
+//   counter/branch pairs: SUBS Rc,Rc,#1 + B.NE  |  SUB Rc,Rc,#1 + CBNZ Rc
+//                       | CMP Ra,Re + B.NE  (Ra = the incremented Rs or Rd)
+//
+// The executor performs the loop's exact architectural contract: registers
+// advance per iteration, Rt holds the last element loaded, NZCV reflects
+// the last executed SUBS/CMP, and a fault leaves state at the precise
+// iteration boundary (or mid-iteration for a store fault, pc on the store)
+// with pc rewound so ordinary translation retakes over. Work is chunked so
+// no single call runs unbounded; an unfinished chunk re-enters this same
+// block via pc = loop head. Guest-overlapping forward copies (LZ77 match
+// copies with distance < length) reproduce byte-forward propagation --
+// periodic tiling of the leading [src,dst) bytes -- never memmove.
+//
+// ISH_HLE_LOOPS=0 turns the recognizer off for debugging.
+
+#define HLE_LOOP_FN 0x40u   // word low byte marking a loop spec
+// spec word layout (above the low byte):
+//   bit  8      riscv64 (always 0: arm64-only recognizer for now)
+//   bits 12-16  Rt (data reg; 31 = WZR for fill)
+//   bits 17-21  Rs (src addr reg; 31 = none, fill)
+//   bits 22-26  Rd (dst addr reg)
+//   bits 27-31  Rc (count reg, or end reg for CMP loops)
+//   bits 32-35  log2 element size
+//   bit  36     fill (store-only loop)
+//   bits 37-38  counter kind: 0 SUB+CBNZ, 1 SUBS+B.NE, 2 CMP+B.NE
+//   bit  39     CMP compares the src reg (else the dst reg)
+//   bits 40-47  loop length in bytes
+
+static bool hle_loops_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1) {
+        const char *v = getenv("ISH_HLE_LOOPS");
+        enabled = (v == NULL || strcmp(v, "0") != 0) ? 1 : 0;
+    }
+    return enabled == 1;
+}
+
+// arm64 decode helpers (small, mask-based; only the shapes above).
+struct hle_a64_ldst { unsigned rt, rn, k; bool load; };
+static bool hle_a64_ldst_post(uint32_t insn, struct hle_a64_ldst *out) {
+    // LDR/STR (immediate, post-index): size:2 111 0 00 opc:2 0 imm9 01 Rn Rt
+    if ((insn & 0x3F200C00) != 0x38000400)
+        return false;
+    unsigned size = insn >> 30, opc = (insn >> 22) & 3;
+    if (opc > 1)
+        return false; // signed loads etc.: not these loops
+    int imm9 = (int) ((insn >> 12) & 0x1FF);
+    if (imm9 & 0x100)
+        return false; // negative stride: not recognized
+    unsigned k = 1u << size;
+    if ((unsigned) imm9 != k)
+        return false; // stride must equal the element size
+    out->rt = insn & 31;
+    out->rn = (insn >> 5) & 31;
+    out->k = k;
+    out->load = opc == 1;
+    return true;
+}
+static bool hle_a64_dec1(uint32_t insn, bool *flags, unsigned *rc) {
+    if ((insn & 0xFFFFFC00) == 0xF1000400 && (insn & 31) == ((insn >> 5) & 31)) {
+        *flags = true;  // SUBS Xc, Xc, #1
+        *rc = insn & 31;
+        return true;
+    }
+    if ((insn & 0xFFFFFC00) == 0xD1000400 && (insn & 31) == ((insn >> 5) & 31)) {
+        *flags = false; // SUB Xc, Xc, #1
+        *rc = insn & 31;
+        return true;
+    }
+    return false;
+}
+static bool hle_a64_cmp_rr(uint32_t insn, unsigned *rn, unsigned *rm) {
+    // CMP Xn, Xm == SUBS XZR, Xn, Xm (shifted reg, shift 0)
+    if ((insn & 0xFFE0FC1F) != 0xEB00001F)
+        return false;
+    *rn = (insn >> 5) & 31;
+    *rm = (insn >> 16) & 31;
+    return *rn != 31 && *rm != 31;
+}
+static bool hle_a64_bne_to(uint32_t insn, guest_addr_t addr, guest_addr_t target) {
+    if ((insn & 0xFF00001F) != 0x54000001)
+        return false; // B.NE
+    int64_t off = ((int64_t) (int32_t) (insn << 8) >> 13) * 4;
+    return addr + (uint64_t) off == target;
+}
+static bool hle_a64_cbnz_to(uint32_t insn, unsigned rc, guest_addr_t addr,
+        guest_addr_t target) {
+    if ((insn & 0xFF000000) != 0xB5000000)
+        return false; // CBNZ Xt (64-bit)
+    if ((insn & 31) != rc)
+        return false;
+    int64_t off = ((int64_t) (int32_t) (insn << 8) >> 13) * 4;
+    return addr + (uint64_t) off == target;
+}
+
+static bool hle_try_loop_arm64(struct gen_state *state, struct tlb *tlb,
+        guest_addr_t ip) {
+    if (!hle_loops_enabled())
+        return false;
+    uint32_t insn[4];
+    if (!tlb_read(tlb, ip, insn, sizeof(insn)))
+        return false;
+
+    struct hle_a64_ldst ld, st;
+    unsigned base; // index of the counter instruction
+    bool fill;
+    if (hle_a64_ldst_post(insn[0], &ld) && ld.load &&
+            hle_a64_ldst_post(insn[1], &st) && !st.load &&
+            st.rt == ld.rt && st.k == ld.k) {
+        fill = false;
+        base = 2;
+    } else if (hle_a64_ldst_post(insn[0], &st) && !st.load) {
+        fill = true;
+        base = 1;
+    } else {
+        return false;
+    }
+
+    unsigned rt = st.rt, rd = st.rn, k = st.k;
+    unsigned rs = fill ? 31 : ld.rn;
+    if (rd == 31 || (!fill && rs == 31))
+        return false; // reg 31 here is SP; keep out of these loops
+    if (!fill && (rt == 31 || rt == rs || rt == rd || rs == rd))
+        return false;
+
+    unsigned ckind, rc;
+    bool cmp_on_src = false;
+    bool subs_flags;
+    unsigned crc;
+    guest_addr_t baddr = ip + (base + 1) * 4;
+    if (hle_a64_dec1(insn[base], &subs_flags, &crc)) {
+        ckind = subs_flags ? 1 : 0;
+        rc = crc;
+        if (subs_flags ? !hle_a64_bne_to(insn[base + 1], baddr, ip)
+                       : !hle_a64_cbnz_to(insn[base + 1], rc, baddr, ip))
+            return false;
+    } else {
+        unsigned cn, cm;
+        if (!hle_a64_cmp_rr(insn[base], &cn, &cm))
+            return false;
+        if (cn == rs)
+            cmp_on_src = true;
+        else if (cn != rd)
+            return false;
+        ckind = 2;
+        rc = cm; // the end register
+        if (!hle_a64_bne_to(insn[base + 1], baddr, ip))
+            return false;
+    }
+    // The counter/end register must be none of the loop's other registers.
+    if (rc == 31 || rc == rd || (!fill && (rc == rs || rc == rt)))
+        return false;
+    if (fill && rc == rt)
+        return false;
+
+    unsigned len = (base + 2) * 4;
+    unsigned long spec = HLE_LOOP_FN
+        | ((unsigned long) rt << 12)
+        | ((unsigned long) rs << 17)
+        | ((unsigned long) rd << 22)
+        | ((unsigned long) rc << 27)
+        | ((unsigned long) __builtin_ctz(k) << 32)
+        | ((unsigned long) (fill ? 1 : 0) << 36)
+        | ((unsigned long) ckind << 37)
+        | ((unsigned long) (cmp_on_src ? 1 : 0) << 39)
+        | ((unsigned long) len << 40);
+    if (hle_trace_enabled())
+        fprintf(stderr, "hle: attach %s-loop k=%u ckind=%u at %#llx (pid %d)\n",
+                fill ? "fill" : "copy", k, ckind, (unsigned long long) ip,
+                current != NULL ? current->pid : -1);
+    hle_emit_word(state, spec, ip, len, false);
+    return true;
+}
 
 bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
         bool riscv64) {
@@ -121,7 +823,9 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
     if (!tlb_read(tlb, ip, code, sizeof(code)))
         return false;
     enum guest_abi abi = riscv64 ? GUEST_ABI_RISCV64 : GUEST_ABI_ARM64;
-    for (size_t i = 0; i < sizeof(hle_table)/sizeof(hle_table[0]); i++) {
+    for (size_t i = hle_fingerprints_enabled() ? 0
+                : sizeof(hle_table)/sizeof(hle_table[0]);
+            i < sizeof(hle_table)/sizeof(hle_table[0]); i++) {
         const struct hle_fingerprint *fp = &hle_table[i];
         if (fp->abi != abi)
             continue;
@@ -130,21 +834,26 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
         if (hle_trace_enabled())
             fprintf(stderr, "hle: attach %s at %#llx (pid %d)\n", fp->name,
                     (unsigned long long) ip, current != NULL ? current->pid : -1);
-        // Bit 8 of the fn word tells hle_call which guest ABI's registers to
-        // use (cpu_state itself carries no abi field).
-        gen_raw(state, (unsigned long) (riscv64
-                    ? (void (*)(void)) gadget_riscv64_hle_call
-                    : (void (*)(void)) gadget_arm64_hle_call));
-        gen_raw(state, (unsigned long) fp->fn | (riscv64 ? 0x100ul : 0));
-        gen_raw(state, (unsigned long) ip);
-        // Claim the fingerprinted range so gen_end's end_addr covers it and
-        // the block invalidates if these bytes are ever rewritten/unmapped.
-        if (riscv64)
-            state->riscv64_ip = ip + HLE_PROLOGUE_LEN;
-        else
-            state->arm64_ip = ip + HLE_PROLOGUE_LEN;
+        hle_emit(state, fp->fn, ip, riscv64);
         return true;
     }
+    // Fingerprint miss: try the dynamic symbol table of the mapped libc
+    // (survives libc upgrades the fingerprint table has never seen).
+    {
+        enum hle_fn sfn;
+        const char *sname;
+        if (hle_symtab_lookup(ip, abi, &sfn, &sname)) {
+            if (hle_trace_enabled())
+                fprintf(stderr, "hle: attach %s:dynsym at %#llx (pid %d)\n",
+                        sname, (unsigned long long) ip,
+                        current != NULL ? current->pid : -1);
+            hle_emit(state, sfn, ip, riscv64);
+            return true;
+        }
+    }
+    // Not a known function entry: maybe an open-coded copy/fill loop.
+    if (!riscv64 && hle_try_loop_arm64(state, tlb, ip))
+        return true;
     // Near-miss candidate discovery (trace mode only): count recurring
     // unmatched block-start prologues so future fingerprints come from data.
     // Tiny open-addressed table keyed by a 64-bit FNV of the prologue; the
@@ -154,16 +863,20 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
         uint64_t h = 0xcbf29ce484222325ull;
         for (unsigned b = 0; b < HLE_PROLOGUE_LEN; b++)
             h = (h ^ code[b]) * 0x100000001b3ull;
-        enum { NM_SLOTS = 4096 };
-        static struct { _Atomic uint64_t hash; _Atomic uint64_t count;
-                        _Atomic uint64_t ip; } nm[NM_SLOTS];
-        static _Atomic uint64_t nm_total;
+        // If this block start is exactly a libc dynsym function entry,
+        // record its name -- candidates then dump ranked BY NAME.
+        bool nm_ifunc = false;
+        const char *nm_name = hle_symtab_resolve_name(ip, abi, &nm_ifunc);
         unsigned slot = (unsigned) (h % NM_SLOTS);
         for (unsigned probe = 0; probe < 8; probe++, slot = (slot + 1) % NM_SLOTS) {
             uint64_t expect = 0;
             if (atomic_load(&nm[slot].hash) == h ||
                     atomic_compare_exchange_strong(&nm[slot].hash, &expect, h)) {
                 atomic_store(&nm[slot].ip, ip);
+                if (nm_name != NULL) {
+                    atomic_store(&nm[slot].name, nm_name);
+                    atomic_store(&nm[slot].ifunc, nm_ifunc);
+                }
                 atomic_fetch_add(&nm[slot].count, 1);
                 break;
             }
@@ -183,10 +896,14 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
             for (unsigned i2 = 0; i2 < NM_SLOTS && lines < 24; i2++) {
                 uint64_t c = atomic_load(&nm[i2].count);
                 if (c >= 2) {
-                    fprintf(stderr, "hle:   %8llu %#llx %016llx\n",
+                    const char *nom = atomic_load(&nm[i2].name);
+                    fprintf(stderr, "hle:   %8llu %#llx %016llx %s%s\n",
                             (unsigned long long) c,
                             (unsigned long long) atomic_load(&nm[i2].ip),
-                            (unsigned long long) atomic_load(&nm[i2].hash));
+                            (unsigned long long) atomic_load(&nm[i2].hash),
+                            nom != NULL ? nom : "",
+                            nom != NULL && atomic_load(&nm[i2].ifunc)
+                                ? " (ifunc)" : "");
                     lines++;
                 }
             }
@@ -195,7 +912,40 @@ bool hle_try_emit(struct gen_state *state, struct tlb *tlb, guest_addr_t ip,
     return false;
 }
 
+// Exit-time near-miss ranking (needs both trace and stats mode: trace to
+// have collected, stats to have a live dump fd). Sorted by count, so the
+// top lines are the next functions worth implementing; entries with names
+// are libc dynsym entries, the strongest candidates.
+static void hle_nm_dump_final(void) {
+    uint64_t total = atomic_load(&nm_total);
+    if (total == 0)
+        return;
+    dprintf(hle_stats_fd, "hle stats: %llu unmatched block starts; "
+            "recurring candidates (count ip name):\n",
+            (unsigned long long) total);
+    // Selection-sort the top 40 by count (small table, exit path).
+    bool used[NM_SLOTS] = { false };
+    for (unsigned line = 0; line < 40; line++) {
+        uint64_t best = 0; unsigned bi = NM_SLOTS;
+        for (unsigned i = 0; i < NM_SLOTS; i++) {
+            uint64_t c = atomic_load(&nm[i].count);
+            if (!used[i] && c > best) { best = c; bi = i; }
+        }
+        if (bi == NM_SLOTS || best < 2)
+            break;
+        used[bi] = true;
+        const char *nom = atomic_load(&nm[bi].name);
+        dprintf(hle_stats_fd, "hle stats:   %8llu %#llx %s%s\n",
+                (unsigned long long) best,
+                (unsigned long long) atomic_load(&nm[bi].ip),
+                nom != NULL ? nom : "-",
+                nom != NULL && atomic_load(&nm[bi].ifunc) ? " (ifunc)" : "");
+    }
+}
+
 #else // !__aarch64__
+
+static void hle_nm_dump_final(void) {}
 
 // The arm64/riscv64 guest JITs only exist on aarch64 hosts; elsewhere HLE
 // never applies (jit.c still calls this, so keep the symbol).
@@ -573,12 +1323,169 @@ static bool hle_spn(struct cpu_state *cpu, struct tlb *tlb, guest_addr_t entry_i
     }
 }
 
+#if defined(__aarch64__)
+// Executor for recognized copy/fill loops (see the recognizer above for the
+// contract). Chunked: at most CHUNK iterations per gadget entry; if the loop
+// isn't finished, pc is left at the loop head so the dispatcher re-enters
+// this same block. All state written back is exactly what the interpreted
+// loop would have produced at an iteration boundary -- except a store fault
+// in a copy loop, which architecturally happens mid-iteration (the load's
+// post-increment already retired): there Rs/Rt reflect the completed load
+// and pc lands on the store instruction itself.
+static int hle_loop_exec(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long spec, unsigned long entry_ip) {
+    qword_t *regs = cpu->arm64_regs;
+    unsigned rt = (spec >> 12) & 31, rs = (spec >> 17) & 31,
+             rd = (spec >> 22) & 31, rc = (spec >> 27) & 31;
+    unsigned k = 1u << ((spec >> 32) & 15);
+    bool fill = (spec >> 36) & 1;
+    unsigned ckind = (spec >> 37) & 3;
+    bool cmp_on_src = (spec >> 39) & 1;
+    unsigned looplen = (spec >> 40) & 0xff;
+
+    uint64_t s0 = fill ? 0 : regs[rs], d0 = regs[rd], c0 = regs[rc];
+    // Iterations until the loop's own exit condition. These are do-while
+    // loops: a zero count (SUBS) or already-equal pointers (CMP) still run
+    // one iteration and then wrap the full 2^64 -- represent as "huge" and
+    // let chunking reproduce it faithfully.
+    uint64_t remaining;
+    if (ckind == 2) {
+        uint64_t delta = c0 - (cmp_on_src ? s0 : d0);
+        remaining = (delta == 0 || delta % k != 0) ? UINT64_MAX : delta / k;
+    } else {
+        remaining = c0 == 0 ? UINT64_MAX : c0;
+    }
+    enum { CHUNK = 1u << 20 };
+    uint64_t todo = remaining < CHUNK ? remaining : CHUNK;
+
+    uint8_t pat[8] = { 0 };
+    if (fill && rt != 31)
+        memcpy(pat, &regs[rt], 8);
+
+    uint64_t done = 0;
+    int fault = 0; // 0 none, 1 read, 2 write mid-iteration, 3 write at boundary
+    while (done < todo) {
+        uint64_t s = s0 + done * k, d = d0 + done * k;
+        uint64_t elems = todo - done;
+        uint64_t cap = hle_to_page_end(d) / k;
+        if (!fill) {
+            uint64_t scap = hle_to_page_end(s) / k;
+            if (scap < cap)
+                cap = scap;
+        }
+        if (cap == 0) {
+            // Element straddles a page boundary: do this one via the
+            // bounce-buffer tlb ops (correct, rare).
+            uint8_t tmp[8];
+            if (!fill) {
+                if (!tlb_read(tlb, s, tmp, k)) { fault = 1; break; }
+            } else {
+                memcpy(tmp, pat, k);
+            }
+            if (!tlb_write(tlb, d, tmp, k)) { fault = fill ? 3 : 2; break; }
+            done++;
+            continue;
+        }
+        if (elems > cap)
+            elems = cap;
+        uint64_t bytes = elems * k;
+        const uint8_t *sh = NULL;
+        if (!fill) {
+            sh = __tlb_read_ptr(tlb, s);
+            if (sh == NULL) { fault = 1; break; }
+        }
+        uint8_t *dh = __tlb_write_ptr(tlb, d);
+        if (dh == NULL) { fault = fill ? 3 : 2; break; }
+
+        if (fill) {
+            if (k == 1) {
+                memset(dh, pat[0], bytes);
+            } else {
+                for (uint64_t i = 0; i < bytes; i += k)
+                    memcpy(dh + i, pat, k);
+            }
+        } else if (d == s) {
+            // copying a range onto itself: no visible change
+        } else if (d > s && d - s < bytes) {
+            // Forward-overlapping copy (LZ77 match): byte-forward semantics
+            // duplicate the leading [s,d) bytes periodically. Only byte
+            // loops get the fast tiling; k>1 with sub-element overlap keeps
+            // exact element load/store order via the aliased host pointers.
+            uint64_t p = d - s;
+            if (k == 1) {
+                for (uint64_t i = 0; i < bytes; i++)
+                    dh[i] = i < p ? sh[i] : dh[i - p];
+            } else {
+                for (uint64_t i = 0; i < bytes; i += k) {
+                    uint8_t tmp[8];
+                    memcpy(tmp, sh + i, k);
+                    memcpy(dh + i, tmp, k);
+                }
+            }
+        } else {
+            // No architectural read-after-write hazard; memmove for the
+            // host-aliasing case, same result as the element loop.
+            memmove(dh, sh, bytes);
+        }
+        done += elems;
+    }
+
+    // Rt: the last element the loop loaded (copy loops only). On a store
+    // fault that's the faulting iteration's element; otherwise the last
+    // completed one. Loads zero-extend into the 64-bit reg, matching LDR*.
+    if (!fill && (done > 0 || fault == 2)) {
+        uint64_t eaddr = s0 + (fault == 2 ? done : done - 1) * k;
+        uint64_t v = 0;
+        if (tlb_read(tlb, eaddr, &v, k))
+            regs[rt] = v;
+    }
+    regs[rd] = d0 + done * k;
+    if (!fill)
+        regs[rs] = s0 + (done + (fault == 2 ? 1 : 0)) * k;
+    if (ckind != 2)
+        regs[rc] = c0 - done;
+    // NZCV from the last executed SUBS/CMP (none executed -> flags keep
+    // their entry values, which is architecturally exact).
+    if (ckind == 1 && done > 0) {
+        uint64_t a = c0 - done + 1, res = c0 - done;
+        uint32_t nzcv = 0;
+        if (res >> 63) nzcv |= 0x80000000u;
+        if (res == 0) nzcv |= 0x40000000u;
+        if (a >= 1) nzcv |= 0x20000000u;
+        if (((a ^ 1ull) & (a ^ res)) >> 63) nzcv |= 0x10000000u;
+        cpu->arm64_nzcv = nzcv;
+    } else if (ckind == 2 && done > 0) {
+        uint64_t a = (cmp_on_src ? s0 : d0) + done * k, b = c0;
+        uint64_t res = a - b;
+        uint32_t nzcv = 0;
+        if (res >> 63) nzcv |= 0x80000000u;
+        if (res == 0) nzcv |= 0x40000000u;
+        if (a >= b) nzcv |= 0x20000000u;
+        if (((a ^ b) & (a ^ res)) >> 63) nzcv |= 0x10000000u;
+        cpu->arm64_nzcv = nzcv;
+    }
+
+    if (fault != 0) {
+        cpu->segfault_addr = tlb->segfault_addr;
+        cpu->segfault_was_write = fault != 1;
+        cpu->arm64_pc = entry_ip + (fault == 2 ? 4 : 0);
+        return INT_PF;
+    }
+    cpu->arm64_pc = done < remaining ? entry_ip : entry_ip + looplen;
+    return INT_NONE;
+}
+#endif // __aarch64__
+
 // Gadget entry point. Reads args from the guest ABI registers, performs the
 // operation, writes the return register, and sets the guest pc to the return
 // address. Returns INT_NONE on success (the gadget then exits the block via
 // jit_ret) or INT_PF on a guest memory fault (the gadget exits via jit_exit).
 int hle_call(struct cpu_state *cpu, struct tlb *tlb, unsigned long fn,
         unsigned long entry_ip) {
+#if defined(__aarch64__)
+    if ((fn & 0xff) == HLE_LOOP_FN)
+        return hle_loop_exec(cpu, tlb, fn, entry_ip);
+#endif
     bool rv = (fn & 0x100) != 0;
     fn &= 0xff;
     hle_is_riscv64 = rv;
@@ -589,6 +1496,9 @@ int hle_call(struct cpu_state *cpu, struct tlb *tlb, unsigned long fn,
     qword_t ret_addr = regs[rv ? (int) riscv64_ra : (int) arm64_x30];
     qword_t result = a0;
     bool ok;
+
+    if (hle_stats_enabled())
+        hle_stats_note(fn, a1, a2);
 
     switch ((enum hle_fn) fn) {
     case HLE_MEMCPY:
