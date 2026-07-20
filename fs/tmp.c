@@ -52,6 +52,13 @@ static struct tmp_inode *tmp_inode_new(mode_t_ mode) {
     node->stat.inode = next_inode++;
 
     node->stat.mode = mode;
+    // Linux semantics: a fresh directory has 2 links ("." plus its parent's
+    // entry), everything else 1. Leaving this 0 broke systemd-journald:
+    // journal_file_fstat() treats st_nlink == 0 as "file already deleted"
+    // (-EIDRM, part of its journal-corruption error set), so every journal
+    // file created on the /run tmpfs was instantly declared "corrupted or
+    // uncleanly shut down" and the Journal Service crash-looped.
+    node->stat.nlink = S_ISDIR(mode) ? 2 : 1;
     node->stat.uid = current->euid;
     node->stat.gid = current->egid;
     node->file_data = NULL; // also clears the ->fifo union slot for S_IFIFO
@@ -369,6 +376,15 @@ static int tmpfs_dir_unlink(struct tmp_dirent *parent, const char *name, bool re
     }
 
     list_remove(&dirent->dir);
+    // nlink bookkeeping (no hardlinks on tmpfs, so an unlinked file drops
+    // straight to 0 -- open fds keep seeing the Linux-accurate "deleted"
+    // state). A removed directory also releases its ".." link on the parent.
+    if (S_ISDIR(dirent->inode->stat.mode)) {
+        dirent->inode->stat.nlink = 0;
+        parent->inode->stat.nlink--;
+    } else {
+        dirent->inode->stat.nlink--;
+    }
     tmpfs_update_mtime_and_ctime(parent->inode);
     tmp_dirent_release(dirent); // drop tree reference
     tmp_dirent_release(dirent); // drop lookup reference
@@ -655,6 +671,16 @@ static int tmpfs_rename(struct mount *mount, const char *src, const char *dst) {
         // Overwrite: drop dst's tree reference (its lookup ref is released at
         // out, freeing it once no fd holds it).
         list_remove(&dst_dirent->dir);
+        // nlink bookkeeping for the replaced inode, mirroring
+        // tmpfs_dir_unlink: a replaced (empty) directory drops to 0 and
+        // releases its ".." link on dst_parent; a replaced file loses its
+        // one link.
+        if (dst_is_dir) {
+            dst_dirent->inode->stat.nlink = 0;
+            dst_parent->inode->stat.nlink--;
+        } else {
+            dst_dirent->inode->stat.nlink--;
+        }
         tmp_dirent_release(dst_dirent);
     }
 
@@ -670,6 +696,11 @@ static int tmpfs_rename(struct mount *mount, const char *src, const char *dst) {
     if (src_dirent->parent != dst_parent) {
         struct tmp_dirent *old_parent = src_dirent->parent;
         src_dirent->parent = tmp_dirent_retain(dst_parent);
+        // A directory moving between parents takes its ".." link with it.
+        if (src_is_dir) {
+            old_parent->inode->stat.nlink--;
+            dst_parent->inode->stat.nlink++;
+        }
         tmp_dirent_release(old_parent);
     }
     src_dirent->index = dst_parent->next_index++;
@@ -780,6 +811,7 @@ static int tmpfs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
             err = tmpfs_populate_cgroup2_dir(new_dirent);
             unlock(&new_dirent->lock);
         }
+        parent->inode->stat.nlink++; // the new subdir's ".." link
         tmpfs_update_mtime_and_ctime(parent->inode);
     }
     if (new_dirent != NULL)
