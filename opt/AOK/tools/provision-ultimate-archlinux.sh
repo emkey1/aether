@@ -103,6 +103,30 @@ log "/dev/fd (needed for bash process substitution, e.g. diff <(...))"
 note "linked /dev/fd, /dev/stdin, /dev/stdout, /dev/stderr -> /proc/self/fd"
 
 # ===========================================================================
+log "Ownership repair (roots imported from a uid-501 tarball)"
+# ===========================================================================
+# Early Arch tarballs published for iSH-AOK were repacked on macOS as an
+# ordinary user, so every file imported as uid 501 instead of root. Most
+# things shrug that off, but anything with a strict ownership check breaks:
+# sshd refuses to start ("/usr/share/empty.sshd must be owned by root"),
+# and pacman/systemd tooling can misbehave. The published tarballs are
+# fixed; this repairs roots imported from the old ones. chown --from
+# touches ONLY uid-501 entries, so a correctly-owned root is a fast no-op
+# and legitimately non-root files (once packages/users create them) are
+# never clobbered.
+if [ "$(stat -c %u /usr 2>/dev/null)" = 501 ]; then
+    note "repairing uid-501 ownership (one-time, may take a minute)..."
+    chown -R --from=501 0:0 / 2>/dev/null || true
+    # The alarm user's home is the one subtree that should NOT be root.
+    if id alarm >/dev/null 2>&1 && [ -d /home/alarm ]; then
+        chown -R alarm:alarm /home/alarm 2>/dev/null || true
+    fi
+    note "ownership repaired"
+else
+    note "ownership already correct; nothing to do"
+fi
+
+# ===========================================================================
 log "Installing packages (this is the slow part under emulation)"
 # ===========================================================================
 # Arch/pacman equivalents of the Alpine/Devuan "ultimate terminal" set. Names
