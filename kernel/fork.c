@@ -560,7 +560,16 @@ dword_t sys_clone3_guest(guest_addr_t uargs_addr, dword_t size) {
     if (user_read(uargs_addr, &args, size < sizeof(args) ? size : sizeof(args)))
         return _EFAULT;
 
-    if ((args.flags >> 32) != 0)
+    // CLONE_CLEAR_SIGHAND (bit 32, Linux 5.5+) asks the kernel to reset the
+    // child's signal handlers to SIG_DFL as part of the clone, instead of
+    // glibc iterating and resetting each one itself after the fact. We
+    // already give every new task a fresh (non-shared, unless CLONE_SIGHAND)
+    // sighand via copy_task, so honoring this is a no-op: nothing forces the
+    // handlers to non-default that this would need to undo. glibc's
+    // posix_spawn sets it unconditionally on every clone3 call (used by
+    // systemd's posix_spawn_wrapper for every service start), so rejecting
+    // it as ENOSYS made every service spawn via clone3 fail outright.
+    if ((args.flags >> 32) != 0 && (args.flags >> 32) != 1)
         return _ENOSYS;
     if (args.set_tid != 0 || args.set_tid_size != 0 || args.cgroup != 0)
         return _ENOSYS;
