@@ -15,6 +15,20 @@ int ish_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12],
         const uint8_t *aad, size_t aadlen, const uint8_t *ct, size_t ctlen,
         const uint8_t tag[16], uint8_t *pt);
 
+// Raw ChaCha20 stream (matches OpenSSL EVP_chacha20): iv is 16 bytes = a
+// 32-bit little-endian initial block counter followed by the 12-byte nonce.
+// XORs the keystream over in -> out (in==out for in-place). One-shot.
+void ish_chacha20_stream(const uint8_t key[32], const uint8_t iv[16],
+        const uint8_t *in, uint8_t *out, size_t len);
+
+// Streaming form (keystream position carries across update calls of any
+// length) -- used by the accelerator to run over guest pages a span at a time.
+struct ish_chacha_stream { _Alignas(16) unsigned char opaque[128]; };
+void ish_chacha20_stream_begin(struct ish_chacha_stream *s,
+        const uint8_t key[32], const uint8_t iv[16]);
+void ish_chacha20_stream_update(struct ish_chacha_stream *s,
+        const uint8_t *in, uint8_t *out, size_t len);
+
 // ---- Streaming AEAD (lets a caller process the data one page-span at a
 // time straight out of / into guest memory, no bounce buffer) --------------
 // Opaque, stack-allocatable. Sized generously to hold the real context.

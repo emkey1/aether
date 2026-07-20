@@ -183,6 +183,63 @@ int ish_chacha20_poly1305_open(const uint8_t key[32], const uint8_t nonce[12],
     return 0;
 }
 
+// ---- Raw ChaCha20 stream (EVP_chacha20-compatible) ----------------------
+// iv = [ctr32_le][nonce96]. Keystream block counter starts at that ctr and
+// increments per 64-byte block, wrapping in the low 32 bits like OpenSSL.
+void ish_chacha20_stream(const uint8_t key[32], const uint8_t iv[16],
+        const uint8_t *in, uint8_t *out, size_t len) {
+    uint32_t counter = load32le(iv);
+    const uint8_t *nonce = iv + 4;
+    uint8_t ks[64];
+    while (len > 0) {
+        uint32_t st[16];
+        chacha20_init(st, key, counter++, nonce);
+        chacha20_block(st, ks);
+        size_t n = len < 64 ? len : 64;
+        for (size_t i = 0; i < n; i++)
+            out[i] = in[i] ^ ks[i];
+        in += n; out += n; len -= n;
+    }
+}
+
+struct chacha_stream {
+    uint8_t key[32], nonce[12];
+    uint32_t counter;
+    uint8_t ks[64];
+    unsigned ks_pos;
+};
+_Static_assert(sizeof(struct chacha_stream) <= sizeof(struct ish_chacha_stream),
+        "ish_chacha_stream opaque buffer too small");
+
+void ish_chacha20_stream_begin(struct ish_chacha_stream *sp,
+        const uint8_t key[32], const uint8_t iv[16]) {
+    struct chacha_stream *s = (struct chacha_stream *) sp;
+    memcpy(s->key, key, 32);
+    memcpy(s->nonce, iv + 4, 12);
+    s->counter = load32le(iv);
+    s->ks_pos = 64; // force refill on first byte
+}
+
+void ish_chacha20_stream_update(struct ish_chacha_stream *sp,
+        const uint8_t *in, uint8_t *out, size_t len) {
+    struct chacha_stream *s = (struct chacha_stream *) sp;
+    size_t i = 0;
+    while (i < len) {
+        if (s->ks_pos == 64) {
+            uint32_t st[16];
+            chacha20_init(st, s->key, s->counter++, s->nonce);
+            chacha20_block(st, s->ks);
+            s->ks_pos = 0;
+        }
+        unsigned take = 64 - s->ks_pos;
+        if (take > len - i) take = (unsigned) (len - i);
+        for (unsigned j = 0; j < take; j++)
+            out[i + j] = in[i + j] ^ s->ks[s->ks_pos + j];
+        s->ks_pos += take;
+        i += take;
+    }
+}
+
 // ---- Streaming AEAD -----------------------------------------------------
 // Reuses the validated chacha20_block / poly1305_* primitives; only the
 // span-buffering plumbing is new. The Poly1305 tag is always computed over

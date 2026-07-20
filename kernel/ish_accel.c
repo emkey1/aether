@@ -44,12 +44,17 @@ struct ish_aead_req {
     uint64_t tag;    // 16 bytes: written (seal) or read (open)
 };
 
-enum { ISH_AEAD_ALG_CHACHA20_POLY1305 = 0 };
+enum { ISH_AEAD_ALG_CHACHA20_POLY1305 = 0, ISH_AEAD_ALG_CHACHA20 = 1 };
 
 // Per-span callback for user_transform_two: feed one page-span through the
 // streaming cipher (keystream + Poly1305 state carry across calls).
 static void ish_aead_span(const void *in_host, void *out_host, size_t span, void *ctx) {
     ish_aead_update((struct ish_aead_stream *) ctx,
+            (const uint8_t *) in_host, (uint8_t *) out_host, span);
+}
+// Same, for the raw ChaCha20 stream op (no Poly1305).
+static void ish_chacha_span(const void *in_host, void *out_host, size_t span, void *ctx) {
+    ish_chacha20_stream_update((struct ish_chacha_stream *) ctx,
             (const uint8_t *) in_host, (uint8_t *) out_host, span);
 }
 // Bound per-call sizes so a bogus request can't drive a huge host malloc.
@@ -66,15 +71,37 @@ dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
     struct ish_aead_req req;
     if (user_read(req_addr, &req, sizeof(req)))
         return _EFAULT;
-    if (req.alg != ISH_AEAD_ALG_CHACHA20_POLY1305)
+    // alg 0 = ChaCha20-Poly1305 AEAD (op 0=seal, 1=open); alg 1 = raw ChaCha20
+    // stream (op ignored). op 2 also selects the raw stream for back-compat.
+    bool raw_stream = (req.alg == ISH_AEAD_ALG_CHACHA20) || req.op == 2;
+    if (req.alg != ISH_AEAD_ALG_CHACHA20_POLY1305 && req.alg != ISH_AEAD_ALG_CHACHA20)
         return _EOPNOTSUPP;
-    if (req.op > 1)
+    if (!raw_stream && req.op > 1)
         return _EINVAL;
     if (req.inlen > ISH_AEAD_MAX_IN || req.aadlen > ISH_AEAD_MAX_AAD)
         return _EMSGSIZE; // too big for the fast path; caller falls back
 
     uint8_t key[32], nonce[12], tag[16];
-    if (user_read(req.key, key, sizeof(key)) || user_read(req.nonce, nonce, sizeof(nonce)))
+    if (user_read(req.key, key, sizeof(key)))
+        return _EFAULT;
+
+    if (raw_stream) {
+        // Raw ChaCha20 stream: req.nonce points to the 16-byte EVP IV
+        // (ctr32_le + nonce96). No aad, no tag; XOR keystream in place.
+        uint8_t iv[16];
+        dword_t sret = 0;
+        if (user_read(req.nonce, iv, sizeof(iv))) { memset(key, 0, sizeof(key)); return _EFAULT; }
+        struct ish_chacha_stream cs;
+        ish_chacha20_stream_begin(&cs, key, iv);
+        if (req.inlen &&
+                user_transform_two(req.in, req.out, req.inlen, ish_chacha_span, &cs))
+            sret = _EFAULT;
+        memset(key, 0, sizeof(key));
+        memset(&cs, 0, sizeof(cs));
+        return sret;
+    }
+
+    if (user_read(req.nonce, nonce, sizeof(nonce)))
         return _EFAULT;
     // aad is small and bounded; staging it in a per-thread scratch avoids a
     // second direct-pointer walk (the streaming begin consumes it up front).
