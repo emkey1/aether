@@ -70,6 +70,10 @@ static void ish_chacha_span(const void *in_host, void *out_host, size_t span, vo
     ish_chacha20_stream_update((struct ish_chacha_stream *) ctx,
             (const uint8_t *) in_host, (uint8_t *) out_host, span);
 }
+// Read-only span callback for the tag/MAC op: Poly1305 the ciphertext in place.
+static void ish_mac_span(const void *host, size_t span, void *ctx) {
+    ish_aead_mac_update((struct ish_aead_mac *) ctx, (const uint8_t *) host, span);
+}
 // Bound per-call sizes so a bogus request can't drive a huge host malloc.
 // SSH records are <= ~256 KiB; anything larger just falls back to the guest.
 #define ISH_AEAD_MAX_IN   (4u << 20)   // 4 MiB
@@ -84,12 +88,14 @@ dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
     struct ish_aead_req req;
     if (user_read(req_addr, &req, sizeof(req)))
         return _EFAULT;
-    // alg 0 = ChaCha20-Poly1305 AEAD (op 0=seal, 1=open); alg 1 = raw ChaCha20
-    // stream (op ignored). op 2 also selects the raw stream for back-compat.
+    // alg 0 = ChaCha20-Poly1305 AEAD (op 0=seal, 1=open, 3=tag/MAC-only);
+    // alg 1 = raw ChaCha20 stream (op ignored). op 2 also selects the raw
+    // stream for back-compat.
     bool raw_stream = (req.alg == ISH_AEAD_ALG_CHACHA20) || req.op == 2;
+    bool mac_only = (req.alg == ISH_AEAD_ALG_CHACHA20_POLY1305) && req.op == 3;
     if (req.alg != ISH_AEAD_ALG_CHACHA20_POLY1305 && req.alg != ISH_AEAD_ALG_CHACHA20)
         return _EOPNOTSUPP;
-    if (!raw_stream && req.op > 1)
+    if (!raw_stream && !mac_only && req.op > 1)
         return _EINVAL;
     if (req.inlen > ISH_AEAD_MAX_IN || req.aadlen > ISH_AEAD_MAX_AAD)
         return _EMSGSIZE; // too big for the fast path; caller falls back
@@ -122,6 +128,26 @@ dword_t sys_ish_aead_guest(guest_addr_t req_addr) {
     if (req.aadlen && user_read(req.aad, scratch_aad, req.aadlen)) {
         memset(key, 0, sizeof(key));
         return _EFAULT;
+    }
+
+    if (mac_only) {
+        // Compute the AEAD tag over req.in (ciphertext), no encryption. Lets a
+        // provider that ciphers the data via the raw-stream op verify/produce
+        // the tag at EVP Final. req.tag receives the 16-byte tag.
+        dword_t mret = 0;
+        struct ish_aead_mac mac;
+        ish_aead_mac_begin(&mac, key, nonce, scratch_aad, req.aadlen);
+        if (req.inlen && user_read_walk(req.in, req.inlen, ish_mac_span, &mac))
+            mret = _EFAULT;
+        else {
+            uint8_t tag[16];
+            ish_aead_mac_final(&mac, tag);
+            if (user_write(req.tag, tag, sizeof(tag)))
+                mret = _EFAULT;
+        }
+        memset(key, 0, sizeof(key));
+        memset(&mac, 0, sizeof(mac));
+        return mret;
     }
 
     dword_t ret = 0;

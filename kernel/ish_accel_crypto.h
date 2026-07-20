@@ -29,6 +29,18 @@ void ish_chacha20_stream_begin(struct ish_chacha_stream *s,
 void ish_chacha20_stream_update(struct ish_chacha_stream *s,
         const uint8_t *in, uint8_t *out, size_t len);
 
+// AEAD tag ("MAC") only: compute the ChaCha20-Poly1305 tag over
+// (aad || pad || ciphertext || pad || lengths) with the one-time key derived
+// from the key+nonce -- no encryption. This is the same tag `seal` produces
+// for the same aad+ciphertext, so a provider that ciphers the data separately
+// (streaming) can obtain/verify the tag with these calls. Streaming: the
+// ciphertext is fed one span at a time.
+struct ish_aead_mac { _Alignas(16) unsigned char opaque[320]; };
+void ish_aead_mac_begin(struct ish_aead_mac *s, const uint8_t key[32],
+        const uint8_t nonce[12], const uint8_t *aad, size_t aadlen);
+void ish_aead_mac_update(struct ish_aead_mac *s, const uint8_t *ct, size_t len);
+void ish_aead_mac_final(struct ish_aead_mac *s, uint8_t tag[16]);
+
 // ---- Streaming AEAD (lets a caller process the data one page-span at a
 // time straight out of / into guest memory, no bounce buffer) --------------
 // Opaque, stack-allocatable. Sized generously to hold the real context.

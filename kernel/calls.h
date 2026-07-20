@@ -440,6 +440,8 @@ int user_transform_two(guest_addr_t in, guest_addr_t out, size_t count,
         void (*fn)(const void *in_host, void *out_host, size_t span, void *ctx),
         void *ctx);
 int user_zero(guest_addr_t addr, size_t count);
+int user_read_walk(guest_addr_t addr, size_t count,
+        void (*fn)(const void *host, size_t span, void *ctx), void *ctx);
 dword_t sys_chdir(addr_t path_addr);
 dword_t sys_chdir_guest(guest_addr_t path_addr);
 dword_t sys_chroot(addr_t path_addr);

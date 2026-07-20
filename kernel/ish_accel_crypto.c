@@ -319,6 +319,47 @@ int ish_aead_finish(struct ish_aead_stream *sp, const uint8_t *tag_in, uint8_t *
     return 0;
 }
 
+// ---- AEAD tag ("MAC") only ----------------------------------------------
+// Reuses the exact Poly1305 path of the streaming AEAD, minus the ChaCha20
+// data encryption -- so the tag is identical to what ish_aead_seal produces
+// for the same aad + ciphertext. Data length is accumulated from the update
+// calls for the trailing length block.
+
+struct aead_mac {
+    struct poly1305 poly;
+    uint64_t aadlen, ctlen;
+};
+_Static_assert(sizeof(struct aead_mac) <= sizeof(struct ish_aead_mac),
+        "ish_aead_mac opaque buffer too small");
+
+void ish_aead_mac_begin(struct ish_aead_mac *sp, const uint8_t key[32],
+        const uint8_t nonce[12], const uint8_t *aad, size_t aadlen) {
+    struct aead_mac *s = (struct aead_mac *) sp;
+    uint8_t otk[32];
+    aead_otk(key, nonce, otk);
+    poly1305_init(&s->poly, otk);
+    if (aadlen) poly1305_update(&s->poly, aad, aadlen);
+    if (aadlen % 16) poly1305_update(&s->poly, poly_pad, 16 - (aadlen % 16));
+    s->aadlen = aadlen;
+    s->ctlen = 0;
+}
+
+void ish_aead_mac_update(struct ish_aead_mac *sp, const uint8_t *ct, size_t len) {
+    struct aead_mac *s = (struct aead_mac *) sp;
+    poly1305_update(&s->poly, ct, len);
+    s->ctlen += len;
+}
+
+void ish_aead_mac_final(struct ish_aead_mac *sp, uint8_t tag[16]) {
+    struct aead_mac *s = (struct aead_mac *) sp;
+    if (s->ctlen % 16) poly1305_update(&s->poly, poly_pad, 16 - (s->ctlen % 16));
+    uint8_t lengths[16];
+    for (int i = 0; i < 8; i++) lengths[i]     = (uint8_t) (s->aadlen >> (8 * i));
+    for (int i = 0; i < 8; i++) lengths[8 + i] = (uint8_t) (s->ctlen  >> (8 * i));
+    poly1305_update(&s->poly, lengths, 16);
+    poly1305_finish(&s->poly, tag);
+}
+
 // ---- Self-test against RFC 8439 vectors ---------------------------------
 
 static _Bool ct_eq(const uint8_t *a, const uint8_t *b, size_t n) {

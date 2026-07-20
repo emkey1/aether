@@ -221,6 +221,33 @@ int user_zero(guest_addr_t addr, size_t count) {
     return res;
 }
 
+// Read-only direct-pointer walk over one guest buffer: calls fn(host, span,
+// ctx) for each page-span with a direct host pointer (no copy). Used by the
+// crypto accelerator's tag/MAC path to Poly1305 guest ciphertext in place.
+// Returns 0 on success, 1 on fault.
+int user_read_walk(guest_addr_t addr, size_t count,
+        void (*fn)(const void *host, size_t span, void *ctx), void *ctx) {
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return 1;
+    int res = 0;
+    guest_addr_t p = addr;
+    qword_t end = (qword_t) addr + count;
+    if (!user_range_valid_mem(current, mem, addr, count))
+        res = 1;
+    while (res == 0 && (qword_t) p < end) {
+        qword_t page_end = ((qword_t) PAGE(p) + 1) << PAGE_BITS;
+        if (page_end > end) page_end = end;
+        const void *host = mem_ptr(mem, p, MEM_READ);
+        if (host == NULL) { res = 1; break; }
+        fn(host, page_end - p, ctx);
+        p = (guest_addr_t) page_end;
+    }
+    task_mem_read_unlock(&handle);
+    return res;
+}
+
 // Walk two guest buffers ([in, count) read, [out, count) write) in lockstep
 // spans -- each bounded by BOTH buffers' page boundaries -- and hand the
 // caller DIRECT host pointers for each span, so a bulk transform (e.g. the
