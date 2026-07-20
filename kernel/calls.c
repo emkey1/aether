@@ -1206,7 +1206,7 @@ static syscall_t i386_syscall_table[] = {
     [462] = (syscall_t) syscall_stub_silent, // mseal
     // 463-469: xattrat family (6.13), open_tree_attr (6.15),
     // file_getattr/file_setattr (6.17). Same silent-ENOSYS treatment as
-    // 442-462 -- a real 4.20 kernel (what uname advertises) returns ENOSYS
+    // 442-462 -- any pre-6.13 kernel (uname advertises 5.20) returns ENOSYS
     // for all of these, and callers fall back to the classic xattr path
     // (which reports ENOTSUP like a no-xattr filesystem). Observed: Arch
     // aarch64 useradd -m probing getxattrat/464 during the /etc/skel copy
