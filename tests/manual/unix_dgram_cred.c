@@ -146,6 +146,44 @@ int main(int argc, char **argv) {
         failures_total++;
     }
 
+    // Datagram 3: a small message received with MSG_TRUNC and a large buffer
+    // must NOT come back with MSG_TRUNC set. iSH prepends a 16-byte in-band
+    // cred header to every unix datagram; a naive implementation lets the
+    // host's own MSG_TRUNC (computed against header+buffer, and on macOS
+    // echoed from the input flag) leak through -- and systemd treats a
+    // MSG_TRUNC on its notify socket as "Received notify message exceeded
+    // maximum size", dropping every sd_notify READY=1 so Type=notify services
+    // (journald, udevd, ...) never leave "activating" and boot wedges. Here
+    // the payload obviously fits, so MSG_TRUNC must be clear.
+    {
+        int s = socket(AF_UNIX, SOCK_DGRAM, 0);
+        if (s < 0) { perror("socket dgram3"); failures_total++; }
+        else {
+            const char *payload = "READY=1";
+            if (sendto(s, payload, strlen(payload), 0,
+                       (struct sockaddr *) &addr, sizeof(addr)) != (ssize_t) strlen(payload)) {
+                perror("sendto dgram3");
+                failures_total++;
+            } else {
+                char big[4096];
+                struct iovec iov = {.iov_base = big, .iov_len = sizeof(big)};
+                struct msghdr m = {.msg_iov = &iov, .msg_iovlen = 1};
+                ssize_t n3 = recvmsg(receiver, &m, MSG_TRUNC);
+                test_logf("dgram 3: n=%zd msg_flags=%#x\n", n3, m.msg_flags);
+                if (n3 != 7) {
+                    printf("FAIL: dgram 3 got n=%zd (want 7)\n", n3);
+                    failures_total++;
+                }
+                if (m.msg_flags & MSG_TRUNC) {
+                    printf("FAIL: dgram 3 spurious MSG_TRUNC on a %zd-byte message that fit a "
+                           "4096 buffer -- this is what makes systemd drop sd_notify READY=1\n", n3);
+                    failures_total++;
+                }
+            }
+            close(s);
+        }
+    }
+
     close(receiver);
     unlink(sockpath);
     rmdir(dir);

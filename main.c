@@ -172,6 +172,13 @@ static void setup_host_mounts(void) {
     ensure_dev_node("/dev/urandom", MEM_MAJOR, DEV_URANDOM_MINOR);
     ensure_dev_node("/dev/tty", TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR);
     ensure_dev_node("/dev/ptmx", TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR);
+    // /dev/console is created by the iOS app (AppDelegate.m's
+    // EnsureCharacterDevice) but was missing from this CLI repair set, so a
+    // rootfs tarball that doesn't ship it (the x86_64 Arch minirootfs is one)
+    // booted the CLI with no /dev/console at all -- systemd (and everything
+    // that writes boot status or opens the console) then silently got ENOENT.
+    // Same node the app and the aarch64 image use (5:1).
+    ensure_dev_node("/dev/console", TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR);
     ignore_eexist(generic_mkdirat(AT_PWD, "/dev/pts", 0755));
     // Not every bundled root's base tarball ships /dev/shm, and iSH has no
     // boot-time tmpfs auto-mount for it; create it unconditionally so POSIX

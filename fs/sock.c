@@ -5633,6 +5633,25 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             res -= sizeof(dgram_hdr);
             have_dgram_cred = true;
         }
+        // Recompute MSG_TRUNC from the guest's point of view. The 16-byte
+        // in-band cred header consumes one host iov, so the host's own
+        // MSG_TRUNC reflects truncation against (header + caller buffers),
+        // not the caller's buffers alone -- and on macOS it comes back set
+        // even for a datagram that fit (an input MSG_TRUNC the host echoes).
+        // A spurious MSG_TRUNC on the notify socket is FATAL: systemd treats
+        // it as "Received notify message exceeded maximum size" and drops
+        // every sd_notify READY=1, so journald/udevd/etc. never leave
+        // "activating" and boot wedges before basic.target. Set MSG_TRUNC iff
+        // the delivered payload actually exceeded the caller's total buffer.
+        if (res >= 0) {
+            size_t caller_cap = 0;
+            for (size_t i = 0; i < (size_t) msg.msg_iovlen; i++)
+                caller_cap += msg.msg_iov[i].iov_len;
+            if ((size_t) res > caller_cap)
+                msg.msg_flags |= MSG_TRUNC;
+            else
+                msg.msg_flags &= ~MSG_TRUNC;
+        }
     }
     size_t requested = sock_iov_requested(msg.msg_iov, msg.msg_iovlen);
     err = 0;
