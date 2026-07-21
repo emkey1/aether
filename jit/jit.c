@@ -804,10 +804,17 @@ bool jit_teardown_lock(struct jit *jit) {
     __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
     bool got_lock = jetsam_write_lock_timed(jit);
     __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
-    if (!got_lock)
+    if (!got_lock) {
         printk("JIT: teardown_lock timed out waiting for a stuck jit_enter reader; "
                "proceeding with process-exit teardown unprotected\n");
-    return got_lock;
+        return false;
+    }
+    // mem_destroy calls pt_unmap_always right after this; without the flag,
+    // jit_invalidate_lock there would retry the same non-recursive write
+    // lock on this same thread and always time out (5s on every process
+    // exit -- seen on device as the whole boot crawling).
+    jit->teardown_locked = true;
+    return true;
 }
 
 // Same CLONE_VM-sibling exclusion as jit_teardown_lock, but for a LIVE
@@ -831,6 +838,13 @@ bool jit_teardown_lock(struct jit *jit) {
 // self-deadlock.
 bool jit_invalidate_lock(struct jit *jit) {
     if (jit == NULL)
+        return false;
+    // mem_destroy already holds this write lock (via jit_teardown_lock,
+    // never released) before its own pt_unmap_always call reaches here.
+    // Re-attempting a non-recursive pthread_rwlock write lock on the same
+    // thread can't succeed and would just burn the full timeout on every
+    // process exit; treat it as "already excluded" and skip re-acquiring.
+    if (jit->teardown_locked)
         return false;
     __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
     bool got_lock = jetsam_write_lock_timed(jit);

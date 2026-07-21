@@ -39,6 +39,11 @@ struct jit {
 
     lock_t lock;
     wrlock_t jetsam_lock;
+    // Set once jit_teardown_lock has acquired jetsam_lock for write, ahead
+    // of mem_destroy's own pt_unmap_always call -- see jit_invalidate_lock's
+    // comment in jit.c for why pt_unmap_always must skip re-acquiring in
+    // that case (pthread_rwlock write locks are not recursive).
+    bool teardown_locked;
     // Incremented after each jit_free_jetsam in OOM paths; frames compare
     // against last_block_cleanup_seq to detect stale last_block pointers.
     atomic_uint cleanup_seq;
