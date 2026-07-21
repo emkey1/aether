@@ -750,8 +750,9 @@ struct jit *jit_new(struct mmu *mmu) {
 // a block; mem_destroy's pt_unmap_always/jit_free sweep didn't, which is
 // exactly the gap this closes. Returns false on timeout (a permanently
 // stuck reader, e.g. one that crashed under a debugger before releasing its
-// lock) -- the caller must still proceed with teardown and must not call
-// jit_teardown_unlock in that case.
+// lock) -- the caller must still proceed with teardown regardless. The
+// lock is intentionally never released: jit_free frees the struct it lives
+// inside, so "free while holding" is the only safe shape (see jit.h).
 bool jit_teardown_lock(struct jit *jit) {
     if (jit == NULL)
         return false;
@@ -764,15 +765,10 @@ bool jit_teardown_lock(struct jit *jit) {
     return got_lock;
 }
 
-void jit_teardown_unlock(struct jit *jit) {
-    if (jit == NULL)
-        return;
-    pthread_rwlock_unlock(&jit->jetsam_lock.l);
-}
-
-// Callers must wrap this (and any preceding jit_invalidate_range sweep of
-// the same jit, e.g. mem_destroy's pt_unmap_always) with
-// jit_teardown_lock/jit_teardown_unlock -- see jit_teardown_lock for why.
+// Callers must precede this (and any preceding jit_invalidate_range sweep
+// of the same jit, e.g. mem_destroy's pt_unmap_always) with
+// jit_teardown_lock -- see jit_teardown_lock for why. The teardown lock is
+// never released; the struct is freed while it is held.
 void jit_free(struct jit *jit) {
     if (!jit) return;
     lock(&jit->lock, 0);

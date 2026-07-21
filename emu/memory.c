@@ -393,14 +393,20 @@ void mem_destroy(struct mem *mem) {
     // dropping it in between would reopen the exact race it exists to close.
     // See jit_teardown_lock's comment for why full-teardown invalidation
     // needs this and ordinary partial munmap doesn't.
-    bool jit_torn_down = jit_teardown_lock(mem->mmu.jit);
+    //
+    // Deliberately NEVER unlocked: jit_free frees the jit struct (the lock
+    // lives inside it), so an unlock after jit_free is a use-after-free --
+    // observed as an abort in jit_teardown_unlock on device, faulting at
+    // jit + jetsam_lock's offset inside recycled memory. The pre-teardown-
+    // lock code had the same "die locked" shape (jit_free acquired the
+    // write lock and freed while holding it); by mem_destroy time the mm
+    // refcount is zero, so no thread can legitimately be waiting on it.
+    (void) jit_teardown_lock(mem->mmu.jit);
 #endif
     pt_unmap_always(mem, 0, mem->page_limit);
 
 #if ENGINE_JIT
     jit_free(mem->mmu.jit);
-    if (jit_torn_down)
-        jit_teardown_unlock(mem->mmu.jit);
 #endif
     for (size_t root = 0; root < MEM_PGDIR_ROOT_SIZE; root++) {
         struct pt_directory_chunk *chunk =
