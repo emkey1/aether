@@ -5951,6 +5951,22 @@ static NSRange ISHWorkspaceLineRangeContainingIndex(NSString *text, NSUInteger i
     if (terminalUUIDString.length == 0)
         return nil;
     for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        // Prefer the scene's live root/top view controller: stateRestorationActivity
+        // is only populated lazily (e.g. on backgrounding), so a scene that has been
+        // foreground the whole time -- such as one opened directly in terminal mode --
+        // can have a stale or nil restoration activity even while it's actively hosting
+        // the terminal we're looking for.
+        UIViewController *rootViewController = ISHWorkspaceRootViewControllerForScene(scene);
+        UIViewController *topViewController = ISHWorkspaceTopViewController(rootViewController);
+        TerminalViewController *terminalViewController = nil;
+        if ([topViewController isKindOfClass:TerminalViewController.class]) {
+            terminalViewController = (TerminalViewController *) topViewController;
+        } else if ([rootViewController isKindOfClass:TerminalViewController.class]) {
+            terminalViewController = (TerminalViewController *) rootViewController;
+        }
+        if ([terminalViewController.sessionTerminalUUID isEqual:terminalUUID])
+            return scene.session;
+
         NSString *sceneTerminalUUID = scene.session.stateRestorationActivity.userInfo[ISHSceneTerminalUUIDUserInfoKey];
         if ([sceneTerminalUUID isEqualToString:terminalUUIDString])
             return scene.session;
