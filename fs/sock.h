@@ -340,6 +340,11 @@ static inline int sock_flags_from_real(int real) {
 #define IP_TTL_ 2
 #define IP_HDRINCL_ 3
 #define IP_RETOPTS_ 7
+// Linux IP_PKTINFO (boolean toggle AND the cmsg type it delivers). Darwin
+// splits nothing but numbers differently: IP_RECVPKTINFO/IP_PKTINFO are
+// both 26 there; struct in_pktinfo layouts are identical (ifindex,
+// spec_dst, addr -- 12 bytes).
+#define IP_PKTINFO_ 8
 #define IP_MTU_DISCOVER_ 10
 #define IP_RECVERR_ 11
 #define IP_RECVTTL_ 12
@@ -395,6 +400,12 @@ static inline int sock_opt_to_real(int fake, int level) {
             case IP_TTL_: return IP_TTL;
             case IP_HDRINCL_: return IP_HDRINCL;
             case IP_RETOPTS_: return IP_RETOPTS;
+#ifdef IP_RECVPKTINFO
+            // systemd-resolved's DNS stub listener sets this and treats
+            // failure as fatal ("Failed to listen on UDP socket
+            // 127.0.0.53:53").
+            case IP_PKTINFO_: return IP_RECVPKTINFO;
+#endif
             case IP_RECVTTL_: return IP_RECVTTL;
             case IP_RECVTOS_: return IP_RECVTOS;
         } break;

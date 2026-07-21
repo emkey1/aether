@@ -3018,7 +3018,16 @@ static int netlink_handle_sendmsg(struct fd *sock, const struct msghdr *msg) {
         offset += msg->msg_iov[i].iov_len;
     }
 
-    netlink_reply_reset(sock);
+    // Do NOT reset the reply buffer here. A real netlink socket queues
+    // replies per-request; a sender that pipelines several requests before
+    // reading any acks (sd-netlink's loopback_setup fires RTM_NEWADDR
+    // 127.0.0.1, RTM_NEWADDR ::1, RTM_SETLINK IFF_UP back-to-back, then
+    // collects the three acks in seq order) must find ALL of them. The old
+    // reset-on-every-sendmsg discarded the unread acks of every request but
+    // the last, so systemd waited forever for the first ack -- observed as
+    // PID 1 permanently polling its rtnetlink fd before spawning a single
+    // child. Replies accumulate; recvmsg's drain path already resets the
+    // buffer once everything is consumed.
     int err = 0;
     offset = 0;
     while (offset + sizeof(struct nlmsghdr_) <= req_len) {
@@ -3056,10 +3065,17 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg, int fake_
         ret = _EAGAIN;
         goto out;
     }
-    if (capacity == 0) {
-        ret = want_trunc_len ? (int) available : 0;
-        goto out;
-    }
+    // No capacity==0 early-out here: a zero-length read must still fall
+    // through to the loop below, which truncate-AND-CONSUMES the first
+    // message (Linux datagram semantics: a recv always eats the datagram,
+    // however small the buffer), and must still fill msg_name. sd-netlink
+    // depends on both: it peeks with an empty iov to size the datagram
+    // while checking the SENDER address -- an early-out that skipped the
+    // msg_name fill handed it uninitialized garbage for nl_pid, it
+    // declared the message "from untrusted PORT, ignoring", and its drop
+    // (another empty-iov recvmsg, flags=0) then consumed nothing, leaving
+    // the same message at the head of the queue forever: resolved spun
+    // peek/drop/peek at 100% CPU until its start timeout.
 
     size_t copied = 0;
     size_t reply_off = sock->socket.netlink_reply_off;
@@ -4714,32 +4730,26 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
                 sock->socket.netlink_get_strict_chk = enabled;
             return 0;
         }
-        // NETLINK_PKTINFO_ is deliberately NOT accepted here, even now that
-        // netlink_link_watch_thread (below) delivers real multicast
-        // notifications. That infrastructure closes ONE gap but not the
-        // one that actually matters: direct repro (twice) shows PID 1's
-        // own early netlink setup doesn't hang waiting on a multicast
-        // group at all (its bind() uses nl_groups=0 -- confirmed by
-        // instrumenting bind() and netlink_handle_sendmsg directly). It
-        // sends RTM_NEWADDR/RTM_SETLINK requests with NLM_F_ACK expecting
-        // them to have REAL effect (configuring an address, bringing a
-        // link up), gets our synthesized "success" ack (via
-        // netlink_handle_route_request's default case, which is otherwise
-        // correct -- see its own comment), reads it successfully via
-        // recvmsg, and then polls the same fd forever anyway: it's waiting
-        // for something contingent on the configuration ACTUALLY having
-        // taken effect, not just having been acknowledged. iSH has no
-        // guest-side network interface state to mutate -- "lo"/"eth0" are
-        // synthesized read-only from the HOST's real getifaddrs() on every
-        // dump -- so there is no way to make an RTM_NEWADDR/RTM_SETLINK
-        // request genuinely succeed. Making sd-netlink managers work fully
-        // needs a real (if virtual) per-guest network interface/address
-        // state model that setsockopt/bind/mutating rtnetlink requests can
-        // actually change and dumps reflect back -- a materially bigger
-        // feature than netlink protocol-level correctness, out of scope
-        // here. Rejecting this option is what makes managers that only
-        // need one-shot dumps (resolved) bail out cleanly instead of
-        // hanging; don't accept it without that state model in place.
+        if (option == NETLINK_PKTINFO_) {
+            // sd-netlink sets this unconditionally when creating an
+            // rtnetlink manager socket and treats setsockopt failure as
+            // fatal ("Could not create manager: Protocol not available"),
+            // which sent systemd-resolved into a forever-retry loop that
+            // blocked the rest of boot on slow (amd64-on-arm64) hosts.
+            // Accepting it is safe now for two reasons, both load-bearing:
+            // (1) netlink_handle_sendmsg no longer discards unread acks of
+            // pipelined requests, which was the ACTUAL cause of the PID 1
+            // boot hang two earlier attempts at accepting this option ran
+            // into (loopback_setup fires three requests back-to-back and
+            // collects the acks in seq order; we were destroying all but
+            // the last), and (2) netlink_link_watch_thread delivers real
+            // multicast notifications to subscribed sockets, so a manager
+            // that goes on to wait for link/address change events isn't
+            // waiting on something structurally impossible. No PKTINFO
+            // cmsg is attached to messages (nothing needs it yet); the
+            // option itself is tracked-and-ignored like NETLINK_CAP_ACK.
+            return 0;
+        }
         return _ENOPROTOOPT;
     }
     if (sock->socket.domain == AF_NETLINK_ && sock->real_fd < 0) {
@@ -4771,14 +4781,16 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
                 (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_ ||
                  option == SO_RCVTIMEO_ || option == SO_SNDTIMEO_ ||
                  option == SO_ATTACH_FILTER_ || option == SO_DETACH_FILTER_ ||
-                 option == SO_REUSEADDR_ || option == SO_REUSEPORT_)) {
+                 option == SO_REUSEADDR_ || option == SO_REUSEPORT_ ||
+                 // The other half of what sd-netlink sets unconditionally
+                 // on an rtnetlink manager socket (binds it to the
+                 // loopback ifindex) -- see the NETLINK_PKTINFO_ comment
+                 // in the SOL_NETLINK block for why accepting these is
+                 // safe now. A fake socket isn't on any real interface;
+                 // there's nothing to bind, so no-op.
+                 option == SO_BINDTODEVICE_ || option == SO_BINDTOIFINDEX_)) {
             return 0;
         }
-        // SO_BINDTODEVICE_/SO_BINDTOIFINDEX_ deliberately NOT accepted here
-        // -- see the NETLINK_PKTINFO_ comment above (SOL_NETLINK block):
-        // the other half of what sd-netlink sets unconditionally on an
-        // rtnetlink manager socket, rejected for the same underlying
-        // reason (no real guest network state to configure).
     }
     if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
         if (value_len < guest_timeval_size(abi))
@@ -5346,6 +5358,12 @@ static int sock_cmsg_type_to_fake(int level, int type) {
             case IP_RECVTTL: return IP_TTL_;
             case IP_TOS: return IP_TOS_;
             case IP_RECVERR_: return IP_RECVERR_;
+#ifdef IP_PKTINFO
+            // Darwin numbers this 26; Linux delivers it as cmsg type 8
+            // (IP_PKTINFO_). Identical 12-byte in_pktinfo payload, no
+            // payload translation needed.
+            case IP_PKTINFO: return IP_PKTINFO_;
+#endif
         }
     } else if (level == IPPROTO_IPV6) {
         switch (type) {

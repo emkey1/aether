@@ -302,7 +302,16 @@ int_t sys_inotify_add_watch_guest(fd_t fd_no, guest_addr_t pathname_addr, uint_t
         return err;
 
     struct statbuf stat;
-    err = generic_statat(AT_PWD, path, &stat, 0);
+    // path_normalize renders the filesystem root as "" -- feeding that back
+    // into generic_statat (which re-normalizes, and path_normalize rejects
+    // an empty INPUT with ENOENT) made inotify_add_watch(fd, "/", ...) fail.
+    // Watching / is legal on Linux and is the first thing sd-bus's
+    // watch_bind does (it watches every path prefix of the bus socket,
+    // root first) -- the ENOENT here aborted systemd-resolved's entire bus
+    // setup during early boot. Stat the root as "/" instead; the watch
+    // itself still stores the normalized "" so event-path matching stays
+    // consistent with the normalized paths events carry.
+    err = generic_statat(AT_PWD, path[0] != '\0' ? path : "/", &stat, 0);
     if (err < 0)
         return err;
 
