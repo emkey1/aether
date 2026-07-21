@@ -636,8 +636,10 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
         return NO;
     if (BundledRootArchiveURL(choice[kBundledRootArchiveNameKey]) != nil)
         return NO;
-    NSURL *downloaded = DownloadedBundledArchiveURL(choice);
-    return downloaded == nil || ![NSFileManager.defaultManager fileExistsAtPath:downloaded.path];
+    // importBundledRootChoice: always fetches fresh for a download-backed
+    // choice now (see its comment), so this is "will download", full stop --
+    // not "download only if not already cached".
+    return YES;
 }
 
 - (NSURL *)rootUrl:(NSString *)name {
@@ -825,18 +827,21 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
         NSString *downloadURLString = selectedChoice[kBundledRootDownloadURLKey];
         NSURL *downloadDestination = DownloadedBundledArchiveURL(selectedChoice);
         if (downloadURLString.length != 0 && downloadDestination != nil) {
-            if ([NSFileManager.defaultManager fileExistsAtPath:downloadDestination.path]) {
-                // Already fetched by a previous import (or dropped in manually
-                // under that same name) -- no need to re-download.
+            // Always fetch fresh from the network here -- this is the explicit
+            // "remote" choice (Official/Community Distributions), distinct from
+            // the "Root Cached Filesystems" section that imports an on-disk
+            // archive directly. Silently reusing a stale cached download from a
+            // previous import made "remote" indistinguishable from "cached",
+            // with no way to force a fresh fetch (e.g. to pick up an updated
+            // archive, or replace a corrupted one) short of manually deleting
+            // the file first. DownloadBundledArchive already removes any
+            // existing file at the destination before moving the new one in.
+            NSURL *downloadURL = [NSURL URLWithString:downloadURLString];
+            if (downloadURL != nil &&
+                DownloadBundledArchive(downloadURL, downloadDestination, progress, error)) {
                 archive = downloadDestination;
             } else {
-                NSURL *downloadURL = [NSURL URLWithString:downloadURLString];
-                if (downloadURL != nil &&
-                    DownloadBundledArchive(downloadURL, downloadDestination, progress, error)) {
-                    archive = downloadDestination;
-                } else {
-                    return NO;
-                }
+                return NO;
             }
         }
     }

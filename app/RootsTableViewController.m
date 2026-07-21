@@ -54,7 +54,7 @@
         NSString *size = choice[@"downloadSize"];
         subtitle = size.length != 0
             ? [subtitle stringByAppendingFormat:@" Downloads %@.", size]
-            : [subtitle stringByAppendingString:@" Downloads on first use."];
+            : [subtitle stringByAppendingString:@" Downloads on use."];
     }
     return subtitle;
 }
