@@ -561,6 +561,23 @@ int_t sys_shmdt(addr_t shmaddr);
 int_t sys_shmdt_guest(guest_addr_t shmaddr);
 int_t sys_shmctl(int_t shmid, int_t cmd, addr_t buf);
 int_t sys_shmctl_guest(int_t shmid, int_t cmd, guest_addr_t buf);
+int_t sys_msgget(dword_t key, int_t msgflg);
+int_t sys_msgget_guest(dword_t key, int_t msgflg);
+int_t sys_msgsnd(int_t msqid, addr_t msgp, dword_t msgsz, int_t msgflg);
+int_t sys_msgsnd_guest(int_t msqid, guest_addr_t msgp, qword_t msgsz, int_t msgflg);
+int_t sys_msgrcv(int_t msqid, addr_t msgp, dword_t msgsz, int_t msgtyp, int_t msgflg);
+int_t sys_msgrcv_guest(int_t msqid, guest_addr_t msgp, qword_t msgsz, sqword_t msgtyp, int_t msgflg);
+int_t sys_msgctl(int_t msqid, int_t cmd, addr_t buf);
+int_t sys_msgctl_guest(int_t msqid, int_t cmd, guest_addr_t buf);
+int_t sys_semget(dword_t key, int_t nsems, int_t semflg);
+int_t sys_semget_guest(dword_t key, int_t nsems, int_t semflg);
+int_t sys_semop_guest(int_t semid, guest_addr_t sops, uint_t nsops);
+int_t sys_semtimedop(int_t semid, addr_t sops, dword_t nsops, addr_t timeout);
+int_t sys_semtimedop_guest(int_t semid, guest_addr_t sops, uint_t nsops, guest_addr_t timeout);
+int_t sys_semctl(int_t semid, int_t semnum, int_t cmd, addr_t arg);
+int_t sys_semctl_guest(int_t semid, int_t semnum, int_t cmd, guest_addr_t arg);
+struct tgroup;
+void sysv_sem_exit(struct tgroup *group);
 
 // Syscall dispatch is selected from current->abi. The i386 path is live today;
 // amd64 keeps a separate bring-up path because it needs different syscall

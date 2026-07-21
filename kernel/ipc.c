@@ -13,6 +13,14 @@
 #include "util/list.h"
 #include "util/sync.h"
 
+#define IPCOP_SEMOP_   1
+#define IPCOP_SEMGET_  2
+#define IPCOP_SEMCTL_  3
+#define IPCOP_SEMTIMEDOP_ 4
+#define IPCOP_MSGSND_  11
+#define IPCOP_MSGRCV_  12
+#define IPCOP_MSGGET_  13
+#define IPCOP_MSGCTL_  14
 #define IPCOP_SHMAT_   21
 #define IPCOP_SHMDT_   22
 #define IPCOP_SHMGET_  23
@@ -30,34 +38,7 @@
 #define SHM_RDONLY_  010000
 #define SHM_RND_     020000
 
-struct ipc_perm_i386_ {
-    dword_t key;
-    uid_t_ uid;
-    uid_t_ gid;
-    uid_t_ cuid;
-    uid_t_ cgid;
-    dword_t mode;
-    word_t seq;
-    word_t __pad2;
-    dword_t __unused1;
-    dword_t __unused2;
-};
-static_assert(sizeof(struct ipc_perm_i386_) == 36, "i386 ipc_perm size");
-
-struct ipc_perm_amd64_ {
-    dword_t key;
-    uid_t_ uid;
-    uid_t_ gid;
-    uid_t_ cuid;
-    uid_t_ cgid;
-    word_t mode;
-    word_t __pad1;
-    word_t seq;
-    word_t __pad2;
-    qword_t __unused1;
-    qword_t __unused2;
-};
-static_assert(sizeof(struct ipc_perm_amd64_) == 48, "amd64 ipc_perm size");
+#include "kernel/sysvipc.h"
 
 struct kernel_shmid64_ds_i386_ {
     struct ipc_perm_i386_ shm_perm;
@@ -548,6 +529,36 @@ static int_t sys_ipc_common(uint_t call, int_t first, int_t second, guest_addr_t
     }
 
     switch (op) {
+        case IPCOP_SEMGET_:
+            return sys_semget_guest((dword_t) first, second, (int_t) third);
+        case IPCOP_SEMOP_:
+            return sys_semop_guest(first, ptr, (uint_t) second);
+        case IPCOP_SEMTIMEDOP_:
+            return sys_semtimedop_guest(first, ptr, (uint_t) second, (guest_addr_t) fifth);
+        case IPCOP_SEMCTL_: {
+            // The semun union is passed indirectly: ptr points at it.
+            addr_t arg;
+            if (user_read(ptr, &arg, sizeof(arg)))
+                return _EFAULT;
+            return sys_semctl_guest(first, second, (int_t) third, arg);
+        }
+        case IPCOP_MSGGET_:
+            return sys_msgget_guest((dword_t) first, second);
+        case IPCOP_MSGSND_:
+            return sys_msgsnd_guest(first, ptr, (qword_t) (dword_t) second, (int_t) third);
+        case IPCOP_MSGRCV_: {
+            if (version == 1)
+                return sys_msgrcv_guest(first, ptr, (qword_t) (dword_t) second,
+                                        (sqword_t) fifth, (int_t) third);
+            // Old-style: ptr points at struct ipc_kludge { msgp; msgtyp; }.
+            struct { addr_t msgp; sdword_t msgtyp; } kludge;
+            if (user_read(ptr, &kludge, sizeof(kludge)))
+                return _EFAULT;
+            return sys_msgrcv_guest(first, kludge.msgp, (qword_t) (dword_t) second,
+                                    (sqword_t) kludge.msgtyp, (int_t) third);
+        }
+        case IPCOP_MSGCTL_:
+            return sys_msgctl_guest(first, second, ptr);
         case IPCOP_SHMGET_:
             return shmget_internal((dword_t) first, (size_t) second, (int_t) third);
         case IPCOP_SHMAT_: {

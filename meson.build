@@ -244,6 +244,8 @@ if get_option('kernel') == 'ish'
         'kernel/pidfd.c',
         'kernel/inotify.c',
         'kernel/ipc.c',
+        'kernel/sysvmsg.c',
+        'kernel/sysvsem.c',
         'kernel/memfd.c',
         'kernel/ptrace.c',
 

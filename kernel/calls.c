@@ -1137,10 +1137,16 @@ static syscall_t i386_syscall_table[] = {
     [383] = (syscall_t) sys_statx,
     [384] = (syscall_t) sys_arch_prctl,
     [386] = (syscall_t) sys_rseq,
+    [393] = (syscall_t) sys_semget,
+    [394] = (syscall_t) sys_semtimedop,
     [395] = (syscall_t) sys_shmget,
     [396] = (syscall_t) sys_shmctl,
     [397] = (syscall_t) sys_shmat,
     [398] = (syscall_t) sys_shmdt,
+    [399] = (syscall_t) sys_msgget,
+    [400] = (syscall_t) sys_msgsnd,
+    [401] = (syscall_t) sys_msgrcv,
+    [402] = (syscall_t) sys_msgctl,
     [403] = (syscall_t) sys_clock_gettime64, // clock_gettime64
     [404] = (syscall_t) sys_clock_settime64, // clock_settime64
     [405] = (syscall_t) sys_clock_adjtime64, // clock_adjtime64 (read-state -> chronyd monitor-only)
@@ -1354,6 +1360,16 @@ static syscall_t amd64_syscall_table[470] = {
     [62] = (syscall_t) sys_kill,
     [63] = (syscall_t) sys_uname,
     [67] = (syscall_t) sys_shmdt,
+    // SysV semaphores + message queues: dispatch natively (full-width) in
+    // handle_amd64_native_memory_syscall; entries pass the NULL check.
+    [64] = (syscall_t) sys_semget,
+    [65] = (syscall_t) sys_semtimedop, // semop
+    [66] = (syscall_t) sys_semctl,
+    [220] = (syscall_t) sys_semtimedop,
+    [68] = (syscall_t) sys_msgget,
+    [69] = (syscall_t) sys_msgsnd,
+    [70] = (syscall_t) sys_msgrcv,
+    [71] = (syscall_t) sys_msgctl,
     [72] = (syscall_t) sys_fcntl_amd64,
     [73] = (syscall_t) sys_flock,
     [74] = (syscall_t) sys_fsync,
@@ -1829,14 +1845,18 @@ static syscall_t arm64_syscall_table[470] = {
     [183] = (syscall_t) syscall_stub, // mq_timedreceive
     [184] = (syscall_t) syscall_stub, // mq_notify
     [185] = (syscall_t) syscall_stub, // mq_getsetattr
-    [186] = (syscall_t) syscall_stub, // msgget
-    [187] = (syscall_t) syscall_stub, // msgctl
-    [188] = (syscall_t) syscall_stub, // msgrcv
-    [189] = (syscall_t) syscall_stub, // msgsnd
-    [190] = (syscall_t) syscall_stub, // semget
-    [191] = (syscall_t) syscall_stub, // semctl
-    [192] = (syscall_t) syscall_stub, // semtimedop
-    [193] = (syscall_t) syscall_stub, // semop
+    // SysV message queues (fakeroot's faked<->libfakeroot IPC, so every
+    // makepkg/dpkg-buildpackage package() stage). Dispatch natively
+    // (full-width) like shm above; entries pass the NULL check.
+    [186] = (syscall_t) sys_msgget,
+    [187] = (syscall_t) sys_msgctl,
+    [188] = (syscall_t) sys_msgrcv,
+    [189] = (syscall_t) sys_msgsnd,
+    // SysV semaphores (fakeroot again); native dispatch like msg above.
+    [190] = (syscall_t) sys_semget,
+    [191] = (syscall_t) sys_semctl,
+    [192] = (syscall_t) sys_semtimedop,
+    [193] = (syscall_t) sys_semtimedop, // semop = semtimedop without timeout
     [213] = (syscall_t) syscall_stub_silent, // readahead
     // add_key: PAM's pam_keyinit (and other keyutils-linked libs) call this
     // during ordinary process startup for session-keyring setup; every
@@ -2575,6 +2595,16 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
     case 194: result = (dword_t) sys_shmget_guest((dword_t) raw_args[0], raw_args[1], (dword_t) raw_args[2]); break; // shmget
     case 195: result = (dword_t) sys_shmctl_guest((int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // shmctl (64-bit shmid_ds)
     case 197: result = (dword_t) sys_shmdt_guest(raw_args[0]); break; // shmdt
+    // SysV message queues (fakeroot). msgrcv's msgtyp is a signed long in
+    // its own register; full-width so 64-bit msgp/msgtyp survive.
+    case 186: result = (dword_t) sys_msgget_guest((dword_t) raw_args[0], (int_t) raw_args[1]); break; // msgget
+    case 187: result = (dword_t) sys_msgctl_guest((int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]); break; // msgctl (64-bit msqid_ds)
+    case 188: result = (dword_t) sys_msgrcv_guest((int_t) raw_args[0], raw_args[1], raw_args[2], (sqword_t) raw_args[3], (int_t) raw_args[4]); break; // msgrcv
+    case 189: result = (dword_t) sys_msgsnd_guest((int_t) raw_args[0], raw_args[1], raw_args[2], (int_t) raw_args[3]); break; // msgsnd
+    case 190: result = (dword_t) sys_semget_guest((dword_t) raw_args[0], (int_t) raw_args[1], (int_t) raw_args[2]); break; // semget
+    case 191: result = (dword_t) sys_semctl_guest((int_t) raw_args[0], (int_t) raw_args[1], (int_t) raw_args[2], raw_args[3]); break; // semctl (union semun in register)
+    case 192: result = (dword_t) sys_semtimedop_guest((int_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], raw_args[3]); break; // semtimedop
+    case 193: result = (dword_t) sys_semop_guest((int_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]); break; // semop
     case 223: result = 0; break; // fadvise64: advisory, ignored (64-bit off/len args)
     // -- OpenMinis-parity sweep (see the table comment) --
     // real implementations
@@ -2624,8 +2654,8 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
     case 60: case 75: case 77: case 89: case 104: case 105: case 106:
     case 128:
     case 180: case 181: case 182: case 183: case 184: case 185:
-    case 186: case 187: case 188: case 189: case 190: case 191:
-    case 192: case 193: case 217: case 218: case 224:
+    // (186-193 are the real SysV msg/sem implementations above)
+    case 217: case 218: case 224:
     case 225: case 234: case 238: case 239: case 241: case 262:
     case 263: case 268: case 271: case 272: case 273:
     case 274: case 275: case 280: case 282: case 284:
@@ -3320,6 +3350,41 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 31:
     case 396:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_shmctl_guest(
+                (int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]));
+        return true;
+    // SysV semaphores (fakeroot); semctl's union semun rides full-width.
+    case 64:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_semget_guest(
+                (dword_t) raw_args[0], (int_t) raw_args[1], (int_t) raw_args[2]));
+        return true;
+    case 65:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_semop_guest(
+                (int_t) raw_args[0], raw_args[1], (uint_t) raw_args[2]));
+        return true;
+    case 66:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_semctl_guest(
+                (int_t) raw_args[0], (int_t) raw_args[1], (int_t) raw_args[2], raw_args[3]));
+        return true;
+    case 220:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_semtimedop_guest(
+                (int_t) raw_args[0], raw_args[1], (uint_t) raw_args[2], raw_args[3]));
+        return true;
+    // SysV message queues (fakeroot); full-width msgp/msgtyp.
+    case 68:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msgget_guest(
+                (dword_t) raw_args[0], (int_t) raw_args[1]));
+        return true;
+    case 69:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msgsnd_guest(
+                (int_t) raw_args[0], raw_args[1], raw_args[2], (int_t) raw_args[3]));
+        return true;
+    case 70:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msgrcv_guest(
+                (int_t) raw_args[0], raw_args[1], raw_args[2], (sqword_t) raw_args[3],
+                (int_t) raw_args[4]));
+        return true;
+    case 71:
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_msgctl_guest(
                 (int_t) raw_args[0], (int_t) raw_args[1], raw_args[2]));
         return true;
     case 297:

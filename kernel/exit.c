@@ -73,6 +73,9 @@ static bool exit_tgroup(struct task *task) {
     list_remove(&task->group_links);
     bool group_dead = list_empty(&group->threads);
     if (group_dead) {
+        // Apply this process's SysV SEM_UNDO adjustments (threads share one
+        // undo list via CLONE_SYSVSEM, so it applies at group death).
+        sysv_sem_exit(group);
         // don't need to lock the group since the only pointers to it come from:
         // - other threads' current->group, but there are none left thanks to that list_empty call
         // - locking pids_lock first, which do_exit did
