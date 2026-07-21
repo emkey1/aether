@@ -3577,6 +3577,154 @@ static int sockaddr_write(guest_addr_t sockaddr_addr, void *sockaddr, uint_t buf
     return 0;
 }
 
+// ---------------------------------------------------------------------
+// Guest-loopback NAT.
+//
+// iSH's guest has no network namespace of its own -- every guest socket
+// is a host socket. That breaks two things a Linux userland takes for
+// granted about loopback: any 127.x.y.z address works (macOS only has
+// 127.0.0.1 unless root adds aliases), and root can bind ports < 1024
+// (iSH never runs as root on macOS or iOS). systemd-resolved's DNS stub
+// listener needs BOTH (127.0.0.53:53) and treats bind failure as fatal.
+//
+// When a guest AF_INET bind fails with EADDRNOTAVAIL/EACCES/EPERM on a
+// loopback (or wildcard-with-privileged-port) endpoint, the host socket
+// is re-bound to 127.0.0.1 with an ephemeral port and the guest-visible
+// endpoint is recorded in a process-wide table. Guest-to-guest loopback
+// traffic is then translated at the edges: connect/sendto/sendmsg
+// destinations matching a recorded guest endpoint are rewritten to the
+// real host endpoint, and recvfrom/recvmsg source addresses (plus
+// getsockname/getpeername) are rewritten back, so e.g. glibc's stub
+// resolver -- which checks that a DNS reply's source address is exactly
+// the 127.0.0.53:53 it queried -- sees what it expects. Traffic from
+// outside the emulator can't reach these endpoints either way, so the
+// translation only ever has to be guest-consistent, not host-visible.
+// ---------------------------------------------------------------------
+
+struct inet_nat_entry {
+    struct list list;
+    uint32_t guest_addr;   // network byte order; INADDR_ANY = wildcard
+    uint16_t guest_port;   // network byte order
+    uint16_t host_port;    // network byte order
+    int type;              // SOCK_STREAM_ / SOCK_DGRAM_
+    struct fd *owner;
+};
+
+static lock_t inet_nat_lock = LOCK_INITIALIZER;
+static struct list inet_nat_table = LIST_INITIALIZER(inet_nat_table);
+
+static bool inet_addr_is_loopback(uint32_t addr_be) {
+    return (ntohl(addr_be) >> 24) == 127;
+}
+
+// Try to recover a failed AF_INET bind by re-binding to
+// 127.0.0.1:<ephemeral> and recording the guest-visible endpoint.
+// Returns 0 on success, negative errno to report the original failure.
+static int inet_nat_bind_fallback(struct fd *sock, struct sockaddr_in *sin, int orig_err) {
+    if (sin->sin_family != AF_INET)
+        return orig_err;
+    bool loopback = inet_addr_is_loopback(sin->sin_addr.s_addr);
+    bool wildcard = sin->sin_addr.s_addr == htonl(INADDR_ANY);
+    bool priv_port = sin->sin_port != 0 && ntohs(sin->sin_port) < 1024;
+    if (!(loopback || (wildcard && priv_port)))
+        return orig_err;
+
+    uint32_t guest_addr = sin->sin_addr.s_addr;
+    uint16_t guest_port = sin->sin_port;
+
+    struct sockaddr_in host_sin = *sin;
+    if (loopback)
+        host_sin.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    host_sin.sin_port = 0;
+    if (bind(sock->real_fd, (struct sockaddr *) &host_sin, sizeof(host_sin)) < 0)
+        return orig_err;
+    socklen_t host_len = sizeof(host_sin);
+    if (getsockname(sock->real_fd, (struct sockaddr *) &host_sin, &host_len) < 0)
+        return orig_err;
+
+    struct inet_nat_entry *entry = malloc(sizeof(*entry));
+    if (entry == NULL)
+        return _ENOMEM;
+    entry->guest_addr = guest_addr;
+    entry->guest_port = guest_port;
+    entry->host_port = host_sin.sin_port;
+    entry->type = sock->socket.type;
+    entry->owner = sock;
+    lock(&inet_nat_lock, 0);
+    list_add_tail(&inet_nat_table, &entry->list);
+    unlock(&inet_nat_lock);
+
+    sock->socket.inet_nat_bound = true;
+    sock->socket.inet_nat_bound_addr = guest_addr;
+    sock->socket.inet_nat_bound_port = guest_port;
+    STRACE(" [nat: guest %#x:%u -> host 127.0.0.1:%u]",
+            ntohl(guest_addr), ntohs(guest_port), ntohs(host_sin.sin_port));
+    return 0;
+}
+
+// Rewrites a destination the guest addressed at a NAT'd guest endpoint to
+// the real host endpoint. Returns true if rewritten.
+static bool inet_nat_rewrite_dest(struct fd *sock, void *sockaddr) {
+    struct sockaddr_in *sin = sockaddr;
+    if (sin->sin_family != AF_INET || !inet_addr_is_loopback(sin->sin_addr.s_addr))
+        return false;
+    bool rewritten = false;
+    lock(&inet_nat_lock, 0);
+    struct inet_nat_entry *entry;
+    // Exact-address entries take priority over wildcard (INADDR_ANY) ones.
+    struct inet_nat_entry *wildcard_match = NULL;
+    list_for_each_entry(&inet_nat_table, entry, list) {
+        if (entry->type != sock->socket.type || entry->guest_port != sin->sin_port)
+            continue;
+        if (entry->guest_addr == sin->sin_addr.s_addr) {
+            sin->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+            sin->sin_port = entry->host_port;
+            rewritten = true;
+            break;
+        }
+        if (entry->guest_addr == htonl(INADDR_ANY) && wildcard_match == NULL)
+            wildcard_match = entry;
+    }
+    if (!rewritten && wildcard_match != NULL) {
+        sin->sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+        sin->sin_port = wildcard_match->host_port;
+        rewritten = true;
+    }
+    unlock(&inet_nat_lock);
+    return rewritten;
+}
+
+// Rewrites a received source address (127.0.0.1:<host port> of a NAT'd
+// socket) back to the guest endpoint the sender is known as.
+static void inet_nat_rewrite_src(struct fd *sock, void *sockaddr) {
+    struct sockaddr_in *sin = sockaddr;
+    if (sin->sin_family != AF_INET || sin->sin_addr.s_addr != htonl(INADDR_LOOPBACK))
+        return;
+    lock(&inet_nat_lock, 0);
+    struct inet_nat_entry *entry;
+    list_for_each_entry(&inet_nat_table, entry, list) {
+        if (entry->type != sock->socket.type || entry->host_port != sin->sin_port)
+            continue;
+        if (entry->guest_addr != htonl(INADDR_ANY))
+            sin->sin_addr.s_addr = entry->guest_addr;
+        sin->sin_port = entry->guest_port;
+        break;
+    }
+    unlock(&inet_nat_lock);
+}
+
+static void inet_nat_remove_owner(struct fd *fd) {
+    lock(&inet_nat_lock, 0);
+    struct inet_nat_entry *entry, *tmp;
+    list_for_each_entry_safe(&inet_nat_table, entry, tmp, list) {
+        if (entry->owner == fd) {
+            list_remove(&entry->list);
+            free(entry);
+        }
+    }
+    unlock(&inet_nat_lock);
+}
+
 // Releases whatever unix bind-name (inode-backed or abstract) `fd` currently
 // holds and clears both fields, so a later re-release (e.g. a failed rebind
 // followed by fd close) can't double-release the same name.
@@ -3624,8 +3772,22 @@ static int_t sys_bind_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t so
 
     err = bind(sock->real_fd, (void *) &sockaddr, sockaddr_len);
     if (err < 0) {
+        int mapped_err = errno_map();
+        if (sock->socket.domain == AF_INET_ &&
+                (errno == EADDRNOTAVAIL || errno == EACCES || errno == EPERM)) {
+            // Loopback endpoints the host can't provide (a 127.x alias,
+            // or a privileged port -- iSH never runs as root) get NAT'd
+            // to 127.0.0.1:<ephemeral>; see inet_nat_bind_fallback.
+            int nat_err = inet_nat_bind_fallback(sock,
+                    (struct sockaddr_in *) &sockaddr, mapped_err);
+            if (nat_err == 0) {
+                sock->socket.unix_name_inode = inode;
+                return 0;
+            }
+            mapped_err = nat_err;
+        }
         release_unix_names(sock);
-        return errno_map();
+        return mapped_err;
     }
     sock->socket.unix_name_inode = inode;
     return 0;
@@ -3741,6 +3903,17 @@ static int_t sys_connect_common(fd_t sock_fd, guest_addr_t sockaddr_addr, uint_t
         sock->socket.netlink_groups = addr->nl_groups;
         sock_debug_event("connect-netlink", sock, 0, 0);
         return 0;
+    }
+
+    if (sock->socket.domain == AF_INET_) {
+        struct sockaddr_in guest_dest = *(struct sockaddr_in *) &sockaddr;
+        if (inet_nat_rewrite_dest(sock, &sockaddr)) {
+            // Remember the endpoint the guest THINKS it connected to, so
+            // getpeername reports it instead of the NAT'd host one.
+            sock->socket.inet_nat_peer = true;
+            sock->socket.inet_nat_peer_addr = guest_dest.sin_addr.s_addr;
+            sock->socket.inet_nat_peer_port = guest_dest.sin_port;
+        }
     }
 
     if (sock_trace_enabled()) {
@@ -4062,6 +4235,16 @@ static int_t sys_getsockname_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
     if (res < 0)
         return errno_map();
 
+    if (sock->socket.inet_nat_bound) {
+        // Report the guest-visible endpoint, not the NAT'd host one --
+        // see inet_nat_bind_fallback.
+        struct sockaddr_in *sin = (struct sockaddr_in *) sockaddr;
+        if (sin->sin_family == AF_INET) {
+            sin->sin_addr.s_addr = sock->socket.inet_nat_bound_addr;
+            sin->sin_port = sock->socket.inet_nat_bound_port;
+        }
+    }
+
     int err = sockaddr_write(sockaddr_addr, sockaddr, sockaddr_len, &real_len);
     if (err < 0)
         return err;
@@ -4146,6 +4329,16 @@ static int_t sys_getpeername_common(fd_t sock_fd, guest_addr_t sockaddr_addr, gu
         if (errno == EINVAL)
             return _ENOTCONN;
         return errno_map();
+    }
+
+    if (sock->socket.inet_nat_peer) {
+        // Report the endpoint the guest connected to, not the NAT'd host
+        // one it was silently rewritten to -- see inet_nat_rewrite_dest.
+        struct sockaddr_in *sin = (struct sockaddr_in *) sockaddr;
+        if (sin->sin_family == AF_INET) {
+            sin->sin_addr.s_addr = sock->socket.inet_nat_peer_addr;
+            sin->sin_port = sock->socket.inet_nat_peer_port;
+        }
     }
 
     int err = sockaddr_write(sockaddr_addr, sockaddr, sockaddr_len, &real_len);
@@ -4278,6 +4471,8 @@ static int_t sys_sendto_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t l
             }
             goto error;
         }
+        if (sock->socket.domain == AF_INET_)
+            inet_nat_rewrite_dest(sock, &sockaddr);
     }
 
     if (sock->socket.domain == AF_NETLINK_) {
@@ -4548,6 +4743,8 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
     }
     free(buffer);
     if (sockaddr_addr != 0) {
+        if (sock->socket.domain == AF_INET_)
+            inet_nat_rewrite_src(sock, &sockaddr);
         int err = sockaddr_write(sockaddr_addr, sockaddr, sizeof(sockaddr), &sockaddr_len);
         if (err < 0)
             return err;
@@ -4791,6 +4988,26 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
                  option == SO_BINDTODEVICE_ || option == SO_BINDTOIFINDEX_)) {
             return 0;
         }
+    }
+    if (level == SOL_SOCKET_ && option == SO_BINDTOIFINDEX_ && sock->real_fd >= 0 &&
+            (sock->socket.domain == AF_INET_ || sock->socket.domain == AF_INET6_)) {
+        // Linux SO_BINDTOIFINDEX restricts a socket to one interface.
+        // Darwin's real equivalent is IP_BOUND_IF (IPPROTO_IP, per-socket
+        // ifindex). systemd-resolved binds its DNS stub sockets to the
+        // loopback ifindex this way and treats failure as fatal. The
+        // guest's ifindexes come from the host's if_nametoindex (that's
+        // what the netlink link dumps report), so the value maps 1:1.
+        // If the host refuses (unknown index for a synthesized guest
+        // view), fall back to success: every NAT'd guest endpoint already
+        // lives on host loopback, so the restriction this asks for is
+        // already structurally true.
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+#ifdef IP_BOUND_IF
+        dword_t ifindex = *(dword_t *) value;
+        setsockopt(sock->real_fd, IPPROTO_IP, IP_BOUND_IF, &ifindex, sizeof(ifindex));
+#endif
+        return 0;
     }
     if (level == SOL_SOCKET_ && (option == SO_RCVTIMEO_OLD_ || option == SO_SNDTIMEO_OLD_)) {
         if (value_len < guest_timeval_size(abi))
@@ -5467,6 +5684,8 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         int err = sockaddr_read(msg_fake.msg_name, &msg_name, &msg_fake.msg_namelen);
         if (err < 0)
             return err;
+        if (sock->socket.domain == AF_INET_)
+            inet_nat_rewrite_dest(sock, &msg_name);
         msg.msg_name = &msg_name;
         msg.msg_namelen = msg_fake.msg_namelen;
     } else {
@@ -6388,6 +6607,8 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 
     // msg_name (changed)
     if (msg.msg_name != 0) {
+        if (sock->socket.domain == AF_INET_)
+            inet_nat_rewrite_src(sock, msg.msg_name);
         int err = sockaddr_write(msg_fake.msg_name, msg.msg_name, msg_fake.msg_namelen, &msg.msg_namelen);
         if (err < 0) {
             free(real_msg_control);
@@ -6825,6 +7046,8 @@ static int sock_close(struct fd *fd) {
         netlink_notify_unregister(fd);
         netlink_reply_reset(fd);
     }
+    if (fd->socket.domain == AF_INET_ && fd->socket.inet_nat_bound)
+        inet_nat_remove_owner(fd);
     release_unix_names(fd);
     lock(&peer_lock, 0);
     struct fd *peer = fd->socket.unix_peer;

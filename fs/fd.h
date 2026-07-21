@@ -113,6 +113,21 @@ struct fd {
             dword_t tcp_defer_accept;
             char tcp_congestion[16];
 
+            // Guest-loopback NAT (fs/sock.c inet_nat_*): when a guest
+            // bind() asks for a loopback endpoint the host can't provide
+            // (a 127.x.y.z alias macOS doesn't have, or a privileged
+            // port), the host socket is silently re-bound to
+            // 127.0.0.1:<ephemeral> and these carry the guest-visible
+            // address so getsockname/getpeername and datagram source
+            // addresses keep telling the guest what it expects.
+            // All stored in network byte order.
+            bool inet_nat_bound;
+            uint32_t inet_nat_bound_addr;
+            uint16_t inet_nat_bound_port;
+            bool inet_nat_peer;
+            uint32_t inet_nat_peer_addr;
+            uint16_t inet_nat_peer_port;
+
             uint32_t netlink_port_id;
             uint32_t netlink_groups;
             char *netlink_reply;
