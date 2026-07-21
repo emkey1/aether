@@ -486,6 +486,12 @@ __thread int jit_crash_interrupt = INT_GPF;
 // reverse-mapped SIGBUS address). Must be guest_addr_t, not addr_t (32-bit),
 // or 64-bit amd64/arm64 addresses are truncated to their low 32 bits.
 __thread guest_addr_t jit_crash_addr = 0;
+// Set (instead of a translatable guest address) when the host fault couldn't
+// be reverse-mapped to any guest page during guest execution -- the
+// stale-TLB-vs-concurrent-munmap signature. Consumed by the arm64 frontend's
+// sigsetjmp return to retry with a flushed TLB instead of delivering a guest
+// SIGSEGV; see jit_unmapped_guest_fault.
+__thread bool jit_crash_unmapped = false;
 
 static inline void jit_crash_track_mutex_lock(lock_t *mutex) {
     jit_crash_mutex_lock = mutex;
@@ -585,10 +591,11 @@ bool jit_translate_host_fault(void *host_addr) {
 __attribute__((__noreturn__))
 static void jit_unmapped_guest_fault(void *host_addr) {
     printk("JIT: guest-execution bad access at host %p with no guest mapping "
-           "(pid %d) - delivering guest SIGSEGV\n",
+           "(pid %d) - unwinding\n",
            host_addr, current ? current->pid : -1);
     jit_crash_interrupt = INT_GPF;
     jit_crash_addr = 0;
+    jit_crash_unmapped = true;
     jit_crash_fn(); // noreturn: releases locks and unwinds
 }
 
@@ -1546,9 +1553,37 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
     jit_crash_cpu = cpu;
     jit_crash_interrupt = INT_GPF;
     jit_crash_addr = frame->cpu.arm64_pc;
+    // volatile: lives across the sigsetjmp/siglongjmp crash unwind below;
+    // a register copy rolled back by longjmp would defeat the retry cap.
+    volatile unsigned unmapped_retries = 0;
     if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
+        frame = &frame_storage;
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
+        // A host fault mid-gadget with NO guest mapping behind it is the
+        // stale-TLB signature: a sibling CPU's concurrent COW/mmap/munmap
+        // replaced the page's host backing after this thread's TLB cached
+        // the old pointer, and the guest page is usually still perfectly
+        // valid under its NEW backing (observed on device: PID 1 faulted in
+        // a function prologue while its stack pages remained readable --
+        // delivering the SIGSEGV froze systemd and wedged the boot). This
+        // is the arm64 analog of the x86 frontends' INT_GPF retry dance
+        // (jit_x86_gpf_looks_retryable), whose absence here was an explicit
+        // "add it when real testing surfaces it" TODO. Flush the TLB and
+        // dispatch caches and re-execute from the fault pc: a transient
+        // race heals invisibly, and a genuinely-unmapped guest address
+        // refaults through mmu_translate as a clean guest SIGSEGV with an
+        // accurate si_addr. Capped so a pathological repeat can't spin.
+        if (jit_crash_unmapped && unmapped_retries < 8) {
+            jit_crash_unmapped = false;
+            unmapped_retries++;
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            memset(cache, 0, sizeof(cache));
+            tlb_flush(tlb);
+            goto rearm_arm64;
+        }
+        jit_crash_unmapped = false;
         cpu->segfault_addr = jit_crash_addr;
         cpu->segfault_was_write = false;
         jit_crash_unwind_active = false;
@@ -1557,6 +1592,9 @@ static int cpu_step_to_interrupt_arm64(struct cpu_state *cpu, struct tlb *tlb) {
         jit_crash_cpu = NULL;
         return jit_crash_interrupt;
     }
+rearm_arm64:
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
     jit_crash_unwind_active = true;
 
     pthread_rwlock_rdlock(&jit->jetsam_lock.l);
