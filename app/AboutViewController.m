@@ -835,6 +835,29 @@ typedef NS_ENUM(NSInteger, ISHLLMToolRunDecision) {
     ISHLLMToolRunAllowChat,  // run this and auto-run for the rest of the chat
 };
 
+// Bounds for the user-configurable shell-tool limits. The floor and ceiling keep
+// the tool loop functional rather than being safety policy: a command with no
+// timeout wedges the serial tool queue forever, and an unbounded capture blows
+// out the model's context window when the result is fed back.
+static const NSInteger kISHLLMToolTimeoutMinSeconds = 5;
+static const NSInteger kISHLLMToolTimeoutMaxSeconds = 300;
+static const NSInteger kISHLLMToolOutputMinKB = 16;
+static const NSInteger kISHLLMToolOutputMaxKB = 256;
+
+static NSInteger ISHLLMToolTimeoutSeconds(void) {
+    return MAX(kISHLLMToolTimeoutMinSeconds, MIN(kISHLLMToolTimeoutMaxSeconds, UserPreferences.shared.llmToolTimeoutSeconds));
+}
+
+static NSInteger ISHLLMToolOutputLimitKB(void) {
+    return MAX(kISHLLMToolOutputMinKB, MIN(kISHLLMToolOutputMaxKB, UserPreferences.shared.llmToolOutputLimitKB));
+}
+
+static NSString *ISHLLMToolTimeoutTitle(NSInteger seconds) {
+    if (seconds % 60 == 0 && seconds >= 60)
+        return [NSString stringWithFormat:@"%ld min", (long) (seconds / 60)];
+    return [NSString stringWithFormat:@"%lds", (long) seconds];
+}
+
 // The single tool exposed to the model: run a command in the iSH Linux shell and
 // return its combined stdout+stderr. This makes "web search" just `curl`/`wget`
 // in the environment iSH already is, with no extra API key.
@@ -843,7 +866,7 @@ static NSArray<NSDictionary<NSString *, id> *> *ISHLLMChatToolDefinitions(void) 
         @"type": @"function",
         @"function": @{
             @"name": @"run_shell",
-            @"description": @"Run a command in the local iSH Linux shell (/bin/sh -c) and return its combined stdout and stderr. Use this to fetch web pages or APIs, read files, or run any Linux command available in this environment. The userland varies by distro -- it may be a minimal BusyBox/Alpine system or a full Debian/Devuan/glibc one -- so use the tools that are actually present (a per-session environment note lists what was detected) and try an alternative if a command reports 'not found'. Output is capped at 64 KB and the command is killed after 30 seconds.",
+            @"description": [NSString stringWithFormat:@"Run a command in the local iSH Linux shell (/bin/sh -c) and return its combined stdout and stderr. Use this to fetch web pages or APIs, read files, or run any Linux command available in this environment. The userland varies by distro -- it may be a minimal BusyBox/Alpine system or a full Debian/Devuan/glibc one -- so use the tools that are actually present (a per-session environment note lists what was detected) and try an alternative if a command reports 'not found'. Output is capped at %ld KB and the command is killed after %ld seconds.", (long) ISHLLMToolOutputLimitKB(), (long) ISHLLMToolTimeoutSeconds()],
             @"parameters": @{
                 @"type": @"object",
                 @"properties": @{
@@ -934,8 +957,11 @@ static NSData *ISHLLMSynchronousChatPost(NSURL *url, NSData *body, NSString *api
 // primitive repoints the kernel's `current`, so it must not run on a guest task
 // thread).
 static NSString *ISHLLMRunGuestShellCommand(NSString *command, NSString **summaryOut) {
+    NSInteger timeoutSeconds = ISHLLMToolTimeoutSeconds();
+    NSInteger outputLimitKB = ISHLLMToolOutputLimitKB();
     struct guest_command_result result;
-    int rc = run_guest_command_capture(command.UTF8String, NULL, 30000, 64 * 1024, &result);
+    int rc = run_guest_command_capture(command.UTF8String, NULL,
+                                       (int) (timeoutSeconds * 1000), (size_t) outputLimitKB * 1024, &result);
     if (rc < 0) {
         if (summaryOut != NULL)
             *summaryOut = @"failed to start";
@@ -947,9 +973,9 @@ static NSString *ISHLLMRunGuestShellCommand(NSString *command, NSString **summar
         captured = [[NSString alloc] initWithBytes:result.output length:result.output_len encoding:NSUTF8StringEncoding] ?: @"";
     NSMutableArray<NSString *> *notes = [NSMutableArray array];
     if (result.timed_out)
-        [notes addObject:@"timed out after 30s"];
+        [notes addObject:[NSString stringWithFormat:@"timed out after %lds", (long) timeoutSeconds]];
     if (result.truncated)
-        [notes addObject:@"output truncated to 64 KB"];
+        [notes addObject:[NSString stringWithFormat:@"output truncated to %ld KB", (long) outputLimitKB]];
     if (result.exited)
         [notes addObject:[NSString stringWithFormat:@"exit code %d", result.exit_code]];
     else if (result.term_signal)
@@ -1013,8 +1039,9 @@ static NSString *ISHLLMDetectGuestEnvironmentNote(void) {
 
     BOOL hasCurl = [tools containsObject:@"curl"];
     BOOL hasWget = [tools containsObject:@"wget"];
-    NSMutableString *note = [NSMutableString stringWithString:
-        @"You can run shell commands in this iSH Linux guest with the run_shell tool; it returns combined stdout+stderr (capped at 64 KB, killed after 30s)."];
+    NSMutableString *note = [NSMutableString stringWithFormat:
+        @"You can run shell commands in this iSH Linux guest with the run_shell tool; it returns combined stdout+stderr (capped at %ld KB, killed after %lds).",
+        (long) ISHLLMToolOutputLimitKB(), (long) ISHLLMToolTimeoutSeconds()];
     if (distro.length > 0)
         [note appendFormat:@" Detected distro: %@.", distro];
     if (hasCurl && hasWget)
@@ -2878,6 +2905,29 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     return presenter ?: self;
 }
 
+// "Allow all this chat" removes the human from the loop, which is exactly what
+// prompt injection needs: a fetched web page can instruct the model to run
+// further commands with no one confirming them. Spell that out once before the
+// first chat-wide auto-approve; after acknowledgment the option works directly.
+- (void)confirmAutoRunAllForChatWithCompletion:(void (^)(ISHLLMToolRunDecision decision))completion {
+    static NSString *const kAutoRunWarningShownKey = @"LLM Tools AutoRun Warning Acknowledged";
+    if ([NSUserDefaults.standardUserDefaults boolForKey:kAutoRunWarningShownKey]) {
+        completion(ISHLLMToolRunAllowChat);
+        return;
+    }
+    UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Auto-run all commands this chat?"
+        message:@"Every command the model requests for the rest of this chat will run without confirmation. Content the model fetches (a web page, a file) can instruct it to run destructive commands or read private data, and nothing will stop that but the model itself. Auto-run re-arms when you clear the chat."
+        preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Run Once Instead" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
+        completion(ISHLLMToolRunOnce);
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Allow All" style:UIAlertActionStyleDestructive handler:^(UIAlertAction *action) {
+        [NSUserDefaults.standardUserDefaults setBool:YES forKey:kAutoRunWarningShownKey];
+        completion(ISHLLMToolRunAllowChat);
+    }]];
+    [[self ish_presentationViewController] presentViewController:alert animated:YES completion:nil];
+}
+
 - (void)confirmRunCommand:(NSString *)command completion:(void (^)(ISHLLMToolRunDecision decision))completion {
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Run shell command?"
         message:[NSString stringWithFormat:@"The model wants to run this in the iSH shell:\n\n%@", command]
@@ -2889,7 +2939,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         completion(ISHLLMToolRunAllowReply);
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Run, allow all this chat" style:UIAlertActionStyleDefault handler:^(UIAlertAction *action) {
-        completion(ISHLLMToolRunAllowChat);
+        [self confirmAutoRunAllForChatWithCompletion:completion];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Don't Run" style:UIAlertActionStyleCancel handler:^(UIAlertAction *action) {
         completion(ISHLLMToolRunDecline);
@@ -2937,7 +2987,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     (void) tableView;
     if (section == 0)
         return 1;
-    return 8;
+    return 10;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -2945,8 +2995,8 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     if (section == 0)
         return nil;
     if (ISHLLMUsesAppleFoundationModels())
-        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command. Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
-    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini.\nChat history is saved in /AOK/persist/llm-chat.json.";
+        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command; the command timeout and output limit are adjustable above. Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
+    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini. The command timeout and output limit are adjustable above.\nChat history is saved in /AOK/persist/llm-chat.json.";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -2986,10 +3036,16 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         cell.textLabel.text = @"Test Connection";
         cell.detailTextLabel.text = @"";
         cell.accessoryType = UITableViewCellAccessoryNone;
-    } else {
+    } else if (indexPath.row == 7) {
         cell.textLabel.text = @"Shell Tools";
         cell.detailTextLabel.text = UserPreferences.shared.llmToolsEnabled ? @"On" : @"Off";
         cell.accessoryType = UserPreferences.shared.llmToolsEnabled ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
+    } else if (indexPath.row == 8) {
+        cell.textLabel.text = @"Command Timeout";
+        cell.detailTextLabel.text = ISHLLMToolTimeoutTitle(ISHLLMToolTimeoutSeconds());
+    } else {
+        cell.textLabel.text = @"Output Limit";
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld KB", (long) ISHLLMToolOutputLimitKB()];
     }
     return cell;
 }
@@ -3018,6 +3074,14 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     }
     if (indexPath.row == 7) {
         [self toggleShellToolsFromView:[tableView cellForRowAtIndexPath:indexPath]];
+        return;
+    }
+    if (indexPath.row == 8) {
+        [self pickToolTimeoutFromView:[tableView cellForRowAtIndexPath:indexPath]];
+        return;
+    }
+    if (indexPath.row == 9) {
+        [self pickToolOutputLimitFromView:[tableView cellForRowAtIndexPath:indexPath]];
         return;
     }
     NSString *title = indexPath.row == 1 ? @"Server URL" : (indexPath.row == 2 ? @"Model" : @"API Key");
@@ -3054,7 +3118,8 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         return;
     }
     UIAlertController *alert = [UIAlertController alertControllerWithTitle:@"Enable shell tools?"
-        message:@"The model will be able to request shell commands that run in the iSH Linux environment — for web search via curl/wget, reading files, or running programs. You confirm each command before it runs, output is capped at 64 KB, and commands are killed after 30 seconds. Only enable this with a model and server you trust."
+        message:[NSString stringWithFormat:@"The model will be able to request shell commands that run in the iSH Linux environment — for web search via curl/wget, reading files, or running programs. You confirm each command before it runs, output is capped at %ld KB, and commands are killed after %@ (both adjustable below). Only enable this with a model and server you trust.",
+            (long) ISHLLMToolOutputLimitKB(), ISHLLMToolTimeoutTitle(ISHLLMToolTimeoutSeconds())]
         preferredStyle:UIAlertControllerStyleAlert];
     [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
     [alert addAction:[UIAlertAction actionWithTitle:@"Enable" style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
@@ -3062,6 +3127,48 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         [self.tableView reloadData];
     }]];
     [self presentViewController:alert animated:YES completion:nil];
+}
+
+// Preset pickers for the shell-tool limits. Action sheets need a popover anchor
+// on iPad, so both take the tapped cell as the source view.
+- (void)pickToolTimeoutFromView:(UIView *)sourceView {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Command Timeout"
+        message:@"A command that runs longer than this is killed and its partial output is returned to the model."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    NSInteger current = ISHLLMToolTimeoutSeconds();
+    for (NSNumber *choice in @[@15, @30, @60, @120, @300]) {
+        NSInteger seconds = choice.integerValue;
+        NSString *title = ISHLLMToolTimeoutTitle(seconds);
+        if (seconds == current)
+            title = [title stringByAppendingString:@" ✓"];
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            UserPreferences.shared.llmToolTimeoutSeconds = seconds;
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = sourceView;
+    sheet.popoverPresentationController.sourceRect = sourceView.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)pickToolOutputLimitFromView:(UIView *)sourceView {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Output Limit"
+        message:@"Command output beyond this is truncated before being returned to the model. Larger limits use more of the model's context window."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    NSInteger current = ISHLLMToolOutputLimitKB();
+    for (NSNumber *choice in @[@16, @64, @128, @256]) {
+        NSInteger kb = choice.integerValue;
+        NSString *title = [NSString stringWithFormat:@"%ld KB%@", (long) kb, kb == current ? @" ✓" : @""];
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            UserPreferences.shared.llmToolOutputLimitKB = kb;
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = sourceView;
+    sheet.popoverPresentationController.sourceRect = sourceView.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
 }
 
 - (NSArray<NSString *> *)modelIdentifiersFromResponseData:(NSData *)data {

@@ -42,6 +42,8 @@ static NSString *const kPreferenceLLMServerURLKey = @"LLM Server URL";
 static NSString *const kPreferenceLLMModelKey = @"LLM Model";
 static NSString *const kPreferenceLLMAPIKeyKey = @"LLM API Key";
 static NSString *const kPreferenceLLMToolsEnabledKey = @"LLM Tools Enabled";
+static NSString *const kPreferenceLLMToolTimeoutSecondsKey = @"LLM Tool Timeout Seconds";
+static NSString *const kPreferenceLLMToolOutputLimitKBKey = @"LLM Tool Output Limit KB";
 static NSString *const kPreferenceCustomDnsServersKey = @"Custom DNS Servers";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
@@ -197,6 +199,8 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMModelKey: @"openrouter/free",
             kPreferenceLLMAPIKeyKey: @"",
             kPreferenceLLMToolsEnabledKey: @(NO),
+            kPreferenceLLMToolTimeoutSecondsKey: @(30),
+            kPreferenceLLMToolOutputLimitKBKey: @(64),
             kPreferenceFontSizeKey: @(12),
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
@@ -257,6 +261,8 @@ bool (*remove_user_default)(const char *name);
             @"llm_model": kPreferenceLLMModelKey,
             @"llm_api_key": kPreferenceLLMAPIKeyKey,
             @"llm_tools_enabled": kPreferenceLLMToolsEnabledKey,
+            @"llm_tool_timeout_seconds": kPreferenceLLMToolTimeoutSecondsKey,
+            @"llm_tool_output_limit_kb": kPreferenceLLMToolOutputLimitKBKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"login_as_default_user": kPreferenceLoginAsDefaultUserKey,
@@ -298,6 +304,8 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMModelKey: property(llmModel),
             kPreferenceLLMAPIKeyKey: property(llmAPIKey),
             kPreferenceLLMToolsEnabledKey: property(llmToolsEnabled),
+            kPreferenceLLMToolTimeoutSecondsKey: property(llmToolTimeoutSeconds),
+            kPreferenceLLMToolOutputLimitKBKey: property(llmToolOutputLimitKB),
             kPreferenceCustomDnsServersKey: property(customDnsServers),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
@@ -635,6 +643,32 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateLlmToolsEnabled:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: llmToolTimeoutSeconds
+- (NSInteger)llmToolTimeoutSeconds {
+    return [_defaults integerForKey:kPreferenceLLMToolTimeoutSecondsKey];
+}
+
+- (void)setLlmToolTimeoutSeconds:(NSInteger)llmToolTimeoutSeconds {
+    [_defaults setInteger:llmToolTimeoutSeconds forKey:kPreferenceLLMToolTimeoutSecondsKey];
+}
+
+- (BOOL)validateLlmToolTimeoutSeconds:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: llmToolOutputLimitKB
+- (NSInteger)llmToolOutputLimitKB {
+    return [_defaults integerForKey:kPreferenceLLMToolOutputLimitKBKey];
+}
+
+- (void)setLlmToolOutputLimitKB:(NSInteger)llmToolOutputLimitKB {
+    [_defaults setInteger:llmToolOutputLimitKB forKey:kPreferenceLLMToolOutputLimitKBKey];
+}
+
+- (BOOL)validateLlmToolOutputLimitKB:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 
