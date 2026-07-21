@@ -1838,7 +1838,14 @@ static syscall_t arm64_syscall_table[470] = {
     [192] = (syscall_t) syscall_stub, // semtimedop
     [193] = (syscall_t) syscall_stub, // semop
     [213] = (syscall_t) syscall_stub_silent, // readahead
-    [217] = (syscall_t) syscall_stub, // add_key
+    // add_key: PAM's pam_keyinit (and other keyutils-linked libs) call this
+    // during ordinary process startup for session-keyring setup; every
+    // caller treats ENOSYS as "keyrings unsupported" and continues, so this
+    // is one of the benign-fallback stubs from the comment above, not a
+    // functionality gap -- seen spamming "ERROR: arm64 stub syscall 217" on
+    // every single spawned process (mount/udevadm/journalctl/userdbctl) during
+    // a systemd boot.
+    [217] = (syscall_t) syscall_stub_silent, // add_key
     [218] = (syscall_t) syscall_stub, // request_key
     [219] = (syscall_t) sys_keyctl, // keyctl -- matches i386 (288)/amd64 (250)
     [224] = (syscall_t) syscall_stub, // swapon
@@ -1864,7 +1871,12 @@ static syscall_t arm64_syscall_table[470] = {
     [274] = (syscall_t) syscall_stub, // sched_setattr
     [275] = (syscall_t) syscall_stub, // sched_getattr
     [277] = (syscall_t) syscall_stub_silent, // seccomp
-    [280] = (syscall_t) syscall_stub, // bpf
+    // bpf: systemd probes this at unit-start time for cgroup BPF device/IP
+    // accounting programs and explicitly falls back (logging its own
+    // "BPF firewalling not supported by kernel" diagnostic) on ENOSYS --
+    // another benign-fallback stub, not a functionality gap. Seen as PID 1
+    // spamming "ERROR: arm64 stub syscall 280" 8x in a row during boot.
+    [280] = (syscall_t) syscall_stub_silent, // bpf
     [282] = (syscall_t) syscall_stub, // userfaultfd
     [284] = (syscall_t) syscall_stub, // mlock2
     [286] = (syscall_t) sys_preadv2_guest, // preadv2
