@@ -40,6 +40,7 @@ static int rpe_events(struct real_poll_event *rpe);
 static int real_poll_wait(struct real_poll *real, struct real_poll_event *events, int max, struct timespec *timeout);
 static int real_poll_update(struct real_poll *real, int fd, int types, void *data);
 static inline bool poll_fd_has_host_wait(struct poll_fd *pollfd);
+static int poll_sync_host_locked(struct poll *poll, struct fd *fd);
 static void poll_fd_free(struct poll_fd *poll_fd);
 
 static bool poll_fd_needs_periodic_host_rescan(struct poll_fd *poll_fd) {
@@ -204,7 +205,7 @@ static int poll_deliver_ready_locked(struct poll *poll_, struct poll_fd *poll_fd
         // poll_fd registered.
         poll_fd->types &= ~(POLL_READ | POLL_WRITE);
         if (poll_fd_has_host_wait(poll_fd))
-            real_poll_update(&poll_->real, fd->real_fd, poll_fd->types, poll_fd);
+            poll_sync_host_locked(poll_, fd);
         return res;
     }
 
@@ -280,13 +281,42 @@ static inline bool poll_fd_has_host_wait(struct poll_fd *pollfd) {
 }
 
 // does not do its own locking
-static struct poll_fd *poll_find_fd(struct poll *poll, struct fd *fd) {
+static struct poll_fd *poll_find_fd(struct poll *poll, struct fd *fd, fd_t guest_fd) {
     struct poll_fd *poll_fd, *tmp;
     list_for_each_entry_safe(&poll->poll_fds, poll_fd, tmp, fds) {
-        if (poll_fd->fd == fd)
+        if (poll_fd->fd == fd && poll_fd->guest_fd == guest_fd)
             return poll_fd;
     }
     return NULL;
+}
+
+// Program the host backend with the union of every registration of `fd` in
+// this poll. dup'd guest fds share one struct fd and thus one host fd, so
+// letting each registration issue its own real_poll_update would clobber the
+// others' udata and interest set. udata is the first registration in list
+// order; poll_wait fans a host event out to every registration of that fd.
+// Caller must hold poll->lock. Returns real_poll_update's result (-1 with
+// errno set on failure).
+static int poll_sync_host_locked(struct poll *poll, struct fd *fd) {
+    int types = 0;
+    bool all_edge_triggered = true;
+    struct poll_fd *canonical = NULL, *poll_fd;
+    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
+        if (poll_fd->fd != fd || !poll_fd_has_host_wait(poll_fd))
+            continue;
+        if (canonical == NULL)
+            canonical = poll_fd;
+        types |= poll_fd->types & ~(POLL_EDGETRIGGERED | POLL_ONESHOT);
+        if (!(poll_fd->types & POLL_EDGETRIGGERED))
+            all_edge_triggered = false;
+    }
+    if (canonical == NULL)
+        return real_poll_update(&poll->real, fd->real_fd, 0, NULL);
+    // Only arm the host edge-triggered when every registration is: a
+    // level-triggered sibling must keep seeing repeat notifications.
+    if (all_edge_triggered)
+        types |= POLL_EDGETRIGGERED;
+    return real_poll_update(&poll->real, fd->real_fd, types, canonical);
 }
 
 // See comment on pollfd_freelist for context
@@ -313,12 +343,12 @@ static struct poll_fd *poll_find_ptr(struct poll *poll, struct poll_fd *candidat
     return NULL;
 }
 
-bool poll_has_fd(struct poll *poll, struct fd *fd) {
-    return poll_find_fd(poll, fd) != NULL;
+bool poll_has_fd(struct poll *poll, struct fd *fd, fd_t guest_fd) {
+    return poll_find_fd(poll, fd, guest_fd) != NULL;
 }
 
-bool poll_fd_is_exclusive(struct poll *poll, struct fd *fd) {
-    struct poll_fd *poll_fd = poll_find_fd(poll, fd);
+bool poll_fd_is_exclusive(struct poll *poll, struct fd *fd, fd_t guest_fd) {
+    struct poll_fd *poll_fd = poll_find_fd(poll, fd, guest_fd);
     return poll_fd != NULL && (poll_fd->types & POLL_EXCLUSIVE) != 0;
 }
 
@@ -359,13 +389,14 @@ static bool poll_fd_currently_ready(struct poll_fd *poll_fd) {
     return (raw & (poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL)) != 0;
 }
 
-int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info) {
+int poll_add_fd(struct poll *poll, struct fd *fd, fd_t guest_fd, int types, union poll_fd_info info) {
     int err;
     lock(&fd->poll_lock, 0);
     lock(&poll->lock, 0);
 
     struct poll_fd *poll_fd;
-    if (!list_empty(&poll->pollfd_freelist)) {
+    bool from_freelist = !list_empty(&poll->pollfd_freelist);
+    if (from_freelist) {
         poll_fd = list_first_entry(&poll->pollfd_freelist, struct poll_fd, fds);
         list_remove(&poll_fd->fds);
     } else {
@@ -376,22 +407,28 @@ int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info 
         }
     }
     poll_fd->fd = fd;
+    poll_fd->guest_fd = guest_fd;
     poll_fd->poll = poll;
     poll_fd->types = types;
     poll_fd->info = info;
     poll_fd->triggered_types = 0;
 
+    list_add(&fd->poll_fds, &poll_fd->polls);
+    list_add(&poll->poll_fds, &poll_fd->fds);
+
     if (poll_fd_has_host_wait(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, types, poll_fd);
+        err = poll_sync_host_locked(poll, fd);
         if (err < 0) {
-            free(poll_fd);
+            list_remove(&poll_fd->polls);
+            list_remove(&poll_fd->fds);
+            if (from_freelist)
+                poll_fd_free(poll_fd);
+            else
+                free(poll_fd);
             err = errno_map();
             goto out;
         }
     }
-
-    list_add(&fd->poll_fds, &poll_fd->polls);
-    list_add(&poll->poll_fds, &poll_fd->fds);
 
     // An emulated fd added while ready can't surface through the host kevent;
     // wake a blocked poller so it re-scans. (See poll_poke_notify_locked.) Only
@@ -406,27 +443,26 @@ out:
     return err;
 }
 
-int poll_del_fd(struct poll *poll, struct fd *fd) {
+int poll_del_fd(struct poll *poll, struct fd *fd, fd_t guest_fd) {
     int err;
     lock(&fd->poll_lock, 0);
     lock(&poll->lock, 0);
-    struct poll_fd *poll_fd = poll_find_fd(poll, fd);
+    struct poll_fd *poll_fd = poll_find_fd(poll, fd, guest_fd);
     if (poll_fd == NULL) {
         err = _ENOENT;
         goto out;
     }
 
-    if (poll_fd_has_host_wait(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, 0, poll_fd);
-        if (err < 0) {
-            err = errno_map();
-            goto out;
-        }
-    }
-
+    bool had_host_wait = poll_fd_has_host_wait(poll_fd);
     list_remove(&poll_fd->polls);
     list_remove(&poll_fd->fds);
     poll_fd_free(poll_fd);
+    // Reprogram the host with whatever sibling registrations remain (or drop
+    // the watch if this was the last). The guest-side removal above is the
+    // authoritative part; a host-side failure here just leaves a stale watch
+    // whose events no longer resolve to a registration.
+    if (had_host_wait)
+        poll_sync_host_locked(poll, fd);
 
     err = 0;
 out:
@@ -435,26 +471,30 @@ out:
     return err;
 }
 
-int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info) {
+int poll_mod_fd(struct poll *poll, struct fd *fd, fd_t guest_fd, int types, union poll_fd_info info) {
     int err;
     lock(&fd->poll_lock, 0);
     lock(&poll->lock, 0);
-    struct poll_fd *poll_fd = poll_find_fd(poll, fd);
+    struct poll_fd *poll_fd = poll_find_fd(poll, fd, guest_fd);
     if (poll_fd == NULL) {
         err = _ENOENT;
         goto out;
     }
 
+    int old_types = poll_fd->types;
+    union poll_fd_info old_info = poll_fd->info;
+    poll_fd->types = types;
+    poll_fd->info = info;
     if (poll_fd_has_host_wait(poll_fd)) {
-        err = real_poll_update(&poll->real, fd->real_fd, types, poll_fd);
+        err = poll_sync_host_locked(poll, fd);
         if (err < 0) {
+            poll_fd->types = old_types;
+            poll_fd->info = old_info;
             err = errno_map();
             goto out;
         }
     }
 
-    poll_fd->types = types;
-    poll_fd->info = info;
     poll_fd->triggered_types &= types;
 
     // Arming an already-ready emulated fd via MOD must wake a blocked poll_wait;
@@ -477,13 +517,17 @@ void poll_cleanup_fd(struct fd *fd) {
     lock(&fd->poll_lock, 0);
     struct poll_fd *poll_fd, *tmp;
     list_for_each_entry_safe(&fd->poll_fds, poll_fd, tmp, polls) {
-        lock(&poll_fd->poll->lock, 0);
-        if (poll_fd_has_host_wait(poll_fd))
-            real_poll_update(&poll_fd->poll->real, fd->real_fd, 0, poll_fd);
+        struct poll *poll = poll_fd->poll;
+        lock(&poll->lock, 0);
+        bool had_host_wait = poll_fd_has_host_wait(poll_fd);
         list_remove(&poll_fd->polls);
         list_remove(&poll_fd->fds);
-        unlock(&poll_fd->poll->lock);
         poll_fd_free(poll_fd);
+        // Recomputes from the siblings still registered; the last removal for
+        // this fd drops the host watch.
+        if (had_host_wait)
+            poll_sync_host_locked(poll, fd);
+        unlock(&poll->lock);
     }
     unlock(&fd->poll_lock);
 }
@@ -751,9 +795,13 @@ poll_wait_done:
         // per-entry error handler unconditionally) tore down perfectly good
         // connections -- this is what made rtorrent/libtorrent's peer
         // connections die within a second of a normal read/write exchange.
-        // Coalesce by poll_fd before delivering so each fd gets at most one
-        // combined callback per batch, matching real epoll semantics.
-        struct poll_fd *batch_fds[4] = {0};
+        // Coalesce by underlying fd before delivering so each fd gets at most
+        // one combined event mask per batch, matching real epoll semantics.
+        // The host watch carries a single udata (see poll_sync_host_locked),
+        // but dup'd guest fds may hold several registrations of that fd on
+        // this poll, so delivery fans each host event out to every
+        // registration, masked by that registration's own interest.
+        struct fd *batch_fds[4] = {0};
         int batch_types[4] = {0};
         int batch_count = 0;
         for (int i = 0; i < err; i++) {
@@ -774,28 +822,34 @@ poll_wait_done:
                        triggered_poll_fd->types, path,
                        fd != NULL ? (void *) fd->ops : NULL);
             }
-            if (triggered_poll_fd->types & POLL_EDGETRIGGERED)
-                triggered_poll_fd->triggered_types &= ~host_events;
-            int poll_types = host_events & (triggered_poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL);
-            if (!poll_types)
-                continue;
             int slot = -1;
             for (int j = 0; j < batch_count; j++) {
-                if (batch_fds[j] == triggered_poll_fd) {
+                if (batch_fds[j] == triggered_poll_fd->fd) {
                     slot = j;
                     break;
                 }
             }
             if (slot < 0) {
                 slot = batch_count++;
-                batch_fds[slot] = triggered_poll_fd;
+                batch_fds[slot] = triggered_poll_fd->fd;
                 batch_types[slot] = 0;
             }
-            batch_types[slot] |= poll_types;
+            batch_types[slot] |= host_events;
         }
         for (int i = 0; i < batch_count; i++) {
-            res += poll_deliver_ready_locked(poll_, batch_fds[i], batch_types[i],
-                                             callback, context, "host-callback");
+            struct poll_fd *fan_poll_fd, *fan_tmp;
+            list_for_each_entry_safe(&poll_->poll_fds, fan_poll_fd, fan_tmp, fds) {
+                if (fan_poll_fd->fd != batch_fds[i])
+                    continue;
+                int host_events = batch_types[i];
+                if (fan_poll_fd->types & POLL_EDGETRIGGERED)
+                    fan_poll_fd->triggered_types &= ~host_events;
+                int poll_types = host_events & (fan_poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL);
+                if (!poll_types)
+                    continue;
+                res += poll_deliver_ready_locked(poll_, fan_poll_fd, poll_types,
+                                                 callback, context, "host-callback");
+            }
         }
 
         while (poll_->notify_pipe[0] != -1) {

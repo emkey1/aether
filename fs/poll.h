@@ -34,6 +34,14 @@ struct poll {
 struct poll_fd {
     // locked by containing struct poll
     struct fd *fd;
+    // Guest fd number this registration was made under, or -1 when the caller
+    // registers per open file description (poll(2)/select(2), which merge
+    // duplicate fds up front). Linux keys epoll membership by the (fd number,
+    // open file description) pair, so dup'd fds may each carry their own
+    // registration on one struct fd; keying by struct fd alone made the
+    // second EPOLL_CTL_ADD return EEXIST (Bun registers stdout and stderr,
+    // usually dups of one tty, as separate epoll members).
+    fd_t guest_fd;
     struct list fds;
     int types;
     union poll_fd_info {
@@ -77,12 +85,14 @@ struct poll_event {
     int types;
 };
 struct poll *poll_create(void);
-bool poll_has_fd(struct poll *poll, struct fd *fd);
+// guest_fd: the guest fd number identifying this registration (see
+// poll_fd.guest_fd), or -1 to register per open file description.
+bool poll_has_fd(struct poll *poll, struct fd *fd, fd_t guest_fd);
 // True if `fd` is currently registered on `poll` with POLL_EXCLUSIVE set.
-bool poll_fd_is_exclusive(struct poll *poll, struct fd *fd);
-int poll_add_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info);
-int poll_mod_fd(struct poll *poll, struct fd *fd, int types, union poll_fd_info info);
-int poll_del_fd(struct poll *poll, struct fd *fd);
+bool poll_fd_is_exclusive(struct poll *poll, struct fd *fd, fd_t guest_fd);
+int poll_add_fd(struct poll *poll, struct fd *fd, fd_t guest_fd, int types, union poll_fd_info info);
+int poll_mod_fd(struct poll *poll, struct fd *fd, fd_t guest_fd, int types, union poll_fd_info info);
+int poll_del_fd(struct poll *poll, struct fd *fd, fd_t guest_fd);
 // Indicates that the specified events have been triggered. Each call will
 // generate a new edge-triggered notification.
 // please do not call this while holding any locks you would acquire in your poll operation

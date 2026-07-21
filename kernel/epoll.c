@@ -135,7 +135,7 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
     }
 
     if (op == EPOLL_CTL_DEL_) {
-        int_t res = poll_del_fd(epoll->epollfd.poll, fd);
+        int_t res = poll_del_fd(epoll->epollfd.poll, fd, f);
         fd_close(fd);
         fd_close(epoll);
         return res;
@@ -181,7 +181,7 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
         fd_close(epoll);
         return _EINVAL;
     }
-    if (op == EPOLL_CTL_MOD_ && poll_fd_is_exclusive(epoll->epollfd.poll, fd)) {
+    if (op == EPOLL_CTL_MOD_ && poll_fd_is_exclusive(epoll->epollfd.poll, fd, f)) {
         // Rule 2: once registered with EPOLLEXCLUSIVE, the registration can
         // never be modified again, even to new bits without EPOLLEXCLUSIVE.
         fd_close(fd);
@@ -197,14 +197,14 @@ int_t sys_epoll_ctl_guest(fd_t epoll_f, int_t op, fd_t f, guest_addr_t event_add
 
     int_t res;
     if (op == EPOLL_CTL_ADD_) {
-        if (poll_has_fd(epoll->epollfd.poll, fd))
+        if (poll_has_fd(epoll->epollfd.poll, fd, f))
             res = _EEXIST;
         else if (epoll_would_loop(epoll, fd, 0))
             res = _ELOOP;
         else
-            res = poll_add_fd(epoll->epollfd.poll, fd, ev_events, (union poll_fd_info) ev_data);
+            res = poll_add_fd(epoll->epollfd.poll, fd, f, ev_events, (union poll_fd_info) ev_data);
     } else {
-        res = poll_mod_fd(epoll->epollfd.poll, fd, ev_events, (union poll_fd_info) ev_data);
+        res = poll_mod_fd(epoll->epollfd.poll, fd, f, ev_events, (union poll_fd_info) ev_data);
     }
     fd_close(fd);
     fd_close(epoll);

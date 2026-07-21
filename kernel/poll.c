@@ -265,7 +265,7 @@ static dword_t sys_select_common(fd_t nfds, guest_addr_t readfds_addr, guest_add
                 return _EBADF;
             }
             files[i] = fd;
-            add_err = poll_add_fd(poll, fd, events, (union poll_fd_info) i);
+            add_err = poll_add_fd(poll, fd, -1, events, (union poll_fd_info) i);
             if (add_err < 0)
                 goto out;
         }
@@ -521,7 +521,7 @@ dword_t sys_poll_common(guest_addr_t fds, dword_t nfds, const struct timespec *t
         if (file == NULL)
             continue;
 
-        add_err = poll_add_fd(poll, file, events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) file);
+        add_err = poll_add_fd(poll, file, -1, events | POLL_ALWAYS_LISTENING, (union poll_fd_info) (void *) file);
         if (add_err < 0)
             goto out;
     }
