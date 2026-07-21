@@ -1026,6 +1026,41 @@ static struct jit_block *jit_block_compile_riscv64(guest_addr_t ip, struct tlb *
     return jit_block_compile_common(ip, tlb, false, false, true, NULL);
 }
 
+// Unpatch and unlink every predecessor still on block's jumps_from[i]
+// lists (the blocks whose trailing jump was chained directly into this
+// one). Split out of jit_block_disconnect so jit_free_jetsam can re-run it
+// as a last-chance scrub without repeating disconnect's mem_used/
+// num_blocks accounting (which must only ever happen once per block).
+//
+// The walk is bounded the same way as jit_invalidate_range's page[i] walk
+// (see the comment there): this exact dereference has crashed the app
+// repeatedly over the years (June 12 2022, 19 Nov 2022, and twice in July
+// 2026 via mem_destroy and live-munmap invalidation) when execution-vs-
+// invalidation races corrupt the list, and a bounded stop with a loud log
+// beats a wild write through a garbage prev_block->jump_ip.
+static void jit_block_unlink_predecessors(struct jit *jit, struct jit_block *block) {
+    for (int i = 0; i <= 1; i++) {
+        struct jit_block *prev_block, *tmp;
+        size_t guard = (jit != NULL ? jit->num_blocks : 0) + 1;
+        list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
+            if (guard-- == 0) {
+                printk("BUG: jit_block_unlink_predecessors cyclic jumps_from "
+                       "jit=%p block=%p i=%d; breaking\n",
+                       (void *) jit, (void *) block, i);
+                break;
+            }
+            if (prev_block->jump_ip[i] != NULL) {
+                // Atomic release to match the chaining patch's own
+                // __atomic_store_n: a sibling gadget may be concurrently
+                // loading this word to follow the chain.
+                __atomic_store_n(prev_block->jump_ip[i],
+                        prev_block->old_jump_ip[i], __ATOMIC_RELEASE);
+            }
+            list_remove(&prev_block->jumps_from_links[i]);
+        }
+    }
+}
+
 // Remove all pointers to the block. It can't be freed yet because another
 // thread may be executing it.
 static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
@@ -1037,15 +1072,8 @@ static void jit_block_disconnect(struct jit *jit, struct jit_block *block) {
     for (int i = 0; i <= 1; i++) {
         list_remove(&block->page[i]);
         list_remove_safe(&block->jumps_from_links[i]);
-
-        struct jit_block *prev_block, *tmp;
-        
-        list_for_each_entry_safe(&block->jumps_from[i], prev_block, tmp, jumps_from_links[i]) {
-            if (prev_block->jump_ip[i] != NULL)
-                *prev_block->jump_ip[i] = prev_block->old_jump_ip[i]; // Crashed here June 12 2022, 19 Nov 2022
-            list_remove(&prev_block->jumps_from_links[i]);
-        }
     }
+    jit_block_unlink_predecessors(jit, block);
 }
 
 static void jit_block_free(struct jit *jit, struct jit_block *block) {
@@ -1057,6 +1085,19 @@ static void jit_free_jetsam(struct jit *jit) {
     struct jit_block *block, *tmp;
     list_for_each_entry_safe(&jit->jetsam, block, tmp, jetsam) {
         list_remove(&block->jetsam);
+        // Last-chance scrub before the memory is recycled: the block was
+        // disconnected when it was jetsam'd, but if any backlink survived
+        // (or was corrupted back into existence by the execution-vs-
+        // invalidation races this file keeps colliding with), freeing
+        // without clearing it leaves a predecessor's jumps_from node
+        // pointing into freed memory -- the exact dangling prev_block a
+        // later jit_block_disconnect walk then writes through, aborting
+        // the whole app. Every caller holds the jetsam WRITE lock here,
+        // so touching predecessor code streams is safe. For a clean block
+        // both loops see empty lists and this is a few loads.
+        jit_block_unlink_predecessors(jit, block);
+        for (int i = 0; i <= 1; i++)
+            list_remove_safe(&block->jumps_from_links[i]);
         free(block);
     }
 }
