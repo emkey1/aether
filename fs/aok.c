@@ -16,6 +16,7 @@ enum aokfs_node_kind {
     aokfs_version,
     aokfs_persist_dir,
     aokfs_roots_dir,
+    aokfs_fakefs_dir,
     aokfs_fixes_dir,
     aokfs_fixes_devuan_dir,
     aokfs_fixes_devuan_readme,
@@ -92,6 +93,7 @@ static bool aokfs_node_is_dir(enum aokfs_node_kind node) {
         node == aokfs_fixes_dir ||
         node == aokfs_persist_dir ||
         node == aokfs_roots_dir ||
+        node == aokfs_fakefs_dir ||
         node == aokfs_fixes_devuan_dir ||
         node == aokfs_tools_dir ||
         node == aokfs_tests_dir ||
@@ -116,7 +118,7 @@ static bool aokfs_node_is_bundled_file(enum aokfs_node_kind node) {
 static mode_t_ aokfs_node_mode(enum aokfs_node_kind node) {
     if (aokfs_node_is_gen(node))
         return S_IFREG | (aokfs_gen_entry(node)->mode & 07777);
-    if (node == aokfs_persist_dir || node == aokfs_roots_dir)
+    if (node == aokfs_persist_dir || node == aokfs_roots_dir || node == aokfs_fakefs_dir)
         return S_IFDIR | 0777;
     if (aokfs_node_is_dir(node))
         return S_IFDIR | 0555;
@@ -145,6 +147,8 @@ static const char *aokfs_node_path(enum aokfs_node_kind node) {
             return "/persist";
         case aokfs_roots_dir:
             return "/roots";
+        case aokfs_fakefs_dir:
+            return "/fakefs";
         case aokfs_fixes_dir:
             return "/fixes";
         case aokfs_fixes_devuan_dir:
@@ -196,6 +200,7 @@ static bool aokfs_lookup_node(const char *path, enum aokfs_node_kind *node_out) 
         aokfs_version,
         aokfs_persist_dir,
         aokfs_roots_dir,
+        aokfs_fakefs_dir,
         aokfs_fixes_dir,
         aokfs_fixes_devuan_dir,
         aokfs_fixes_devuan_readme,
@@ -270,7 +275,10 @@ static const char *aokfs_inline_file_data(enum aokfs_node_kind node, size_t *siz
         "\n"
         "This is a small support filesystem provided by iSH-AOK.\n"
         "It is mounted at /AOK regardless of the installed Linux rootfs.\n"
-        "Most entries are read-only; /AOK/persist is writable and survives root switches.\n";
+        "Most entries are read-only; /AOK/persist and /AOK/fakefs are writable and\n"
+        "survive root switches. /AOK/persist is host-backed (visible outside iSH-AOK,\n"
+        "but does not preserve Linux ownership or device nodes); /AOK/fakefs preserves\n"
+        "full Linux metadata (uid/gid, permissions, device nodes, hardlinks).\n";
     static const char version[] = "iSH-AOK\n";
     static const char fixes_devuan_readme[] =
         "pkcsslotd init fix\n"
@@ -651,10 +659,11 @@ static int aokfs_readdir(struct fd *fd, struct dir_entry *entry) {
                 case 1: child = aokfs_version; break;
                 case 2: child = aokfs_persist_dir; break;
                 case 3: child = aokfs_roots_dir; break;
-                case 4: child = aokfs_fixes_dir; break;
-                case 5: child = aokfs_tests_dir; break;
-                case 6: child = aokfs_tools_dir; break;
-                case 7: child = aokfs_docs_dir; break;
+                case 4: child = aokfs_fakefs_dir; break;
+                case 5: child = aokfs_fixes_dir; break;
+                case 6: child = aokfs_tests_dir; break;
+                case 7: child = aokfs_tools_dir; break;
+                case 8: child = aokfs_docs_dir; break;
                 default: return 0;
             }
             break;

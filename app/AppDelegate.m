@@ -46,6 +46,7 @@
 #include "kernel/task.h"
 #include "fs/dyndev.h"
 #include "fs/devices.h"
+#include "tools/fakefs.h"
 #include "fs/path.h"
 #include "fs/real.h"
 #include "fs/tty.h"
@@ -1446,6 +1447,22 @@ static NSURL *AOKRootsExposureDirectoryURL(void) {
             URLByAppendingPathComponent:@"roots" isDirectory:YES];
 }
 
+// Sibling of AOKPersistDirectoryURL, but a fakefs (data/ dir + meta.db SQLite
+// metadata, same on-disk layout as an installed root) instead of a realfs
+// directory. Mounted at /AOK/fakefs on every boot, shared across all
+// installed roots. Complements /AOK/persist: persist is host-backed and
+// reachable from outside iSH-AOK, but flattens Linux ownership and can't
+// hold device nodes; fakefs preserves full Linux metadata (uid/gid, modes,
+// device nodes, hardlinks), so cross-root trees that need real filesystem
+// semantics -- e.g. a debootstrap'd rootfs -- can durably live here.
+static NSURL *AOKSharedFakefsDirectoryURL(void) {
+    NSURL *containerURL = ContainerURL();
+    if (containerURL == nil)
+        return nil;
+    return [[containerURL URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+            URLByAppendingPathComponent:@"fakefs" isDirectory:YES];
+}
+
 @implementation ISHDiagnosticsStore
 
 + (dispatch_queue_t)queue {
@@ -2548,6 +2565,55 @@ static TerminalViewController *CreateTerminalViewController(void) {
         } else {
             NSLog(@"Could not create /AOK/roots backing directory: %@", rootsError);
         }
+    }
+
+    // /AOK/fakefs: a shared fakefs mounted on every boot regardless of which
+    // root is booted (see AOKSharedFakefsDirectoryURL above for what it's
+    // for). Created empty on first use via fakefs_init_empty. Unlike
+    // /AOK/roots this backing store is never recreated at launch -- its whole
+    // point is surviving boots and root switches.
+    //
+    // Deferred to a background queue for the same launch-watchdog reason as
+    // the secondary root mounts above: fakefs's do_mount can run a
+    // migration/rebuild pass over the whole tree, and this filesystem can
+    // grow large. The named lock mirrors the per-root locks: it only guards
+    // mount setup against another process (e.g. the FileProvider extension)
+    // touching the same SQLite db mid-setup.
+    NSURL *sharedFakefsURL = AOKSharedFakefsDirectoryURL();
+    if (sharedFakefsURL != nil) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            int fakefsLockFd = ISHAppGroupTryAcquireNamedLock(@"fakefs", @"shared", YES, nil);
+            if (fakefsLockFd < 0) {
+                [ISHDiagnosticsStore recordLaunchStage:@"boot.fakefs.busy"];
+                return;
+            }
+            NSString *metaPath = [sharedFakefsURL URLByAppendingPathComponent:@"meta.db" isDirectory:NO].path;
+            if (![NSFileManager.defaultManager fileExistsAtPath:metaPath]) {
+                // A directory without its metadata db is a half-created
+                // remnant (crash between mkdir and the meta.db commit) and
+                // is useless; clear it so init starts from a clean slate.
+                [NSFileManager.defaultManager removeItemAtURL:sharedFakefsURL error:nil];
+                struct fakefsify_error initErr;
+                if (!fakefs_init_empty(sharedFakefsURL.fileSystemRepresentation, &initErr)) {
+                    NSLog(@"Could not create /AOK/fakefs backing filesystem: %s", initErr.message ?: "");
+                    [ISHDiagnosticsStore recordLaunchStage:@"boot.fakefs.initFailed"
+                                                   details:@{@"error": initErr.message ? @(initErr.message) : @""}];
+                    free(initErr.message);
+                    ISHAppGroupReleaseLock(fakefsLockFd);
+                    return;
+                }
+            }
+            NSURL *fakefsDataURL = [sharedFakefsURL URLByAppendingPathComponent:@"data" isDirectory:YES];
+            int fakefsMountErr = do_mount(&fakefs, fakefsDataURL.fileSystemRepresentation, "/AOK/fakefs", "", 0);
+            ISHAppGroupReleaseLock(fakefsLockFd);
+            if (fakefsMountErr < 0) {
+                NSLog(@"Could not mount /AOK/fakefs: %d", fakefsMountErr);
+                [ISHDiagnosticsStore recordLaunchStage:@"boot.fakefs.mountFailed"
+                                               details:@{@"err": @(fakefsMountErr)}];
+            } else {
+                [ISHDiagnosticsStore recordLaunchStage:@"boot.fakefs.mounted"];
+            }
+        });
     }
 
     do_mount(&procfs, "proc", "/proc", "", 0);

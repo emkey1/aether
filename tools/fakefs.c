@@ -410,6 +410,44 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
     return true;
 }
 
+// Mirrors fakefs_import's setup (data dir + meta.db + schema + synthetic
+// root inode), minus the archive walk. The root inode is 01777 rather than
+// import's 0755 fallback: an empty shared filesystem's whole purpose is for
+// arbitrary guest uids to create things in it.
+bool fakefs_init_empty(const char *fs, struct fakefsify_error *err_out) {
+    int err = mkdir(fs, 0777);
+    if (err < 0)
+        POSIX_ERR();
+
+    char path_tmp[PATH_MAX];
+    snprintf(path_tmp, sizeof(path_tmp), "%s/data", fs);
+    err = mkdir(path_tmp, 0777);
+    if (err < 0)
+        POSIX_ERR();
+
+    snprintf(path_tmp, sizeof(path_tmp), "%s/meta.db", fs);
+    sqlite3 *db;
+    err = sqlite3_open_v2(path_tmp, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+    CHECK_ERR();
+    EXEC("pragma journal_mode=wal")
+    EXEC("begin");
+    EXEC(schema);
+
+    sqlite3_stmt *insert_stat = PREPARE("insert into stats (stat) values (?)");
+    sqlite3_stmt *insert_path = PREPARE("insert or replace into paths values (?, ?)");
+    struct ish_stat stat = {.mode = S_IFDIR | 01777};
+    sqlite3_bind_blob64(insert_stat, 1, &stat, sizeof(stat), SQLITE_TRANSIENT);
+    STEP_RESET(insert_stat);
+    sqlite3_bind_blob64(insert_path, 1, "", 0, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(insert_path, 2, sqlite3_last_insert_rowid(db));
+    STEP_RESET(insert_path);
+    FINALIZE(insert_stat);
+    FINALIZE(insert_path);
+    EXEC("commit");
+    sqlite3_close(db);
+    return true;
+}
+
 bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_error *err_out, struct progress p) {
     fakefs_ensure_utf8_locale();
     // open the archive

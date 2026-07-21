@@ -24,6 +24,12 @@ struct progress {
 // read. Idempotent; safe to call repeatedly.
 void fakefs_ensure_utf8_locale(void);
 bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_error *err_out, struct progress progress);
+// Create a brand-new, empty fakefs at `fs` (data/ + meta.db) containing only
+// a root directory inode (mode 01777, /tmp-style, so every guest uid can
+// create entries). Fails if `fs` already exists. Used for the shared
+// /AOK/fakefs filesystem, or any create-empty-filesystem flow that doesn't
+// start from an archive.
+bool fakefs_init_empty(const char *fs, struct fakefsify_error *err_out);
 bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_error *err_out, struct progress progress);
 
 #endif
