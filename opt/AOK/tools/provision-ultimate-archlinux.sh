@@ -312,25 +312,6 @@ if [ -n "$TARGET_USER" ] && id "$TARGET_USER" >/dev/null 2>&1; then
 fi
 
 # ===========================================================================
-log "Disable pam_nologin (terminals must work during/after a wedged boot)"
-# ===========================================================================
-# systemd-tmpfiles creates /run/nologin at boot start and only
-# systemd-user-sessions.service ("Permit User Sessions") removes it. If boot
-# stalls before that point -- which under iSH's experimental systemd support
-# is exactly when a shell is needed for debugging -- every new terminal and
-# ssh session is refused with "System is booting up". A login shell is the
-# ONLY console iSH has (there is no getty to fall back to), so the nologin
-# gate locks the operator out of the one tool that could diagnose the stall.
-# Comment out every pam_nologin line; Arch routes login and sshd through
-# system-login, but sweep all of pam.d so remote/other stacks match.
-for _pamf in /etc/pam.d/*; do
-    [ -f "$_pamf" ] || continue
-    grep -q '^[^#]*pam_nologin\.so' "$_pamf" || continue
-    sed -i 's/^\([^#]*pam_nologin\.so.*\)$/# \1 # disabled for iSH: allow login during a stalled boot/' "$_pamf"
-    note "pam_nologin disabled in $_pamf"
-done
-
-# ===========================================================================
 log "Login shells -> bash"
 # ===========================================================================
 grep -qx /bin/bash /etc/shells 2>/dev/null || echo /bin/bash >> /etc/shells
