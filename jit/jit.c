@@ -810,6 +810,42 @@ bool jit_teardown_lock(struct jit *jit) {
     return got_lock;
 }
 
+// Same CLONE_VM-sibling exclusion as jit_teardown_lock, but for a LIVE
+// invalidation sweep that doesn't end in freeing the jit struct -- the lock
+// must be released afterward so execution can continue. Closes the same gap
+// jit_teardown_lock closed for mem_destroy, but for the ordinary munmap/
+// mremap/brk-shrink path (memory.c's pt_unmap_always), which invalidates
+// blocks just as often and previously took no jetsam_lock at all: a sibling
+// thread could be mid-jit_enter, chained into a block this thread is about
+// to disconnect, when jit_block_unlink_predecessors patches a predecessor's
+// jump_ip -- if that predecessor is concurrently freed by the sibling's own
+// (properly write-locked) eviction, the patch writes through a dangling
+// pointer and jit_crash_bus_fn aborts the whole app (seen on device: a
+// systemd munmap() SIGBUS'd inside jit_block_disconnect while a sibling
+// thread was still executing).
+//
+// NOT used by the gadget-invoked invalidation paths (arm64_ic_ivau,
+// riscv64_fence_i) or the write-fault paths (mem_ptr_fault/mem_ptr_nofault):
+// those run from inside guest execution, already holding jetsam_lock for
+// read on the calling thread, and re-acquiring it for write here would
+// self-deadlock.
+bool jit_invalidate_lock(struct jit *jit) {
+    if (jit == NULL)
+        return false;
+    __atomic_store_n(&jit->write_wanted, 1, __ATOMIC_SEQ_CST);
+    bool got_lock = jetsam_write_lock_timed(jit);
+    __atomic_store_n(&jit->write_wanted, 0, __ATOMIC_SEQ_CST);
+    if (!got_lock)
+        printk("JIT: invalidate_lock timed out waiting for a stuck jit_enter reader; "
+               "proceeding with live invalidation unprotected\n");
+    return got_lock;
+}
+
+void jit_invalidate_unlock(struct jit *jit) {
+    if (jit != NULL)
+        pthread_rwlock_unlock(&jit->jetsam_lock.l);
+}
+
 // Callers must precede this (and any preceding jit_invalidate_range sweep
 // of the same jit, e.g. mem_destroy's pt_unmap_always) with
 // jit_teardown_lock -- see jit_teardown_lock for why. The teardown lock is

@@ -95,6 +95,14 @@ void jit_free(struct jit *jit);
 // write-lock protocol every other block-freeing path already uses.
 bool jit_teardown_lock(struct jit *jit);
 
+// Same exclusion as jit_teardown_lock, for a live invalidation sweep that
+// must release the lock afterward instead of freeing the jit while holding
+// it. See jit_invalidate_lock's comment in jit.c for the race this closes.
+// Returns false on timeout (caller proceeds unprotected); jit_invalidate_unlock
+// is a safe no-op to call even when the paired lock call returned false.
+bool jit_invalidate_lock(struct jit *jit);
+void jit_invalidate_unlock(struct jit *jit);
+
 // Invalidate all jit blocks in pages start (inclusive) to end (exclusive).
 // Locks the jit. Should only be called by memory.c in conjunction with
 // mem_changed.

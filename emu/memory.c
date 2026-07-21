@@ -694,6 +694,12 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
     if (!mem_page_range_valid(mem, start, pages))
         return -1;
     page_t end = start + pages;
+#if ENGINE_JIT
+    // Exclude CLONE_VM sibling threads still executing chained JIT code
+    // before disconnecting blocks below -- see jit_invalidate_lock's
+    // comment for the SIGBUS-during-munmap this closes.
+    bool jit_locked = jit_invalidate_lock(mem->mmu.jit);
+#endif
     for (page_t page = mem_next_mapped_page(mem, start);
          page != BAD_PAGE && page < end;
          page = mem_next_mapped_page(mem, page + 1)) {
@@ -720,6 +726,10 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
             free(data);
         }
     }
+#if ENGINE_JIT
+    if (jit_locked)
+        jit_invalidate_unlock(mem->mmu.jit);
+#endif
     mem_changed(mem);
     return 0;
 }
