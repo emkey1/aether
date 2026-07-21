@@ -2162,6 +2162,13 @@ static bool unix_seqpacket_fallback_needed(int domain, int type, int protocol, i
         case EPROTOTYPE:
         case ESOCKTNOSUPPORT:
         case EOPNOTSUPP:
+        // iOS's app sandbox (unlike an unsandboxed macOS process) denies
+        // AF_UNIX SOCK_SEQPACKET creation outright with EPERM, even though
+        // the Darwin kernel itself supports the socket type -- seen as
+        // systemd-udevd fatally failing to create /run/udev/control on
+        // device ("Failed to create socket: Operation not permitted"),
+        // never hitting this fallback since EPERM wasn't in the allowlist.
+        case EPERM:
             return true;
         default:
             return false;
