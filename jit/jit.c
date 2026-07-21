@@ -564,15 +564,45 @@ bool jit_translate_host_fault(void *host_addr) {
     return true;
 }
 
+// A guest-execution fault whose host address doesn't reverse-map to any
+// guest page. This is what a store through a stale TLB entry looks like
+// when a sibling thread's munmap yanked the page (and freed the host
+// backing) between the TLB fill and the store: perfectly legitimate guest
+// behavior in a threaded process (glibc arena trimming under systemd does
+// exactly this), and on real Linux the racing thread simply takes a
+// SIGSEGV. Unwind with INT_GPF so the GUEST thread gets the SIGSEGV
+// instead of the whole emulator aborting -- observed on device as an
+// abort from handle_miss_store64_fast under an aarch64 systemd boot.
+// segfault_addr is 0 because the guest address is genuinely unknowable
+// here (the mapping is already gone); si_addr of 0 on a wild racing
+// access matches what the guest would plausibly see anyway.
+//
+// Only reachable while jit_crash_unwind_active (i.e. inside guest
+// execution's sigsetjmp region with the jetsam read lock held) -- callers
+// must still abort for faults outside that context so genuine emulator
+// bugs in syscall/teardown paths keep crashing loudly instead of being
+// silently converted into guest signals.
+__attribute__((__noreturn__))
+static void jit_unmapped_guest_fault(void *host_addr) {
+    printk("JIT: guest-execution bad access at host %p with no guest mapping "
+           "(pid %d) - delivering guest SIGSEGV\n",
+           host_addr, current ? current->pid : -1);
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = 0;
+    jit_crash_fn(); // noreturn: releases locks and unwinds
+}
+
 // Faulting-thread entry point for the device (Mach) path. The Mach exception
 // handler (app/hook.c) runs on a dedicated server pthread where `current` is
 // NULL, so it cannot reverse-map the fault itself. Instead it redirects the
 // FAULTING thread's PC here (fault address in the first argument register), so
 // this runs with the guest thread's `current` intact. If the address backs a
-// guest page, unwind with a guest SIGBUS; otherwise it is a real bad access
-// (wild pointer in a helper, corrupted state) and we crash, logging the
-// address. A re-entrancy guard covers only the page-table walk: if the walk
-// itself faults it re-enters here, and we abort rather than loop.
+// guest page, unwind with a guest SIGBUS; if it doesn't but the fault
+// happened during guest execution, unwind with a guest SIGSEGV (see
+// jit_unmapped_guest_fault); otherwise it is a real bad access (wild
+// pointer in a helper, corrupted state) and we crash, logging the address.
+// A re-entrancy guard covers only the page-table walk: if the walk itself
+// faults it re-enters here, and we abort rather than loop.
 __attribute__((__noreturn__))
 void jit_crash_bus_fn(void *host_addr) {
     static __thread bool bus_dispatch_active = false;
@@ -583,6 +613,8 @@ void jit_crash_bus_fn(void *host_addr) {
     bus_dispatch_active = false;
     if (translated)
         jit_crash_fn(); // noreturn: releases locks and unwinds with INT_BUS
+    if (jit_crash_unwind_active && current != NULL)
+        jit_unmapped_guest_fault(host_addr); // noreturn: guest SIGSEGV
     printk("JIT: untranslatable bad access at host %p (pid %d) - crashing\n",
            host_addr, current ? current->pid : -1);
     abort();
@@ -601,6 +633,12 @@ static void jit_host_sigbus_handler(int sig, siginfo_t *info, void *uctx) {
         // restored, and without NODEFER a subsequent truncation fault would be
         // silently blocked forever.
         jit_crash_fn(); // noreturn
+    }
+    if (jit_crash_unwind_active && current != NULL) {
+        // Guest-execution fault with no guest mapping: sibling munmap racing
+        // a store through a stale TLB entry -- guest SIGSEGV, not an
+        // emulator crash. See jit_unmapped_guest_fault.
+        jit_unmapped_guest_fault(info != NULL ? info->si_addr : NULL); // noreturn
     }
     // Not a translatable guest fault: real bug. Restore the default disposition
     // and return so the instruction re-faults into a normal crash/core dump,
