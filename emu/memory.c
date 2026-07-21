@@ -690,16 +690,16 @@ int pt_unmap(struct mem *mem, page_t start, pages_t pages) {
     return pt_unmap_always(mem, start, pages);
 }
 
-int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
+// Core of pt_unmap_always, without the jetsam_lock exclusion -- callers that
+// already know no sibling thread can be executing JIT code in `mem` (e.g.
+// mm_copy building a brand-new, not-yet-started child mm; see
+// pt_copy_on_write) can use this directly to avoid a lock acquire/release
+// per page. Callers for a live, potentially-multithreaded mem must go
+// through pt_unmap_always instead.
+static int pt_unmap_always_unlocked(struct mem *mem, page_t start, pages_t pages) {
     if (!mem_page_range_valid(mem, start, pages))
         return -1;
     page_t end = start + pages;
-#if ENGINE_JIT
-    // Exclude CLONE_VM sibling threads still executing chained JIT code
-    // before disconnecting blocks below -- see jit_invalidate_lock's
-    // comment for the SIGBUS-during-munmap this closes.
-    bool jit_locked = jit_invalidate_lock(mem->mmu.jit);
-#endif
     for (page_t page = mem_next_mapped_page(mem, start);
          page != BAD_PAGE && page < end;
          page = mem_next_mapped_page(mem, page + 1)) {
@@ -726,12 +726,23 @@ int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
             free(data);
         }
     }
+    mem_changed(mem);
+    return 0;
+}
+
+int pt_unmap_always(struct mem *mem, page_t start, pages_t pages) {
+#if ENGINE_JIT
+    // Exclude CLONE_VM sibling threads still executing chained JIT code
+    // before disconnecting blocks below -- see jit_invalidate_lock's
+    // comment for the SIGBUS-during-munmap this closes.
+    bool jit_locked = jit_invalidate_lock(mem->mmu.jit);
+#endif
+    int ret = pt_unmap_always_unlocked(mem, start, pages);
 #if ENGINE_JIT
     if (jit_locked)
         jit_invalidate_unlock(mem->mmu.jit);
 #endif
-    mem_changed(mem);
-    return 0;
+    return ret;
 }
 
 int pt_map_nothing(struct mem *mem, page_t start, pages_t pages, unsigned flags) {
@@ -823,21 +834,34 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
     if (!mem_page_range_valid(src, start, pages) || !mem_page_range_valid(dst, start, pages))
         return -1;
     page_t end = start + pages;
+    // dst is the freshly mem_init'd child of a not-yet-started fork(): its
+    // jit was just allocated and no thread has ever executed in it, so the
+    // per-page unmaps below need no jetsam_lock exclusion (nothing could be
+    // racing them). Calling the locked pt_unmap_always here instead made
+    // every single fork() take/release the jetsam write lock once per
+    // mapped page of the PARENT's entire address space -- for a typical
+    // dynamically-linked process, thousands of uncontended lock cycles per
+    // fork, on a path (systemd forking constantly during boot) hot enough
+    // to shift boot timing and plausibly help surface unrelated races.
+    int ret = 0;
     for (page_t page = mem_next_mapped_page(src, start);
          page != BAD_PAGE && page < end;
          page = mem_next_mapped_page(src, page + 1)) {
         struct pt_entry *entry = mem_pt(src, page);
         if (entry == NULL)
             continue;
-        if (pt_unmap_always(dst, page, 1) < 0)
-            return -1;
+        if (pt_unmap_always_unlocked(dst, page, 1) < 0) {
+            ret = -1;
+            break;
+        }
         if (!(entry->flags & P_SHARED))
             entry->flags |= P_COW;
         entry->data->refcount++;
         struct pt_entry *dst_entry = mem_pt_new(dst, page);
         if (dst_entry == NULL) {
             entry->data->refcount--;
-            return -1;
+            ret = -1;
+            break;
         }
         dst_entry->data = entry->data;
         dst_entry->offset = entry->offset;
@@ -845,8 +869,7 @@ int pt_copy_on_write(struct mem *src, struct mem *dst, page_t start, page_t page
     }
     mem_changed(src);
     mem_changed(dst);
-    
-    return 0;
+    return ret;
 }
 
 static void mem_changed(struct mem *mem) {
