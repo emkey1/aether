@@ -327,12 +327,24 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
 
 - (void)setKeyboardAppearance:(UIKeyboardAppearance)keyboardAppearance {
     BOOL needsFirstResponderDance = self.isFirstResponder && _keyboardAppearance != keyboardAppearance;
-    if (needsFirstResponderDance) {
-        [self resignFirstResponder];
-    }
     _keyboardAppearance = keyboardAppearance;
     if (needsFirstResponderDance) {
-        [self becomeFirstResponder];
+        // Deferred to the next runloop turn: this setter is reached from
+        // TerminalViewController's UserPreferences KVO handler inside a
+        // UIView animation block, whose call stack is not under our control
+        // -- in a multi-window Workspace, that can land while UIKit's own
+        // keyboard-scene machinery (_UIRemoteKeyboards) is already mid-
+        // transition for a DIFFERENT terminal window. Calling
+        // resignFirstResponder/becomeFirstResponder synchronously there
+        // re-enters UIKit's keyboard/input-view teardown from inside itself,
+        // observed on device as an EXC_BAD_ACCESS deep in CoreAutoLayout's
+        // _switchToLayoutEngine: (recursing through its own block ~7 times)
+        // during -[TerminalView resignFirstResponder]. Running the dance on
+        // a fresh runloop turn keeps it off any in-progress UIKit call stack.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [self resignFirstResponder];
+            [self becomeFirstResponder];
+        });
     }
     if (keyboardAppearance == UIKeyboardAppearanceLight) {
         self.scrollbarView.indicatorStyle = UIScrollViewIndicatorStyleBlack;
