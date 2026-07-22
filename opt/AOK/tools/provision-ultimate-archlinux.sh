@@ -51,7 +51,9 @@ SUDO_NOPASSWD="${SUDO_NOPASSWD:-0}"
 DEF_TZ="${TZ_NAME:-America/Los_Angeles}"
 DEF_USER="${TARGET_USER:-${SUDO_USER:-}}"
 if [ -z "$DEF_USER" ] || [ "$DEF_USER" = root ]; then
-    DEF_USER="$(awk -F: '$3>=1000 && $3<2000 {print $1; exit}' /etc/passwd)"
+    # Skip 'alarm': it's ArchLinuxARM's generic stock account (see the rename
+    # block below), not a name the user actually picked -- don't default to it.
+    DEF_USER="$(awk -F: '$3>=1000 && $3<2000 && $1!="alarm" {print $1; exit}' /etc/passwd)"
 fi
 [ -n "$DEF_USER" ] || DEF_USER="aok"
 DEF_HOSTNAME="$(cat /etc/hostname 2>/dev/null)"
@@ -75,7 +77,26 @@ ask TZ_NAME     "Timezone (e.g. America/New_York, UTC)" "$DEF_TZ"
 ask TARGET_USER "Primary login username to set up"      "$DEF_USER"
 ask NEW_HOSTNAME "Hostname"                              "$DEF_HOSTNAME"
 
-# Create the chosen login if it does not exist yet (fresh rootfs).
+# ArchLinuxARM's official aarch64 minirootfs (unlike the plain x86_64
+# archlinux.org tarball) ships a pre-created 'alarm' user out of the box: uid
+# 1000, wheel group, home /home/alarm, password 'alarm'. Left alone, a fresh
+# useradd for a different TARGET_USER creates a SECOND account next to it,
+# leaving 'alarm' behind permanently as an unwanted extra login+homedir.
+# Rename it in place to the chosen login instead of creating a duplicate.
+if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != root ] && [ "$TARGET_USER" != alarm ] \
+   && ! id "$TARGET_USER" >/dev/null 2>&1 && id alarm >/dev/null 2>&1; then
+    if usermod -l "$TARGET_USER" -d "/home/$TARGET_USER" -m alarm 2>/dev/null; then
+        # usermod -l only renames the login; keep the private group in sync too.
+        getent group alarm >/dev/null 2>&1 && groupmod -n "$TARGET_USER" alarm 2>/dev/null
+        note "renamed the image's default 'alarm' account -> '$TARGET_USER' (home: /home/$TARGET_USER)"
+        note "the account keeps its original password (default 'alarm' -- run: passwd $TARGET_USER)"
+    else
+        note "WARNING: failed to rename 'alarm' -> '$TARGET_USER'; leaving 'alarm' account in place"
+    fi
+fi
+
+# Create the chosen login if it still does not exist (fresh rootfs with no
+# 'alarm' to rename -- e.g. the x86_64 image -- or TARGET_USER == alarm).
 if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != root ] && ! id "$TARGET_USER" >/dev/null 2>&1; then
     useradd -m -s /bin/bash "$TARGET_USER" 2>/dev/null
     note "created login '$TARGET_USER' (no password set; give it one with: passwd $TARGET_USER)"
@@ -117,9 +138,11 @@ log "Ownership repair (roots imported from a uid-501 tarball)"
 if [ "$(stat -c %u /usr 2>/dev/null)" = 501 ]; then
     note "repairing uid-501 ownership (one-time, may take a minute)..."
     chown -R --from=501 0:0 / 2>/dev/null || true
-    # The alarm user's home is the one subtree that should NOT be root.
-    if id alarm >/dev/null 2>&1 && [ -d /home/alarm ]; then
-        chown -R alarm:alarm /home/alarm 2>/dev/null || true
+    # The primary user's home is the one subtree that should NOT be root
+    # (by this point that's TARGET_HOME -- 'alarm', if it existed, has
+    # already been renamed to TARGET_USER above).
+    if [ -n "$TARGET_USER" ] && [ -n "$TARGET_HOME" ] && [ -d "$TARGET_HOME" ]; then
+        chown -R "$TARGET_USER:$TARGET_USER" "$TARGET_HOME" 2>/dev/null || true
     fi
     note "ownership repaired"
 else
