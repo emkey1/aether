@@ -608,11 +608,16 @@ static int proc_pid_io_show(struct proc_entry *entry, struct proc_data *buf) {
     return 0;
 }
 
-static int proc_pid_cgroup_show(struct proc_entry *UNUSED(entry), struct proc_data *buf) {
-    // iSH does not track per-task cgroup membership, so report every task at the
-    // root ("/") of each mounted hierarchy. The named v1 hierarchies (e.g.
-    // name=elogind) must be listed here or elogind/systemd fail to start with
-    // ENODATA ("Cannot determine cgroup we are running in").
+static int proc_pid_cgroup_show(struct proc_entry *entry, struct proc_data *buf) {
+    // v1 hierarchies are untracked, so every task reports at their root
+    // ("/"). The named v1 hierarchies (e.g. name=elogind) must be listed
+    // here or elogind/systemd fail to start with ENODATA ("Cannot determine
+    // cgroup we are running in"). The v2 line reports the membership
+    // recorded when the pid was written to a cgroup.procs file on the fake
+    // cgroup2 hierarchy (fs/tmp.c) -- systemd --user derives its delegated
+    // subtree from this line, and the previously hardcoded "0::/" made it
+    // try to create its init.scope at the hierarchy root (EACCES for a
+    // non-root manager, "Failed to allocate manager object").
     int next_id = 1;
     char seen[512] = "|";
     size_t seen_len = 1; // Length of seen
@@ -641,7 +646,20 @@ static int proc_pid_cgroup_show(struct proc_entry *UNUSED(entry), struct proc_da
         }
         proc_printf(buf, "%d:%s:/\n", next_id++, controller);
     }
-    proc_printf(buf, "0::/\n");
+    char v2_path[MAX_PATH] = "/";
+    struct task *task = proc_get_task(entry);
+    if (task != NULL) {
+        if (task->group != NULL) {
+            lock(&task->group->lock, 0);
+            if (task->group->cgroup_path != NULL) {
+                strncpy(v2_path, task->group->cgroup_path, sizeof(v2_path) - 1);
+                v2_path[sizeof(v2_path) - 1] = '\0';
+            }
+            unlock(&task->group->lock);
+        }
+        proc_put_task(task);
+    }
+    proc_printf(buf, "0::%s\n", v2_path);
     return 0;
 }
 

@@ -311,6 +311,17 @@ struct tgroup {
     struct list threads; // locked by pids_lock
     struct task *leader; // immutable
     struct rusage_ rusage;
+
+    // cgroup2 membership path relative to the hierarchy root ("/foo/bar"),
+    // recorded when this process's pid is written to a cgroup.procs file on
+    // a cgroup2 mount (fs/tmp.c); NULL means the root cgroup. Reported by
+    // /proc/<pid>/cgroup. systemd --user derives its own delegated subtree
+    // from /proc/self/cgroup -- the hardcoded "0::/" made it try to create
+    // init.scope at the HIERARCHY root (EACCES for uid != 0), killing every
+    // user@ start with "Failed to allocate manager object". Heap-allocated;
+    // tgroup_copy strdups it, task_free_final frees it. Locked by
+    // group->lock.
+    char *cgroup_path;
     // I/O counters of threads that already exited, rolled up in exit.c so a
     // process's /proc/<pid>/io totals survive its threads. Locked by pids_lock.
     struct task_io_counters io_dead;

@@ -470,6 +470,7 @@ void task_unlink_locked(struct task *task) {
 static void task_free_final(struct task *task) {
     if (task != NULL && task_is_leader(task) && task->group != NULL) {
         cond_destroy(&task->group->child_exit);
+        free(task->group->cgroup_path);
         free(task->group);
         task->group = NULL;
     }

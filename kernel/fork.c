@@ -56,6 +56,12 @@ static struct tgroup *tgroup_copy(struct tgroup *old_group) {
         return NULL;
     *group = *old_group;
     list_init(&group->threads);
+    // The shallow copy above aliased the parent's heap-allocated cgroup
+    // path; give the child its own copy so neither free poisons the other
+    // (fork keeps cgroup membership on Linux, so copying the value is
+    // right).
+    if (old_group->cgroup_path != NULL)
+        group->cgroup_path = strdup(old_group->cgroup_path);
     if (group->tty) {
         lock(&group->tty->lock, 0);
         group->tty->refcount++;

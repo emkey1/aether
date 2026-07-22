@@ -1035,6 +1035,51 @@ out:
     return res;
 }
 
+// A pid written to a cgroup2 hierarchy's cgroup.procs moves that process
+// into the cgroup. The fake hierarchy stores the write like any tmpfs file;
+// this additionally records the membership on the process's tgroup so
+// /proc/<pid>/cgroup can report it. systemd --user depends on that: it
+// derives its own delegated subtree from /proc/self/cgroup, and the
+// previously hardcoded "0::/" made it try to create init.scope at the
+// hierarchy ROOT -- EACCES for a non-root user manager, so every user@
+// start died with "Failed to allocate manager object: Permission denied".
+static void tmpfs_cgroup2_note_procs_write(struct fd *fd, const void *buf, size_t bufsize) {
+    if (!tmpfs_is_cgroup2_mount(fd->mount))
+        return;
+    if (strcmp(fd->tmpfs.dirent->name, "cgroup.procs") != 0)
+        return;
+    char num[24];
+    if (bufsize == 0 || bufsize >= sizeof(num))
+        return;
+    memcpy(num, buf, bufsize);
+    num[bufsize] = '\0';
+    pid_t_ pid = (pid_t_) atoi(num);
+    if (pid <= 0)
+        return;
+    // The cgroup is cgroup.procs's parent directory; its mount-relative path
+    // IS the hierarchy-relative path (the mount root is the cgroup root).
+    char path[MAX_PATH];
+    if (tmpfs_getpath(fd, path) < 0)
+        return;
+    size_t plen = strlen(path);
+    const char suffix[] = "/cgroup.procs";
+    if (plen < sizeof(suffix) - 1)
+        return;
+    path[plen - (sizeof(suffix) - 1)] = '\0';
+    if (path[0] == '\0')
+        strcpy(path, "/");
+
+    complex_lockt(&pids_lock, 0);
+    struct task *task = pid_get_task(pid);
+    if (task != NULL && task->group != NULL) {
+        lock(&task->group->lock, 0);
+        free(task->group->cgroup_path);
+        task->group->cgroup_path = strdup(path);
+        unlock(&task->group->lock);
+    }
+    unlock(&pids_lock);
+}
+
 static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
     ssize_t res;
     struct tmp_inode *inode = tmpfs_fd_inode(fd);
@@ -1087,6 +1132,10 @@ static ssize_t tmpfs_write(struct fd *fd, const void *buf, size_t bufsize) {
 
 out:
     unlock(&inode->lock);
+    // After dropping inode->lock: the hook takes pids_lock, which must not
+    // nest inside it.
+    if (res >= 0)
+        tmpfs_cgroup2_note_procs_write(fd, buf, bufsize);
     return res;
 }
 
