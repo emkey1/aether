@@ -226,6 +226,18 @@ static bool inotify_emit_parent_cb(struct inotify_state *state, void *ctx) {
     return inotify_notify_parent_locked(state, event->path, event->mask, 0);
 }
 
+// Linux delivers IN_OPEN/IN_MODIFY/IN_ATTRIB both to a watch on the file
+// itself (no name) and to a watch on its parent directory (name filled in).
+// Emitting only the exact form meant a directory watch never saw child
+// modify/attrib/open activity -- tail -F style watchers and anything
+// watching a spool/config directory for content changes missed everything.
+static bool inotify_emit_exact_and_parent_cb(struct inotify_state *state, void *ctx) {
+    struct inotify_path_event *event = ctx;
+    bool wake = inotify_notify_exact_locked(state, event->path, event->mask, 0);
+    wake |= inotify_notify_parent_locked(state, event->path, event->mask, 0);
+    return wake;
+}
+
 struct inotify_move_event {
     const char *old_path;
     const char *new_path;
@@ -480,21 +492,21 @@ void inotify_notify_open(const char *path) {
     if (path == NULL || path[0] != '/')
         return;
     struct inotify_path_event event = {.path = path, .mask = IN_OPEN_};
-    inotify_for_each_instance(inotify_emit_exact_cb, &event);
+    inotify_for_each_instance(inotify_emit_exact_and_parent_cb, &event);
 }
 
 void inotify_notify_modify(const char *path) {
     if (path == NULL || path[0] != '/')
         return;
     struct inotify_path_event event = {.path = path, .mask = IN_MODIFY_};
-    inotify_for_each_instance(inotify_emit_exact_cb, &event);
+    inotify_for_each_instance(inotify_emit_exact_and_parent_cb, &event);
 }
 
 void inotify_notify_attrib(const char *path) {
     if (path == NULL || path[0] != '/')
         return;
     struct inotify_path_event event = {.path = path, .mask = IN_ATTRIB_};
-    inotify_for_each_instance(inotify_emit_exact_cb, &event);
+    inotify_for_each_instance(inotify_emit_exact_and_parent_cb, &event);
 }
 
 void inotify_notify_create(const char *path, bool is_dir) {
