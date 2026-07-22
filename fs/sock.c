@@ -143,6 +143,8 @@ struct audit_features_ {
 #define IFA_LOCAL_ 2
 #define IFA_LABEL_ 3
 #define IFA_BROADCAST_ 4
+#define IFA_FLAGS_ 8
+#define IFA_F_PERMANENT_ 0x80
 
 #define RTA_DST_ 1
 #define RTA_OIF_ 4
@@ -771,6 +773,22 @@ static int netlink_build_addr_payload(char *payload, size_t cap, size_t *payload
             IFA_LABEL_, ifa->ifa_name, strlen(ifa->ifa_name) + 1);
     if (err < 0)
         return err;
+    // IFA_FLAGS is the u32 extension of ifaddrmsg's u8 ifa_flags field
+    // (Linux 3.14+) and modern userspace treats it as mandatory:
+    // systemd-resolved's link_address_update_rtnl() does a REQUIRED
+    // sd_netlink_message_read_u32(m, IFA_FLAGS, ...) and propagates the
+    // -ENODATA on miss all the way out of address coldplug, killing the
+    // whole daemon at startup ("Could not create manager: No data
+    // available"). All our addresses are host-configured and static, so
+    // IFA_F_PERMANENT is the honest value (and carries none of the
+    // DEPRECATED/TENTATIVE bits that would make resolved ignore the
+    // address).
+    uint32_t ifa_flags32 = IFA_F_PERMANENT_;
+    err = netlink_append_attr_raw(payload, cap, &payload_len,
+            IFA_FLAGS_, &ifa_flags32, sizeof(ifa_flags32));
+    if (err < 0)
+        return err;
+    msg->ifa_flags = (uint8_t) ifa_flags32;
     *payload_len_out = payload_len;
     return 0;
 }
@@ -2368,7 +2386,17 @@ static int netlink_append_error(struct fd *sock, uint32_t seq,
 
 static int netlink_append_done(struct fd *sock, uint32_t seq) {
     int32_t status = 0;
-    return netlink_append_nlmsg(sock, NLMSG_DONE_, 0, seq, &status, sizeof(status));
+    // The DONE terminating a dump MUST carry NLM_F_MULTI, like every other
+    // part: sd-netlink only recognizes end-of-dump inside its
+    // `nlmsg_flags & NLM_F_MULTI` branch (netlink-socket.c), so a bare DONE
+    // left the accumulated parts in rqueue_partial_by_serial forever and
+    // every sd-netlink link/addr enumeration silently returned NOTHING.
+    // That is why systemd-resolved held zero Link objects and answered every
+    // query with io.systemd.Resolve.NetworkDown (killing ALL hostname
+    // resolution via nsswitch's "resolve [!UNAVAIL=return]"), and why
+    // networkctl printed "0 links listed" -- while busybox ip, which doesn't
+    // care about the DONE flags, parsed the same bytes fine.
+    return netlink_append_nlmsg(sock, NLMSG_DONE_, NLM_F_MULTI_, seq, &status, sizeof(status));
 }
 
 static int diag_socket_push(struct diag_socket_entry *entries, struct fd *fd) {
@@ -3153,6 +3181,10 @@ static int netlink_handle_recvmsg(struct fd *sock, struct msghdr *msg, int fake_
         ret = (int) copied;
 out:
     unlock(&sock->socket.netlink_reply_lock);
+    if (getenv("ISH_NETLINK_DIAG") != NULL)
+        printk("NLDIAG: recvmsg pid=%d flags=%#x cap=%zu avail=%zu ret=%d trunc=%d\n",
+               current->pid, fake_flags, capacity, available, ret,
+               !!(msg->msg_flags & MSG_TRUNC));
     return ret;
 }
 
