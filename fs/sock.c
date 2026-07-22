@@ -9,6 +9,7 @@
 #include <netinet/ip6.h>
 #include <netinet/tcp.h>
 #include <netinet/udp.h>
+#include <limits.h>
 #include <poll.h>
 #include <signal.h>
 #include <stdio.h>
@@ -27,6 +28,7 @@
 #include "fs/poll.h"
 #include "fs/real.h"
 #include "fs/sock.h"
+#include "util/timer.h"
 #include "debug.h"
 
 #define SOCKET_TYPE_MASK 0xf
@@ -4092,35 +4094,130 @@ static int_t sys_accept4_common(fd_t sock_fd, guest_addr_t sockaddr_addr, guest_
 
     char sockaddr[sockaddr_len];
     int client =0;
-    TASK_MAY_BLOCK {
+    if (!sock->socket.listening) {
+        // Not a listening socket: the host accept() fails immediately
+        // (EINVAL/EOPNOTSUPP) and can never block, so take the direct path.
+        // The poll()-based wait below would otherwise hang here: an empty
+        // non-listening socket is not readable, but Linux returns the error
+        // right away.
+        errno = 0;
+        client = accept(sock->real_fd,
+                        sockaddr_addr != 0 ? (void *) sockaddr : NULL,
+                        sockaddr_addr != 0 ? &sockaddr_len : NULL);
+        if (client < 0)
+            return errno_map();
+    } else TASK_MAY_BLOCK {
+        // Never block inside the host accept(). Darwin's accept() ignores
+        // SO_RCVTIMEO (Linux honors it, per accept(2)), and systemd's
+        // userdb/homed workers rely on exactly that: a BLOCKING listener with
+        // a receive timeout, where the periodic EAGAIN tick drives the whole
+        // worker lifecycle (idle exit, retirement, respawn). Blocked-forever
+        // workers wedged systemd-userdbd on device. Instead, keep the host
+        // listener nonblocking and emulate the wait with poll(): guest
+        // O_NONBLOCK -> immediate EAGAIN; SO_RCVTIMEO armed -> EAGAIN at the
+        // deadline; plain blocking -> wait in poll (still interruptible by
+        // the SIGUSR1 poke). This also gives Linux thundering-herd semantics:
+        // when several tasks accept from one listener, the losers of a race
+        // get EAGAIN/poll-again instead of re-blocking in the host kernel.
+        //
+        // O_NONBLOCK is a property of the open file description in both
+        // worlds, and only listeners reach this path, so forcing the host
+        // flag on permanently is safe and shared-fd-race-free (unlike a
+        // set/restore dance racing sibling accepts on the same description).
+        int host_fl = fcntl(sock->real_fd, F_GETFL, 0);
+        if (host_fl >= 0 && !(host_fl & O_NONBLOCK))
+            (void) fcntl(sock->real_fd, F_SETFL, host_fl | O_NONBLOCK);
+
+        bool guest_nonblock = fd_getflags(sock) & O_NONBLOCK_;
+        // The receive timeout lives on the (shared) host description; reading
+        // it back at accept time needs no new guest-side state and naturally
+        // tracks fork/exec fd inheritance.
+        struct timeval rcvtimeo = {0, 0};
+        socklen_t rcvtimeo_len = sizeof(rcvtimeo);
+        if (getsockopt(sock->real_fd, SOL_SOCKET, SO_RCVTIMEO, &rcvtimeo, &rcvtimeo_len) < 0)
+            rcvtimeo = (struct timeval) {0, 0};
+        bool has_deadline = !guest_nonblock && (rcvtimeo.tv_sec != 0 || rcvtimeo.tv_usec != 0);
+        struct timespec deadline;
+        if (has_deadline) {
+            deadline = timespec_now(CLOCK_MONOTONIC);
+            deadline.tv_sec += rcvtimeo.tv_sec;
+            deadline.tv_nsec += (long) rcvtimeo.tv_usec * 1000;
+            if (deadline.tv_nsec >= 1000000000L) {
+                deadline.tv_sec++;
+                deadline.tv_nsec -= 1000000000L;
+            }
+        }
+
+        // sockrestart_end_listen_wait() and friends take locks that can
+        // clobber errno, so the errno to report is carried in fail_errno and
+        // restored just before errno_map() below.
+        int fail_errno = 0;
         bool retry;
         do {
+            retry = false;
             sockrestart_begin_listen_wait(sock);
             errno = 0;
             client = accept(sock->real_fd,
                             sockaddr_addr != 0 ? (void *) sockaddr : NULL,
                             sockaddr_addr != 0 ? &sockaddr_len : NULL);
+            int accept_errno = errno;
             sockrestart_end_listen_wait(sock);
-            // Retry the blocking accept() only when an iOS suspend/resume rebuilt
-            // the listening socket (sockrestart punt) or the host accept() was cut
-            // short by a purely spurious poke -- EINTR with no deliverable guest
-            // signal, e.g. a TLB-shootdown SIGUSR1. A real pending guest signal
-            // MUST surface as EINTR so the guest can run its handler.
-            //
-            // The former skip=0 stuck_count heuristic did the opposite: after a
-            // few interruptions it force-restarted accept() even with a guest
-            // signal already pending ("INFO: punting"). stress-ng --syscall arms a
-            // one-shot 1s SIGALRM (setitimer) to bail out of blocking syscalls; the
-            // forced restart re-entered accept() with that SIGALRM still pending,
-            // the one-shot timer never fired again, and accept() -- and the whole
-            // 2s run -- hung indefinitely. Mirror socket_wait_ready()/fs/poll.c.
-            bool resumed = sockrestart_should_restart_listen_wait(1);
-            retry = client < 0 && errno == EINTR &&
-                    (resumed || !socket_guest_signal_pending());
+            if (client >= 0)
+                break;
+            fail_errno = accept_errno;
+            if (accept_errno == EAGAIN || accept_errno == EWOULDBLOCK) {
+                if (guest_nonblock)
+                    break; // EAGAIN through to the guest
+                int poll_timeout = -1;
+                if (has_deadline) {
+                    struct timespec now = timespec_now(CLOCK_MONOTONIC);
+                    long long remaining_ms =
+                        (long long) (deadline.tv_sec - now.tv_sec) * 1000 +
+                        (deadline.tv_nsec - now.tv_nsec) / 1000000;
+                    if (remaining_ms <= 0)
+                        break; // timeout expired: EAGAIN, matching Linux
+                    poll_timeout = remaining_ms > INT_MAX ? INT_MAX : (int) remaining_ms;
+                }
+                struct pollfd pfd = { .fd = sock->real_fd, .events = POLLIN };
+                sockrestart_begin_listen_wait(sock);
+                errno = 0;
+                int nready = poll(&pfd, 1, poll_timeout);
+                int poll_errno = errno;
+                sockrestart_end_listen_wait(sock);
+                bool resumed = sockrestart_should_restart_listen_wait(1);
+                if (nready < 0 && poll_errno == EINTR &&
+                        !resumed && socket_guest_signal_pending()) {
+                    // A real pending guest signal MUST surface as EINTR so the
+                    // guest can run its handler; a purely spurious poke (e.g.
+                    // a TLB-shootdown SIGUSR1) or an iOS suspend/resume
+                    // sockrestart punt just re-enters the wait. Mirrors
+                    // socket_wait_ready()/fs/poll.c; see signal_restart.c and
+                    // the stress-ng --syscall one-shot SIGALRM regression for
+                    // why a forced restart with a signal pending is wrong.
+                    fail_errno = EINTR;
+                    break;
+                }
+                // Readable, timeout-race, punt, or spurious wake: try the
+                // accept again; the deadline check above bounds the loop.
+                retry = true;
+            } else if (accept_errno == EINTR) {
+                bool resumed = sockrestart_should_restart_listen_wait(1);
+                retry = resumed || !socket_guest_signal_pending();
+            }
         } while (retry);
+        if (client < 0)
+            errno = fail_errno;
     }
     if (client < 0)
         return errno_map();
+
+    // BSD accepted sockets inherit O_NONBLOCK from the listener (which is
+    // now kept permanently nonblocking above); Linux accepted sockets start
+    // with fresh flags. Strip it -- accept4's own SOCK_NONBLOCK is applied
+    // via f_install in sock_fd_create below.
+    int client_fl = fcntl(client, F_GETFL, 0);
+    if (client_fl >= 0 && (client_fl & O_NONBLOCK))
+        (void) fcntl(client, F_SETFL, client_fl & ~O_NONBLOCK);
 
     if (sockaddr_addr != 0) {
         int err = sockaddr_write(sockaddr_addr, sockaddr, sizeof(sockaddr), &sockaddr_len);
@@ -7036,7 +7133,16 @@ static ssize_t sock_ioctl_size(int cmd) {
 static int sock_getflags(struct fd *fd) {
     if (fd->real_fd < 0)
         return fd->flags;
-    return realfs_getflags(fd);
+    int flags = realfs_getflags(fd);
+    if (flags < 0)
+        return flags;
+    // The host O_NONBLOCK can deliberately diverge from the guest's:
+    // sys_accept4_common keeps listening sockets host-nonblocking forever so
+    // a guest accept can never wedge inside the host accept(). fd->flags
+    // carries the guest's own O_NONBLOCK for the open file description
+    // (maintained by realfs_setflags via f_install/F_SETFL/FIONBIO), so
+    // report that one, not the host's.
+    return (flags & ~O_NONBLOCK_) | (fd->flags & O_NONBLOCK_);
 }
 
 static int sock_setflags(struct fd *fd, dword_t flags) {
