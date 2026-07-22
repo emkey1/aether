@@ -2345,6 +2345,13 @@ static TerminalViewController *CreateTerminalViewController(void) {
 
     // Repair or recreate the core device nodes the app owns. This keeps older
     // roots working when a device major/minor changes in a later app build.
+    //
+    // /dev/tty0 (the Linux "current VT" alias) exists only so systemd's
+    // getty@tty1.service passes its ConditionPathExists=/dev/tty0 check and
+    // puts a login on the console -- the condition only stat()s it; agetty
+    // opens /dev/tty1. vconsole-setup stays skipped regardless (verified on
+    // the CLI harness); a stray open of tty0 yields an unattached tty.
+    EnsureCharacterDevice("/dev/tty0", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 0));
     EnsureCharacterDevice("/dev/tty1", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 1));
     EnsureCharacterDevice("/dev/tty2", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 2));
     EnsureCharacterDevice("/dev/tty3", S_IFCHR|0666, dev_make(TTY_CONSOLE_MAJOR, 3));

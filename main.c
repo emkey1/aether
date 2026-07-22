@@ -172,6 +172,15 @@ static void setup_host_mounts(void) {
     ensure_dev_node("/dev/urandom", MEM_MAJOR, DEV_URANDOM_MINOR);
     ensure_dev_node("/dev/tty", TTY_ALTERNATE_MAJOR, DEV_TTY_MINOR);
     ensure_dev_node("/dev/ptmx", TTY_ALTERNATE_MAJOR, DEV_PTMX_MINOR);
+    // systemd's getty@tty1.service (and friends) carry
+    // ConditionPathExists=/dev/tty0 -- the Linux "current VT" alias -- and
+    // silently skip without it, so a systemd guest finishes booting with no
+    // login on the console. The condition only stat()s the node; agetty
+    // itself opens /dev/tty1. Provide both (Arch minirootfs tarballs ship
+    // neither). vconsole-setup stays skipped regardless (verified), and a
+    // stray open of tty0 just yields an unattached tty.
+    ensure_dev_node("/dev/tty0", TTY_CONSOLE_MAJOR, 0);
+    ensure_dev_node("/dev/tty1", TTY_CONSOLE_MAJOR, 1);
     // /dev/console is created by the iOS app (AppDelegate.m's
     // EnsureCharacterDevice) but was missing from this CLI repair set, so a
     // rootfs tarball that doesn't ship it (the x86_64 Arch minirootfs is one)
