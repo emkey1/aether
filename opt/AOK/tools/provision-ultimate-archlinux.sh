@@ -184,6 +184,23 @@ if [ -f /etc/pacman.conf ]; then
     fi
     note "disabled pacman package signature verification (gpg keyring unusable under iSH's kernel)"
 fi
+# systemd-resolved cannot serve queries under iSH yet (no networkd/DHCP to
+# feed it upstream servers, and the guest-loopback NAT query path is
+# unverified), but while it RUNS, glibc's nsswitch line
+# "resolve [!UNAVAIL=return]" hard-stops every hostname lookup at
+# nss-resolve's answer and never falls through to the classic dns module --
+# so /etc/resolv.conf (which iSH-AOK maintains with the host's servers) is
+# ignored and ALL resolution fails, even though raw-IP connectivity works.
+# Disable resolved and make resolv.conf a real file instead of the dangling
+# stub-resolv.conf symlink; with resolved gone, nss-resolve reports UNAVAIL
+# and lookups fall through to dns/resolv.conf as intended. Re-enabling
+# resolved is a project for after the NAT DNS path is proven.
+systemctl disable systemd-resolved >/dev/null 2>&1 || true
+if [ -L /etc/resolv.conf ]; then
+    rm -f /etc/resolv.conf
+    printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
+    note "replaced stub-resolv.conf symlink with a real resolv.conf; systemd-resolved disabled"
+fi
 # iSH-AOK writes /etc/resolv.conf asynchronously during boot (AppDelegate's
 # scheduleDnsRefresh dispatches it off the boot path rather than blocking on
 # it), so a script launched right after boot can race it and see DNS lookups
