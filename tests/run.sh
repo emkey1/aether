@@ -2610,4 +2610,16 @@ if ! cmp -s /tmp/aether_array_slice_expected.out /tmp/aether_array_slice_pass.ou
     exit 1
 fi
 
+# Array literal of records whose hidden `__array_literal_tmp` scratch local
+# recycles a stack slot last used by an unrelated Int local in an earlier
+# sibling scope. Regression for a spurious "Type mismatch: Cannot assign
+# ARRAY to integer." (stale intlike type tag surviving in the recycled slot).
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_literal_tmp_slot_pass.aether" >/tmp/aether_array_literal_tmp_slot_pass.out
+printf '1\n1\na\n' >/tmp/aether_array_literal_tmp_slot_expected.out
+if ! cmp -s /tmp/aether_array_literal_tmp_slot_expected.out /tmp/aether_array_literal_tmp_slot_pass.out; then
+    echo "unexpected array-literal-tmp-slot output (regression: stale intlike type tag in recycled scratch slot)" >&2
+    cat /tmp/aether_array_literal_tmp_slot_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

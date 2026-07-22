@@ -1,0 +1,25 @@
+// Regression: an array literal of heap objects/records (built via a hidden
+// `__array_literal_tmp` scratch local) recycling a stack slot last used by
+// an unrelated Int local in an earlier sibling scope inherited that local's
+// stale "intlike" runtime type tag, so writing the array into the slot
+// spuriously failed with "Type mismatch: Cannot assign ARRAY to integer." --
+// nothing in the source ever assigns an array where an integer is expected.
+//
+// Fix: emit RESET_LOCAL for the scratch slot before its first write, same
+// as every named `let` declaration already does.
+type Item {
+    name: Text;
+}
+
+fn main() -> Void {
+    if true {
+        let x: Int = 1;
+        fx { println(x); }
+    }
+    let items: Item[] = [Item { name: "a" }];
+    fx {
+        println(length(items));
+        println(items[0].name);
+    }
+    ret;
+}
