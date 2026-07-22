@@ -203,6 +203,10 @@ static bool mem_uses_host_page_mirroring(void) {
     return mem_can_mirror_host_page_protections() && mem_host_page_mirroring_enabled();
 }
 
+bool mem_host_page_mirroring_available(void) {
+    return mem_uses_host_page_mirroring();
+}
+
 static void *mem_host_page_addr(struct pt_entry *entry) {
     if (entry == NULL || entry->data == NULL || entry->data->data == NULL)
         return NULL;

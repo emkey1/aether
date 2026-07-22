@@ -220,4 +220,13 @@ int mem_ref_cnt_get(struct mem *mem);
 
 extern size_t real_page_size;
 
+// Whether guest page protection changes (e.g. mprotect promoting a page to
+// writable) can be reflected into real host mprotect() calls. False whenever
+// a host mprotect() can't safely target a single guest page (host/guest page
+// size mismatch, or disabled outright -- see mem_host_page_mirroring_enabled
+// in memory.c). Callers that create a host mapping less permissive than a
+// guest page might later become must pre-grant the wider permission up front
+// when this is false, since there's no way to promote it after the fact.
+bool mem_host_page_mirroring_available(void);
+
 #endif

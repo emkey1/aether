@@ -23,6 +23,7 @@
 #include "fs/mmap_cache.h"
 #include "fs/tty.h"
 #include "util/sync.h"
+#include "emu/memory.h"
 
 struct realfs_io_stats realfs_io_stats;
 
@@ -770,21 +771,32 @@ int host_fd_mmap(int host_fd, struct mem *mem, page_t start, pages_t pages, off_
     if (flags & MMAP_SHARED) mmap_flags |= MAP_SHARED;
     int mmap_prot = PROT_READ;
     if (prot & P_WRITE) mmap_prot |= PROT_WRITE;
-    // Host VM protections operate at host-page granularity. On 16K-page iOS
-    // devices, a single host page can cover multiple 4K guest pages with
-    // different guest permissions. In that configuration we cannot safely use
-    // host protections to enforce guest writability for private file-backed
-    // mappings, because a guest-writable page can share a host page with a
-    // guest-readonly mapping and fault on the host despite the guest page
-    // table allowing the write. Fall back to a writable host mapping and let
-    // the guest page tables enforce access.
-    if (real_page_size != PAGE_SIZE && (mmap_flags & MAP_PRIVATE))
-        mmap_prot |= PROT_WRITE;
+    // Whenever a guest page's protection can't later be mirrored into a real
+    // host mprotect() -- host/guest page-size mismatch (16K-page iOS
+    // devices), or mirroring disabled outright (unconditionally on __APPLE__,
+    // see mem_host_page_mirroring_enabled) -- a host mapping created less
+    // permissive than PROT_WRITE can never be promoted afterward: the guest
+    // page tables will report the page writable once mprotect()/COW-break
+    // sets P_WRITE in software, but the underlying host mapping stays
+    // read-only forever and the actual store faults on the host. So map
+    // writable up front and let the guest page tables enforce access instead.
+    //
+    // For MAP_PRIVATE this is always safe: POSIX permits PROT_WRITE with
+    // MAP_PRIVATE regardless of the fd's open mode (writes never reach the
+    // file). MAP_SHARED has no such guarantee -- the fd must actually be
+    // open for writing, or mmap() fails EACCES -- so try it and fall back to
+    // the originally requested protection if the host rejects it.
+    bool needs_write_headroom = !mem_host_page_mirroring_available() && !(mmap_prot & PROT_WRITE);
+    int try_prot = mmap_prot;
+    if (needs_write_headroom)
+        try_prot |= PROT_WRITE;
 
     off_t real_offset = (offset / real_page_size) * real_page_size;
     off_t correction = offset - real_offset;
-    char *memory = mmap(NULL, (pages * PAGE_SIZE) + correction,
-            mmap_prot, mmap_flags, host_fd, real_offset);
+    size_t map_len = (pages * PAGE_SIZE) + correction;
+    char *memory = mmap(NULL, map_len, try_prot, mmap_flags, host_fd, real_offset);
+    if (memory == MAP_FAILED && try_prot != mmap_prot)
+        memory = mmap(NULL, map_len, mmap_prot, mmap_flags, host_fd, real_offset);
     int err = pt_map(mem, start, pages, memory, correction, prot);
     // Never-writable file-backed mappings can't be COW-broken or otherwise
     // mutated by the guest (write faults check P_WRITE before touching
