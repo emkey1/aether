@@ -927,7 +927,11 @@ static void *FallbackConsoleInitThread(void *context) {
             if (session < 0)
                 printk("fake init could not start a new session for pid %d: %ld\n", childPid, (long) session);
         }
-        err = create_stdio("/dev/console", TTY_CONSOLE_MAJOR, 1);
+        // Open via the /dev/console alias (5:1): it never auto-attaches as
+        // controlling terminal (Linux rule; see fs/tty.c), so the explicit
+        // TIOCSCTTY below is what acquires the tty -- deliberate here, since
+        // this fake-init console shell wants job control.
+        err = create_stdio("/dev/console", TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR);
         if (err == 0) {
             intptr_t cttyErr = (intptr_t) (int32_t) sys_ioctl(0, TIOCSCTTY_, 1);
             if (cttyErr < 0)
@@ -2645,7 +2649,15 @@ static TerminalViewController *CreateTerminalViewController(void) {
     
     tty_drivers[TTY_CONSOLE_MAJOR] = &ios_console_driver;
     set_console_device(TTY_CONSOLE_MAJOR, 1);
-    err = create_stdio("/dev/console", TTY_CONSOLE_MAJOR, 1);
+    // Mimic the Linux kernel's console handoff to init: stdio on
+    // /dev/console (5:1 alias), which NEVER becomes the controlling
+    // terminal (see fs/tty.c). Passing TTY_CONSOLE_MAJOR here made
+    // create_stdio's device check miss the 5:1 node and fall back to
+    // opening tty1 directly, auto-attaching it to PID 1's session -- which
+    // permanently blocked getty@tty1's TIOCSCTTY, leaving every systemd
+    // boot without a console login prompt (agetty parked pre-exec in
+    // acquire_terminal, "[(agetty)]" in ps).
+    err = create_stdio("/dev/console", TTY_ALTERNATE_MAJOR, DEV_CONSOLE_MINOR);
     if (err < 0) {
         return RecordBootFailure(err,
                                  @"boot.stdio.failed",

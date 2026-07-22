@@ -205,7 +205,24 @@ static int tty_device_open(int major, int minor, struct fd *fd) {
             if (tty == NULL)
                 return _ENXIO;
         } else if (minor == DEV_CONSOLE_MINOR) {
-            return tty_device_open(console_major, console_minor, fd);
+            // Linux rule: opening /dev/console NEVER attaches it as the
+            // caller's controlling terminal (the kernel forces noctty for
+            // this device). That is what keeps PID 1 ctty-less: the kernel
+            // hands init console fds, but the console tty's session stays
+            // free, so getty@tty1's setsid+TIOCSCTTY can claim it. iSH's
+            // auto-attach in tty_open() didn't know about the alias, so a
+            // systemd boot left PID 1's session owning tty1 forever and
+            // every getty parked pre-exec inside sd's acquire_terminal()
+            // wait ("[(agetty)]" in ps, no login prompt on the console,
+            // TIOCSCTTY -> EPERM until the end of time). Force the
+            // O_NOCTTY_ bit across the underlying open, then restore the
+            // caller's flags so it doesn't leak into F_GETFL.
+            int had_noctty = fd->flags & O_NOCTTY_;
+            fd->flags |= O_NOCTTY_;
+            int err = tty_device_open(console_major, console_minor, fd);
+            if (!had_noctty)
+                fd->flags &= ~O_NOCTTY_;
+            return err;
         } else if (minor == DEV_PTMX_MINOR) {
             return ptmx_open(fd);
         } else {

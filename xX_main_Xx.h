@@ -117,7 +117,23 @@ static inline int xX_main_Xx(int argc, char *const argv[], const char *envp) {
         return err;
     tty_drivers[TTY_CONSOLE_MAJOR] = &real_tty_driver;
     if (isatty(STDIN_FILENO) && isatty(STDOUT_FILENO)) {
-        err = create_stdio(console, TTY_CONSOLE_MAJOR, 1);
+        // When launching an init system, mimic the Linux kernel's console
+        // handoff: init's stdio points at /dev/console, which never becomes
+        // a controlling terminal, leaving tty1's session free for
+        // getty@tty1 to claim (see the /dev/console alias in fs/tty.c).
+        // Direct commands (ish -f fs /bin/sh) keep the /dev/tty1 default so
+        // the shell auto-acquires the tty and job control works.
+        const char *base = strrchr(argv[optind], '/');
+        base = base != NULL ? base + 1 : argv[optind];
+        const char *tty1_default = "/dev/tty1";
+        if (strcmp(base, "init") == 0 && strcmp(console, tty1_default) == 0)
+            console = "/dev/console";
+        int console_major_exp = TTY_CONSOLE_MAJOR, console_minor_exp = 1;
+        if (strcmp(console, "/dev/console") == 0) {
+            console_major_exp = TTY_ALTERNATE_MAJOR;
+            console_minor_exp = DEV_CONSOLE_MINOR;
+        }
+        err = create_stdio(console, console_major_exp, console_minor_exp);
         if (err < 0)
             return err;
     } else {
