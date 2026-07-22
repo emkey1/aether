@@ -74,6 +74,7 @@ TUPLE_DESTRUCTURE_FORWARD_PASS_FIXTURE="$TESTS_DIR/tuple_destructure_forward_pas
 TUPLE_POST_PASS_FIXTURE="$TESTS_DIR/tuple_post_pass.aether"
 ARRAY_APPEND_PASS_FIXTURE="$TESTS_DIR/dynamic_array_append_pass.aether"
 ARRAY_FIELD_INDEX_PASS_FIXTURE="$TESTS_DIR/array_field_index_pass.aether"
+ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE="$TESTS_DIR/array_literal_after_loop_pass.aether"
 EXTENSION_CALL_ALIAS_PASS_FIXTURE="$TESTS_DIR/extension_call_alias_pass.aether"
 EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE="$TESTS_DIR/extension_method_dot_call_pass.aether"
 TUPLE_CHAINED_INDEX_FAIL_FIXTURE="$TESTS_DIR/tuple_index_chained_call_unsupported_fail.aether"
@@ -260,6 +261,7 @@ for fixture in \
     "$TUPLE_DESTRUCTURE_FORWARD_PASS_FIXTURE" \
     "$TUPLE_POST_PASS_FIXTURE" \
     "$ARRAY_APPEND_PASS_FIXTURE" \
+    "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" \
     "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" \
     "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" \
     "$TUPLE_CHAINED_INDEX_FAIL_FIXTURE" \
@@ -656,6 +658,20 @@ printf '14\n' >/tmp/aether_array_field_index_expected.out
 if ! cmp -s /tmp/aether_array_field_index_expected.out /tmp/aether_array_field_index_pass.out; then
     echo "unexpected array field index output" >&2
     cat /tmp/aether_array_field_index_pass.out >&2
+    exit 1
+fi
+# Regression: an array literal with a variable (not constant) element, in a
+# `let arr: T[] = [...]` initializer, used to fail with a spurious "Type
+# mismatch: Cannot assign ARRAY to integer." whenever a `loop` statement
+# appeared earlier in the same function body. Root cause was the compiler's
+# hidden "__array_literal_tmp" scratch local recycling a stack slot left over
+# from an intlike local in a prior sibling scope (e.g. the loop counter),
+# without resetting the slot's runtime type tag first.
+"$AETHER_BIN" --no-cache "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" >/tmp/aether_array_literal_after_loop_pass.out
+printf '1\n' >/tmp/aether_array_literal_after_loop_expected.out
+if ! cmp -s /tmp/aether_array_literal_after_loop_expected.out /tmp/aether_array_literal_after_loop_pass.out; then
+    echo "unexpected array-literal-after-loop output" >&2
+    cat /tmp/aether_array_literal_after_loop_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" >/tmp/aether_extension_call_alias_pass.out

@@ -1,0 +1,13 @@
+fn mk(start: Int) -> Int[] {
+    let x: Int = 0;
+    loop i in 0..4 {
+        x = x + 1;
+    }
+    let queue: Int[] = [start];
+    ret queue;
+}
+fn main() -> Void {
+    let d: Int[] = mk(1);
+    fx { println(d[0]); }
+    ret;
+}
