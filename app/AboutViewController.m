@@ -840,7 +840,7 @@ typedef NS_ENUM(NSInteger, ISHLLMToolRunDecision) {
 // timeout wedges the serial tool queue forever, and an unbounded capture blows
 // out the model's context window when the result is fed back.
 static const NSInteger kISHLLMToolTimeoutMinSeconds = 5;
-static const NSInteger kISHLLMToolTimeoutMaxSeconds = 300;
+static const NSInteger kISHLLMToolTimeoutMaxSeconds = 900;
 static const NSInteger kISHLLMToolOutputMinKB = 16;
 static const NSInteger kISHLLMToolOutputMaxKB = 256;
 
@@ -3136,7 +3136,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         message:@"A command that runs longer than this is killed and its partial output is returned to the model."
         preferredStyle:UIAlertControllerStyleActionSheet];
     NSInteger current = ISHLLMToolTimeoutSeconds();
-    for (NSNumber *choice in @[@15, @30, @60, @120, @300]) {
+    for (NSNumber *choice in @[@15, @30, @60, @120, @300, @600, @900]) {
         NSInteger seconds = choice.integerValue;
         NSString *title = ISHLLMToolTimeoutTitle(seconds);
         if (seconds == current)
