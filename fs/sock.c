@@ -3232,10 +3232,107 @@ out:
     return err;
 }
 
+// ---- unix peer-token registry ----
+//
+// The connect side of a guest AF_UNIX stream sends an 8-byte token as the
+// first bytes on the wire so the accept side can link socket.unix_peer (for
+// SO_PEERCRED and friends). This used to be the sender's raw `struct fd *`,
+// and the accept side dereferenced whatever 8 bytes it read. Two fatal
+// flaws, both observed as emulator SIGBUS crashes during fresh Arch systemd
+// boots (three identical crash reports in unix_socket_finish_peer, each
+// "pointer" decoding to a CLOCK_MONOTONIC timestamp matching the moment of
+// the message -- i.e. real application payload interpreted as a pointer):
+//
+//   1. a stream whose first bytes are NOT a token -- whatever guest path
+//      produces one -- got those bytes dereferenced as a host pointer;
+//   2. even a genuine token had no lifetime guarantee: the sender could be
+//      closed and freed before the acceptor consumed the token.
+//
+// Now the wire carries a random 64-bit cookie and this registry maps live
+// cookies to their sender fds. The acceptor PEEKs the first 8 bytes,
+// validates them against the registry, and only consumes them on a match;
+// unknown bytes are left in the stream untouched and the socket simply has
+// no unix_peer (SO_PEERCRED degrades the same way it already does for
+// datagram sockets). Entries die with their sender (sock_close), so a
+// dangling cookie can never resolve to a freed fd. unix_token_lock nests
+// OUTSIDE peer_lock: the consume path holds it across lookup+link so a
+// concurrent sender close (which unregisters under the same lock, then
+// unlinks under peer_lock) either wins entirely -- lookup misses, no link --
+// or blocks until the link is made and then tears it down normally.
+struct unix_token {
+    uint64_t cookie;
+    struct fd *sender;
+    struct list tokens;
+};
+static lock_t unix_token_lock = LOCK_INITIALIZER;
+static struct list unix_tokens = LIST_INITIALIZER(unix_tokens);
+
+static struct unix_token *unix_token_find_locked(uint64_t cookie) {
+    struct unix_token *token;
+    list_for_each_entry(&unix_tokens, token, tokens) {
+        if (token->cookie == cookie)
+            return token;
+    }
+    return NULL;
+}
+
+// Register a fresh token for `sock` and return its cookie (never 0).
+static uint64_t unix_token_register(struct fd *sock) {
+    struct unix_token *token = malloc(sizeof(*token));
+    if (token == NULL)
+        return 0;
+    lock(&unix_token_lock, 0);
+    do {
+        arc4random_buf(&token->cookie, sizeof(token->cookie));
+    } while (token->cookie == 0 || unix_token_find_locked(token->cookie) != NULL);
+    token->sender = sock;
+    list_add(&unix_tokens, &token->tokens);
+    uint64_t cookie = token->cookie;
+    unlock(&unix_token_lock);
+    return cookie;
+}
+
+// Tombstone every token registered by `sock` (unconsumed sends). Called
+// from sock_close, so a cookie can never resolve to a freed fd. The entry
+// itself must SURVIVE as a tombstone (sender=NULL): its 8 cookie bytes are
+// already on the wire, and the acceptor must still recognize and consume
+// them -- just without linking a peer -- or the guest would read 8 bytes of
+// garbage ahead of its real data. Tombstones of connections that never get
+// accepted are capped; evicting an ancient one merely re-opens the
+// stray-8-bytes corner for a connection nobody accepted in ages.
+#define UNIX_TOKEN_TOMBSTONE_MAX 1024
+static unsigned unix_token_tombstones = 0;
+
+static void unix_token_unregister_sender(struct fd *sock) {
+    lock(&unix_token_lock, 0);
+    struct unix_token *token, *tmp;
+    list_for_each_entry_safe(&unix_tokens, token, tmp, tokens) {
+        if (token->sender == sock) {
+            token->sender = NULL;
+            unix_token_tombstones++;
+        }
+    }
+    if (unix_token_tombstones > UNIX_TOKEN_TOMBSTONE_MAX) {
+        list_for_each_entry_safe(&unix_tokens, token, tmp, tokens) {
+            if (unix_token_tombstones <= UNIX_TOKEN_TOMBSTONE_MAX)
+                break;
+            if (token->sender == NULL) {
+                list_remove(&token->tokens);
+                free(token);
+                unix_token_tombstones--;
+            }
+        }
+    }
+    unlock(&unix_token_lock);
+}
+
 static int unix_socket_send_peer_token(struct fd *sock) {
+    uint64_t cookie = unix_token_register(sock);
+    if (cookie == 0)
+        return _ENOMEM;
     size_t sent = 0;
-    const char *buf = (const char *) &sock;
-    while (sent < sizeof(sock)) {
+    const char *buf = (const char *) &cookie;
+    while (sent < sizeof(cookie)) {
         ssize_t res = 0;
         TASK_MAY_BLOCK {
             while (1) {
@@ -3257,10 +3354,14 @@ static int unix_socket_send_peer_token(struct fd *sock) {
                 break;
             }
         }
-        if (res < 0)
+        if (res < 0) {
+            unix_token_unregister_sender(sock);
             return res > -4096 && res < 0 ? (int) res : errno_map();
-        if (res == 0)
+        }
+        if (res == 0) {
+            unix_token_unregister_sender(sock);
             return _EPIPE;
+        }
         sent += (size_t) res;
     }
     return 0;
@@ -3271,17 +3372,17 @@ static int unix_socket_finish_peer(struct fd *sock) {
         return 0;
 
     if (sock->socket.unix_peer_pending) {
-        int recv_flags = MSG_WAITALL;
-
-        while (sock->socket.unix_peer_off < sizeof(struct fd *)) {
-            ssize_t res = 0;
+        // PEEK at the first 8 bytes without consuming them: only a cookie
+        // that resolves in the token registry may be taken off the wire.
+        // MSG_PEEK always reads from the front of the stream, so no partial
+        // -read offset bookkeeping is needed (or possible).
+        uint64_t cookie = 0;
+        ssize_t res = 0;
+        for (;;) {
             TASK_MAY_BLOCK {
                 while (1) {
                     errno = 0;
-                    res = recv(sock->real_fd,
-                               sock->socket.unix_peer_buf + sock->socket.unix_peer_off,
-                               sizeof(struct fd *) - sock->socket.unix_peer_off,
-                               recv_flags);
+                    res = recv(sock->real_fd, &cookie, sizeof(cookie), MSG_PEEK);
                     if (res >= 0)
                         break;
                     if (errno == EINTR) {
@@ -3304,13 +3405,53 @@ static int unix_socket_finish_peer(struct fd *sock) {
                 return res > -4096 && res < 0 ? (int) res : errno_map();
             if (res == 0)
                 return _ECONNRESET;
-            sock->socket.unix_peer_off += res;
+            if ((size_t) res >= sizeof(cookie))
+                break;
+            // Fewer than 8 bytes available yet: wait for more, then re-peek.
+            int wait_err = socket_wait_ready(sock, POLLIN);
+            if (wait_err < 0)
+                return wait_err;
         }
 
-        struct fd *peer = NULL;
-        memcpy(&peer, sock->socket.unix_peer_buf, sizeof(peer));
+        // Hold unix_token_lock across lookup AND linking: a concurrent
+        // sender close unregisters under this lock before unlinking under
+        // peer_lock, so it either wins entirely (lookup misses, no link) or
+        // waits for the link and then tears it down normally.
+        lock(&unix_token_lock, 0);
+        struct unix_token *token = unix_token_find_locked(cookie);
+        if (token == NULL) {
+            unlock(&unix_token_lock);
+            // Not a token: a stream whose first bytes are application data
+            // (or whose sender already closed). Leave the bytes for the
+            // guest to read; the socket just has no linked unix_peer.
+            printk("INFO: unix accept without peer token (comm=%s first-bytes=%#llx)\n",
+                   current != NULL ? current->comm : "?",
+                   (unsigned long long) cookie);
+            sock->socket.unix_peer_pending = false;
+            return 0;
+        }
+        struct fd *peer = token->sender; // NULL: tombstone (sender closed);
+                                         // consume the bytes, link nothing
+        if (peer == NULL)
+            unix_token_tombstones--;
+        list_remove(&token->tokens);
+        free(token);
+
+        // The cookie is validated and its sender is live (its close would
+        // have unregistered it); now actually consume the 8 peeked bytes.
+        size_t got = 0;
+        while (got < sizeof(cookie)) {
+            errno = 0;
+            res = recv(sock->real_fd, (char *) &cookie + got, sizeof(cookie) - got, 0);
+            if (res < 0 && errno == EINTR)
+                continue;
+            if (res <= 0)
+                break; // peeked bytes vanished: connection died underneath
+            got += (size_t) res;
+        }
+
         lock(&peer_lock, 0);
-        if (sock->socket.unix_peer == NULL && peer != NULL) {
+        if (peer != NULL && got == sizeof(cookie) && sock->socket.unix_peer == NULL) {
             sock->socket.unix_peer = peer;
             peer->socket.unix_peer = sock;
             sock->socket.unix_peer_cred = peer->socket.unix_cred;
@@ -3320,8 +3461,8 @@ static int unix_socket_finish_peer(struct fd *sock) {
             notify(&peer->socket.unix_got_peer);
         }
         sock->socket.unix_peer_pending = false;
-        sock->socket.unix_peer_off = 0;
         unlock(&peer_lock);
+        unlock(&unix_token_lock);
         return 0;
     }
 
@@ -7186,6 +7327,12 @@ static int sock_close(struct fd *fd) {
     if (fd->socket.domain == AF_INET_ && fd->socket.inet_nat_bound)
         inet_nat_remove_owner(fd);
     release_unix_names(fd);
+    // Kill any unconsumed peer tokens BEFORE breaking peer links: a cookie
+    // must never resolve to a freed fd, and unix_token_lock (taken first
+    // here and by the consuming side across lookup+link) is what makes the
+    // consume-vs-close race safe.
+    if (fd->socket.domain == AF_LOCAL_)
+        unix_token_unregister_sender(fd);
     lock(&peer_lock, 0);
     struct fd *peer = fd->socket.unix_peer;
     if (peer != NULL)
