@@ -2152,6 +2152,18 @@ static fd_t sock_fd_create(int sock_fd, int domain, int type, int protocol) {
     return f_install(fd, type & ~SOCKET_TYPE_MASK);
 }
 
+// Test hook: pretend the host denied AF_UNIX SOCK_SEQPACKET the way the iOS
+// app sandbox does (EPERM), so the STREAM-fallback path can be exercised on
+// the CLI where the native type otherwise succeeds. Set
+// ISH_FORCE_SEQPACKET_EPERM=1 in the environment to enable.
+static bool seqpacket_denied_by_host(int domain, int type, int protocol) {
+    static int forced = -1;
+    if (forced < 0)
+        forced = getenv("ISH_FORCE_SEQPACKET_EPERM") != NULL;
+    return forced && domain == AF_LOCAL_ &&
+        (type & SOCKET_TYPE_MASK) == SOCK_SEQPACKET_ && protocol == 0;
+}
+
 static bool unix_seqpacket_fallback_needed(int domain, int type, int protocol, int err) {
     if (domain != AF_LOCAL_)
         return false;
@@ -2214,7 +2226,13 @@ int_t sys_socket(dword_t domain, dword_t type, dword_t protocol) {
     if (type == SOCK_RAW_ && protocol == IPPROTO_RAW)
         protocol = IPPROTO_ICMP;
 
-    int sock = socket(real_domain, real_type, protocol);
+    int sock;
+    if (seqpacket_denied_by_host(domain, type, protocol)) {
+        sock = -1;
+        errno = EPERM;
+    } else {
+        sock = socket(real_domain, real_type, protocol);
+    }
 #if defined(__APPLE__)
     if (sock < 0 && unix_seqpacket_fallback_needed(domain, type, protocol, errno))
         sock = socket(real_domain, SOCK_STREAM, protocol);
@@ -4472,7 +4490,13 @@ static int_t sys_socketpair_common(dword_t domain, dword_t type, dword_t protoco
         return _EINVAL;
 
     int sockets[2];
-    int err = socketpair(real_domain, real_type, protocol, sockets);
+    int err;
+    if (seqpacket_denied_by_host(domain, type, protocol)) {
+        err = -1;
+        errno = EPERM;
+    } else {
+        err = socketpair(real_domain, real_type, protocol, sockets);
+    }
 #if defined(__APPLE__)
     if (err < 0 && unix_seqpacket_fallback_needed(domain, type, protocol, errno))
         err = socketpair(real_domain, SOCK_STREAM, protocol, sockets);
