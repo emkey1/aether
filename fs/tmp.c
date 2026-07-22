@@ -398,9 +398,37 @@ static int tmpfs_dir_unlink(struct tmp_dirent *parent, const char *name, bool re
 extern const struct fd_ops tmpfs_fdops;
 
 static int tmpfs_mount(struct mount *mount) {
-    struct tmp_inode *root_inode = tmp_inode_new(S_IFDIR | 0777);
+    // Linux tmpfs honors mode=/uid=/gid= mount options on its root inode
+    // (mm/shmem.c shmem_parse_one). They matter beyond cosmetics:
+    // systemd-user-runtime-dir mounts /run/user/<uid> as tmpfs with
+    // "mode=0700,uid=N,gid=N", and pam_systemd then refuses to export
+    // XDG_RUNTIME_DIR unless the directory is owned by that uid ("Runtime
+    // directory '/run/user/1000' is not owned by UID 1000"). With the
+    // options ignored the dir stayed root-owned, so systemd --user exited
+    // ("Trying to run as user instance, but $XDG_RUNTIME_DIR is not set")
+    // and every user@ start failed. Other options (size=, nr_inodes=,
+    // smackfsroot=, ...) remain accepted no-ops as before.
+    mode_t_ root_mode = S_IFDIR | 0777;
+    uid_t_ root_uid = 0;
+    uid_t_ root_gid = 0;
+    const char *opt = mount->info;
+    while (opt != NULL && *opt != '\0') {
+        const char *end = strchr(opt, ',');
+        size_t len = end != NULL ? (size_t) (end - opt) : strlen(opt);
+        if (len > 5 && strncmp(opt, "mode=", 5) == 0)
+            root_mode = S_IFDIR | (mode_t_) (strtoul(opt + 5, NULL, 8) & 07777);
+        else if (len > 4 && strncmp(opt, "uid=", 4) == 0)
+            root_uid = (uid_t_) strtoul(opt + 4, NULL, 10);
+        else if (len > 4 && strncmp(opt, "gid=", 4) == 0)
+            root_gid = (uid_t_) strtoul(opt + 4, NULL, 10);
+        opt = end != NULL ? end + 1 : "";
+    }
+
+    struct tmp_inode *root_inode = tmp_inode_new(root_mode);
     if (root_inode == NULL)
         return _ENOMEM;
+    root_inode->stat.uid = root_uid;
+    root_inode->stat.gid = root_gid;
 
     struct tmp_dirent *root = malloc(sizeof(struct tmp_dirent));
     if (root == NULL) {
