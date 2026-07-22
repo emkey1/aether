@@ -457,6 +457,55 @@ static NSArray<NSString *> *ISHLLMModelIdentifiersFromResponseData(NSData *data)
     return [ids sortedArrayUsingSelector:@selector(localizedCaseInsensitiveCompare:)];
 }
 
+// Best-effort context-window (max input tokens) lookup for one model entry in
+// a /models (or Gemini ListModels) response. There's no standard field for
+// this -- OpenRouter uses "context_length" (sometimes only nested under
+// "top_provider"), Groq uses "context_window", vLLM's OpenAI-compatible
+// server adds "max_model_len", Gemini's ListModels uses "inputTokenLimit".
+// Plain OpenAI/Ollama don't expose it at all. Returns 0 if the model or a
+// usable field can't be found -- callers must treat that as "unknown", not 0.
+static NSInteger ISHLLMContextWindowFromModelsResponse(NSData *data, NSString *modelID) {
+    if (modelID.length == 0)
+        return 0;
+    id json = data.length > 0 ? [NSJSONSerialization JSONObjectWithData:data options:0 error:nil] : nil;
+    if (![json isKindOfClass:NSDictionary.class])
+        return 0;
+    NSArray *models = ISHLLMUsesGeminiAPI() ? json[@"models"] : json[@"data"];
+    if (![models isKindOfClass:NSArray.class])
+        return 0;
+    for (id entry in models) {
+        if (![entry isKindOfClass:NSDictionary.class])
+            continue;
+        NSDictionary *model = entry;
+        NSString *entryID;
+        if (ISHLLMUsesGeminiAPI()) {
+            entryID = [model[@"name"] isKindOfClass:NSString.class] ? model[@"name"] : nil;
+            if ([entryID hasPrefix:@"models/"])
+                entryID = [entryID substringFromIndex:@"models/".length];
+        } else {
+            entryID = [model[@"id"] isKindOfClass:NSString.class] ? model[@"id"] : nil;
+        }
+        if (entryID.length == 0 || ![entryID isEqualToString:modelID])
+            continue;
+        for (NSString *key in @[@"context_length", @"context_window", @"max_model_len", @"max_context_length", @"n_ctx"]) {
+            id value = model[key];
+            if ([value isKindOfClass:NSNumber.class] && [value integerValue] > 0)
+                return [value integerValue];
+        }
+        NSDictionary *topProvider = [model[@"top_provider"] isKindOfClass:NSDictionary.class] ? model[@"top_provider"] : nil;
+        id nestedLength = topProvider[@"context_length"];
+        if ([nestedLength isKindOfClass:NSNumber.class] && [nestedLength integerValue] > 0)
+            return [nestedLength integerValue];
+        if (ISHLLMUsesGeminiAPI()) {
+            id inputLimit = model[@"inputTokenLimit"];
+            if ([inputLimit isKindOfClass:NSNumber.class] && [inputLimit integerValue] > 0)
+                return [inputLimit integerValue];
+        }
+        return 0; // matched the model but no known context-size field
+    }
+    return 0;
+}
+
 static NSString *ISHLLMSanitizedAssistantContent(NSString *content) {
     NSRange fileSeparator = [content rangeOfString:@"<file_sep>"];
     if (fileSeparator.location != NSNotFound)
@@ -671,6 +720,36 @@ static NSData *ISHLLMDirectHTTPGet(NSURL *url, NSString *apiKey, NSInteger *stat
     return [responseData subdataWithRange:NSMakeRange(bodyOffset, responseData.length - bodyOffset)];
 }
 
+// Fetch ISHLLMModelsEndpoint() and hand the raw response to `completion` on an
+// unspecified background thread (callers hop to main themselves) -- used for
+// the silent context-window probe below. http endpoints use the raw-socket
+// path (ATS blocks plaintext http via NSURLSession); https uses NSURLSession.
+static void ISHLLMFetchModelsDataAsync(void (^completion)(NSData *data, NSInteger statusCode, NSError *error)) {
+    NSURL *url = [NSURL URLWithString:ISHLLMModelsEndpoint()];
+    if (url == nil) {
+        completion(nil, 0, [NSError errorWithDomain:NSURLErrorDomain code:NSURLErrorBadURL userInfo:nil]);
+        return;
+    }
+    NSString *apiKey = UserPreferences.shared.llmAPIKey;
+    if ([url.scheme.lowercaseString isEqualToString:@"http"]) {
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSInteger statusCode = 0;
+            NSError *error = nil;
+            NSData *data = ISHLLMDirectHTTPGet(url, apiKey, &statusCode, &error);
+            completion(data, statusCode, error);
+        });
+        return;
+    }
+    NSMutableURLRequest *request = [NSMutableURLRequest requestWithURL:url];
+    if (apiKey.length > 0 && !ISHLLMUsesGeminiAPI())
+        [request setValue:[@"Bearer " stringByAppendingString:apiKey] forHTTPHeaderField:@"Authorization"];
+    NSURLSessionDataTask *task = [NSURLSession.sharedSession dataTaskWithRequest:request completionHandler:^(NSData *data, NSURLResponse *response, NSError *error) {
+        NSHTTPURLResponse *http = [response isKindOfClass:NSHTTPURLResponse.class] ? (NSHTTPURLResponse *) response : nil;
+        completion(data, http.statusCode, error);
+    }];
+    [task resume];
+}
+
 static NSString *ISHLLMContentFromStreamingPayload(NSString *payload) {
     NSData *data = [payload dataUsingEncoding:NSUTF8StringEncoding];
     if (data.length == 0)
@@ -843,6 +922,47 @@ static const NSInteger kISHLLMToolTimeoutMinSeconds = 5;
 static const NSInteger kISHLLMToolTimeoutMaxSeconds = 900;
 static const NSInteger kISHLLMToolOutputMinKB = 16;
 static const NSInteger kISHLLMToolOutputMaxKB = 256;
+
+// Every request resends the entire transcript, so without some limit a
+// tool-heavy conversation keeps adding another full command's output on top
+// of every prior one, forever -- a handful of rounds is enough to blow past
+// most models' context windows. Only the most recent tool results (as many as
+// fit under a token budget) keep their full content; older ones are
+// compacted down to their one-line summary instead. The budget scales with
+// the model's real context window when known (see probeContextWindowIfNeeded)
+// so a small local model compacts aggressively and a large one doesn't
+// discard useful history it didn't need to.
+static const NSInteger kISHLLMToolContextDefaultBudgetTokens = 4000; // used only when the window size is unknown
+static const CGFloat kISHLLMToolContextBudgetFraction = 0.5; // fraction of a KNOWN window reserved for tool-result content
+
+// No tokenizer is available client-side, so approximate English text at ~4
+// characters/token -- a standard rule of thumb. Real tokenizers vary
+// +/-30% depending on the model and content, but this is only used to size
+// compaction and a status display, not anything that needs to be exact.
+static NSInteger ISHLLMEstimateTokenCount(NSString *text) {
+    return text.length > 0 ? (NSInteger) ((text.length + 3) / 4) : 0;
+}
+
+static NSInteger ISHLLMEstimateMessagesTokenCount(NSArray<NSDictionary<NSString *, id> *> *messages) {
+    NSInteger total = 0;
+    for (NSDictionary<NSString *, id> *message in messages) {
+        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+        total += ISHLLMEstimateTokenCount(content) + 4; // + rough per-message role/framing overhead
+        NSArray *toolCalls = [message[@"tool_calls"] isKindOfClass:NSArray.class] ? message[@"tool_calls"] : nil;
+        for (NSDictionary *toolCall in toolCalls) {
+            NSDictionary *function = [toolCall[@"function"] isKindOfClass:NSDictionary.class] ? toolCall[@"function"] : nil;
+            NSString *arguments = [function[@"arguments"] isKindOfClass:NSString.class] ? function[@"arguments"] : @"";
+            total += ISHLLMEstimateTokenCount(arguments) + 8; // + rough per-call framing overhead
+        }
+    }
+    return total;
+}
+
+static NSString *ISHLLMFormattedTokenCount(NSInteger tokens) {
+    if (tokens >= 1000)
+        return [NSString stringWithFormat:@"%.1fK", tokens / 1000.0];
+    return [NSString stringWithFormat:@"%ld", (long) tokens];
+}
 
 static NSInteger ISHLLMToolTimeoutSeconds(void) {
     return MAX(kISHLLMToolTimeoutMinSeconds, MIN(kISHLLMToolTimeoutMaxSeconds, UserPreferences.shared.llmToolTimeoutSeconds));
@@ -1385,6 +1505,9 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     NSString *_guestEnvironmentNote; // cached distro/tool probe for the tool system prompt
     UILabel *_statusLabel;
     UIActivityIndicatorView *_activityIndicator;
+    NSInteger _knownContextWindowTokens; // 0 = unknown; best-effort from /models, see probeContextWindowIfNeeded
+    NSString *_knownContextWindowProbeKey; // "model|endpoint" the value above was probed for; re-probes when it changes
+    BOOL _contextWindowProbeInFlight;
 }
 
 - (void)viewDidLoad {
@@ -1781,6 +1904,27 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 }
 
 - (NSArray<NSDictionary<NSString *, id> *> *)providerMessages {
+    // Which tool results are recent enough to send in full: walk them newest
+    // to oldest, keeping full content until the running estimate would blow
+    // the budget (sized against the real context window when known -- see
+    // toolResultContextBudgetTokens). Always keep at least the single most
+    // recent result in full, even if it alone exceeds the budget. Identity
+    // (not equality) keyed, since two results can have identical content.
+    NSInteger budget = [self toolResultContextBudgetTokens];
+    NSMutableSet<NSValue *> *fullContentToolMessages = [NSMutableSet set];
+    NSInteger runningTokens = 0;
+    for (NSDictionary<NSString *, id> *message in _messages.reverseObjectEnumerator) {
+        NSString *role = [message[@"role"] isKindOfClass:NSString.class] ? message[@"role"] : @"";
+        if (![role isEqualToString:@"tool"])
+            continue;
+        NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
+        NSInteger tokens = ISHLLMEstimateTokenCount(content);
+        if (runningTokens + tokens > budget && fullContentToolMessages.count > 0)
+            break;
+        runningTokens += tokens;
+        [fullContentToolMessages addObject:[NSValue valueWithNonretainedObject:message]];
+    }
+
     NSMutableArray<NSDictionary<NSString *, id> *> *messages = [NSMutableArray array];
     for (NSDictionary<NSString *, id> *message in _messages) {
         if ([self messageIsLocalOnly:message])
@@ -1790,10 +1934,19 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
             continue;
         NSString *content = [message[@"content"] isKindOfClass:NSString.class] ? message[@"content"] : @"";
         // A tool result: the model needs the matching tool_call_id to thread it.
+        // Compact everything not in fullContentToolMessages to its one-line summary.
         if ([role isEqualToString:@"tool"]) {
             NSString *toolCallID = [message[@"tool_call_id"] isKindOfClass:NSString.class] ? message[@"tool_call_id"] : nil;
-            if (toolCallID.length > 0)
-                [messages addObject:@{@"role": @"tool", @"tool_call_id": toolCallID, @"content": content}];
+            if (toolCallID.length == 0)
+                continue;
+            BOOL keepFull = [fullContentToolMessages containsObject:[NSValue valueWithNonretainedObject:message]];
+            NSString *sentContent = content;
+            if (!keepFull) {
+                NSString *summary = [message[@"summary"] isKindOfClass:NSString.class] ? message[@"summary"] : nil;
+                sentContent = [NSString stringWithFormat:@"(output omitted to save context: %@. Re-run the command if you need the output again.)",
+                    summary.length > 0 ? summary : @"result compacted"];
+            }
+            [messages addObject:@{@"role": @"tool", @"tool_call_id": toolCallID, @"content": sentContent}];
             continue;
         }
         // An assistant turn that requested tools: keep tool_calls; content may be
@@ -1995,7 +2148,20 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
     if (model.length == 0)
         return @"Set a model in Settings";
-    return [NSString stringWithFormat:@"Ready · %@", model];
+    return [NSString stringWithFormat:@"Ready · %@%@", model, [self contextUsageStatusSuffix]];
+}
+
+// " · ~4.2K/32K ctx" once there's a conversation to estimate, "~4.2K ctx"
+// if the model's real context window isn't known (see
+// probeContextWindowIfNeeded), or "" before anything has been sent.
+- (NSString *)contextUsageStatusSuffix {
+    NSInteger used = ISHLLMEstimateMessagesTokenCount([self providerMessages]);
+    if (used <= 0)
+        return @"";
+    NSString *usedText = ISHLLMFormattedTokenCount(used);
+    if (_knownContextWindowTokens > 0)
+        return [NSString stringWithFormat:@" · ~%@/%@ ctx", usedText, ISHLLMFormattedTokenCount(_knownContextWindowTokens)];
+    return [NSString stringWithFormat:@" · ~%@ ctx", usedText];
 }
 
 // True (and handled) if `error` is the result of the user hitting Stop,
@@ -2485,6 +2651,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 
     [self setPromptFieldText:@""];
     [self appendRole:@"user" content:prompt];
+    [self probeContextWindowIfNeeded];
     [self setSending:YES];
 
     // Guest-shell tool use (OpenAI-compatible only): runs a non-streaming
@@ -2697,6 +2864,53 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         });
     }
     continuation();
+}
+
+// "model|models-endpoint" -- re-probes whenever either changes (switching
+// models or servers), even if the model name is reused across providers.
+- (NSString *)contextWindowProbeKey {
+    NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    return [NSString stringWithFormat:@"%@|%@", model, ISHLLMModelsEndpoint()];
+}
+
+// Best-effort, once-per-model-selection probe of the model's real context
+// window via the /models endpoint (see ISHLLMContextWindowFromModelsResponse
+// for which providers actually expose this). Silent and non-blocking, same
+// rule as the guest-env probe: a slow or unsupported provider must never
+// delay or hang the chat. If nothing usable comes back we just keep using
+// the conservative default budget in toolResultContextBudgetTokens.
+- (void)probeContextWindowIfNeeded {
+    if (ISHLLMCurrentBackend() == AOKLLMBackendAppleFoundationModels)
+        return;
+    NSString *probeKey = [self contextWindowProbeKey];
+    if (_contextWindowProbeInFlight || [probeKey isEqualToString:_knownContextWindowProbeKey])
+        return;
+    _contextWindowProbeInFlight = YES;
+    NSString *model = [UserPreferences.shared.llmModel stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+    __weak typeof(self) weakSelf = self;
+    ISHLLMFetchModelsDataAsync(^(NSData *data, NSInteger statusCode, NSError *error) {
+        (void) statusCode;
+        NSInteger tokens = error == nil ? ISHLLMContextWindowFromModelsResponse(data, model) : 0;
+        dispatch_async(dispatch_get_main_queue(), ^{
+            typeof(self) self = weakSelf;
+            if (self == nil)
+                return;
+            self->_contextWindowProbeInFlight = NO;
+            self->_knownContextWindowProbeKey = probeKey; // remember we tried, even if 0 (unknown) -- don't hammer a provider that just doesn't expose it
+            self->_knownContextWindowTokens = tokens;
+            if (!self->_activityIndicator.isAnimating)
+                [self setStatus:[self idleStatusText] busy:NO];
+        });
+    });
+}
+
+// Token budget reserved for FULL (non-compacted) tool-result content when
+// resending history to the model -- see providerMessages. Sized against the
+// real context window when known; a fixed conservative default otherwise.
+- (NSInteger)toolResultContextBudgetTokens {
+    if (_knownContextWindowTokens > 0)
+        return MAX(1024, (NSInteger) (_knownContextWindowTokens * kISHLLMToolContextBudgetFraction));
+    return kISHLLMToolContextDefaultBudgetTokens;
 }
 
 - (void)runToolLoopRound:(NSInteger)round model:(NSString *)model apiKey:(NSString *)apiKey {
