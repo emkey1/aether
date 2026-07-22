@@ -21,7 +21,7 @@ static struct fdtable *procfd_task_files_retain(struct task *task) {
     return files;
 }
 
-static struct fd *procfd_reopen_regular(struct fd *fd) {
+static struct fd *procfd_reopen_regular(struct fd *fd, int flags) {
     if (fd->mount == NULL || fd->mount->fs == &procfs || !S_ISREG(fd->type))
         return NULL;
 
@@ -30,17 +30,37 @@ static struct fd *procfd_reopen_regular(struct fd *fd) {
     if (err < 0)
         return NULL;
 
-    int flags = fd_getflags(fd);
-    if (flags < 0)
-        return NULL;
-
-    struct fd *reopened = generic_open(path, flags & ~O_CLOEXEC_, 0);
+    // Linux reopens a /proc/<pid>/fd/N magic link's target with the CALLER's
+    // flags -- that is exactly how systemd's fd_reopen() upgrades an O_PATH
+    // fd to O_RDWR (xopenat_full with path=NULL). This used to reopen with
+    // the ORIGINAL descriptor's flags instead, so an O_RDWR request against
+    // an O_PATH fd silently produced a read-only description: ftruncate then
+    // failed EINVAL, which killed systemd-machine-id-setup on a fresh Arch
+    // rootfs and cascaded into the dbus-broker 90s death loop that froze the
+    // whole boot. O_CREAT/O_EXCL are dropped: the target exists (we hold an
+    // fd to it), and if its path was meanwhile unlinked, creating a NEW file
+    // at the stale path would be wrong.
+    struct fd *reopened = generic_open(path,
+            flags & ~(O_CLOEXEC_ | O_NOFOLLOW_ | O_CREAT_ | O_EXCL_), 0);
     if (IS_ERR(reopened))
         return NULL;
     return reopened;
 }
 
-static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
+// True when an fd opened with `have` flags can stand in for a description
+// requested with `want` flags, access-mode-wise.
+static bool procfd_accmode_ok(int have, int want) {
+    have &= O_ACCMODE_;
+    want &= O_ACCMODE_;
+    return have == want || have == O_RDWR_;
+}
+
+static struct fd *procfd_openat(struct fd *at, const char *path_raw, int flags) {
+    // O_NOFOLLOW must fail the open with ELOOP and O_PATH|O_NOFOLLOW must
+    // open the magic symlink itself; both operate on the link, not the
+    // target, so leave them to normal path resolution.
+    if (flags & (O_NOFOLLOW_ | O_PATH_))
+        return NULL;
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
     if (err < 0)
@@ -86,11 +106,11 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     fdtable_release(files);
     task_ref_cnt_mod(task, -1);
 
-    // Linux procfd opens give regular files a fresh file position, which shell
-    // script loaders rely on when they execute /proc/self/fd/N after the
-    // parent has already inspected the script FD. Prefer a reopen for normal
-    // file-backed descriptors.
-    struct fd *reopened = procfd_reopen_regular(fd);
+    // Linux procfd opens give regular files a fresh file position and the
+    // CALLER's flags, which shell script loaders rely on when they execute
+    // /proc/self/fd/N after the parent has already inspected the script FD.
+    // Prefer a reopen for normal file-backed descriptors.
+    struct fd *reopened = procfd_reopen_regular(fd, flags);
     if (reopened != NULL) {
         fd_close(fd);
         return reopened;
@@ -98,7 +118,14 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw) {
     // Deleted or anonymous regular files may not have a stable path we can
     // reopen. We cannot cheaply create a distinct open-file description here,
     // but resetting the retained descriptor keeps shell interpreters from
-    // starting mid-script after apk has read the shebang.
+    // starting mid-script after apk has read the shebang. Never hand back a
+    // descriptor WEAKER than the caller asked for, though -- a silently
+    // read-only "O_RDWR" fd fails much later and much more confusingly than
+    // an up-front error (see procfd_reopen_regular's machine-id war story).
+    if (!procfd_accmode_ok(fd_getflags(fd), flags)) {
+        fd_close(fd);
+        return ERR_PTR(_EACCES);
+    }
     if (S_ISREG(fd->type) && fd->ops != NULL && fd->ops->lseek != NULL)
         fd->ops->lseek(fd, 0, SEEK_SET);
     return fd;
@@ -216,7 +243,7 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     if (flags & O_RDWR_ && flags & O_WRONLY_)
         return ERR_PTR(_EINVAL);
 
-    struct fd *procfd = procfd_openat(at, path_raw);
+    struct fd *procfd = procfd_openat(at, path_raw, flags);
     if (procfd != NULL)
         return procfd;
 
