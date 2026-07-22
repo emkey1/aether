@@ -174,6 +174,7 @@ struct audit_features_ {
 #define IFF_NOARP_LINUX_ 0x80
 #define IFF_PROMISC_LINUX_ 0x100
 #define IFF_MULTICAST_LINUX_ 0x1000
+#define IFF_LOWER_UP_LINUX_ 0x10000
 
 #define TCPF_ALL_ 0xFFF
 #define UDIAG_SHOW_NAME_ (1 << 0)
@@ -568,8 +569,18 @@ static uint32_t netlink_linux_if_flags(unsigned host_flags) {
         linux_flags |= IFF_LOOPBACK_LINUX_;
     if (host_flags & IFF_POINTOPOINT)
         linux_flags |= IFF_POINTOPOINT_LINUX_;
-    if (host_flags & IFF_RUNNING)
-        linux_flags |= IFF_RUNNING_LINUX_;
+    if (host_flags & IFF_RUNNING) {
+        // Linux splits "administratively up" (IFF_UP) from "carrier present"
+        // (IFF_LOWER_UP, netdevice-level L1 state); Darwin folds both into
+        // IFF_RUNNING. systemd-resolved's link_relevant() demands
+        // IFF_UP|IFF_LOWER_UP before it will consider a link usable --
+        // without LOWER_UP it sees no relevant links, declares
+        // io.systemd.Resolve.NetworkDown, and refuses EVERY DNS query (the
+        // upstream servers and UDP path never even get tried), which turned
+        // all hostname resolution off for the whole Arch guest via
+        // nsswitch's "resolve [!UNAVAIL=return]" hard stop.
+        linux_flags |= IFF_RUNNING_LINUX_ | IFF_LOWER_UP_LINUX_;
+    }
 #ifdef IFF_NOARP
     if (host_flags & IFF_NOARP)
         linux_flags |= IFF_NOARP_LINUX_;
