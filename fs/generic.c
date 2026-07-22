@@ -264,6 +264,16 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     int err = path_normalize(at, path_raw, path, norm);
     if (err < 0)
         return ERR_PTR(err);
+    // find_mount_and_trim_path rewrites `path` in place to be MOUNT-RELATIVE
+    // (and bind-redirected), but inotify watches are registered by full
+    // normalized guest path (sys_inotify_add_watch) -- so notifications must
+    // use the untrimmed path. On the root mount the two are identical, which
+    // hid this: on any other mount (/run, /tmp, ...) trimmed notifications
+    // matched nothing, and e.g. sd-bus clients parked in WATCH_BIND watching
+    // /run/dbus never saw the bus socket appear. Same pattern in every
+    // generic_* below that notifies.
+    char guest_path[MAX_PATH];
+    strcpy(guest_path, path);
     // A trailing slash demands a directory; open() must not create through it.
     size_t raw_len = strlen(path_raw);
     bool trailing_slash = raw_len > 0 && path_raw[raw_len - 1] == '/';
@@ -470,9 +480,9 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     err = _ENOTDIR;
     if (!S_ISDIR(fd->type) && flags & O_DIRECTORY_)
         goto error;
-    inotify_notify_open(path);
+    inotify_notify_open(guest_path);
     if (created)
-        inotify_notify_create(path, S_ISDIR(fd->type));
+        inotify_notify_create(guest_path, S_ISDIR(fd->type));
     return fd;
 
 error:
@@ -572,6 +582,8 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, path);
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
@@ -595,7 +607,7 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
     unlock(&inodes_lock);
     mount_release(mount);
     if (err >= 0)
-        inotify_notify_delete(path, false);
+        inotify_notify_delete(guest_path, false);
     return err;
 }
 
@@ -617,6 +629,9 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
         return err;
     if (contains_mount_point(src))
         return _EBUSY;
+    char guest_src[MAX_PATH], guest_dst[MAX_PATH]; // pre-trim paths for inotify
+    strcpy(guest_src, src);
+    strcpy(guest_dst, dst);
     struct mount *mount = find_mount_and_trim_path(src);
     struct mount *dst_mount = find_mount_and_trim_path(dst);
     if (mount == NULL || dst_mount == NULL) {
@@ -649,7 +664,7 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
     mount_release(mount);
     mount_release(dst_mount);
     if (err >= 0)
-        inotify_notify_move(src, dst, is_dir);
+        inotify_notify_move(guest_src, guest_dst, is_dir);
     return err;
 }
 
@@ -658,6 +673,8 @@ int generic_symlinkat(const char *target, struct fd *at, const char *link_raw) {
     int err = path_normalize(at, link_raw, link, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, link);
     struct mount *mount = find_mount_and_trim_path(link);
     if (mount == NULL)
         return _ENOENT;
@@ -671,7 +688,7 @@ int generic_symlinkat(const char *target, struct fd *at, const char *link_raw) {
     unlock(&inodes_lock);
     mount_release(mount);
     if (err >= 0)
-        inotify_notify_create(link, false);
+        inotify_notify_create(guest_path, false);
     return err;
 }
 
@@ -685,6 +702,8 @@ int generic_mknodat(struct fd *at, const char *path_raw, mode_t_ mode, dev_t_ de
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, path);
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
@@ -698,7 +717,7 @@ int generic_mknodat(struct fd *at, const char *path_raw, mode_t_ mode, dev_t_ de
     unlock(&inodes_lock);
     mount_release(mount);
     if (err >= 0)
-        inotify_notify_create(path, false);
+        inotify_notify_create(guest_path, false);
     return err;
 }
 
@@ -707,6 +726,8 @@ int generic_setattrat(struct fd *at, const char *path_raw, struct attr attr, boo
     int err = path_normalize(at, path_raw, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
     if (err < 0)
         return err;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, path);
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
@@ -716,9 +737,9 @@ int generic_setattrat(struct fd *at, const char *path_raw, struct attr attr, boo
     mount_release(mount);
     if (err >= 0) {
         if (attr.type == attr_size)
-            inotify_notify_modify(path);
+            inotify_notify_modify(guest_path);
         else
-            inotify_notify_attrib(path);
+            inotify_notify_attrib(guest_path);
     }
     return err;
 }
@@ -760,6 +781,8 @@ int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
     if (err < 0)
         return err;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, path);
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
@@ -785,7 +808,7 @@ int generic_mkdirat(struct fd *at, const char *path_raw, mode_t_ mode) {
     unlock(&inodes_lock);
     mount_release(mount);
     if (err >= 0)
-        inotify_notify_create(path, true);
+        inotify_notify_create(guest_path, true);
     return err;
 }
 
@@ -797,6 +820,8 @@ int generic_rmdirat(struct fd *at, const char *path_raw) {
         return err;
     if (contains_mount_point(path))
         return _EBUSY;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, path);
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
@@ -810,7 +835,7 @@ int generic_rmdirat(struct fd *at, const char *path_raw) {
     unlock(&inodes_lock);
     mount_release(mount);
     if (err >= 0)
-        inotify_notify_delete(path, true);
+        inotify_notify_delete(guest_path, true);
     return err;
 }
 

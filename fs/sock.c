@@ -20,6 +20,7 @@
 #include <sys/stat.h>
 #include <sys/un.h>
 #include "kernel/calls.h"
+#include "kernel/inotify.h"
 #include "kernel/task.h"
 #include "fs/fd.h"
 #include "fs/inode.h"
@@ -3216,6 +3217,8 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
     int err = path_normalize(AT_PWD, path_raw, path, N_SYMLINK_FOLLOW);
     if (err < 0)
         return err;
+    char guest_path[MAX_PATH]; // pre-trim path for inotify; see generic_openat
+    strcpy(guest_path, path);
     struct mount *mount = find_mount_and_trim_path(path);
     if (mount == NULL)
         return _ENOENT;
@@ -3239,6 +3242,17 @@ static int unix_socket_get(const char *path_raw, struct fd *bind_fd, uint32_t *s
             err = mount->fs->mknod(mount, path, S_IFSOCK | mode, 0);
             if (err < 0)
                 goto out;
+            // bind() creating the socket inode is a filesystem create like
+            // any other and must raise IN_CREATE (generic_mknodat does the
+            // same for guest mknod). sd-bus depends on it: a daemon started
+            // before dbus.socket exists parks in WATCH_BIND state watching
+            // /run/dbus with inotify and only retries its connection when
+            // the bind of system_bus_socket fires the event. Without it,
+            // early-starting bus clients (systemd-resolved, logind) never
+            // connected, never triggered dbus-broker's socket activation,
+            // and ran nameless forever -- every D-Bus call to them ate the
+            // full 25s/120s method-call timeout.
+            inotify_notify_create(guest_path, false);
             err = mount->fs->stat(mount, path, &stat);
             if (err < 0)
                 goto out;
