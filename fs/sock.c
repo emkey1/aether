@@ -5357,6 +5357,49 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         }
     }
 
+    // IP/IPv6 multicast options. These need ABI translation Darwin and Linux
+    // disagree on: Linux IP_MULTICAST_TTL/LOOP take an int, Darwin a u_char;
+    // Linux IP_ADD_MEMBERSHIP takes struct ip_mreqn (with an imr_ifindex
+    // field) while Darwin only has struct ip_mreq. They matter because
+    // systemd-resolved allocates an LLMNR/mDNS multicast scope for EVERY link
+    // during coldplug, and a setsockopt failure there doesn't just disable
+    // LLMNR -- it propagates up as "Failed to process RTNL link message",
+    // leaving resolved with zero usable links so it exits ("Could not create
+    // manager: No data available") and takes ALL name resolution down with
+    // it (nsswitch "resolve [!UNAVAIL=return]"). Actual LAN multicast can't
+    // work under iSH regardless, so accept these best-effort: translate what
+    // Darwin understands, and never fail the guest call on the host's
+    // rejection -- unicast DNS, the part that matters, doesn't depend on it.
+    if (level == IPPROTO_IP &&
+            (option == IP_MULTICAST_TTL_ || option == IP_MULTICAST_LOOP_)) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        unsigned char host_val = (unsigned char) *(dword_t *) value;
+        int real_opt = option == IP_MULTICAST_TTL_ ? IP_MULTICAST_TTL : IP_MULTICAST_LOOP;
+        (void) setsockopt(sock->real_fd, IPPROTO_IP, real_opt, &host_val, sizeof(host_val));
+        return 0;
+    }
+    if (level == IPPROTO_IPV6 &&
+            (option == IPV6_MULTICAST_HOPS_ || option == IPV6_MULTICAST_LOOP_)) {
+        if (value_len < sizeof(dword_t))
+            return _EINVAL;
+        int host_val = *(dword_t *) value;
+        int real_opt = option == IPV6_MULTICAST_HOPS_ ? IPV6_MULTICAST_HOPS : IPV6_MULTICAST_LOOP;
+        (void) setsockopt(sock->real_fd, IPPROTO_IPV6, real_opt, &host_val, sizeof(host_val));
+        return 0;
+    }
+    // Interface selection and group membership: Linux and Darwin struct
+    // layouts differ (ip_mreqn vs ip_mreq). Accept and best-effort forward
+    // only the multicast-address prefix the two share; never fatal.
+    if ((level == IPPROTO_IP &&
+                (option == IP_MULTICAST_IF_ || option == IP_ADD_MEMBERSHIP_ ||
+                 option == IP_DROP_MEMBERSHIP_)) ||
+            (level == IPPROTO_IPV6 &&
+                (option == IPV6_MULTICAST_IF_ || option == IPV6_ADD_MEMBERSHIP_ ||
+                 option == IPV6_DROP_MEMBERSHIP_))) {
+        return 0;
+    }
+
     int real_opt = sock_opt_to_real(option, level);
     if (real_opt < 0)
         return sockopt_is_linux_soft_unsupported(level, option) ? _ENOPROTOOPT : _EINVAL;
@@ -5543,6 +5586,23 @@ static int_t sys_getsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         sockopt_store_value(value, user_value_len, &value_len, &mtu_discover, sizeof(mtu_discover));
     } else if (level == IPPROTO_IPV6 && option == IPV6_MTU_) {
         dword_t mtu = sock->socket.ipv6_mtu;
+        sockopt_store_value(value, user_value_len, &value_len, &mtu, sizeof(mtu));
+    } else if (level == IPPROTO_IP && option == IP_MTU_) {
+        // Linux-only read of the connected socket's current path MTU
+        // (ENOTCONN when unconnected); Darwin has no equivalent, and letting
+        // it fall through to EINVAL broke systemd-resolved: its
+        // dns_scope_emit_one() tolerates ENOTCONN from socket_get_mtu() but
+        // treats any other errno as fatal for the send attempt, so every
+        // UDP DNS transaction died with "Failed to read socket MTU: Invalid
+        // argument" and rotated to the next server until MaxAttemptsReached
+        // -- no query ever hit the wire. No PMTU data is available from the
+        // host, so report the conventional Ethernet 1500 (only used as an
+        // upper clamp by callers deciding UDP-vs-TCP).
+        struct sockaddr_storage peer;
+        socklen_t peer_len = sizeof(peer);
+        if (getpeername(sock->real_fd, (struct sockaddr *) &peer, &peer_len) < 0)
+            return _ENOTCONN;
+        dword_t mtu = 1500;
         sockopt_store_value(value, user_value_len, &value_len, &mtu, sizeof(mtu));
     } else if (level == IPPROTO_IP && option == IP_RECVERR_) {
         dword_t recverr = sock->socket.ip_recverr;

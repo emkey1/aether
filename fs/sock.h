@@ -348,6 +348,7 @@ static inline int sock_flags_from_real(int real) {
 #define IP_MTU_DISCOVER_ 10
 #define IP_RECVERR_ 11
 #define IP_RECVTTL_ 12
+#define IP_MTU_ 14
 #define IP_RECVTOS_ 13
 #define TCP_NODELAY_ 1
 #define TCP_DEFER_ACCEPT_ 9
@@ -361,6 +362,7 @@ static inline int sock_flags_from_real(int real) {
 #define IPV6_RECVHOPLIMIT_ 51
 #define IPV6_HOPLIMIT_ 52
 #define IPV6_V6ONLY_ 26
+#define IPV6_RECVPKTINFO_ 49
 #define IPV6_TCLASS_ 67
 #define ICMP6_FILTER_ 1
 
@@ -414,10 +416,36 @@ static inline int sock_opt_to_real(int fake, int level) {
             case IPV6_RECVHOPLIMIT_: return IPV6_RECVHOPLIMIT;
             case IPV6_TCLASS_: return IPV6_TCLASS;
             case IPV6_V6ONLY_: return IPV6_V6ONLY;
+            // The IPv6 twin of IP_PKTINFO. systemd-resolved's LLMNR/mDNS and
+            // DNS-stub IPv6 UDP sockets set this via socket_set_recvpktinfo()
+            // and treat failure as fatal to link processing ("LLMNR-IPv6(UDP):
+            // Failed to set common socket options"), which cascaded into
+            // "Could not create manager" and took down all DNS. Darwin hides
+            // its IPV6_RECVPKTINFO (61) behind __APPLE_USE_RFC_3542, which we
+            // cannot define globally without shifting other IPV6_* meanings,
+            // so use the raw value.
+#ifdef IPV6_RECVPKTINFO
+            case IPV6_RECVPKTINFO_: return IPV6_RECVPKTINFO;
+#elif defined(__APPLE__)
+            case IPV6_RECVPKTINFO_: return 61;
+#endif
         } break;
     }
     return -1;
 }
+
+// Linux IP/IPv6 multicast option numbers (asm-generic; same on every Linux
+// arch). Guest values -- translated to Darwin in the multicast handler.
+#define IP_MULTICAST_IF_ 32
+#define IP_MULTICAST_TTL_ 33
+#define IP_MULTICAST_LOOP_ 34
+#define IP_ADD_MEMBERSHIP_ 35
+#define IP_DROP_MEMBERSHIP_ 36
+#define IPV6_MULTICAST_IF_ 17
+#define IPV6_MULTICAST_HOPS_ 18
+#define IPV6_MULTICAST_LOOP_ 19
+#define IPV6_ADD_MEMBERSHIP_ 20
+#define IPV6_DROP_MEMBERSHIP_ 21
 
 static inline int sock_level_to_real(int fake) {
     if (fake == SOL_SOCKET_)
