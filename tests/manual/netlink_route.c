@@ -17,6 +17,16 @@
  *   - deliver a reply stream terminated by NLMSG_DONE with no NLMSG_ERROR
  *   - contain at least one RTM_NEWLINK entry for the link dump (lo is universal)
  *
+ * Dump conformance details systemd's sd-netlink depends on (each of these,
+ * when missing, killed systemd-resolved -- and with it all hostname
+ * resolution via nsswitch's "resolve [!UNAVAIL=return]"):
+ *   - every part AND the terminating NLMSG_DONE carry NLM_F_MULTI
+ *     (sd-netlink only ends a dump inside its `flags & NLM_F_MULTI` branch)
+ *   - every RTM_NEWADDR carries the IFA_FLAGS u32 attribute (resolved's
+ *     link_address_update_rtnl() read of it is required, ENODATA on miss)
+ *   - no link reports IFF_RUNNING without IFF_LOWER_UP (Linux never does;
+ *     resolved's link_relevant() insists on UP|LOWER_UP)
+ *
  * Exits 0 and prints "netlink_route: PASS" on success.
  */
 #define _GNU_SOURCE
@@ -74,6 +84,7 @@ struct nl_sockaddr {
 #define NLMSG_ERROR_ 2
 #define NLMSG_DONE_  3
 #define NLM_F_REQUEST_ 0x001
+#define NLM_F_MULTI_   0x002
 #define NLM_F_ROOT_    0x100
 #define NLM_F_MATCH_   0x200
 #define NLM_F_DUMP_    (NLM_F_ROOT_ | NLM_F_MATCH_)
@@ -81,6 +92,44 @@ struct nl_sockaddr {
 #define RTM_GETLINK_ 18
 #define RTM_NEWADDR_ 20
 #define RTM_GETADDR_ 22
+#define IFA_FLAGS_ 8
+#define IFF_RUNNING_  0x40
+#define IFF_LOWER_UP_ 0x10000
+
+struct nl_ifinfomsg {
+    unsigned char ifi_family;
+    unsigned char ifi_pad;
+    uint16_t ifi_type;
+    int32_t ifi_index;
+    uint32_t ifi_flags;
+    uint32_t ifi_change;
+};
+struct nl_ifaddrmsg {
+    unsigned char ifa_family;
+    unsigned char ifa_prefixlen;
+    unsigned char ifa_flags;
+    unsigned char ifa_scope;
+    uint32_t ifa_index;
+};
+struct nl_rtattr {
+    uint16_t rta_len;
+    uint16_t rta_type;
+};
+
+/* Does the payload of an RTM_NEWADDR message carry attribute `type`? */
+static int addr_msg_has_attr(struct nl_hdr *nlh, uint16_t type) {
+    int len = (int) nlh->nlmsg_len - NL_HDRLEN - (int) NL_ALIGN(sizeof(struct nl_ifaddrmsg));
+    struct nl_rtattr *rta = (struct nl_rtattr *)
+        ((char *) NL_DATA(nlh) + NL_ALIGN(sizeof(struct nl_ifaddrmsg)));
+    while (len >= (int) sizeof(*rta) && rta->rta_len >= sizeof(*rta) &&
+            (int) rta->rta_len <= len) {
+        if (rta->rta_type == type)
+            return 1;
+        len -= NL_ALIGN(rta->rta_len);
+        rta = (struct nl_rtattr *) ((char *) rta + NL_ALIGN(rta->rta_len));
+    }
+    return 0;
+}
 
 /* Interface ioctls that BusyBox `ip addr` issues on an AF_INET socket. */
 #define SIOCGIFNAME_   0x8910
@@ -167,6 +216,8 @@ static void run_dump(enum io_method m, int req_type, int expect_new) {
 
     char buf[65536];
     int saw_done = 0, saw_err = 0, saw_new = 0, batches = 0;
+    int done_multi = 0, parts_not_multi = 0;
+    int addrs_missing_ifa_flags = 0, links_running_not_lower_up = 0;
     arm_alarm(5);
     for (int guard = 0; guard < 64 && !saw_done && !alarm_fired; guard++) {
         errno = 0;
@@ -181,12 +232,35 @@ static void run_dump(enum io_method m, int req_type, int expect_new) {
         struct nl_hdr *nlh = (struct nl_hdr *) buf;
         int len = (int) n;
         for (; NL_OK(nlh, len); nlh = NL_NEXT(nlh, len)) {
-            if (nlh->nlmsg_type == NLMSG_DONE_) { saw_done = 1; break; }
+            if (nlh->nlmsg_type == NLMSG_DONE_) {
+                saw_done = 1;
+                /* sd-netlink only recognizes end-of-dump when the DONE
+                 * carries NLM_F_MULTI like the rest of the dump; a bare DONE
+                 * made every systemd link/addr enumeration return nothing. */
+                done_multi = !!(nlh->nlmsg_flags & NLM_F_MULTI_);
+                break;
+            }
             if (nlh->nlmsg_type == NLMSG_ERROR_) {
                 struct nl_err *e = NL_DATA(nlh);
                 if (e->error != 0) saw_err = e->error;
             }
-            if (nlh->nlmsg_type == expect_new) saw_new++;
+            if (nlh->nlmsg_type == expect_new) {
+                saw_new++;
+                if (!(nlh->nlmsg_flags & NLM_F_MULTI_))
+                    parts_not_multi++;
+                /* systemd-resolved requires the IFA_FLAGS u32 attribute on
+                 * every address (its absence killed the daemon at startup
+                 * with ENODATA / "Could not create manager"). */
+                if (expect_new == RTM_NEWADDR_ && !addr_msg_has_attr(nlh, IFA_FLAGS_))
+                    addrs_missing_ifa_flags++;
+                /* Linux never reports carrier (RUNNING) without LOWER_UP;
+                 * resolved's link_relevant() insists on UP|LOWER_UP. */
+                if (expect_new == RTM_NEWLINK_) {
+                    struct nl_ifinfomsg *ifi = NL_DATA(nlh);
+                    if ((ifi->ifi_flags & IFF_RUNNING_) && !(ifi->ifi_flags & IFF_LOWER_UP_))
+                        links_running_not_lower_up++;
+                }
+            }
         }
     }
     alarm(0);
@@ -195,8 +269,20 @@ static void run_dump(enum io_method m, int req_type, int expect_new) {
                 mn, batches, saw_new, saw_done, saw_err);
     snprintf(lab, sizeof lab, "%s.reply_terminated", mn);
     check(lab, saw_done, 1);
+    snprintf(lab, sizeof lab, "%s.done_has_multi", mn);
+    check(lab, saw_done ? done_multi : 1, 1);
+    snprintf(lab, sizeof lab, "%s.parts_have_multi", mn);
+    check(lab, parts_not_multi, 0);
     snprintf(lab, sizeof lab, "%s.no_nlmsg_error", mn);
     check(lab, saw_err, 0);
+    if (expect_new == RTM_NEWADDR_) {
+        snprintf(lab, sizeof lab, "%s.addrs_have_ifa_flags", mn);
+        check(lab, addrs_missing_ifa_flags, 0);
+    }
+    if (expect_new == RTM_NEWLINK_) {
+        snprintf(lab, sizeof lab, "%s.running_implies_lower_up", mn);
+        check(lab, links_running_not_lower_up, 0);
+    }
     /* Every system has a loopback link, so a link dump must yield >= 1 entry. */
     if (expect_new == RTM_NEWLINK_) {
         snprintf(lab, sizeof lab, "%s.have_links", mn);
