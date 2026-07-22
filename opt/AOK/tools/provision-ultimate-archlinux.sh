@@ -207,22 +207,18 @@ if [ -f /etc/pacman.conf ]; then
     fi
     note "disabled pacman package signature verification (gpg keyring unusable under iSH's kernel)"
 fi
-# systemd-resolved cannot serve queries under iSH yet (no networkd/DHCP to
-# feed it upstream servers, and the guest-loopback NAT query path is
-# unverified), but while it RUNS, glibc's nsswitch line
-# "resolve [!UNAVAIL=return]" hard-stops every hostname lookup at
-# nss-resolve's answer and never falls through to the classic dns module --
-# so /etc/resolv.conf (which iSH-AOK maintains with the host's servers) is
-# ignored and ALL resolution fails, even though raw-IP connectivity works.
-# Disable resolved and make resolv.conf a real file instead of the dangling
-# stub-resolv.conf symlink; with resolved gone, nss-resolve reports UNAVAIL
-# and lookups fall through to dns/resolv.conf as intended. Re-enabling
-# resolved is a project for after the NAT DNS path is proven.
-systemctl disable systemd-resolved >/dev/null 2>&1 || true
+# systemd-resolved works under iSH now (the netlink dump / link-flag /
+# sockopt conformance fixes in fs/sock.c landed 2026-07-22), so it stays
+# enabled. The rootfs ships /etc/resolv.conf as a dangling symlink to
+# resolved's stub-resolv.conf, which iSH-AOK's boot-time DNS refresh cannot
+# write through; convert it to a real file. resolved then treats the
+# app-maintained file as a foreign/uplink resolv.conf and reads its
+# upstream servers from it, so the host's DNS servers feed resolved and
+# nss-resolve answers lookups normally.
 if [ -L /etc/resolv.conf ]; then
     rm -f /etc/resolv.conf
     printf 'nameserver 1.1.1.1\nnameserver 8.8.8.8\n' > /etc/resolv.conf
-    note "replaced stub-resolv.conf symlink with a real resolv.conf; systemd-resolved disabled"
+    note "replaced stub-resolv.conf symlink with a real resolv.conf (systemd-resolved reads it in uplink mode)"
 fi
 # iSH-AOK writes /etc/resolv.conf asynchronously during boot (AppDelegate's
 # scheduleDnsRefresh dispatches it off the boot path rather than blocking on
