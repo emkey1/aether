@@ -77,6 +77,18 @@ struct task {
         atomic_int count; // If positive, don't delete yet, wait_to_delete
         bool ready_to_be_freed; // Should be false initially
     } reference;
+
+    // How many of reference.count are held by live pidfds (kernel/pidfd.c).
+    // A pidfd must keep the struct task allocated (its ref does that via the
+    // deferred-free path), but must NEVER gate do_exit's progress: the
+    // holder typically learns of the exit by POLLING the pidfd, which only
+    // turns readable after do_exit runs. Counting these refs in
+    // exit_wait_needed() deadlocked every systemd service whose main
+    // process PID 1 tracks by pidfd (v255+ PidRef): the task couldn't exit
+    // while the pidfd was open, and PID 1 wouldn't close it until the exit
+    // -- each user@ start hung for the full job timeout.
+    // exit_wait_needed() subtracts this count.
+    atomic_int pidfd_ref_count;
     
     struct {
         pthread_mutex_t lock;

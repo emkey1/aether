@@ -25,6 +25,9 @@ struct fd *pidfd_create(struct task *task) {
         return ERR_PTR(_ENOMEM);
     }
     task_ref_cnt_mod(task, 1);
+    // Flag our ref as pidfd-held so do_exit's exit_wait_needed() can ignore
+    // it -- see the pidfd_ref_count comment in kernel/task.h.
+    atomic_fetch_add(&task->pidfd_ref_count, 1);
     data->task = task;
     data->fd = fd;
     fd->data = data;
@@ -40,6 +43,11 @@ static int pidfd_close(struct fd *fd) {
     complex_lockt(&pids_lock, 0);
     list_remove(&data->pidfd_link);
     unlock(&pids_lock);
+    // Drop the pidfd-held flag before the ref itself: exit_wait_needed()
+    // computes refs minus pidfd refs, and this order only ever makes that
+    // difference transiently LARGER (costing at most one extra wait round),
+    // never lets the gate run early.
+    atomic_fetch_sub(&data->task->pidfd_ref_count, 1);
     task_ref_cnt_mod(data->task, -1);
     free(data);
     return 0;

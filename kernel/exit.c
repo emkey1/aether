@@ -101,7 +101,13 @@ void (*exit_hook)(struct task *task, int code) = NULL;
 void (*halt_hook)(int status) = NULL;
 
 static inline bool exit_wait_needed(struct task *task) {
-    return task_ref_cnt_get(task, 0) > 2 || locks_held_count(task);
+    // Refs held by pidfds are excluded: they keep the struct task allocated
+    // but must not stall the exit itself -- their holders (systemd's PidRef
+    // main-pid tracking, waitid(P_PIDFD) callers) only learn of the exit
+    // via pidfd_notify_exit(), which runs AFTER these gates. Counting them
+    // here deadlocked the exit against the holder's close-when-dead.
+    int refs = task_ref_cnt_get(task, 0) - atomic_load(&task->pidfd_ref_count);
+    return refs > 2 || locks_held_count(task);
 }
 
 // do_exit's exit_wait_needed() poll loops below used a fixed WAIT_SLEEP (2us)
