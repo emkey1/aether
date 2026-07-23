@@ -29,6 +29,19 @@
 .irp type, read,write
 
 .macro \type\()_prep size, id
+    # The cross-page check MUST come before any bailout to handle_miss:
+    # handle_miss returns a host pointer valid for exactly ONE guest page,
+    # and the gadget's inline access then runs \size/8 bytes from it -- for
+    # a page-crossing address that overruns the host page into unrelated
+    # memory (observed as silent guest heap corruption on Linux hosts, where
+    # MMU_requires_write_revalidate routes EVERY write through handle_miss;
+    # guest cc1 and python2 died of it). The crosspage_load/store C helpers
+    # do their own staleness and revalidate handling. The aarch64 backend
+    # has always ordered it this way.
+    movl %_addr, %r15d
+    andl $0xfff, %r15d
+    cmpl $(0x1000-(\size/8)), %r15d
+    ja crosspage_load_\id
     .ifc \type,write
         # Writes take the miss path (which re-translates through the mmu) when
         # the TLB is stale or host page mirroring requires revalidating
@@ -48,10 +61,6 @@
     shrl $22, %r15d
     xor %r15d, %r14d
     imull $TLB_ENTRY_SIZE, %r14d, %r14d
-    movl %_addr, %r15d
-    andl $0xfff, %r15d
-    cmpl $(0x1000-(\size/8)), %r15d
-    ja crosspage_load_\id
     movl %_addr, %r15d
     andl $0xfffff000, %r15d
     .ifc \type,read
