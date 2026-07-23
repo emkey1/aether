@@ -27,6 +27,7 @@ fd_t sys_epoll_create(int_t flags) {
     struct poll *poll = poll_create();
     if (IS_ERR(poll))
         return PTR_ERR(poll);
+    poll->owner_fd = fd;
     fd->epollfd.poll = poll;
     return f_install(fd, flags);
 }
@@ -370,11 +371,55 @@ int_t sys_epoll_pwait2(fd_t epoll_f, addr_t events_addr, int_t max_events,
 }
 
 static int epoll_close(struct fd *fd) {
+    // Stop wakeup cascades from resolving to this dying fd before the poll
+    // goes away (poll_wakeup reads owner_fd under poll->lock).
+    lock(&fd->epollfd.poll->lock, 0);
+    fd->epollfd.poll->owner_fd = NULL;
+    unlock(&fd->epollfd.poll->lock);
     poll_destroy(fd->epollfd.poll);
     return 0;
 }
 
+// Readiness of the epoll fd itself: Linux reports an epoll fd readable when
+// its ready list is non-empty, which is what makes epoll-inside-epoll work.
+// systemd relies on it: sd-event's epoll watches libmount's mount-monitor
+// epoll (level-triggered), whose only member is /proc/self/mountinfo
+// registered EPOLLIN|EPOLLET. Without this callback the outer scan saw the
+// epoll fd as never-ready, mount-table edges died inside the inner epoll,
+// and systemd's mount units "protocol"-failed on most boots (tmp.mount)
+// because the rescan a mountinfo event triggers never ran.
+//
+// Evaluate members the same way poll_scan_ready_locked would: virtual fds
+// via ops->poll masked by the registration's interest + ET suppression.
+// Host-backed members (real sockets/files) have no ops->poll; their events
+// arrive through the host backend of whichever poll holds the watch and do
+// not cascade here -- a nested epoll of purely host fds still needs a
+// waiter on the inner epoll (none of the known nested-epoll users do this;
+// revisit if one appears).
+static int epoll_poll(struct fd *fd) {
+    struct poll *poll = fd->epollfd.poll;
+    int res = 0;
+    lock(&poll->lock, 0);
+    struct poll_fd *poll_fd;
+    list_for_each_entry(&poll->poll_fds, poll_fd, fds) {
+        struct fd *member = poll_fd->fd;
+        if (member == NULL || member->ops->poll == NULL)
+            continue;
+        int types = member->ops->poll(member);
+        types &= poll_fd->types | POLL_HUP | POLL_ERR | POLL_NVAL;
+        if (poll_fd->types & POLL_EDGETRIGGERED)
+            types &= ~poll_fd->triggered_types;
+        if (types) {
+            res = POLL_READ;
+            break;
+        }
+    }
+    unlock(&poll->lock);
+    return res;
+}
+
 static struct fd_ops epoll_ops = {
     .anon_inode_class = "eventpoll",
+    .poll = epoll_poll,
     .close = epoll_close,
 };

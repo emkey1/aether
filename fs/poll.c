@@ -270,6 +270,7 @@ struct poll *poll_create(void) {
     poll->notify_pending = false;
     list_init(&poll->poll_fds);
     list_init(&poll->pollfd_freelist);
+    poll->owner_fd = NULL;
     lock_init(&poll->lock, "poll_create\0");
     return poll;
 }
@@ -551,6 +552,21 @@ void poll_wakeup(struct fd *fd, int events) {
                 FIXME("poll wake notify write failed: %s", strerror(errno));
             }
         }
+        // Epoll-inside-epoll: this poll belongs to an epoll FD that may
+        // itself be registered in an outer epoll (systemd's sd-event epoll
+        // holds libmount's mountinfo-monitor epoll). Becoming ready must
+        // propagate outward or the outer epoll_wait sleeps through the
+        // event: with no waiter on the inner epoll, the notify pipe above
+        // reaches nobody, and before epoll fds had a .poll callback the
+        // outer scan couldn't see the readiness either -- that lost edge
+        // protocol-failed systemd's tmp.mount on most boots. trylock
+        // variant on purpose: we hold this poll's lock, and a blocking
+        // wakeup could AB-BA against an outer scan calling epoll's .poll
+        // (outer lock -> inner lock). On a lost race the outer scanner is
+        // awake anyway and recomputes readiness through .poll.
+        struct fd *owner = poll->owner_fd;
+        if (owner != NULL)
+            poll_wakeup_trylock(owner, POLL_READ);
         unlock(&poll->lock);
         // oneshot?
     }
@@ -594,6 +610,11 @@ void poll_wakeup_trylock(struct fd *fd, int events) {
                 FIXME("poll wake notify write failed: %s", strerror(errno));
             }
         }
+        // Cascade to an owning epoll fd, same as poll_wakeup (recursion is
+        // bounded: epoll nesting is acyclic by the epoll_ctl loop check).
+        struct fd *owner = poll->owner_fd;
+        if (owner != NULL)
+            poll_wakeup_trylock(owner, POLL_READ);
         unlock(&poll->lock);
     }
     unlock(&fd->poll_lock);

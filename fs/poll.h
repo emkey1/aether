@@ -28,6 +28,14 @@ struct poll {
     // instead move them to a freelist where they can be reused.
     struct list pollfd_freelist;
 
+    // When this poll belongs to an epoll FD (kernel/epoll.c), the owning
+    // struct fd -- so a wakeup on a member can cascade to whoever is
+    // polling the epoll fd itself (epoll-inside-epoll, e.g. systemd's
+    // sd-event epoll watching libmount's mountinfo-monitor epoll). NULL
+    // for the transient polls poll(2)/select(2) build. Read/written under
+    // this poll's lock; cleared by epoll_close before poll_destroy.
+    struct fd *owner_fd;
+
     lock_t lock;
 };
 
