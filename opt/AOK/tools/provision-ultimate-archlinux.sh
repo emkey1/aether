@@ -248,6 +248,16 @@ fi
 # force a real reinstall (no --needed) to re-extract every file in the
 # package, headers included, regardless of what shipped in the tarball.
 pacman -S --noconfirm glibc linux-api-headers || note "glibc/linux-api-headers reinstall failed (see errors above)"
+# Same stripped-tarball disease, different package: the ArchLinuxARM
+# minirootfs ships without /usr/share/terminfo even though the pacman DB
+# records ncurses as fully installed (~2900 terminfo files), so `--needed`
+# never restores it and anything curses-based (tmux most visibly) dies with
+# "missing or unsuitable terminal: xterm-256color". Force a real reinstall
+# to re-extract the terminfo tree.
+if [ ! -e /usr/share/terminfo/x/xterm-256color ]; then
+    note "terminfo tree missing (stripped tarball); reinstalling ncurses to restore it"
+    pacman -S --noconfirm ncurses || note "ncurses reinstall failed (tmux/curses apps will not start)"
+fi
 # pacman aborts the WHOLE transaction if even one package is unresolvable, so
 # try the batch first and fall back to installing package-by-package (skipping
 # any that are genuinely unavailable in this repo set). A failed/aborted batch
