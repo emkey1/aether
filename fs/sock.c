@@ -4050,8 +4050,23 @@ static void fill_cred(struct ucred_ *cred) {
 struct unix_dgram_cred_hdr {
     uint32_t magic;
     struct ucred_ cred;
+    // SCM_RIGHTS on a unix DGRAM socket travels in-band: a nonzero cookie
+    // references a struct scm parcel in the unix_dgram_scm registry (next
+    // to scm_free). The stream transport's peer-queue can't work here --
+    // dgram sendmsg with msg_name has no unix_peer, which made every such
+    // send fail EPIPE. systemd leans on exactly this: sd_notify FDSTORE
+    // pushes (logind's session leader pidfds, udevd's inotify fd, ...) go
+    // over the /run/systemd/notify DGRAM socket, and the EPIPE surfaced as
+    // "Failed to push leader pidfd for session 'c1', ignoring: Broken
+    // pipe" with session scopes never getting their PIDFD tracking.
+    uint64_t scm_cookie;
 };
 #define UNIX_DGRAM_CRED_MAGIC 0x1D6CC12D
+
+// Defined next to scm_free below; needed by the bare recvfrom path above
+// them to discard a consumed datagram's fd parcel.
+static void scm_free(struct scm *scm);
+static struct scm *unix_dgram_scm_take(uint64_t cookie);
 
 static bool sock_is_unix_dgram(struct fd *sock) {
     return sock->socket.domain == AF_LOCAL_ && sock->socket.type == SOCK_DGRAM_ &&
@@ -4061,6 +4076,7 @@ static bool sock_is_unix_dgram(struct fd *sock) {
 static void unix_dgram_cred_hdr_fill(struct unix_dgram_cred_hdr *hdr) {
     hdr->magic = UNIX_DGRAM_CRED_MAGIC;
     fill_cred(&hdr->cred);
+    hdr->scm_cookie = 0;
 }
 
 // /dev/log and /run|/dev/initctl have a built-in fallback sink so guests can
@@ -5058,6 +5074,14 @@ static int_t sys_recvfrom_common(fd_t sock_fd, guest_addr_t buffer_addr, dword_t
         if (stripped_hdr.magic == UNIX_DGRAM_CRED_MAGIC) {
             res -= sizeof(stripped_hdr);
             memmove(buffer, buffer + sizeof(stripped_hdr), res);
+            // A datagram consumed without a msghdr discards its SCM_RIGHTS
+            // parcel (Linux closes the fds in that case); reclaim it so the
+            // fds don't linger until the registry TTL.
+            if (stripped_hdr.scm_cookie != 0) {
+                struct scm *dropped = unix_dgram_scm_take(stripped_hdr.scm_cookie);
+                if (dropped != NULL)
+                    scm_free(dropped);
+            }
         }
     }
     // With MSG_TRUNC on a datagram the real length (res) can exceed the user
@@ -5745,6 +5769,80 @@ static void scm_free(struct scm *scm) {
     free(scm);
 }
 
+// ---- unix DGRAM SCM_RIGHTS registry ----
+//
+// Parcels of guest fds in flight on unix DGRAM sockets, keyed by the random
+// cookie carried in the datagram's unix_dgram_cred_hdr (see that struct's
+// comment). The sender registers, the receiver takes on the real (non-PEEK)
+// read. A datagram that is dropped, discarded via plain read()/recvfrom(),
+// or truncated never takes its parcel, so entries also expire: anything
+// older than UNIX_DGRAM_SCM_TTL_SECS is released on the next registry
+// operation (fd refs dropped via scm_free). In-emulator dgram delivery is
+// effectively instant, so the TTL only bounds the leak from genuinely lost
+// datagrams.
+struct unix_dgram_scm {
+    uint64_t cookie;
+    struct scm *scm;
+    time_t added;
+    struct list list;
+};
+#define UNIX_DGRAM_SCM_TTL_SECS 60
+static lock_t unix_dgram_scm_lock = LOCK_INITIALIZER;
+static struct list unix_dgram_scms = LIST_INITIALIZER(unix_dgram_scms);
+
+static void unix_dgram_scm_gc_locked(void) {
+    time_t now = time(NULL);
+    struct unix_dgram_scm *entry, *tmp;
+    list_for_each_entry_safe(&unix_dgram_scms, entry, tmp, list) {
+        if (now - entry->added < UNIX_DGRAM_SCM_TTL_SECS)
+            continue;
+        list_remove(&entry->list);
+        scm_free(entry->scm);
+        free(entry);
+    }
+}
+
+// Takes ownership of `scm` on success; returns its cookie (never 0), or 0
+// on allocation failure (caller keeps ownership).
+static uint64_t unix_dgram_scm_register(struct scm *scm) {
+    struct unix_dgram_scm *entry = malloc(sizeof(*entry));
+    if (entry == NULL)
+        return 0;
+    lock(&unix_dgram_scm_lock, 0);
+    unix_dgram_scm_gc_locked();
+    do {
+        arc4random_buf(&entry->cookie, sizeof(entry->cookie));
+    } while (entry->cookie == 0);
+    entry->scm = scm;
+    entry->added = time(NULL);
+    list_add_tail(&unix_dgram_scms, &entry->list);
+    uint64_t cookie = entry->cookie;
+    unlock(&unix_dgram_scm_lock);
+    return cookie;
+}
+
+// Removes and returns the parcel for `cookie` (caller owns it and must
+// scm_free after use), or NULL if it was never registered or already
+// taken/expired.
+static struct scm *unix_dgram_scm_take(uint64_t cookie) {
+    if (cookie == 0)
+        return NULL;
+    struct scm *scm = NULL;
+    lock(&unix_dgram_scm_lock, 0);
+    unix_dgram_scm_gc_locked();
+    struct unix_dgram_scm *entry;
+    list_for_each_entry(&unix_dgram_scms, entry, list) {
+        if (entry->cookie == cookie) {
+            list_remove(&entry->list);
+            scm = entry->scm;
+            free(entry);
+            break;
+        }
+    }
+    unlock(&unix_dgram_scm_lock);
+    return scm;
+}
+
 struct guest_msghdr_marshaled {
     guest_addr_t msg_name;
     uint_t msg_namelen;
@@ -6144,6 +6242,7 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     }
 
     struct scm *scm = NULL;
+    uint64_t dgram_scm_cookie = 0; // nonzero once a dgram parcel is registered
     char real_msg_control[CMSG_SPACE(sizeof(int))]; // only used if actually sending an fd
     if (sock->socket.domain == AF_LOCAL_ && msg_control != NULL &&
             msg_fake.msg_controllen >= guest_cmsg_hdr_size(abi)) {
@@ -6185,6 +6284,11 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             goto out_inval;
 
         if (num_fds > 0) {
+            // The dgram transport carries the parcel by cookie in the
+            // in-band header instead (registered below, after the fds are
+            // collected); only the stream transport uses the sentinel-fd +
+            // peer-queue scheme.
+            if (!sock_is_unix_dgram(sock)) {
             // send one (1) real fd and put the rest in a struct scm
             static int real_fd = -1;
             if (real_fd == -1) {
@@ -6199,6 +6303,7 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             real_cmsg->cmsg_type = SCM_RIGHTS;
             real_cmsg->cmsg_len = CMSG_LEN(sizeof(real_fd));
             memcpy(CMSG_DATA(real_cmsg), &real_fd, sizeof(real_fd));
+            }
 
             scm = malloc(sizeof(struct scm) + num_fds * sizeof(struct fd *));
             list_init(&scm->queue);
@@ -6221,6 +6326,18 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
                     scm->fds[fd_i++] = fd_retain(f_get(fds[i]));
                 }
             }
+            if (sock_is_unix_dgram(sock)) {
+                // Datagram transport: park the parcel in the registry and
+                // ship its cookie in the in-band header (filled below).
+                // There may legitimately be no unix_peer (sendmsg with
+                // msg_name, many-senders-one-receiver sockets like
+                // /run/systemd/notify).
+                dgram_scm_cookie = unix_dgram_scm_register(scm);
+                if (dgram_scm_cookie == 0) {
+                    err = _ENOMEM;
+                    goto out_free_scm;
+                }
+            } else {
             lock(&peer_lock, 0);
             struct fd *peer = sock->socket.unix_peer;
             if (peer == NULL) {
@@ -6237,6 +6354,7 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             list_add_tail(&peer->socket.unix_scm, &scm->queue);
             unlock(&peer->lock);
             unlock(&peer_lock);
+            }
         }
     }
 
@@ -6262,6 +6380,7 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     struct msghdr host_send_msg = msg;
     if (unix_dgram_send) {
         unix_dgram_cred_hdr_fill(&dgram_hdr);
+        dgram_hdr.scm_cookie = dgram_scm_cookie;
         dgram_iov = malloc((msg.msg_iovlen + 1) * sizeof(struct iovec));
         if (dgram_iov == NULL) {
             err = _ENOMEM;
@@ -6342,15 +6461,23 @@ static int_t sys_sendmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
 
 out_free_scm:
     if (scm != NULL) {
-        lock(&peer_lock, 0);
-        struct fd *peer = sock->socket.unix_peer;
-        if (peer != NULL) {
-            lock(&peer->lock, 0);
-            list_remove_safe(&scm->queue);
-            unlock(&peer->lock);
+        if (dgram_scm_cookie != 0) {
+            // The failed datagram never delivered its cookie; reclaim the
+            // parcel from the registry (take may return NULL only if it
+            // already expired -- then the GC freed it for us).
+            if (unix_dgram_scm_take(dgram_scm_cookie) != NULL)
+                scm_free(scm);
+        } else {
+            lock(&peer_lock, 0);
+            struct fd *peer = sock->socket.unix_peer;
+            if (peer != NULL) {
+                lock(&peer->lock, 0);
+                list_remove_safe(&scm->queue);
+                unlock(&peer->lock);
+            }
+            unlock(&peer_lock);
+            scm_free(scm);
         }
-        unlock(&peer_lock);
-        scm_free(scm);
     }
     goto out_free_iov;
 out_perm:
@@ -6746,6 +6873,7 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         }
     }
     bool have_dgram_cred = false;
+    struct scm *dgram_scm = NULL;
     if (unix_dgram) {
         // Copy back the fields the kernel mutates in the msghdr it was given.
         msg.msg_namelen = host_recv_msg.msg_namelen;
@@ -6755,6 +6883,12 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         if (res >= (ssize_t) sizeof(dgram_hdr) && dgram_hdr.magic == UNIX_DGRAM_CRED_MAGIC) {
             res -= sizeof(dgram_hdr);
             have_dgram_cred = true;
+            // In-band SCM_RIGHTS parcel (see unix_dgram_cred_hdr). Consume
+            // only on a real read: like the stream transport, a MSG_PEEK
+            // delivers the data without the fds, and the later real read
+            // still finds the parcel registered.
+            if (dgram_hdr.scm_cookie != 0 && !(flags & MSG_PEEK_))
+                dgram_scm = unix_dgram_scm_take(dgram_hdr.scm_cookie);
         }
         // Recompute MSG_TRUNC from the guest's point of view. The 16-byte
         // in-band cred header consumes one host iov, so the host's own
@@ -6875,7 +7009,8 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
         }
     }
 
-    if (res >= 0 && msg_fake.msg_control != 0 && (cmsg != NULL || want_passcred)) {
+    if (res >= 0 && msg_fake.msg_control != 0 &&
+            (cmsg != NULL || want_passcred || dgram_scm != NULL)) {
         size_t guest_msg_control_len = 0;
         size_t required_msg_control = 0;
         struct ucred_ cred = {};
@@ -6915,6 +7050,8 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             required_msg_control += guest_cmsg_space(abi, fake_data_len);
             (void) fake_level;
         }
+        if (dgram_scm != NULL)
+            required_msg_control += guest_cmsg_space(abi, sizeof(fd_t) * dgram_scm->num_fds);
         if (have_passcred)
             required_msg_control += guest_cmsg_space(abi, sizeof(cred));
 
@@ -6925,6 +7062,8 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             if (guest_msg_control == NULL) {
                 if (scm != NULL)
                     scm_free(scm);
+                if (dgram_scm != NULL)
+                    scm_free(dgram_scm);
                 free(real_msg_control);
                 if (msg_name != msg_name_stack)
                     free(msg_name);
@@ -6962,6 +7101,19 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
                         fake_level, fake_type, fake_data, fake_data_len);
                 assert(appended);
             }
+            if (dgram_scm != NULL) {
+                // In-band dgram parcel (no host cmsg carries it; the cookie
+                // in the datagram header did).
+                fd_t fds[dgram_scm->num_fds];
+                for (unsigned i = 0; i < dgram_scm->num_fds; i++) {
+                    fd_retain(dgram_scm->fds[i]); // f_install takes ownership; scm_free releases separately
+                    fds[i] = f_install(dgram_scm->fds[i], 0);
+                    STRACE(" receiving dgram fd %d", fds[i]);
+                }
+                bool appended = guest_cmsg_append(abi, guest_msg_control, required_msg_control, &guest_msg_control_len,
+                        SOL_SOCKET_, SCM_RIGHTS_, fds, sizeof(fd_t) * dgram_scm->num_fds);
+                assert(appended);
+            }
             if (have_passcred) {
                 bool appended = guest_cmsg_append(abi, guest_msg_control, required_msg_control, &guest_msg_control_len,
                         SOL_SOCKET_, SCM_CREDENTIALS_, &cred, sizeof(cred));
@@ -6970,6 +7122,8 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             if (user_write(msg_fake.msg_control, guest_msg_control, guest_msg_control_len)) {
                 if (scm != NULL)
                     scm_free(scm);
+                if (dgram_scm != NULL)
+                    scm_free(dgram_scm);
                 free(guest_msg_control);
                 free(real_msg_control);
                 if (msg_name != msg_name_stack)
@@ -6982,6 +7136,11 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
     }
     if (scm != NULL)
         scm_free(scm);
+    // Taken but undeliverable (no/too-small guest control buffer, CTRUNC,
+    // error): the parcel's fds are released, matching Linux discarding
+    // SCM_RIGHTS the receiver made no room for.
+    if (dgram_scm != NULL)
+        scm_free(dgram_scm);
 
     // by now the iovecs and scm have been freed so we can return
     if (res < 0) {
@@ -7261,8 +7420,15 @@ out_read:
         return err;
     }
     if (unix_dgram && res >= (ssize_t) sizeof(dgram_hdr) &&
-            dgram_hdr.magic == UNIX_DGRAM_CRED_MAGIC)
+            dgram_hdr.magic == UNIX_DGRAM_CRED_MAGIC) {
         res -= sizeof(dgram_hdr);
+        // See the recvfrom path: plain read() discards the parcel.
+        if (dgram_hdr.scm_cookie != 0) {
+            struct scm *dropped = unix_dgram_scm_take(dgram_hdr.scm_cookie);
+            if (dropped != NULL)
+                scm_free(dropped);
+        }
+    }
     sock_trace("read", fd, res, 0);
     if (res == 0)
         sock_x11_event("read-eof", fd, 0, 0, size);
