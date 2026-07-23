@@ -1990,9 +1990,31 @@ static int cpu_step_to_interrupt_riscv64(struct cpu_state *cpu, struct tlb *tlb)
     jit_crash_cpu = cpu;
     jit_crash_interrupt = INT_GPF;
     jit_crash_addr = frame->cpu.riscv64_pc;
+    // volatile: lives across the sigsetjmp/siglongjmp crash unwind below; a
+    // register copy rolled back by longjmp would defeat the retry cap.
+    volatile unsigned unmapped_retries = 0;
     if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
+        frame = &frame_storage;
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
+        // Same stale-TLB heal as cpu_step_to_interrupt_arm64: a host fault
+        // mid-gadget that reverse-maps to NO guest page means this thread's
+        // cached host translation went stale under a concurrent COW/mmap/
+        // munmap, and the guest page is usually still valid under its new
+        // backing. Flush and re-execute from the fault pc: a transient race
+        // heals invisibly, and a genuinely-bad guest address refaults through
+        // mmu_translate as a clean guest SIGSEGV with an accurate si_addr.
+        // Capped so a pathological repeat can't spin.
+        if (jit_crash_unmapped && unmapped_retries < 8) {
+            jit_crash_unmapped = false;
+            unmapped_retries++;
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            memset(cache, 0, sizeof(cache));
+            tlb_flush(tlb);
+            goto rearm_riscv64;
+        }
+        jit_crash_unmapped = false;
         cpu->segfault_addr = jit_crash_addr;
         cpu->segfault_was_write = false;
         jit_crash_unwind_active = false;
@@ -2001,6 +2023,9 @@ static int cpu_step_to_interrupt_riscv64(struct cpu_state *cpu, struct tlb *tlb)
         jit_crash_cpu = NULL;
         return jit_crash_interrupt;
     }
+rearm_riscv64:
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
     jit_crash_unwind_active = true;
 
     pthread_rwlock_rdlock(&jit->jetsam_lock.l);
@@ -2256,9 +2281,32 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
     // savesigs=0: see the i386 cpu_step_to_interrupt site — crash recovery arrives from
     // the Mach exception handler, which leaves the host signal mask untouched, so there
     // is no mask to save or restore here.
+    //
+    // volatile: lives across the sigsetjmp/siglongjmp crash unwind below; a
+    // register copy rolled back by longjmp would defeat the retry cap.
+    volatile unsigned unmapped_retries = 0;
     if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
+        frame = &frame_storage;
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
+        // Same stale-TLB heal as cpu_step_to_interrupt (i386): a host fault
+        // mid-gadget that reverse-maps to NO guest page means this thread's
+        // cached host translation went stale under a concurrent COW/mmap/
+        // munmap, and the guest page is usually still valid under its new
+        // backing. Flush and re-execute from the fault rip: a transient race
+        // heals invisibly, and a genuinely-bad guest address refaults through
+        // mmu_translate as a clean guest SIGSEGV with an accurate si_addr.
+        // Capped so a pathological repeat can't spin.
+        if (jit_crash_unmapped && unmapped_retries < 8) {
+            jit_crash_unmapped = false;
+            unmapped_retries++;
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            memset(cache, 0, sizeof(cache));
+            tlb_flush(tlb);
+            goto rearm_amd64;
+        }
+        jit_crash_unmapped = false;
         if (current != NULL && strcmp(current->comm, "apk") == 0) {
             printk("[amd64-jit] crash unwind apk crash_addr=%#llx frame-rip=%#llx cpu-rip=%#llx eip=%#x rsp=%#llx int=%d\n",
                    (unsigned long long) jit_crash_addr,
@@ -2275,6 +2323,11 @@ static int cpu_step_to_interrupt_amd64_frontend(struct cpu_state *cpu, struct tl
         jit_crash_cpu = NULL;
         return jit_crash_interrupt;
     }
+rearm_amd64:
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = frame->cpu.amd64_rip;
     jit_crash_unwind_active = true;
 
     pthread_rwlock_rdlock(&jit->jetsam_lock.l);
