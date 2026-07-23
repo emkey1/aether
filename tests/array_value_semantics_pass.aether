@@ -1,0 +1,62 @@
+// Arrays are VALUE types on assignment and at the call boundary, no matter
+// how the source array was constructed. Literal-built arrays lower to static
+// ArrayObjs (copy-on-write in the VM); concat-/setlength-built arrays are
+// dynamic ArrayObjs, which the VM shares by reference (Free/Delphi semantics
+// Pascal/Rea rely on) -- the front end splices a `setlength(x, length(x))`
+// un-alias step after every potentially-aliasing array store so both styles
+// behave identically. Regression for the 2026-07-23 aliasing bug: a
+// concat-built array's `let` snapshot and call-boundary parameter both
+// silently aliased their source (Berlekamp-Massey computed linear complexity
+// 17 instead of 5; an n-queens "first solution" snapshot printed a live,
+// invalid board).
+fn mkconcat() -> Int[] {
+    let b: Int[] = [];
+    loop i in 0..3 { b = b + [i + 1]; }
+    ret b;
+}
+fn mutate(v: Int[]) -> Int[] { v[0] = 99; ret v; }
+type Box { xs: Int[] = []; }
+fn main() -> Void {
+    let lit: Int[] = [1, 2, 3];
+    let con: Int[] = mkconcat();
+
+    // let-assignment: snapshot must not see later writes to the source...
+    let snapLit: Int[] = lit;
+    let snapCon: Int[] = con;
+    lit[0] = 90;
+    con[0] = 90;
+    fx { println("let-snap lit=", snapLit[0], " con=", snapCon[0]); }
+    // ...and the source must not see writes to the snapshot.
+    snapLit[1] = 77;
+    snapCon[1] = 77;
+    fx { println("let-rev lit=", lit[1], " con=", con[1]); }
+    lit[0] = 1;
+    con[0] = 1;
+
+    // call boundary: the callee mutates its parameter and returns it; the
+    // caller's array must be unchanged, the returned copy must carry 99.
+    let retLit: Int[] = mutate(lit);
+    let retCon: Int[] = mutate(con);
+    fx { println("call lit=", lit[0], " con=", con[0], " rets=", retLit[0], ",", retCon[0]); }
+
+    // statement-level assignment `x = y;` copies too.
+    let x: Int[] = [];
+    x = con;
+    x[2] = 55;
+    fx { println("stmt src=", con[2], " dst=", x[2]); }
+
+    // `src + []` (empty append) is still a full copy, not an alias.
+    let y: Int[] = con + [];
+    y[0] = 44;
+    fx { println("append-empty src=", con[0], " dst=", y[0]); }
+
+    // record fields: storing into a field copies; reading a field into a
+    // typed let copies. (The record itself stays pointer-backed by design.)
+    let box: Box = new Box();
+    box.xs = con;
+    box.xs[0] = 22;
+    let fromField: Int[] = box.xs;
+    fromField[1] = 11;
+    fx { println("field src=", con[0], " field=", box.xs[0], " read=", box.xs[1]); }
+    ret;
+}

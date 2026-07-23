@@ -1690,6 +1690,8 @@ static char *inferLetTypeName(AetherParser *p, AST *init);
 static void buildArrayAppendSteps(const AST *target, AST *item, int line,
                                   AST **outSetlenStmt, AST **outIdxAssign);
 static bool aetherTypeNameIsArray(const char *name);
+static AST *buildArrayUnaliasStmt(const AST *target, int line);
+static bool aetherArrayInitMayAlias(const AST *init);
 static AST *parseAdd(AetherParser *p);
 static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
 static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *other,
@@ -3849,6 +3851,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
 
     if (declaredTypeName)
         bindingTableSet(p->bindings, nameTok->value, declaredTypeName);
+    bool declIsArrayType = declaredTypeName && aetherTypeNameIsArray(declaredTypeName);
     free(declaredTypeName);
 
     AST *var = newASTNode(AST_VARIABLE, nameTok);
@@ -3867,6 +3870,12 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         AST *outer = newASTNode(AST_COMPOUND, NULL);
         outer->i_val = 1; /* splice into the surrounding block, like buildArrayAppend's */
         addChild(outer, decl);
+        if (appendItemCount == 0 && aetherArrayInitMayAlias(init)) {
+            /* `let x = src + [];` -- no append step follows, so nothing
+             * un-aliases the plain `x = src` copy; splice the un-alias step
+             * the non-empty case gets for free from its first setlength. */
+            addChild(outer, buildArrayUnaliasStmt(var, appendLine));
+        }
         for (int i = 0; i < appendItemCount; i++) {
             AST *setlenStmt = NULL, *idxAssign = NULL;
             buildArrayAppendSteps(var, appendItems[i], appendLine, &setlenStmt, &idxAssign);
@@ -3887,6 +3896,20 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             freeAST(outer);
             return NULL;
         }
+        return outer;
+    }
+    if (declIsArrayType && aetherArrayInitMayAlias(init)) {
+        /* `let x: T[] = src;` (or `= f();`) -- Aether arrays are value types
+         * on assignment, but the VM's dynamic arrays are reference types, so
+         * the plain declaration copy above may alias `src`'s storage (a
+         * concat-/setlength-built source; literal-built static arrays already
+         * copy-on-write). Splice the un-alias step so both construction
+         * styles behave identically -- without it, `x[0] = 99` after this
+         * silently mutates `src` too. */
+        AST *outer = newASTNode(AST_COMPOUND, NULL);
+        outer->i_val = 1; /* splice into the surrounding block */
+        addChild(outer, decl);
+        addChild(outer, buildArrayUnaliasStmt(var, kwLine));
         return outer;
     }
     return decl;
@@ -3994,6 +4017,51 @@ static void buildArrayAppendSteps(const AST *target, AST *item, int line,
 
     *outSetlenStmt = setlenStmt;
     *outIdxAssign = idxAssign;
+}
+
+/* Build `setlength(target, length(target));` as a statement -- the un-aliasing
+ * step spliced after any array store whose source may share the VM-level
+ * ArrayObj with another live variable. SetLength always allocates a fresh
+ * ArrayObj and preserves contents (see pscal-core builtin.c, "Always allocate
+ * a fresh ArrayObj wrapper rather than mutating `old` in place"), so this
+ * no-op resize is exactly a contents-preserving deep copy of the top level.
+ * Required because the VM's dynamic arrays are reference types by design
+ * (valueEnsureUnique's is_dynamic exemption -- Free/Delphi semantics that
+ * Pascal/Rea rely on), while Aether's contract is that arrays are VALUE
+ * types on assignment and at the call boundary (the ARR-001 model). Literal
+ * arrays are static ArrayObjs and already copy-on-write; without this step,
+ * concat-/setlength-built arrays silently alias instead. */
+static AST *buildArrayUnaliasStmt(const AST *target, int line) {
+    Token *slTok = newToken(TOKEN_IDENTIFIER, "setlength", line, 0);
+    AST *setlen = newASTNode(AST_PROCEDURE_CALL, slTok);
+    addChild(setlen, copyAST((AST *)target));
+    addChild(setlen, buildLengthCall(target, line));
+    setTypeAST(setlen, TYPE_VOID);
+    AST *stmt = newASTNode(AST_EXPR_STMT, setlen->token);
+    setLeft(stmt, setlen);
+    return stmt;
+}
+
+/* Can an array-typed initializer/RHS expression yield a value that SHARES its
+ * ArrayObj with another live variable? Variables, field reads, array-element
+ * reads, and calls (a fn may `ret` a global or a record field's array) all
+ * can; array literals, slices, and the append/concat expansions build fresh
+ * storage. Internal `__aether_*` temps are rewriter-built fresh values whose
+ * names user code can never touch again, so copying them would only double
+ * the work the rewriter already did. */
+static bool aetherArrayInitMayAlias(const AST *init) {
+    if (!init) return false;
+    switch (init->type) {
+        case AST_VARIABLE:
+            if (!init->token || !init->token->value) return false;
+            return strncmp(init->token->value, "__aether_", 9) != 0;
+        case AST_FIELD_ACCESS:
+        case AST_ARRAY_ACCESS:
+        case AST_PROCEDURE_CALL:
+            return true;
+        default:
+            return false;
+    }
 }
 
 /* Expand `target = src + [items...]` into the copy step plus a
@@ -5603,6 +5671,36 @@ static AST *parseStatementInner(AetherParser *p) {
             }
             free(otherTypeName);
         }
+        /* Plain array assignment: `target = src;` where `target` is
+         * array-typed and `src` may share storage (see buildArrayUnaliasStmt).
+         * Same value-semantics guarantee as the `let` path: splice the
+         * un-alias step after the assignment so a later `target[i] = v`
+         * cannot silently mutate `src` (or vice versa). */
+        if (target && rhs && expr->token && expr->token->type == TOKEN_ASSIGN &&
+            aetherIsLValueChain(target) && aetherArrayInitMayAlias(rhs)) {
+            /* Array-typed? Prefer the LHS's inferred type; when it can't be
+             * named at parse time (a field access -- there is no parser-side
+             * field-type table), fall back to the RHS: a well-typed program
+             * never assigns an array-valued RHS to a non-array lvalue. */
+            char *lhsTypeName = inferLetTypeName(p, target);
+            bool isArrayAssign;
+            if (lhsTypeName) {
+                isArrayAssign = aetherTypeNameIsArray(lhsTypeName);
+            } else {
+                char *rhsTypeName = inferLetTypeName(p, rhs);
+                isArrayAssign = rhsTypeName && aetherTypeNameIsArray(rhsTypeName);
+                free(rhsTypeName);
+            }
+            free(lhsTypeName);
+            if (isArrayAssign) {
+                int line = expr->token->line;
+                AST *outer = newASTNode(AST_COMPOUND, NULL);
+                outer->i_val = 1; /* splice into the surrounding block */
+                addChild(outer, expr);
+                addChild(outer, buildArrayUnaliasStmt(target, line));
+                return outer;
+            }
+        }
         return expr; /* assignments act as statements directly */
     }
     AST *stmt = newASTNode(AST_EXPR_STMT, expr->token);
@@ -6390,6 +6488,36 @@ static AST *parseFnDecl(AetherParser *p) {
                              "non-Void functions have a fallthrough path with no return value.",
                              "add `ret value;` on the top-level path that can reach the closing `}`, or declare the function `-> Void` if it only performs side effects.");
         p->hadError = true;
+    }
+
+    /* Value-copy array parameters at the call boundary: Aether's contract
+     * (the ARR-001 model -- "arrays are value-copied at the call boundary")
+     * vs. the VM's dynamic arrays, which are reference types by design. A
+     * literal-built argument arrives as a static ArrayObj and copies on
+     * write, but a concat-/setlength-built argument arrives aliased, so
+     * `v[i] = x` inside the body would silently mutate the caller's array.
+     * Prepend one un-alias step per array-typed parameter (see
+     * buildArrayUnaliasStmt) so both construction styles behave identically.
+     * Runs after the FLOW-001 check above (a synthesized statement must not
+     * turn an empty non-Void body into a "fallthrough path") and before the
+     * @pre injection below (the guard still lands at children[0]; copies
+     * never change parameter values, so guard-vs-copy order is immaterial). */
+    if (hasBody && block && !p->hadError) {
+        for (int pi = params->child_count - 1; pi >= 0; pi--) {
+            AST *paramDecl = params->children[pi];
+            if (!paramDecl || paramDecl->var_type != TYPE_ARRAY ||
+                paramDecl->child_count == 0 || !paramDecl->children[0] ||
+                paramDecl->children[0]->type != AST_VARIABLE ||
+                !paramDecl->children[0]->token || !paramDecl->children[0]->token->value)
+                continue;
+            AST *copyStmt = buildArrayUnaliasStmt(paramDecl->children[0], fnLine);
+            addChild(block, NULL); /* grow capacity by one slot */
+            for (int i = block->child_count - 1; i > 0; i--) {
+                block->children[i] = block->children[i - 1];
+            }
+            block->children[0] = copyStmt;
+            copyStmt->parent = block;
+        }
     }
 
     /* Inject the @pre guard at the very start of the body, exactly where the

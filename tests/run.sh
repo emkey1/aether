@@ -2658,6 +2658,20 @@ if ! cmp -s /tmp/aether_array_slice_expected.out /tmp/aether_array_slice_pass.ou
     exit 1
 fi
 
+# Uniform array VALUE semantics regardless of construction style: a
+# concat-built (dynamic) array used to ALIAS its source on `let`-assignment,
+# plain `x = y;` assignment, and at the call boundary, while a literal-built
+# (static) array copied -- and the ARR-001 warning text claimed value-copy for
+# both. Covers both styles at both boundaries, both mutation directions, the
+# `src + []` empty-append shape, and record-field stores/reads.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_value_semantics_pass.aether" >/tmp/aether_array_value_semantics_pass.out 2>/dev/null
+printf 'let-snap lit=1 con=1\nlet-rev lit=2 con=2\ncall lit=1 con=1 rets=99,99\nstmt src=3 dst=55\nappend-empty src=1 dst=44\nfield src=1 field=22 read=2\n' >/tmp/aether_array_value_semantics_expected.out
+if ! cmp -s /tmp/aether_array_value_semantics_expected.out /tmp/aether_array_value_semantics_pass.out; then
+    echo "unexpected array-value-semantics output (array assignment/param aliased its source?)" >&2
+    cat /tmp/aether_array_value_semantics_pass.out >&2
+    exit 1
+fi
+
 # Array literal of records whose hidden `__array_literal_tmp` scratch local
 # recycles a stack slot last used by an unrelated Int local in an earlier
 # sibling scope. Regression for a spurious "Type mismatch: Cannot assign
