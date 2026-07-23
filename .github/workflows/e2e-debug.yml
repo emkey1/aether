@@ -26,29 +26,32 @@ jobs:
         run: |
           meson setup build -Dengine=jit
           ninja -C build
-      - name: Run e2e suite
+      - name: Run net_regress (builds testfs, reproduces the small cc1 ICE)
         continue-on-error: true
-        run: bash tests/e2e/e2e.bash -y
+        run: bash tests/e2e/e2e.bash -y -e '^net_regress$'
       - name: Diagnostics
         continue-on-error: true
         run: |
           ISH="./build/ish -f e2e_out/testfs"
+          CC1=/usr/libexec/gcc/i586-alpine-linux-musl/9.3.0/cc1
           mkdir -p debug_out
-          # Probe 1: the CPU-conformance binary compiled on the (correct)
-          # arm64 backend, run directly under the x86_64 backend. Any diff
-          # against expected.txt names the exact instruction+operands the
-          # x86_64 gadgets get wrong -- no compiler in the loop.
-          $ISH /bin/sh -c "cat > /tmp/qemu-test-prebuilt; chmod +x /tmp/qemu-test-prebuilt" < tests/debug/qemu-test-i386-prebuilt
-          $ISH /tmp/qemu-test-prebuilt > debug_out/prebuilt-x86_64.txt 2>&1 || echo "prebuilt rc=$?" >> debug_out/prebuilt-x86_64.txt
-          diff tests/e2e/qemu/expected.txt debug_out/prebuilt-x86_64.txt > debug_out/prebuilt.diff && echo "PREBUILT MATCHES" || echo "PREBUILT DIFFERS ($(wc -l < debug_out/prebuilt.diff) diff lines)"
-          # Probe 2: the same binary under ptraceomatic (lockstep vs the real
-          # CPU); prints the first diverging instruction. printk -> fd 555.
-          timeout 900 bash -c "exec 555>debug_out/ptom-prebuilt.printk; ./build/tools/ptraceomatic -f e2e_out/testfs /tmp/qemu-test-prebuilt" > debug_out/ptom-prebuilt.log 2>&1 || echo "ptom-prebuilt rc=$?" >> debug_out/ptom-prebuilt.log
-          # Probe 3: the failing cc1 invocation under ptraceomatic. Slow
-          # (single-steps everything), so bounded; a divergence usually shows
-          # up long before the timeout.
-          $ISH /bin/sh -c "source /etc/profile; cd /tmp/e2e/qemu && gcc -E qemu-test.c -msse2 -Wno-attributes -o qemu-test.i" || true
-          timeout 2100 bash -c "exec 555>debug_out/ptom-cc1.printk; ./build/tools/ptraceomatic -f e2e_out/testfs /usr/libexec/gcc/i586-alpine-linux-musl/9.3.0/cc1 -fpreprocessed /tmp/e2e/qemu/qemu-test.i -quiet -msse2 -mtune=generic -march=i586 -o /tmp/e2e/qemu/ptom.s" > debug_out/ptom-cc1.log 2>&1 || echo "ptom-cc1 rc=$?" >> debug_out/ptom-cc1.log
+          # Small deterministic repro: test_unix_peername.c ICEs cc1 at -O2
+          # (during RTL pass: cse1). Confirm it still does, from preprocessed
+          # source, and keep the .i as the canonical repro.
+          $ISH /bin/sh -c "source /etc/profile; cd /tmp/e2e/net_regress && gcc -O2 -E test_unix_peername.c -o peername.i && $CC1 -fpreprocessed peername.i -quiet -O2 -o peername.s" > debug_out/small-repro.log 2>&1 \
+            && echo "small repro: cc1 OK (no ICE!)" >> debug_out/small-repro.log \
+            || echo "small repro: rc=$?" >> debug_out/small-repro.log
+          $ISH /bin/cat /tmp/e2e/net_regress/peername.i > debug_out/peername.i || true
+          # ptraceomatic needs the native child to fexecve the guest binary
+          # from the fakefs data dir (host modes there are 0644 -> EACCES)
+          # and the host kernel must find the ELF's PT_INTERP. Grant both.
+          chmod 755 e2e_out/testfs/data$CC1
+          sudo cp e2e_out/testfs/data/lib/ld-musl-i386.so.1 /lib/ld-musl-i386.so.1
+          sudo chmod 755 /lib/ld-musl-i386.so.1
+          # Lockstep the failing compile against the real CPU; the log's tail
+          # shows the first divergence. printk -> fd 555.
+          timeout 2400 bash -c "exec 555>debug_out/ptom-cc1.printk; ./build/tools/ptraceomatic -f e2e_out/testfs $CC1 -fpreprocessed /tmp/e2e/net_regress/peername.i -quiet -O2 -o /tmp/ptom.s" > debug_out/ptom-cc1.log 2>&1 || echo "ptom-cc1 rc=$?" >> debug_out/ptom-cc1.log
+          tail -100 debug_out/ptom-cc1.log || true
           # printk capture is unbounded; keep heads and tails.
           for f in debug_out/*.printk; do
             head -c 2000000 "$f" > "$f.head" || true
