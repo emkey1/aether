@@ -1,0 +1,24 @@
+// Regression test: a tuple-returning function whose parameter list is
+// wrapped across multiple lines used to fail to parse its `ret (a, b);`
+// statement. Root cause: aetherRegisterTupleGlobals (the raw-text pre-scan
+// that registers each top-level fn's tuple-return signature into the shared
+// tuple table before the real parse) bounded its search for the '(' params
+// and the following '-> (...)' to a single source line. When the parameter
+// list spanned lines, no '->' was found on the `fn` line, so the tuple
+// signature was silently never registered; later, `ret (x, y);` had no
+// registered signature to consult and was misparsed as an ordinary
+// parenthesized expression, producing a spurious
+// "expected ')' to close parenthesized expression" SYN-001.
+fn addAndMul(x: Real,
+    y: Real) -> (Real, Real) {
+    ret (x + y, x * y);
+}
+
+fn main() -> Void {
+    let (s, p) = addAndMul(3.0, 4.0);
+    fx {
+        println(s);
+        println(p);
+    }
+    ret;
+}

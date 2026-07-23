@@ -101,6 +101,7 @@ FIXED_SIZE_ARRAY_FAIL_FIXTURE="$TESTS_DIR/fixed_size_array_fail.aether"
 WRITE_FORMAT_COLON_FAIL_FIXTURE="$TESTS_DIR/write_format_colon_fail.aether"
 TUPLE_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_recursion_pass.aether"
 TUPLE_INDIRECT_RECURSION_PASS_FIXTURE="$TESTS_DIR/tuple_indirect_recursion_pass.aether"
+TUPLE_MULTILINE_SIGNATURE_PASS_FIXTURE="$TESTS_DIR/tuple_multiline_signature_pass.aether"
 RECURSION_PASS_FIXTURE="$TESTS_DIR/recursion_pass.aether"
 RET_RECURSION_PASS_FIXTURE="$TESTS_DIR/ret_recursion_pass.aether"
 RET_INT_DIVISION_PASS_FIXTURE="$TESTS_DIR/ret_int_division_pass.aether"
@@ -286,6 +287,7 @@ for fixture in \
     "$WRITE_FORMAT_COLON_FAIL_FIXTURE" \
     "$TUPLE_RECURSION_PASS_FIXTURE" \
     "$TUPLE_INDIRECT_RECURSION_PASS_FIXTURE" \
+    "$TUPLE_MULTILINE_SIGNATURE_PASS_FIXTURE" \
     "$RECURSION_PASS_FIXTURE" \
     "$RET_RECURSION_PASS_FIXTURE" \
     "$FOR_RANGE_PASS_FIXTURE" \
@@ -2128,6 +2130,19 @@ printf '2\n4\n' >/tmp/aether_tuple_indirect_recursion_expected.out
 if ! cmp -s /tmp/aether_tuple_indirect_recursion_expected.out /tmp/aether_tuple_indirect_recursion_pass.out; then
     echo "unexpected indirect tuple-recursion output" >&2
     cat /tmp/aether_tuple_indirect_recursion_pass.out >&2
+    exit 1
+fi
+# A tuple-returning function whose parameter list wraps across multiple lines
+# used to fail to parse its `ret (a, b);` (regression: aetherRegisterTupleGlobals's
+# raw-text pre-scan bounded its '(' params / '-> (...)' search to a single
+# source line, so a wrapped signature never got its tuple signature
+# registered, and `ret (...)` was misparsed as a plain parenthesized
+# expression -- SYN-001 "expected ')' to close parenthesized expression").
+"$AETHER_BIN" --no-cache "$TUPLE_MULTILINE_SIGNATURE_PASS_FIXTURE" >/tmp/aether_tuple_multiline_signature_pass.out 2>&1
+printf '7.000000\n12.000000\n' >/tmp/aether_tuple_multiline_signature_expected.out
+if ! cmp -s /tmp/aether_tuple_multiline_signature_expected.out /tmp/aether_tuple_multiline_signature_pass.out; then
+    echo "unexpected multi-line-signature tuple-return output" >&2
+    cat /tmp/aether_tuple_multiline_signature_pass.out >&2
     exit 1
 fi
 # ...while plain (non-tuple) direct recursion still parses and runs.

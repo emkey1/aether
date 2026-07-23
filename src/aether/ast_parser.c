@@ -7186,20 +7186,46 @@ static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tup
             const char *nameStart = c;
             while (c < lineEnd && (isalnum((unsigned char)*c) || *c == '_')) c++;
             const char *nameEnd = c;
-            const char *paren = c;
-            while (paren < lineEnd && *paren != '(') paren++;
+            /* The parameter list (and the `-> RetType` that follows it) may be
+             * wrapped across multiple lines for readability; a long signature
+             * like
+             *     fn t1(x: Real,
+             *         y: Real) -> (Real, Real) {
+             * has no `->` on the `fn` line itself. Scan from the opening '('
+             * over the FULL source (not bounded to this line's lineEnd),
+             * depth-counting parens to find where the parameter list actually
+             * closes, then look for the arrow after that -- rather than only
+             * ever considering text up to the first '\n'. Bail out on '{' or
+             * ';' before an arrow is found so a malformed/bodyless line can't
+             * run this scan away into unrelated code. */
+            const char *paren = nameEnd;
+            while (*paren && *paren != '(' && *paren != '{' && *paren != ';') paren++;
             const char *arrow = NULL;
-            for (const char *q = paren; q + 1 < lineEnd; q++) {
-                if (q[0] == '-' && q[1] == '>') { arrow = q + 2; break; }
+            if (*paren == '(') {
+                const char *scan = paren;
+                int pdepth = 0;
+                const char *paramsEnd = NULL;
+                while (*scan) {
+                    if (*scan == '(') pdepth++;
+                    else if (*scan == ')') { pdepth--; if (pdepth == 0) { paramsEnd = scan + 1; break; } }
+                    scan++;
+                }
+                if (paramsEnd) {
+                    for (const char *q = paramsEnd; q[0] && q[1]; q++) {
+                        if (q[0] == '-' && q[1] == '>') { arrow = q + 2; break; }
+                        if (q[0] == '{' || q[0] == ';') break;
+                    }
+                }
             }
             if (nameEnd > nameStart && arrow) {
                 const char *rt = arrow;
-                while (rt < lineEnd && isspace((unsigned char)*rt)) rt++;
-                if (rt < lineEnd && *rt == '(') {
-                    /* Capture the `(...)` return-type span. */
+                while (*rt && isspace((unsigned char)*rt)) rt++;
+                if (*rt == '(') {
+                    /* Capture the `(...)` return-type span (also not bounded
+                     * to lineEnd, in case the tuple return type itself wraps). */
                     const char *rtEnd = rt;
                     int depth = 0;
-                    while (rtEnd < lineEnd) {
+                    while (*rtEnd) {
                         if (*rtEnd == '(') depth++;
                         else if (*rtEnd == ')') { depth--; if (depth == 0) { rtEnd++; break; } }
                         rtEnd++;
