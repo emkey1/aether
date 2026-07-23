@@ -183,6 +183,9 @@ bool mount_param_flag(const char *info, const char *flag);
 #define O_PATH_ (1 << 21)
 
 // generic ioctls
+// On sockets 0x5411 is SIOCOUTQ (bytes queued in the send buffer); it shares
+// its value with the tty TIOCOUTQ ioctl.
+#define SIOCOUTQ_ 0x5411
 #define FIONREAD_ 0x541b
 #define FIONBIO_ 0x5421
 #define FIONCLEX_ 0x5450

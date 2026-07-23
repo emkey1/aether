@@ -7549,8 +7549,32 @@ static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
     if (fd->real_fd < 0) {
         if (cmd == FIONREAD_)
             *(dword_t *) arg = (dword_t) (fd->socket.netlink_reply_len - fd->socket.netlink_reply_off);
+        else if (cmd == SIOCOUTQ_)
+            // Emulated (netlink) sockets never queue outgoing bytes.
+            *(dword_t *) arg = 0;
         else
             return _EINVAL;
+        return 0;
+    }
+    if (cmd == SIOCOUTQ_) {
+        // Linux SIOCOUTQ: bytes still queued in the socket's send buffer.
+        // dbus-broker calls this from socket_dispatch_write() whenever it has
+        // pending output and treats ANY failure as fatal (error_origin ->
+        // main-loop exit 1), so returning ENOTTY here killed the system bus
+        // the first time a connection's output backed up -- which is exactly
+        // what logind's session-scope creation traffic does on login.
+#if defined(__APPLE__)
+        int queued = 0;
+        socklen_t len = sizeof(queued);
+        if (getsockopt(fd->real_fd, SOL_SOCKET, SO_NWRITE, &queued, &len) < 0)
+            return errno_map();
+        *(dword_t *) arg = (dword_t) queued;
+#else
+        int queued = 0;
+        if (ioctl(fd->real_fd, TIOCOUTQ, &queued) < 0)
+            return errno_map();
+        *(dword_t *) arg = (dword_t) queued;
+#endif
         return 0;
     }
     return realfs_ioctl(fd, cmd, arg);
@@ -7558,6 +7582,8 @@ static int sock_ioctl(struct fd *fd, int cmd, void *arg) {
 
 static ssize_t sock_ioctl_size(int cmd) {
     switch (cmd) {
+        case SIOCOUTQ_:
+            return sizeof(dword_t);
         case SIOCGIFNAME_:
         case SIOCGIFCONF_:
         case SIOCGIFINDEX_:
