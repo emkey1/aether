@@ -5021,12 +5021,23 @@ static AST *aetherRewriteContinueWithPost(AST *node, AST *postStmt) {
         addChild(comp, newASTNode(AST_CONTINUE, NULL));
         return comp;
     }
+    /* Reattach parent links on every splice: when a CONTINUE child is replaced
+     * by the new COMPOUND above, plain slot assignment would leave the
+     * compound's parent NULL, orphaning the copied post-statement from the
+     * scope chain -- rea semantic's upward walk then can't see the loop
+     * variable's decl and reports a bogus SCOPE-001 whenever the same name is
+     * bound anywhere else in the program. */
     node->left  = aetherRewriteContinueWithPost(node->left, postStmt);
+    if (node->left) node->left->parent = node;
     node->right = aetherRewriteContinueWithPost(node->right, postStmt);
+    if (node->right) node->right->parent = node;
     node->extra = aetherRewriteContinueWithPost(node->extra, postStmt);
+    if (node->extra) node->extra->parent = node;
     for (int i = 0; i < node->child_count; i++) {
-        if (node->children[i])
+        if (node->children[i]) {
             node->children[i] = aetherRewriteContinueWithPost(node->children[i], postStmt);
+            if (node->children[i]) node->children[i]->parent = node;
+        }
     }
     return node;
 }

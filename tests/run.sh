@@ -75,6 +75,7 @@ TUPLE_POST_PASS_FIXTURE="$TESTS_DIR/tuple_post_pass.aether"
 ARRAY_APPEND_PASS_FIXTURE="$TESTS_DIR/dynamic_array_append_pass.aether"
 ARRAY_FIELD_INDEX_PASS_FIXTURE="$TESTS_DIR/array_field_index_pass.aether"
 ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE="$TESTS_DIR/array_literal_after_loop_pass.aether"
+CONTINUE_LOOP_VAR_REUSE_PASS_FIXTURE="$TESTS_DIR/continue_loop_var_reuse_pass.aether"
 EXTENSION_CALL_ALIAS_PASS_FIXTURE="$TESTS_DIR/extension_call_alias_pass.aether"
 EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE="$TESTS_DIR/extension_method_dot_call_pass.aether"
 TUPLE_CHAINED_INDEX_FAIL_FIXTURE="$TESTS_DIR/tuple_index_chained_call_unsupported_fail.aether"
@@ -262,6 +263,7 @@ for fixture in \
     "$TUPLE_POST_PASS_FIXTURE" \
     "$ARRAY_APPEND_PASS_FIXTURE" \
     "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" \
+    "$CONTINUE_LOOP_VAR_REUSE_PASS_FIXTURE" \
     "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" \
     "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" \
     "$TUPLE_CHAINED_INDEX_FAIL_FIXTURE" \
@@ -672,6 +674,21 @@ printf '1\n' >/tmp/aether_array_literal_after_loop_expected.out
 if ! cmp -s /tmp/aether_array_literal_after_loop_expected.out /tmp/aether_array_literal_after_loop_pass.out; then
     echo "unexpected array-literal-after-loop output" >&2
     cat /tmp/aether_array_literal_after_loop_pass.out >&2
+    exit 1
+fi
+# Regression: `continue` inside a `loop VAR in range` used to fail with a bogus
+# [SCOPE-001] "identifier 'VAR' not in scope" (emitted twice, at the loop
+# header) whenever VAR's name was also bound anywhere else in the program -- a
+# plain `let VAR` in an unrelated function, or a sibling `loop VAR` in the same
+# function. Root cause: the continue rewriter spliced its `{ post; continue; }`
+# compound into the body without setting the compound's parent link, so the
+# copied post-statement was orphaned from the scope chain and the loop
+# variable's decl was invisible to rea semantic's upward walk.
+"$AETHER_BIN" --no-cache "$CONTINUE_LOOP_VAR_REUSE_PASS_FIXTURE" >/tmp/aether_continue_loop_var_reuse_pass.out
+printf '15\n303\n' >/tmp/aether_continue_loop_var_reuse_expected.out
+if ! cmp -s /tmp/aether_continue_loop_var_reuse_expected.out /tmp/aether_continue_loop_var_reuse_pass.out; then
+    echo "unexpected continue-loop-var-reuse output (bogus SCOPE-001 regression?)" >&2
+    cat /tmp/aether_continue_loop_var_reuse_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" >/tmp/aether_extension_call_alias_pass.out

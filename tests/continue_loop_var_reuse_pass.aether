@@ -1,0 +1,28 @@
+fn other() -> Int {
+    let zz: Int = 5;
+    ret zz;
+}
+fn crossFn(a: Bool[]) -> Int {
+    let t: Int = 0;
+    loop zz in 0..len(a) {
+        if a[zz] { continue; }
+        t = t + 10;
+    }
+    ret t;
+}
+fn siblings() -> Int {
+    let t: Int = 0;
+    loop k in 0..3 {
+        t = t + k;
+    }
+    loop k in 0..4 {
+        if k == 2 { continue; }
+        t = t + 100;
+    }
+    ret t;
+}
+fn main() -> Void {
+    fx { println(crossFn([true,false,true]) + other()); }
+    fx { println(siblings()); }
+    ret;
+}
