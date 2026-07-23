@@ -578,6 +578,40 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
     return YES;
 }
 
+// Finds the bundled/manifest choice a root's name was imported from, matching
+// by prefix to account for the "_2", "_3", ... dedup suffix
+// importBundledRootChoice: appends when a name collides. Returns nil for
+// roots that didn't come from a bundled choice (e.g. a user's own import).
+static NSDictionary<NSString *, NSString *> *BundledRootChoiceMatchingName(NSString *name) {
+    for (NSDictionary<NSString *, NSString *> *choice in BundledRootChoices()) {
+        NSString *baseName = choice[kBundledRootImportNameKey];
+        if (baseName.length == 0)
+            continue;
+        if ([name isEqualToString:baseName] ||
+                [name hasPrefix:[baseName stringByAppendingString:@"_"]]) {
+            return choice;
+        }
+    }
+    return nil;
+}
+
+// Prefers a root whose bundled-choice origin isn't the experimental
+// "community" tier (or a root with no bundled-choice match at all -- e.g. a
+// user's own import) over one that is, when picking a fallback default with
+// no valid stored preference to honor. contentsOfDirectoryAtPath: order is
+// otherwise arbitrary (see -init), so without this an experimental
+// community-tier root (e.g. a downloaded Arch Linux choice) installed
+// alongside the official Alpine/Devuan roots could silently become the
+// default with no user prompt.
+static NSString *PreferredDefaultRootName(NSOrderedSet<NSString *> *roots) {
+    for (NSString *name in roots) {
+        NSDictionary<NSString *, NSString *> *choice = BundledRootChoiceMatchingName(name);
+        if (![choice[kBundledRootTierKey] isEqualToString:kBundledRootTierCommunity])
+            return name;
+    }
+    return roots.firstObject;
+}
+
 @implementation Roots
 
 - (instancetype)init {
@@ -605,13 +639,13 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
         self.fileProviderDomainSyncEnabled = NO;
         [self observe:@[@"roots"] options:0 owner:self usingBlock:^(typeof(self) self) {
             if (self.defaultRoot == nil && self.roots.count)
-                self.defaultRoot = self.roots[0];
+                self.defaultRoot = PreferredDefaultRootName(self.roots);
             [self requestFileProviderDomainSync];
         }];
         [self requestFileProviderDomainSync];
 
         if ((!self.defaultRoot || ![self.roots containsObject:self.defaultRoot]) && self.roots.count)
-            self.defaultRoot = self.roots.firstObject;
+            self.defaultRoot = PreferredDefaultRootName(self.roots);
     }
     return self;
 }
@@ -652,17 +686,8 @@ static BOOL RootNameIsValid(NSString *name, NSError **error) {
     if ([guestABI isKindOfClass:NSString.class] && guestABI.length != 0)
         return guestABI;
 
-    for (NSDictionary<NSString *, NSString *> *choice in BundledRootChoices()) {
-        NSString *baseName = choice[kBundledRootImportNameKey];
-        NSString *choiceGuestABI = choice[kBundledRootGuestABIKey];
-        if (baseName.length == 0 || choiceGuestABI.length == 0)
-            continue;
-        if ([name isEqualToString:baseName] ||
-                [name hasPrefix:[baseName stringByAppendingString:@"_"]]) {
-            return choiceGuestABI;
-        }
-    }
-    return nil;
+    NSString *choiceGuestABI = BundledRootChoiceMatchingName(name)[kBundledRootGuestABIKey];
+    return choiceGuestABI.length != 0 ? choiceGuestABI : nil;
 }
 
 - (NSArray<NSURL *> *)cachedRootArchiveURLs {
