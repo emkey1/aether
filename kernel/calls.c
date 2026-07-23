@@ -1111,6 +1111,7 @@ static syscall_t i386_syscall_table[] = {
     [344] = (syscall_t) sys_syncfs,
     [345] = (syscall_t) sys_sendmmsg,
     [347] = (syscall_t) sys_process_vm_readv,
+    [349] = (syscall_t) sys_kcmp,
     [352] = (syscall_t) syscall_stub, // sched_getattr
     [353] = (syscall_t) sys_renameat2,
     [354] = (syscall_t) syscall_eopnotsupp_stub, // seccomp
@@ -1543,6 +1544,7 @@ static syscall_t amd64_syscall_table[470] = {
     [307] = (syscall_t) sys_sendmmsg_amd64,
     [309] = (syscall_t) syscall_success_stub, // getcpu
     [310] = (syscall_t) sys_process_vm_readv,
+    [312] = (syscall_t) sys_kcmp,
     [316] = (syscall_t) sys_renameat2,
     [318] = (syscall_t) sys_getrandom,
     [319] = (syscall_t) sys_memfd_create,
@@ -1886,7 +1888,7 @@ static syscall_t arm64_syscall_table[470] = {
     [268] = (syscall_t) syscall_stub, // setns
     [270] = (syscall_t) syscall_stub_silent, // process_vm_readv
     [271] = (syscall_t) syscall_stub, // process_vm_writev
-    [272] = (syscall_t) syscall_stub, // kcmp
+    [272] = (syscall_t) sys_kcmp,
     [273] = (syscall_t) syscall_stub, // finit_module
     [274] = (syscall_t) syscall_stub, // sched_setattr
     [275] = (syscall_t) syscall_stub, // sched_getattr
@@ -2648,6 +2650,9 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
     case 287: // pwritev2(fd, iov, iovcnt, offset, flags)
         result = (dword_t) sys_pwritev2_guest((fd_t) raw_args[0], raw_args[1],
                       (dword_t) raw_args[2], (off_t_) raw_args[3], (uint_t) raw_args[4]); break;
+    case 272: // kcmp(pid1, pid2, type, idx1, idx2)
+        result = (dword_t) sys_kcmp((pid_t_) raw_args[0], (pid_t_) raw_args[1],
+                      (dword_t) raw_args[2], (dword_t) raw_args[3], (dword_t) raw_args[4]); break;
     // clean ENOSYS: known syscalls with no implementation; native so
     // 64-bit pointer args never trip the legacy-marshal validation
     case 0: case 1: case 2: case 3: case 4: case 18: case 41: case 42:
@@ -2657,7 +2662,7 @@ static bool handle_asm_generic_native_syscall(struct cpu_state *cpu, qword_t sys
     // (186-193 are the real SysV msg/sem implementations above)
     case 217: case 218: case 224:
     case 225: case 234: case 238: case 239: case 241: case 262:
-    case 263: case 268: case 271: case 272: case 273:
+    case 263: case 268: case 271: case 273:
     case 274: case 275: case 280: case 282: case 284:
     case 288: case 289: case 290: case 294:
     case 425: case 426: case 427: case 438: case 440:
@@ -3852,6 +3857,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 332: // statx
     case 322: // execveat
     case 247: // waitid
+    case 312: // kcmp(pid1, pid2, type, idx1, idx2)
     case 414: // ppoll_time64
     case 417: // recvmmsg_time64
         return 5;
@@ -4011,6 +4017,7 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 424: // pidfd_send_signal(pidfd, sig, info, flags) -- info is ignored
               // (UNUSED, never dereferenced), so the raw pointer arg is safe here
         return 4;
+    case 272: // kcmp(pid1, pid2, type, idx1, idx2)
     case 286: // preadv2(fd, iov, iovcnt, offset, flags)
     case 287: // pwritev2(fd, iov, iovcnt, offset, flags)
     case 429: // move_mount(from_dfd, from_path, to_dfd, to_path, flags) -- same

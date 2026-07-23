@@ -640,6 +640,76 @@ dword_t sys_unshare(dword_t flags) {
     return 0;
 }
 
+// kcmp(2): tell whether two processes share a kernel resource. systemd is
+// the motivating caller -- it uses KCMP_FILE to dedup its fd store and its
+// serialization fds across daemon-reexec, and PID 1 logged an
+// "arm64 stub syscall 272" ERROR line for every single probe (dozens per
+// reload). Linux's return contract for the comparison types is an ORDERING,
+// not a boolean: 0 if equal, 1 if the first sorts lower, 2 if higher (the
+// kernel obfuscates the pointers before comparing; the ordering just has to
+// be consistent within a type, which raw pointers give us).
+#define KCMP_FILE_ 0
+#define KCMP_VM_ 1
+#define KCMP_FILES_ 2
+#define KCMP_FS_ 3
+#define KCMP_SIGHAND_ 4
+#define KCMP_IO_ 5
+#define KCMP_SYSVSEM_ 6
+#define KCMP_EPOLL_TFD_ 7
+
+static int kcmp_ptr(const void *a, const void *b) {
+    if (a == b)
+        return 0;
+    return a < b ? 1 : 2;
+}
+
+dword_t sys_kcmp(pid_t_ pid1, pid_t_ pid2, dword_t type, dword_t idx1, dword_t idx2) {
+    STRACE("kcmp(%d, %d, %d, %d, %d)", pid1, pid2, type, idx1, idx2);
+    complex_lockt(&pids_lock, 0);
+    struct task *t1 = pid_get_task(pid1);
+    struct task *t2 = pid_get_task(pid2);
+    if (t1 == NULL || t2 == NULL) {
+        unlock(&pids_lock);
+        return _ESRCH;
+    }
+    int res;
+    switch (type) {
+        case KCMP_FILE_: {
+            // Same struct fd == same open file description. Sequential
+            // lock/lookup/unlock per table (no nested table locks, so two
+            // concurrent kcmps can't AB-BA); the pointers are only compared,
+            // never dereferenced, and both tasks are pinned by pids_lock.
+            lock(&t1->files->lock, 0);
+            struct fd *f1 = fdtable_get(t1->files, (fd_t) idx1);
+            unlock(&t1->files->lock);
+            lock(&t2->files->lock, 0);
+            struct fd *f2 = fdtable_get(t2->files, (fd_t) idx2);
+            unlock(&t2->files->lock);
+            if (f1 == NULL || f2 == NULL)
+                res = _EBADF;
+            else
+                res = kcmp_ptr(f1, f2);
+            break;
+        }
+        case KCMP_VM_: res = kcmp_ptr(t1->mem, t2->mem); break;
+        case KCMP_FILES_: res = kcmp_ptr(t1->files, t2->files); break;
+        case KCMP_FS_: res = kcmp_ptr(t1->fs, t2->fs); break;
+        case KCMP_SIGHAND_: res = kcmp_ptr(t1->sighand, t2->sighand); break;
+        // No io_context / sysvsem-undo / epoll-tfd introspection modeled;
+        // EOPNOTSUPP matches a kernel built without the facility.
+        case KCMP_IO_:
+        case KCMP_SYSVSEM_:
+        case KCMP_EPOLL_TFD_:
+            res = _EOPNOTSUPP;
+            break;
+        default:
+            res = _EINVAL;
+            break;
+    }
+    unlock(&pids_lock);
+    return res;
+}
+
 dword_t sys_fork(void) {
     return sys_clone(SIGCHLD_, 0, 0, 0, 0);
 }

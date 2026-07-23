@@ -104,6 +104,8 @@ procfd_reopen.c
 scm_rights_pidfd.c
 siocoutq.c
 epoll_nested.c
+tmpfs_exec.c
+kcmp.c
 x86/amd64_regress.c
 x86/amd64_jit_bench.sh
 setup-regressions.sh
