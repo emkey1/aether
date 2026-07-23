@@ -222,8 +222,21 @@ static size_t mem_host_page_index(struct pt_entry *entry) {
     return (addr - base) / real_page_size;
 }
 
+// Debug bisect knob: keep mirroring "enabled" (host_page_prot tracking,
+// requires_write_revalidate) but skip the actual host mprotect calls.
+static bool mem_mirror_mprotect_disabled(void) {
+    static int disabled = -1;
+    if (disabled == -1) {
+        const char *v = getenv("ISH_MIRROR_NO_MPROTECT");
+        disabled = (v != NULL && v[0] != '\0' && v[0] != '0') ? 1 : 0;
+    }
+    return disabled == 1;
+}
+
 static int mem_mirror_host_page_protection(struct pt_entry *entry, int flags) {
     if (!mem_uses_host_page_mirroring())
+        return 0;
+    if (mem_mirror_mprotect_disabled())
         return 0;
     void *data = mem_host_page_addr(entry);
     if (data == NULL)
@@ -374,7 +387,10 @@ void mem_init(struct mem *mem) {
     pthread_cond_init(&mem->quiesce_park_cond, NULL);
     mem->mmu.ops = &mem_mmu_ops;
     mem->mmu.requires_write_revalidate = mem_uses_host_page_mirroring() ||
-        arm64_watch_enabled();
+        arm64_watch_enabled() ||
+        // Debug bisect knob: force the JIT write slow path even with
+        // mirroring off, to separate its effect from the mprotect mirroring.
+        (getenv("ISH_FORCE_WRITE_REVALIDATE") != NULL);
 #if ENGINE_JIT
     mem->mmu.jit = jit_new(&mem->mmu);
 #endif
