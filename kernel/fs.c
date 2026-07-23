@@ -803,15 +803,22 @@ static ssize_t sys_read_buf(fd_t fd_no, void *buf, size_t size) {
     io_delay_end(delay_start);
 
     if (res >= 0) {
-        char path[MAX_PATH];
-        if (generic_getpath(fd, path) == 0) {
-            amd64_as_source_trace_read(fd_no, path, buf, (size_t) res);
-            if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
-                size_t print_size = res;
-                if (print_size > 80)
-                    print_size = 80;
-                printk("INFO: elogind read pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
-                       current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+        // The path is only needed by the trace modes below, and computing it
+        // is anything but free: on fakefs, generic_getpath is a SQLite
+        // lookup, and paying that on EVERY read made bulk I/O (e.g. nix
+        // unpacking a channel tarball) run at syscall-trace speed while
+        // looking like a hang at 100% CPU.
+        if (amd64_as_source_trace_enabled() || fs_trace_elogind()) {
+            char path[MAX_PATH];
+            if (generic_getpath(fd, path) == 0) {
+                amd64_as_source_trace_read(fd_no, path, buf, (size_t) res);
+                if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
+                    size_t print_size = res;
+                    if (print_size > 80)
+                        print_size = 80;
+                    printk("INFO: elogind read pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
+                           current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+                }
             }
         }
         STRACE(" -> %zd bytes", res);
@@ -880,15 +887,20 @@ static ssize_t sys_write_buf(fd_t fd_no, void *buf, size_t size) {
     if (res > 0) {
         if (fd->mount != NULL && fd->mount->fs == &procfs)
             return res;
-        char path[MAX_PATH];
-        if (generic_getpath(fd, path) == 0) {
-            inotify_notify_modify(path);
-            if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
-                size_t print_size = res;
-                if (print_size > 80)
-                    print_size = 80;
-                printk("INFO: elogind write pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
-                       current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+        // Only pay for the path (a SQLite lookup on fakefs) when there is a
+        // consumer: an inotify instance that could receive IN_MODIFY, or the
+        // elogind trace. See the matching gate in sys_read_buf.
+        if (inotify_has_instances() || fs_trace_elogind()) {
+            char path[MAX_PATH];
+            if (generic_getpath(fd, path) == 0) {
+                inotify_notify_modify(path);
+                if (fs_trace_elogind() && fs_trace_interesting_path(path)) {
+                    size_t print_size = res;
+                    if (print_size > 80)
+                        print_size = 80;
+                    printk("INFO: elogind write pid=%d comm=%s fd=%d path=%s size=%zd data=\"%.*s\"\n",
+                           current->pid, current->comm, fd_no, path, res, (int) print_size, (char *) buf);
+                }
             }
         }
     }
@@ -2096,7 +2108,7 @@ static int generic_fsetattr(struct fd *fd, struct attr attr) {
     if (fd->mount->fs->fsetattr == NULL)
         return _EPERM;
     int err = fd->mount->fs->fsetattr(fd, attr);
-    if (err >= 0) {
+    if (err >= 0 && inotify_has_instances()) {
         char path[MAX_PATH];
         if (generic_getpath(fd, path) == 0) {
             if (attr.type == attr_size)

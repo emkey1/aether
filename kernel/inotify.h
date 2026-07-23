@@ -3,6 +3,11 @@
 
 #include <stdbool.h>
 
+// True when at least one inotify instance exists. Callers on hot paths use
+// this to skip computing the event path (which can be expensive -- on fakefs
+// it's a SQLite lookup) when there is no one to deliver an event to.
+bool inotify_has_instances(void);
+
 void inotify_notify_open(const char *path);
 void inotify_notify_modify(const char *path);
 void inotify_notify_attrib(const char *path);

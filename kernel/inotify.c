@@ -494,6 +494,13 @@ static struct fd_ops inotify_fdops = {
     .close = inotify_close,
 };
 
+bool inotify_has_instances(void) {
+    lock(&inotify_instances_lock, 0);
+    bool any = !list_empty(&inotify_instances);
+    unlock(&inotify_instances_lock);
+    return any;
+}
+
 void inotify_notify_open(const char *path) {
     if (path == NULL || path[0] != '/')
         return;
