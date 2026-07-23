@@ -5,6 +5,13 @@
 
 #define N_SYMLINK_FOLLOW 1
 #define N_SYMLINK_NOFOLLOW 2
+// Resolve an absolute path against the REAL filesystem root, ignoring the
+// task's chroot. For re-resolving a stored, already-normalized guest path
+// (procfd magic-link reopen, fsmount's detached-mount staging dir): those
+// strings already carry any chroot prefix, so running them through the
+// chroot-aware anchor again would double-apply it -- inside a chroot that
+// meant ENOENT/EACCES for perfectly valid paths.
+#define N_REALROOT 8
 // Require write+execute permission on the resolved parent directory of the
 // final path component. Only correct for callers where the operation always
 // creates or removes a directory entry regardless of whether the final

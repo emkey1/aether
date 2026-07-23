@@ -648,7 +648,10 @@ fd_t sys_fsmount_guest(fd_t f, dword_t flags, dword_t attr_flags) {
     if (!data->created)
         return _EINVAL;
 
-    struct fd *dirfd = generic_openat(AT_PWD, data->point,
+    // data->point is a real-root staging path (/.ish-fsmount/<n>) that is
+    // not visible inside a chroot; open it against the real root, or
+    // util-linux mount(8)'s new-API path fails ENOENT in every chroot.
+    struct fd *dirfd = generic_open_realroot(data->point,
             O_RDONLY_ | O_DIRECTORY_ | O_CLOEXEC_, 0);
     if (IS_ERR(dirfd))
         return PTR_ERR(dirfd);

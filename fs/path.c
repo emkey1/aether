@@ -160,6 +160,11 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
     // start with root or cwd, depending on whether it starts with a slash
     lock(&current->fs->lock, 0);
     struct fd *root = current->fs->root;
+    // N_REALROOT: the caller's path is already fully normalized against the
+    // real root (it may itself contain the chroot prefix); anchor absolute
+    // resolution at the true root instead of the chroot.
+    if (flags & N_REALROOT)
+        root = NULL;
     if (path[0] == '/')
         at = root;
     else if (at == AT_PWD)

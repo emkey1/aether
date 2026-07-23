@@ -40,7 +40,9 @@ static struct fd *procfd_reopen_regular(struct fd *fd, int flags) {
     // whole boot. O_CREAT/O_EXCL are dropped: the target exists (we hold an
     // fd to it), and if its path was meanwhile unlinked, creating a NEW file
     // at the stale path would be wrong.
-    struct fd *reopened = generic_open(path,
+    // The stored target path is fully normalized (chroot prefix included);
+    // open it against the real root or a chrooted caller re-prefixes it.
+    struct fd *reopened = generic_open_realroot(path,
             flags & ~(O_CLOEXEC_ | O_NOFOLLOW_ | O_CREAT_ | O_EXCL_), 0);
     if (IS_ERR(reopened))
         return NULL;
@@ -239,7 +241,7 @@ ssize_t opath_link_readlink(struct fd *fd, char *buf, size_t bufsize) {
     return mount->fs->readlink(mount, fd->opath_link.path, buf, bufsize);
 }
 
-struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mode) {
+static struct fd *generic_openat_norm(struct fd *at, const char *path_raw, int flags, int mode, int extra_norm) {
     if (flags & O_RDWR_ && flags & O_WRONLY_)
         return ERR_PTR(_EINVAL);
 
@@ -251,7 +253,7 @@ struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mo
     char path[MAX_PATH];
     // O_NOFOLLOW: do not resolve a *final* symlink component (intermediate
     // components are still followed), so opening one fails with ELOOP below.
-    int norm = (flags & O_NOFOLLOW_) ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW;
+    int norm = ((flags & O_NOFOLLOW_) ? N_SYMLINK_NOFOLLOW : N_SYMLINK_FOLLOW) | extra_norm;
     // N_PARENT_DIR_WRITE is deliberately NOT used here even though O_CREAT is
     // set: at this point we don't yet know whether the target already
     // exists. O_CREAT is very commonly passed defensively on an open() of an
@@ -490,8 +492,21 @@ error:
     return ERR_PTR(err);
 }
 
+struct fd *generic_openat(struct fd *at, const char *path_raw, int flags, int mode) {
+    return generic_openat_norm(at, path_raw, flags, mode, 0);
+}
+
 struct fd *generic_open(const char *path, int flags, int mode) {
     return generic_openat(AT_PWD, path, flags, mode);
+}
+
+// Open a stored, already-normalized guest path (one produced by
+// path_normalize/generic_getpath earlier, possibly by another task). Such a
+// path already contains any chroot prefix, so it must anchor at the REAL
+// root -- re-resolving it through the caller's chroot double-applied the
+// prefix and broke procfd reopen and fsmount inside chroots.
+struct fd *generic_open_realroot(const char *path, int flags, int mode) {
+    return generic_openat_norm(AT_PWD, path, flags, mode, N_REALROOT);
 }
 
 int generic_getpath(struct fd *fd, char *buf) {

@@ -56,6 +56,9 @@ struct attr {
 
 struct fd *generic_open(const char *path, int flags, int mode);
 struct fd *generic_openat(struct fd *at, const char *path, int flags, int mode);
+// For stored, already-normalized paths (chroot prefix included): anchors at
+// the real root instead of the caller's chroot. See fs/generic.c.
+struct fd *generic_open_realroot(const char *path, int flags, int mode);
 int generic_getpath(struct fd *fd, char *buf);
 int fs_rebase_path_to_root(struct fs_info *fs, char *path);
 int fs_rebase_readlink_path(struct fs_info *fs, char *path);
