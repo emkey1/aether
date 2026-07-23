@@ -33,41 +33,28 @@ jobs:
         continue-on-error: true
         run: |
           ISH="./build/ish -f e2e_out/testfs"
-          COMPILE="source /etc/profile; cd /tmp/e2e/qemu && gcc qemu-test.c -o qemu-test -msse2 -no-pie -Wno-attributes -Wno-format"
           mkdir -p debug_out
-          # How flaky is the cc1 crash under the plain JIT? printk goes to
-          # fd 555; capture it per attempt (JIT fault messages land there).
-          for i in 1 2 3 4; do
-            bash -c "exec 555>debug_out/compile-$i.printk; $ISH /bin/sh -c \"$COMPILE\"" > debug_out/compile-$i.log 2>&1 \
-              && echo "attempt $i: OK" >> debug_out/attempts.txt \
-              || { echo "attempt $i: rc=$? $(grep -m1 -E 'internal compiler|Segmentation' debug_out/compile-$i.log)" >> debug_out/attempts.txt; }
-          done
-          # Bisect: same compile with the JIT block cache/chaining disabled
-          # for cc1 (via /proc/ish/i386_no_cache_comm). If the crash vanishes,
-          # it lives in block caching/chaining; if it stays, it's gadget
-          # semantics or memory management.
-          for i in 1 2; do
-            bash -c "exec 555>debug_out/nocache-$i.printk; $ISH /bin/sh -c \"echo cc1 > /proc/ish/i386_no_cache_comm; $COMPILE\"" > debug_out/nocache-$i.log 2>&1 \
-              && echo "nocache $i: OK" >> debug_out/attempts.txt \
-              || echo "nocache $i: rc=$? $(grep -m1 -E 'internal compiler|Segmentation' debug_out/nocache-$i.log)" >> debug_out/attempts.txt
-          done
-          # And fully single-stepped (one instruction per block). Slow; bound it.
-          timeout 1500 bash -c "exec 555>debug_out/sstep.printk; $ISH /bin/sh -c \"echo cc1 > /proc/ish/i386_single_step_comm; $COMPILE\"" > debug_out/sstep.log 2>&1 \
-            && echo "single-step: OK" >> debug_out/attempts.txt \
-            || echo "single-step: rc=$? $(grep -m1 -E 'internal compiler|Segmentation' debug_out/sstep.log)" >> debug_out/attempts.txt
-          # python2 crash: reproduce in the same shape the hello test uses.
-          for i in 1 2 3 4 5; do
-            bash -c "exec 555>debug_out/py2-$i.printk; $ISH /usr/bin/env sh -c 'source /etc/profile && cd /tmp/e2e/hello && python test_python2.py'" >> debug_out/python2.log 2>&1 \
-              || echo "py2 attempt $i failed rc=$?" >> debug_out/python2.log
-          done
-          # Keep only interesting printk lines (JIT faults, warnings); the
-          # trace volume is otherwise unbounded.
+          # Probe 1: the CPU-conformance binary compiled on the (correct)
+          # arm64 backend, run directly under the x86_64 backend. Any diff
+          # against expected.txt names the exact instruction+operands the
+          # x86_64 gadgets get wrong -- no compiler in the loop.
+          $ISH /bin/sh -c "cat > /tmp/qemu-test-prebuilt; chmod +x /tmp/qemu-test-prebuilt" < tests/debug/qemu-test-i386-prebuilt
+          $ISH /tmp/qemu-test-prebuilt > debug_out/prebuilt-x86_64.txt 2>&1 || echo "prebuilt rc=$?" >> debug_out/prebuilt-x86_64.txt
+          diff tests/e2e/qemu/expected.txt debug_out/prebuilt-x86_64.txt > debug_out/prebuilt.diff && echo "PREBUILT MATCHES" || echo "PREBUILT DIFFERS ($(wc -l < debug_out/prebuilt.diff) diff lines)"
+          # Probe 2: the same binary under ptraceomatic (lockstep vs the real
+          # CPU); prints the first diverging instruction. printk -> fd 555.
+          timeout 900 bash -c "exec 555>debug_out/ptom-prebuilt.printk; ./build/tools/ptraceomatic -f e2e_out/testfs /tmp/qemu-test-prebuilt" > debug_out/ptom-prebuilt.log 2>&1 || echo "ptom-prebuilt rc=$?" >> debug_out/ptom-prebuilt.log
+          # Probe 3: the failing cc1 invocation under ptraceomatic. Slow
+          # (single-steps everything), so bounded; a divergence usually shows
+          # up long before the timeout.
+          $ISH /bin/sh -c "source /etc/profile; cd /tmp/e2e/qemu && gcc -E qemu-test.c -msse2 -Wno-attributes -o qemu-test.i" || true
+          timeout 2100 bash -c "exec 555>debug_out/ptom-cc1.printk; ./build/tools/ptraceomatic -f e2e_out/testfs /usr/libexec/gcc/i586-alpine-linux-musl/9.3.0/cc1 -fpreprocessed /tmp/e2e/qemu/qemu-test.i -quiet -msse2 -mtune=generic -march=i586 -o /tmp/e2e/qemu/ptom.s" > debug_out/ptom-cc1.log 2>&1 || echo "ptom-cc1 rc=$?" >> debug_out/ptom-cc1.log
+          # printk capture is unbounded; keep heads and tails.
           for f in debug_out/*.printk; do
-            grep -aE "JIT|ERROR|WARN|FIXME|segfault|bad access" "$f" | head -200 > "$f.grep" || true
+            head -c 2000000 "$f" > "$f.head" || true
+            tail -c 2000000 "$f" > "$f.tail" || true
             rm -f "$f"
           done
-          # Pull the guest-side build tree (temps from the failed attempts).
-          $ISH /bin/tar -cf - -C /tmp/e2e qemu | tar -xf - -C debug_out || true
       - name: Upload artifacts
         if: always()
         uses: actions/upload-artifact@v4
