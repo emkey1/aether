@@ -157,7 +157,7 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
         while (db_exec(&self.mount->db, stmt)) {
             const char *path = (const char *) sqlite3_column_text(stmt, 0);
             // the DB speaks guest paths; the host file has the escaped name
-            char host_path[PATH_MAX * 2 + 2];
+            char host_path[PATH_MAX * 3 + 2];
             if (fake_path_to_host(path, host_path, sizeof(host_path)) == NULL)
                 continue;
             fd = openat(self.mount->root_fd, fix_path(host_path), O_RDWR);

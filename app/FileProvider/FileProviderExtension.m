@@ -15,7 +15,7 @@
 
 NSString *ISHHostPathForGuestPath(NSString *path) {
     const char *guest = path.fileSystemRepresentation;
-    size_t size = strlen(guest) * 2 + 2;
+    size_t size = strlen(guest) * 3 + 2;
     char *buf = malloc(size);
     if (buf == NULL)
         return path;

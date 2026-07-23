@@ -42,10 +42,10 @@ struct fakefs_mount {
 FOUNDATION_EXPORT void ISHFileProviderRecordBreadcrumb(NSString *event, NSDictionary<NSString *, id> * _Nullable details);
 
 // The fakefs metadata DB speaks guest paths; the host filesystem stores them
-// in escaped on-disk form (fs/fake-path.h) so guest names differing only in
-// ASCII case stay distinct on case-insensitive APFS. Convert whenever a guest
-// path is used to touch the host filesystem, and back for host readdir/
-// F_GETPATH results.
+// in escaped on-disk form (fs/fake-path.h) so guest names that case- and
+// normalization-insensitive APFS considers equal stay distinct. Convert
+// whenever a guest path is used to touch the host filesystem, and back for
+// host readdir/F_GETPATH results.
 FOUNDATION_EXPORT NSString *ISHHostPathForGuestPath(NSString *path);
 FOUNDATION_EXPORT NSString *ISHGuestPathForHostPath(NSString *path);
 

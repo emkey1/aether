@@ -94,45 +94,52 @@ static const char *schema = Q(
     create table paths (path blob primary key, inode integer references stats(inode));
     create index inode_to_path on paths (inode, path);
     // no index is needed on stats, because the rows are ordered by the primary key
-    // version 4: host names are stored in escaped form (fs/fake-path.h);
-    // fakefs_import writes them that way, so no migration is needed
-    pragma user_version=4;
+    // version 5: host names are stored in escaped form (fs/fake-path.h),
+    // including non-ASCII bytes; fakefs_import writes them that way, so no
+    // migration is needed
+    pragma user_version=5;
 );
 
 // Host file names are the escaped on-disk form of the guest names (see
-// fs/fake-path.h), so guest names differing only in ASCII case stay distinct
-// on case-insensitive host filesystems. Escaping at most doubles the length.
-typedef char host_path_buf[MAX_PATH * 2 + 2];
+// fs/fake-path.h), so guest names that a case- and normalization-insensitive
+// host filesystem considers equal stay distinct. Escaping at most triples
+// the length.
+typedef char host_path_buf[MAX_PATH * 3 + 2];
 
 void fakefs_ensure_utf8_locale(void) {
-    // libarchive converts archive path/linkpath strings to the process LC_CTYPE
-    // charset; under the default "C" locale that conversion fails for the UTF-8
-    // paths in Debian/Devuan (docker-export) tarballs ("... can't be converted
-    // from UTF-8 to current locale"), which aborts the read. Pin a UTF-8 LC_CTYPE
-    // so the conversion is a no-op. Only LC_CTYPE is touched, to avoid disturbing
-    // numeric/time formatting categories used elsewhere in the process.
-    if (setlocale(LC_CTYPE, "en_US.UTF-8") != NULL)
-        return;
-    if (setlocale(LC_CTYPE, "C.UTF-8") != NULL)
-        return;
-    setlocale(LC_CTYPE, "");
+    // Guest names are opaque byte strings, so archive path/linkpath strings
+    // must pass through byte-exact. Under a UTF-8 LC_CTYPE, libarchive
+    // *converts* pax UTF-8 names to the locale charset, and its Apple build
+    // normalizes that conversion through "UTF-8-MAC" (NFD, for HFS+ compat)
+    // -- collapsing names that differ only in Unicode normalization before
+    // we ever see them, exactly the collision fs/fake-path.h escaping exists
+    // to prevent (observed: NFC "café" and its NFD twin imported as one
+    // file). Under the "C" locale the conversion instead fails cleanly with
+    // ARCHIVE_WARN (which the read loop tolerates) and the narrow accessors
+    // return the archive's raw bytes untouched; on write, the pax writer
+    // falls back to an hdrcharset=BINARY record and stores raw bytes. Only
+    // LC_CTYPE is pinned, to avoid disturbing numeric/time formatting
+    // categories used elsewhere in the process. (The name is historical:
+    // this used to pin a UTF-8 locale, which predates the escaping scheme.)
+    setlocale(LC_CTYPE, "C");
 }
 
-// libarchive's narrow path accessors convert to the process LC_CTYPE charset and
-// can fail / return NULL in the C locale (as on iOS, where en_US.UTF-8 may not be
-// installable) for UTF-8 archive entries. Prefer the UTF-8 accessors, which need
-// no conversion; fall back to the narrow form.
+// Prefer the narrow accessors: under the "C" locale pinned above they hand
+// back the archive's raw name bytes untouched, which is what fakefs stores
+// (guest names are opaque byte strings). The *_utf8 accessors are only a
+// fallback -- their conversion path can pass through Apple's "UTF-8-MAC"
+// (NFD) and normalize the name.
 static const char *entry_pathname_u8(struct archive_entry *e) {
-    const char *p = archive_entry_pathname_utf8(e);
-    return p != NULL ? p : archive_entry_pathname(e);
+    const char *p = archive_entry_pathname(e);
+    return p != NULL ? p : archive_entry_pathname_utf8(e);
 }
 static const char *entry_hardlink_u8(struct archive_entry *e) {
-    const char *p = archive_entry_hardlink_utf8(e);
-    return p != NULL ? p : archive_entry_hardlink(e);
+    const char *p = archive_entry_hardlink(e);
+    return p != NULL ? p : archive_entry_hardlink_utf8(e);
 }
 static const char *entry_symlink_u8(struct archive_entry *e) {
-    const char *p = archive_entry_symlink_utf8(e);
-    return p != NULL ? p : archive_entry_symlink(e);
+    const char *p = archive_entry_symlink(e);
+    return p != NULL ? p : archive_entry_symlink_utf8(e);
 }
 
 bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_error *err_out, struct progress p) {
@@ -384,6 +391,9 @@ bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_er
         ARCHIVE_ERR(archive);
     archive_write_add_filter_gzip(archive);
     archive_write_set_format_pax(archive);
+    // Mirror the import side: store guest names as raw bytes rather than
+    // letting the Apple build normalize them through "UTF-8-MAC" (NFD).
+    archive_write_set_options(archive, "hdrcharset=BINARY");
     if (archive_write_open_filename(archive, archive_path) != ARCHIVE_OK)
         ARCHIVE_ERR(archive);
 

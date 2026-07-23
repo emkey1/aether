@@ -9,10 +9,15 @@
 // No such file or directory", mkdir returned EEXIST for a directory that ls
 // didn't show, and files silently shared content with their case twins.
 //
-// Fixed by escaping guest names into a case-collision-free on-disk form
-// ('A' -> "%a", '%' -> "%%"; fs/fake-path.h). This test exercises the guest-
-// visible contract: names differing only in case are independent files, and
-// names containing the escape character round-trip exactly.
+// APFS also applies Unicode case folding and normalization insensitivity:
+// "Ф" vs "ф", and NFC "é" (C3 A9) vs NFD "é" (65 CC 81), collide the same
+// way.
+//
+// Fixed by escaping guest names into a collision-free on-disk form
+// ('A' -> "%a", '%' -> "%%", non-ASCII bytes -> "%XY"; fs/fake-path.h). This
+// test exercises the guest-visible contract: names that only a folding/
+// normalizing filesystem would conflate are independent files, and names
+// containing the escape character round-trip exactly.
 
 #include <dirent.h>
 #include <errno.h>
@@ -176,6 +181,38 @@ int main(int argc, char **argv) {
     const char *const expected[] = {"x", "X", "a", "A", "%x", "%%", "%X", "LINK"};
     check(dir_matches(expected, sizeof(expected)/sizeof(expected[0])),
           "readdir lists exact case-distinct names");
+
+    // Unicode: normalization twins (NFC vs NFD "e-acute") are independent.
+    static const char nfc[] = "caf\xc3\xa9";        // U+00E9 precomposed
+    static const char nfd[] = "cafe\xcc\x81";       // 'e' + U+0301 combining
+    check(write_file(nfc, "nfc") == 0, "create NFC 'cafe-acute'");
+    check(write_file(nfd, "nfd") == 0, "create NFD twin (O_EXCL)");
+    check(file_content_is(nfc, "nfc"), "NFC name keeps its own content");
+    check(file_content_is(nfd, "nfd"), "NFD name keeps its own content");
+
+    // Unicode: case-folding twins (Cyrillic upper/lower) are independent.
+    static const char cyr_upper[] = "\xd0\xa4";     // U+0424 Ф
+    static const char cyr_lower[] = "\xd1\x84";     // U+0444 ф
+    check(write_file(cyr_upper, "cyr-up") == 0, "create Cyrillic uppercase");
+    check(write_file(cyr_lower, "cyr-low") == 0, "create Cyrillic lowercase twin (O_EXCL)");
+    check(file_content_is(cyr_upper, "cyr-up"), "uppercase Cyrillic keeps its own content");
+    check(file_content_is(cyr_lower, "cyr-low"), "lowercase Cyrillic keeps its own content");
+
+    // Unicode names round-trip byte-exactly through readdir.
+    const char *const expected_uni[] = {"x", "X", "a", "A", "%x", "%%", "%X", "LINK",
+                                        nfc, nfd, cyr_upper, cyr_lower};
+    check(dir_matches(expected_uni, sizeof(expected_uni)/sizeof(expected_uni[0])),
+          "readdir lists exact Unicode-twin names");
+
+    char path_uni[600];
+    snprintf(path_uni, sizeof(path_uni), "%s/%s", g_dir, nfd);
+    check(unlink(path_uni) == 0, "unlink NFD twin");
+    check(file_content_is(nfc, "nfc"), "NFC twin survives NFD unlink");
+    snprintf(path_uni, sizeof(path_uni), "%s/%s", g_dir, cyr_upper);
+    check(unlink(path_uni) == 0, "unlink uppercase Cyrillic");
+    check(file_content_is(cyr_lower, "cyr-low"), "lowercase Cyrillic survives");
+    snprintf(path_uni, sizeof(path_uni), "%s/%s", g_dir, cyr_lower);
+    check(unlink(path_uni) == 0, "unlink lowercase Cyrillic");
 
     // Case-only rename leaves exactly one entry under the new name.
     char path_case[600], path_CASE[600];

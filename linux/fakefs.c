@@ -23,7 +23,7 @@ struct fakefs_super {
 // The metadata DB speaks guest names; the host filesystem speaks the escaped
 // on-disk form (fs/fake-path.h). Every dentry name handed to a host_* call
 // goes through host_name() first; readdir results are decoded back.
-typedef char host_name_buf[NAME_MAX * 2 + 2];
+typedef char host_name_buf[NAME_MAX * 3 + 2];
 static const char *host_name(struct dentry *dentry, host_name_buf buf) {
     return fake_path_to_host((const char *) dentry->d_name.name, buf, sizeof(host_name_buf));
 }
