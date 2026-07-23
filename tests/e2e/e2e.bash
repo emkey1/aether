@@ -90,6 +90,7 @@ fi
 
 NUM_TOTAL=0
 NUM_FAILS=0
+FAILED_TESTS=""
 
 test_setup() {
     $ISH /bin/rm -rf /tmp/e2e/$1
@@ -125,11 +126,19 @@ validate_test() {
             ;;
         1)
             NUM_FAILS=$((NUM_FAILS+1))
+            FAILED_TESTS="$FAILED_TESTS $1"
             echo "!!! Failed: $1" | tee -a "$SUMMARY_LOG"
-            cat "$DIFF_LOG" | tee -a "$SUMMARY_LOG"
+            # Show a bounded excerpt; the full diff stays in $DIFF_LOG. An
+            # unbounded diff (the qemu test's expected.txt is ~290K) swamps
+            # meson's last-100-lines error excerpt and hides every other result.
+            head -50 "$DIFF_LOG" | tee -a "$SUMMARY_LOG"
+            if [ "$(wc -l < "$DIFF_LOG")" -gt 50 ]; then
+                echo "[diff truncated, full version in $DIFF_LOG]" | tee -a "$SUMMARY_LOG"
+            fi
             ;;
         2)
             NUM_FAILS=$((NUM_FAILS+1))
+            FAILED_TESTS="$FAILED_TESTS $1"
             echo "Something went wrong when trying to validate $1." | tee -a "$SUMMARY_LOG"
             ;;
     esac
@@ -153,6 +162,9 @@ if [ "$NUM_TOTAL" -eq 0 ]; then
     exit 0
 fi
 
+if [ -n "$FAILED_TESTS" ]; then
+    echo "### Failed tests:$FAILED_TESTS" | tee -a "$SUMMARY_LOG"
+fi
 NUM_PASSES=$((NUM_TOTAL-NUM_FAILS))
 PERCENT_PASSES=$(echo "scale=2; 100 * $NUM_PASSES / $NUM_TOTAL" | bc)
 PASSED_STR="$NUM_PASSES/$NUM_TOTAL ($PERCENT_PASSES%)"

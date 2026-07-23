@@ -1,0 +1,68 @@
+# Manually-dispatched diagnostics for e2e failures that only reproduce on
+# x86_64 Linux hosts (the guest-gcc ICE in the qemu test, python2 segfault).
+# Runs the suite, then re-runs the interesting failures with extra capture,
+# and uploads everything as an artifact for offline analysis.
+name: e2e debug
+
+on: workflow_dispatch
+
+jobs:
+  debug:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: true
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libarchive-dev libsqlite3-dev
+          pip3 install meson ninja
+      - name: Build
+        run: |
+          meson setup build -Dengine=jit
+          ninja -C build
+      - name: Build strace-enabled ish
+        run: |
+          meson setup build-strace -Dengine=jit -Dlog=strace
+          ninja -C build-strace ish
+      - name: Run e2e suite
+        continue-on-error: true
+        run: bash tests/e2e/e2e.bash -y
+      - name: Diagnostics
+        continue-on-error: true
+        run: |
+          ISH="./build/ish -f e2e_out/testfs"
+          mkdir -p debug_out
+          # Did the test inputs arrive in the guest intact?
+          md5sum tests/e2e/qemu/*.c tests/e2e/qemu/*.h tests/e2e/hello/* | awk '{print $1, $2}' | sed 's|tests/e2e/||' | sort -k2 > debug_out/host.md5
+          $ISH /bin/sh -c "cd /tmp/e2e && md5sum qemu/*.c qemu/*.h hello/*" | sort -k2 > debug_out/guest.md5 || true
+          diff -u debug_out/host.md5 debug_out/guest.md5 > debug_out/md5.diff || echo "GUEST FILES DIFFER FROM HOST"
+          # Reproduce the gcc ICE with -v and keep the temps.
+          $ISH /bin/sh -c "source /etc/profile; cd /tmp/e2e/qemu && gcc qemu-test.c -o qemu-test -msse2 -no-pie -Wno-attributes -Wno-format -save-temps -v" > debug_out/gcc-compile.log 2>&1 || echo "compile rc=$?" >> debug_out/gcc-compile.log
+          # Compile the preprocessed source alone: does the ICE survive without cpp?
+          $ISH /bin/sh -c "source /etc/profile; cd /tmp/e2e/qemu && ls -l && gcc qemu-test.i -o qemu-test2 -msse2 -no-pie -Wno-attributes -Wno-format" > debug_out/gcc-compile-i.log 2>&1 || echo "compile rc=$?" >> debug_out/gcc-compile-i.log
+          # python2 crash capture.
+          $ISH /bin/sh -c "python2 -V; python2 -c 'print \"hello from py2\"'; echo rc=\$?" > debug_out/python2.log 2>&1 || true
+          # python2 under syscall trace (fd 555), bounded.
+          ISHS="./build-strace/ish -f e2e_out/testfs"
+          bash -c "exec 555>debug_out/python2.strace; $ISHS /bin/sh -c 'python2 -c \"print 1\"'" > debug_out/python2-strace.log 2>&1 || true
+          tail -c 5000000 debug_out/python2.strace > debug_out/python2.strace.tail || true
+          rm -f debug_out/python2.strace
+          # Pull the guest-side build tree (preprocessed source, asm temps).
+          $ISH /bin/tar -cf - -C /tmp/e2e qemu | tar -xf - -C debug_out || true
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: e2e-debug
+          path: |
+            debug_out/
+            e2e_out/summary.txt
+            e2e_out/*/actual.txt
+            e2e_out/*/diff.txt
+          if-no-files-found: warn
