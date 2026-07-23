@@ -5205,8 +5205,13 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
             return _EINVAL;
         sock->socket.ipv6_recverr = (*(dword_t *) value) != 0;
         if (sock->socket.ipv6_recverr) {
-            if (ipv6_recverr_fd_get(sock) < 0)
-                return errno_map();
+            // Best-effort: the helper ICMPv6 socket only exists to capture
+            // error packets from set-time on. Linux never fails this
+            // setsockopt on an ordinary socket, and environments without
+            // unprivileged ICMPv6 sockets (e.g. CI runners) must still be
+            // able to set the flag; recvmsg's errqueue path retries the
+            // open lazily and degrades to EOPNOTSUPP without it.
+            (void) ipv6_recverr_fd_get(sock);
         } else if (sock->socket.ipv6_recverr_fd >= 0) {
             close(sock->socket.ipv6_recverr_fd);
             sock->socket.ipv6_recverr_fd = -1;
