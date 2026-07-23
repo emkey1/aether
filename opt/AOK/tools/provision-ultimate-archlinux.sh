@@ -374,8 +374,10 @@ cat > /etc/motd <<'MOTD'
 
    Arch Linux  .  iSH-AOK  (terminal-only userspace, EXPERIMENTAL)
    ------------------------------------------------------------
-   services :  no working init under iSH -- see start-aok-services
-   status   :  pgrep -fl 'sshd|syslog-ng|chronyd|crond'
+   services :  systemd runs as init when the app boots this root
+               normally; 'sudo start-aok-services' is the fallback
+               if the app dropped you in a bare shell instead
+   status   :  systemctl status   (fallback: pgrep -fl 'sshd|chronyd')
    time     :  chronyc -h 127.0.0.1 tracking    docs : man <command>
    ------------------------------------------------------------
 
@@ -704,19 +706,19 @@ write_tmux /root root
 # ===========================================================================
 log "Services"
 # ===========================================================================
-# Unlike Alpine (OpenRC) and Devuan (sysvinit), stock Arch ships NO working
-# non-systemd init or service supervisor -- systemd is Arch's only supported
-# init, and iSH-AOK does not run the guest's systemd as PID 1 (iSH provides
-# its own emulated boot process instead). `systemctl enable/start` therefore
-# cannot work here: there is no systemd manager socket for it to talk to.
+# iSH-AOK can boot this root's own systemd as PID 1 (the app's normal boot
+# path runs /sbin/init): console getty login, systemd-resolved, logind and
+# user@ sessions all work, and `systemctl enable/start` behaves as on real
+# Arch. When the app is configured that way, nothing below is needed at
+# runtime -- enabled units start themselves each boot.
 #
-# Rather than pretend otherwise, this writes a small idempotent launcher
+# Some app configurations instead launch a bare shell with no init. For
+# those, this writes a small idempotent launcher
 # (/usr/local/sbin/start-aok-services) that starts the same daemons Alpine/
 # Devuan's provisioners enable at boot directly in the background, and calls
-# it once now. There is no persistent per-boot trigger (iSH has nothing
-# equivalent to init to hook), so re-run it yourself after each fresh app
-# launch -- e.g. `sudo start-aok-services`, or add that line to your shell
-# profile if you want it automatic on your first login each session.
+# it once now (the provisioner itself runs without systemd as PID 1).
+# In a bare-shell setup, re-run it after each fresh app launch -- e.g.
+# `sudo start-aok-services`, or add that line to your shell profile.
 cat > /usr/local/sbin/start-aok-services <<'STARTSVC'
 #!/bin/sh
 # Idempotent: only starts a daemon if it isn't already running.
@@ -759,6 +761,8 @@ cat <<EOF
     Next:
       * Re-login to pick up bash + the new prompt/MOTD.
       * 'chronyc -h 127.0.0.1 tracking' / '... sources' to see NTP status.
-      * No init under iSH: after each fresh app launch, run
-        'sudo start-aok-services' again to bring daemons back up.
+      * When the app boots this root normally, systemd runs as PID 1 and
+        enabled services start themselves. Only if the app dropped you in
+        a bare shell (no /sbin/init): run 'sudo start-aok-services' after
+        each fresh app launch to bring daemons back up.
 EOF
