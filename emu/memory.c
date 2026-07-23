@@ -679,7 +679,17 @@ int pt_map(struct mem *mem, page_t start, pages_t pages, void *memory, size_t of
             free(data);
             return _ENOMEM;
         }
-        memset(data->host_page_prot, P_READ | P_WRITE, host_pages);
+        // 0 = unknown: the memory arriving here does NOT have a uniform host
+        // protection -- anonymous maps are PROT_READ|PROT_WRITE but
+        // host_fd_mmap file maps carry the guest's (often read-only)
+        // protection. This array only exists to skip redundant mprotects, so
+        // seed it with a value that can never match a real request and let
+        // the first mem_mirror_host_page_protection call set the truth.
+        // (Seeding P_READ|P_WRITE made mem_ensure_host_writable skip the
+        // mprotect that would have actually granted write on a read-only
+        // file mapping, leaving the guest to fault forever on a page its
+        // own page tables call writable.)
+        memset(data->host_page_prot, 0, host_pages);
     }
 
     for (page_t page = start; page < start + pages; page++) {
