@@ -64,6 +64,10 @@ struct proc_children {
 
 #define PROC_CHILDREN(...) { .count = sizeof((struct proc_dir_entry[])__VA_ARGS__) / sizeof(struct proc_dir_entry), .entries = __VA_ARGS__ }
 
+// open(2) on a /proc/pid/ns/* magic link: returns a namespace fd (NULL if
+// name is not a namespace entry -- caller falls back to path resolution).
+struct fd *proc_ns_open(int pid, const char *name);
+
 extern struct proc_dir_entry proc_root;
 extern struct proc_dir_entry proc_pid;
 extern struct proc_children proc_ish_children;

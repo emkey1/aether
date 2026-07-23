@@ -1246,6 +1246,44 @@ static int proc_pid_ns_readlink(struct proc_entry *entry, char *buf) {
     return 0;
 }
 
+// A namespace fd does no I/O of its own; it exists to be handed to setns().
+// (Our setns is an ENOSYS stub, which savers like nix tolerate at restore
+// time -- it's the failure to OPEN the fd that they treat as fatal.)
+// Linux fails reads on an nsfs fd with EINVAL (no read op in nsfs), not
+// EBADF, even though the fd was opened readable.
+static ssize_t proc_ns_read(struct fd *UNUSED(fd), void *UNUSED(buf), size_t UNUSED(bufsize)) {
+    return _EINVAL;
+}
+static const struct fd_ops proc_ns_fdops = {
+    .read = proc_ns_read,
+    .anon_inode_class = "nsfs",
+};
+
+// On Linux the /proc/pid/ns/* entries are nsfs magic links: following them
+// with open(2) yields a namespace fd, not a lookup of the "mnt:[inode]"
+// readlink text as a path. Programs save such an fd to setns() back later --
+// nix aborts outright ("saving parent mount namespace") if the open fails.
+// Returns NULL if name is not a namespace entry (caller falls through to
+// normal path resolution and its ENOENT).
+struct fd *proc_ns_open(int pid, const char *name) {
+    size_t i;
+    for (i = 0; i < PROC_NS_TYPES_LEN; i++)
+        if (strcmp(proc_ns_types[i].name, name) == 0)
+            break;
+    if (i == PROC_NS_TYPES_LEN)
+        return NULL;
+    struct task *task = pid_get_task_ref(pid);
+    if (task == NULL)
+        return ERR_PTR(_ENOENT);
+    task_ref_cnt_mod(task, -1);
+    struct fd *fd = adhoc_fd_create(&proc_ns_fdops);
+    if (fd == NULL)
+        return ERR_PTR(_ENOMEM);
+    fd->stat.mode = S_IFREG | 0444;
+    fd->stat.inode = proc_ns_types[i].inode;
+    return fd;
+}
+
 static int proc_pid_cwd_readlink(struct proc_entry *entry, char *buf) {
     struct task *task = proc_get_task(entry);
     if (task == NULL || task->exiting == true) {

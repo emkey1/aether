@@ -7,6 +7,7 @@
 #include "fs/fd.h"
 #include "fs/inode.h"
 #include "fs/path.h"
+#include "fs/proc.h"
 #include "fs/dev.h"
 #include "kernel/inotify.h"
 #include "kernel/task.h"
@@ -241,6 +242,38 @@ ssize_t opath_link_readlink(struct fd *fd, char *buf, size_t bufsize) {
     return mount->fs->readlink(mount, fd->opath_link.path, buf, bufsize);
 }
 
+// /proc/pid/ns/* entries are nsfs magic links (readlink text "mnt:[inode]"
+// is an identity token, not a path). Linux opens them into a namespace fd;
+// letting normal resolution follow the link text as a path yields ENOENT,
+// which nix >= 2.30 treats as fatal ("saving parent mount namespace").
+static struct fd *procns_openat(struct fd *at, const char *path_raw, int flags) {
+    // O_NOFOLLOW must fail the open with ELOOP and O_PATH|O_NOFOLLOW must
+    // open the magic symlink itself; both are the link's own semantics, so
+    // leave them to normal path resolution (same rule as procfd_openat).
+    if (flags & (O_NOFOLLOW_ | O_PATH_))
+        return NULL;
+    char path[MAX_PATH];
+    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
+    if (err < 0)
+        return NULL;
+    struct mount *mount = find_mount_and_trim_path(path);
+    if (mount == NULL)
+        return NULL;
+    if (mount->fs != &procfs) {
+        mount_release(mount);
+        return NULL;
+    }
+    int pid;
+    char name[32];
+    int n = 0;
+    if (sscanf(path, "/%d/ns/%31[a-z_]%n", &pid, name, &n) != 2 || path[n] != '\0') {
+        mount_release(mount);
+        return NULL;
+    }
+    mount_release(mount);
+    return proc_ns_open(pid, name);
+}
+
 static struct fd *generic_openat_norm(struct fd *at, const char *path_raw, int flags, int mode, int extra_norm) {
     if (flags & O_RDWR_ && flags & O_WRONLY_)
         return ERR_PTR(_EINVAL);
@@ -248,6 +281,10 @@ static struct fd *generic_openat_norm(struct fd *at, const char *path_raw, int f
     struct fd *procfd = procfd_openat(at, path_raw, flags);
     if (procfd != NULL)
         return procfd;
+
+    struct fd *nsfd = procns_openat(at, path_raw, flags);
+    if (nsfd != NULL)
+        return nsfd;
 
     // TODO really, really, seriously reconsider what I'm doing with the strings
     char path[MAX_PATH];
