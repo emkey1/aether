@@ -88,6 +88,19 @@ if [ -n "$TARGET_USER" ] && [ "$TARGET_USER" != root ] && [ "$TARGET_USER" != al
     if usermod -l "$TARGET_USER" -d "/home/$TARGET_USER" -m alarm 2>/dev/null; then
         # usermod -l only renames the login; keep the private group in sync too.
         getent group alarm >/dev/null 2>&1 && groupmod -n "$TARGET_USER" alarm 2>/dev/null
+        # ...and neither touches MEMBER lists in other groups: the stock image
+        # enrolls 'alarm' in wheel, and the stale name trips Arch's periodic
+        # shadow.service integrity check (grpck exits 2 -> a failed unit on
+        # every boot the timer fires). Rewrite memberships to the new name,
+        # then dedup in case the new name was already a member.
+        sed -i "s/\balarm\b/$TARGET_USER/g" /etc/group /etc/gshadow 2>/dev/null
+        for _f in /etc/group /etc/gshadow; do
+            [ -f "$_f" ] || continue
+            awk -F: 'BEGIN{OFS=":"} {n=split($4,m,","); out=""; delete seen;
+                for(i=1;i<=n;i++) if(m[i]!="" && !seen[m[i]]++){out=out (out==""?"":",") m[i]}
+                $4=out; print}' "$_f" > "$_f.aokfix" && cat "$_f.aokfix" > "$_f"
+            rm -f "$_f.aokfix"
+        done
         note "renamed the image's default 'alarm' account -> '$TARGET_USER' (home: /home/$TARGET_USER)"
         note "the account keeps its original password (default 'alarm' -- run: passwd $TARGET_USER)"
     else
