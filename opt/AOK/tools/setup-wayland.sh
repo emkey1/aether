@@ -26,9 +26,11 @@
 #       sudo sh /AOK/tools/setup-wayland.sh
 #   or  doas sh /AOK/tools/setup-wayland.sh
 #
-# Devuan (apt) is supported now; Alpine (apk) is a documented follow-up (the
-# packages exist in edge/community but haven't been bring-up-tested the way
-# the Devuan path has -- see wayland_workspace_plan.md phase 0).
+# Devuan (apt) is supported now; Arch (pacman) installs the same stack (all
+# ten packages carry identical names in the Arch repos); Alpine (apk) is a
+# documented follow-up (the packages exist in edge/community but haven't
+# been bring-up-tested the way the Devuan path has -- see
+# wayland_workspace_plan.md phase 0).
 #
 # Only amd64/x86_64 has been bring-up-tested (cage/labwc + wlroots' headless
 # backend + wayvnc, verified both in the CLI harness and on-device). Other
@@ -70,13 +72,26 @@ if command -v apt-get >/dev/null 2>&1; then
         labwc sway wofi foot wayvnc \
         || die "apt-get install failed -- see output above"
 
+elif command -v pacman >/dev/null 2>&1; then
+    log "Arch (pacman) detected"
+    # All five packages carry the same names in the Arch repos as in Devuan.
+    # The Arch provisioner (provision-ultimate-archlinux.sh) has already
+    # disabled pacman's Landlock sandbox and signature checking for iSH; if
+    # this root wasn't provisioned by it, pacman -Sy may fail on those --
+    # run the provisioner first in that case.
+    log "pacman -Sy"
+    pacman -Sy --noconfirm || die "pacman -Sy failed -- check network/DNS (guest /etc/resolv.conf)"
+    log "installing labwc, sway, wofi, foot, wayvnc"
+    pacman -S --needed --noconfirm labwc sway wofi foot wayvnc \
+        || die "pacman -S failed -- see output above"
+
 elif command -v apk >/dev/null 2>&1; then
     log "Alpine (apk) detected"
     note "warning: the Alpine path is untested -- please report back what breaks."
     apk add labwc sway wofi foot wayvnc || die "apk add failed -- see output above"
 
 else
-    die "no supported package manager found (need apt-get or apk)"
+    die "no supported package manager found (need apt-get, pacman, or apk)"
 fi
 
 for bin in labwc sway wofi foot wayvnc; do
@@ -90,6 +105,9 @@ MENU_APPS="htop btop mc neovim vim"
 log "installing $MENU_APPS for the default Applications menu (best-effort)"
 if command -v apt-get >/dev/null 2>&1; then
     DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $MENU_APPS \
+        || note "warning: some of these failed to install -- Applications menu will just show whichever succeeded"
+elif command -v pacman >/dev/null 2>&1; then
+    pacman -S --needed --noconfirm $MENU_APPS \
         || note "warning: some of these failed to install -- Applications menu will just show whichever succeeded"
 elif command -v apk >/dev/null 2>&1; then
     apk add $MENU_APPS \
