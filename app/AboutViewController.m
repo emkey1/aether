@@ -3754,7 +3754,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     } else if (cell == self.openGithub) {
         [UIApplication openURL:@"https://github.com/emkey1/ish-AOK"];
     } else if (cell == self.openDiscord) {
-        [UIApplication openURL:@"https://discord.com/channels/776432683302649866/776432683302649870"];
+        [UIApplication openURL:@"https://discord.gg/RkdBXHMbgc"];
     } else if (cell == self.exportContainerCell) {
         // copy the files to the app container so they can be extracted from iTunes file sharing
         NSURL *container = ContainerURL();
