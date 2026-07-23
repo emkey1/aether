@@ -1250,9 +1250,35 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
     // (savesigs=1) cost a sigprocmask + sigaltstack syscall pair on EVERY block-dispatch
     // entry: ~35% of host time for a syscall-heavy guest. siglongjmp(...,1) at line ~418
     // honors the savemask=0 flag and acts as _longjmp (no mask restore).
+    //
+    // volatile: lives across the sigsetjmp/siglongjmp crash unwind below; a
+    // register copy rolled back by longjmp would defeat the retry cap.
+    volatile unsigned unmapped_retries = 0;
     if (sigsetjmp(jit_crash_unwind_buf, 0) != 0) {
+        frame = &frame_storage;
         if (jit_crash_cpu != NULL && jit_crash_frame != NULL)
             *jit_crash_cpu = jit_crash_frame->cpu;
+        // Same stale-TLB heal as cpu_step_to_interrupt_arm64: a host fault
+        // mid-gadget that reverse-maps to NO guest page means this thread's
+        // cached host translation went stale under a concurrent
+        // COW/mmap/munmap; the guest page is usually still valid under its
+        // new backing. Delivering SIGSEGV here (with the meaningless si_addr
+        // 0 this path produces) kills an innocent guest process, and the
+        // main loop's jit_x86_gpf_looks_retryable can't rescue it because it
+        // insists on a nonzero segfault_addr. Flush and re-execute from the
+        // fault ip: a transient race heals invisibly, and a genuinely-bad
+        // guest address refaults through mmu_translate as a clean guest
+        // SIGSEGV with an accurate si_addr. Capped so a repeat can't spin.
+        if (jit_crash_unmapped && unmapped_retries < 8) {
+            jit_crash_unmapped = false;
+            unmapped_retries++;
+            frame->last_block = NULL;
+            memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            memset(cache, 0, sizeof(cache));
+            tlb_flush(tlb);
+            goto rearm_i386;
+        }
+        jit_crash_unmapped = false;
         cpu->segfault_addr = jit_crash_addr;
         cpu->segfault_was_write = false;
         jit_crash_unwind_active = false;
@@ -1261,6 +1287,11 @@ static int cpu_step_to_interrupt(struct cpu_state *cpu, struct tlb *tlb) {
         jit_crash_cpu = NULL;
         return jit_crash_interrupt;
     }
+rearm_i386:
+    jit_crash_frame = frame;
+    jit_crash_cpu = cpu;
+    jit_crash_interrupt = INT_GPF;
+    jit_crash_addr = frame->cpu.eip;
     jit_crash_unwind_active = true;
 
     // Use pthread directly (not read_lock) to block in the kernel rather than
