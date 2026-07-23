@@ -533,6 +533,22 @@ out_creat:
     }
     fd->tmpfs.dirent = dirent;
 
+    // O_TRUNC was silently ignored (realfs/fakefs get it from the host
+    // open(2); tmpfs never implemented it), so open(path, O_TRUNC) and
+    // procfd magic-link reopens with O_TRUNC left the old contents in
+    // place. Linux truncates a regular file on O_TRUNC regardless of the
+    // access mode.
+    if ((flags & O_TRUNC_) && S_ISREG(dirent->inode->stat.mode)) {
+        struct tmp_inode *inode = dirent->inode;
+        lock(&inode->lock, 0);
+        int terr = tmpfs_file_resize(inode, 0);
+        unlock(&inode->lock);
+        if (terr < 0) {
+            fd_close(fd);
+            return ERR_PTR(terr);
+        }
+    }
+
     fd->tmpfs.dir_pos = NULL;
     fd->tmpfs.dots_pos = 0; // start readdir at "."
     lock(&dirent->lock, 0);
