@@ -374,7 +374,20 @@ static int load_entry(enum guest_abi abi, struct elf_prg_info ph, guest_addr_t b
             char *buf = malloc(copy_len);
             if (buf == NULL)
                 return _ENOMEM;
-            ssize_t got = fd->ops->pread(fd, buf, copy_len, (off_t) residual_file_start);
+            // Not every fs implements pread (jumping through a NULL pointer
+            // here was a host EXC_BAD_ACCESS abort when execing a binary that
+            // lived on tmpfs). Fall back to lseek+read: this fd is exec's own
+            // private open, and every later loader read seeks first.
+            ssize_t got;
+            if (fd->ops->pread != NULL) {
+                got = fd->ops->pread(fd, buf, copy_len, (off_t) residual_file_start);
+            } else if (fd->ops->lseek != NULL) {
+                got = fd->ops->lseek(fd, (off_t_) residual_file_start, LSEEK_SET);
+                if (got >= 0)
+                    got = fd->ops->read(fd, buf, copy_len);
+            } else {
+                got = _EINVAL;
+            }
             if (got < 0) {
                 free(buf);
                 amd64_trace_exec_loader_failure("segment-tail-read", NULL, abi, &ph, bias, fd, _EIO, NULL);

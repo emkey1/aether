@@ -1035,6 +1035,88 @@ out:
     return res;
 }
 
+// Positional read: same clamping rules as tmpfs_read, but the caller supplies
+// the offset and fd->offset is left alone. This must exist: kernel/exec.c's
+// loader calls fd->ops->pread directly for the residual file bytes of an
+// EOF-straddling PT_LOAD, so execve of any binary living on a tmpfs (e.g.
+// test binaries built under /tmp once tmp.mount works) jumped through a NULL
+// pread and took the whole app down with EXC_BAD_ACCESS.
+static ssize_t tmpfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) {
+    ssize_t res;
+    struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    if (S_ISFIFO(inode->stat.mode))
+        return _ESPIPE;
+    if (off < 0)
+        return _EINVAL;
+    lock(&inode->lock, 0);
+    res = _EISDIR;
+    if (S_ISDIR(inode->stat.mode))
+        goto out;
+    assert(S_ISREG(inode->stat.mode));
+    if (inode->host_fd >= 0) {
+        ssize_t n = pread(inode->host_fd, buf, bufsize, off);
+        res = n < 0 ? errno_map() : n;
+        goto out;
+    }
+    // Past-EOF first: unsigned math (see tmpfs_read).
+    if ((size_t) off >= inode->stat.size)
+        bufsize = 0;
+    else if (bufsize > inode->stat.size - (size_t) off)
+        bufsize = inode->stat.size - (size_t) off;
+    memcpy(buf, (char *) inode->file_data + off, bufsize);
+    res = (ssize_t) bufsize;
+out:
+    unlock(&inode->lock);
+    return res;
+}
+
+static void tmpfs_cgroup2_note_procs_write(struct fd *fd, const void *buf, size_t bufsize);
+
+// Positional write, mirroring tmpfs_write minus the fd->offset update.
+static ssize_t tmpfs_pwrite(struct fd *fd, const void *buf, size_t bufsize, off_t off) {
+    ssize_t res;
+    struct tmp_inode *inode = tmpfs_fd_inode(fd);
+    if (S_ISFIFO(inode->stat.mode))
+        return _ESPIPE;
+    if (off < 0)
+        return _EINVAL;
+    lock(&inode->lock, 0);
+    res = _EISDIR;
+    if (S_ISDIR(inode->stat.mode))
+        goto out;
+    assert(S_ISREG(inode->stat.mode));
+    size_t end;
+    if (__builtin_add_overflow((size_t) off, bufsize, &end)) {
+        res = _EFBIG;
+        goto out;
+    }
+    if (inode->host_fd >= 0) {
+        ssize_t n = pwrite(inode->host_fd, buf, bufsize, off);
+        if (n < 0) {
+            res = errno_map();
+            goto out;
+        }
+        if (inode->stat.size < (size_t) off + (size_t) n)
+            inode->stat.size = off + n;
+        if (n > 0)
+            tmpfs_update_mtime_and_ctime(inode);
+        res = n;
+        goto out;
+    }
+    if (inode->stat.size < end) {
+        res = tmpfs_file_resize(inode, end);
+        if (res < 0)
+            goto out;
+    }
+    memcpy((char *) inode->file_data + off, buf, bufsize);
+    res = (ssize_t) bufsize;
+out:
+    unlock(&inode->lock);
+    if (res >= 0)
+        tmpfs_cgroup2_note_procs_write(fd, buf, bufsize);
+    return res;
+}
+
 // A pid written to a cgroup2 hierarchy's cgroup.procs moves that process
 // into the cgroup. The fake hierarchy stores the write like any tmpfs file;
 // this additionally records the membership on the process's tgroup so
@@ -1471,6 +1553,8 @@ static int tmpfs_mmap(struct fd *fd, struct mem *mem, page_t start, pages_t page
 const struct fd_ops tmpfs_fdops = {
     .read = tmpfs_read,
     .write = tmpfs_write,
+    .pread = tmpfs_pread,
+    .pwrite = tmpfs_pwrite,
     .poll = tmpfs_poll,
     .lseek = tmpfs_lseek,
     .mmap = tmpfs_mmap,
