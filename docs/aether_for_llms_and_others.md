@@ -878,6 +878,22 @@ an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 | `mstreambuffer(ms)` | `(MStream) -> Text` (stream contents) | no |
 | `mstreamfree(ms)` | `(MStream) -> Void` | no |
 | `mstreamloadfromfile(ms, path)` / `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Bool` | yes (file I/O) |
+| `mstreamappendbyte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no (pure memory) |
+
+`mstreamappendbyte` writes a single byte at a time -- there is no
+whole-string append. To push `Text`, loop over it and append each
+character's code:
+
+```aether
+fn appendText(ms: MStream, text: Text) -> Void {
+    let n: Int = length(text);
+    loop i in 0..n {
+        let ch: Text = copy(text, i + 1, 1);
+        mstreamappendbyte(ms, ord(ch));
+    }
+    ret;
+}
+```
 
 Golden shape — a GET request end to end (all `http*` calls inside `fx`):
 
