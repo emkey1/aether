@@ -97,6 +97,12 @@ pidfd_self_exit_deadlock.c
 prctl_capbset_drop.c
 oom_score_adj.c
 sysv_ipc.c
+accept_rcvtimeo.c
+epoll_dup_add.c
+inotify_mount_paths.c
+procfd_reopen.c
+scm_rights_pidfd.c
+siocoutq.c
 x86/amd64_regress.c
 x86/amd64_jit_bench.sh
 setup-regressions.sh
