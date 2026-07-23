@@ -14,6 +14,22 @@ process list, sort hotkeys, and kill. Batch mode (`-b`) prints a plain
 top-style table for scripting. No ncurses, no procps -- just libc, ANSI
 escapes and `/proc`.
 
+## Prebuilt binaries (aarch64)
+
+For aarch64 guests you don't have to build anything -- `prebuilt/` ships
+ready-to-run static/dynamic binaries, rebuilt automatically by CI whenever
+`ktop.c` changes:
+
+```sh
+cp /AOK/tools/ktop/prebuilt/ktop-aarch64-musl  /usr/local/bin/ktop   # Alpine
+cp /AOK/tools/ktop/prebuilt/ktop-aarch64-glibc /usr/local/bin/ktop   # Devuan/Debian
+```
+
+`ktop-aarch64-musl` is statically linked (works on any aarch64 guest, musl or
+glibc); `ktop-aarch64-glibc` is the dynamically-linked build for glibc-based
+roots. If in doubt, use the musl one. For other architectures (x86_64, x86,
+riscv64), build from source below.
+
 ## Build
 
 ```sh

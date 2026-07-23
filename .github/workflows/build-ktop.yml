@@ -1,0 +1,45 @@
+name: Build ktop prebuilt binaries
+
+on:
+  push:
+    paths:
+      - 'opt/AOK/tools/ktop/ktop.c'
+      - 'opt/AOK/tools/ktop/Makefile'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    if: github.repository == 'emkey1/ish-AOK'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install zig
+        uses: mlugg/setup-zig@v1
+        with:
+          version: 0.16.0
+
+      - name: Cross-compile aarch64 binaries
+        run: |
+          set -eu
+          cd opt/AOK/tools/ktop
+          zig cc -target aarch64-linux-musl -O2 -Wall -Wextra -s -static -o prebuilt/ktop-aarch64-musl ktop.c
+          zig cc -target aarch64-linux-gnu  -O2 -Wall -Wextra -s -o prebuilt/ktop-aarch64-glibc ktop.c
+          file prebuilt/ktop-aarch64-musl prebuilt/ktop-aarch64-glibc
+
+      - name: Commit rebuilt binaries
+        id: commit
+        run: |
+          set -eu
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add opt/AOK/tools/ktop/prebuilt/ktop-aarch64-musl opt/AOK/tools/ktop/prebuilt/ktop-aarch64-glibc
+          git commit -m "opt/AOK/tools/ktop: rebuild prebuilt aarch64 binaries [skip ci]"
+        continue-on-error: true
+
+      - name: Push
+        if: steps.commit.outcome == 'success'
+        run: git push

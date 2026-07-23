@@ -20,8 +20,18 @@ regression test `taskstats_genl.c` if you're curious about that one).
 
 ## Building and running it
 
-`/AOK` is a read-only mount, so `ktop` can't be built in place — copy its
-source out first. The bundled `build.sh` does this for you:
+On aarch64 you don't need to build anything — `prebuilt/ktop-aarch64-musl`
+(static, works everywhere) and `prebuilt/ktop-aarch64-glibc` (dynamic, for
+glibc-based roots like Devuan/Debian) ship ready to run and are rebuilt by CI
+whenever `ktop.c` changes:
+
+```sh
+cp /AOK/tools/ktop/prebuilt/ktop-aarch64-musl /usr/local/bin/ktop
+```
+
+For other architectures (x86_64, x86, riscv64), `/AOK` is a read-only mount,
+so `ktop` can't be built in place — copy its source out first. The bundled
+`build.sh` does this for you:
 
 ```sh
 sh /AOK/tools/ktop/build.sh              # build only -> /tmp/ktop-build/ktop
