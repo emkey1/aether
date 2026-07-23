@@ -356,4 +356,7 @@ if not meson.is_cross_build()
 endif
 
 e2e_test = find_program('tests/e2e/e2e.bash')
-test('e2e', e2e_test, args: ['-y'], timeout: 180)
+# First run builds the test filesystem: it downloads an Alpine rootfs and runs
+# `apk add build-base ...` under emulation, then the qemu test compiles a large
+# C file with guest gcc. 180s was nowhere near enough on CI runners.
+test('e2e', e2e_test, args: ['-y'], timeout: 1800)

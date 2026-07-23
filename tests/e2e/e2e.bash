@@ -65,13 +65,24 @@ if [ ! -d "$FS" ]; then
         Yes)
             echo
             echo "### Setting up test file system..."
+            setup_failed() {
+                echo "!!! Test file system setup failed: $1"
+                # Leave no half-created fs behind, or every later run would
+                # skip setup and fail against a broken image.
+                rm -rf "$FS"
+                exit 1
+            }
             echo "###### Downloading Alpine"
-            wget "$ALPINE_IMAGE" -O e2e_out/alpine.tar.gz
+            if command -v wget > /dev/null; then
+                wget "$ALPINE_IMAGE" -O e2e_out/alpine.tar.gz || setup_failed "download"
+            else
+                curl -fL "$ALPINE_IMAGE" -o e2e_out/alpine.tar.gz || setup_failed "download"
+            fi
             echo "###### Unpacking Alpine"
-            ./build/tools/fakefsify e2e_out/alpine.tar.gz "$FS"
+            ./build/tools/fakefsify e2e_out/alpine.tar.gz "$FS" || setup_failed "fakefsify"
             echo "###### Configuring iSH and installing base libraries"
-            grep -E "^nameserver" /etc/resolv.conf | head -1 | $ISH /bin/sed -n "w /etc/resolv.conf"
-            $ISH /bin/sh -c "apk update && apk add build-base linux-headers python2 python3"
+            grep -E "^nameserver" /etc/resolv.conf | head -1 | $ISH /bin/sed -n "w /etc/resolv.conf" || setup_failed "resolv.conf"
+            $ISH /bin/sh -c "apk update && apk add build-base linux-headers python2 python3" || setup_failed "apk add"
             ;;
         No) exit 1;;
     esac

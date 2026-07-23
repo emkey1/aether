@@ -2505,11 +2505,31 @@ static dword_t fd_copy_range(fd_t in_no, off_t_ *in_off, fd_t out_no, off_t_ *ou
             if (nr < 0) { err = (int) nr; break; }
             if (nr == 0) break; // EOF on the input
             io_account_read(in_fd, nr);
-            ssize_t nw = copy_write_chunk(out_fd, buf, (size_t) nr, out_off);
-            if (nw < 0) { err = (int) nw; break; }
-            io_account_write(out_fd, nw);
-            total += (dword_t) nw;
-            if (nw < nr) break; // short write: report progress, stop
+            // Drain the whole chunk: a pipe/socket output can take it in
+            // several short writes. Anything that still can't be written must
+            // be "given back" to the input by rewinding its position, or those
+            // bytes would be silently lost (the caller retries the copy from
+            // an offset that has already skipped past them).
+            ssize_t chunk_written = 0;
+            while (chunk_written < nr) {
+                ssize_t nw = copy_write_chunk(out_fd, buf + chunk_written,
+                                              (size_t) (nr - chunk_written), out_off);
+                if (nw <= 0) { err = (int) nw; break; }
+                io_account_write(out_fd, nw);
+                chunk_written += nw;
+            }
+            total += (dword_t) chunk_written;
+            if (chunk_written < nr) {
+                off_t_ leftover = (off_t_) (nr - chunk_written);
+                if (in_off != NULL)
+                    *in_off -= leftover;
+                else if (in_fd->ops->lseek) {
+                    lock(&in_fd->lock, 0);
+                    in_fd->ops->lseek(in_fd, -leftover, LSEEK_CUR);
+                    unlock(&in_fd->lock);
+                }
+                break;
+            }
         }
     }
 
