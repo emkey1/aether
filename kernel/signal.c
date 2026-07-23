@@ -2710,16 +2710,32 @@ retry:
         goto retry;
     }
 
+    // Zombie/exiting members count as successfully signaled on Linux (the
+    // signal is just discarded), same as do_kill's single-pid case. Without
+    // this, kill(-pgid) on a group whose members all just exited returned
+    // EPERM -- nix hits exactly that killing a finished builder's group,
+    // and reported "killing process N: Operation not permitted" for every
+    // channel unpack that won the race.
+    size_t skipped = 0;
     list_for_each_entry(&pid->pgroup, tgroup, pgroup) {
         struct task *task = tgroup->leader;
-        if (task == NULL || task->zombie || task->exiting)
+        if (task == NULL || task->zombie || task->exiting) {
+            skipped++;
             continue;
+        }
         task_ref_cnt_mod(task, 1);
         targets[target_count++] = (struct kill_target) {.task = task};
     }
     unlock(&pids_lock);
 
-    int err = _EPERM;
+    if (target_count == 0 && skipped == 0) {
+        // The pid exists but no process group hangs off it: no such pgroup.
+        if (targets != stack_targets)
+            free(targets);
+        return _ESRCH;
+    }
+
+    int err = skipped > 0 ? 0 : _EPERM;
     for (size_t i = 0; i < target_count; i++) {
         int kill_err = signal_kill_task(targets[i].task, sig, si_code);
         task_ref_cnt_mod(targets[i].task, -1);
