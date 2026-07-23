@@ -97,23 +97,33 @@ static void configure_standalone_amd64_jit(void) {
     }
 }
 
-static char *build_envp_from_term(void) {
+// The guest gets a minimal, predictable environment rather than the host's --
+// but PATH and HOME must be in it. Without PATH, execvp/posix_spawnp in the
+// guest fall back to libc's narrow default, and anything that locates its own
+// helpers via a PATH self-search fails confusingly (gcc invoked as plain "gcc"
+// couldn't find cc1). Same defaults as run_guest_command_capture's in
+// kernel/init.c; TERM passes through from the host when set.
+static char *build_initial_envp(void) {
+    static const char path_var[] =
+        "PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+    static const char home_var[] = "HOME=/root";
     const char *term = getenv("TERM");
-    if (term == NULL) {
-        char *envp = malloc(1);
-        if (envp != NULL)
-            envp[0] = '\0';
-        return envp;
-    }
+    if (term == NULL)
+        term = "dumb";
+    size_t term_size = sizeof("TERM=") + strlen(term); // includes the NUL
 
-    size_t term_len = strlen(term);
-    char *envp = malloc(sizeof("TERM=") + term_len + 1);
+    // NUL-separated variables, terminated by an empty string (do_execve's
+    // envp format; see args_size in kernel/exec.c).
+    char *envp = malloc(sizeof(path_var) + sizeof(home_var) + term_size + 1);
     if (envp == NULL)
         return NULL;
-
-    snprintf(envp, sizeof("TERM=") + term_len, "TERM=%s", term);
-    envp[sizeof("TERM=") + term_len - 1] = '\0';
-    envp[sizeof("TERM=") + term_len] = '\0';
+    char *p = envp;
+    memcpy(p, path_var, sizeof(path_var));
+    p += sizeof(path_var);
+    memcpy(p, home_var, sizeof(home_var));
+    p += sizeof(home_var);
+    p += sprintf(p, "TERM=%s", term) + 1;
+    *p = '\0';
     return envp;
 }
 
@@ -295,7 +305,7 @@ int main(int argc, char *const argv[]) {
             hle_stats_fd = fd;
     }
 
-    char *envp = build_envp_from_term();
+    char *envp = build_initial_envp();
     if (envp == NULL) {
         fprintf(stderr, "malloc: %s\n", strerror(errno));
         return 1;
