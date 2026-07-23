@@ -646,10 +646,24 @@
     NSString *fileName = url.lastPathComponent.stringByDeletingPathExtension;
     if ([fileName hasSuffix:@".tar"])
         fileName = fileName.stringByDeletingPathExtension;
+    // Replace characters RootNameIsValid rejects (spaces, etc.) so an archive
+    // named "my backup.tar.gz" imports instead of failing name validation.
+    static NSCharacterSet *disallowed;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        disallowed = [[NSCharacterSet characterSetWithCharactersInString:
+            @"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._-"] invertedSet];
+    });
+    fileName = [[fileName componentsSeparatedByCharactersInSet:disallowed] componentsJoinedByString:@"_"];
+    while ([fileName hasPrefix:@"."])
+        fileName = [fileName substringFromIndex:1];
+    if (fileName.length == 0)
+        fileName = @"imported";
     unsigned i = 2;
     NSString *name = fileName;
     while ([Roots.instance.roots containsObject:name]) {
-        name = [NSString stringWithFormat:@"%@ %u", fileName, i++];
+        // Use '_' (not a space) so the deduped name still passes RootNameIsValid.
+        name = [NSString stringWithFormat:@"%@_%u", fileName, i++];
     }
 
     ProgressReportViewController *progressVC = [self.storyboard instantiateViewControllerWithIdentifier:@"progress"];
