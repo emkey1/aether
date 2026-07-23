@@ -104,6 +104,57 @@ static void EnsureSceneWindow(SceneDelegate *delegate, UIScene *scene) {
     }
 }
 
+// Drills into a navigation controller's top view controller and follows any
+// chain of already-presented view controllers, landing on whatever's
+// actually frontmost rather than a navigation shell or a screen something
+// else is already presenting over.
+static UIViewController *ISHTopmostViewController(UIViewController *root) {
+    UIViewController *top = root;
+    if ([top isKindOfClass:UINavigationController.class])
+        top = ((UINavigationController *) top).topViewController ?: top;
+    while (top.presentedViewController != nil && !top.presentedViewController.isBeingDismissed) {
+        top = top.presentedViewController;
+        if ([top isKindOfClass:UINavigationController.class])
+            top = ((UINavigationController *) top).topViewController ?: top;
+    }
+    return top;
+}
+
+UIViewController *ISHActivePresentationViewController(void) {
+    // Cheap common case: a terminal scene is frontmost.
+    if (currentTerminalViewController != nil && currentTerminalViewController.viewIfLoaded.window != nil)
+        return ISHTopmostViewController(currentTerminalViewController);
+
+    // Otherwise scan every connected scene -- this is what makes Workspace
+    // mode work (its root view controller is never a TerminalViewController,
+    // so currentTerminalViewController is always nil there) and what makes a
+    // request driven over ssh with no scene "active" work (prefer a
+    // foreground-active scene, but fall back to any window scene at all so
+    // the picker is queued and appears once the app is reopened).
+    UIWindow *bestWindow = nil;
+    for (UIScene *scene in UIApplication.sharedApplication.connectedScenes) {
+        if (![scene isKindOfClass:UIWindowScene.class])
+            continue;
+        UIWindowScene *windowScene = (UIWindowScene *) scene;
+        UIWindow *window = nil;
+        for (UIWindow *candidate in windowScene.windows) {
+            if (candidate.isKeyWindow) {
+                window = candidate;
+                break;
+            }
+        }
+        if (window == nil)
+            window = windowScene.windows.firstObject;
+        if (window == nil || window.rootViewController == nil)
+            continue;
+        if (windowScene.activationState == UISceneActivationStateForegroundActive)
+            return ISHTopmostViewController(window.rootViewController);
+        if (bestWindow == nil)
+            bestWindow = window;
+    }
+    return bestWindow != nil ? ISHTopmostViewController(bestWindow.rootViewController) : nil;
+}
+
 static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) API_AVAILABLE(ios(13.0));
 static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalViewController *vc, UISceneSession *session, NSUserActivity *activity) {
     vc.sceneSession = session;

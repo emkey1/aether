@@ -55,9 +55,28 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
 }
 
 - (int)askForURL:(NSURL **)url {
-    TerminalViewController *terminalViewController = currentTerminalViewController;
-    if (!terminalViewController)
-        return _ENODEV;
+    // ISHActivePresentationViewController touches UIKit and must run on the
+    // main thread; this method is called from a guest task's own thread
+    // (mount()/fsconfig() -- possibly driven entirely over ssh, with no
+    // terminal in the foreground at all), never the main thread itself, but
+    // guard against that changing rather than deadlocking on dispatch_sync.
+    __block UIViewController *presenter = nil;
+    dispatch_block_t findPresenter = ^{
+        presenter = ISHActivePresentationViewController();
+    };
+    if ([NSThread isMainThread])
+        findPresenter();
+    else
+        dispatch_sync(dispatch_get_main_queue(), findPresenter);
+
+    if (presenter == nil) {
+        // EAGAIN (not ENODEV) so mount(8) doesn't report this as "unknown
+        // filesystem type" -- the fstype is fine, there's just nowhere to
+        // show the picker right now (e.g. the app has never had a scene
+        // connect yet). dmesg carries the specific reason.
+        printk("ios: mount -t ios has no active iSH-AOK window to show the folder picker in -- open the app and retry\n");
+        return _EAGAIN;
+    }
 
     dispatch_async(dispatch_get_main_queue(), ^(void) {
         UIDocumentPickerViewController *picker = [[UIDocumentPickerViewController alloc] initWithDocumentTypes:@[ @"public.folder" ] inMode:UIDocumentPickerModeOpen];
@@ -67,7 +86,7 @@ const NSFileCoordinatorWritingOptions NSFileCoordinatorWritingForCreating = NSFi
             picker.allowsMultipleSelection = YES;
         }
         picker.presentationController.delegate = self;
-        [terminalViewController presentViewController:picker animated:true completion:nil];
+        [presenter presentViewController:picker animated:true completion:nil];
     });
 
     lock(&_lock, 0);
