@@ -6970,11 +6970,6 @@ static int_t sys_recvmsg_guest_abi(fd_t sock_fd, guest_addr_t msghdr_addr, int_t
             break;
         }
     }
-    if (sock->socket.domain == AF_LOCAL_ && msg.msg_control != NULL)
-        printk("INFO: scm-recv pid=%d sock_real=%d res=%zd real_ctrl_after=%zu have_rights=%d unix_peer=%p scm_empty=%d\n",
-               current ? current->pid : -1, sock->real_fd, res, msg.msg_controllen,
-               (int) have_rights, (void *) sock->socket.unix_peer,
-               (int) list_empty(&sock->socket.unix_scm));
     bool want_passcred = sock->socket.domain == AF_LOCAL_ &&
         sock->socket.unix_passcred && res >= 0;
     struct scm *scm = NULL;
