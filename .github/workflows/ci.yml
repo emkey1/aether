@@ -2,34 +2,41 @@ name: CI
 
 on:
   push:
+    branches: [working, master]
   pull_request:
-      branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 jobs:
   build-linux:
-    runs-on: ubuntu-20.04
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
     strategy:
+      fail-fast: false
       matrix:
         cc: [clang, gcc]
         kernel: [ish, linux]
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
-            submodules: true
-      - uses: actions/setup-python@v2
+          submodules: true
+      - uses: actions/setup-python@v5
         with:
-            python-version: '3.x'
+          python-version: '3.x'
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install libarchive-dev
+          sudo apt-get install -y libarchive-dev libsqlite3-dev flex bison bc libelf-dev libssl-dev
           pip3 install meson ninja
       - name: Clone Linux
         if: matrix.kernel == 'linux'
         run: deps/clone-linux.sh
       - name: Build
         run: |
-          meson build -Dengine=jit -Dkernel=${{matrix.kernel}}
+          meson setup build -Dengine=jit -Dkernel=${{matrix.kernel}}
           ninja -C build
         env:
           CC: ${{matrix.cc}}
@@ -38,24 +45,33 @@ jobs:
         run: ninja -C build test
 
   build-mac:
-    runs-on: macos-11
-    strategy:
-      matrix:
-        kernel: [ish, linux]
+    runs-on: macos-15
+    timeout-minutes: 90
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
         with:
-            submodules: true
+          submodules: true
+      - name: Select newest available Xcode
+        run: |
+          LATEST_XCODE=$(ls -d /Applications/Xcode_*.app 2>/dev/null | sort -V | tail -1)
+          echo "Selecting $LATEST_XCODE"
+          sudo xcode-select -s "$LATEST_XCODE"
+          xcodebuild -version
       - name: Install dependencies
         run: |
-          brew install llvm ninja libarchive
-          pip3 install meson
-      - name: Clone Linux
-        if: matrix.kernel == 'linux'
-        run: deps/clone-linux.sh
-      - name: Build
-        if: matrix.kernel == 'ish'
-        run: xcodebuild -project iSH.xcodeproj -scheme iSH -arch arm64 -sdk iphoneos CODE_SIGNING_ALLOWED=NO
-      - name: Build
-        if: matrix.kernel == 'linux'
-        run: xcodebuild -project iSH.xcodeproj -scheme iSH+Linux -arch x86_64 -sdk iphonesimulator CODE_SIGNING_ALLOWED=NO
+          brew install llvm lld ninja libarchive
+          pip3 install --break-system-packages meson
+          echo "$(brew --prefix lld)/bin" >> "$GITHUB_PATH"
+      - name: Build hterm_all.js
+        run: |
+          cd deps/libapps/hterm
+          python3 bin/mkdist
+      - name: Build app (unsigned)
+        run: |
+          xcodebuild build \
+            -project iSH-AOK.xcodeproj \
+            -scheme iSH \
+            -configuration Release \
+            -arch arm64 -sdk iphoneos \
+            -derivedDataPath build \
+            CODE_SIGNING_ALLOWED=NO CODE_SIGNING_REQUIRED=NO
