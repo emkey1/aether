@@ -38,12 +38,7 @@ jobs:
           CC: ${{matrix.cc}}
       - name: Unit tests
         run: meson test -C build float80 riscv64_decode --print-errorlogs
-      # The e2e suite compiles its test programs with gcc INSIDE the emulated
-      # guest and currently dies on a guest-side gcc internal compiler error
-      # (a real emulation bug, tracked separately). Keep it visible but
-      # non-blocking until that is fixed.
-      - name: e2e tests (informational)
-        continue-on-error: true
+      - name: e2e tests
         run: meson test -C build e2e --print-errorlogs
 
   build-mac:

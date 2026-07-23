@@ -8,8 +8,11 @@
 // login uses to reset the controlling tty.
 //
 // Verifies sendfile with a NULL offset copies the data and advances positions
-// (offset semantics are covered by copy_file_range.c's shared engine), and that
-// vhangup returns cleanly. Arch-neutral.
+// (offset semantics are covered by copy_file_range.c's shared engine), that a
+// file-to-pipe copy larger than the pipe capacity arrives complete and intact
+// (the engine once dropped the read-but-unwritten tail of its bounce buffer on
+// a short pipe write, so busybox cat/tar truncated any >64K pipe copy), and
+// that vhangup returns cleanly. Arch-neutral.
 #define _GNU_SOURCE
 #include <unistd.h>
 #include <errno.h>
@@ -17,6 +20,7 @@
 #include <stdio.h>
 #include <fcntl.h>
 #include <sys/syscall.h>
+#include <sys/wait.h>
 #include "test_common.h"
 
 #ifndef SYS_sendfile
@@ -69,6 +73,80 @@ out:
     unlink("/tmp/sf.src"); unlink("/tmp/sf.dst");
 }
 
+// File-to-pipe sendfile of much more than the pipe capacity, with the reader
+// draining concurrently. Every byte must arrive, in order. Regression: the
+// shared copy engine read a 64K chunk, wrote what the pipe would take, and
+// dropped the rest -- the input position had already advanced past it -- so
+// the caller's next sendfile() saw a false EOF and the stream truncated.
+static void test_sendfile_to_pipe(void) {
+    enum { SIZE = 300 * 1024 };
+    const char *path = "/tmp/sf.pipe.src";
+    int s = -1, pfd[2] = {-1, -1};
+    pid_t child = -1;
+
+    s = open(path, O_RDWR | O_CREAT | O_TRUNC, 0600);
+    if (s < 0) { printf("FAIL: pipe-copy open: %s\n", strerror(errno)); failures_total++; goto out; }
+    char block[4096];
+    for (size_t off = 0; off < SIZE; off += sizeof block) {
+        for (size_t i = 0; i < sizeof block; i++)
+            block[i] = (char) ((off + i) * 31 >> 3);
+        if (write(s, block, sizeof block) != (ssize_t) sizeof block) {
+            printf("FAIL: pipe-copy fill: %s\n", strerror(errno)); failures_total++; goto out;
+        }
+    }
+    lseek(s, 0, SEEK_SET);
+
+    if (pipe(pfd) < 0) { printf("FAIL: pipe: %s\n", strerror(errno)); failures_total++; goto out; }
+    child = fork();
+    if (child < 0) { printf("FAIL: fork: %s\n", strerror(errno)); failures_total++; goto out; }
+    if (child == 0) {
+        // Reader: verify content and total independently of the writer.
+        close(pfd[1]);
+        size_t total = 0;
+        char buf[8192];
+        ssize_t n;
+        while ((n = read(pfd[0], buf, sizeof buf)) > 0) {
+            for (ssize_t i = 0; i < n; i++) {
+                char want = (char) ((total + (size_t) i) * 31 >> 3);
+                if (buf[i] != want) {
+                    printf("FAIL: pipe-copy corrupt at byte %zu\n", total + (size_t) i);
+                    _exit(1);
+                }
+            }
+            total += (size_t) n;
+        }
+        _exit(total == SIZE ? 0 : (printf("FAIL: pipe-copy got %zu bytes, want %d\n", total, SIZE), 1));
+    }
+    close(pfd[0]); pfd[0] = -1;
+
+    size_t sent = 0;
+    while (sent < SIZE) {
+        long r = syscall(SYS_sendfile, pfd[1], s, (void *) 0, (size_t) (SIZE - sent));
+        if (r < 0 && errno == EINTR) continue;
+        if (r <= 0) {
+            printf("FAIL: pipe-copy sendfile: r=%ld (%s) after %zu bytes\n",
+                   r, r < 0 ? strerror(errno) : "eof", sent);
+            failures_total++; break;
+        }
+        sent += (size_t) r;
+    }
+    close(pfd[1]); pfd[1] = -1;
+
+    int st;
+    if (waitpid(child, &st, 0) != child || !WIFEXITED(st) || WEXITSTATUS(st) != 0) {
+        printf("FAIL: pipe-copy reader status %#x\n", st); failures_total++;
+    } else if (sent == SIZE) {
+        test_logf("sendfile to pipe ok (%zu bytes)\n", sent);
+    }
+    child = -1;
+out:
+    if (pfd[0] >= 0) close(pfd[0]);
+    if (pfd[1] >= 0) close(pfd[1]);
+    if (s >= 0) close(s);
+    if (child > 0) waitpid(child, NULL, 0);
+    unlink(path);
+}
+
 static void test_vhangup(void) {
     errno = 0;
     long r = syscall(SYS_vhangup);
@@ -85,6 +163,7 @@ static void test_vhangup(void) {
 int main(int argc, char **argv) {
     test_init(argc, argv);
     test_sendfile();
+    test_sendfile_to_pipe();
     test_vhangup();
     return finish_suite("sendfile_vhangup");
 }
