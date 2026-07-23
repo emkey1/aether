@@ -12,6 +12,7 @@
 #import "FileProviderExtension.h"
 #import "FileProviderItem.h"
 #include "fs/fake-db.h"
+#include "fs/fake-path.h"
 #include "kernel/errno.h"
 
 static NSString *const ISHFileProviderVirtualIdentifierPrefix = @"virt_";
@@ -148,16 +149,20 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
     } else if (self.isVirtualItem) {
         NSString *path = self.virtualPath;
         if (path != nil)
-            fd = openat(self.mount->root_fd, fix_path(path.fileSystemRepresentation), O_RDONLY);
+            fd = openat(self.mount->root_fd, fix_path(ISHHostPathForGuestPath(path).fileSystemRepresentation), O_RDONLY);
     } else {
         db_begin_read(&self.mount->db);
         sqlite3_stmt *stmt = self.mount->db.stmt.path_from_inode;
         sqlite3_bind_int64(self.mount->db.stmt.path_from_inode, 1, _identifier.longLongValue);
         while (db_exec(&self.mount->db, stmt)) {
             const char *path = (const char *) sqlite3_column_text(stmt, 0);
-            fd = openat(self.mount->root_fd, fix_path(path), O_RDWR);
+            // the DB speaks guest paths; the host file has the escaped name
+            char host_path[PATH_MAX * 2 + 2];
+            if (fake_path_to_host(path, host_path, sizeof(host_path)) == NULL)
+                continue;
+            fd = openat(self.mount->root_fd, fix_path(host_path), O_RDWR);
             if (fd == -1 && errno == EISDIR)
-                fd = openat(self.mount->root_fd, fix_path(path), O_RDONLY);
+                fd = openat(self.mount->root_fd, fix_path(host_path), O_RDONLY);
             if (fd == -1 && errno != ENOENT)
                 break;
         }
@@ -187,7 +192,9 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
     char path[PATH_MAX] = "";
     int err = fcntl(_fd, F_GETPATH, path);
     [self handleError:err inFunction:@"getpath"];
-    const char *myPath = path + strlen(self.mount->source);
+    char *myPath = path + strlen(self.mount->source);
+    // the host path is in escaped on-disk form; this property is a guest path
+    fake_path_from_host(myPath);
     return [NSFileManager.defaultManager stringWithFileSystemRepresentation:myPath length:strlen(myPath)];
 }
 
@@ -197,7 +204,8 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
     NSURL *rootURL = [NSURL fileURLWithPath:[NSString stringWithUTF8String:self.mount->source]];
     if (self.isRoot)
         return rootURL;
-    return [rootURL URLByAppendingPathComponent:self.path];
+    // the URL names the actual (escaped) on-disk file
+    return [rootURL URLByAppendingPathComponent:ISHHostPathForGuestPath(self.path)];
 }
 
 - (struct ish_stat)ishStat {

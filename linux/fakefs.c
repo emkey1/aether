@@ -12,12 +12,21 @@
 
 #include <sqlite3.h>
 #include "fs/fake-db.h"
+#include "fs/fake-path.h"
 #include "../fs/hostfs/hostfs.h" // just a quick way to get stat without typing too much
 
 struct fakefs_super {
     struct fakefs_db db;
     int root_fd;
 };
+
+// The metadata DB speaks guest names; the host filesystem speaks the escaped
+// on-disk form (fs/fake-path.h). Every dentry name handed to a host_* call
+// goes through host_name() first; readdir results are decoded back.
+typedef char host_name_buf[NAME_MAX * 2 + 2];
+static const char *host_name(struct dentry *dentry, host_name_buf buf) {
+    return fake_path_to_host((const char *) dentry->d_name.name, buf, sizeof(host_name_buf));
+}
 
 // free with __putname
 static char *dentry_name(struct dentry *dentry) {
@@ -42,9 +51,12 @@ static int read_inode(struct inode *ino);
 #define INODE_FD(ino) (*((uintptr_t *) &(ino)->i_private))
 
 static int open_fd_for_dentry(struct inode *dir, struct dentry *dentry) {
-    int fd = host_openat(INODE_FD(dir), dentry->d_name.name, O_RDWR, 0);
+    host_name_buf name;
+    if (host_name(dentry, name) == NULL)
+        return -ENAMETOOLONG;
+    int fd = host_openat(INODE_FD(dir), name, O_RDWR, 0);
     if (fd == -EISDIR)
-        fd = host_openat(INODE_FD(dir), dentry->d_name.name, O_RDONLY, 0);
+        fd = host_openat(INODE_FD(dir), name, O_RDONLY, 0);
     return fd;
 }
 
@@ -146,7 +158,9 @@ static int __finish_make_node(struct user_namespace *mnt_userns, struct inode *d
 fail:
     if (child != NULL)
         iput(child);
-    host_unlinkat(INODE_FD(dir), dentry->d_name.name);
+    host_name_buf name;
+    if (host_name(dentry, name) != NULL)
+        host_unlinkat(INODE_FD(dir), name);
     return err;
 }
 
@@ -155,7 +169,10 @@ static int finish_make_node(struct user_namespace *mnt_userns, struct inode *dir
 }
 
 static int fakefs_create(struct user_namespace *mnt_userns, struct inode *dir, struct dentry *dentry, umode_t mode, bool excl) {
-    int fd = host_openat(INODE_FD(dir), dentry->d_name.name, O_CREAT | O_RDWR | (excl ? O_EXCL : 0), 0666);
+    host_name_buf name;
+    if (host_name(dentry, name) == NULL)
+        return -ENAMETOOLONG;
+    int fd = host_openat(INODE_FD(dir), name, O_CREAT | O_RDWR | (excl ? O_EXCL : 0), 0666);
     if (fd < 0)
         return fd;
     return finish_make_node(mnt_userns, dir, dentry, mode, fd);
@@ -165,6 +182,10 @@ static int fakefs_rename(struct user_namespace *mnt_userns, struct inode *from_d
     if (flags != 0)
         return -EINVAL;
     struct fakefs_super *info = from_dir->i_sb->s_fs_info;
+
+    host_name_buf from_name, to_name;
+    if (host_name(from_dentry, from_name) == NULL || host_name(to_dentry, to_name) == NULL)
+        return -ENAMETOOLONG;
 
     char *from_path = dentry_name(from_dentry);
     if (IS_ERR(from_path))
@@ -180,8 +201,8 @@ static int fakefs_rename(struct user_namespace *mnt_userns, struct inode *from_d
     __putname(from_path);
     __putname(to_path);
 
-    int err = host_renameat(INODE_FD(from_dir), from_dentry->d_name.name,
-                            INODE_FD(to_dir), to_dentry->d_name.name);
+    int err = host_renameat(INODE_FD(from_dir), from_name,
+                            INODE_FD(to_dir), to_name);
     if (err < 0) {
         db_rollback(&info->db);
         return err;
@@ -194,6 +215,10 @@ static int fakefs_rename(struct user_namespace *mnt_userns, struct inode *from_d
 static int fakefs_link(struct dentry *from, struct inode *ino, struct dentry *to) {
     struct fakefs_super *info = ino->i_sb->s_fs_info;
     struct inode *inode;
+
+    host_name_buf from_name, to_name;
+    if (host_name(from, from_name) == NULL || host_name(to, to_name) == NULL)
+        return -ENAMETOOLONG;
 
     char *from_path = dentry_name(from);
     if (IS_ERR(from_path))
@@ -209,8 +234,8 @@ static int fakefs_link(struct dentry *from, struct inode *ino, struct dentry *to
     __putname(from_path);
     __putname(to_path);
 
-    int err = host_linkat(INODE_FD(d_inode(from->d_parent)), from->d_name.name,
-                          INODE_FD(d_inode(to->d_parent)), to->d_name.name);
+    int err = host_linkat(INODE_FD(d_inode(from->d_parent)), from_name,
+                          INODE_FD(d_inode(to->d_parent)), to_name);
     if (err < 0) {
         db_rollback(&info->db);
         return err;
@@ -225,6 +250,9 @@ static int fakefs_link(struct dentry *from, struct inode *ino, struct dentry *to
 
 static int unlink_common(struct inode *dir, struct dentry *dentry, int is_dir) {
     struct fakefs_super *info = dir->i_sb->s_fs_info;
+    host_name_buf name;
+    if (host_name(dentry, name) == NULL)
+        return -ENAMETOOLONG;
     char *path = dentry_name(dentry);
     if (IS_ERR(path))
         return PTR_ERR(path);
@@ -233,7 +261,7 @@ static int unlink_common(struct inode *dir, struct dentry *dentry, int is_dir) {
     path_unlink(&info->db, path);
     __putname(path);
 
-    int err = (is_dir ? host_rmdirat : host_unlinkat)(INODE_FD(dir), dentry->d_name.name);
+    int err = (is_dir ? host_rmdirat : host_unlinkat)(INODE_FD(dir), name);
     if (err < 0) {
         db_rollback(&info->db);
         return err;
@@ -251,30 +279,39 @@ static int fakefs_rmdir(struct inode *dir, struct dentry *dentry) {
 }
 
 static int fakefs_symlink(struct user_namespace *mnt_userns, struct inode *dir, struct dentry *dentry, const char *target) {
-    int fd = host_openat(INODE_FD(dir), dentry->d_name.name, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    host_name_buf name;
+    if (host_name(dentry, name) == NULL)
+        return -ENAMETOOLONG;
+    int fd = host_openat(INODE_FD(dir), name, O_RDWR | O_CREAT | O_TRUNC, 0666);
     if (fd < 0)
         return fd;
     ssize_t res = host_write(fd, target, strlen(target));
     if (res < 0) {
         host_close(fd);
-        host_unlinkat(INODE_FD(dir), dentry->d_name.name);
+        host_unlinkat(INODE_FD(dir), name);
         return res;
     }
     return finish_make_node(mnt_userns, dir, dentry, S_IFLNK | 0777, fd);
 }
 
 static int fakefs_mkdir(struct user_namespace *mnt_userns, struct inode *dir, struct dentry *dentry, umode_t mode) {
-    int err = host_mkdirat(INODE_FD(dir), dentry->d_name.name, 0777);
+    host_name_buf name;
+    if (host_name(dentry, name) == NULL)
+        return -ENAMETOOLONG;
+    int err = host_mkdirat(INODE_FD(dir), name, 0777);
     if (err < 0)
         return err;
     err = finish_make_node(mnt_userns, dir, dentry, S_IFDIR | mode, -1);
     if (err < 0)
-        host_rmdirat(INODE_FD(dir), dentry->d_name.name);
+        host_rmdirat(INODE_FD(dir), name);
     return err;
 }
 
 static int fakefs_mknod(struct user_namespace *mnt_userns, struct inode *dir, struct dentry *dentry, umode_t mode, dev_t dev) {
-    int fd = host_openat(INODE_FD(dir), dentry->d_name.name, O_RDWR | O_CREAT | O_TRUNC, 0666);
+    host_name_buf name;
+    if (host_name(dentry, name) == NULL)
+        return -ENAMETOOLONG;
+    int fd = host_openat(INODE_FD(dir), name, O_RDWR | O_CREAT | O_TRUNC, 0666);
     if (fd < 0)
         return fd;
     return __finish_make_node(mnt_userns, dir, dentry, mode, dev, fd);
@@ -402,16 +439,24 @@ static int fakefs_iterate(struct file *file, struct dir_context *ctx) {
 
 
     struct host_dirent ent;
+    char guest_name[NAME_MAX + 1];
     for (;;) {
         res = host_readdir(dir, &ent);
         if (res <= 0)
             break;
-        size_t name_len = strlen(ent.name);
+        // The host entry name is in escaped on-disk form (fs/fake-path.h);
+        // the DB and the guest both speak the decoded name.
+        size_t host_namelen = strlen(ent.name);
+        if (host_namelen > NAME_MAX)
+            continue;
+        memcpy(guest_name, ent.name, host_namelen + 1);
+        fake_path_from_host(guest_name);
+        size_t name_len = strlen(guest_name);
 
         // Get the inode number by constructing the file path and looking it up in the database
-        if (name_len == 1 && ent.name[0] == '.') {
+        if (name_len == 1 && guest_name[0] == '.') {
             ent.ino = file->f_inode->i_ino;
-        } else if (name_len == 2 && ent.name[0] == '.' && ent.name[1] == '.') {
+        } else if (name_len == 2 && guest_name[0] == '.' && guest_name[1] == '.') {
             ent.ino = d_inode(file->f_path.dentry->d_parent)->i_ino;
         } else {
             if (dir_path_len + 1 + name_len + 1 > PATH_MAX)
@@ -420,11 +465,11 @@ static int fakefs_iterate(struct file *file, struct dir_context *ctx) {
             // Optimization: Use mutex directly to avoid transaction overhead for read-only lookup
             sqlite3_mutex_enter(info->db.lock);
             dir_path[dir_path_len] = '/';
-            memcpy(&dir_path[dir_path_len + 1], ent.name, name_len + 1);
+            memcpy(&dir_path[dir_path_len + 1], guest_name, name_len + 1);
             ent.ino = path_get_inode(&info->db, dir_path);
             sqlite3_mutex_leave(info->db.lock);
         }
-        if (!dir_emit(ctx, ent.name, name_len, ent.ino, ent.type))
+        if (!dir_emit(ctx, guest_name, name_len, ent.ino, ent.type))
             break;
         ctx->pos = host_telldir(dir) + 1;
     }

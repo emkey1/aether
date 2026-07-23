@@ -112,7 +112,8 @@ static NSNumber *ISHFileProviderEnumeratorDurationMilliseconds(NSTimeInterval st
             continue;
 
         NSString *path = _item.path;
-        NSString *name = [NSString stringWithUTF8String:dirent->d_name];
+        // host entry names are in escaped on-disk form (fs/fake-path.h)
+        NSString *name = ISHGuestPathForHostPath([NSString stringWithUTF8String:dirent->d_name]);
         // Join with an explicit leading slash so both a root folder (path == "")
         // and a sub-directory (path == "/bin") produce the slash-prefixed path
         // the fakefs db stores ("/bin", "/bin/ls"). -stringByAppendingPathComponent:

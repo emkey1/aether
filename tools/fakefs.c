@@ -4,18 +4,14 @@
 #include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
-#include <ctype.h>
 #include <locale.h>
-#include <search.h>
 #include <sys/stat.h>
 #include <archive.h>
 #include <archive_entry.h>
-#if defined(__APPLE__)
-#include <TargetConditionals.h>
-#endif
 
 #define ISH_INTERNAL
 #include "fs/fake-db.h"
+#include "fs/fake-path.h"
 #include "fs/sqlutil.h"
 #include "tools/fakefs.h"
 #include "misc.h"
@@ -98,76 +94,15 @@ static const char *schema = Q(
     create table paths (path blob primary key, inode integer references stats(inode));
     create index inode_to_path on paths (inode, path);
     // no index is needed on stats, because the rows are ordered by the primary key
-    pragma user_version=3;
+    // version 4: host names are stored in escaped form (fs/fake-path.h);
+    // fakefs_import writes them that way, so no migration is needed
+    pragma user_version=4;
 );
 
-struct import_case_map_entry {
-    char *folded;
-    char *canonical;
-};
-
-static int import_case_map_compare(const void *a, const void *b) {
-    const struct import_case_map_entry *left = a;
-    const struct import_case_map_entry *right = b;
-    return strcmp(left->folded, right->folded);
-}
-
-static bool import_needs_casefold_mapping(void) {
-#if defined(TARGET_OS_SIMULATOR) && TARGET_OS_SIMULATOR
-    return true;
-#else
-    return false;
-#endif
-}
-
-static char *path_ascii_lowercase(const char *path) {
-    size_t len = strlen(path);
-    char *lower = malloc(len + 1);
-    if (lower == NULL)
-        return NULL;
-    for (size_t i = 0; i < len; i++) {
-        lower[i] = (char) tolower((unsigned char) path[i]);
-    }
-    lower[len] = '\0';
-    return lower;
-}
-
-static const char *import_host_path(void **case_map, const char *guest_path, bool *already_exists) {
-    if (already_exists != NULL)
-        *already_exists = false;
-    if (!import_needs_casefold_mapping())
-        return guest_path;
-
-    struct import_case_map_entry *entry = malloc(sizeof(*entry));
-    if (entry == NULL)
-        return guest_path;
-    entry->folded = path_ascii_lowercase(guest_path);
-    entry->canonical = strdup(guest_path);
-    if (entry->folded == NULL || entry->canonical == NULL) {
-        free(entry->folded);
-        free(entry->canonical);
-        free(entry);
-        return guest_path;
-    }
-
-    void *node = tsearch(entry, case_map, import_case_map_compare);
-    if (node == NULL) {
-        free(entry->folded);
-        free(entry->canonical);
-        free(entry);
-        return guest_path;
-    }
-
-    struct import_case_map_entry *resolved = *(struct import_case_map_entry **) node;
-    if (resolved != entry) {
-        if (already_exists != NULL)
-            *already_exists = true;
-        free(entry->folded);
-        free(entry->canonical);
-        free(entry);
-    }
-    return resolved->canonical;
-}
+// Host file names are the escaped on-disk form of the guest names (see
+// fs/fake-path.h), so guest names differing only in ASCII case stay distinct
+// on case-insensitive host filesystems. Escaping at most doubles the length.
+typedef char host_path_buf[MAX_PATH * 2 + 2];
 
 void fakefs_ensure_utf8_locale(void) {
     // libarchive converts archive path/linkpath strings to the process LC_CTYPE
@@ -202,7 +137,6 @@ static const char *entry_symlink_u8(struct archive_entry *e) {
 
 bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_error *err_out, struct progress p) {
     fakefs_ensure_utf8_locale();
-    void *case_map = NULL;
     int err = mkdir(fs, 0777);
     if (err < 0)
         POSIX_ERR();
@@ -266,6 +200,10 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
         if (strcmp(entry_path, "") == 0)
             archive_has_root = true;
 
+        host_path_buf host_entry_path;
+        if (fake_path_to_host(entry_path, host_entry_path, sizeof(host_entry_path)) == NULL)
+            FILL_ERR(ERR_POSIX, ENAMETOOLONG, "escaped path too long");
+
         const char *hardlink = entry_hardlink_u8(entry);
         if (hardlink) {
             char hardlink_path[MAX_PATH];
@@ -273,40 +211,36 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
                 fprintf(stderr, "warning: almost pwned by hardlink %s\n", hardlink);
                 continue;
             }
-            bool host_path_exists = false;
-            const char *host_entry_path = import_host_path(&case_map, entry_path, &host_path_exists);
-            if (!host_path_exists) {
-                if (linkat(root_fd, fix_path(hardlink_path), root_fd, fix_path(host_entry_path), 0) < 0)
-                    POSIX_ERR();
-            }
+            host_path_buf host_hardlink_path;
+            if (fake_path_to_host(hardlink_path, host_hardlink_path, sizeof(host_hardlink_path)) == NULL)
+                FILL_ERR(ERR_POSIX, ENAMETOOLONG, "escaped path too long");
+            if (linkat(root_fd, fix_path(host_hardlink_path), root_fd, fix_path(host_entry_path), 0) < 0)
+                POSIX_ERR();
             sqlite3_bind_blob64(insert_hardlink, 1, entry_path, strlen(entry_path), SQLITE_TRANSIENT);
             sqlite3_bind_blob64(insert_hardlink, 2, hardlink_path, strlen(hardlink_path), SQLITE_TRANSIENT);
             STEP_RESET(insert_hardlink);
             continue;
         }
 
-        // mkdir -p
-        char *entry_path_copy = strdup(entry_path);
-        char *slash = entry_path_copy;
+        // mkdir -p (on the escaped host path; '/' is never escaped, so the
+        // component boundaries are the same as in the guest path)
+        char *host_path_copy = strdup(host_entry_path);
+        char *slash = host_path_copy;
         while ((slash = strchr(*slash ? slash + 1 : slash, '/')) != NULL) {
             *slash = '\0';
-            const char *host_parent_path = import_host_path(&case_map, entry_path_copy, NULL);
-            int err = mkdirat(root_fd, fix_path(host_parent_path), 0777);
+            int err = mkdirat(root_fd, fix_path(host_path_copy), 0777);
             *slash = '/';
             if (err < 0) {
                 if (errno == EEXIST) continue;
-                fprintf(stderr, "fakefs_import: mkdirat failed for '%s' (fix_path='%s'): %s\n",
-                        entry_path_copy, fix_path(host_parent_path), strerror(errno));
+                fprintf(stderr, "fakefs_import: mkdirat failed for '%s': %s\n",
+                        fix_path(host_path_copy), strerror(errno));
                 POSIX_ERR();
             }
         }
-        free(entry_path_copy);
-
-        bool host_path_exists = false;
-        const char *host_entry_path = import_host_path(&case_map, entry_path, &host_path_exists);
+        free(host_path_copy);
 
         int fd = -1;
-        if (archive_entry_filetype(entry) != AE_IFDIR && !host_path_exists) {
+        if (archive_entry_filetype(entry) != AE_IFDIR) {
             fd = openat(root_fd, fix_path(host_entry_path), O_WRONLY | O_CREAT | O_TRUNC, 0666);
             if (fd < 0) {
                 if (errno == EISDIR) continue; // assuming it's case insensitivity
@@ -331,21 +265,15 @@ bool fakefs_import(const char *archive_path, const char *fs, struct fakefsify_er
 
         switch (archive_entry_filetype(entry)) {
             case AE_IFDIR:
-                if (host_path_exists)
-                    break;
                 err = mkdirat(root_fd, fix_path(host_entry_path), 0777);
                 if (err < 0 && errno != EEXIST)
                     POSIX_ERR();
                 break;
             case AE_IFREG:
-                if (host_path_exists)
-                    break;
                 if (archive_read_data_into_fd(archive, fd) != ARCHIVE_OK)
                     ARCHIVE_ERR(archive);
                 break;
             case AE_IFLNK:
-                if (host_path_exists)
-                    break;
                 err = (int) write(fd, entry_symlink_u8(entry), strlen(entry_symlink_u8(entry)));
                 if (err < 0)
                     POSIX_ERR();
@@ -492,6 +420,11 @@ bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_er
         path[0] = '.';
         memcpy(path + 1, path_in_db, path_len);
         path[path_len + 1] = '\0';
+        // the archive gets the guest path; the host filesystem is accessed
+        // via the escaped on-disk form (fs/fake-path.h)
+        host_path_buf host_path;
+        if (fake_path_to_host(path, host_path, sizeof(host_path)) == NULL)
+            FILL_ERR(ERR_POSIX, ENAMETOOLONG, "escaped path too long");
         archive_entry_set_pathname(entry, path);
 
         if (!progress_update(&p, (double) paths_done / paths_total, path))
@@ -506,7 +439,7 @@ bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_er
         archive_entry_set_rdevminor(entry, fakefs_dev_minor(stat.rdev));
 
         struct stat real_stat;
-        if (fstatat(root_fd, path, &real_stat, 0) < 0) {
+        if (fstatat(root_fd, host_path, &real_stat, 0) < 0) {
             if (errno == ENOENT) {
                 printf("skipping %s\n", path);
                 goto skip;
@@ -526,7 +459,7 @@ bool fakefs_export(const char *fs, const char *archive_path, struct fakefsify_er
         int fd = -1;
         S_IFMT;
         if (S_ISREG(stat.mode) || S_ISLNK(stat.mode))
-            fd = openat(root_fd, path, O_RDONLY);
+            fd = openat(root_fd, host_path, O_RDONLY);
         if (S_ISLNK(stat.mode)) {
             char buf[MAX_PATH+1];
             ssize_t len = read(fd, buf, sizeof(buf)-1);

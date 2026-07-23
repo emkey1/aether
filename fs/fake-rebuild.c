@@ -2,8 +2,10 @@
 #include <string.h>
 #include <sys/stat.h>
 #include <unistd.h>
+#include "kernel/fs.h" // for MAX_PATH
 #include "fs/sqlutil.h"
 #include "fs/fake-db.h"
+#include "fs/fake-path.h"
 #include "kernel/errno.h"
 #include "util/list.h"
 #include "debug.h"
@@ -56,9 +58,15 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
         const char *path = (const char *) sqlite3_column_text(get_paths, 0);
         ino_t inode = sqlite3_column_int64(get_paths, 1);
 
+        // the DB speaks guest paths; the host filesystem speaks the escaped
+        // on-disk form (fs/fake-path.h)
+        char host_path[MAX_PATH + 1];
+        if (fake_path_to_host(path, host_path, sizeof(host_path)) == NULL)
+            continue;
+
         // grab real inode
         struct stat stat;
-        int err = fstatat(root_fd, fix_path(path), &stat, 0);
+        int err = fstatat(root_fd, fix_path(host_path), &stat, 0);
         if (err < 0)
             continue;
         // restore hardlinks
@@ -68,8 +76,11 @@ int fakefs_rebuild(struct fakefs_db *fs, int root_fd) {
         ino_t compact_inode = 0;
         list_for_each_entry(bucket, entry, chain) {
             if (entry->inode == inode) {
-                unlinkat(root_fd, fix_path(path), 0);
-                linkat(root_fd, fix_path(entry->path), root_fd, fix_path(path), 0);
+                char host_link[MAX_PATH + 1];
+                if (fake_path_to_host(entry->path, host_link, sizeof(host_link)) == NULL)
+                    continue;
+                unlinkat(root_fd, fix_path(host_path), 0);
+                linkat(root_fd, fix_path(host_link), root_fd, fix_path(host_path), 0);
                 found = true;
                 compact_inode = entry->compact_inode;
                 break;

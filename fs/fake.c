@@ -20,8 +20,19 @@
 #include "fs/fifo.h"
 #define ISH_INTERNAL
 #include "fs/fake.h"
+#include "fs/fake-path.h"
 
 // TODO document database
+
+// The metadata DB speaks unescaped guest paths; the host filesystem speaks
+// the escaped on-disk form (see fs/fake-path.h). Every path that reaches
+// realfs or a raw host syscall below must go through fakefs_host_path first.
+typedef char host_path_t[MAX_PATH + 1];
+static int fakefs_host_path(const char *path, host_path_t host) {
+    if (fake_path_to_host(path, host, sizeof(host_path_t)) == NULL)
+        return _ENAMETOOLONG;
+    return 0;
+}
 
 // this exists only to override readdir to fix the returned inode numbers
 static struct fd_ops fakefs_fdops;
@@ -132,7 +143,10 @@ static void fakefs_trace_symlink_result(struct mount *mount, struct fakefs_db *f
     if (!fakefs_dpkg_trace_enabled())
         return;
 
-    const char *fixed = fix_path(link);
+    host_path_t host_link;
+    if (fakefs_host_path(link, host_link) < 0)
+        return;
+    const char *fixed = fix_path(host_link);
     struct stat st;
     int host_err = fstatat(mount->root_fd, fixed, &st, AT_SYMLINK_NOFOLLOW);
     if (host_err < 0) {
@@ -220,7 +234,11 @@ static int fakefs_getpath(struct fd *fd, char *buf) {
         db_reset(fs, stmt);
         sqlite3_mutex_leave(fs->lock);
     }
-    return realfs_getpath(fd, buf);
+    int err = realfs_getpath(fd, buf);
+    if (err >= 0)
+        // The host path is in escaped on-disk form.
+        fake_path_from_host(buf);
+    return err;
 }
 
 static struct fd *fakefs_open_initctl(const char *path, int flags) {
@@ -264,6 +282,10 @@ static struct fd *fakefs_open(struct mount *mount, const char *path, int flags, 
     if (fakefs_initctl_info(path, NULL, NULL))
         return fakefs_open_initctl(path, flags);
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_path;
+    int name_err = fakefs_host_path(path, host_path);
+    if (name_err < 0)
+        return ERR_PTR(name_err);
     // For O_CREAT, take the metadata transaction lock *before* the real
     // host create, so the host-side create and the SQLite metadata write
     // that describes it are atomic with each other (previously the host
@@ -300,7 +322,7 @@ retry:
             }
         }
     }
-    struct fd *fd = realfs.open(mount, path, open_flags, 0666);
+    struct fd *fd = realfs.open(mount, host_path, open_flags, 0666);
     if (IS_ERR(fd)) {
         if (open_flags & O_CREAT_)
             db_rollback(fs);
@@ -348,9 +370,12 @@ step:
         return ERR_PTR(_ENOENT);
     }
     const char *path = (const char *) sqlite3_column_text(stmt, 0);
-    struct fd *fd = realfs.open(mount, path, O_RDWR_, 0);
+    host_path_t host_path;
+    if (fakefs_host_path(path, host_path) < 0)
+        goto step;
+    struct fd *fd = realfs.open(mount, host_path, O_RDWR_, 0);
     if (PTR_ERR(fd) == _EISDIR)
-        fd = realfs.open(mount, path, O_RDONLY_, 0);
+        fd = realfs.open(mount, host_path, O_RDONLY_, 0);
     if (PTR_ERR(fd) == _ENOENT)
         goto step;
     if (IS_ERR(fd)) {
@@ -368,13 +393,19 @@ step:
 
 static int fakefs_link(struct mount *mount, const char *src, const char *dst) {
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_src, host_dst;
+    int name_err = fakefs_host_path(src, host_src);
+    if (name_err >= 0)
+        name_err = fakefs_host_path(dst, host_dst);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
-    int err = realfs.link(mount, src, dst);
+    int err = realfs.link(mount, host_src, host_dst);
     if (err == _EEXIST && path_get_inode(fs, dst) == 0) {
         // Recover from a stale host-side temp path that is missing from fakefs.
-        int cleanup_err = realfs.unlink(mount, dst);
+        int cleanup_err = realfs.unlink(mount, host_dst);
         if (cleanup_err == 0 || cleanup_err == _ENOENT)
-            err = realfs.link(mount, src, dst);
+            err = realfs.link(mount, host_src, host_dst);
     }
     if (err < 0) {
         db_rollback(fs);
@@ -387,8 +418,12 @@ static int fakefs_link(struct mount *mount, const char *src, const char *dst) {
 
 static int fakefs_unlink(struct mount *mount, const char *path) {
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_path;
+    int name_err = fakefs_host_path(path, host_path);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
-    int err = realfs.unlink(mount, path);
+    int err = realfs.unlink(mount, host_path);
     if (err < 0) {
         db_rollback(fs);
         return err;
@@ -406,8 +441,12 @@ static int fakefs_unlink(struct mount *mount, const char *path) {
 
 static int fakefs_rmdir(struct mount *mount, const char *path) {
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_path;
+    int name_err = fakefs_host_path(path, host_path);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
-    int err = realfs.rmdir(mount, path);
+    int err = realfs.rmdir(mount, host_path);
     if (err < 0) {
         db_rollback(fs);
         return err;
@@ -422,9 +461,15 @@ static int fakefs_rmdir(struct mount *mount, const char *path) {
 
 static int fakefs_rename(struct mount *mount, const char *src, const char *dst) {
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_src, host_dst;
+    int name_err = fakefs_host_path(src, host_src);
+    if (name_err >= 0)
+        name_err = fakefs_host_path(dst, host_dst);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
     path_rename(fs, src, dst);
-    int err = realfs.rename(mount, src, dst);
+    int err = realfs.rename(mount, host_src, host_dst);
     if (err < 0) {
         db_rollback(fs);
         return err;
@@ -435,12 +480,16 @@ static int fakefs_rename(struct mount *mount, const char *src, const char *dst) 
 
 static int fakefs_symlink(struct mount *mount, const char *target, const char *link) {
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_link;
+    int name_err = fakefs_host_path(link, host_link);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
     // fakefs historically stores symlinks as regular files containing the
     // link target, with metadata overridden to present them as S_IFLNK.
     // Restore that behavior to match the working branch semantics used by the
     // bundled roots and package-manager flows.
-    int fd = openat(mount->root_fd, fix_path(link), O_WRONLY | O_CREAT | O_EXCL, 0666);
+    int fd = openat(mount->root_fd, fix_path(host_link), O_WRONLY | O_CREAT | O_EXCL, 0666);
     if (fd < 0) {
         fakefs_trace_symlink_result(mount, fs, target, link, -1, errno);
         db_rollback(fs);
@@ -451,7 +500,7 @@ static int fakefs_symlink(struct mount *mount, const char *target, const char *l
     close(fd);
     if (res != (ssize_t) target_len) {
         int saved_errno = errno;
-        unlinkat(mount->root_fd, fix_path(link), 0);
+        unlinkat(mount->root_fd, fix_path(host_link), 0);
         db_rollback(fs);
         if (res < 0) {
             errno = saved_errno;
@@ -479,8 +528,12 @@ static int fakefs_mknod(struct mount *mount, const char *path, mode_t_ mode, dev
         real_mode |= S_IFREG;
     else
         real_mode |= mode & S_IFMT;
+    host_path_t host_path;
+    int name_err = fakefs_host_path(path, host_path);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
-    int err = realfs.mknod(mount, path, real_mode, 0);
+    int err = realfs.mknod(mount, host_path, real_mode, 0);
     if (err < 0) {
         db_rollback(fs);
         return err;
@@ -513,7 +566,11 @@ static int fakefs_stat(struct mount *mount, const char *path, struct statbuf *fa
     }
     sqlite3_mutex_leave(fs->lock);
 
-    int err = realfs.stat(mount, path, fake_stat);
+    host_path_t host_path;
+    int err = fakefs_host_path(path, host_path);
+    if (err < 0)
+        return err;
+    err = realfs.stat(mount, host_path, fake_stat);
     if (err < 0)
         return err;
     fake_stat->inode = inode;
@@ -567,8 +624,13 @@ static void fake_stat_setattr(struct ish_stat *ishstat, struct attr attr) {
 
 static int fakefs_setattr(struct mount *mount, const char *path, struct attr attr) {
     struct fakefs_db *fs = &mount->fakefs;
-    if (attr.type == attr_size)
-        return realfs.setattr(mount, path, attr);
+    if (attr.type == attr_size) {
+        host_path_t host_path;
+        int name_err = fakefs_host_path(path, host_path);
+        if (name_err < 0)
+            return name_err;
+        return realfs.setattr(mount, host_path, attr);
+    }
     db_begin_write(fs);
     struct ish_stat ishstat;
     ino_t inode;
@@ -613,8 +675,12 @@ static int fakefs_fsetattr(struct fd *fd, struct attr attr) {
 
 static int fakefs_mkdir(struct mount *mount, const char *path, mode_t_ mode) {
     struct fakefs_db *fs = &mount->fakefs;
+    host_path_t host_path;
+    int name_err = fakefs_host_path(path, host_path);
+    if (name_err < 0)
+        return name_err;
     db_begin_write(fs);
-    int err = realfs.mkdir(mount, path, 0777);
+    int err = realfs.mkdir(mount, host_path, 0777);
     if (err < 0) {
         db_rollback(fs);
         return err;
@@ -654,9 +720,13 @@ static ssize_t fakefs_readlink(struct mount *mount, const char *path, char *buf,
         return _EINVAL;
     }
 
-    ssize_t err = realfs.readlink(mount, path, buf, bufsize);
-    if (err == _EINVAL)
-        err = file_readlink(mount, path, buf, bufsize);
+    host_path_t host_path;
+    ssize_t err = fakefs_host_path(path, host_path);
+    if (err >= 0) {
+        err = realfs.readlink(mount, host_path, buf, bufsize);
+        if (err == _EINVAL)
+            err = file_readlink(mount, host_path, buf, bufsize);
+    }
     if (err < 0)
         db_rollback(fs);
     else
@@ -690,6 +760,12 @@ retry:
         memcpy(entry_path + path_len + 1, entry->name, name_len + 1);
     }
 
+    // Both entry->name (from the host readdir) and entry_path (from the host
+    // F_GETPATH) are in escaped on-disk form; the DB and the guest speak the
+    // unescaped guest names.
+    fake_path_from_host(entry_path);
+    fake_path_from_host(entry->name);
+
     struct fakefs_db *fs = &fd->mount->fakefs;
     db_begin_read(fs);
     struct ish_stat ishstat;
@@ -719,6 +795,14 @@ static void __attribute__((constructor)) init_fake_fdops() {
         .poll = initctl_poll,
         .close = fakefs_close,
     };
+}
+
+static int fakefs_utime(struct mount *mount, const char *path, struct timespec atime, struct timespec mtime, bool follow_links) {
+    host_path_t host_path;
+    int name_err = fakefs_host_path(path, host_path);
+    if (name_err < 0)
+        return name_err;
+    return realfs_utime(mount, host_path, atime, mtime, follow_links);
 }
 
 static int fakefs_mount(struct mount *mount) {
@@ -789,7 +873,7 @@ const struct fs_ops fakefs = {
     .setattr = fakefs_setattr,
     .fsetattr = fakefs_fsetattr,
     .getpath = fakefs_getpath,
-    .utime = realfs_utime,
+    .utime = fakefs_utime,
     .futime = realfs_futime,
 
     .mkdir = fakefs_mkdir,

@@ -11,6 +11,29 @@
 #import "NSError+ISHErrno.h"
 #import "../AppGroup.h"
 #include "fs/fake-db.h"
+#include "fs/fake-path.h"
+
+NSString *ISHHostPathForGuestPath(NSString *path) {
+    const char *guest = path.fileSystemRepresentation;
+    size_t size = strlen(guest) * 2 + 2;
+    char *buf = malloc(size);
+    if (buf == NULL)
+        return path;
+    fake_path_to_host(guest, buf, size); // can't overflow: size is the worst case
+    NSString *result = [NSFileManager.defaultManager stringWithFileSystemRepresentation:buf length:strlen(buf)];
+    free(buf);
+    return result;
+}
+
+NSString *ISHGuestPathForHostPath(NSString *path) {
+    char *buf = strdup(path.fileSystemRepresentation);
+    if (buf == NULL)
+        return path;
+    fake_path_from_host(buf);
+    NSString *result = [NSFileManager.defaultManager stringWithFileSystemRepresentation:buf length:strlen(buf)];
+    free(buf);
+    return result;
+}
 
 static NSNumber *ISHFileProviderDurationMilliseconds(NSTimeInterval start) {
     return @((NSInteger) ((NSDate.date.timeIntervalSinceReferenceDate - start) * 1000.0));
@@ -409,7 +432,7 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
 // These helpers operate on a specific root's mount, resolved by the caller from
 // the parent/item identifier.
 - (BOOL)doCreateDirectoryAt:(NSString *)path mount:(struct fakefs_mount *)mount inode:(ino_t *)inode error:(NSError **)error {
-    NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:path];
+    NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:ISHHostPathForGuestPath(path)];
     if (![NSFileManager.defaultManager createDirectoryAtURL:url
                                 withIntermediateDirectories:NO
                                                  attributes:@{NSFilePosixPermissions: @0777}
@@ -435,7 +458,7 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
 }
 
 - (BOOL)doCreateFileAt:(NSString *)path importFrom:(NSURL *)importURL mount:(struct fakefs_mount *)mount inode:(ino_t *)inode error:(NSError **)error {
-    NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:path];
+    NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:ISHHostPathForGuestPath(path)];
     if (![NSFileManager.defaultManager copyItemAtURL:importURL
                                                toURL:url
                                                error:error]) {
@@ -563,11 +586,12 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
     assert([path hasPrefix:@"/"]);
     if ([path hasSuffix:@"/"])
         path = [path substringToIndex:path.length - 1];
-    return path;
+    // the URL names the escaped on-disk file; return the guest path
+    return ISHGuestPathForHostPath(path);
 }
 
 - (BOOL)doDelete:(NSString *)path mount:(struct fakefs_mount *)mount itemIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError **)error {
-    NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:path];
+    NSURL *url = [[NSURL fileURLWithPath:[NSString stringWithUTF8String:mount->source]] URLByAppendingPathComponent:ISHHostPathForGuestPath(path)];
     NSDirectoryEnumerator<NSURL *> *enumerator = [NSFileManager.defaultManager enumeratorAtURL:url
                                                                     includingPropertiesForKeys:nil
                                                                                        options:NSDirectoryEnumerationSkipsSubdirectoryDescendants
@@ -578,9 +602,10 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
     }
     db_begin_write(&mount->db);
     path_unlink(&mount->db, path.fileSystemRepresentation);
-    int err = unlinkat(mount->root_fd, fix_path(path.fileSystemRepresentation), 0);
+    const char *hostPath = ISHHostPathForGuestPath(path).fileSystemRepresentation;
+    int err = unlinkat(mount->root_fd, fix_path(hostPath), 0);
     if (err < 0)
-        err = unlinkat(mount->root_fd, fix_path(path.fileSystemRepresentation), AT_REMOVEDIR);
+        err = unlinkat(mount->root_fd, fix_path(hostPath), AT_REMOVEDIR);
     if (err < 0) {
         db_rollback(&mount->db);
         if (error != nil)
@@ -623,7 +648,8 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
 - (BOOL)doRename:(NSString *)src to:(NSString *)dst mount:(struct fakefs_mount *)mount itemIdentifier:(NSFileProviderItemIdentifier)identifier error:(NSError **)error {
     db_begin_write(&mount->db);
     path_rename(&mount->db, src.fileSystemRepresentation, dst.fileSystemRepresentation);
-    int err = renameat(mount->root_fd, fix_path(src.fileSystemRepresentation), mount->root_fd, fix_path(dst.fileSystemRepresentation));
+    int err = renameat(mount->root_fd, fix_path(ISHHostPathForGuestPath(src).fileSystemRepresentation),
+                       mount->root_fd, fix_path(ISHHostPathForGuestPath(dst).fileSystemRepresentation));
     if (err < 0) {
         db_rollback(&mount->db);
         if (error != nil)
