@@ -1,9 +1,13 @@
 # Pixman Composite Accelerator (Paravirt Provider) — Implementation Plan
 
-Status: **PHASE 0 + PHASE 1 DONE (2026-07-23), commit b2c97524.** Phase 2
-(guest-side LD_PRELOAD shim) not yet started. Owner: unassigned. Companion
-plan: `jit_code_cache_plan.md` (cold start; NO-GO, unaffected by this plan).
-Direct precedent: the ChaCha20 crypto accelerator (kernel/ish_accel.c +
+Status: **PHASES 0, 1, AND 2 DONE (2026-07-23), commits b2c97524 + c2f0d45a.**
+End-to-end verified: real, unmodified production Wayland clients
+(labwc + foot) genuinely accelerated through the actual start-wayland.sh
+session path. Remaining work is v2 coverage (mask/OVER_MASK_A8 is the
+biggest gap) and an app Settings toggle -- see "NEXT" at the bottom.
+Owner: unassigned. Companion plan: `jit_code_cache_plan.md` (cold start;
+NO-GO, unaffected by this plan). Direct precedent: the ChaCha20 crypto
+accelerator (kernel/ish_accel.c +
 
 ## 0. Progress so far
 
@@ -54,8 +58,74 @@ sized share of ssh/scp time).
   bits`'s `stride` is in BYTES -- two different unit conventions in the
   same library, verified separately on the mint oracle.
 
-**NEXT: Phase 2** (guest-side LD_PRELOAD shim, `opt/AOK/pixman/`) -- not
-started. The host core is proven correct; what's left is delivery.
+**Phase 2 (guest-side LD_PRELOAD shim): DONE, commit c2f0d45a.**
+`opt/AOK/tools/pixman/ish_pixman_shim.c` (note: lives under `opt/AOK/tools/
+pixman/`, not `opt/AOK/pixman/` as originally sketched above -- the
+fs/aok-tools.manifest baking mechanism only reads from `opt/AOK/tools/`).
+Interposes `pixman_image_composite32` + `pixman_fill`, plus the five
+property setters (`set_transform`/`set_repeat`/`set_filter`/
+`set_alpha_map`/`set_clip_region(32)`/`set_has_client_clip`) needed to
+shadow-track state pixman has no public getter for; `pixman_image_get_
+component_alpha` DOES have a getter, so that one is queried directly, no
+shadowing needed. Shadow entries live in a pointer-keyed hash table,
+created lazily by the first setter call, purged when real
+`pixman_image_unref()` reports the image was actually freed -- verified
+empirically on the mint oracle first that it returns nonzero exactly on
+the unref that hits refcount zero, never before, so a later `malloc()`
+reusing the same address can never inherit stale state.
+
+`setup-wayland.sh` now builds the shim (best-effort) to `/usr/local/lib/
+ish-pixman/libish-pixman.so`; `start-wayland.sh` exports `LD_PRELOAD`
+automatically when that file exists (`ISH_WAYLAND_DISABLE_PIXMAN_SHIM=1`
+opts out). `fs/aok.c` needed a new `aokfs_tools_pixman_dir` node (mirroring
+the existing `ktop` subdirectory node exactly) -- **trap discovered the
+hard way**: `fs/aok-tools.manifest`'s generated-file table has NO automatic
+subdirectory support; every subdirectory needs its own hand-wired
+directory node in `fs/aok.c` (path string, `is_dir` membership, lookup-
+table entry, and a readdir case scanning the generated table by path
+prefix), exactly duplicating what `ktop/` already required. Also: the
+manifest is read at **meson configure time** (`fs.read()` inside a
+`foreach` in meson.build), so editing it and running a bare `ninja` is
+NOT sufficient -- `meson setup --reconfigure` is required before new
+manifest entries actually appear in the built `/AOK/tools` tree (a plain
+`ninja` will silently keep serving the old file list).
+
+**Verified end-to-end on the local CLI harness through the REAL
+start-wayland.sh** (not a hand-rolled test): built the shim via
+setup-wayland.sh's new step, ran a full session, confirmed `LD_PRELOAD`
+was exported and picked up by real children. `ISH_PIXMAN_STATS=1` showed
+genuine acceleration in two unmodified production Wayland clients:
+- labwc itself: 3 composites + 31 fills accelerated, 2 mask + 35 format +
+  3 bounds declines.
+- **foot (the real terminal)**: 4948 fills accelerated against only 82
+  mask declines -- a very high hit rate, since a terminal's cell-blit
+  rendering is close to pure FILL/COPY with almost no masking, transforms,
+  or scaling. This was a stronger, more convincing proof than the
+  synthetic GTK bench would have been.
+
+A separate visual (VNC-screenshot) sanity check was inconclusive -- the
+screenshot came back a blank labwc background in BOTH a shimmed and an
+unshimmed run of the same custom GTK bench script, so it's a pre-existing
+test-environment issue (likely window placement/mapping in this specific
+headless setup) unrelated to the shim; not chased further given the
+stats + differential-test evidence already available. If picked up later,
+worth a fresh look with a simpler test client (e.g. `foot` itself, whose
+real session already proved to composite correctly per labwc's stats).
+
+## NEXT (v2 candidates, ranked by ISH_PIXMAN_STATS decline frequency so far)
+1. **Mask support (`OVER_MASK_A8`)** -- the single biggest gap. cairo's font/
+   glyph rendering is mask-heavy (`decline-mask` was the top or near-top
+   decline reason in every run measured); a GTK-heavy redraw workload's
+   acceleration rate stays low until this lands. Needs a new kernel op
+   (three-image walk: dst + src + a8 mask) and a corresponding pixel kernel
+   validated the same way OVER was (differential vs real pixman on mint,
+   several hundred thousand cases, before writing into the kernel).
+2. `pixman_blt` and `pixman_image_fill_boxes`/`fill_rectangles` interposition
+   (documented v1 scope cuts in the shim's own README).
+3. App Settings UI toggle for `ISH_PIX_ACCEL` (currently CLI/env-only,
+   matching where the crypto accelerator and HLE toggles also started).
+4. Re-attempt the visual VNC sanity check with a simpler client once the
+   blank-screenshot test-environment mystery above is understood.
 
 kernel/ish_accel_crypto.c + opt/AOK/crypto/ish_provider.c) — same
 architecture, same lessons apply.
