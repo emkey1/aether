@@ -211,6 +211,24 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     return self.standaloneMode;
 }
 
+// A rotation round trip has been observed leaving DisplayRFBView's own
+// inputAccessoryView (the accessory key strip) stuck at a stale size/position
+// -- UIKit's automatic keyboard-frame layout doesn't reliably resettle it
+// against the new orientation on its own, matching the same class of "stale
+// after rotation" issue -menuPipKeyboardDidSomething: has its own guard for
+// above. Forcing a fresh reloadInputViews once the rotation animation
+// finishes (not mid-transition, when the view's bounds are still animating)
+// makes UIKit fully recompute the accessory view's layout against the new
+// size, the same nudge -hardwareKeyboardDidChange: already gives it on a
+// GCKeyboard connect/disconnect.
+- (void)viewWillTransitionToSize:(CGSize)size withTransitionCoordinator:(id<UIViewControllerTransitionCoordinator>)coordinator {
+    [super viewWillTransitionToSize:size withTransitionCoordinator:coordinator];
+    [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
+        if (self->_displayView.isFirstResponder)
+            [self->_displayView reloadInputViews];
+    }];
+}
+
 - (void)dealloc {
     [NSNotificationCenter.defaultCenter removeObserver:self];
     [self teardownSession];
@@ -514,7 +532,14 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     if (window == nil)
         return;
     CGRect keyboardFrame = [self.view convertRect:screenKeyboardFrame fromView:window];
-    if (CGRectIsNull(keyboardFrame))
+    // CGRectNull (a refused cross-UIScreen conversion, see TerminalViewController's
+    // -keyboardDidSomething: for the full history of that one) is not equal to
+    // CGRectZero, so both must be guarded -- a transient CGRectZero notification
+    // (observed after a portrait/landscape round trip) would otherwise compute an
+    // overlap of zero and snap the pip to its no-accessory-bar default position
+    // even though the bar is still actually showing, leaving it mostly covered
+    // with no further notification ever arriving to correct it.
+    if (CGRectIsNull(keyboardFrame) || CGRectEqualToRect(keyboardFrame, CGRectZero))
         return;
     CGRect overlap = CGRectIntersection(keyboardFrame, self.view.bounds);
     CGFloat overlapHeight = CGRectIsNull(overlap) ? 0.0 : overlap.size.height;
