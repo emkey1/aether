@@ -1496,6 +1496,17 @@ static int_t sys_timerfd_settime_common(fd_t f, int_t flags, guest_addr_t new_va
 
     lock(&fd->lock, 0);
     err = timer_set(fd->timerfd.timer, spec, &old_spec);
+    // Linux timerfd_settime resets the expiration counter on EVERY call,
+    // armed or disarmed -- so a disarm (it_value = 0) also clears readiness.
+    // Without this, an expiration that was never read() leaves the fd
+    // permanently POLL_READ after a disarm: libwayland's shared timer-heap
+    // timerfd is exactly that pattern (fire -> dispatch -> settime(0) with no
+    // read when no timers remain), and the stale readiness turned labwc's
+    // event loop into a 3000-cycle/s epoll_pwait/timerfd_settime spin on
+    // device. Reset after timer_set so anything the old arm counted in the
+    // meantime is wiped too.
+    if (err >= 0)
+        fd->timerfd.expirations = 0;
     unlock(&fd->lock);
     if (err < 0)
         return err;

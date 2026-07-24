@@ -93,6 +93,7 @@ proc_stat_monotonic.c
 sock_getfd_errno.c
 inotify_close_race.c
 statx_mnt_id_timerfd.c
+timerfd_settime_readiness.c
 opath_symlink_pidfd_wait.c
 pidfd_self_exit_deadlock.c
 prctl_capbset_drop.c

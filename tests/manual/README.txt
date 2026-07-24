@@ -70,6 +70,10 @@ Portable focused tests (all guest arches):
   signal_child_burst.c A shell reaping a burst of near-simultaneous child exits
                        (SIGCHLD) must never get stuck forever in sigsuspend()
   eventfd_interrupt.c  eventfd read/poll interruption via the generic wait path
+  timerfd_settime_readiness.c
+                       timerfd_settime resets the expiration counter (disarm/
+                       re-arm clears poll/epoll readiness; libwayland timer-heap
+                       pattern that spun labwc's event loop)
   futex_core.c         FUTEX_WAIT/FUTEX_WAKE timeout, wake, and signal coverage
   process_lifecycle.c  fork/exec/vfork/wait and signal inheritance coverage
   pthread_sync.c       mutex/condvar/rwlock/timed wait and pthread_once coverage
