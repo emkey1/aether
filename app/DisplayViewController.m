@@ -382,10 +382,49 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         typeof(self) strongSelf = weakSelf;
         if (strongSelf == nil)
             return;
+        BOOL diedDuringStartup = strongSelf->_state == DisplayConnectionStateStartingGuestSession
+            || strongSelf->_state == DisplayConnectionStateWaitingForReady;
         strongSelf->_state = DisplayConnectionStateFailed;
         strongSelf->_statusLabel.text = @"Wayland session ended";
         strongSelf->_reconnectButton.hidden = NO;
+        // A session that exits before ever reaching Connected means
+        // start-wayland.sh die()d (or never ran) -- and this exit
+        // notification always wins the race against pollForReadyFile's
+        // .error read, so without this every guest-side startup failure
+        // presented as the bare "Wayland session ended" with the actual
+        // reason left unread in the guest. Fetch and show it.
+        if (diedDuringStartup)
+            [strongSelf showStartupExitReason];
     });
+}
+
+- (void)showStartupExitReason {
+    __weak typeof(self) weakSelf = self;
+    [ISHGuestFileBridge.sharedBridge readFileAtGuestPath:[DisplayReadyGuestPath stringByAppendingString:@".error"]
+                                                 maxBytes:4096
+                                               completion:^(NSData *_Nullable errorData, NSError *_Nullable readError) {
+        typeof(self) strongSelf = weakSelf;
+        if (strongSelf == nil || strongSelf->_state != DisplayConnectionStateFailed)
+            return;
+        if (errorData.length > 0) {
+            NSString *reason = [[NSString alloc] initWithData:errorData encoding:NSUTF8StringEncoding];
+            [strongSelf failWithMessage:[NSString stringWithFormat:@"Wayland session ended:\n\n%@", reason]];
+            return;
+        }
+        // No error file: the script never got far enough to write one (or the
+        // failure was outside its die() paths). Point at the places the
+        // evidence actually lands. The su note matters because the
+        // default-user preference launches the script via `su - <user> -c`,
+        // whose runtime failures (e.g. a nologin shell) exit before the
+        // script ever runs.
+        NSMutableString *message = [@"Wayland session ended before the compositor came up.\n\n"
+                                    @"Check /tmp/ish-wayland-debug.log in a terminal, or run "
+                                    @"'sh /AOK/tools/start-wayland.sh' there to see the failure directly." mutableCopy];
+        if (UserPreferences.shared.shouldLoginAsDefaultUser)
+            [message appendString:@"\n\nIf that works, the failure is in the \"Open Everything as "
+                                  @"Default User\" su path -- try disabling that setting."];
+        [strongSelf failWithMessage:message];
+    }];
 }
 
 - (void)failWithMessage:(NSString *)message {
