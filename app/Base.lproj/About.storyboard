@@ -228,6 +228,35 @@
                                             </constraints>
                                         </tableViewCellContentView>
                                     </tableViewCell>
+                                    <tableViewCell clipsSubviews="YES" contentMode="scaleToFill" preservesSuperviewLayoutMargins="YES" selectionStyle="none" indentationWidth="10" id="PX-Ac-TCe" userLabel="Pixman Accel">
+                                        <rect key="frame" x="0.0" y="322.5" width="320" height="43.5"/>
+                                        <autoresizingMask key="autoresizingMask"/>
+                                        <tableViewCellContentView key="contentView" opaque="NO" clipsSubviews="YES" multipleTouchEnabled="YES" contentMode="center" preservesSuperviewLayoutMargins="YES" insetsLayoutMarginsFromSafeArea="NO" tableViewCell="PX-Ac-TCe" id="PX-Ac-Con">
+                                            <rect key="frame" x="0.0" y="0.0" width="320" height="43.5"/>
+                                            <autoresizingMask key="autoresizingMask"/>
+                                            <subviews>
+                                                <label opaque="NO" multipleTouchEnabled="YES" contentMode="left" insetsLayoutMarginsFromSafeArea="NO" text="Pixman Accel (Wayland rendering)" textAlignment="natural" lineBreakMode="tailTruncation" baselineAdjustment="alignBaselines" adjustsFontSizeToFit="NO" translatesAutoresizingMaskIntoConstraints="NO" id="PX-Ac-Lab">
+                                                    <rect key="frame" x="16" y="11.5" width="200" height="21"/>
+                                                    <fontDescription key="fontDescription" type="system" pointSize="17"/>
+                                                    <nil key="textColor"/>
+                                                    <nil key="highlightedColor"/>
+                                                </label>
+                                                <switch opaque="NO" contentMode="scaleToFill" horizontalHuggingPriority="750" verticalHuggingPriority="750" contentHorizontalAlignment="center" contentVerticalAlignment="center" translatesAutoresizingMaskIntoConstraints="NO" id="PX-Ac-Swi">
+                                                    <rect key="frame" x="255" y="6.5" width="51" height="31"/>
+                                                    <connections>
+                                                        <action selector="enablePixAccelChanged:" destination="yJz-O7-jlW" eventType="valueChanged" id="PX-Ac-Act"/>
+                                                    </connections>
+                                                </switch>
+                                            </subviews>
+                                            <constraints>
+                                                <constraint firstItem="PX-Ac-Swi" firstAttribute="leading" relation="greaterThanOrEqual" secondItem="PX-Ac-Lab" secondAttribute="trailing" constant="8" symbolic="YES" id="PX-Ac-C1"/>
+                                                <constraint firstItem="PX-Ac-Lab" firstAttribute="leading" secondItem="PX-Ac-Con" secondAttribute="leadingMargin" id="PX-Ac-C2"/>
+                                                <constraint firstItem="PX-Ac-Swi" firstAttribute="centerY" secondItem="PX-Ac-Con" secondAttribute="centerY" id="PX-Ac-C3"/>
+                                                <constraint firstAttribute="trailingMargin" secondItem="PX-Ac-Swi" secondAttribute="trailing" id="PX-Ac-C4"/>
+                                                <constraint firstItem="PX-Ac-Lab" firstAttribute="centerY" secondItem="PX-Ac-Con" secondAttribute="centerY" id="PX-Ac-C5"/>
+                                            </constraints>
+                                        </tableViewCellContentView>
+                                    </tableViewCell>
                                 </cells>
                             </tableViewSection>
                             <tableViewSection id="u3N-3a-97w">
@@ -512,6 +541,7 @@
                             <outlet property="enableExperimentalAmd64JitSwitch" destination="A64-JI-Swi" id="A64-JI-Out"/>
                             <outlet property="enableHLESwitch" destination="HLE-Ac-Swi" id="HLE-Ac-Out"/>
                             <outlet property="enableCryptoAccelSwitch" destination="CR-Ac-Swi" id="CR-Ac-Out"/>
+                            <outlet property="enablePixAccelSwitch" destination="PX-Ac-Swi" id="PX-Ac-Out"/>
                             <outlet property="exportContainerCell" destination="OIE-9g-Btx" id="qxo-l5-0Mq"/>
                             <outlet property="initialWindowCell" destination="Qz7-Xf-6fk" id="ef3-px-VI0"/>
                             <outlet property="launchCommandField" destination="gDx-hv-hhV" id="RQn-gk-Dx8"/>

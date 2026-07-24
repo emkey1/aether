@@ -34,6 +34,7 @@ static NSString *const kPreferenceDisableDimmingKey = @"Disable Dimming";
 static NSString *const kPreferenceEnableMulticoreKey = @"Enable Multicore";
 static NSString *const kPreferenceEnableHLEKey = @"Enable HLE Accel";
 static NSString *const kPreferenceEnableCryptoAccelKey = @"Enable Crypto Accel";
+static NSString *const kPreferenceEnablePixAccelKey = @"Enable Pixman Accel";
 static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
 static NSString *const kPreferenceEnableExperimentalAmd64JitKey = @"Enable Experimental amd64 JIT";
 static NSString *const kPreferenceEnableLLMClientKey = @"Enable LLM Client";
@@ -192,6 +193,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceEnableMulticoreKey: @(YES),
             kPreferenceEnableHLEKey: @(NO),
             kPreferenceEnableCryptoAccelKey: @(NO),
+            kPreferenceEnablePixAccelKey: @(NO),
             kPreferenceEnableExtraLockingKey: @(YES),
             kPreferenceEnableExperimentalAmd64JitKey: @(YES),
             kPreferenceEnableLLMClientKey: @(NO),
@@ -243,6 +245,7 @@ bool (*remove_user_default)(const char *name);
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_hle": kPreferenceEnableHLEKey,
             @"enable_crypto_accel": kPreferenceEnableCryptoAccelKey,
+            @"enable_pix_accel": kPreferenceEnablePixAccelKey,
             @"enable_extralocking": kPreferenceEnableExtraLockingKey,
             @"caps_lock_mapping": kPreferenceCapsLockMappingKey,
             @"option_mapping": kPreferenceOptionMappingKey,
@@ -287,6 +290,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceEnableMulticoreKey: property(shouldEnableMulticore),
             kPreferenceEnableHLEKey: property(shouldEnableHLE),
             kPreferenceEnableCryptoAccelKey: property(shouldEnableCryptoAccel),
+            kPreferenceEnablePixAccelKey: property(shouldEnablePixAccel),
 	        kPreferenceEnableExtraLockingKey: property(shouldEnableExtraLocking),
             kPreferenceCapsLockMappingKey: property(capsLockMapping),
             kPreferenceOptionMappingKey: property(optionMapping),
@@ -738,6 +742,19 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldEnableCryptoAccel:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: ShouldEnablePixAccel
+- (BOOL)shouldEnablePixAccel {
+    return [_defaults boolForKey:kPreferenceEnablePixAccelKey];
+}
+
+- (void)setShouldEnablePixAccel:(BOOL)dim {
+    [_defaults setBool:dim forKey:kPreferenceEnablePixAccelKey];
+}
+
+- (BOOL)validateShouldEnablePixAccel:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

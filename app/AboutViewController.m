@@ -145,6 +145,7 @@ BOOL ISHLLMClientEnabled(void) {
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableHLESwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableCryptoAccelSwitch;
+@property (weak, nonatomic) IBOutlet UISwitch *enablePixAccelSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableExtraLockingSwitch;
 @property (weak, nonatomic) IBOutlet UITextField *launchCommandField;
 @property (weak, nonatomic) IBOutlet UITextField *bootCommandField;
@@ -3701,6 +3702,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableHLESwitch.on = UserPreferences.shared.shouldEnableHLE;
     self.enableCryptoAccelSwitch.on = UserPreferences.shared.shouldEnableCryptoAccel;
+    self.enablePixAccelSwitch.on = UserPreferences.shared.shouldEnablePixAccel;
     self.enableExtraLockingSwitch.on = UserPreferences.shared.shouldEnableExtraLocking;
     self.initialWindowCell.textLabel.text = @"Startup Mode";
     self.initialWindowCell.detailTextLabel.text = [self _initialWindowTitle];
@@ -4055,6 +4057,10 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 
 - (IBAction)enableCryptoAccelChanged:(id)sender {
     UserPreferences.shared.shouldEnableCryptoAccel = self.enableCryptoAccelSwitch.on;
+}
+
+- (IBAction)enablePixAccelChanged:(id)sender {
+    UserPreferences.shared.shouldEnablePixAccel = self.enablePixAccelSwitch.on;
 }
 
 - (IBAction)enableHLEChanged:(id)sender {
