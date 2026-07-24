@@ -1296,21 +1296,44 @@ bool signal_should_restart_syscall(void) {
 
     struct sighand *sighand = current->sighand;
     lock(&sighand->lock, 0);
+    // The signal that actually interrupted the syscall (and is about to be
+    // delivered) can be sitting on either queue -- current->queue for a
+    // thread-targeted signal (deliver_signal_unlocked_locked, e.g. SIGWINCH
+    // via send_signal) or sighand->queue for a process/group-targeted one
+    // (deliver_signal_to_group_locked, e.g. SIGCHLD via send_signal_to_group).
+    // This used to only scan current->queue, so any group-directed signal
+    // fell through to the "no restart" default even when its handler had
+    // SA_RESTART_ set -- turning what should be a transparent kernel-level
+    // restart into a real EINTR surfacing all the way into the guest.
+    // Mirrors signal_take_next_locked's selection (both queues, lowest
+    // signal number wins, ties favor the thread's own queue since it's
+    // scanned first).
     struct sigqueue *sigqueue;
+    struct sigqueue *best = NULL;
     list_for_each_entry(&current->queue, sigqueue, queue) {
-        int sig = sigqueue->info.sig;
-        if (sigset_has(current->blocked, sig))
+        if (sigset_has(current->blocked, sigqueue->info.sig))
             continue;
-        if (signal_action(sighand, sig) != SIGNAL_CALL_HANDLER) {
-            unlock(&sighand->lock);
-            return false;
-        }
-        bool restart = !!(sighand->action[sig].flags & SA_RESTART_);
-        unlock(&sighand->lock);
-        return restart;
+        if (best == NULL || sigqueue->info.sig < best->info.sig)
+            best = sigqueue;
     }
+    list_for_each_entry(&sighand->queue, sigqueue, queue) {
+        if (sigset_has(current->blocked, sigqueue->info.sig))
+            continue;
+        if (best == NULL || sigqueue->info.sig < best->info.sig)
+            best = sigqueue;
+    }
+    if (best == NULL) {
+        unlock(&sighand->lock);
+        return false;
+    }
+    int sig = best->info.sig;
+    if (signal_action(sighand, sig) != SIGNAL_CALL_HANDLER) {
+        unlock(&sighand->lock);
+        return false;
+    }
+    bool restart = !!(sighand->action[sig].flags & SA_RESTART_);
     unlock(&sighand->lock);
-    return false;
+    return restart;
 }
 
 bool try_self_signal(int sig) {
