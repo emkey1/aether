@@ -31,11 +31,20 @@ void ish_pix_copy_row(const void *src, void *dst, uint32_t pixels);
 // uniformly to all 4 byte lanes (A,R,G,B, each saturating). If
 // `src_is_opaque` is true (the src surface is x8r8g8b8, whose top byte
 // pixman treats as always-opaque padding rather than real alpha), src_a is
-// forced to 255 for every pixel regardless of what's actually in that byte,
-// which degenerates the blend to a straight copy -- handled here rather than
-// by a separate kernel so both format combinations share one bit-exact
-// arithmetic path.
-void ish_pix_over_row(const void *src, void *dst, uint32_t pixels, bool src_is_opaque);
+// forced to 255 for every pixel regardless of what's actually in that byte.
+//
+// `dst_is_opaque` (dst surface is x8r8g8b8) only changes behavior when
+// `src_is_opaque` is ALSO true: real pixman then takes a fast path that
+// degenerates OVER to a literal word-for-word copy of src, INCLUDING
+// whatever garbage happens to be in src's own top byte -- it does NOT
+// compute and store 0xff there. This is genuinely different from the
+// src_is_opaque-only case (dst NOT opaque), where pixman legitimately
+// computes real alpha=0xff and writes it, because that dst's alpha channel
+// is meaningful. Verified empirically on the mint oracle
+// (xrgb_src_opaque_check.c, pixman_accel_plan.md) before being written here
+// -- do not "simplify" this back to always forcing 0xff, it was tried and is
+// provably wrong for the opaque-src+opaque-dst combination.
+void ish_pix_over_row(const void *src, void *dst, uint32_t pixels, bool src_is_opaque, bool dst_is_opaque);
 
 // Masked premultiplied-alpha OVER (PIXMAN_OP_OVER with a non-NULL a8 mask):
 // each src pixel's premultiplied channels (including its own alpha) are

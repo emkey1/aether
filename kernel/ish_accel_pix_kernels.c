@@ -28,9 +28,15 @@ static inline uint8_t add_sat_un8(uint8_t a, uint8_t b) {
     return t > 255 ? 255 : (uint8_t) t;
 }
 
-void ish_pix_over_row(const void *src, void *dst, uint32_t pixels, bool src_is_opaque) {
+void ish_pix_over_row(const void *src, void *dst, uint32_t pixels, bool src_is_opaque, bool dst_is_opaque) {
     const uint32_t *s = (const uint32_t *) src;
     uint32_t *d = (uint32_t *) dst;
+    if (src_is_opaque && dst_is_opaque) {
+        // Both surfaces are opaque (x8r8g8b8): real pixman's fast path is a
+        // literal copy, garbage top byte and all -- see ish_accel_pix.h.
+        memcpy(d, s, (size_t) pixels * 4);
+        return;
+    }
     for (uint32_t i = 0; i < pixels; i++) {
         uint32_t sp = s[i], dp = d[i];
         uint8_t sa = src_is_opaque ? 0xff : (uint8_t) (sp >> 24);

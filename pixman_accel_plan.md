@@ -149,19 +149,68 @@ before implementing" discipline as every other part of this accelerator.
 it's specifically what would unlock real acceleration in foot, the
 single most mask-composite-heavy real client measured so far.
 
+**x8r8g8b8-as-DST support: DONE (2026-07-24).** Empirically nailed down on
+the mint oracle FIRST (`xrgb_dst_check.c`, `xrgb_src_opaque_check.c`,
+scratchpad, not committed) before any kernel change, per the project's
+standing discipline:
+- For a **non-opaque** src (real a8r8g8b8 alpha) composited OVER an
+  x8r8g8b8 dst, pixman does NOT special-case the dst at all -- the dst's
+  top byte is read and written as an ordinary alpha channel, byte-identical
+  to the a8r8g8b8-dst math already shipped. Verified with the dst's top
+  byte deliberately set to garbage (0x37) and to 0x00: the computed output
+  alpha matched treating that garbage byte as a real input alpha in the
+  standard OVER formula, both for plain OVER and OVER_MASK_A8.
+- For a **fully-opaque src that is ALSO x8r8g8b8 format** (the
+  `PIX_FLAG_SRC_OPAQUE` case) composited OVER an x8r8g8b8 dst, pixman takes
+  a *different* fast path than the a8r8g8b8-dst case: instead of computing
+  alpha=0xff and writing it, it does a literal word-for-word copy of src,
+  **including whatever garbage is in src's own top byte**. This only
+  happens when dst is ALSO x8-format; the same opaque src onto an
+  a8r8g8b8 dst still gets a computed, real alpha=0xff written (verified
+  side by side in `xrgb_src_opaque_check.c` -- same src, same op, only the
+  dst format differs, and the two results differ in exactly the top byte).
+  This is the one genuine semantic difference dst format makes, and it
+  only matters for the plain OVER path (mask and non-opaque-src cases
+  don't trigger it; COPY/SRC already does a literal copy unconditionally
+  and was already correct).
+
+Implementation, commit TBD: new `ISH_PIX_FLAG_DST_OPAQUE` guest-ABI flag;
+`ish_pix_over_row` gained a `dst_is_opaque` parameter -- when both
+`src_is_opaque` and `dst_is_opaque` are true it short-circuits to a raw
+`memcpy` of the row instead of the per-channel blend formula, matching the
+oracle exactly. `OVER_MASK_A8`/`FILL`/`COPY` are untouched (confirmed
+dst-format-independent already). Shim's dst-format check widened to accept
+`PIXMAN_x8r8g8b8` in addition to `PIXMAN_a8r8g8b8`, and now passes the new
+flag whenever dst is x8-format. `tests/manual/pixman_accel.c` gained a
+`dst_opaque` parameter threaded through `test_composite`/
+`test_composite_mask`, with a full parallel set of x8r8g8b8-dst cases
+(tight/offset/padded/full-frame/random-fuzz, both plain OVER and
+OVER_MASK_A8) -- these initially caught the `opaque=1 dst_opaque=1`
+combination failing (19/19 of that combination), correctly traced to the
+kernel's real semantic gap (not a test bug, unlike every earlier round of
+validation here) via a targeted single-case repro before writing the fix.
+Full differential suite passes clean after the fix (0 failures, all
+combinations including the new dst_opaque ones); end-to-end verified
+through the REAL shim (LD_PRELOAD, ISH_PIXMAN_STATS=1) accelerating an
+x8r8g8b8-dst OVER that a plain rebuild-forgetting run first showed
+declining (a `ninja` rebuild was needed after editing the shim source --
+the usual "did you actually rebuild" trap, not a design issue). This is
+exactly the shape foot's masked glyph composites need; the real
+end-to-end confirmation that foot itself now accelerates is still
+pending (see NEXT).
+
 ## NEXT (v2 candidates, ranked by ISH_PIXMAN_STATS decline frequency so far)
-1. **x8r8g8b8-as-dst support** -- see "KNOWN GAP" above. Highest value:
-   unlocks foot's actual glyph rendering, the biggest real workload
-   measured. Must empirically nail down XRGB-dst blend semantics on the
-   mint oracle before writing any kernel code, exactly like every other
-   formula in this project.
+1. Re-run the real start-wayland.sh + foot session with the x8r8g8b8-dst
+   fix live and confirm via ISH_PIXMAN_STATS that foot's masked glyph
+   composites now accelerate instead of declining (the actual point of the
+   x8r8g8b8-dst work -- differential-test-level validation is done, but the
+   real-client confirmation from the mask-support round hasn't been
+   repeated yet for this fix).
 2. `pixman_blt` and `pixman_image_fill_boxes`/`fill_rectangles` interposition
    (documented v1 scope cuts in the shim's own README).
 3. SRC-with-mask and other op+mask combinations (currently declined
    unconditionally in the shim, pending their own differential validation).
-4. App Settings UI toggle for `ISH_PIX_ACCEL` (currently CLI/env-only,
-   matching where the crypto accelerator and HLE toggles also started).
-5. Re-attempt the visual VNC sanity check with a simpler client once the
+4. Re-attempt the visual VNC sanity check with a simpler client once the
    blank-screenshot test-environment mystery above is understood.
 
 kernel/ish_accel_crypto.c + opt/AOK/crypto/ish_provider.c) — same

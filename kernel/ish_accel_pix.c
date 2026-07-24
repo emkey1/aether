@@ -46,15 +46,23 @@ static bool pix_selftest_over(void) {
     };
     for (size_t i = 0; i < sizeof(cases) / sizeof(*cases); i++) {
         uint32_t dst = cases[i].dst;
-        ish_pix_over_row(&cases[i].src, &dst, 1, false);
+        ish_pix_over_row(&cases[i].src, &dst, 1, false, false);
         if (dst != cases[i].expected)
             return false;
     }
     // src_is_opaque forces alpha=255 regardless of the src's actual top
-    // byte -- degenerates to a straight copy of the RGB bytes plus 0xff alpha.
+    // byte -- degenerates to a straight copy of the RGB bytes plus 0xff alpha,
+    // as long as dst is NOT ALSO opaque (dst has a meaningful alpha channel).
     uint32_t src_garbage_alpha = 0x11aabbccu, dst2 = 0xffffffffu;
-    ish_pix_over_row(&src_garbage_alpha, &dst2, 1, true);
+    ish_pix_over_row(&src_garbage_alpha, &dst2, 1, true, false);
     if (dst2 != 0xffaabbccu)
+        return false;
+    // src_is_opaque AND dst_is_opaque: real pixman's fast path is a literal
+    // copy INCLUDING src's own garbage top byte, not a computed 0xff -- see
+    // ish_accel_pix.h and pixman_accel_plan.md (xrgb_src_opaque_check.c).
+    uint32_t src_garbage_alpha2 = 0x37ff0000u, dst3 = 0x800000ffu;
+    ish_pix_over_row(&src_garbage_alpha2, &dst3, 1, true, true);
+    if (dst3 != 0x37ff0000u)
         return false;
     uint32_t fillbuf[3] = {0, 0, 0};
     ish_pix_fill_row(fillbuf, 3, 0x11223344u);
@@ -92,15 +100,19 @@ void ish_accel_pix_init(void) {
 }
 
 enum { ISH_PIX_OP_FILL = 0, ISH_PIX_OP_COPY = 1, ISH_PIX_OP_OVER = 2, ISH_PIX_OP_OVER_MASK = 3 };
-enum { ISH_PIX_FLAG_SRC_OPAQUE = 1u << 0 };
+enum { ISH_PIX_FLAG_SRC_OPAQUE = 1u << 0, ISH_PIX_FLAG_DST_OPAQUE = 1u << 1 };
 
 // Guest ABI, fixed-layout (identical on arm64/riscv64): the two leading u32s,
 // then every 64-bit field together (matches struct ish_aead_req's
 // convention in kernel/ish_accel.c), then 32-bit fields. All pointers are
-// guest addresses; dst is always treated as a8r8g8b8 (real alpha channel);
-// src's format is selected by ISH_PIX_FLAG_SRC_OPAQUE (unset = a8r8g8b8,
-// set = x8r8g8b8 i.e. top byte is not real alpha) and only matters for OVER/
-// OVER_MASK. mask is a8 (1 byte/pixel), only used for OVER_MASK.
+// guest addresses; dst's format is selected by ISH_PIX_FLAG_DST_OPAQUE
+// (unset = a8r8g8b8, real alpha channel; set = x8r8g8b8) and only matters
+// for plain OVER (see ish_pix_over_row's dst_is_opaque doc -- it changes
+// nothing for FILL/COPY/OVER_MASK, which are already format-agnostic or
+// already validated dst-format-independent); src's format is selected by
+// ISH_PIX_FLAG_SRC_OPAQUE (unset = a8r8g8b8, set = x8r8g8b8 i.e. top byte is
+// not real alpha) and matters for OVER/OVER_MASK. mask is a8 (1 byte/pixel),
+// only used for OVER_MASK.
 struct ish_pix_req {
     uint32_t op;
     uint32_t flags;
@@ -134,9 +146,10 @@ static void pix_copy_span(const void *src_host, void *dst_host, uint32_t pixels,
     ish_pix_copy_row(src_host, dst_host, pixels);
 }
 
-struct pix_over_ctx { bool src_is_opaque; };
+struct pix_over_ctx { bool src_is_opaque; bool dst_is_opaque; };
 static void pix_over_span(const void *src_host, void *dst_host, uint32_t pixels, void *ctx) {
-    ish_pix_over_row(src_host, dst_host, pixels, ((struct pix_over_ctx *) ctx)->src_is_opaque);
+    struct pix_over_ctx *c = (struct pix_over_ctx *) ctx;
+    ish_pix_over_row(src_host, dst_host, pixels, c->src_is_opaque, c->dst_is_opaque);
 }
 
 static void pix_over_mask_span(const void *src_host, const void *mask_host, void *dst_host,
@@ -232,7 +245,10 @@ dword_t sys_ish_pixop_guest(guest_addr_t req_addr) {
     }
 
     // OVER
-    struct pix_over_ctx ctx = { .src_is_opaque = (req.flags & ISH_PIX_FLAG_SRC_OPAQUE) != 0 };
+    struct pix_over_ctx ctx = {
+        .src_is_opaque = (req.flags & ISH_PIX_FLAG_SRC_OPAQUE) != 0,
+        .dst_is_opaque = (req.flags & ISH_PIX_FLAG_DST_OPAQUE) != 0,
+    };
     if (user_transform_rect_two(req.dst, req.dst_stride, req.dst_x, req.dst_y,
             req.src, req.src_stride, req.src_x, req.src_y,
             4, req.width, req.height, pix_over_span, &ctx))

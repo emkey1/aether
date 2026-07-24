@@ -23,7 +23,7 @@ extern long syscall(long, ...);
 #define ISH_SYS_PIXOP 0xacc1
 
 enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2, PIX_OP_OVER_MASK = 3 };
-enum { PIX_FLAG_SRC_OPAQUE = 1u << 0 };
+enum { PIX_FLAG_SRC_OPAQUE = 1u << 0, PIX_FLAG_DST_OPAQUE = 1u << 1 };
 
 struct ish_pix_req {
     uint32_t op, flags;
@@ -228,7 +228,18 @@ static void test_fill(uint32_t canvas_w, uint32_t canvas_h, int32_t x, int32_t y
     free_canvas(&oracle);
 }
 
-static void test_composite(uint32_t op, int src_opaque,
+// dst_opaque: when set, the ORACLE's dst image is created as PIXMAN_x8r8g8b8
+// instead of PIXMAN_a8r8g8b8. The accelerator side (pixop) is unaffected --
+// verified on the mint oracle (xrgb_dst_check.c) that pixman does NOT
+// special-case x8r8g8b8 as a destination during compositing: the top byte is
+// read/written as an ordinary alpha channel, byte-identical to a8r8g8b8 math,
+// garbage in/garbage out. The "x8" vs "a8" distinction only changes behavior
+// when the format is used as a SOURCE (forced alpha=0xff), which is what
+// PIX_FLAG_SRC_OPAQUE already covers. So dst_opaque exists purely to make the
+// oracle construct its image with the other format code and confirm the
+// kernel's existing dst handling is already correct for it -- no kernel or
+// accelerator-side flag is needed.
+static void test_composite(uint32_t op, int src_opaque, int dst_opaque,
         uint32_t dst_canvas_w, uint32_t dst_canvas_h, int32_t dst_x, int32_t dst_y,
         uint32_t src_canvas_w, uint32_t src_canvas_h, int32_t src_x, int32_t src_y,
         uint32_t w, uint32_t h) {
@@ -237,22 +248,23 @@ static void test_composite(uint32_t op, int src_opaque,
     struct canvas dst_oracle = make_canvas(dst_canvas_w, dst_canvas_h);
     memcpy(dst_oracle.bits, dst_accel.bits, (size_t) dst_accel.stride_bytes * dst_accel.h);
 
-    uint32_t flags = src_opaque ? PIX_FLAG_SRC_OPAQUE : 0;
+    uint32_t flags = (src_opaque ? PIX_FLAG_SRC_OPAQUE : 0) | (dst_opaque ? PIX_FLAG_DST_OPAQUE : 0);
     long ret = pixop(op == PIXMAN_OP_SRC ? PIX_OP_COPY : PIX_OP_OVER, flags,
             dst_accel.bits, dst_accel.stride_bytes, dst_x, dst_y,
             src.bits, src.stride_bytes, src_x, src_y, w, h, 0);
 
     uint32_t src_format = src_opaque ? PIXMAN_x8r8g8b8 : PIXMAN_a8r8g8b8;
-    oracle_composite((pixman_op_t) op, PIXMAN_a8r8g8b8,
+    uint32_t dst_format = dst_opaque ? PIXMAN_x8r8g8b8 : PIXMAN_a8r8g8b8;
+    oracle_composite((pixman_op_t) op, dst_format,
             dst_oracle.bits, dst_oracle.stride_bytes, dst_x, dst_y,
             src_format, src.bits, src.stride_bytes, src_x, src_y,
             w, h, dst_canvas_w, dst_canvas_h, src_canvas_w, src_canvas_h);
 
     char label[160];
     snprintf(label, sizeof(label),
-            "%s %ux%u dst@%d,%d(%ux%u) src@%d,%d(%ux%u) opaque=%d",
+            "%s %ux%u dst@%d,%d(%ux%u) src@%d,%d(%ux%u) opaque=%d dst_opaque=%d",
             op == PIXMAN_OP_SRC ? "copy" : "over", w, h, dst_x, dst_y, dst_canvas_w, dst_canvas_h,
-            src_x, src_y, src_canvas_w, src_canvas_h, src_opaque);
+            src_x, src_y, src_canvas_w, src_canvas_h, src_opaque, dst_opaque);
     check(ret == 0, label);
     check(memcmp(dst_accel.bits, dst_oracle.bits, (size_t) dst_accel.stride_bytes * dst_accel.h) == 0, label);
 
@@ -261,7 +273,7 @@ static void test_composite(uint32_t op, int src_opaque,
     free_canvas(&dst_oracle);
 }
 
-static void test_composite_mask(int src_opaque,
+static void test_composite_mask(int src_opaque, int dst_opaque,
         uint32_t dst_canvas_w, uint32_t dst_canvas_h, int32_t dst_x, int32_t dst_y,
         uint32_t src_canvas_w, uint32_t src_canvas_h, int32_t src_x, int32_t src_y,
         uint32_t mask_canvas_w, uint32_t mask_canvas_h, int32_t mask_x, int32_t mask_y,
@@ -279,7 +291,8 @@ static void test_composite_mask(int src_opaque,
             mask.bits, mask.stride_bytes, mask_x, mask_y, w, h);
 
     uint32_t src_format = src_opaque ? PIXMAN_x8r8g8b8 : PIXMAN_a8r8g8b8;
-    oracle_composite_mask(PIXMAN_a8r8g8b8,
+    uint32_t dst_format = dst_opaque ? PIXMAN_x8r8g8b8 : PIXMAN_a8r8g8b8;
+    oracle_composite_mask(dst_format,
             dst_oracle.bits, dst_oracle.stride_bytes, dst_x, dst_y,
             src_format, src.bits, src.stride_bytes, src_x, src_y,
             (uint32_t *) mask.bits, mask.stride_bytes, mask_x, mask_y,
@@ -287,10 +300,10 @@ static void test_composite_mask(int src_opaque,
 
     char label[200];
     snprintf(label, sizeof(label),
-            "over_mask %ux%u dst@%d,%d(%ux%u) src@%d,%d(%ux%u) mask@%d,%d(%ux%u) opaque=%d",
+            "over_mask %ux%u dst@%d,%d(%ux%u) src@%d,%d(%ux%u) mask@%d,%d(%ux%u) opaque=%d dst_opaque=%d",
             w, h, dst_x, dst_y, dst_canvas_w, dst_canvas_h,
             src_x, src_y, src_canvas_w, src_canvas_h,
-            mask_x, mask_y, mask_canvas_w, mask_canvas_h, src_opaque);
+            mask_x, mask_y, mask_canvas_w, mask_canvas_h, src_opaque, dst_opaque);
     check(ret == 0, label);
     check(memcmp(dst_accel.bits, dst_oracle.bits, (size_t) dst_accel.stride_bytes * dst_accel.h) == 0, label);
 
@@ -328,43 +341,79 @@ int main(int argc, char **argv) {
     // COPY (SRC): tight, offset+padded, cross-page, format-irrelevant (COPY
     // is purely mechanical so src_opaque doesn't change its behavior --
     // exercised once for completeness, real semantic variation is OVER's).
-    test_composite(PIXMAN_OP_SRC, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
-    test_composite(PIXMAN_OP_SRC, 0, 20, 20, 4, 3, 20, 20, 2, 5, 10, 9);
-    test_composite(PIXMAN_OP_SRC, 0, 1500, 400, 13, 27, 1500, 400, 5, 9, 1400, 350);
+    test_composite(PIXMAN_OP_SRC, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_SRC, 0, 0, 20, 20, 4, 3, 20, 20, 2, 5, 10, 9);
+    test_composite(PIXMAN_OP_SRC, 0, 0, 1500, 400, 13, 27, 1500, 400, 5, 9, 1400, 350);
 
     // OVER: both src formats (real alpha, and forced-opaque), tight and
     // offset+padded and cross-page geometries, and a run of purely random
     // pixel data (the differential fuzz -- canvases are already randomly
     // initialized by make_canvas, so this IS that fuzz for every case above
     // too; these two extra rounds add larger random rects specifically).
-    test_composite(PIXMAN_OP_OVER, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
-    test_composite(PIXMAN_OP_OVER, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
-    test_composite(PIXMAN_OP_OVER, 0, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
-    test_composite(PIXMAN_OP_OVER, 1, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
-    test_composite(PIXMAN_OP_OVER, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720); // full HD-ish frame
+    test_composite(PIXMAN_OP_OVER, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 1, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 0, 0, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
+    test_composite(PIXMAN_OP_OVER, 1, 0, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
+    test_composite(PIXMAN_OP_OVER, 0, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720); // full HD-ish frame
     for (int i = 0; i < 30; i++) {
         uint32_t w = 1 + (unsigned) rand() % 300, h = 1 + (unsigned) rand() % 300;
         uint32_t cw = w + 1 + (unsigned) rand() % 50, ch = h + 1 + (unsigned) rand() % 50;
         int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
         int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
-        test_composite(PIXMAN_OP_OVER, rand() & 1, cw, ch, x, y, cw, ch, x, y, w, h);
+        test_composite(PIXMAN_OP_OVER, rand() & 1, 0, cw, ch, x, y, cw, ch, x, y, w, h);
+    }
+
+    // x8r8g8b8-as-DST (foot's terminal surface / opaque window content):
+    // same OVER/COPY coverage as above, but the ORACLE's dst image is now
+    // PIXMAN_x8r8g8b8. Confirms the empirical mint finding that pixman
+    // treats x8r8g8b8 dst's top byte as an ordinary alpha byte during
+    // compositing (garbage in/garbage out, same math as a8r8g8b8) -- no
+    // kernel-side change was needed, only widening what the guest shim
+    // accepts as dst_fmt.
+    test_composite(PIXMAN_OP_SRC, 0, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 0, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 1, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 0, 1, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
+    test_composite(PIXMAN_OP_OVER, 1, 1, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
+    test_composite(PIXMAN_OP_OVER, 0, 1, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720);
+    for (int i = 0; i < 30; i++) {
+        uint32_t w = 1 + (unsigned) rand() % 300, h = 1 + (unsigned) rand() % 300;
+        uint32_t cw = w + 1 + (unsigned) rand() % 50, ch = h + 1 + (unsigned) rand() % 50;
+        int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
+        int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
+        test_composite(PIXMAN_OP_OVER, rand() & 1, 1, cw, ch, x, y, cw, ch, x, y, w, h);
     }
 
     // OVER_MASK_A8: tight and offset+padded geometries, both src formats,
     // an all-same-origin case (the common glyph-blit shape: src/mask share
     // the dst's own drawing coordinates) and independently-offset canvases,
     // plus random fuzz.
-    test_composite_mask(0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
-    test_composite_mask(1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
-    test_composite_mask(0, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
-    test_composite_mask(1, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
-    test_composite_mask(0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720);
+    test_composite_mask(0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite_mask(1, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite_mask(0, 0, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
+    test_composite_mask(1, 0, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
+    test_composite_mask(0, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720);
     for (int i = 0; i < 30; i++) {
         uint32_t w = 1 + (unsigned) rand() % 300, h = 1 + (unsigned) rand() % 300;
         uint32_t cw = w + 1 + (unsigned) rand() % 50, ch = h + 1 + (unsigned) rand() % 50;
         int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
         int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
-        test_composite_mask(rand() & 1, cw, ch, x, y, cw, ch, x, y, cw, ch, x, y, w, h);
+        test_composite_mask(rand() & 1, 0, cw, ch, x, y, cw, ch, x, y, cw, ch, x, y, w, h);
+    }
+
+    // x8r8g8b8-as-DST for the mask path too -- this is the actual foot/glyph
+    // shape (opaque terminal surface + a8 glyph mask).
+    test_composite_mask(0, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite_mask(1, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite_mask(0, 1, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
+    test_composite_mask(1, 1, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
+    test_composite_mask(0, 1, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720);
+    for (int i = 0; i < 30; i++) {
+        uint32_t w = 1 + (unsigned) rand() % 300, h = 1 + (unsigned) rand() % 300;
+        uint32_t cw = w + 1 + (unsigned) rand() % 50, ch = h + 1 + (unsigned) rand() % 50;
+        int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
+        int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
+        test_composite_mask(rand() & 1, 1, cw, ch, x, y, cw, ch, x, y, cw, ch, x, y, w, h);
     }
 
     // Mask overlapping dst must be DECLINED too (same reasoning as src/dst

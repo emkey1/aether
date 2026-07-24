@@ -43,7 +43,7 @@
 extern long syscall(long, ...);
 #define ISH_SYS_PIXOP 0xacc1
 enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2, PIX_OP_OVER_MASK = 3 };
-enum { PIX_FLAG_SRC_OPAQUE = 1u << 0 };
+enum { PIX_FLAG_SRC_OPAQUE = 1u << 0, PIX_FLAG_DST_OPAQUE = 1u << 1 };
 
 struct ish_pix_req {
     uint32_t op, flags;
@@ -374,7 +374,9 @@ void pixman_image_composite32(pixman_op_t op, pixman_image_t *src, pixman_image_
         pixman_format_code_t dst_fmt = get_format(dest);
         pixman_format_code_t src_fmt = get_format(src);
         int src_opaque_fmt = (src_fmt == PIXMAN_x8r8g8b8);
-        if (dst_fmt != PIXMAN_a8r8g8b8 || (src_fmt != PIXMAN_a8r8g8b8 && src_fmt != PIXMAN_x8r8g8b8)) {
+        int dst_opaque_fmt = (dst_fmt == PIXMAN_x8r8g8b8);
+        if ((dst_fmt != PIXMAN_a8r8g8b8 && dst_fmt != PIXMAN_x8r8g8b8) ||
+                (src_fmt != PIXMAN_a8r8g8b8 && src_fmt != PIXMAN_x8r8g8b8)) {
             note(STAT_DECLINE_FORMAT);
             break;
         }
@@ -415,18 +417,23 @@ void pixman_image_composite32(pixman_op_t op, pixman_image_t *src, pixman_image_
         uint32_t *src_bits = get_data(src);
         uint32_t dst_stride = (uint32_t) get_stride(dest); // pixman_image_get_stride is documented in BYTES
         uint32_t src_stride = (uint32_t) get_stride(src);
+        // DST_OPAQUE only changes behavior for plain OVER (see ish_accel_
+        // pix.h's ish_pix_over_row doc) -- passed unconditionally anyway
+        // since the kernel simply ignores it for FILL/COPY/OVER_MASK, which
+        // are already validated dst-format-independent.
+        uint32_t dst_flag = dst_opaque_fmt ? PIX_FLAG_DST_OPAQUE : 0;
         long ret;
         if (mask != NULL) {
             uint32_t *mask_bits = get_data(mask);
             uint32_t mask_stride = (uint32_t) get_stride(mask);
-            ret = pixop_mask(src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0,
+            ret = pixop_mask((src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0) | dst_flag,
                     dst_bits, dst_stride, dest_x, dest_y,
                     src_bits, src_stride, src_x, src_y,
                     mask_bits, mask_stride, mask_x, mask_y,
                     (uint32_t) width, (uint32_t) height);
         } else {
             ret = pixop(op == PIXMAN_OP_SRC ? PIX_OP_COPY : PIX_OP_OVER,
-                    src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0,
+                    (src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0) | dst_flag,
                     dst_bits, dst_stride, dest_x, dest_y,
                     src_bits, src_stride, src_x, src_y,
                     (uint32_t) width, (uint32_t) height, 0);
