@@ -1329,9 +1329,11 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
             [UIColor colorWithWhite:0 alpha:0.45];
     }];
     UIView *oldBarView = self.termView.inputAccessoryView;
-    BOOL hideAccessoryBar = self.hasExternalKeyboard &&
-        (UIDevice.currentDevice.userInterfaceIdiom == UIUserInterfaceIdiomPad ||
-         UserPreferences.shared.hideExtraKeysWithExternalKeyboard);
+    // Whether the bar is hidden with a hardware keyboard attached is entirely the user's
+    // call via the "Hide extra keys with external keyboard" switch -- it used to be forced
+    // on iPad regardless of that switch, which defeated the setting there and is exactly
+    // what discussion #450 asked to have back (an Esc key alongside a hardware keyboard).
+    BOOL hideAccessoryBar = self.hasExternalKeyboard && UserPreferences.shared.hideExtraKeysWithExternalKeyboard;
     if (hideAccessoryBar) {
         self.termView.inputAccessoryView = nil;
     } else {
@@ -1463,9 +1465,10 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
     // A short keyboard frame usually means a hardware keyboard is attached (only the
     // shortcut/assistant bar shows). But on iPad the *software* keyboard can also report
     // a short intersected frame in portrait, which used to mark it "external" and strip
-    // the accessory bar entirely (hideAccessoryBar fires for hasExternalKeyboard && iPad,
-    // so the bar vanished on iPad portrait). Only trust the height heuristic when
-    // GameController confirms a hardware keyboard is actually connected.
+    // the accessory bar entirely (hasExternalKeyboard also drives the safe-area/padding
+    // math below, so misdetecting it was wrong even independent of the accessory bar).
+    // Only trust the height heuristic when GameController confirms a hardware keyboard is
+    // actually connected.
     BOOL smallKeyboard = keyboardFrame.size.height < 100;
     BOOL hardwareKeyboardPresent = smallKeyboard; // pre-iOS 14 fallback: old heuristic
     if (@available(iOS 14.0, *)) {
