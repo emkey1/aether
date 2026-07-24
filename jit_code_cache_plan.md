@@ -1,7 +1,47 @@
 # Persistent Translated-Code Cache — Implementation Plan
 
-Status: PLANNED (scoped 2026-07-23). Owner: unassigned. Companion plan:
-`pixman_accel_plan.md` (steady-state rendering; this plan is cold start).
+Status: **PHASE 0 RUN, NO-GO (2026-07-23).** Not being built. Owner:
+unassigned. Companion plan: `pixman_accel_plan.md` (steady-state rendering;
+that plan is unaffected by this result).
+
+## 0. Phase 0 result (do not skip reading this before resuming this plan)
+
+`ISH_JIT_TIMING=1` instrumentation was added (jit/jit.c + main.c, commit
+365cd259) and measured on an -O2 CLI build (Arch aarch64 guest) across four
+workload shapes, including a real GTK3 window built and painted under a
+headless labwc session (not just interpreter boot):
+
+| workload                          | wall   | jit-compile | share |
+|------------------------------------|--------|-------------|-------|
+| python3 interpreter boot           | 0.28s  | 16.7ms      | 6.0%  |
+| 9-module stdlib import chain       | 2.15s  | 75ms        | 3.5%  |
+| real GTK3 window (labwc+cairo)     | 5.4s   | 210ms       | 3.9%  |
+
+Translation is consistently 3.5–6% of wall time, well under the ~30% GO gate
+below. **This project is NOT justified by the data.** Cold start is dominated
+by JIT *execution* of the translated code (gadget-chain dispatch overhead)
+and real application logic (GTK layout, cairo rasterization, Python bytecode
+interpretation), not the one-time cost of decode+gen. A perfect cache would
+save at most ~4–6% of wall time on these workloads.
+
+The `ISH_JIT_TIMING` instrumentation itself was kept (cheap, off-by-default,
+reusable for future overhead-share questions) but Phases 1–4 below are NOT
+being executed. If this is ever revisited (e.g. a workload shape emerges
+where translation genuinely dominates — a very large one-shot binary with
+little interpreter/PLT indirection, perhaps), rerun Phase 0 for that specific
+shape before resuming; do not assume the ratio generalizes from this data.
+The likely better lever for cold start, per this same data, is JIT dispatch/
+execution overhead — a different, unscoped project.
+
+## 1. Problem and evidence (original scoping rationale — superseded by §0)
+
+Every process translates its entire code footprint from scratch and throws the
+result away at exec/exit. For interpreter/GUI stacks this dominates launch:
+`avahi-discover` (Python + GTK3) takes 20–30 s to first window on the A10X iPad;
+a 9-module Python stdlib import chain takes ~2.1 s even on an M-series Mac under
+the -O2 CLI (measured 2026-07-23, `build-o2/ish`, Arch arm64 guest). The same
+libraries (libc, libpython, GTK/GLib/Pango/cairo) are re-translated for every
+process and every launch, byte-identical each time.
 
 ## 1. Problem and evidence
 
