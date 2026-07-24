@@ -21,3 +21,6 @@ ktop/ktop.c
 ktop/Makefile
 ktop/build.sh
 ktop/README.md
+pixman/ish_pixman_shim.c
+pixman/build-shim.sh
+pixman/README.md

@@ -207,6 +207,18 @@ export LIBGL_ALWAYS_SOFTWARE=1
 # separately; this export is the workaround until that's root-caused).
 export MOZ_DISABLE_WAYLAND_PROXY=1
 
+# Pixman accelerator (kernel/ish_accel_pix.c via ISH_SYS_PIXOP): loaded only
+# if setup-wayland.sh's best-effort build actually produced the shim AND the
+# session hasn't explicitly opted out. Every interposed call in the shim
+# falls through to real pixman whenever the accelerator turns out to be
+# unavailable (ISH_PIX_ACCEL off, or an emulator build without it) -- so
+# exporting this is always safe even if the host-side toggle is off; it
+# just makes acceleration possible when it's on, never required.
+ISH_PIXMAN_SHIM="${ISH_PIXMAN_SHIM:-/usr/local/lib/ish-pixman/libish-pixman.so}"
+if [ "${ISH_WAYLAND_DISABLE_PIXMAN_SHIM:-0}" != "1" ] && [ -f "$ISH_PIXMAN_SHIM" ]; then
+    export LD_PRELOAD="$ISH_PIXMAN_SHIM${LD_PRELOAD:+:$LD_PRELOAD}"
+fi
+
 COMPOSITOR_PID=""
 FOOT_PID=""
 WAYVNC_PID=""

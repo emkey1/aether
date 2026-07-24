@@ -114,6 +114,24 @@ elif command -v apk >/dev/null 2>&1; then
         || note "warning: some of these failed to install -- Applications menu will just show whichever succeeded"
 fi
 
+# Best-effort, not required: the pixman accelerator (kernel/ish_accel_pix.c)
+# is an off-by-default host feature the emulator may not even have compiled
+# in (ISH_PIX_ACCEL / the app toggle) -- building this shim just makes
+# start-wayland.sh able to load it WHEN it's available; if the compiler or
+# pixman-1 dev headers aren't installed, or the build fails for any other
+# reason, that's a pure perf miss, never a functional one (start-wayland.sh
+# only sets LD_PRELOAD if the .so actually got built here).
+log "building pixman accelerator shim (best-effort)"
+if command -v cc >/dev/null 2>&1 || command -v gcc >/dev/null 2>&1; then
+    if sh /AOK/tools/pixman/build-shim.sh 2>&1; then
+        :
+    else
+        note "warning: pixman shim build failed -- Wayland sessions will just run without the accelerator"
+    fi
+else
+    note "no C compiler found -- skipping the pixman accelerator shim (Wayland sessions run without it)"
+fi
+
 log "done"
 note "labwc, sway, wofi, foot, and wayvnc are installed."
 note "The Display applet will launch the stack automatically from here on."
