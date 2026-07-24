@@ -143,6 +143,10 @@ static noreturn void cli_halt(int status) {
         extern void hle_stats_dump(void); // no-op unless ISH_HLE_STATS counted calls
         hle_stats_dump();
     }
+    {
+        extern void jit_timing_dump(void); // no-op unless ISH_JIT_TIMING counted compiles
+        jit_timing_dump();
+    }
     fflush(NULL);
     if ((status & 0x7f) == 0)          // WIFEXITED
         _exit((status >> 8) & 0xff);
@@ -303,6 +307,14 @@ int main(int argc, char *const argv[]) {
         int fd = dup(STDERR_FILENO);
         if (fd >= 0)
             hle_stats_fd = fd;
+    }
+    // Same reason as hle_stats_fd immediately above: jit_timing_dump also
+    // runs from cli_halt, after guest teardown has closed stderr.
+    if (getenv("ISH_JIT_TIMING") != NULL) {
+        extern int jit_timing_stats_fd;
+        int fd = dup(STDERR_FILENO);
+        if (fd >= 0)
+            jit_timing_stats_fd = fd;
     }
 
     char *envp = build_initial_envp();

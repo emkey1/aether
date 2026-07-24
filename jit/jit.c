@@ -16,8 +16,72 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <time.h>
 
 extern int current_pid(struct task *task);
+
+// ---- Optional compile-time timing (ISH_JIT_TIMING=1) ---------------------
+// Measures wall time actually spent inside block translation (decode + gen +
+// hle_try_emit), isolated from everything else a process does (page faults,
+// syscalls, interpreter execution, application logic). This is the Phase-0
+// measurement for the persistent JIT code cache proposal
+// (jit_code_cache_plan.md): translation's share of a workload's wall time is
+// the ceiling on what a warm code cache (bundle-load memcpy instead of
+// decode+gen) could ever save. Off by default -- clock_gettime() around every
+// block compile is measurable overhead on its own, so this must never run
+// unconditionally. Mirrors amd64_jit_stats_enabled/hle_stats' lazy-getenv +
+// atomic-counter + dup'd-stderr-at-exit pattern (see cli_halt in main.c).
+static atomic_ullong jit_timing_ns_total;
+static atomic_ulong jit_timing_count_total;
+static atomic_ullong jit_timing_bytes_total; // sum of compiled code[] sizes, in bytes -- estimates what an on-disk cache would need to store
+static atomic_ullong jit_timing_ns_by_arch[4];
+static atomic_ulong jit_timing_count_by_arch[4];
+static const char *const jit_timing_arch_names[4] = {"i386", "amd64", "arm64", "riscv64"};
+
+static bool jit_timing_enabled(void) {
+    static int enabled = -1;
+    if (enabled == -1)
+        enabled = getenv("ISH_JIT_TIMING") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
+static unsigned long long jit_timing_now_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (unsigned long long) ts.tv_sec * 1000000000ULL + (unsigned long long) ts.tv_nsec;
+}
+
+static void jit_timing_note(unsigned arch_idx, unsigned long long elapsed_ns, size_t bytes) {
+    atomic_fetch_add_explicit(&jit_timing_ns_total, elapsed_ns, memory_order_relaxed);
+    atomic_fetch_add_explicit(&jit_timing_count_total, 1, memory_order_relaxed);
+    atomic_fetch_add_explicit(&jit_timing_bytes_total, bytes, memory_order_relaxed);
+    atomic_fetch_add_explicit(&jit_timing_ns_by_arch[arch_idx], elapsed_ns, memory_order_relaxed);
+    atomic_fetch_add_explicit(&jit_timing_count_by_arch[arch_idx], 1, memory_order_relaxed);
+}
+
+// dup'd from stderr by main.c before guest teardown closes the (possibly
+// shared) host stderr fd -- see the hle_stats_fd comment in main.c, same
+// reason applies here since this also dumps from cli_halt.
+int jit_timing_stats_fd = 2;
+
+void jit_timing_dump(void) {
+    if (!jit_timing_enabled())
+        return;
+    unsigned long long total_ns = atomic_load_explicit(&jit_timing_ns_total, memory_order_relaxed);
+    unsigned long total_count = atomic_load_explicit(&jit_timing_count_total, memory_order_relaxed);
+    unsigned long long total_bytes = atomic_load_explicit(&jit_timing_bytes_total, memory_order_relaxed);
+    dprintf(jit_timing_stats_fd,
+            "jit-timing: %lu blocks compiled, %llu.%03llu ms total, %llu bytes of code[]\n",
+            total_count, total_ns / 1000000ULL, (total_ns / 1000ULL) % 1000ULL, total_bytes);
+    for (unsigned i = 0; i < 4; i++) {
+        unsigned long count = atomic_load_explicit(&jit_timing_count_by_arch[i], memory_order_relaxed);
+        if (count == 0)
+            continue;
+        unsigned long long ns = atomic_load_explicit(&jit_timing_ns_by_arch[i], memory_order_relaxed);
+        dprintf(jit_timing_stats_fd, "jit-timing:   %-8s blocks=%lu ns_total=%llu ns_avg=%llu\n",
+                jit_timing_arch_names[i], count, ns, ns / count);
+    }
+}
 static atomic_bool amd64_jit_enabled = true;
 static atomic_ulong amd64_jit_compile_attempts;
 static atomic_ulong amd64_jit_compile_successes;
@@ -1100,21 +1164,49 @@ static struct jit_block *jit_block_compile_common(guest_addr_t ip, struct tlb *t
     return state.block;
 }
 
+// Each wrapper below is jit_block_compile_common's ONE call site for its arch
+// (jit_block_compile_common itself has multiple early-return paths -- OOM
+// recovery, amd64 interp-fallback -- so timing wraps here instead, at the
+// single call+return per wrapper, rather than instrumenting every internal
+// return). ISH_JIT_TIMING is checked once per call (not per return path);
+// the enabled-check itself is cheap (a static int already resolved by the
+// lazy getenv on the first call) so this couldn't itself skew the measurement
+// it's trying to take.
 static struct jit_block *jit_block_compile(addr_t ip, struct tlb *tlb) {
-    return jit_block_compile_common(ip, tlb, false, false, false, NULL);
+    if (!jit_timing_enabled())
+        return jit_block_compile_common(ip, tlb, false, false, false, NULL);
+    unsigned long long start = jit_timing_now_ns();
+    struct jit_block *block = jit_block_compile_common(ip, tlb, false, false, false, NULL);
+    jit_timing_note(0, jit_timing_now_ns() - start, block != NULL ? block->used * sizeof(unsigned long) : 0);
+    return block;
 }
 
 static struct jit_block *jit_block_compile_amd64(guest_addr_t ip, struct tlb *tlb,
         bool *fallback_to_interp) {
-    return jit_block_compile_common(ip, tlb, true, false, false, fallback_to_interp);
+    if (!jit_timing_enabled())
+        return jit_block_compile_common(ip, tlb, true, false, false, fallback_to_interp);
+    unsigned long long start = jit_timing_now_ns();
+    struct jit_block *block = jit_block_compile_common(ip, tlb, true, false, false, fallback_to_interp);
+    jit_timing_note(1, jit_timing_now_ns() - start, block != NULL ? block->used * sizeof(unsigned long) : 0);
+    return block;
 }
 
 static struct jit_block *jit_block_compile_arm64(guest_addr_t ip, struct tlb *tlb) {
-    return jit_block_compile_common(ip, tlb, false, true, false, NULL);
+    if (!jit_timing_enabled())
+        return jit_block_compile_common(ip, tlb, false, true, false, NULL);
+    unsigned long long start = jit_timing_now_ns();
+    struct jit_block *block = jit_block_compile_common(ip, tlb, false, true, false, NULL);
+    jit_timing_note(2, jit_timing_now_ns() - start, block != NULL ? block->used * sizeof(unsigned long) : 0);
+    return block;
 }
 
 static struct jit_block *jit_block_compile_riscv64(guest_addr_t ip, struct tlb *tlb) {
-    return jit_block_compile_common(ip, tlb, false, false, true, NULL);
+    if (!jit_timing_enabled())
+        return jit_block_compile_common(ip, tlb, false, false, true, NULL);
+    unsigned long long start = jit_timing_now_ns();
+    struct jit_block *block = jit_block_compile_common(ip, tlb, false, false, true, NULL);
+    jit_timing_note(3, jit_timing_now_ns() - start, block != NULL ? block->used * sizeof(unsigned long) : 0);
+    return block;
 }
 
 // Unpatch and unlink every predecessor still on block's jumps_from[i]
