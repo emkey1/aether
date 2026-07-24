@@ -25,6 +25,10 @@ NS_ASSUME_NONNULL_BEGIN
     // until the next key/character is sent, then release.
     UIInputView *_Nullable _accessoryBar;
     NSArray<BarButton *> *_Nullable _accessoryModifierKeys;
+    // Last value -inputAccessoryView would have returned nil-ness for, so
+    // -hardwareKeyboardDidChange: can tell a real change from a no-op one.
+    // See that method for why this matters.
+    BOOL _accessoryBarHidden;
 }
 
 - (instancetype)initWithFrame:(CGRect)frameRect {
@@ -548,6 +552,23 @@ static const uint32_t kKeysymRight = 0xFF53;
 - (void)hardwareKeyboardDidChange:(NSNotification *)notification {
     // GCKeyboard notifications are not guaranteed to arrive on the main queue.
     dispatch_async(dispatch_get_main_queue(), ^{
+        BOOL hidden = NO;
+        if (@available(iOS 14.0, *)) {
+            hidden = GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard;
+        }
+        // Bluetooth keyboards nap and reconnect on keypress -- observed to
+        // coincide with exactly the moment a user starts typing/interacting,
+        // which fires GCKeyboardDidConnectNotification again even though the
+        // keyboard was already connected and -inputAccessoryView's return
+        // value hasn't actually changed. Unconditionally reloading on every
+        // one of those was visibly yanking the accessory bar to a different
+        // resting position (and dragging the menu pip's covered-state
+        // tracking along with it) for no reason. Mirrors the exact guard
+        // TerminalViewController's _updateStyleFromPreferences: already has
+        // (only reload when inputAccessoryView would actually differ).
+        if (hidden == _accessoryBarHidden)
+            return;
+        _accessoryBarHidden = hidden;
         if (self.isFirstResponder)
             [self reloadInputViews];
     });
