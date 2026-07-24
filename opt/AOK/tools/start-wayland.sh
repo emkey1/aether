@@ -65,9 +65,27 @@
 set -u
 
 log()  { printf '\n\033[1;36m==>\033[0m \033[1m%s\033[0m\n' "$*"; }
+# Failure evidence written only under /tmp evaporates before anyone can read
+# it: the next session's startup rm -f below wipes $ERROR_FILE, and a guest
+# reboot wipes /tmp wholesale. die() therefore also appends the reason (plus
+# the tail of $DEBUG_LOG when one exists -- that's where the compositor's own
+# output lands) to a persistent per-user log, so a post-mortem from any
+# terminal stays possible no matter how many sessions or reboots later.
+PERSIST_LOG_DIR="/var/log"
+[ -d "$PERSIST_LOG_DIR" ] && [ -w "$PERSIST_LOG_DIR" ] || PERSIST_LOG_DIR="${HOME:-/tmp}"
+PERSIST_LOG="$PERSIST_LOG_DIR/ish-wayland-error.log"
 die()  {
     printf 'start-wayland.sh: %s\n' "$*" >&2
     printf '%s\n' "$*" > "$ERROR_FILE" 2>/dev/null
+    {
+        printf '==== %s ====\n' "$(date 2>/dev/null || echo unknown-time)"
+        printf '%s\n' "$*"
+        if [ -n "${DEBUG_LOG:-}" ] && [ -s "$DEBUG_LOG" ]; then
+            printf -- '-- last compositor/wayvnc output (%s) --\n' "$DEBUG_LOG"
+            tail -n 40 "$DEBUG_LOG" 2>/dev/null
+        fi
+    } >> "$PERSIST_LOG" 2>/dev/null
+    printf 'start-wayland.sh: failure appended to %s\n' "$PERSIST_LOG" >&2
     exit 1
 }
 
