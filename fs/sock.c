@@ -5415,9 +5415,17 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
     // rejection -- unicast DNS, the part that matters, doesn't depend on it.
     if (level == IPPROTO_IP &&
             (option == IP_MULTICAST_TTL_ || option == IP_MULTICAST_LOOP_)) {
-        if (value_len < sizeof(dword_t))
+        // Linux accepts either a single byte or an int for these two options
+        // (a documented historic quirk of ip_setsockopt: optlen >= 1 reads one
+        // byte, optlen >= sizeof(int) reads an int). avahi-daemon passes a
+        // uint8_t TTL; rejecting the 1-byte form made its IPv4 mDNS socket
+        // setup fail ("IP_MULTICAST_TTL failed: Invalid argument") and dropped
+        // it to IPv6-only mode.
+        if (value_len < 1)
             return _EINVAL;
-        unsigned char host_val = (unsigned char) *(dword_t *) value;
+        unsigned char host_val = value_len >= sizeof(dword_t)
+            ? (unsigned char) *(dword_t *) value
+            : *(unsigned char *) value;
         int real_opt = option == IP_MULTICAST_TTL_ ? IP_MULTICAST_TTL : IP_MULTICAST_LOOP;
         (void) setsockopt(sock->real_fd, IPPROTO_IP, real_opt, &host_val, sizeof(host_val));
         return 0;

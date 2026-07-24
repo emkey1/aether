@@ -278,9 +278,30 @@ static void test_sendto_wildcard_dest(void) {
     close(cli); close(srv);
 }
 
+// Linux's ip_setsockopt accepts EITHER a single byte or an int for
+// IP_MULTICAST_TTL / IP_MULTICAST_LOOP (optlen >= 1 reads one byte,
+// optlen >= sizeof(int) reads an int); optlen 0 is EINVAL. avahi-daemon
+// passes a uint8_t TTL -- iSH rejecting the 1-byte form made its IPv4
+// mDNS socket setup fail and dropped it to IPv6-only mode.
+static void test_multicast_optlen(void) {
+    int s = socket(AF_INET, SOCK_DGRAM, 0);
+    if (s < 0) { check("mcastlen.socket", 1, 0); return; }
+    unsigned char ttl = 200;
+    check("mcastlen.ttl_1byte", setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, 1), 0);
+    int ttl_int = 100;
+    check("mcastlen.ttl_int", setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl_int, sizeof(ttl_int)), 0);
+    errno = 0;
+    int r = setsockopt(s, IPPROTO_IP, IP_MULTICAST_TTL, &ttl, 0);
+    check("mcastlen.ttl_0byte_einval", r == -1 && errno == EINVAL, 1);
+    unsigned char loop = 1;
+    check("mcastlen.loop_1byte", setsockopt(s, IPPROTO_IP, IP_MULTICAST_LOOP, &loop, 1), 0);
+    close(s);
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     signal(SIGPIPE, SIG_IGN);
+    test_multicast_optlen();
     test_eventfd();
     test_poll_nval();
     test_epoll();
