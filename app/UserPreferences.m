@@ -44,6 +44,7 @@ static NSString *const kPreferenceLLMAPIKeyKey = @"LLM API Key";
 static NSString *const kPreferenceLLMToolsEnabledKey = @"LLM Tools Enabled";
 static NSString *const kPreferenceLLMToolTimeoutSecondsKey = @"LLM Tool Timeout Seconds";
 static NSString *const kPreferenceLLMToolOutputLimitKBKey = @"LLM Tool Output Limit KB";
+static NSString *const kPreferenceLLMToolMaxRoundsKey = @"LLM Tool Max Rounds";
 static NSString *const kPreferenceCustomDnsServersKey = @"Custom DNS Servers";
 
 NSString *const kPreferenceLaunchCommandKey = @"Init Command";
@@ -201,6 +202,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMToolsEnabledKey: @(NO),
             kPreferenceLLMToolTimeoutSecondsKey: @(30),
             kPreferenceLLMToolOutputLimitKBKey: @(64),
+            kPreferenceLLMToolMaxRoundsKey: @(20),
             kPreferenceFontSizeKey: @(12),
             kPreferenceCapsLockMappingKey: @(CapsLockMapControl),
             kPreferenceOptionMappingKey: @(OptionMapNone),
@@ -263,6 +265,7 @@ bool (*remove_user_default)(const char *name);
             @"llm_tools_enabled": kPreferenceLLMToolsEnabledKey,
             @"llm_tool_timeout_seconds": kPreferenceLLMToolTimeoutSecondsKey,
             @"llm_tool_output_limit_kb": kPreferenceLLMToolOutputLimitKBKey,
+            @"llm_tool_max_rounds": kPreferenceLLMToolMaxRoundsKey,
             @"launch_command": kPreferenceLaunchCommandKey,
             @"boot_command": kPreferenceBootCommandKey,
             @"login_as_default_user": kPreferenceLoginAsDefaultUserKey,
@@ -306,6 +309,7 @@ bool (*remove_user_default)(const char *name);
             kPreferenceLLMToolsEnabledKey: property(llmToolsEnabled),
             kPreferenceLLMToolTimeoutSecondsKey: property(llmToolTimeoutSeconds),
             kPreferenceLLMToolOutputLimitKBKey: property(llmToolOutputLimitKB),
+            kPreferenceLLMToolMaxRoundsKey: property(llmToolMaxRounds),
             kPreferenceCustomDnsServersKey: property(customDnsServers),
             kPreferenceLaunchCommandKey: property(launchCommand),
             kPreferenceBootCommandKey: property(bootCommand),
@@ -669,6 +673,19 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateLlmToolOutputLimitKB:(id *)value error:(NSError **)error {
+    return [*value isKindOfClass:NSNumber.class];
+}
+
+// MARK: llmToolMaxRounds
+- (NSInteger)llmToolMaxRounds {
+    return [_defaults integerForKey:kPreferenceLLMToolMaxRoundsKey];
+}
+
+- (void)setLlmToolMaxRounds:(NSInteger)llmToolMaxRounds {
+    [_defaults setInteger:llmToolMaxRounds forKey:kPreferenceLLMToolMaxRoundsKey];
+}
+
+- (BOOL)validateLlmToolMaxRounds:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

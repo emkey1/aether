@@ -922,6 +922,11 @@ static const NSInteger kISHLLMToolTimeoutMinSeconds = 5;
 static const NSInteger kISHLLMToolTimeoutMaxSeconds = 900;
 static const NSInteger kISHLLMToolOutputMinKB = 16;
 static const NSInteger kISHLLMToolOutputMaxKB = 256;
+// Below the floor a multi-step task (probe environment, install a package, use
+// it) can't finish before the loop bails; above the ceiling a runaway loop with
+// a bad model/prompt burns too many requests before the user notices.
+static const NSInteger kISHLLMToolMaxRoundsMin = 4;
+static const NSInteger kISHLLMToolMaxRoundsMax = 50;
 
 // Every request resends the entire transcript, so without some limit a
 // tool-heavy conversation keeps adding another full command's output on top
@@ -970,6 +975,10 @@ static NSInteger ISHLLMToolTimeoutSeconds(void) {
 
 static NSInteger ISHLLMToolOutputLimitKB(void) {
     return MAX(kISHLLMToolOutputMinKB, MIN(kISHLLMToolOutputMaxKB, UserPreferences.shared.llmToolOutputLimitKB));
+}
+
+static NSInteger ISHLLMToolMaxRounds(void) {
+    return MAX(kISHLLMToolMaxRoundsMin, MIN(kISHLLMToolMaxRoundsMax, UserPreferences.shared.llmToolMaxRounds));
 }
 
 static NSString *ISHLLMToolTimeoutTitle(NSInteger seconds) {
@@ -2838,9 +2847,8 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 // One "round" = one non-streaming chat request that advertises the run_shell
 // tool. If the model answers with tool calls we run each command in the guest,
 // append the results as `tool` messages, and start another round; otherwise the
-// round's content is the final answer. Bounded by kISHLLMMaxToolRounds.
+// round's content is the final answer. Bounded by ISHLLMToolMaxRounds().
 
-static const NSInteger kISHLLMMaxToolRounds = 6;
 
 // Run the distro/tool probe at most once per chat session, then continue. The
 // note is injected as a system message so the model's tool use matches the
@@ -2927,8 +2935,8 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         [self setSending:NO];
         return;
     }
-    if (round >= kISHLLMMaxToolRounds) {
-        [self appendRole:@"assistant" content:@"Stopped after too many tool calls in a row. Send another message to continue."];
+    if (round >= ISHLLMToolMaxRounds()) {
+        [self appendRole:@"assistant" content:[NSString stringWithFormat:@"Stopped after %ld tool calls in a row (adjustable in Settings as \"Tool Call Rounds\"). Send another message to continue.", (long) ISHLLMToolMaxRounds()]];
         [self setSending:NO];
         [self saveTranscript];
         return;
@@ -3201,7 +3209,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     (void) tableView;
     if (section == 0)
         return 1;
-    return 10;
+    return 11;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
@@ -3209,8 +3217,8 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     if (section == 0)
         return nil;
     if (ISHLLMUsesAppleFoundationModels())
-        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command; the command timeout and output limit are adjustable above. Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
-    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini. The command timeout and output limit are adjustable above.\nChat history is saved in /AOK/persist/llm-chat.json.";
+        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command; the command timeout, output limit, and tool call round cap are adjustable above. Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
+    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini. The command timeout, output limit, and tool call round cap are adjustable above.\nChat history is saved in /AOK/persist/llm-chat.json.";
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -3257,9 +3265,12 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     } else if (indexPath.row == 8) {
         cell.textLabel.text = @"Command Timeout";
         cell.detailTextLabel.text = ISHLLMToolTimeoutTitle(ISHLLMToolTimeoutSeconds());
-    } else {
+    } else if (indexPath.row == 9) {
         cell.textLabel.text = @"Output Limit";
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld KB", (long) ISHLLMToolOutputLimitKB()];
+    } else {
+        cell.textLabel.text = @"Tool Call Rounds";
+        cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld", (long) ISHLLMToolMaxRounds()];
     }
     return cell;
 }
@@ -3296,6 +3307,10 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     }
     if (indexPath.row == 9) {
         [self pickToolOutputLimitFromView:[tableView cellForRowAtIndexPath:indexPath]];
+        return;
+    }
+    if (indexPath.row == 10) {
+        [self pickToolMaxRoundsFromView:[tableView cellForRowAtIndexPath:indexPath]];
         return;
     }
     NSString *title = indexPath.row == 1 ? @"Server URL" : (indexPath.row == 2 ? @"Model" : @"API Key");
@@ -3376,6 +3391,25 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         NSString *title = [NSString stringWithFormat:@"%ld KB%@", (long) kb, kb == current ? @" ✓" : @""];
         [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
             UserPreferences.shared.llmToolOutputLimitKB = kb;
+            [self.tableView reloadData];
+        }]];
+    }
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    sheet.popoverPresentationController.sourceView = sourceView;
+    sheet.popoverPresentationController.sourceRect = sourceView.bounds;
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
+- (void)pickToolMaxRoundsFromView:(UIView *)sourceView {
+    UIAlertController *sheet = [UIAlertController alertControllerWithTitle:@"Tool Call Rounds"
+        message:@"A model reply that keeps calling tools without giving a final answer is stopped after this many rounds in a row, so a stuck model can't loop forever. Each round is one request to the model, so higher values let longer multi-step tasks (installing something, then using it) finish without you having to nudge it to continue."
+        preferredStyle:UIAlertControllerStyleActionSheet];
+    NSInteger current = ISHLLMToolMaxRounds();
+    for (NSNumber *choice in @[@6, @10, @15, @20, @30, @50]) {
+        NSInteger rounds = choice.integerValue;
+        NSString *title = [NSString stringWithFormat:@"%ld%@", (long) rounds, rounds == current ? @" ✓" : @""];
+        [sheet addAction:[UIAlertAction actionWithTitle:title style:UIAlertActionStyleDefault handler:^(__unused UIAlertAction *action) {
+            UserPreferences.shared.llmToolMaxRounds = rounds;
             [self.tableView reloadData];
         }]];
     }
