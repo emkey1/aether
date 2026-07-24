@@ -1289,8 +1289,19 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 
             [_bubbleView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:3.0],
             [_bubbleView.bottomAnchor constraintEqualToAnchor:self.contentView.bottomAnchor constant:-3.0],
-            [_bubbleView.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.86],
         ]];
+        // Sub-required priority: UIKit briefly forces contentView.width to 0
+        // while probing a self-sizing cell's height (the internal
+        // 'fittingSizeHTarget' constraint), which at required priority
+        // conflicts with the stack view's own edge constraints to its
+        // arranged text view. Letting THIS constraint yield during that probe
+        // (rather than UIKit picking amongst the stack view's auto-generated
+        // ones) silences the console warning; the real, rendered layout
+        // (non-zero width) satisfies it exactly as before.
+        NSLayoutConstraint *bubbleWidthCap =
+            [_bubbleView.widthAnchor constraintLessThanOrEqualToAnchor:self.contentView.widthAnchor multiplier:0.86];
+        bubbleWidthCap.priority = UILayoutPriorityRequired - 1;
+        bubbleWidthCap.active = YES;
         _bubbleLeading = [_bubbleView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:12.0];
         _bubbleTrailing = [_bubbleView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-12.0];
     }
