@@ -63,6 +63,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *_pasteButton;
     UIButton *_reconnectButton;
     UIButton *_Nullable _menuPip; // standalone mode only
+    NSLayoutConstraint *_Nullable _menuPipBottomConstraint;
     DisplayRFBView *_displayView;
 
     // The guest session is owned exactly the way TerminalViewController owns
@@ -164,12 +165,30 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         [pip addTarget:self action:@selector(menuPipTapped:) forControlEvents:UIControlEventTouchUpInside];
         _menuPip = pip;
         [self.view addSubview:pip];
+        _menuPipBottomConstraint = [pip.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16.0];
         [NSLayoutConstraint activateConstraints:@[
             [pip.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16.0],
-            [pip.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16.0],
+            _menuPipBottomConstraint,
             [pip.widthAnchor constraintEqualToConstant:44.0],
             [pip.heightAnchor constraintEqualToConstant:44.0],
         ]];
+
+        // DisplayRFBView is its own first responder and supplies the accessory key strip
+        // (see -[DisplayRFBView accessoryBar]) as its inputAccessoryView. With a hardware
+        // keyboard attached there's no software keyboard to push content up -- the
+        // accessory bar is presented on its own at the bottom of the screen, right where
+        // this pip sits, and this view controller otherwise has no idea it's there. Track
+        // the same keyboard-frame notifications the terminal uses to keep its accessory
+        // bar clear of content, and nudge the pip up above whatever's covering it.
+        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+        [center addObserver:self
+                   selector:@selector(menuPipKeyboardDidSomething:)
+                       name:UIKeyboardWillChangeFrameNotification
+                     object:nil];
+        [center addObserver:self
+                   selector:@selector(menuPipKeyboardDidSomething:)
+                       name:UIKeyboardDidChangeFrameNotification
+                     object:nil];
     }
 
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -480,6 +499,35 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         strongSelf->_teardownPid = 0;
         [strongSelf startGuestSession];
     });
+}
+
+// Keeps the pip clear of DisplayRFBView's inputAccessoryView (the accessory key
+// strip, see -[DisplayRFBView accessoryBar]) whether it's riding above the
+// software keyboard or, with a hardware keyboard attached, sitting alone at the
+// bottom of the screen. Mirrors the frame math TerminalViewController uses for
+// the same reason (-keyboardDidSomething:).
+- (void)menuPipKeyboardDidSomething:(NSNotification *)notification {
+    if (_menuPipBottomConstraint == nil)
+        return;
+    CGRect screenKeyboardFrame = [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
+    UIWindow *window = self.view.window;
+    if (window == nil)
+        return;
+    CGRect keyboardFrame = [self.view convertRect:screenKeyboardFrame fromView:window];
+    if (CGRectIsNull(keyboardFrame))
+        return;
+    CGRect overlap = CGRectIntersection(keyboardFrame, self.view.bounds);
+    CGFloat overlapHeight = CGRectIsNull(overlap) ? 0.0 : overlap.size.height;
+    // The pip sits off the safe-area guide already, so only push it up by however much
+    // the covering view eats into the safe area, not by its full height.
+    CGFloat extra = MAX(0.0, overlapHeight - self.view.safeAreaInsets.bottom);
+    _menuPipBottomConstraint.constant = -(16.0 + extra);
+
+    NSNumber *interval = notification.userInfo[UIKeyboardAnimationDurationUserInfoKey];
+    [UIView animateWithDuration:interval != nil ? interval.doubleValue : 0.25
+                     animations:^{
+        [self.view layoutIfNeeded];
+    }];
 }
 
 // Standalone-only lower-right pip: mirrors the Workspace desktop's corner
