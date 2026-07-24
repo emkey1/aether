@@ -6,6 +6,7 @@
 #import "AppDelegate.h"
 #import "GuestFileBridge.h"
 #import "UserPreferences.h"
+#import "NSObject+SaneKVO.h"
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
@@ -65,6 +66,14 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *_Nullable _menuPip; // standalone mode only
     NSLayoutConstraint *_Nullable _menuPipBottomConstraint;
     DisplayRFBView *_displayView;
+    // Two alternate top constraints for _displayView, swapped by
+    // -_updateMaximizeScreenSpaceLayout: the normal one sits below the
+    // toolbar card (safe-area-relative, like the toolbar itself); the
+    // maximized one bypasses the toolbar and the safe area entirely,
+    // mirroring how -displayView's bottom anchor already always does in
+    // standalone mode. Only ever both non-nil once -displayView has run.
+    NSLayoutConstraint *_Nullable _displayViewTopToToolbarConstraint;
+    NSLayoutConstraint *_Nullable _displayViewTopToViewConstraint;
 
     // The guest session is owned exactly the way TerminalViewController owns
     // its shell session (a real pty via +[Terminal createPseudoTerminal:]),
@@ -195,6 +204,45 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                                             selector:@selector(guestProcessExited:)
                                                 name:ProcessExitedNotification
                                               object:nil];
+
+    if (self.standaloneMode) {
+        // Force -displayView's lazy creation now so its top-constraint pair
+        // exists to update below, and apply the preference's current value
+        // immediately (not just on a future change).
+        [self displayView];
+        [self _updateMaximizeScreenSpaceLayout];
+        [UserPreferences.shared observe:@[@"maximizeScreenSpace"]
+                                options:0 owner:self usingBlock:^(typeof(self) self) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self _updateMaximizeScreenSpaceLayout];
+                [self setNeedsStatusBarAppearanceUpdate];
+            });
+        }];
+    }
+}
+
+// "Maximize Screen Space" (About > External Keyboard) is otherwise only
+// wired up in TerminalViewController, where it drops the bottom safe-area
+// inset with a hardware keyboard attached. Standalone Display mode already
+// unconditionally extends -displayView's BOTTOM past the safe area (see
+// -displayView's own comment), but its TOP never did -- the status bar and
+// an always-visible toolbar card together reserve roughly the safe-area
+// inset plus another ~38pt below it, all the time, regardless of this
+// preference, which a user enabling "Maximize Screen Space" here would
+// reasonably expect it to reclaim. When on: hide the status bar, collapse
+// the toolbar card, and swap -displayView's top constraint to run flush to
+// the view's real top edge. Ctrl+Alt+Del/Paste move to the pip's menu (see
+// -menuPipTapped:) so they stay reachable with the toolbar hidden.
+- (void)_updateMaximizeScreenSpaceLayout {
+    BOOL maximize = UserPreferences.shared.maximizeScreenSpace;
+    _toolbarCard.hidden = maximize;
+    _displayViewTopToToolbarConstraint.active = !maximize;
+    _displayViewTopToViewConstraint.active = maximize;
+    [self.view setNeedsLayout];
+}
+
+- (BOOL)prefersStatusBarHidden {
+    return self.standaloneMode && UserPreferences.shared.maximizeScreenSpace;
 }
 
 - (void)viewDidAppear:(BOOL)animated {
@@ -558,13 +606,25 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 // Standalone-only lower-right pip: mirrors the Workspace desktop's corner
 // menu button so it's reachable from every mode. Workspace-desktop actions
 // (windows, desktops, launcher) don't exist here; this carries the ones that
-// do.
+// do. Ctrl+Alt+Del/Paste are normally on the toolbar card, but that's hidden
+// under "Maximize Screen Space" (see -_updateMaximizeScreenSpaceLayout) --
+// carry them here too so they're never the ONLY way to reach those actions.
 - (void)menuPipTapped:(UIButton *)sender {
     UIAlertController *sheet =
         [UIAlertController alertControllerWithTitle:@"Wayland Display"
                                             message:nil
                                      preferredStyle:UIAlertControllerStyleActionSheet];
     __weak typeof(self) weakSelf = self;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Send Ctrl+Alt+Del"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [weakSelf sendCtrlAltDel:sender];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Paste"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [weakSelf pasteToGuest:sender];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Open Workspace…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
@@ -648,8 +708,17 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             : self.toolContentView.bottomAnchor;
         if (self.standaloneMode)
             _displayView.layer.cornerRadius = 0.0;
+        // Two alternate top constraints (see the ivar comments and
+        // -_updateMaximizeScreenSpaceLayout): only one is ever active at a
+        // time, chosen by that method rather than here, so toggling
+        // "Maximize Screen Space" live doesn't need to recreate anything.
+        _displayViewTopToToolbarConstraint =
+            [_displayView.topAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:8.0];
+        _displayViewTopToViewConstraint =
+            [_displayView.topAnchor constraintEqualToAnchor:self.view.topAnchor];
+        _displayViewTopToViewConstraint.active = NO;
         [NSLayoutConstraint activateConstraints:@[
-            [_displayView.topAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:8.0],
+            _displayViewTopToToolbarConstraint,
             [_displayView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
             [_displayView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
             [_displayView.bottomAnchor constraintEqualToAnchor:bottomAnchor],
