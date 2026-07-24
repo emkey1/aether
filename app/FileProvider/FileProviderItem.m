@@ -394,8 +394,18 @@ static const unsigned ISHFileProviderChildItemCountCap = 2000;
 // or at least tries to
 
 - (void)loadToURL:(NSURL *)url {
-    NSLog(@"copying %@ to %@", self.path, url);
     NSURL *itemURL = self.URL;
+    // self.URL is nil for the synthetic domain-root item (it has no backing
+    // file). copyItemAtURL:toURL:error: throws NSInvalidArgumentException on
+    // a nil source rather than failing gracefully via the error out-param,
+    // which crashed the whole extension process when Files requested this
+    // item be materialized (seen on device: objc_exception_throw inside
+    // -[FileProviderItem loadToURL:]).
+    if (itemURL == nil) {
+        NSLog(@"loadToURL: called on an item with no backing URL (path=%@); ignoring", self.path);
+        return;
+    }
+    NSLog(@"copying %@ to %@", self.path, url);
     NSError *err;
     int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", self.mountOwner.rootName ?: @"", NO, nil);
     [self.mountOwner.ioLock lock];
@@ -411,8 +421,14 @@ static const unsigned ISHFileProviderChildItemCountCap = 2000;
 }
 
 - (void)saveFromURL:(NSURL *)url {
-    NSLog(@"copying %@ from %@", self.path, url);
     NSURL *itemURL = self.URL;
+    // Same nil-URL guard as loadToURL: (see there) -- itemURL is the copy
+    // DESTINATION here, so a nil value would throw on that side instead.
+    if (itemURL == nil) {
+        NSLog(@"saveFromURL: called on an item with no backing URL (path=%@); ignoring", self.path);
+        return;
+    }
+    NSLog(@"copying %@ from %@", self.path, url);
     NSError *err;
     int rootLockFd = ISHAppGroupAcquireNamedLock(@"root", self.mountOwner.rootName ?: @"", YES, nil);
     [self.mountOwner.ioLock lock];
