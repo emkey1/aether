@@ -371,6 +371,11 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
 @interface ISHWorkspaceContainedWindowView : UIView <UIGestureRecognizerDelegate>
 
 @property (nonatomic) CGSize preferredSize;
+// The frame this window had before a layout clamp shrank/moved it to fit a smaller
+// desktop surface (rotation to portrait, or the portrait-sized snapshot layout pass iOS
+// runs when the app is backgrounded). CGRectNull when no restore is pending. Cleared by
+// any deliberate frame change (drag, resize, programmatic placement via preferredSize).
+@property (nonatomic) CGRect frameBeforeBoundsClamp;
 @property (nonatomic) BOOL didApplyInitialFrame;
 @property (nonatomic) BOOL draggable;
 @property (nonatomic) BOOL resizable;
@@ -430,6 +435,7 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     self.resizeHandleAtTopRight = NO;
     self.minimumSize = CGSizeMake(280, 180);
     self.maximumSize = CGSizeZero;
+    self.frameBeforeBoundsClamp = CGRectNull;
 
     self.panelView = [UIView new];
     self.panelView.translatesAutoresizingMaskIntoConstraints = NO;
@@ -737,9 +743,19 @@ static CGRect ISHWorkspaceRectWithRoundedOriginPreservingSize(CGRect frame) {
     frame.origin.x = MIN(MAX(frame.origin.x, minX), maxX);
     frame.origin.y = MIN(MAX(frame.origin.y, minY), maxY);
     self.frame = ISHWorkspaceRectWithRoundedOriginPreservingSize(frame);
+    // The user chose this spot; forget any pre-clamp frame a smaller surface stashed,
+    // or the next layout pass would yank the window back out from under them.
+    self.frameBeforeBoundsClamp = CGRectNull;
     if (self.frameDidChangeHandler != nil)
         self.frameDidChangeHandler();
     [recognizer setTranslation:CGPointZero inView:self.superview];
+}
+
+- (void)setPreferredSize:(CGSize)preferredSize {
+    _preferredSize = preferredSize;
+    // Every deliberate size change flows through here (resize pan, zoom restore,
+    // programmatic placement); a stale pre-clamp stash must not override it later.
+    _frameBeforeBoundsClamp = CGRectNull;
 }
 
 - (void)handleResizePan:(UIPanGestureRecognizer *)recognizer {
@@ -2879,7 +2895,30 @@ NSString *ISHWorkspaceToolIdentifierForViewController(UIViewController *viewCont
     if (windowView.superview == nil || CGRectIsEmpty(windowView.bounds))
         return;
 
-    windowView.frame = [self clampedDesktopFrame:windowView.frame forWindow:windowView];
+    // If a previous pass shrank/moved this window for a smaller surface (rotation to
+    // portrait, or the portrait-sized snapshot layout iOS runs while the app is
+    // backgrounded -- the source of "my full-width window came back at 75%"), try the
+    // remembered frame first so the window pops back the moment the surface fits it.
+    CGRect remembered = windowView.frameBeforeBoundsClamp;
+    if (!CGRectIsNull(remembered)) {
+        CGRect restored = [self clampedDesktopFrame:remembered forWindow:windowView];
+        if (CGRectEqualToRect(restored, remembered)) {
+            windowView.frame = remembered;
+            windowView.frameBeforeBoundsClamp = CGRectNull;
+        } else {
+            // Surface still too small: show the clamped version of the REMEMBERED frame
+            // (not of the current one) so repeated passes can't ratchet the window down,
+            // and keep the memory for when the surface grows back.
+            windowView.frame = restored;
+        }
+        return;
+    }
+
+    CGRect frame = windowView.frame;
+    CGRect clamped = [self clampedDesktopFrame:frame forWindow:windowView];
+    if (!CGRectEqualToRect(clamped, frame))
+        windowView.frameBeforeBoundsClamp = frame;
+    windowView.frame = clamped;
 }
 
 - (void)pinDesktopWindowToBottomCenter:(ISHWorkspaceContainedWindowView *)windowView {
