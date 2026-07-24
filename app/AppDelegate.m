@@ -2392,6 +2392,15 @@ static TerminalViewController *CreateTerminalViewController(void) {
     // Enforce the mode on the existing directory too, like the "/" fix below.
     generic_setattrat(AT_PWD, "/dev/shm", (struct attr) {.type = attr_mode, .mode = S_IFDIR|01777}, false);
 
+    // Same treatment for /tmp: Linux guarantees it 1777, but a rootfs tarball
+    // (or an earlier bad boot) can leave it stricter, and then every non-root
+    // session quietly loses the ability to create anything there. Observed
+    // on-device: the Wayland Display session running as the default user
+    // (su path) got EACCES on all its /tmp files -- rm, the debug log, the
+    // ready-file handshake -- so the compositor died before its socket and
+    // the applet could only say "Wayland session ended".
+    generic_setattrat(AT_PWD, "/tmp", (struct attr) {.type = attr_mode, .mode = S_IFDIR|01777}, false);
+
     // Permissions and type metadata on / have been broken for a while, let's fix them.
     generic_setattrat(AT_PWD, "/", (struct attr) {.type = attr_mode, .mode = S_IFDIR|0755}, false);
     
@@ -3364,6 +3373,13 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
         dispatch_async(dispatch_get_main_queue(), ^{
             extern bool doEnableCryptoAccel;
             doEnableCryptoAccel = UserPreferences.shared.shouldEnableCryptoAccel;
+        });
+    }];
+    [UserPreferences.shared observe:@[@"shouldEnablePixAccel"] options:NSKeyValueObservingOptionInitial
+                              owner:self usingBlock:^(typeof(self) self) {
+        dispatch_async(dispatch_get_main_queue(), ^{
+            extern bool doEnablePixAccel;
+            doEnablePixAccel = UserPreferences.shared.shouldEnablePixAccel;
         });
     }];
     [UserPreferences.shared observe:@[@"shouldEnableExtraLocking"] options:NSKeyValueObservingOptionInitial

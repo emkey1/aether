@@ -241,7 +241,21 @@ trap cleanup TERM INT HUP EXIT
 # their first line of output reaches the pty) leaves no way to diagnose
 # *why* short of re-running this script by hand over SSH.
 DEBUG_LOG="${ISH_DISPLAY_DEBUG_LOG:-/tmp/ish-wayland-debug.log}"
-: > "$DEBUG_LOG"
+# An unwritable $DEBUG_LOG is FATAL downstream, not cosmetic: spawn_logged
+# pipes every process through `tee -a $DEBUG_LOG`, so if tee can't open the
+# log it exits, the fifo loses its reader, and the compositor dies on SIGPIPE
+# at its first line of output. Observed on-device: a stale ROOT-owned log in
+# sticky /tmp (left by an earlier root-run session) that a default-user
+# session couldn't truncate -- the whole desktop died of a log file. Fall
+# back to a path this uid owns, then to /dev/null (losing the log but never
+# the session).
+# `true`, not `:`: a redirection error on a POSIX *special* builtin (which
+# `:` is) makes dash exit the whole script on the spot -- the probe must be a
+# regular builtin so EACCES just fails the command and the fallback runs.
+if ! { true > "$DEBUG_LOG"; } 2>/dev/null; then
+    DEBUG_LOG="${HOME:-/tmp}/ish-wayland-debug.log"
+    { true > "$DEBUG_LOG"; } 2>/dev/null || DEBUG_LOG=/dev/null
+fi
 
 # wlroots allocates the seat keymap via shm_open() under /dev/shm. If that
 # fails (missing dir, or a wrong-mode /dev/shm that non-root can't write
@@ -657,6 +671,11 @@ sleep 0.2
 kill -0 "$FOOT_PID" 2>/dev/null || die "foot exited immediately after starting -- see $DEBUG_LOG"
 
 echo "READY $WAYVNC_PORT"
-printf '%s\n' "$WAYVNC_PORT" > "$READY_FILE"
+# The applet's whole handshake is this file appearing; if the write fails
+# (e.g. a stale root-owned file this uid can't overwrite in sticky /tmp),
+# a perfectly healthy stack would sit invisible until the applet's 45s
+# timeout tears it down. Fail loudly instead -- die() persists the reason.
+{ printf '%s\n' "$WAYVNC_PORT" > "$READY_FILE"; } 2>/dev/null \
+    || die "cannot write $READY_FILE (stale file owned by another uid?) -- the applet cannot see this session"
 
 wait "$COMPOSITOR_PID" "$FOOT_PID" "$WAYVNC_PID"

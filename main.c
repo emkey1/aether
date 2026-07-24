@@ -214,6 +214,12 @@ static void setup_host_mounts(void) {
     // first keyboard attach because wlroots couldn't allocate the keymap
     // shm file early in boot).
     generic_setattrat(AT_PWD, "/dev/shm", (struct attr) {.type = attr_mode, .mode = S_IFDIR|01777}, false);
+    // /tmp gets the same enforcement: Linux guarantees it 1777, and a rootfs
+    // whose /tmp came through stricter locks every non-root session out of
+    // temp-file creation (see the matching AppDelegate.m fix -- the Wayland
+    // Display session's /tmp handshake files all failed with EACCES when the
+    // session ran as the default user).
+    generic_setattrat(AT_PWD, "/tmp", (struct attr) {.type = attr_mode, .mode = S_IFDIR|01777}, false);
     ignore_eexist(generic_mkdirat(AT_PWD, "/proc", 0555));
     ignore_eexist(generic_mkdirat(AT_PWD, "/sys", 0555));
 

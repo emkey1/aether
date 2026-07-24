@@ -230,6 +230,16 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         return;
     }
 
+    // Stale copies of the ready/error files can be owned by a different uid
+    // than this session will run as: a root session leaves them root-owned,
+    // and an "Open Everything as Default User" session (su - <user>) can then
+    // neither remove nor overwrite them in sticky /tmp. Observed on-device as
+    // rm/tee EACCES cascading into the compositor dying before its socket
+    // existed. Unlink them here with root credentials so every session starts
+    // clean no matter who ran the last one. (ENOENT is the normal case.)
+    generic_unlinkat(AT_PWD, "/tmp/ish-display.ready");
+    generic_unlinkat(AT_PWD, "/tmp/ish-display.ready.error");
+
     struct tty *tty;
     Terminal *terminal = [Terminal createPseudoTerminal:&tty];
     if (terminal == nil) {
