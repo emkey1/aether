@@ -4,9 +4,13 @@ NS_ASSUME_NONNULL_BEGIN
 
 extern NSString *const ISHInitialWindowWorkspaceValue;
 extern NSString *const ISHInitialWindowChooseFilesystemValue;
+extern NSString *const ISHInitialWindowWaylandValue;
 extern UINavigationController *ISHCreateWorkspaceNavigationController(void);
 extern UINavigationController *ISHCreateWorkspaceNavigationControllerForTool(NSString *_Nullable toolIdentifier);
 extern BOOL ISHShouldLaunchWorkspaceAtStartup(void);
+// Non-nil when the startup-mode preference asks for the Workspace to open with
+// a specific applet already launched (currently only the Wayland Display).
+extern NSString *_Nullable ISHInitialWorkspaceStartupToolIdentifier(void);
 extern NSString *_Nullable ISHWorkspaceToolIdentifierForViewController(UIViewController *viewController);
 
 // Adopted by an applet that can be told to open/reveal a specific guest path

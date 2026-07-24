@@ -101,6 +101,7 @@
 
 NSString *const ISHInitialWindowWorkspaceValue = @"workspace";
 NSString *const ISHInitialWindowChooseFilesystemValue = @"choose-filesystem";
+NSString *const ISHInitialWindowWaylandValue = @"wayland";
 static NSString *const ISHWorkspaceToolClockIdentifier = @"clock";
 static NSString *const ISHWorkspaceToolInfoIdentifier = @"info";
 static NSString *const ISHWorkspaceToolMonitorIdentifier = @"monitor";
@@ -1206,7 +1207,15 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
 
 BOOL ISHShouldLaunchWorkspaceAtStartup(void) {
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
-    return [initialWindow isEqualToString:ISHInitialWindowWorkspaceValue];
+    return [initialWindow isEqualToString:ISHInitialWindowWorkspaceValue]
+        || [initialWindow isEqualToString:ISHInitialWindowWaylandValue];
+}
+
+NSString *ISHInitialWorkspaceStartupToolIdentifier(void) {
+    NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
+    if ([initialWindow isEqualToString:ISHInitialWindowWaylandValue])
+        return ISHWorkspaceToolDisplayIdentifier;
+    return nil;
 }
 
 static NSString *ISHInitialWindowTitle(void) {
@@ -1215,6 +1224,8 @@ static NSString *ISHInitialWindowTitle(void) {
         return @"Workspace";
     if ([initialWindow isEqualToString:ISHInitialWindowChooseFilesystemValue])
         return @"Choose Filesystem";
+    if ([initialWindow isEqualToString:ISHInitialWindowWaylandValue])
+        return @"Wayland Display";
     if ([initialWindow isEqualToString:@"session-shell"])
         return @"Session Shell (pts/1)";
     return @"Plain Terminal";

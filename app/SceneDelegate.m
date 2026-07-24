@@ -82,6 +82,15 @@ static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, 
     BOOL restoresWorkspace = [restorationType isEqualToString:ISHSceneActivityTypeWorkspace];
     if (prefersWorkspace != restoresWorkspace)
         return nil;
+    // A startup mode that opens the Workspace with a specific applet (Wayland
+    // Display) only honors restoration that lands on that same applet --
+    // otherwise a restored plain-Workspace scene would swallow the mode.
+    NSString *startupTool = ISHInitialWorkspaceStartupToolIdentifier();
+    if (startupTool != nil) {
+        NSString *restoredTool = restorationActivity.userInfo[ISHSceneWorkspaceToolUserInfoKey];
+        if (![restoredTool isEqualToString:startupTool])
+            return nil;
+    }
     return restorationActivity;
 }
 
@@ -262,12 +271,15 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         return;
     }
     if (activityType.length == 0 && ISHShouldLaunchWorkspaceAtStartup()) {
+        NSString *startupTool = ISHInitialWorkspaceStartupToolIdentifier();
         [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace.default"
-                                       details:@{@"session": session.persistentIdentifier ?: @""}];
-        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
+                                       details:@{@"session": session.persistentIdentifier ?: @"",
+                                                 @"tool": startupTool ?: @""}];
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(startupTool);
         [self.window makeKeyAndVisible];
         ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
-                                             @"session": session.persistentIdentifier ?: @""});
+                                             @"session": session.persistentIdentifier ?: @"",
+                                             @"tool": startupTool ?: @""});
         return;
     }
     if (!wantsTerminal) {
@@ -300,7 +312,7 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
     if (ISHShouldLaunchWorkspaceAtStartup()) {
         [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace.afterInitialImport"
                                        details:@{@"session": session.persistentIdentifier ?: @""}];
-        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(ISHInitialWorkspaceStartupToolIdentifier());
         [self.window makeKeyAndVisible];
         ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
                                              @"session": session.persistentIdentifier ?: @""});

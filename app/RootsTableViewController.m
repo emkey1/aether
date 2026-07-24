@@ -234,6 +234,7 @@
                 if (!self.choosesRootOnSelection &&
                     wasInitialSelection &&
                     ![currentInitialWindow isEqualToString:ISHInitialWindowWorkspaceValue] &&
+                    ![currentInitialWindow isEqualToString:ISHInitialWindowWaylandValue] &&
                     ([initialWindow isEqualToString:@"terminal"] ||
                      [initialWindow isEqualToString:@"session-shell"])) {
                     [NSUserDefaults.standardUserDefaults setObject:initialWindow

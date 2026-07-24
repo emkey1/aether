@@ -3805,6 +3805,8 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         return value;
     if ([value isEqualToString:ISHInitialWindowChooseFilesystemValue])
         return value;
+    if ([value isEqualToString:ISHInitialWindowWaylandValue])
+        return value;
     if ([value isEqualToString:@"session-shell"])
         return value;
     return @"terminal";
@@ -3815,6 +3817,8 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
         return @"Workspace";
     if ([[self _initialWindowPreferenceValue] isEqualToString:ISHInitialWindowChooseFilesystemValue])
         return @"Choose Filesystem";
+    if ([[self _initialWindowPreferenceValue] isEqualToString:ISHInitialWindowWaylandValue])
+        return @"Wayland Display";
     if ([[self _initialWindowPreferenceValue] isEqualToString:@"session-shell"])
         return @"Session Shell (pts/1)";
     return @"Plain Terminal";
@@ -3828,7 +3832,7 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
 - (void)_showInitialWindowPickerFromCell:(UITableViewCell *)cell {
     UIAlertController *alert =
         [UIAlertController alertControllerWithTitle:@"Startup Mode"
-                                            message:@"Choose whether new app launches open the Workspace, show a filesystem chooser, or open a terminal."
+                                            message:@"Choose whether new app launches open the Workspace, the Wayland Display, show a filesystem chooser, or open a terminal."
                                      preferredStyle:UIAlertControllerStyleActionSheet];
 
     NSString *currentValue = [self _initialWindowPreferenceValue];
@@ -3838,6 +3842,9 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
     NSString *chooseFilesystemTitle = [currentValue isEqualToString:ISHInitialWindowChooseFilesystemValue]
         ? @"Choose Filesystem  Current"
         : @"Choose Filesystem";
+    NSString *waylandTitle = [currentValue isEqualToString:ISHInitialWindowWaylandValue]
+        ? @"Wayland Display  Current"
+        : @"Wayland Display";
     NSString *terminalTitle = [currentValue isEqualToString:@"terminal"]
         ? @"Plain Terminal  Current"
         : @"Plain Terminal";
@@ -3849,6 +3856,11 @@ static const NSInteger kISHLLMMaxToolRounds = 6;
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         [self _setInitialWindowPreferenceValue:ISHInitialWindowWorkspaceValue];
+    }]];
+    [alert addAction:[UIAlertAction actionWithTitle:waylandTitle
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [self _setInitialWindowPreferenceValue:ISHInitialWindowWaylandValue];
     }]];
     [alert addAction:[UIAlertAction actionWithTitle:chooseFilesystemTitle
                                               style:UIAlertActionStyleDefault
