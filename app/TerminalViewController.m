@@ -382,6 +382,20 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                selector:@selector(keyboardDidSomething:)
                    name:UIKeyboardDidChangeFrameNotification
                  object:nil];
+    // hasExternalKeyboard is otherwise only recomputed inside keyboardDidSomething:, which
+    // fires off software-keyboard frame changes. A hardware keyboard attaching/detaching
+    // while the terminal isn't first responder (Settings screen, Workspace, backgrounded
+    // app) or a Bluetooth keyboard power-cycling doesn't reliably produce one of those, so
+    // the accessory bar/Esc key could go stale until some unrelated keyboard-frame event
+    // happened to fire later. Listen to the authoritative hardware signal directly.
+    [center addObserver:self
+               selector:@selector(hardwareKeyboardDidChange:)
+                   name:GCKeyboardDidConnectNotification
+                 object:nil];
+    [center addObserver:self
+               selector:@selector(hardwareKeyboardDidChange:)
+                   name:GCKeyboardDidDisconnectNotification
+                 object:nil];
     [center addObserver:self
                selector:@selector(_updateBadge)
                    name:FsUpdatedNotification
@@ -900,6 +914,10 @@ static const NSInteger kMaximumTerminalFontSize = 72;
 - (void)viewDidAppear:(BOOL)animated {
     [AppDelegate maybePresentStartupMessageOnViewController:self];
     [super viewDidAppear:animated];
+    // Re-sync against the live hardware state: a keyboard connect/disconnect notification
+    // could have been missed while this view wasn't visible (e.g. it was posted to a
+    // different scene, or arrived during app launch before observers were registered).
+    self.hasExternalKeyboard = GCKeyboard.coalescedKeyboard != nil;
     [self _updateSafeAreaCompensation];
     if (!self.didApplyDeferredSafeAreaUpdate) {
         self.didApplyDeferredSafeAreaUpdate = YES;
@@ -1490,6 +1508,11 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
                          }
                          completion:nil];
     }
+}
+
+- (void)hardwareKeyboardDidChange:(NSNotification *)notification {
+    self.hasExternalKeyboard = GCKeyboard.coalescedKeyboard != nil;
+    [self _updateSafeAreaCompensation];
 }
 
 - (void)setHasExternalKeyboard:(BOOL)hasExternalKeyboard {
