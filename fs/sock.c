@@ -5439,15 +5439,58 @@ static int_t sys_setsockopt_guest_abi(fd_t sock_fd, dword_t level, dword_t optio
         (void) setsockopt(sock->real_fd, IPPROTO_IPV6, real_opt, &host_val, sizeof(host_val));
         return 0;
     }
-    // Interface selection and group membership: Linux and Darwin struct
-    // layouts differ (ip_mreqn vs ip_mreq). Accept and best-effort forward
-    // only the multicast-address prefix the two share; never fatal.
-    if ((level == IPPROTO_IP &&
-                (option == IP_MULTICAST_IF_ || option == IP_ADD_MEMBERSHIP_ ||
-                 option == IP_DROP_MEMBERSHIP_)) ||
-            (level == IPPROTO_IPV6 &&
-                (option == IPV6_MULTICAST_IF_ || option == IPV6_ADD_MEMBERSHIP_ ||
-                 option == IPV6_DROP_MEMBERSHIP_))) {
+    // Group membership: this used to be an unconditional no-op (see git
+    // blame), which kept systemd-resolved's per-link LLMNR/mDNS scope setup
+    // from failing and cascading into total DNS breakage -- but it also
+    // meant NO guest program's multicast group join ever reached the real
+    // host socket, so anything that needs to RECEIVE multicast (avahi/mDNS,
+    // SSDP/UPnP discovery, ...) silently got nothing. Actually join now.
+    //
+    // Linux's IP_ADD_MEMBERSHIP/IP_DROP_MEMBERSHIP accept two struct shapes
+    // keyed off optlen: the plain 8-byte ip_mreq (imr_multiaddr +
+    // imr_interface, both struct in_addr) or the 12-byte ip_mreqn (same two
+    // fields plus a trailing imr_ifindex). Darwin's ip_mreq is always the
+    // 8-byte shape with no ifindex field, so both guest shapes translate by
+    // just taking their first 8 bytes; a guest that selected the interface
+    // by ifindex (imr_interface == INADDR_ANY, imr_ifindex != 0) degrades to
+    // Darwin picking a default multicast-capable interface, matching this
+    // function's existing best-effort stance elsewhere.
+    if (level == IPPROTO_IP &&
+            (option == IP_ADD_MEMBERSHIP_ || option == IP_DROP_MEMBERSHIP_)) {
+        if (value_len != 8 && value_len != 12)
+            return _EINVAL;
+        struct ip_mreq host_mreq;
+        memcpy(&host_mreq.imr_multiaddr, value, sizeof(host_mreq.imr_multiaddr));
+        memcpy(&host_mreq.imr_interface, value + 4, sizeof(host_mreq.imr_interface));
+        int real_opt = option == IP_ADD_MEMBERSHIP_ ? IP_ADD_MEMBERSHIP : IP_DROP_MEMBERSHIP;
+        if (setsockopt(sock->real_fd, IPPROTO_IP, real_opt, &host_mreq, sizeof(host_mreq)) < 0)
+            return errno_map();
+        return 0;
+    }
+    // Linux's ipv6_mreq (in6_addr + int ipv6mr_ifindex) and Darwin's
+    // (in6_addr + unsigned int ipv6mr_interface) share an identical 20-byte
+    // layout on every guest ABI this project supports (all little-endian,
+    // no struct padding before either trailing 4-byte field), so this one
+    // needs no field-by-field translation -- unlike the IPv4 case above,
+    // where Darwin lacks the ifindex field entirely.
+    if (level == IPPROTO_IPV6 &&
+            (option == IPV6_ADD_MEMBERSHIP_ || option == IPV6_DROP_MEMBERSHIP_)) {
+        if (value_len != sizeof(struct ipv6_mreq))
+            return _EINVAL;
+        struct ipv6_mreq host_mreq;
+        memcpy(&host_mreq, value, sizeof(host_mreq));
+        int real_opt = option == IPV6_ADD_MEMBERSHIP_ ? IPV6_JOIN_GROUP : IPV6_LEAVE_GROUP;
+        if (setsockopt(sock->real_fd, IPPROTO_IPV6, real_opt, &host_mreq, sizeof(host_mreq)) < 0)
+            return errno_map();
+        return 0;
+    }
+    // Outbound-interface selection (not membership): Linux specifies this by
+    // ip_mreqn.imr_ifindex or a local address, but the guest's view of
+    // "which interface" doesn't correspond to anything meaningful in iSH's
+    // single shared-host-interface model. Remain a no-op and let the OS pick
+    // a default interface for outbound multicast sends.
+    if ((level == IPPROTO_IP && option == IP_MULTICAST_IF_) ||
+            (level == IPPROTO_IPV6 && option == IPV6_MULTICAST_IF_)) {
         return 0;
     }
 
