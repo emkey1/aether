@@ -1,0 +1,179 @@
+# Pixman Composite Accelerator (Paravirt Provider) — Implementation Plan
+
+Status: PLANNED (scoped 2026-07-23). Owner: unassigned. Companion plan:
+`jit_code_cache_plan.md` (cold start; this plan is steady-state rendering).
+Direct precedent: the ChaCha20 crypto accelerator (kernel/ish_accel.c +
+kernel/ish_accel_crypto.c + opt/AOK/crypto/ish_provider.c) — same
+architecture, same lessons apply.
+
+## 1. Problem and evidence
+
+The Wayland desktop's steady-state pipeline is software rendering all the way
+down, all under JIT emulation:
+
+    GTK/cairo raster (pixman) → wl_shm buffer → labwc composite
+    (wlroots *pixman renderer*) → wayvnc framebuffer capture → RFB → applet
+
+Every stage above the RFB link runs emulated scalar ARM code. The crypto work
+proved the paravirt-provider pattern: a guest-side shim routes a hot,
+well-specified operation through a private syscall to host-native code —
+version-independent, whole-operation coverage, measured 15–19x for ChaCha20
+(vs fingerprint-HLE which was rejected for crypto and measured near-neutral
+on real workloads generally).
+
+pixman is the single best target because BOTH heavy stages (cairo raster and
+labwc/wlroots composition) sit on the same small public API of `libpixman-1`,
+which both link dynamically on Arch and Devuan → one interposable seam
+accelerates the whole desktop's pixel movement.
+
+Unlike OpenSSL, pixman has NO provider/plugin API. Delivery is therefore an
+`LD_PRELOAD` shim interposing pixman's public entry points, falling back to
+the real library (`dlopen`/`dlsym(RTLD_NEXT)`) for anything not covered.
+
+## 2. Hypercall interface (host side)
+
+New op family alongside the crypto accelerator, same dispatch style
+(calls.c intercepts the number BEFORE the syscall-table range check):
+
+- `ISH_SYS_PIXOP` = 0xacc1, arg = guest pointer to `struct ish_pix_req`:
+  - `op`: PIX_FILL, PIX_COPY (SRC), PIX_OVER (premultiplied OVER),
+    PIX_OVER_MASK_A8 (OVER with an a8 mask — the glyph-blit shape) — v1 set.
+  - per-surface descriptors (dst, src, mask): guest base pointer, stride
+    (bytes, may be negative), format code (a8r8g8b8 / x8r8g8b8 / a8 for v1),
+    width/height.
+  - a box list (guest pointer + count) — one hypercall per composite call,
+    batched over all boxes/rows, to amortize dispatch (crypto lesson:
+    per-byte copy costs dominate before dispatch does; still, don't call per
+    box).
+  - `flags`: PROBE (feature/self-test query — the shim uses this to decide
+    whether to activate, mirroring the crypto provider's decline path).
+- Implementation `kernel/ish_accel_pix.c`:
+  - direct guest-page access, NO bounce buffers — generalize
+    `user_transform_two()` (kernel/user.c) to resolve dst (MEM_WRITE, COW
+    honored) + up to two RO sources per row-span; rows are guest-contiguous so
+    the walk is per-row per-page-span, same lockstep discipline as crypto
+    (never hold a resolved pointer across the next mem_ptr).
+  - pixel kernels in portable C, compiled -O2 (clang autovectorizes these
+    trivially on arm64 host; measure before reaching for vImage/Accelerate —
+    the crypto experience says plain -O2 C at direct pointers is already
+    hundreds of MB/s, and vImage adds format-conversion constraints).
+  - gated `doEnablePixAccel`, default OFF; `ISH_PIX_ACCEL=1` on CLI; lazy
+    self-test (render a reference vector set and memcmp against baked-in
+    expected output) exactly like the crypto selftest gate.
+  - CRITICAL correctness rule: bit-exactness vs pixman for the covered ops.
+    OVER/premultiply in pixman is defined on 8-bit lanes with exact rounding
+    ((a*b + 127)/255 style); replicate pixman's arithmetic precisely, verified
+    by differential tests, or decline the op. No "close enough" rendering —
+    wayvnc damage tracking and user expectations both want determinism.
+
+## 3. Guest shim (delivery)
+
+`opt/AOK/pixman/ish_pixman_shim.c` → `libish-pixman.so` (per guest arch,
+built in-guest by `build-shim.sh`, packaged like opt/AOK/crypto):
+
+- Interposes (v1): `pixman_image_composite32`, `pixman_fill`, `pixman_blt`,
+  `pixman_image_fill_boxes`/`fill_rectangles`.
+- Uses only pixman PUBLIC accessors to inspect images
+  (`pixman_image_get_format/data/stride/width/height`, repeat/transform/
+  filter/alpha-map/clip queries). Accelerate only when: op ∈ {SRC, OVER},
+  formats ∈ v1 set, no transform, no filter beyond nearest-identity, normal
+  repeat=NONE, no alpha map, no component alpha, clip region representable as
+  the box list. EVERYTHING else → `real_pixman_image_composite32(...)` via
+  `dlsym(RTLD_NEXT)` — behavior identical to no shim.
+- Probes `ISH_SYS_PIXOP` once at load; on ENOSYS/failed probe the shim
+  permanently passes through (safe on stock iSH, real Linux, or accel-off).
+- `ISH_PIXMAN_STATS=1`: per-op accelerated/declined counters + decline
+  reasons dumped at exit — this drives v2 coverage the same way the HLE
+  near-miss tracer was supposed to (but with exact call shapes, not
+  prologues).
+- Wiring: `start-wayland.sh` exports
+  `LD_PRELOAD=/AOK/pixman/$(uname -m)/libish-pixman.so` when the file exists
+  and a probe helper succeeds (tiny `/AOK/pixman/probe` binary, same pattern
+  as the crypto provider's decline). Session-scoped only — never a global
+  ld.so.preload, so a broken shim can't take out the whole guest; Reconnect
+  with the toggle off gives a clean rollback.
+
+## 4. Where the wins should land (validate in Phase 0)
+
+- labwc composition: every damaged frame is OVER/SRC of window surfaces onto
+  the output buffer (wlroots pixman renderer) — full-frame-scale pixel work
+  at up to 60 Hz during drags/typing.
+- cairo in GTK apps: widget fills, box blits, a8 glyph masks — exactly
+  PIX_FILL/PIX_COPY/PIX_OVER_MASK_A8.
+- foot is NOT pixman-based (its own renderer) — terminal-only sessions won't
+  move; the target metric is GTK app interaction + window drag smoothness.
+- wayvnc capture is memcpy-shaped (already partially HLE-able) — out of scope
+  here, but the same 0xacc1 op family leaves room for a PIX_COPY-based
+  fast path later if Phase 0 shows it matters.
+
+## 5. Phases
+
+### Phase 0 — profile the pipeline (1–2 days)
+On-device (or CLI + VNC harness, which this session already built —
+`rfb_drive.py` in the transcript): drive a window drag and a GTK redraw loop
+while sampling the emulator host-side (`sample`/Instruments on Mac;
+thread-name attribution of guest tasks) + guest `/proc/<pid>/stat` deltas for
+labwc vs app vs wayvnc. Deliver: % of interactive-load CPU inside
+pixman-shaped work per process. GO gate: labwc+app pixel work ≥ ~40% of
+interactive load. Also microbench: guest pixman OVER of a 1280x720 frame
+(cairo perf-like loop) emulated vs host -O2 C — sets the expected multiple.
+
+### Phase 1 — host core + syscall + differential harness (1 week)
+`ish_accel_pix.c` kernels (FILL/COPY/OVER/OVER_MASK_A8) + `ISH_SYS_PIXOP`
+glue + selftest. Test `tests/manual/pixman_accel.c` (guest): generates
+randomized surfaces/boxes (incl. negative strides, page-straddling rows,
+overlapping src/dst for COPY — define as decline, pixman does), runs each op
+BOTH via hypercall and via the guest's real libpixman, memcmp — 0 mismatches
+over thousands of cases, both arches. This is the crypto differential
+methodology transplanted.
+
+### Phase 2 — shim + session wiring (1 week)
+Shim + build script + packaging via fs/aok-tools-style manifest;
+start-wayland.sh preload wiring + probe; STATS counters. Validation: full
+desktop session on CLI harness with shim on — pixel-identical screenshots
+(rfb_drive) for a scripted scene vs shim off; then labwc/GTK interaction
+soak. Measure: window-drag frame rate over VNC + avahi-discover/bssh redraw
+latency, shim on vs off, CLI and device.
+
+### Phase 3 — device productization (0.5–1 week)
+App Settings toggle (`doEnablePixAccel` + preference, default OFF; mirrors
+the crypto/HLE cells), per-arch shim builds staged into the rootfs prep,
+device measurement on the iPad (the real target: drag smoothness at 1280x720
+on A10X), memory-of-record + release-notes entry.
+
+### v2 candidates (driven by STATS decline data)
+Nearest/bilinear scaled blits (media viewers), repeat=NORMAL patterns,
+x8r8g8b8↔a8r8g8b8 conversion, wayvnc capture copies, a 16-bit lane OVER for
+r5g6b5 if any surface actually uses it.
+
+## 6. Risks
+- **Coverage cliff**: if real traffic is mostly transformed/filtered
+  composites, v1 declines everything and wins nothing — Phase 0's microbench
+  plus Phase 2's STATS output make this visible early; v1's op set was chosen
+  from what cairo/wlroots actually emit for untransformed UI.
+- **Bit-exactness of OVER**: pixman's rounding must be replicated exactly;
+  the differential harness is the enforcement. Any op that can't be made
+  bit-exact gets declined, not approximated.
+- **LD_PRELOAD fragility**: scoped to the Wayland session env only; probe
+  fails closed; `dlsym(RTLD_NEXT)` fallback keeps ABI identical. Static
+  pixman (rare; Alpine builds link dynamically too) simply never hits the
+  shim.
+- **Hypercall overhead on small ops**: batch boxes per call; decline
+  composites under a size floor (e.g. <1–2 K pixels) where emulated code is
+  already fine — tune with STATS + the Phase 0 microbench.
+- **Security surface**: the request struct is guest-controlled — validate
+  every stride/extent against the mapped region via the user_transform walk
+  (which inherently faults cleanly on bad guest pointers), reject negative
+  areas/overflow (64-bit math, explicit caps), and keep the kernels
+  branch-simple. Same review bar as the crypto accelerator.
+
+## 7. Effort
+~3 weeks end-to-end. Phases 0–1 (~1 week) produce the decisive data and a
+tested host core before any guest-visible integration exists.
+
+## 8. Sequencing vs the code cache
+Independent codebases (kernel/user.c + a new accel file vs jit/gen.c), so they
+can proceed in parallel. If serialized: run BOTH Phase 0 measurements first
+(2–3 days total) and let the numbers pick the first build-out — cold start
+(code cache) and interactive feel (pixman) are different user-visible pains;
+the Wayland experience needs the second one more once sessions are long-lived.
