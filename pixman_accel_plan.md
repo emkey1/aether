@@ -1,8 +1,62 @@
 # Pixman Composite Accelerator (Paravirt Provider) — Implementation Plan
 
-Status: PLANNED (scoped 2026-07-23). Owner: unassigned. Companion plan:
-`jit_code_cache_plan.md` (cold start; this plan is steady-state rendering).
+Status: **PHASE 0 + PHASE 1 DONE (2026-07-23), commit b2c97524.** Phase 2
+(guest-side LD_PRELOAD shim) not yet started. Owner: unassigned. Companion
+plan: `jit_code_cache_plan.md` (cold start; NO-GO, unaffected by this plan).
 Direct precedent: the ChaCha20 crypto accelerator (kernel/ish_accel.c +
+
+## 0. Progress so far
+
+**Phase 0 (profiling):** built an LD_PRELOAD profiling-only shim
+(scratchpad, not committed -- read-only wall-time instrumentation around
+pixman's 4 public entry points) and a GTK3 redraw-loop benchmark (labwc +
+a `Gtk.DrawingArea` doing translucent-rectangle + text redraws at ~60fps
+target). Measured, 3 runs, on the local Arch aarch64 CLI guest: labwc +
+the GTK app spend **~23.5% of the interactive redraw window's wall time
+inside raw pixman calls** (~1.44s of 6.13s). Well above a working "is this
+worth it" bar, though below the plan's originally-guessed 40% -- treated as
+a clear GO given the precedent (crypto accel got 15-19x on a similarly-
+sized share of ssh/scp time).
+
+**Phase 1 (host core + differential harness): DONE, commit b2c97524.**
+- `kernel/user.c`: `user_transform_rect` / `user_transform_rect_two`, new
+  direct-host-pointer primitives generalizing `user_transform_two` from one
+  linear buffer to a strided 2D sub-rectangle (declared in `kernel/calls.h`).
+- `kernel/ish_accel_pix.h` / `ish_accel_pix_kernels.c`: pure pixel kernels
+  (FILL/COPY/OVER) operating on already-resolved host pointers.
+- `kernel/ish_accel_pix.c`: guest ABI (`struct ish_pix_req`), self-test-gated
+  enable (`doEnablePixAccel`, `ISH_PIX_ACCEL=1`), decline logic (self-overlap,
+  oversized, misaligned stride/base).
+- `ISH_SYS_PIXOP = 0xacc1` wired into `kernel/calls.c` (both the dispatch
+  switch AND the arm64/riscv64 range-check bypass gate -- missing the
+  second one initially caused a `SIGSYS`, first bug found).
+- OVER's blend arithmetic (premultiplied, saturating per-channel add,
+  fast divide-by-255) was independently validated against real pixman
+  *before* being written into the kernel (mint oracle, 200,125 cases, 0
+  mismatches) -- caught that a naive non-saturating formula is wrong for
+  malformed/non-premultiplied test inputs.
+- `tests/manual/pixman_accel.c`: differential test, dlopen's real pixman
+  as the oracle (SKIPs cleanly without it), covers FILL/COPY/OVER across
+  tight/offset/padded/multi-page/full-1280x720-frame geometries + 30
+  random-fuzz cases + the 3 decline paths. PASSES through the actual
+  `setup-regressions.sh` harness. Two harness-only bugs were found and
+  fixed during validation (both in the TEST, not the kernel -- confirmed
+  by direct-syscall debugging before assuming otherwise): a hand-typed
+  self-test expected value was arithmetically wrong, and the test's
+  hand-derived `PIXMAN_a8r8g8b8`/`PIXMAN_x8r8g8b8` format constants had
+  the wrong `bpp` field (32 bits, not 4 bytes) -- verified the correct
+  values (`0x20028888`/`0x20020888`) against real pixman.h before fixing.
+- Full existing regression suite reruns clean with the accelerator off
+  (default): zero regressions from the new primitives/dispatch gate.
+- Also confirmed empirically (not assumed) before writing the kernel:
+  `pixman_fill`'s `_xor` parameter is a plain overwrite, not a real XOR;
+  its `stride` parameter is in 32-bit WORDS while `pixman_image_create_
+  bits`'s `stride` is in BYTES -- two different unit conventions in the
+  same library, verified separately on the mint oracle.
+
+**NEXT: Phase 2** (guest-side LD_PRELOAD shim, `opt/AOK/pixman/`) -- not
+started. The host core is proven correct; what's left is delivery.
+
 kernel/ish_accel_crypto.c + opt/AOK/crypto/ish_provider.c) — same
 architecture, same lessons apply.
 
