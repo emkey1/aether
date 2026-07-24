@@ -290,6 +290,109 @@ int user_transform_two(guest_addr_t in, guest_addr_t out, size_t count,
     return res;
 }
 
+// One-image rectangular direct-pointer walk (kernel/ish_accel_pix.c's FILL
+// kernel): calls fn(host, pixels, ctx) for each contiguous host span within
+// a [x, x+width) x [y, y+height) sub-rectangle of a linear image with the
+// given byte stride and bpp. Generalizes user_transform_two/user_read_walk
+// from a single linear buffer to a 2D strided one -- each row is walked
+// left to right, re-resolving a host pointer at every page boundary the row
+// crosses (a row can span several host pages; consecutive guest pages are
+// not guaranteed host-contiguous). bpp must evenly divide the host page
+// size's relationship to the row's byte alignment -- callers only ever pass
+// bpp values (4 for a8r8g8b8/x8r8g8b8) that keep every pixel's byte range
+// inside a single page as long as `base` and `stride` are bpp-aligned
+// (always true for real wl_shm/cairo surfaces); span==0 below is the decline
+// signal for a caller that violated that assumption, treated as EFAULT
+// rather than ever emitting a torn pixel.
+int user_transform_rect(guest_addr_t base, uint32_t stride, uint32_t bpp,
+        int32_t x, int32_t y, uint32_t width, uint32_t height, int prot,
+        void (*fn)(void *host, uint32_t pixels, void *ctx), void *ctx) {
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return 1;
+    int res = 0;
+    // Conservative single bounds check covering the whole rectangle's real
+    // backing (every row of the rect lies within this linear span, since
+    // width*bpp <= stride for any real sub-rect of an image) -- mirrors
+    // user_transform_two's up-front user_range_valid_mem call. Individual
+    // mem_ptr resolves below are the actual per-page enforcement.
+    if (!user_range_valid_mem(current, mem,
+            base + (qword_t) y * stride + (qword_t) x * bpp, (size_t) height * stride))
+        res = 1;
+    for (uint32_t row = 0; res == 0 && row < height; row++) {
+        uint32_t remaining = width;
+        int32_t cx = x;
+        while (remaining > 0) {
+            guest_addr_t addr = (guest_addr_t) (base + (qword_t) (y + row) * stride + (qword_t) cx * bpp);
+            qword_t page_end = ((qword_t) PAGE(addr) + 1) << PAGE_BITS;
+            uint32_t max_pixels = (uint32_t) ((page_end - addr) / bpp);
+            uint32_t span = remaining < max_pixels ? remaining : max_pixels;
+            if (span == 0) { res = 1; break; }
+            void *host = mem_ptr(mem, addr, prot);
+            if (host == NULL) { res = 1; break; }
+            fn(host, span, ctx);
+            cx += (int32_t) span;
+            remaining -= span;
+        }
+    }
+    task_mem_read_unlock(&handle);
+    return res;
+}
+
+// Two-image rectangular direct-pointer walk (kernel/ish_accel_pix.c's COPY/
+// OVER kernels): same per-row/per-page-span discipline as
+// user_transform_rect, but resolves a DESTINATION and SOURCE sub-rectangle
+// in lockstep, each span bounded by BOTH images' independent page grids (a
+// dst page boundary and a src page boundary at different guest addresses
+// don't line up in general). Per span, the write pointer is resolved before
+// the read pointer -- same COW-safety ordering user_transform_two documents
+// -- and neither pointer is held across the next span's resolve. The
+// caller must have already declined self-overlapping src==dst regions
+// (this walk has no memmove-direction logic); it only ever does the
+// requested op forward, left-to-right, top-to-bottom.
+int user_transform_rect_two(
+        guest_addr_t dst_base, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        guest_addr_t src_base, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        uint32_t bpp, uint32_t width, uint32_t height,
+        void (*fn)(const void *src_host, void *dst_host, uint32_t pixels, void *ctx),
+        void *ctx) {
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return 1;
+    int res = 0;
+    if (!user_range_valid_mem(current, mem,
+                dst_base + (qword_t) dst_y * dst_stride + (qword_t) dst_x * bpp, (size_t) height * dst_stride) ||
+            !user_range_valid_mem(current, mem,
+                src_base + (qword_t) src_y * src_stride + (qword_t) src_x * bpp, (size_t) height * src_stride))
+        res = 1;
+    for (uint32_t row = 0; res == 0 && row < height; row++) {
+        uint32_t remaining = width;
+        int32_t dcx = dst_x, scx = src_x;
+        while (remaining > 0) {
+            guest_addr_t daddr = (guest_addr_t) (dst_base + (qword_t) (dst_y + row) * dst_stride + (qword_t) dcx * bpp);
+            guest_addr_t saddr = (guest_addr_t) (src_base + (qword_t) (src_y + row) * src_stride + (qword_t) scx * bpp);
+            qword_t d_page_end = ((qword_t) PAGE(daddr) + 1) << PAGE_BITS;
+            qword_t s_page_end = ((qword_t) PAGE(saddr) + 1) << PAGE_BITS;
+            uint32_t d_max = (uint32_t) ((d_page_end - daddr) / bpp);
+            uint32_t s_max = (uint32_t) ((s_page_end - saddr) / bpp);
+            uint32_t span = remaining;
+            if (span > d_max) span = d_max;
+            if (span > s_max) span = s_max;
+            if (span == 0) { res = 1; break; }
+            void *dst_host = mem_ptr(mem, daddr, MEM_WRITE); // resolve write first (COW ordering)
+            const void *src_host = dst_host != NULL ? mem_ptr(mem, saddr, MEM_READ) : NULL;
+            if (dst_host == NULL || src_host == NULL) { res = 1; break; }
+            fn(src_host, dst_host, span, ctx);
+            dcx += (int32_t) span; scx += (int32_t) span;
+            remaining -= span;
+        }
+    }
+    task_mem_read_unlock(&handle);
+    return res;
+}
+
 int user_write_task_ptrace(struct task *task, guest_addr_t addr, const void *buf, size_t count) {
     struct task_mem_read_handle handle;
     struct mem *mem = task_mem_read_lock(task, &handle);

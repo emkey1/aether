@@ -1,0 +1,269 @@
+// Differential test for the iSH pixman accelerator (ISH_SYS_PIXOP syscall,
+// kernel/ish_accel_pix.c): every FILL/COPY/OVER result the accelerator
+// produces must be bit-identical to real pixman's own composite/fill, or
+// the accelerator must decline (a negative errno) rather than approximate.
+// Oracle is dlopen'd (not linked) so this test SKIPs cleanly on a rootfs
+// with no libpixman-1 installed, instead of failing to build/run.
+//
+// Requires ISH_PIX_ACCEL=1 (and a build with the accelerator compiled in);
+// SKIPs if the accelerator syscall reports unavailable, same convention as
+// ambient_caps.c/chroot_getcwd.c's privilege-gated SKIPs.
+#define _GNU_SOURCE
+#include <dlfcn.h>
+#include <stdint.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <sys/mman.h>
+#include <unistd.h>
+
+#include "test_common.h"
+
+extern long syscall(long, ...);
+#define ISH_SYS_PIXOP 0xacc1
+
+enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2 };
+enum { PIX_FLAG_SRC_OPAQUE = 1u << 0 };
+
+struct ish_pix_req {
+    uint32_t op, flags;
+    uint64_t dst, src;
+    uint32_t dst_stride, src_stride;
+    int32_t dst_x, dst_y;
+    int32_t src_x, src_y;
+    uint32_t width, height;
+    uint32_t fill_pixel;
+};
+
+static long pixop(uint32_t op, uint32_t flags,
+        void *dst, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        void *src, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        uint32_t width, uint32_t height, uint32_t fill_pixel) {
+    struct ish_pix_req r = {
+        .op = op, .flags = flags,
+        .dst = (uint64_t) (uintptr_t) dst, .src = (uint64_t) (uintptr_t) src,
+        .dst_stride = dst_stride, .src_stride = src_stride,
+        .dst_x = dst_x, .dst_y = dst_y, .src_x = src_x, .src_y = src_y,
+        .width = width, .height = height, .fill_pixel = fill_pixel,
+    };
+    return syscall(ISH_SYS_PIXOP, &r);
+}
+
+// ---- pixman oracle, dlopen'd -----------------------------------------
+typedef int pixman_bool_t;
+typedef struct pixman_image pixman_image_t;
+typedef enum { PIXMAN_OP_SRC = 1, PIXMAN_OP_OVER = 3 } pixman_op_t;
+// Real pixman.h's pixman_format_code_t values, confirmed on-target (not
+// hand-derived from the PIXMAN_FORMAT macro pattern a second time -- that's
+// exactly how the first version of these two constants got the bpp field
+// wrong, 4 bytes instead of 32 bits, which silently fed pixman_image_create_
+// bits a bogus format and made the ORACLE wrong while this test kept
+// reporting the accelerator as broken. Printed via a tiny probe linked
+// against real pixman: PIXMAN_a8r8g8b8=0x20028888, PIXMAN_x8r8g8b8=0x20020888.
+#define PIXMAN_a8r8g8b8 0x20028888
+#define PIXMAN_x8r8g8b8 0x20020888
+
+static pixman_image_t *(*p_create_bits)(int, int, int, uint32_t *, int);
+static void (*p_composite32)(pixman_op_t, pixman_image_t *, pixman_image_t *, pixman_image_t *,
+        int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t);
+static pixman_bool_t (*p_fill)(uint32_t *, int, int, int, int, int, int, uint32_t);
+static pixman_bool_t (*p_unref)(pixman_image_t *);
+
+static int load_pixman(void) {
+    void *h = dlopen("libpixman-1.so.0", RTLD_NOW) ?: dlopen("libpixman-1.so", RTLD_NOW);
+    if (h == NULL)
+        return 0;
+    p_create_bits = (pixman_image_t *(*)(int, int, int, uint32_t *, int)) dlsym(h, "pixman_image_create_bits");
+    p_composite32 = (void (*)(pixman_op_t, pixman_image_t *, pixman_image_t *, pixman_image_t *,
+            int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t, int32_t)) dlsym(h, "pixman_image_composite32");
+    p_fill = (pixman_bool_t (*)(uint32_t *, int, int, int, int, int, int, uint32_t)) dlsym(h, "pixman_fill");
+    p_unref = (pixman_bool_t (*)(pixman_image_t *)) dlsym(h, "pixman_image_unref");
+    return p_create_bits && p_composite32 && p_fill && p_unref;
+}
+
+// oracle_fill: pixman_fill's stride parameter is in 32-bit WORDS, not bytes
+// (verified empirically against real pixman before this was written --
+// see pixman_accel_plan.md). Our own req struct's *_stride fields are
+// bytes throughout, so this wrapper is the one place that converts.
+static void oracle_fill(uint32_t *bits, uint32_t stride_bytes, int32_t x, int32_t y,
+        uint32_t width, uint32_t height, uint32_t value) {
+    p_fill(bits, (int) (stride_bytes / 4), 32, x, y, (int) width, (int) height, value);
+}
+
+static void oracle_composite(pixman_op_t op, uint32_t format,
+        uint32_t *dst, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        uint32_t src_format, uint32_t *src, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        uint32_t width, uint32_t height, uint32_t canvas_w, uint32_t canvas_h,
+        uint32_t src_canvas_w, uint32_t src_canvas_h) {
+    pixman_image_t *dimg = p_create_bits((int) format, (int) canvas_w, (int) canvas_h, dst, (int) dst_stride);
+    pixman_image_t *simg = p_create_bits((int) src_format, (int) src_canvas_w, (int) src_canvas_h, src, (int) src_stride);
+    p_composite32(op, simg, NULL, dimg, src_x, src_y, 0, 0, dst_x, dst_y, (int32_t) width, (int32_t) height);
+    p_unref(simg);
+    p_unref(dimg);
+}
+
+// ---- test harness ------------------------------------------------------
+static void check(int cond, const char *what) {
+    test_log_if(!cond, "%s: %s\n", cond ? "ok" : "FAIL", what);
+    if (!cond)
+        failures_total++;
+}
+
+static uint32_t rand_pixel(void) {
+    return ((uint32_t) rand() << 1) ^ (uint32_t) rand();
+}
+
+// A canvas with `pad` extra columns/rows beyond the tested rect, at a
+// deliberately non-zero (x,y) origin, so the accelerator's row/page walk
+// (kernel/user.c's user_transform_rect*) is exercised over real stride
+// padding and an offset origin, not just a tight 0,0 buffer.
+struct canvas {
+    uint32_t *bits;
+    uint32_t w, h, stride_bytes;
+};
+
+static struct canvas make_canvas(uint32_t w, uint32_t h) {
+    struct canvas c = { .w = w, .h = h, .stride_bytes = w * 4 };
+    // Round the whole allocation up to page multiples so a canvas can be
+    // deliberately made multi-page (exercises the per-row page-boundary
+    // resolve path, not just single-page rects).
+    size_t bytes = (size_t) c.stride_bytes * h;
+    c.bits = malloc(bytes);
+    for (size_t i = 0; i < bytes / 4; i++)
+        ((uint32_t *) c.bits)[i] = rand_pixel();
+    return c;
+}
+
+static void free_canvas(struct canvas *c) {
+    free(c->bits);
+    c->bits = NULL;
+}
+
+static void test_fill(uint32_t canvas_w, uint32_t canvas_h, int32_t x, int32_t y, uint32_t w, uint32_t h, uint32_t value) {
+    struct canvas accel = make_canvas(canvas_w, canvas_h);
+    struct canvas oracle = make_canvas(canvas_w, canvas_h);
+    memcpy(oracle.bits, accel.bits, (size_t) accel.stride_bytes * accel.h);
+
+    long ret = pixop(PIX_OP_FILL, 0, accel.bits, accel.stride_bytes, x, y,
+            NULL, 0, 0, 0, w, h, value);
+    oracle_fill(oracle.bits, oracle.stride_bytes, x, y, w, h, value);
+
+    char label[128];
+    snprintf(label, sizeof(label), "fill %ux%u@%d,%d in %ux%u canvas value=%08x",
+            w, h, x, y, canvas_w, canvas_h, value);
+    check(ret == 0, label);
+    check(memcmp(accel.bits, oracle.bits, (size_t) accel.stride_bytes * accel.h) == 0, label);
+
+    free_canvas(&accel);
+    free_canvas(&oracle);
+}
+
+static void test_composite(uint32_t op, int src_opaque,
+        uint32_t dst_canvas_w, uint32_t dst_canvas_h, int32_t dst_x, int32_t dst_y,
+        uint32_t src_canvas_w, uint32_t src_canvas_h, int32_t src_x, int32_t src_y,
+        uint32_t w, uint32_t h) {
+    struct canvas dst_accel = make_canvas(dst_canvas_w, dst_canvas_h);
+    struct canvas src = make_canvas(src_canvas_w, src_canvas_h);
+    struct canvas dst_oracle = make_canvas(dst_canvas_w, dst_canvas_h);
+    memcpy(dst_oracle.bits, dst_accel.bits, (size_t) dst_accel.stride_bytes * dst_accel.h);
+
+    uint32_t flags = src_opaque ? PIX_FLAG_SRC_OPAQUE : 0;
+    long ret = pixop(op == PIXMAN_OP_SRC ? PIX_OP_COPY : PIX_OP_OVER, flags,
+            dst_accel.bits, dst_accel.stride_bytes, dst_x, dst_y,
+            src.bits, src.stride_bytes, src_x, src_y, w, h, 0);
+
+    uint32_t src_format = src_opaque ? PIXMAN_x8r8g8b8 : PIXMAN_a8r8g8b8;
+    oracle_composite((pixman_op_t) op, PIXMAN_a8r8g8b8,
+            dst_oracle.bits, dst_oracle.stride_bytes, dst_x, dst_y,
+            src_format, src.bits, src.stride_bytes, src_x, src_y,
+            w, h, dst_canvas_w, dst_canvas_h, src_canvas_w, src_canvas_h);
+
+    char label[160];
+    snprintf(label, sizeof(label),
+            "%s %ux%u dst@%d,%d(%ux%u) src@%d,%d(%ux%u) opaque=%d",
+            op == PIXMAN_OP_SRC ? "copy" : "over", w, h, dst_x, dst_y, dst_canvas_w, dst_canvas_h,
+            src_x, src_y, src_canvas_w, src_canvas_h, src_opaque);
+    check(ret == 0, label);
+    check(memcmp(dst_accel.bits, dst_oracle.bits, (size_t) dst_accel.stride_bytes * dst_accel.h) == 0, label);
+
+    free_canvas(&dst_accel);
+    free_canvas(&src);
+    free_canvas(&dst_oracle);
+}
+
+int main(int argc, char **argv) {
+    test_init(argc, argv);
+    alarm(test_watchdog_secs(60));
+    srand(0xC0FFEE);
+
+    long probe = pixop(PIX_OP_FILL, 0, NULL, 4, 0, 0, NULL, 0, 0, 0, 0, 0, 0);
+    if (probe != 0) {
+        printf("pixman_accel: SKIP (accelerator unavailable, syscall ret %ld -- "
+               "need a build with the accelerator + ISH_PIX_ACCEL=1)\n", probe);
+        return 0;
+    }
+    if (!load_pixman()) {
+        printf("pixman_accel: SKIP (libpixman-1 not found on this rootfs)\n");
+        return 0;
+    }
+
+    // FILL: small tight rect, padded canvas with offset origin, multi-page
+    // canvas (large enough that several rows individually span >1 host
+    // page), edge values (0x00000000, 0xffffffff), 1x1 degenerate rect.
+    test_fill(4, 4, 0, 0, 4, 4, 0x11223344u);
+    test_fill(16, 16, 3, 2, 5, 6, 0xffffffffu);
+    test_fill(16, 16, 3, 2, 5, 6, 0x00000000u);
+    test_fill(2000, 600, 17, 11, 1900, 500, 0xdeadbeefu); // several MB, many pages/rows
+    test_fill(8, 8, 0, 0, 1, 1, 0xaabbccddu);
+
+    // COPY (SRC): tight, offset+padded, cross-page, format-irrelevant (COPY
+    // is purely mechanical so src_opaque doesn't change its behavior --
+    // exercised once for completeness, real semantic variation is OVER's).
+    test_composite(PIXMAN_OP_SRC, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_SRC, 0, 20, 20, 4, 3, 20, 20, 2, 5, 10, 9);
+    test_composite(PIXMAN_OP_SRC, 0, 1500, 400, 13, 27, 1500, 400, 5, 9, 1400, 350);
+
+    // OVER: both src formats (real alpha, and forced-opaque), tight and
+    // offset+padded and cross-page geometries, and a run of purely random
+    // pixel data (the differential fuzz -- canvases are already randomly
+    // initialized by make_canvas, so this IS that fuzz for every case above
+    // too; these two extra rounds add larger random rects specifically).
+    test_composite(PIXMAN_OP_OVER, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite(PIXMAN_OP_OVER, 0, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
+    test_composite(PIXMAN_OP_OVER, 1, 24, 24, 5, 4, 24, 24, 3, 2, 12, 11);
+    test_composite(PIXMAN_OP_OVER, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720); // full HD-ish frame
+    for (int i = 0; i < 30; i++) {
+        uint32_t w = 1 + (unsigned) rand() % 300, h = 1 + (unsigned) rand() % 300;
+        uint32_t cw = w + 1 + (unsigned) rand() % 50, ch = h + 1 + (unsigned) rand() % 50;
+        int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
+        int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
+        test_composite(PIXMAN_OP_OVER, rand() & 1, cw, ch, x, y, cw, ch, x, y, w, h);
+    }
+
+    // Self-overlap must be DECLINED (a negative return), never a wrong
+    // result: same buffer used as both src and dst with overlapping rects.
+    {
+        struct canvas c = make_canvas(16, 16);
+        long ret = pixop(PIX_OP_COPY, 0, c.bits, c.stride_bytes, 2, 2,
+                c.bits, c.stride_bytes, 0, 0, 8, 8, 0);
+        check(ret != 0, "self-overlapping copy is declined, not silently wrong");
+        free_canvas(&c);
+    }
+    // Oversized request must be DECLINED, not attempted.
+    {
+        long ret = pixop(PIX_OP_FILL, 0, (void *) 0x1000, 4, 0, 0, NULL, 0, 0, 0,
+                20000, 20000, 0); // 400M pixels, over ISH_PIX_MAX_PIXELS
+        check(ret != 0, "oversized request is declined");
+    }
+    // Misaligned stride must be DECLINED (never a torn pixel).
+    {
+        struct canvas c = make_canvas(8, 8);
+        long ret = pixop(PIX_OP_FILL, 0, c.bits, 3 /* not a multiple of 4 */, 0, 0,
+                NULL, 0, 0, 0, 2, 2, 0);
+        check(ret != 0, "misaligned stride is declined");
+        free_canvas(&c);
+    }
+
+    return finish_suite("pixman_accel");
+}

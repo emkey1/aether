@@ -74,6 +74,13 @@ Portable focused tests (all guest arches):
                        timerfd_settime resets the expiration counter (disarm/
                        re-arm clears poll/epoll readiness; libwayland timer-heap
                        pattern that spun labwc's event loop)
+  pixman_accel.c       ISH_SYS_PIXOP (0xacc1) pixman accelerator differential
+                       test: FILL/COPY/OVER bit-exact vs real pixman (dlopen'd
+                       oracle) across tight/offset/padded/multi-page/full-frame
+                       geometries + fuzz; decline paths (overlap, oversized,
+                       misaligned stride). SKIPs if no libpixman-1 on the
+                       rootfs, or if built/run without the accelerator (needs
+                       ISH_PIX_ACCEL=1)
   futex_core.c         FUTEX_WAIT/FUTEX_WAKE timeout, wake, and signal coverage
   process_lifecycle.c  fork/exec/vfork/wait and signal inheritance coverage
   pthread_sync.c       mutex/condvar/rwlock/timed wait and pthread_once coverage

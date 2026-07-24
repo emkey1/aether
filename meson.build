@@ -221,6 +221,8 @@ if get_option('kernel') == 'ish'
         'kernel/calls.c',
         'kernel/ish_accel_crypto.c',
         'kernel/ish_accel.c',
+        'kernel/ish_accel_pix.c',
+        'kernel/ish_accel_pix_kernels.c',
         'kernel/user.c',
         'kernel/vdso.c', vdso,
         'kernel/task.c',

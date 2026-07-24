@@ -456,6 +456,21 @@ int user_transform_two(guest_addr_t in, guest_addr_t out, size_t count,
 int user_zero(guest_addr_t addr, size_t count);
 int user_read_walk(guest_addr_t addr, size_t count,
         void (*fn)(const void *host, size_t span, void *ctx), void *ctx);
+// Rectangular direct-host-pointer walks (kernel/user.c) -- generalize
+// user_transform_two/user_read_walk from one linear buffer to a strided 2D
+// sub-rectangle. Used by the pixman accelerator (kernel/ish_accel_pix.c).
+int user_transform_rect(guest_addr_t base, uint32_t stride, uint32_t bpp,
+        int32_t x, int32_t y, uint32_t width, uint32_t height, int prot,
+        void (*fn)(void *host, uint32_t pixels, void *ctx), void *ctx);
+int user_transform_rect_two(
+        guest_addr_t dst_base, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        guest_addr_t src_base, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        uint32_t bpp, uint32_t width, uint32_t height,
+        void (*fn)(const void *src_host, void *dst_host, uint32_t pixels, void *ctx),
+        void *ctx);
+// iSH pixman accelerator (kernel/ish_accel_pix.c). ISH_SYS_PIXOP = 0xacc1.
+dword_t sys_ish_pixop_guest(guest_addr_t req_addr);
+void ish_accel_pix_init(void);
 dword_t sys_chdir(addr_t path_addr);
 dword_t sys_chdir_guest(guest_addr_t path_addr);
 dword_t sys_chroot(addr_t path_addr);

@@ -35,12 +35,10 @@
 
 #include "test_common.h"
 
-static int failures;
-
 static void check(int cond, const char *what) {
     test_log_if(!cond, "%s: %s\n", cond ? "ok" : "FAIL", what);
     if (!cond)
-        failures++;
+        failures_total++;
 }
 
 static void sleep_ms(int ms) {
@@ -124,10 +122,5 @@ int main(int argc, char **argv) {
 
     close(ep);
     close(fd);
-    if (failures) {
-        printf("timerfd_settime_readiness: %d FAILURES\n", failures);
-        return 1;
-    }
-    printf("timerfd_settime_readiness: all checks passed\n");
-    return 0;
+    return finish_suite("timerfd_settime_readiness");
 }

@@ -299,6 +299,18 @@ int main(int argc, char *const argv[]) {
                 strcasecmp(ca, "no") != 0 && strcasecmp(ca, "off") != 0)
             doEnableCryptoAccel = true;
     }
+    // Pixman accelerator (kernel/ish_accel_pix.c): host-native FILL/COPY/OVER
+    // via ISH_SYS_PIXOP, consumed by the guest-side LD_PRELOAD pixman shim
+    // (opt/AOK/pixman/). Default OFF; ISH_PIX_ACCEL=1 enables it (only takes
+    // effect if its self-test passes).
+    ish_accel_pix_init();
+    {
+        extern bool doEnablePixAccel;
+        const char *pa = getenv("ISH_PIX_ACCEL");
+        if (pa != NULL && strcmp(pa, "0") != 0 && strcasecmp(pa, "false") != 0 &&
+                strcasecmp(pa, "no") != 0 && strcasecmp(pa, "off") != 0)
+            doEnablePixAccel = true;
+    }
     halt_hook = cli_halt;
     // hle_stats_dump runs from cli_halt, after guest teardown has closed the
     // (possibly shared) host stderr fd -- give it a private dup now.
