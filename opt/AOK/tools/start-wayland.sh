@@ -511,6 +511,24 @@ if [ "$COMPOSITOR_CMD" = "labwc" ] && [ ! -f "$HOME/.config/labwc/rc.xml" ]; the
   <theme>
     <name>iSH-Workspace</name>
   </theme>
+  <!-- labwc is a floating WM: a newly-mapped window opens at its own
+       preferred size wherever labwc's placement heuristic puts it, which for
+       foot is far smaller than the 1280x720 headless output. The applet's
+       DisplayRFBView stretches the WHOLE canvas (no letterboxing) to fill the
+       device screen, and its accessory key strip docks correctly to the true
+       bottom of that (real, native) screen, so any unmaximized desktop
+       space below/right of the actual window stretches right along with it,
+       showing up as a large gap between the window and the accessory bar
+       that has nothing to do with the bar's own position. Confirmed via a
+       live VNC screenshot (m4pt, 2026-07-24): foot occupied roughly half the
+       canvas with the rest as bare desktop. Maximizing every window on open
+       makes this a non-issue; matches the single-output, one-thing-at-a-time
+       way this headless session is actually used. -->
+  <windowRules>
+    <windowRule identifier="*">
+      <action name="Maximize"/>
+    </windowRule>
+  </windowRules>
   <keyboard>
     <keybind key="A-Return">
       <action name="Execute"><command>foot</command></action>
@@ -685,7 +703,15 @@ while true; do
     done
     [ "$foot_died" = 0 ] && break
 
-    [ "$foot_attempt" -ge 4 ] && die "foot kept exiting right after starting (attempt $foot_attempt) -- see $DEBUG_LOG"
+    # 4 attempts (the wayvnc loop's own budget) turned out not to be enough:
+    # on-device, a full cold boot's systemd/avahi/sshd/dbus-broker churn can
+    # keep colliding with this exact race for several seconds straight, and
+    # each failed attempt only costs the crash's own near-instant death time
+    # (well under the 2s watch window above) plus this backoff, so a much
+    # larger budget is cheap in the case that matters (still succeeds fast
+    # once the collision stops) and just means a slower failure in the case
+    # that doesn't.
+    [ "$foot_attempt" -ge 15 ] && die "foot kept exiting right after starting (attempt $foot_attempt) -- see $DEBUG_LOG"
     foot_attempt=$((foot_attempt + 1))
     sleep 0.3
 done
