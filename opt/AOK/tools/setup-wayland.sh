@@ -114,6 +114,45 @@ elif command -v apk >/dev/null 2>&1; then
         || note "warning: some of these failed to install -- Applications menu will just show whichever succeeded"
 fi
 
+# wayvnc -> neatvnc -> ffmpeg -> v4l-utils is a real dependency chain
+# (confirmed on-device via `pacman -Qi ffmpeg`/`v4l-utils`): installing
+# wayvnc above can transitively pull in v4l-utils, which ships two Qt6 GUI
+# tools (qv4l2, qvidcap) with their own .desktop files -- so they show up in
+# the Display applet's Applications menu (list-apps.sh) looking like normal
+# entries. Every distro's v4l-utils package lists Qt6 as only an OPTIONAL
+# dependency for those two tools specifically, so the package manager never
+# installs it automatically, and this headless setup has no Xwayland to fall
+# back on either -- without this, those two menu entries are silently broken
+# from a fresh install (dynamic linker error; no window, no visible error at
+# all, since their .desktop files set Terminal=false). Gated on qv4l2/
+# qvidcap actually being present so this doesn't pull in Qt6 on every guest
+# regardless of whether anything in the menu needs it.
+if command -v qv4l2 >/dev/null 2>&1 || command -v qvidcap >/dev/null 2>&1; then
+    QT_RUNTIME=""
+    if command -v apt-get >/dev/null 2>&1; then
+        # Debian/Devuan's qt6-wayland pulls in libqt6core6t64/gui/widgets etc.
+        # as real Depends (unlike Arch, there's no separate runtime metapackage).
+        QT_RUNTIME="qt6-wayland"
+    elif command -v pacman >/dev/null 2>&1; then
+        QT_RUNTIME="qt6-base qt6-5compat qt6-wayland"
+    elif command -v apk >/dev/null 2>&1; then
+        QT_RUNTIME="qt6-qtbase qt6-qtwayland"
+    fi
+    if [ -n "$QT_RUNTIME" ]; then
+        log "installing $QT_RUNTIME (best-effort) -- v4l-utils pulled in qv4l2/qvidcap, whose Qt6 runtime is only an optional dependency"
+        if command -v apt-get >/dev/null 2>&1; then
+            DEBIAN_FRONTEND=noninteractive apt-get install -y --no-install-recommends $QT_RUNTIME \
+                || note "warning: Qt6 runtime install failed -- qv4l2/qvidcap in the Applications menu will still be broken"
+        elif command -v pacman >/dev/null 2>&1; then
+            pacman -S --needed --noconfirm $QT_RUNTIME \
+                || note "warning: Qt6 runtime install failed -- qv4l2/qvidcap in the Applications menu will still be broken"
+        elif command -v apk >/dev/null 2>&1; then
+            apk add $QT_RUNTIME \
+                || note "warning: Qt6 runtime install failed -- qv4l2/qvidcap in the Applications menu will still be broken"
+        fi
+    fi
+fi
+
 # Best-effort, not required: the pixman accelerator (kernel/ish_accel_pix.c)
 # is an off-by-default host feature the emulator may not even have compiled
 # in (ISH_PIX_ACCEL / the app toggle) -- building this shim just makes
