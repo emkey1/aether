@@ -112,19 +112,56 @@ stats + differential-test evidence already available. If picked up later,
 worth a fresh look with a simpler test client (e.g. `foot` itself, whose
 real session already proved to composite correctly per labwc's stats).
 
+## v2 progress
+
+**Mask support (`OVER_MASK_A8`): DONE, commit db6c4d57.** New kernel op,
+`user_transform_rect_three` (three-image direct-pointer walk, mask at its
+own bpp=1), pixel kernel `ish_pix_over_mask_row` -- blend formula (scale
+src's premultiplied channels by mask_alpha/255, then ordinary OVER)
+independently validated against real pixman on mint FIRST (300,625 edge +
+random cases, 0 mismatches) before being written into the kernel. Shim's
+`pixman_image_composite32` now routes OVER-with-a8-mask through it,
+declining SRC-with-mask and any other op+mask combo (real pixman
+operations, just not yet differential-tested). Two more harness-only bugs
+found and fixed during validation (kernel correct throughout, confirmed
+via direct-syscall debugging before assuming otherwise): (1)
+`pixman_image_create_bits` requires EVERY stride to be a multiple of 4
+bytes, even for a8 (1 byte/pixel) images -- an unaligned mask stride
+doesn't error, it silently corrupts the image, which looked exactly like
+a kernel bug until traced down. (2) A hand-typed self-test expected value
+forgot every channel of premultiplied OVER blends identically, not just
+alpha. Full existing regression suite reruns clean (all archs).
+
+**KNOWN GAP surfaced by end-to-end testing**: re-ran the real
+start-wayland.sh session with mask support live -- labwc's own compositing
+still accelerates (3 composites + 31 fills), but **foot's masked glyph
+composites still decline**, via `decline-format` rather than accelerating.
+foot's terminal surface is very likely **x8r8g8b8** (opaque background,
+no real alpha channel needed for a terminal), and v1 only supports
+a8r8g8b8 as the DESTINATION format (x8r8g8b8 is only supported as a
+*source*, where "ignore the top byte" is unambiguous). Supporting
+x8r8g8b8-as-dst is deliberately still open -- it needs its exact quirks
+nailed down empirically first (does pixman write 0xff to an XRGB dst's
+top byte during a blend, leave it untouched, or blend it like any other
+channel with whatever garbage was already there?), the same "verify
+before implementing" discipline as every other part of this accelerator.
+**This, not more mask coverage, is now the highest-value next step** --
+it's specifically what would unlock real acceleration in foot, the
+single most mask-composite-heavy real client measured so far.
+
 ## NEXT (v2 candidates, ranked by ISH_PIXMAN_STATS decline frequency so far)
-1. **Mask support (`OVER_MASK_A8`)** -- the single biggest gap. cairo's font/
-   glyph rendering is mask-heavy (`decline-mask` was the top or near-top
-   decline reason in every run measured); a GTK-heavy redraw workload's
-   acceleration rate stays low until this lands. Needs a new kernel op
-   (three-image walk: dst + src + a8 mask) and a corresponding pixel kernel
-   validated the same way OVER was (differential vs real pixman on mint,
-   several hundred thousand cases, before writing into the kernel).
+1. **x8r8g8b8-as-dst support** -- see "KNOWN GAP" above. Highest value:
+   unlocks foot's actual glyph rendering, the biggest real workload
+   measured. Must empirically nail down XRGB-dst blend semantics on the
+   mint oracle before writing any kernel code, exactly like every other
+   formula in this project.
 2. `pixman_blt` and `pixman_image_fill_boxes`/`fill_rectangles` interposition
    (documented v1 scope cuts in the shim's own README).
-3. App Settings UI toggle for `ISH_PIX_ACCEL` (currently CLI/env-only,
+3. SRC-with-mask and other op+mask combinations (currently declined
+   unconditionally in the shim, pending their own differential validation).
+4. App Settings UI toggle for `ISH_PIX_ACCEL` (currently CLI/env-only,
    matching where the crypto accelerator and HLE toggles also started).
-4. Re-attempt the visual VNC sanity check with a simpler client once the
+5. Re-attempt the visual VNC sanity check with a simpler client once the
    blank-screenshot test-environment mystery above is understood.
 
 kernel/ish_accel_crypto.c + opt/AOK/crypto/ish_provider.c) — same
