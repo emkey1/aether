@@ -657,18 +657,38 @@ while true; do
     wayvnc_attempt=$((wayvnc_attempt + 1))
     sleep 0.3
 done
-log "starting foot"
-spawn_logged foot foot
-FOOT_PID=$SPAWN_PID
 # foot isn't load-bearing for the applet's own readiness (wayvnc is what the
-# bridge connects to), but a foot that dies immediately even at this
-# already-proven-ready point is a strong signal something is wrong with the
-# whole compositor session -- fail loudly instead of declaring ready into
-# an empty desktop. A brief settle sleep before checking, since `kill -0`
-# immediately after fork() would just prove foot forked, not that it's
-# still alive moments later.
-sleep 0.2
-kill -0 "$FOOT_PID" 2>/dev/null || die "foot exited immediately after starting -- see $DEBUG_LOG"
+# bridge connects to), so a foot that dies here leaves a perfectly "Connected"
+# session with a silently empty desktop -- no error anywhere, since wayvnc
+# already proved labwc's socket is live and accepting *a* client. Turns out
+# that's not proof labwc is ready for the *next* one: this is the exact same
+# "labwc accepted wayvnc's connection but isn't fully ready for a new
+# client's surface yet" race the wayvnc retry loop above was built for, just
+# narrower and easier to lose (observed on-device as an intermittent "no
+# terminal on startup" with labwc/wayvnc/avahi/sshd all otherwise healthy --
+# no foot thread AND no leftover tee reader for it, i.e. it started, emitted
+# some output, then fully exited moments later). The old check here was a
+# single 0.2s sleep + one kill -0, far too narrow a window to catch a death
+# that lands just after it. Give foot the same watch-then-retry treatment.
+foot_attempt=1
+while true; do
+    log "starting foot (attempt $foot_attempt)"
+    spawn_logged "foot-attempt$foot_attempt" foot
+    FOOT_PID=$SPAWN_PID
+
+    i=0
+    foot_died=0
+    while [ $i -lt 20 ]; do
+        kill -0 "$FOOT_PID" 2>/dev/null || { foot_died=1; break; }
+        i=$((i + 1))
+        sleep 0.1
+    done
+    [ "$foot_died" = 0 ] && break
+
+    [ "$foot_attempt" -ge 4 ] && die "foot kept exiting right after starting (attempt $foot_attempt) -- see $DEBUG_LOG"
+    foot_attempt=$((foot_attempt + 1))
+    sleep 0.3
+done
 
 echo "READY $WAYVNC_PORT"
 # The applet's whole handshake is this file appearing; if the write fails
