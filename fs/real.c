@@ -47,6 +47,39 @@ static bool realfs_guest_signal_pending(void) {
     return signal_pending;
 }
 
+// Diagnostic for realfs_wait_readable/writable's EINTR paths, added while
+// root-causing the foot slave.c:551 crash (2026-07-24): every occurrence
+// there was a spuriously-EINTR'd sigunwind_start() wake with the signal
+// actually BLOCKED (see the fix in each caller below). strace never once
+// caught this live -- ptrace's own scheduling perturbation was apparently
+// enough to dodge whatever narrow window is involved -- so this is a plain
+// dprintf straight to the pty's stderr (a single direct write(2), no stdio
+// buffering/locking) rather than a tracer. Gated behind an env var so it
+// costs nothing normally; kept as a standing tool (matches
+// ISH_TRACE_REALFS_IO/ISH_TRACE_DPKG_REALFS below) for the next time a
+// blocking realfs read/write needs to be checked for a bogus EINTR.
+static bool realfs_trace_signal_eintr(void) {
+    static int enabled = -1;
+    if (enabled < 0)
+        enabled = getenv("ISH_TRACE_SIGNAL_EINTR") != NULL ? 1 : 0;
+    return enabled == 1;
+}
+
+static void realfs_log_signal_eintr(const char *where) {
+    if (!realfs_trace_signal_eintr() || current == NULL)
+        return;
+    lock(&current->sighand->lock, 0);
+    sigset_t_ pending = (current->pending | current->sighand->pending) & ~current->blocked;
+    sigset_t_ task_pending = current->pending;
+    sigset_t_ group_pending = current->sighand->pending;
+    sigset_t_ blocked = current->blocked;
+    unlock(&current->sighand->lock);
+    dprintf(2, "[signal-eintr] %s comm=%s pid=%d unblocked_pending=%#llx task_pending=%#llx group_pending=%#llx blocked=%#llx\n",
+            where, current->comm, current->pid,
+            (unsigned long long) pending, (unsigned long long) task_pending,
+            (unsigned long long) group_pending, (unsigned long long) blocked);
+}
+
 static bool realfs_trace_comm(void) {
     static int enabled = -1;
     if (enabled < 0)
@@ -275,6 +308,23 @@ static int realfs_wait_readable(int real_fd) {
 
         if (sigunwind_start()) {
             pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            // sigunwind_start() returning true only means a host SIGUSR1 poke
+            // arrived, not that the guest has an actually-observable signal --
+            // unlike the other two EINTR sites in this same loop (a few lines
+            // below), this branch never rechecked realfs_guest_signal_pending()
+            // before declaring EINTR. Confirmed via ISH_TRACE_SIGNAL_EINTR=1 on
+            // m4pt (2026-07-24): every single foot slave.c:551 crash landed
+            // here with a BLOCKED SIGCHLD sitting in the group's pending queue
+            // (group_pending == blocked == 0x10000, so unblocked pending is
+            // genuinely 0) -- the exact "spurious SIGUSR1 leaking as guest
+            // EINTR" bug class already fixed once for fs/poll.c's poll_wait,
+            // just never applied to this second, independent occurrence of the
+            // same sigunwind_start() pattern. A blocked signal must never
+            // interrupt a syscall on real Linux; retry instead of manufacturing
+            // an EINTR the guest was never entitled to see.
+            if (!realfs_guest_signal_pending())
+                continue;
+            realfs_log_signal_eintr("read/sigunwind");
             errno = EINTR;
             return errno_map();
         }
@@ -282,6 +332,7 @@ static int realfs_wait_readable(int real_fd) {
         if (realfs_guest_signal_pending()) {
             sigunwind_end();
             pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            realfs_log_signal_eintr("read/presleep");
             errno = EINTR;
             return errno_map();
         }
@@ -293,6 +344,7 @@ static int realfs_wait_readable(int real_fd) {
             return res;
         if (res == 0) {
             if (realfs_guest_signal_pending()) {
+                realfs_log_signal_eintr("read/timeout");
                 errno = EINTR;
                 return errno_map();
             }
@@ -309,6 +361,8 @@ static int realfs_wait_readable(int real_fd) {
         }
         if (errno == EINTR && !realfs_guest_signal_pending())
             continue;
+        if (errno == EINTR)
+            realfs_log_signal_eintr("read/hostpoll");
         return errno_map();
     }
 }
@@ -338,6 +392,12 @@ static int realfs_wait_writable(int real_fd) {
 
         if (sigunwind_start()) {
             pthread_sigmask(SIG_SETMASK, &oldmask, NULL);
+            // Same missing recheck as realfs_wait_readable's identical branch
+            // (see its comment): a host SIGUSR1 poke alone doesn't mean the
+            // guest has an observable signal -- a blocked/not-yet-deliverable
+            // one must not interrupt the write either.
+            if (!realfs_guest_signal_pending())
+                continue;
             errno = EINTR;
             return errno_map();
         }
