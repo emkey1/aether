@@ -61,6 +61,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *_ctrlAltDelButton;
     UIButton *_pasteButton;
     UIButton *_reconnectButton;
+    UIButton *_Nullable _workspaceButton; // standalone mode only
     DisplayRFBView *_displayView;
 
     // The guest session is owned exactly the way TerminalViewController owns
@@ -116,8 +117,13 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     _reconnectButton.hidden = YES;
     [_toolbarCard addSubview:_reconnectButton];
 
+    if (self.standaloneMode) {
+        _workspaceButton = [self displayButtonWithTitle:@"Workspace" action:@selector(switchToWorkspace:)];
+        [_toolbarCard addSubview:_workspaceButton];
+    }
+
     CGFloat inset = 8.0;
-    [NSLayoutConstraint activateConstraints:@[
+    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
         [_toolbarCard.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:inset],
         [_toolbarCard.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor constant:inset],
         [_toolbarCard.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor constant:-inset],
@@ -134,9 +140,18 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
 
         [_pasteButton.trailingAnchor constraintEqualToAnchor:_ctrlAltDelButton.leadingAnchor constant:-6.0],
         [_pasteButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
-
-        [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0],
     ]];
+    if (_workspaceButton != nil) {
+        [constraints addObjectsFromArray:@[
+            [_workspaceButton.trailingAnchor constraintEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0],
+            [_workspaceButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
+            [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_workspaceButton.leadingAnchor constant:-6.0],
+        ]];
+    } else {
+        [constraints addObject:
+            [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0]];
+    }
+    [NSLayoutConstraint activateConstraints:constraints];
 
     [NSNotificationCenter.defaultCenter addObserver:self
                                             selector:@selector(guestProcessExited:)
@@ -391,6 +406,29 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         strongSelf->_teardownPid = 0;
         [strongSelf startGuestSession];
     });
+}
+
+// Standalone (startup-mode) escape hatch: swap the scene's root over to the
+// Workspace. Releasing this controller tears the guest Wayland session down
+// (dealloc -> teardownSession -> pty SIGHUP), exactly like closing the
+// windowed applet -- which also means the Workspace's own Display applet can
+// then start a fresh session without racing the old one for WAYVNC_PORT.
+- (void)switchToWorkspace:(id)sender {
+    UIAlertController *alert =
+        [UIAlertController alertControllerWithTitle:@"Open Workspace?"
+                                            message:@"This ends the current Wayland session. You can reopen it from the Workspace's Display applet."
+                                     preferredStyle:UIAlertControllerStyleAlert];
+    [alert addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    __weak typeof(self) weakSelf = self;
+    [alert addAction:[UIAlertAction actionWithTitle:@"Open Workspace"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        UIWindow *window = weakSelf.view.window;
+        if (window == nil)
+            return;
+        window.rootViewController = ISHCreateWorkspaceNavigationController();
+    }]];
+    [self presentViewController:alert animated:YES completion:nil];
 }
 
 - (void)sendCtrlAltDel:(id)sender {

@@ -1223,15 +1223,12 @@ static NSString *ISHWorkspaceToolTitle(NSString *toolIdentifier) {
 
 BOOL ISHShouldLaunchWorkspaceAtStartup(void) {
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
-    return [initialWindow isEqualToString:ISHInitialWindowWorkspaceValue]
-        || [initialWindow isEqualToString:ISHInitialWindowWaylandValue];
+    return [initialWindow isEqualToString:ISHInitialWindowWorkspaceValue];
 }
 
-NSString *ISHInitialWorkspaceStartupToolIdentifier(void) {
+BOOL ISHShouldLaunchWaylandDisplayAtStartup(void) {
     NSString *initialWindow = [NSUserDefaults.standardUserDefaults stringForKey:kPreferenceInitialWindowKey];
-    if ([initialWindow isEqualToString:ISHInitialWindowWaylandValue])
-        return ISHWorkspaceToolDisplayIdentifier;
-    return nil;
+    return [initialWindow isEqualToString:ISHInitialWindowWaylandValue];
 }
 
 static NSString *ISHInitialWindowTitle(void) {

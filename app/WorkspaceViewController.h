@@ -8,9 +8,9 @@ extern NSString *const ISHInitialWindowWaylandValue;
 extern UINavigationController *ISHCreateWorkspaceNavigationController(void);
 extern UINavigationController *ISHCreateWorkspaceNavigationControllerForTool(NSString *_Nullable toolIdentifier);
 extern BOOL ISHShouldLaunchWorkspaceAtStartup(void);
-// Non-nil when the startup-mode preference asks for the Workspace to open with
-// a specific applet already launched (currently only the Wayland Display).
-extern NSString *_Nullable ISHInitialWorkspaceStartupToolIdentifier(void);
+// The "Wayland Display" startup mode: launch straight into a fullscreen
+// standalone DisplayViewController (no Workspace desktop around it).
+extern BOOL ISHShouldLaunchWaylandDisplayAtStartup(void);
 extern NSString *_Nullable ISHWorkspaceToolIdentifierForViewController(UIViewController *viewController);
 
 // Adopted by an applet that can be told to open/reveal a specific guest path

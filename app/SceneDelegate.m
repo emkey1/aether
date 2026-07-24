@@ -9,6 +9,7 @@
 #import "AboutViewController.h"
 #import "AppDelegate.h"
 #import "Diagnostics.h"
+#import "DisplayViewController.h"
 #import "NSObject+SaneKVO.h"
 #import "Roots.h"
 #import "RootsTableViewController.h"
@@ -51,6 +52,12 @@ static UIViewController *CreateRootSelectionViewController(BOOL choosesRootOnSel
     return navigationController;
 }
 
+static UIViewController *CreateStandaloneDisplayViewController(void) {
+    DisplayViewController *displayViewController = [DisplayViewController new];
+    displayViewController.standaloneMode = YES;
+    return displayViewController;
+}
+
 static TerminalViewController *CreateTerminalViewController(void) {
     UIViewController *viewController = [[UIStoryboard storyboardWithName:@"Terminal" bundle:nil] instantiateInitialViewController];
     return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
@@ -72,6 +79,10 @@ static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, 
 
     if (ISHShouldChooseFilesystemAtStartup())
         return nil;
+    // The Wayland Display startup mode always boots into the standalone
+    // Display -- ignore whatever scene state restoration would bring back.
+    if (ISHShouldLaunchWaylandDisplayAtStartup())
+        return nil;
 
     NSUserActivity *restorationActivity = session.stateRestorationActivity;
     NSString *restorationType = restorationActivity.activityType;
@@ -82,15 +93,6 @@ static NSUserActivity *SceneEffectiveRequestedActivity(UISceneSession *session, 
     BOOL restoresWorkspace = [restorationType isEqualToString:ISHSceneActivityTypeWorkspace];
     if (prefersWorkspace != restoresWorkspace)
         return nil;
-    // A startup mode that opens the Workspace with a specific applet (Wayland
-    // Display) only honors restoration that lands on that same applet --
-    // otherwise a restored plain-Workspace scene would swallow the mode.
-    NSString *startupTool = ISHInitialWorkspaceStartupToolIdentifier();
-    if (startupTool != nil) {
-        NSString *restoredTool = restorationActivity.userInfo[ISHSceneWorkspaceToolUserInfoKey];
-        if (![restoredTool isEqualToString:startupTool])
-            return nil;
-    }
     return restorationActivity;
 }
 
@@ -270,16 +272,22 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
                                              @"tool": toolIdentifier ?: @""});
         return;
     }
+    if (activityType.length == 0 && ISHShouldLaunchWaylandDisplayAtStartup()) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.waylandDisplay"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
+        self.window.rootViewController = CreateStandaloneDisplayViewController();
+        [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"wayland-display",
+                                             @"session": session.persistentIdentifier ?: @""});
+        return;
+    }
     if (activityType.length == 0 && ISHShouldLaunchWorkspaceAtStartup()) {
-        NSString *startupTool = ISHInitialWorkspaceStartupToolIdentifier();
         [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace.default"
-                                       details:@{@"session": session.persistentIdentifier ?: @"",
-                                                 @"tool": startupTool ?: @""}];
-        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(startupTool);
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
         [self.window makeKeyAndVisible];
         ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
-                                             @"session": session.persistentIdentifier ?: @"",
-                                             @"tool": startupTool ?: @""});
+                                             @"session": session.persistentIdentifier ?: @""});
         return;
     }
     if (!wantsTerminal) {
@@ -309,10 +317,19 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
         return;
 
     self.waitingForInitialRootImport = NO;
+    if (ISHShouldLaunchWaylandDisplayAtStartup()) {
+        [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.waylandDisplay.afterInitialImport"
+                                       details:@{@"session": session.persistentIdentifier ?: @""}];
+        self.window.rootViewController = CreateStandaloneDisplayViewController();
+        [self.window makeKeyAndVisible];
+        ISHScheduleLaunchJournalCompletion(@{@"rootController": @"wayland-display",
+                                             @"session": session.persistentIdentifier ?: @""});
+        return;
+    }
     if (ISHShouldLaunchWorkspaceAtStartup()) {
         [ISHDiagnosticsStore recordLaunchStage:@"scene.rootController.workspace.afterInitialImport"
                                        details:@{@"session": session.persistentIdentifier ?: @""}];
-        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(ISHInitialWorkspaceStartupToolIdentifier());
+        self.window.rootViewController = ISHCreateWorkspaceNavigationControllerForTool(nil);
         [self.window makeKeyAndVisible];
         ISHScheduleLaunchJournalCompletion(@{@"rootController": @"workspace",
                                              @"session": session.persistentIdentifier ?: @""});
@@ -338,6 +355,14 @@ static void ConfigureTerminalViewController(SceneDelegate *delegate, TerminalVie
 
 - (NSUserActivity *)stateRestorationActivityForScene:(UIScene *)scene {
     UIViewController *rootViewController = self.window.rootViewController;
+    // A standalone Wayland Display root isn't a workspace scene: its launch is
+    // driven purely by the startup-mode preference (and ignored the moment the
+    // preference changes), so it contributes no restoration state -- without
+    // this it would masquerade as a Workspace+Display scene via the
+    // tool-identifier branch below.
+    if ([rootViewController isKindOfClass:DisplayViewController.class] &&
+        ((DisplayViewController *) rootViewController).standaloneMode)
+        return nil;
     UIViewController *topViewController = [rootViewController isKindOfClass:UINavigationController.class]
         ? ((UINavigationController *) rootViewController).topViewController
         : rootViewController;
