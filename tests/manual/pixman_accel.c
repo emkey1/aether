@@ -22,15 +22,16 @@
 extern long syscall(long, ...);
 #define ISH_SYS_PIXOP 0xacc1
 
-enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2 };
+enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2, PIX_OP_OVER_MASK = 3 };
 enum { PIX_FLAG_SRC_OPAQUE = 1u << 0 };
 
 struct ish_pix_req {
     uint32_t op, flags;
-    uint64_t dst, src;
-    uint32_t dst_stride, src_stride;
+    uint64_t dst, src, mask;
+    uint32_t dst_stride, src_stride, mask_stride;
     int32_t dst_x, dst_y;
     int32_t src_x, src_y;
+    int32_t mask_x, mask_y;
     uint32_t width, height;
     uint32_t fill_pixel;
 };
@@ -49,6 +50,21 @@ static long pixop(uint32_t op, uint32_t flags,
     return syscall(ISH_SYS_PIXOP, &r);
 }
 
+static long pixop_mask(uint32_t flags,
+        void *dst, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        void *src, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        void *mask, uint32_t mask_stride, int32_t mask_x, int32_t mask_y,
+        uint32_t width, uint32_t height) {
+    struct ish_pix_req r = {
+        .op = PIX_OP_OVER_MASK, .flags = flags,
+        .dst = (uint64_t) (uintptr_t) dst, .src = (uint64_t) (uintptr_t) src, .mask = (uint64_t) (uintptr_t) mask,
+        .dst_stride = dst_stride, .src_stride = src_stride, .mask_stride = mask_stride,
+        .dst_x = dst_x, .dst_y = dst_y, .src_x = src_x, .src_y = src_y, .mask_x = mask_x, .mask_y = mask_y,
+        .width = width, .height = height,
+    };
+    return syscall(ISH_SYS_PIXOP, &r);
+}
+
 // ---- pixman oracle, dlopen'd -----------------------------------------
 typedef int pixman_bool_t;
 typedef struct pixman_image pixman_image_t;
@@ -62,6 +78,8 @@ typedef enum { PIXMAN_OP_SRC = 1, PIXMAN_OP_OVER = 3 } pixman_op_t;
 // against real pixman: PIXMAN_a8r8g8b8=0x20028888, PIXMAN_x8r8g8b8=0x20020888.
 #define PIXMAN_a8r8g8b8 0x20028888
 #define PIXMAN_x8r8g8b8 0x20020888
+// PIXMAN_a8, same "confirmed on-target, never hand-derived twice" discipline.
+#define PIXMAN_a8 0x08018000
 
 static pixman_image_t *(*p_create_bits)(int, int, int, uint32_t *, int);
 static void (*p_composite32)(pixman_op_t, pixman_image_t *, pixman_image_t *, pixman_image_t *,
@@ -102,6 +120,26 @@ static void oracle_composite(pixman_op_t op, uint32_t format,
     p_unref(dimg);
 }
 
+// OVER with a mask (pixman_image_create_bits's `bits` param is uint32_t* for
+// every format including a8 -- it just interprets the byte layout per
+// format/stride, so an a8 canvas's raw bytes are handed through the same
+// pointer type as everywhere else).
+static void oracle_composite_mask(uint32_t format,
+        uint32_t *dst, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        uint32_t src_format, uint32_t *src, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        uint32_t *mask, uint32_t mask_stride, int32_t mask_x, int32_t mask_y,
+        uint32_t width, uint32_t height, uint32_t canvas_w, uint32_t canvas_h,
+        uint32_t src_canvas_w, uint32_t src_canvas_h, uint32_t mask_canvas_w, uint32_t mask_canvas_h) {
+    pixman_image_t *dimg = p_create_bits((int) format, (int) canvas_w, (int) canvas_h, dst, (int) dst_stride);
+    pixman_image_t *simg = p_create_bits((int) src_format, (int) src_canvas_w, (int) src_canvas_h, src, (int) src_stride);
+    pixman_image_t *mimg = p_create_bits((int) PIXMAN_a8, (int) mask_canvas_w, (int) mask_canvas_h, mask, (int) mask_stride);
+    p_composite32(PIXMAN_OP_OVER, simg, mimg, dimg, src_x, src_y, mask_x, mask_y, dst_x, dst_y,
+            (int32_t) width, (int32_t) height);
+    p_unref(simg);
+    p_unref(mimg);
+    p_unref(dimg);
+}
+
 // ---- test harness ------------------------------------------------------
 static void check(int cond, const char *what) {
     test_log_if(!cond, "%s: %s\n", cond ? "ok" : "FAIL", what);
@@ -135,6 +173,38 @@ static struct canvas make_canvas(uint32_t w, uint32_t h) {
 }
 
 static void free_canvas(struct canvas *c) {
+    free(c->bits);
+    c->bits = NULL;
+}
+
+// a8 mask canvas: 1 byte/pixel, same random-fill + padding/offset intent as
+// struct canvas above.
+struct mask_canvas {
+    uint8_t *bits;
+    uint32_t w, h, stride_bytes;
+};
+
+static struct mask_canvas make_mask_canvas(uint32_t w, uint32_t h) {
+    // real pixman_image_create_bits REQUIRES every stride to be a multiple
+    // of 4 bytes, even for a8 (1 byte/pixel) images -- discovered the hard
+    // way (verified on the mint oracle): an unaligned stride doesn't return
+    // an error, it silently corrupts the created image internally, which
+    // looked exactly like a kernel bug in early testing here (the kernel
+    // itself has no such requirement -- an a8 byte can never straddle a
+    // page boundary regardless of stride -- but any REAL pixman_image_t a
+    // shim would ever see was already built by pixman itself, so it always
+    // has a valid stride by construction; this alignment need is purely an
+    // artifact of this test constructing raw a8 buffers directly).
+    uint32_t stride = (w + 3u) & ~3u;
+    struct mask_canvas c = { .w = w, .h = h, .stride_bytes = stride };
+    size_t bytes = (size_t) c.stride_bytes * h;
+    c.bits = malloc(bytes);
+    for (size_t i = 0; i < bytes; i++)
+        c.bits[i] = (uint8_t) rand();
+    return c;
+}
+
+static void free_mask_canvas(struct mask_canvas *c) {
     free(c->bits);
     c->bits = NULL;
 }
@@ -191,6 +261,45 @@ static void test_composite(uint32_t op, int src_opaque,
     free_canvas(&dst_oracle);
 }
 
+static void test_composite_mask(int src_opaque,
+        uint32_t dst_canvas_w, uint32_t dst_canvas_h, int32_t dst_x, int32_t dst_y,
+        uint32_t src_canvas_w, uint32_t src_canvas_h, int32_t src_x, int32_t src_y,
+        uint32_t mask_canvas_w, uint32_t mask_canvas_h, int32_t mask_x, int32_t mask_y,
+        uint32_t w, uint32_t h) {
+    struct canvas dst_accel = make_canvas(dst_canvas_w, dst_canvas_h);
+    struct canvas src = make_canvas(src_canvas_w, src_canvas_h);
+    struct mask_canvas mask = make_mask_canvas(mask_canvas_w, mask_canvas_h);
+    struct canvas dst_oracle = make_canvas(dst_canvas_w, dst_canvas_h);
+    memcpy(dst_oracle.bits, dst_accel.bits, (size_t) dst_accel.stride_bytes * dst_accel.h);
+
+    uint32_t flags = src_opaque ? PIX_FLAG_SRC_OPAQUE : 0;
+    long ret = pixop_mask(flags,
+            dst_accel.bits, dst_accel.stride_bytes, dst_x, dst_y,
+            src.bits, src.stride_bytes, src_x, src_y,
+            mask.bits, mask.stride_bytes, mask_x, mask_y, w, h);
+
+    uint32_t src_format = src_opaque ? PIXMAN_x8r8g8b8 : PIXMAN_a8r8g8b8;
+    oracle_composite_mask(PIXMAN_a8r8g8b8,
+            dst_oracle.bits, dst_oracle.stride_bytes, dst_x, dst_y,
+            src_format, src.bits, src.stride_bytes, src_x, src_y,
+            (uint32_t *) mask.bits, mask.stride_bytes, mask_x, mask_y,
+            w, h, dst_canvas_w, dst_canvas_h, src_canvas_w, src_canvas_h, mask_canvas_w, mask_canvas_h);
+
+    char label[200];
+    snprintf(label, sizeof(label),
+            "over_mask %ux%u dst@%d,%d(%ux%u) src@%d,%d(%ux%u) mask@%d,%d(%ux%u) opaque=%d",
+            w, h, dst_x, dst_y, dst_canvas_w, dst_canvas_h,
+            src_x, src_y, src_canvas_w, src_canvas_h,
+            mask_x, mask_y, mask_canvas_w, mask_canvas_h, src_opaque);
+    check(ret == 0, label);
+    check(memcmp(dst_accel.bits, dst_oracle.bits, (size_t) dst_accel.stride_bytes * dst_accel.h) == 0, label);
+
+    free_canvas(&dst_accel);
+    free_canvas(&src);
+    free_mask_canvas(&mask);
+    free_canvas(&dst_oracle);
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     alarm(test_watchdog_secs(60));
@@ -239,6 +348,36 @@ int main(int argc, char **argv) {
         int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
         int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
         test_composite(PIXMAN_OP_OVER, rand() & 1, cw, ch, x, y, cw, ch, x, y, w, h);
+    }
+
+    // OVER_MASK_A8: tight and offset+padded geometries, both src formats,
+    // an all-same-origin case (the common glyph-blit shape: src/mask share
+    // the dst's own drawing coordinates) and independently-offset canvases,
+    // plus random fuzz.
+    test_composite_mask(0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite_mask(1, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8, 0, 0, 8, 8);
+    test_composite_mask(0, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
+    test_composite_mask(1, 24, 24, 5, 4, 24, 24, 3, 2, 24, 24, 1, 6, 12, 11);
+    test_composite_mask(0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720, 0, 0, 1280, 720);
+    for (int i = 0; i < 30; i++) {
+        uint32_t w = 1 + (unsigned) rand() % 300, h = 1 + (unsigned) rand() % 300;
+        uint32_t cw = w + 1 + (unsigned) rand() % 50, ch = h + 1 + (unsigned) rand() % 50;
+        int32_t x = (int32_t) ((unsigned) rand() % (cw - w + 1));
+        int32_t y = (int32_t) ((unsigned) rand() % (ch - h + 1));
+        test_composite_mask(rand() & 1, cw, ch, x, y, cw, ch, x, y, cw, ch, x, y, w, h);
+    }
+
+    // Mask overlapping dst must be DECLINED too (same reasoning as src/dst
+    // overlap -- the 3-image walk has no defined behavior for it).
+    {
+        struct canvas dst = make_canvas(16, 16);
+        struct canvas src = make_canvas(16, 16);
+        long ret = pixop_mask(0, dst.bits, dst.stride_bytes, 0, 0,
+                src.bits, src.stride_bytes, 0, 0,
+                dst.bits, dst.stride_bytes, 0, 0, 8, 8);
+        check(ret != 0, "mask overlapping dst is declined, not silently wrong");
+        free_canvas(&dst);
+        free_canvas(&src);
     }
 
     // Self-overlap must be DECLINED (a negative return), never a wrong

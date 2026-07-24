@@ -64,6 +64,15 @@ static bool pix_selftest_over(void) {
     ish_pix_copy_row(copysrc, copydst, 2);
     if (copydst[0] != 0xdeadbeefu || copydst[1] != 0x12345678u)
         return false;
+    // OVER_MASK: half-alpha src through a half-alpha mask onto half-alpha
+    // dst, all channels equal -- part of the same edge-case combination
+    // independently verified against real pixman (300k+ cases, 0
+    // mismatches) before ish_pix_over_mask_row was written.
+    uint32_t mask_src = 0x80808080u, mask_dst = 0x80808080u;
+    uint8_t mask_alpha = 0x80;
+    ish_pix_over_mask_row(&mask_src, &mask_alpha, &mask_dst, 1, false);
+    if (mask_dst != 0xa0a0a0a0u)
+        return false;
     return true;
 }
 
@@ -82,7 +91,7 @@ void ish_accel_pix_init(void) {
     (void) pix_accel_ready();
 }
 
-enum { ISH_PIX_OP_FILL = 0, ISH_PIX_OP_COPY = 1, ISH_PIX_OP_OVER = 2 };
+enum { ISH_PIX_OP_FILL = 0, ISH_PIX_OP_COPY = 1, ISH_PIX_OP_OVER = 2, ISH_PIX_OP_OVER_MASK = 3 };
 enum { ISH_PIX_FLAG_SRC_OPAQUE = 1u << 0 };
 
 // Guest ABI, fixed-layout (identical on arm64/riscv64): the two leading u32s,
@@ -90,16 +99,20 @@ enum { ISH_PIX_FLAG_SRC_OPAQUE = 1u << 0 };
 // convention in kernel/ish_accel.c), then 32-bit fields. All pointers are
 // guest addresses; dst is always treated as a8r8g8b8 (real alpha channel);
 // src's format is selected by ISH_PIX_FLAG_SRC_OPAQUE (unset = a8r8g8b8,
-// set = x8r8g8b8 i.e. top byte is not real alpha) and only matters for OVER.
+// set = x8r8g8b8 i.e. top byte is not real alpha) and only matters for OVER/
+// OVER_MASK. mask is a8 (1 byte/pixel), only used for OVER_MASK.
 struct ish_pix_req {
     uint32_t op;
     uint32_t flags;
     uint64_t dst;
-    uint64_t src;        // ignored for FILL
-    uint32_t dst_stride; // bytes/row
-    uint32_t src_stride; // ignored for FILL
+    uint64_t src;         // ignored for FILL
+    uint64_t mask;        // only used for OVER_MASK
+    uint32_t dst_stride;  // bytes/row
+    uint32_t src_stride;  // ignored for FILL
+    uint32_t mask_stride; // bytes/row, a8; ignored unless OVER_MASK
     int32_t dst_x, dst_y;
-    int32_t src_x, src_y; // ignored for FILL
+    int32_t src_x, src_y;   // ignored for FILL
+    int32_t mask_x, mask_y; // ignored unless OVER_MASK
     uint32_t width, height;
     uint32_t fill_pixel;  // FILL only
 };
@@ -124,6 +137,12 @@ static void pix_copy_span(const void *src_host, void *dst_host, uint32_t pixels,
 struct pix_over_ctx { bool src_is_opaque; };
 static void pix_over_span(const void *src_host, void *dst_host, uint32_t pixels, void *ctx) {
     ish_pix_over_row(src_host, dst_host, pixels, ((struct pix_over_ctx *) ctx)->src_is_opaque);
+}
+
+static void pix_over_mask_span(const void *src_host, const void *mask_host, void *dst_host,
+        uint32_t pixels, void *ctx) {
+    ish_pix_over_mask_row(src_host, (const uint8_t *) mask_host, dst_host, pixels,
+            ((struct pix_over_ctx *) ctx)->src_is_opaque);
 }
 
 // Conservative byte-range overlap check between the dst and src rectangles'
@@ -152,7 +171,8 @@ dword_t sys_ish_pixop_guest(guest_addr_t req_addr) {
     if (user_read(req_addr, &req, sizeof(req)))
         return _EFAULT;
 
-    if (req.op != ISH_PIX_OP_FILL && req.op != ISH_PIX_OP_COPY && req.op != ISH_PIX_OP_OVER)
+    if (req.op != ISH_PIX_OP_FILL && req.op != ISH_PIX_OP_COPY &&
+            req.op != ISH_PIX_OP_OVER && req.op != ISH_PIX_OP_OVER_MASK)
         return _EOPNOTSUPP;
     if (req.width == 0 || req.height == 0)
         return 0; // no-op, matches pixman's own empty-rect behavior
@@ -171,6 +191,18 @@ dword_t sys_ish_pixop_guest(guest_addr_t req_addr) {
             pix_ranges_overlap(req.dst, req.dst_stride, req.dst_y, req.height,
                                 req.src, req.src_stride, req.src_y, req.height))
         return _EOPNOTSUPP;
+    // mask is a8 (1 byte/pixel) -- alignment is trivially always satisfied
+    // (bpp=1 can never straddle a page boundary), only the minimum-stride
+    // check applies. Also decline if the mask could alias dst (mask reads
+    // are page-resolved independently of dst's writes in the 3-image walk,
+    // so an overlapping mask+dst has no defined behavior here either).
+    if (req.op == ISH_PIX_OP_OVER_MASK) {
+        if (req.mask_stride < req.width)
+            return _EOPNOTSUPP;
+        if (pix_ranges_overlap(req.dst, req.dst_stride, req.dst_y, req.height,
+                                req.mask, req.mask_stride, req.mask_y, req.height))
+            return _EOPNOTSUPP;
+    }
 
     if (req.op == ISH_PIX_OP_FILL) {
         struct pix_fill_ctx ctx = { .value = req.fill_pixel };
@@ -184,6 +216,17 @@ dword_t sys_ish_pixop_guest(guest_addr_t req_addr) {
         if (user_transform_rect_two(req.dst, req.dst_stride, req.dst_x, req.dst_y,
                 req.src, req.src_stride, req.src_x, req.src_y,
                 4, req.width, req.height, pix_copy_span, NULL))
+            return _EFAULT;
+        return 0;
+    }
+
+    if (req.op == ISH_PIX_OP_OVER_MASK) {
+        struct pix_over_ctx ctx = { .src_is_opaque = (req.flags & ISH_PIX_FLAG_SRC_OPAQUE) != 0 };
+        if (user_transform_rect_three(
+                req.dst, req.dst_stride, req.dst_x, req.dst_y, 4,
+                req.src, req.src_stride, req.src_x, req.src_y, 4,
+                req.mask, req.mask_stride, req.mask_x, req.mask_y, 1,
+                req.width, req.height, pix_over_mask_span, &ctx))
             return _EFAULT;
         return 0;
     }

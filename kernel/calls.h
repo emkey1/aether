@@ -468,6 +468,13 @@ int user_transform_rect_two(
         uint32_t bpp, uint32_t width, uint32_t height,
         void (*fn)(const void *src_host, void *dst_host, uint32_t pixels, void *ctx),
         void *ctx);
+int user_transform_rect_three(
+        guest_addr_t dst_base, uint32_t dst_stride, int32_t dst_x, int32_t dst_y, uint32_t dst_bpp,
+        guest_addr_t src_base, uint32_t src_stride, int32_t src_x, int32_t src_y, uint32_t src_bpp,
+        guest_addr_t mask_base, uint32_t mask_stride, int32_t mask_x, int32_t mask_y, uint32_t mask_bpp,
+        uint32_t width, uint32_t height,
+        void (*fn)(const void *src_host, const void *mask_host, void *dst_host, uint32_t pixels, void *ctx),
+        void *ctx);
 // iSH pixman accelerator (kernel/ish_accel_pix.c). ISH_SYS_PIXOP = 0xacc1.
 dword_t sys_ish_pixop_guest(guest_addr_t req_addr);
 void ish_accel_pix_init(void);

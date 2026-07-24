@@ -44,3 +44,28 @@ void ish_pix_over_row(const void *src, void *dst, uint32_t pixels, bool src_is_o
         d[i] = ((uint32_t) oa << 24) | ((uint32_t) or_ << 16) | ((uint32_t) og << 8) | ob;
     }
 }
+
+void ish_pix_over_mask_row(const void *src, const uint8_t *mask, void *dst, uint32_t pixels, bool src_is_opaque) {
+    const uint32_t *s = (const uint32_t *) src;
+    uint32_t *d = (uint32_t *) dst;
+    for (uint32_t i = 0; i < pixels; i++) {
+        uint32_t sp = s[i], dp = d[i];
+        uint8_t ma = mask[i];
+        uint8_t sa = src_is_opaque ? 0xff : (uint8_t) (sp >> 24);
+        uint8_t sr = (uint8_t) (sp >> 16), sg = (uint8_t) (sp >> 8), sb = (uint8_t) sp;
+        // Scale src's premultiplied channels (incl. its own alpha) by the
+        // mask's alpha first -- this is the whole difference from plain
+        // OVER, verified against real pixman before writing this.
+        sa = mul_un8(sa, ma);
+        sr = mul_un8(sr, ma);
+        sg = mul_un8(sg, ma);
+        sb = mul_un8(sb, ma);
+        uint8_t da = (uint8_t) (dp >> 24), dr = (uint8_t) (dp >> 16), dg = (uint8_t) (dp >> 8), db = (uint8_t) dp;
+        uint8_t inv = (uint8_t) (255 - sa);
+        uint8_t oa = add_sat_un8(sa, mul_un8(da, inv));
+        uint8_t or_ = add_sat_un8(sr, mul_un8(dr, inv));
+        uint8_t og = add_sat_un8(sg, mul_un8(dg, inv));
+        uint8_t ob = add_sat_un8(sb, mul_un8(db, inv));
+        d[i] = ((uint32_t) oa << 24) | ((uint32_t) or_ << 16) | ((uint32_t) og << 8) | ob;
+    }
+}

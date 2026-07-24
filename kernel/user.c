@@ -393,6 +393,63 @@ int user_transform_rect_two(
     return res;
 }
 
+// Three-image rectangular direct-pointer walk (kernel/ish_accel_pix.c's
+// OVER_MASK_A8 kernel): same discipline as user_transform_rect_two, but
+// resolves a THIRD (mask) sub-rectangle in lockstep too, with its own bpp
+// (the a8 mask is 1 byte/pixel, vs dst/src's 4) and its own independent
+// page grid. Per span, dst (write) is resolved first, then src and mask
+// (both read) -- same COW-safety ordering as the two-image walk -- and no
+// resolved pointer is ever held across the next span's resolve.
+int user_transform_rect_three(
+        guest_addr_t dst_base, uint32_t dst_stride, int32_t dst_x, int32_t dst_y, uint32_t dst_bpp,
+        guest_addr_t src_base, uint32_t src_stride, int32_t src_x, int32_t src_y, uint32_t src_bpp,
+        guest_addr_t mask_base, uint32_t mask_stride, int32_t mask_x, int32_t mask_y, uint32_t mask_bpp,
+        uint32_t width, uint32_t height,
+        void (*fn)(const void *src_host, const void *mask_host, void *dst_host, uint32_t pixels, void *ctx),
+        void *ctx) {
+    struct task_mem_read_handle handle;
+    struct mem *mem = task_mem_read_lock(current, &handle);
+    if (mem == NULL)
+        return 1;
+    int res = 0;
+    if (!user_range_valid_mem(current, mem,
+                dst_base + (qword_t) dst_y * dst_stride + (qword_t) dst_x * dst_bpp, (size_t) height * dst_stride) ||
+            !user_range_valid_mem(current, mem,
+                src_base + (qword_t) src_y * src_stride + (qword_t) src_x * src_bpp, (size_t) height * src_stride) ||
+            !user_range_valid_mem(current, mem,
+                mask_base + (qword_t) mask_y * mask_stride + (qword_t) mask_x * mask_bpp, (size_t) height * mask_stride))
+        res = 1;
+    for (uint32_t row = 0; res == 0 && row < height; row++) {
+        uint32_t remaining = width;
+        int32_t dcx = dst_x, scx = src_x, mcx = mask_x;
+        while (remaining > 0) {
+            guest_addr_t daddr = (guest_addr_t) (dst_base + (qword_t) (dst_y + row) * dst_stride + (qword_t) dcx * dst_bpp);
+            guest_addr_t saddr = (guest_addr_t) (src_base + (qword_t) (src_y + row) * src_stride + (qword_t) scx * src_bpp);
+            guest_addr_t maddr = (guest_addr_t) (mask_base + (qword_t) (mask_y + row) * mask_stride + (qword_t) mcx * mask_bpp);
+            qword_t d_page_end = ((qword_t) PAGE(daddr) + 1) << PAGE_BITS;
+            qword_t s_page_end = ((qword_t) PAGE(saddr) + 1) << PAGE_BITS;
+            qword_t m_page_end = ((qword_t) PAGE(maddr) + 1) << PAGE_BITS;
+            uint32_t d_max = (uint32_t) ((d_page_end - daddr) / dst_bpp);
+            uint32_t s_max = (uint32_t) ((s_page_end - saddr) / src_bpp);
+            uint32_t m_max = (uint32_t) ((m_page_end - maddr) / mask_bpp);
+            uint32_t span = remaining;
+            if (span > d_max) span = d_max;
+            if (span > s_max) span = s_max;
+            if (span > m_max) span = m_max;
+            if (span == 0) { res = 1; break; }
+            void *dst_host = mem_ptr(mem, daddr, MEM_WRITE); // resolve write first (COW ordering)
+            const void *src_host = dst_host != NULL ? mem_ptr(mem, saddr, MEM_READ) : NULL;
+            const void *mask_host = src_host != NULL ? mem_ptr(mem, maddr, MEM_READ) : NULL;
+            if (dst_host == NULL || src_host == NULL || mask_host == NULL) { res = 1; break; }
+            fn(src_host, mask_host, dst_host, span, ctx);
+            dcx += (int32_t) span; scx += (int32_t) span; mcx += (int32_t) span;
+            remaining -= span;
+        }
+    }
+    task_mem_read_unlock(&handle);
+    return res;
+}
+
 int user_write_task_ptrace(struct task *task, guest_addr_t addr, const void *buf, size_t count) {
     struct task_mem_read_handle handle;
     struct mem *mem = task_mem_read_lock(task, &handle);

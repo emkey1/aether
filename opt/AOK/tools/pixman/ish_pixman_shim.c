@@ -9,9 +9,12 @@
 // SAFETY CONTRACT: every interposed function calls straight through to the
 // REAL pixman implementation (dlsym RTLD_NEXT) whenever the call doesn't
 // exactly match the accelerator's supported shape (32bpp a8r8g8b8/
-// x8r8g8b8, SRC/OVER, no mask, no transform, no non-identity filter, no
-// repeat, no alpha map, no clip, in-bounds). Nothing here approximates --
-// only "accelerate bit-exactly" or "decline to real pixman" are possible
+// x8r8g8b8 src/dst; SRC or OVER; OVER may carry an a8 mask (the glyph/
+// text-rendering shape) but SRC-with-mask and any other op+mask
+// combination decline (real, but not yet differential-tested); no
+// transform, no non-identity filter, no repeat, no alpha map, no clip on
+// ANY of dst/src/mask; in-bounds). Nothing here approximates -- only
+// "accelerate bit-exactly" or "decline to real pixman" are possible
 // outcomes, exactly like the kernel side. Only PUBLIC pixman accessors are
 // used to inspect an image's state; the five properties pixman has no
 // getter for (transform/repeat/filter/alpha-map/clip) are shadow-tracked
@@ -39,15 +42,16 @@
 
 extern long syscall(long, ...);
 #define ISH_SYS_PIXOP 0xacc1
-enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2 };
+enum { PIX_OP_FILL = 0, PIX_OP_COPY = 1, PIX_OP_OVER = 2, PIX_OP_OVER_MASK = 3 };
 enum { PIX_FLAG_SRC_OPAQUE = 1u << 0 };
 
 struct ish_pix_req {
     uint32_t op, flags;
-    uint64_t dst, src;
-    uint32_t dst_stride, src_stride;
+    uint64_t dst, src, mask;
+    uint32_t dst_stride, src_stride, mask_stride;
     int32_t dst_x, dst_y;
     int32_t src_x, src_y;
+    int32_t mask_x, mask_y;
     uint32_t width, height;
     uint32_t fill_pixel;
 };
@@ -62,6 +66,21 @@ static long pixop(uint32_t op, uint32_t flags,
         .dst_stride = dst_stride, .src_stride = src_stride,
         .dst_x = dst_x, .dst_y = dst_y, .src_x = src_x, .src_y = src_y,
         .width = width, .height = height, .fill_pixel = fill_pixel,
+    };
+    return syscall(ISH_SYS_PIXOP, &r);
+}
+
+static long pixop_mask(uint32_t flags,
+        void *dst, uint32_t dst_stride, int32_t dst_x, int32_t dst_y,
+        void *src, uint32_t src_stride, int32_t src_x, int32_t src_y,
+        void *mask, uint32_t mask_stride, int32_t mask_x, int32_t mask_y,
+        uint32_t width, uint32_t height) {
+    struct ish_pix_req r = {
+        .op = PIX_OP_OVER_MASK, .flags = flags,
+        .dst = (uint64_t) (uintptr_t) dst, .src = (uint64_t) (uintptr_t) src, .mask = (uint64_t) (uintptr_t) mask,
+        .dst_stride = dst_stride, .src_stride = src_stride, .mask_stride = mask_stride,
+        .dst_x = dst_x, .dst_y = dst_y, .src_x = src_x, .src_y = src_y, .mask_x = mask_x, .mask_y = mask_y,
+        .width = width, .height = height,
     };
     return syscall(ISH_SYS_PIXOP, &r);
 }
@@ -175,8 +194,8 @@ static void state_remove(pixman_image_t *img) {
 
 // ---- ISH_PIXMAN_STATS=1 decline/accelerate accounting -------------------
 enum {
-    STAT_ACCEL_COMPOSITE, STAT_ACCEL_FILL,
-    STAT_DECLINE_MASK, STAT_DECLINE_OP, STAT_DECLINE_FORMAT,
+    STAT_ACCEL_COMPOSITE, STAT_ACCEL_FILL, STAT_ACCEL_MASK,
+    STAT_DECLINE_MASK_FORMAT, STAT_DECLINE_OP, STAT_DECLINE_FORMAT,
     STAT_DECLINE_TRANSFORM, STAT_DECLINE_REPEAT, STAT_DECLINE_FILTER,
     STAT_DECLINE_ALPHA_MAP, STAT_DECLINE_CLIP, STAT_DECLINE_COMPONENT_ALPHA,
     STAT_DECLINE_BOUNDS, STAT_DECLINE_UNAVAILABLE, STAT_DECLINE_SYSCALL,
@@ -184,8 +203,8 @@ enum {
     STAT_COUNT,
 };
 static const char *const stat_names[STAT_COUNT] = {
-    "accelerated-composite", "accelerated-fill",
-    "decline-mask", "decline-op", "decline-format",
+    "accelerated-composite", "accelerated-fill", "accelerated-mask",
+    "decline-mask-format", "decline-op", "decline-format",
     "decline-transform", "decline-repeat", "decline-filter",
     "decline-alpha-map", "decline-clip", "decline-component-alpha",
     "decline-bounds", "decline-accel-unavailable", "decline-syscall-refused",
@@ -343,8 +362,12 @@ void pixman_image_composite32(pixman_op_t op, pixman_image_t *src, pixman_image_
     RESOLVE(real, composite32_fn, "pixman_image_composite32");
     do {
         if (!accel_available()) { note(STAT_DECLINE_UNAVAILABLE); break; }
-        if (mask != NULL) { note(STAT_DECLINE_MASK); break; }
-        if (op != PIXMAN_OP_SRC && op != PIXMAN_OP_OVER) { note(STAT_DECLINE_OP); break; }
+        // v1 only validated OVER-with-mask (the glyph/text-rendering shape);
+        // SRC-with-mask and any other op+mask combination are real pixman
+        // operations we simply haven't differential-tested, so they decline
+        // rather than guess at untested arithmetic.
+        if (mask != NULL && op != PIXMAN_OP_OVER) { note(STAT_DECLINE_OP); break; }
+        if (mask == NULL && op != PIXMAN_OP_SRC && op != PIXMAN_OP_OVER) { note(STAT_DECLINE_OP); break; }
         if (width <= 0 || height <= 0) break; // real pixman handles the degenerate case; no benefit either way
 
         RESOLVE(get_format, get_format_fn, "pixman_image_get_format");
@@ -355,7 +378,11 @@ void pixman_image_composite32(pixman_op_t op, pixman_image_t *src, pixman_image_
             note(STAT_DECLINE_FORMAT);
             break;
         }
-        if (!image_is_simple(src) || !image_is_simple(dest))
+        if (mask != NULL && get_format(mask) != PIXMAN_a8) {
+            note(STAT_DECLINE_MASK_FORMAT);
+            break;
+        }
+        if (!image_is_simple(src) || !image_is_simple(dest) || (mask != NULL && !image_is_simple(mask)))
             break; // image_is_simple already recorded the specific reason
 
         RESOLVE(get_data, get_data_fn, "pixman_image_get_data");
@@ -375,18 +402,37 @@ void pixman_image_composite32(pixman_op_t op, pixman_image_t *src, pixman_image_
             note(STAT_DECLINE_BOUNDS);
             break;
         }
+        if (mask != NULL) {
+            int mask_w = get_width(mask), mask_h = get_height(mask);
+            if (mask_x < 0 || mask_y < 0 ||
+                    (int64_t) mask_x + width > mask_w || (int64_t) mask_y + height > mask_h) {
+                note(STAT_DECLINE_BOUNDS);
+                break;
+            }
+        }
 
         uint32_t *dst_bits = get_data(dest);
         uint32_t *src_bits = get_data(src);
         uint32_t dst_stride = (uint32_t) get_stride(dest); // pixman_image_get_stride is documented in BYTES
         uint32_t src_stride = (uint32_t) get_stride(src);
-        long ret = pixop(op == PIXMAN_OP_SRC ? PIX_OP_COPY : PIX_OP_OVER,
-                src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0,
-                dst_bits, dst_stride, dest_x, dest_y,
-                src_bits, src_stride, src_x, src_y,
-                (uint32_t) width, (uint32_t) height, 0);
+        long ret;
+        if (mask != NULL) {
+            uint32_t *mask_bits = get_data(mask);
+            uint32_t mask_stride = (uint32_t) get_stride(mask);
+            ret = pixop_mask(src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0,
+                    dst_bits, dst_stride, dest_x, dest_y,
+                    src_bits, src_stride, src_x, src_y,
+                    mask_bits, mask_stride, mask_x, mask_y,
+                    (uint32_t) width, (uint32_t) height);
+        } else {
+            ret = pixop(op == PIXMAN_OP_SRC ? PIX_OP_COPY : PIX_OP_OVER,
+                    src_opaque_fmt ? PIX_FLAG_SRC_OPAQUE : 0,
+                    dst_bits, dst_stride, dest_x, dest_y,
+                    src_bits, src_stride, src_x, src_y,
+                    (uint32_t) width, (uint32_t) height, 0);
+        }
         if (ret == 0) {
-            note(STAT_ACCEL_COMPOSITE);
+            note(mask != NULL ? STAT_ACCEL_MASK : STAT_ACCEL_COMPOSITE);
             return;
         }
         note(STAT_DECLINE_SYSCALL);
