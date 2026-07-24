@@ -1703,15 +1703,24 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
         // narrow ipad (slide over)
         [self setBarHorizontalPadding:10 verticalPadding:8 buttonWidth:36];
     }
-    [UIView performWithoutAnimation:^{
-        [self.barView layoutIfNeeded];
-    }];
+    // No layoutIfNeeded here: this is called from BarView's layoutSubviews, right before
+    // [super layoutSubviews] applies the constraints -- forcing layout mid-pass was at
+    // best redundant and at worst reentrant.
 }
 
 - (void)setBarHorizontalPadding:(CGFloat)horizontal verticalPadding:(CGFloat)vertical buttonWidth:(CGFloat)buttonWidth {
-    self.barLeading.constant = self.barTrailing.constant = horizontal;
-    self.barTop.constant = self.barBottom.constant = vertical;
-    self.barButtonWidth.constant = buttonWidth;
+    // Only touch constants that actually change: this runs from inside the bar's
+    // layoutSubviews, and an unconditional write re-dirties layout every pass.
+    if (self.barLeading.constant != horizontal)
+        self.barLeading.constant = horizontal;
+    if (self.barTrailing.constant != horizontal)
+        self.barTrailing.constant = horizontal;
+    if (self.barTop.constant != vertical)
+        self.barTop.constant = vertical;
+    if (self.barBottom.constant != vertical)
+        self.barBottom.constant = vertical;
+    if (self.barButtonWidth.constant != buttonWidth)
+        self.barButtonWidth.constant = buttonWidth;
 }
 
 - (IBAction)pressEscape:(id)sender {
@@ -1877,7 +1886,16 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
 @dynamic allowsSelfSizing;
 
 - (void)layoutSubviews {
+    // Set the size-class-dependent constraint constants BEFORE super runs, so the pass
+    // that follows lays the keys out against the right metrics.
     [self.terminalViewController resizeBar];
+    // This override historically never called super -- but super is what applies this
+    // view's Auto Layout constraints to its subviews (the key stack is pinned to the
+    // input view's safe-area guide). Skipping it left the keys' frames stale whenever
+    // UIKit invalidated the bar's layout after the fact (safe-area propagation into the
+    // keyboard scene, trait changes), which could leave the bar visually drifted until
+    // some unrelated layout pass happened to fix it up.
+    [super layoutSubviews];
 }
 
 @end
