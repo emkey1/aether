@@ -1,4 +1,5 @@
 #import "DisplayViewController.h"
+#import "AboutViewController.h"
 #import "DisplayRFBClient.h"
 #import "DisplayRFBView.h"
 #import "Terminal.h"
@@ -61,7 +62,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *_ctrlAltDelButton;
     UIButton *_pasteButton;
     UIButton *_reconnectButton;
-    UIButton *_Nullable _workspaceButton; // standalone mode only
+    UIButton *_Nullable _menuPip; // standalone mode only
     DisplayRFBView *_displayView;
 
     // The guest session is owned exactly the way TerminalViewController owns
@@ -117,11 +118,6 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     _reconnectButton.hidden = YES;
     [_toolbarCard addSubview:_reconnectButton];
 
-    if (self.standaloneMode) {
-        _workspaceButton = [self displayButtonWithTitle:@"Workspace" action:@selector(switchToWorkspace:)];
-        [_toolbarCard addSubview:_workspaceButton];
-    }
-
     CGFloat inset = 8.0;
     NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
         [_toolbarCard.topAnchor constraintEqualToAnchor:self.toolContentView.topAnchor constant:inset],
@@ -141,17 +137,40 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         [_pasteButton.trailingAnchor constraintEqualToAnchor:_ctrlAltDelButton.leadingAnchor constant:-6.0],
         [_pasteButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
     ]];
-    if (_workspaceButton != nil) {
-        [constraints addObjectsFromArray:@[
-            [_workspaceButton.trailingAnchor constraintEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0],
-            [_workspaceButton.centerYAnchor constraintEqualToAnchor:_toolbarCard.centerYAnchor],
-            [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_workspaceButton.leadingAnchor constant:-6.0],
-        ]];
-    } else {
-        [constraints addObject:
-            [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0]];
-    }
+    [constraints addObject:
+        [_statusLabel.trailingAnchor constraintLessThanOrEqualToAnchor:_pasteButton.leadingAnchor constant:-6.0]];
     [NSLayoutConstraint activateConstraints:constraints];
+
+    // Standalone (startup-mode) only: the same lower-right "Workspace menu"
+    // pip the Workspace desktop shows (visual style copied from
+    // WorkspaceViewController's makeModernMenuPip), so the corner menu button
+    // is reachable from every mode. Added to self.view, not toolContentView,
+    // so it floats above the display surface.
+    if (self.standaloneMode) {
+        UIButton *pip = [UIButton buttonWithType:UIButtonTypeSystem];
+        pip.translatesAutoresizingMaskIntoConstraints = NO;
+        [pip setImage:[UIImage systemImageNamed:@"line.3.horizontal"] forState:UIControlStateNormal];
+        pip.tintColor = UIColor.whiteColor;
+        NSDictionary<NSString *, UIColor *> *theme = [self workspaceTheme];
+        pip.backgroundColor = theme[@"accent"] ?: [UIColor colorWithRed:0.20 green:0.48 blue:0.96 alpha:1.0];
+        pip.layer.cornerRadius = 22.0;
+        pip.layer.borderWidth = 1.5;
+        pip.layer.borderColor = [UIColor colorWithWhite:1.0 alpha:0.85].CGColor;
+        pip.layer.shadowColor = UIColor.blackColor.CGColor;
+        pip.layer.shadowOpacity = 0.35;
+        pip.layer.shadowRadius = 6.0;
+        pip.layer.shadowOffset = CGSizeMake(0.0, 2.0);
+        pip.accessibilityLabel = @"Display menu";
+        [pip addTarget:self action:@selector(menuPipTapped:) forControlEvents:UIControlEventTouchUpInside];
+        _menuPip = pip;
+        [self.view addSubview:pip];
+        [NSLayoutConstraint activateConstraints:@[
+            [pip.trailingAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.trailingAnchor constant:-16.0],
+            [pip.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-16.0],
+            [pip.widthAnchor constraintEqualToConstant:44.0],
+            [pip.heightAnchor constraintEqualToConstant:44.0],
+        ]];
+    }
 
     [NSNotificationCenter.defaultCenter addObserver:self
                                             selector:@selector(guestProcessExited:)
@@ -165,6 +184,12 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         _startedOnce = YES;
         [self startGuestSession];
     }
+}
+
+// Standalone fullscreen: the desktop extends under the home indicator (see
+// -displayView), so let the indicator fade out when idle like a video player.
+- (BOOL)prefersHomeIndicatorAutoHidden {
+    return self.standaloneMode;
 }
 
 - (void)dealloc {
@@ -408,6 +433,45 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     });
 }
 
+// Standalone-only lower-right pip: mirrors the Workspace desktop's corner
+// menu button so it's reachable from every mode. Workspace-desktop actions
+// (windows, desktops, launcher) don't exist here; this carries the ones that
+// do.
+- (void)menuPipTapped:(UIButton *)sender {
+    UIAlertController *sheet =
+        [UIAlertController alertControllerWithTitle:@"Wayland Display"
+                                            message:nil
+                                     preferredStyle:UIAlertControllerStyleActionSheet];
+    __weak typeof(self) weakSelf = self;
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Open Workspace…"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [weakSelf switchToWorkspace:sender];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Settings"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        // Form sheet: dismissable by swipe-down, so Settings can't strand the
+        // session (the About screen has no Done button of its own when it
+        // isn't hosted in a Workspace window).
+        UINavigationController *settings = ISHCreateAboutNavigationController(NO, NO);
+        settings.modalPresentationStyle = UIModalPresentationFormSheet;
+        [weakSelf presentViewController:settings animated:YES completion:nil];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Reconnect"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [weakSelf reconnect:sender];
+    }]];
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Cancel" style:UIAlertActionStyleCancel handler:nil]];
+    UIPopoverPresentationController *popover = sheet.popoverPresentationController;
+    if (popover != nil) {
+        popover.sourceView = sender;
+        popover.sourceRect = sender.bounds;
+    }
+    [self presentViewController:sheet animated:YES completion:nil];
+}
+
 // Standalone (startup-mode) escape hatch: swap the scene's root over to the
 // Workspace. Releasing this controller tears the guest Wayland session down
 // (dealloc -> teardownSession -> pty SIGHUP), exactly like closing the
@@ -451,12 +515,25 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     if (_displayView == nil) {
         _displayView = [[DisplayRFBView alloc] initWithFrame:CGRectZero];
         [self.toolContentView addSubview:_displayView];
+        // Standalone fullscreen: extend to the view's real bottom edge, not
+        // the safe-area-inset toolContentView -- otherwise the home-indicator
+        // inset leaves a dead black band under the desktop. (toolContentView
+        // doesn't clip, so a subview may extend past its bottom.) The rounded
+        // corners only make sense inside a Workspace window; at the physical
+        // screen edge they'd just notch the desktop.
+        NSLayoutYAxisAnchor *bottomAnchor = self.standaloneMode
+            ? self.view.bottomAnchor
+            : self.toolContentView.bottomAnchor;
+        if (self.standaloneMode)
+            _displayView.layer.cornerRadius = 0.0;
         [NSLayoutConstraint activateConstraints:@[
             [_displayView.topAnchor constraintEqualToAnchor:_toolbarCard.bottomAnchor constant:8.0],
             [_displayView.leadingAnchor constraintEqualToAnchor:self.toolContentView.leadingAnchor],
             [_displayView.trailingAnchor constraintEqualToAnchor:self.toolContentView.trailingAnchor],
-            [_displayView.bottomAnchor constraintEqualToAnchor:self.toolContentView.bottomAnchor],
+            [_displayView.bottomAnchor constraintEqualToAnchor:bottomAnchor],
         ]];
+        if (_menuPip != nil)
+            [self.view bringSubviewToFront:_menuPip];
     }
     return _displayView;
 }

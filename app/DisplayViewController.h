@@ -18,10 +18,11 @@ NS_ASSUME_NONNULL_BEGIN
 @interface DisplayViewController : WorkspaceThemedToolViewController
 
 // YES when this controller IS the scene's root (the "Wayland Display" startup
-// mode) rather than an applet window inside the Workspace. Adds a "Workspace"
-// escape button to the toolbar that swaps the scene over to the Workspace --
-// without it a broken Wayland stack would leave no way back to Settings or a
-// terminal. Set before the view loads.
+// mode) rather than an applet window inside the Workspace. Adds the same
+// lower-right menu pip the Workspace desktop has (Open Workspace / Settings /
+// Reconnect) -- without it a broken Wayland stack would leave no way back to
+// Settings or a terminal -- and extends the display surface to the physical
+// bottom edge instead of stopping at the safe area. Set before the view loads.
 @property (nonatomic) BOOL standaloneMode;
 
 @end
