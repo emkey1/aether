@@ -258,11 +258,59 @@ NS_ASSUME_NONNULL_BEGIN
     return YES;
 }
 
+// Smart punctuation/autocorrect must be off, exactly like TerminalView: the
+// iOS keyboard otherwise rewrites what the user typed BEFORE it reaches
+// -insertText: -- most damagingly "--" becomes an em-dash (U+2014), which has
+// no Latin-1 keysym and silently vanished in the guest, so any --long-option
+// typed into the Wayland desktop lost its dashes ("systemctl enable --now"
+// arrived as "enable now"). A lone "-" was never converted, which made the
+// symptom look bizarrely selective.
+- (UITextSmartDashesType)smartDashesType {
+    return UITextSmartDashesTypeNo;
+}
+- (UITextSmartQuotesType)smartQuotesType {
+    return UITextSmartQuotesTypeNo;
+}
+- (UITextSmartInsertDeleteType)smartInsertDeleteType {
+    return UITextSmartInsertDeleteTypeNo;
+}
+- (UITextAutocapitalizationType)autocapitalizationType {
+    return UITextAutocapitalizationTypeNone;
+}
+- (UITextAutocorrectionType)autocorrectionType {
+    return UITextAutocorrectionTypeNo;
+}
+// Apparently required on iOS 15+ in addition to autocorrectionType (same
+// note as TerminalView): https://stackoverflow.com/a/72359764
+- (UITextSpellCheckingType)spellCheckingType {
+    return UITextSpellCheckingTypeNo;
+}
+
 - (void)insertText:(NSString *)text {
     if (_rfbClient == nil)
         return;
     for (NSUInteger i = 0; i < text.length; i++) {
         unichar ch = [text characterAtIndex:i];
+        // Typographic characters the iOS text system can still hand us even
+        // with the smart-punctuation traits off (dictation, pasted-by-iOS
+        // autofill, a hardware keyboard's Option layer): fold them back to
+        // the ASCII the guest can actually type. An em-dash reconstructs the
+        // "--" it was made from.
+        if (ch == 0x2014 /* em-dash */) {
+            [_rfbClient sendKeyEvent:'-' down:YES];
+            [_rfbClient sendKeyEvent:'-' down:NO];
+            [_rfbClient sendKeyEvent:'-' down:YES];
+            [_rfbClient sendKeyEvent:'-' down:NO];
+            continue;
+        }
+        if (ch == 0x2013 /* en-dash */)
+            ch = '-';
+        else if (ch == 0x2018 || ch == 0x2019) /* curly single quotes */
+            ch = '\'';
+        else if (ch == 0x201C || ch == 0x201D) /* curly double quotes */
+            ch = '"';
+        else if (ch == 0x00A0) /* non-breaking space */
+            ch = ' ';
         // X11 keysyms equal the Unicode code point for the printable
         // Latin-1 range, which covers normal typing; anything outside that
         // range is out of scope for v1 (matches typing through a US/Latin-1
