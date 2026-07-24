@@ -45,6 +45,13 @@ NS_ASSUME_NONNULL_BEGIN
         self.layer.cornerRadius = 10.0;
         self.layer.masksToBounds = YES;
         self.multipleTouchEnabled = NO;
+        // Without this, iOS reserves space above the accessory bar for its own
+        // (never-shown, since we have no text field) predictive-text strip
+        // whenever a hardware keyboard is attached, leaving a visible gap
+        // between the accessory bar and the true bottom edge (same fix as
+        // TerminalView.m, discovered independently here).
+        self.inputAssistantItem.leadingBarButtonGroups = @[];
+        self.inputAssistantItem.trailingBarButtonGroups = @[];
         // Trackpad/mouse movement without a button held never generates
         // touch events at all (only click-and-drag does, via iPadOS's
         // touch-compatibility synthesis) -- this is the only way to track
