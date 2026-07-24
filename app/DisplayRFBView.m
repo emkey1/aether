@@ -1,4 +1,7 @@
 #import "DisplayRFBView.h"
+#import "BarButton.h"
+#import "UserPreferences.h"
+#import <GameController/GameController.h>
 
 NS_ASSUME_NONNULL_BEGIN
 
@@ -15,6 +18,13 @@ NS_ASSUME_NONNULL_BEGIN
     CGSize _cursorImageSize;
     CGPoint _cursorHotspot;
     CGPoint _lastPointerViewPoint; // last touch location, in this view's own coordinate space
+
+    // Accessory key strip shown above/instead of the soft keyboard (the Display
+    // surface is its own first responder, so TerminalViewController's bar never
+    // applies here). Modifier keys latch one-shot: they hold their keysym down
+    // until the next key/character is sent, then release.
+    UIInputView *_Nullable _accessoryBar;
+    NSArray<BarButton *> *_Nullable _accessoryModifierKeys;
 }
 
 - (instancetype)initWithFrame:(CGRect)frameRect {
@@ -40,6 +50,21 @@ NS_ASSUME_NONNULL_BEGIN
         // touch-compatibility synthesis) -- this is the only way to track
         // the remote cursor to plain hover movement.
         [self addGestureRecognizer:[[UIHoverGestureRecognizer alloc] initWithTarget:self action:@selector(handleHover:)]];
+
+        // The accessory strip is suppressed while a hardware keyboard is attached and
+        // the user asked for that (Settings -> External Keyboard); connect/disconnect
+        // has to re-evaluate it or the decision goes stale (same lesson as the
+        // terminal's bar, GH #520).
+        if (@available(iOS 14.0, *)) {
+            [NSNotificationCenter.defaultCenter addObserver:self
+                                                   selector:@selector(hardwareKeyboardDidChange:)
+                                                       name:GCKeyboardDidConnectNotification
+                                                     object:nil];
+            [NSNotificationCenter.defaultCenter addObserver:self
+                                                   selector:@selector(hardwareKeyboardDidChange:)
+                                                       name:GCKeyboardDidDisconnectNotification
+                                                     object:nil];
+        }
 
         _commandQueue = [device newCommandQueue];
         id<MTLLibrary> library = [device newDefaultLibrary];
@@ -285,6 +310,11 @@ NS_ASSUME_NONNULL_BEGIN
 - (UITextSpellCheckingType)spellCheckingType {
     return UITextSpellCheckingTypeNo;
 }
+// Follow the app theme like the terminal does, so the soft keyboard matches
+// the accessory strip's key styling.
+- (UIKeyboardAppearance)keyboardAppearance {
+    return UserPreferences.shared.keyboardAppearance;
+}
 
 - (void)insertText:(NSString *)text {
     if (_rfbClient == nil)
@@ -319,6 +349,7 @@ NS_ASSUME_NONNULL_BEGIN
         [_rfbClient sendKeyEvent:keysym down:YES];
         [_rfbClient sendKeyEvent:keysym down:NO];
     }
+    [self releaseLatchedAccessoryModifiers];
 }
 
 - (void)deleteBackward {
@@ -326,6 +357,7 @@ NS_ASSUME_NONNULL_BEGIN
         return;
     [_rfbClient sendKeyEvent:0xFF08 down:YES]; // BackSpace
     [_rfbClient sendKeyEvent:0xFF08 down:NO];
+    [self releaseLatchedAccessoryModifiers];
 }
 
 - (nullable NSArray<UIKeyCommand *> *)keyCommands {
@@ -409,6 +441,9 @@ NS_ASSUME_NONNULL_BEGIN
     NSString *input = command.input;
     if (input.length == 0 || _rfbClient == nil)
         return;
+    // Release any bar-latched modifier first so this chord's own wrap doesn't
+    // stack on (and then half-release) an already-held modifier.
+    [self releaseLatchedAccessoryModifiers];
     static const uint32_t keysymControlL = 0xFFE3;
     uint32_t keysym = (uint32_t) [input characterAtIndex:0];
     [_rfbClient sendKeyEvent:keysymControlL down:YES];
@@ -430,6 +465,7 @@ static uint32_t DisplayRFBKeysymForKeyCommandInput(NSString *input) {
     NSString *input = command.input;
     if (input.length == 0 || _rfbClient == nil)
         return;
+    [self releaseLatchedAccessoryModifiers];
     static const uint32_t keysymAltL = 0xFFE9;
     uint32_t keysym = DisplayRFBKeysymForKeyCommandInput(input);
     [_rfbClient sendKeyEvent:keysymAltL down:YES];
@@ -442,6 +478,7 @@ static uint32_t DisplayRFBKeysymForKeyCommandInput(NSString *input) {
     NSString *input = command.input;
     if (input.length == 0 || _rfbClient == nil)
         return;
+    [self releaseLatchedAccessoryModifiers];
     static const uint32_t keysymAltL = 0xFFE9;
     static const uint32_t keysymShiftL = 0xFFE1;
     uint32_t keysym = DisplayRFBKeysymForKeyCommandInput(input);
@@ -475,6 +512,146 @@ static uint32_t DisplayRFBKeysymForKeyCommandInput(NSString *input) {
     uint32_t keysym = keysymNumber.unsignedIntValue;
     [_rfbClient sendKeyEvent:keysym down:YES];
     [_rfbClient sendKeyEvent:keysym down:NO];
+    [self releaseLatchedAccessoryModifiers];
+}
+
+#pragma mark - Accessory key strip
+
+// Keysyms for the bar's keys. Super_L is included because Wayland compositors
+// (labwc, sway alternates) bind menus/shortcuts to Super, which no iOS soft
+// keyboard can produce at all.
+static const uint32_t kKeysymEscape = 0xFF1B;
+static const uint32_t kKeysymTab = 0xFF09;
+static const uint32_t kKeysymControlL = 0xFFE3;
+static const uint32_t kKeysymAltL = 0xFFE9;
+static const uint32_t kKeysymSuperL = 0xFFEB;
+static const uint32_t kKeysymLeft = 0xFF51;
+static const uint32_t kKeysymUp = 0xFF52;
+static const uint32_t kKeysymDown = 0xFF54;
+static const uint32_t kKeysymRight = 0xFF53;
+
+- (UIView *_Nullable)inputAccessoryView {
+    if (@available(iOS 14.0, *)) {
+        if (GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard)
+            return nil;
+    }
+    return [self accessoryBar];
+}
+
+- (void)hardwareKeyboardDidChange:(NSNotification *)notification {
+    // GCKeyboard notifications are not guaranteed to arrive on the main queue.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        if (self.isFirstResponder)
+            [self reloadInputViews];
+    });
+}
+
+- (UIInputView *)accessoryBar {
+    if (_accessoryBar != nil)
+        return _accessoryBar;
+
+    UIInputView *bar = [[UIInputView alloc] initWithFrame:CGRectMake(0, 0, 0, 56)
+                                           inputViewStyle:UIInputViewStyleKeyboard];
+    bar.allowsSelfSizing = YES;
+    bar.translatesAutoresizingMaskIntoConstraints = YES;
+    bar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+    BarButton *ctrlKey = [self accessoryModifierKeyWithTitle:@"ctrl" label:@"Control" keysym:kKeysymControlL];
+    BarButton *altKey = [self accessoryModifierKeyWithTitle:@"alt" label:@"Alt" keysym:kKeysymAltL];
+    BarButton *superKey = [self accessoryModifierKeyWithTitle:@"❖" label:@"Super" keysym:kKeysymSuperL];
+    _accessoryModifierKeys = @[ctrlKey, altKey, superKey];
+
+    UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
+        [self accessoryKeyWithTitle:@"esc" label:@"Escape" keysym:kKeysymEscape],
+        [self accessoryKeyWithTitle:@"⇥" label:@"Tab" keysym:kKeysymTab],
+        ctrlKey,
+        altKey,
+        superKey,
+        [self accessoryKeyWithTitle:@"←" label:@"Left arrow" keysym:kKeysymLeft],
+        [self accessoryKeyWithTitle:@"↑" label:@"Up arrow" keysym:kKeysymUp],
+        [self accessoryKeyWithTitle:@"↓" label:@"Down arrow" keysym:kKeysymDown],
+        [self accessoryKeyWithTitle:@"→" label:@"Right arrow" keysym:kKeysymRight],
+    ]];
+    stack.translatesAutoresizingMaskIntoConstraints = NO;
+    stack.axis = UILayoutConstraintAxisHorizontal;
+    stack.distribution = UIStackViewDistributionFillEqually;
+    stack.spacing = 6;
+    [bar addSubview:stack];
+    // Pinned to the input view's safe-area guide so the keys stay clear of the home
+    // indicator when the bar sits alone at the bottom (hardware keyboard attached);
+    // allowsSelfSizing lets these constraints determine the bar's height.
+    [NSLayoutConstraint activateConstraints:@[
+        [stack.leadingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.leadingAnchor constant:8],
+        [stack.trailingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.trailingAnchor constant:-8],
+        [stack.topAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.topAnchor constant:6],
+        [stack.bottomAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.bottomAnchor constant:-6],
+        [stack.heightAnchor constraintEqualToConstant:44],
+    ]];
+
+    _accessoryBar = bar;
+    return bar;
+}
+
+// BarButton does its setup in awakeFromNib (it has only ever been built from the
+// terminal storyboard); replicate that configuration for programmatic use.
+- (BarButton *)accessoryKeyBaseWithTitle:(NSString *)title label:(NSString *)label keysym:(uint32_t)keysym {
+    BarButton *key = [BarButton buttonWithType:UIButtonTypeCustom];
+    [key setTitle:title forState:UIControlStateNormal];
+    key.titleLabel.font = [UIFont systemFontOfSize:18];
+    key.layer.cornerRadius = 5;
+    key.layer.shadowOffset = CGSizeMake(0, 1);
+    key.layer.shadowOpacity = 0.4;
+    key.layer.shadowRadius = 0;
+    key.accessibilityLabel = label;
+    key.accessibilityTraits |= UIAccessibilityTraitKeyboardKey;
+    key.tag = (NSInteger) keysym;
+    key.keyAppearance = UserPreferences.shared.keyboardAppearance;
+    return key;
+}
+
+- (BarButton *)accessoryKeyWithTitle:(NSString *)title label:(NSString *)label keysym:(uint32_t)keysym {
+    BarButton *key = [self accessoryKeyBaseWithTitle:title label:label keysym:keysym];
+    [key addTarget:self action:@selector(accessoryKeyPressed:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    return key;
+}
+
+- (BarButton *)accessoryModifierKeyWithTitle:(NSString *)title label:(NSString *)label keysym:(uint32_t)keysym {
+    BarButton *key = [self accessoryKeyBaseWithTitle:title label:label keysym:keysym];
+    key.toggleable = YES;
+    [key addTarget:self action:@selector(accessoryModifierToggled:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    return key;
+}
+
+- (void)accessoryKeyPressed:(BarButton *)sender {
+    if (_rfbClient == nil)
+        return;
+    uint32_t keysym = (uint32_t) sender.tag;
+    // Any latched modifiers are still held down here, so this composes with them
+    // (Ctrl then Left = Ctrl+Left); they release afterwards, one-shot.
+    [_rfbClient sendKeyEvent:keysym down:YES];
+    [_rfbClient sendKeyEvent:keysym down:NO];
+    [self releaseLatchedAccessoryModifiers];
+}
+
+- (void)accessoryModifierToggled:(BarButton *)sender {
+    if (_rfbClient == nil)
+        return;
+    BOOL latch = !sender.selected;
+    sender.selected = latch;
+    [_rfbClient sendKeyEvent:(uint32_t) sender.tag down:latch];
+}
+
+// One-shot semantics (matching the terminal bar's Control key): the latched
+// modifier keysyms stay held in the RFB session until the next real key or
+// character goes through, then release. Also called from the hardware-keyboard
+// combo handlers so a latched bar modifier can't linger under a hardware chord.
+- (void)releaseLatchedAccessoryModifiers {
+    for (BarButton *key in _accessoryModifierKeys) {
+        if (!key.selected)
+            continue;
+        key.selected = NO;
+        [_rfbClient sendKeyEvent:(uint32_t) key.tag down:NO];
+    }
 }
 
 @end
