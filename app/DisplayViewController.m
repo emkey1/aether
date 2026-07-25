@@ -221,17 +221,31 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         // again once the indicator auto-hides, which is exactly the
         // observed "starts flush at the bottom, then pops up and stays"
         // drift. As a regular subview pinned to the physical bottom edge,
-        // its position never moves; the home-indicator inset propagates
-        // INTO the bar (its keys are pinned to its own safe-area guide),
-        // so the background stays flush while the keys clear the curve.
+        // its position never moves.
+        //
+        // -accessoryKeyStack is embedded in a plain UIView WE build and
+        // fully constrain here, deliberately NOT via allowsSelfSizing/the
+        // stack's own safeAreaLayoutGuide the way -accessoryBar does it for
+        // real inputAccessoryView hosting (see that method's comment) --
+        // that self-sizing trick only works when UIKit's keyboard window is
+        // actually the one hosting the view. Reusing it as a plain dangling
+        // subview once left its height ambiguous, and Auto Layout resolved
+        // the ambiguity by covering most of the screen, silently eating
+        // every touch meant for the display surface underneath it
+        // (2026-07-24 regression). Every dimension below is pinned to a
+        // real, always-correct anchor -- this view's own leading/trailing/
+        // bottom, or self.view.safeAreaLayoutGuide for the keys' bottom
+        // clearance -- so the container's size is always fully determined.
         DisplayRFBView *displayView = self.displayView;
         displayView.accessoryBarExternallyHosted = YES;
-        UIView *strip = displayView.accessoryBarView;
+        UIStackView *stack = displayView.accessoryKeyStack;
+        UIView *strip = [[UIView alloc] initWithFrame:CGRectZero];
         strip.translatesAutoresizingMaskIntoConstraints = NO;
         strip.clipsToBounds = YES;
+        strip.backgroundColor = [UIColor colorWithWhite:0.11 alpha:1.0]; // approximates the system keyboard's dark chrome
         [self.view addSubview:strip];
+        [strip addSubview:stack];
         _accessoryStrip = strip;
-        _accessoryStripZeroHeightConstraint = [strip.heightAnchor constraintEqualToConstant:0.0];
         NSLayoutYAxisAnchor *stripBottomAnchor;
         if (@available(iOS 17.0, *)) {
             // Rides the software keyboard's top when one is up; with
@@ -246,10 +260,25 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             // the keys that keyboard lacks.
             stripBottomAnchor = self.view.bottomAnchor;
         }
+        // Priority 999 on the strip-height-defining link: the required
+        // zero-height override (hidden case, see -_updateAccessoryStripVisibility)
+        // must be able to win without an unsatisfiable-constraint conflict.
+        NSLayoutConstraint *stripTopFollowsStack = [strip.topAnchor constraintEqualToAnchor:stack.topAnchor constant:-6.0];
+        stripTopFollowsStack.priority = UILayoutPriorityRequired - 1;
+        _accessoryStripZeroHeightConstraint = [strip.heightAnchor constraintEqualToConstant:0.0];
         [NSLayoutConstraint activateConstraints:@[
             [strip.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
             [strip.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
             [strip.bottomAnchor constraintEqualToAnchor:stripBottomAnchor],
+            stripTopFollowsStack,
+            [stack.leadingAnchor constraintEqualToAnchor:strip.leadingAnchor constant:8.0],
+            [stack.trailingAnchor constraintEqualToAnchor:strip.trailingAnchor constant:-8.0],
+            [stack.heightAnchor constraintEqualToConstant:44.0],
+            // The controller's OWN safe area (always correctly configured,
+            // unlike a dangling subview's) -- keeps the keys clear of the
+            // home indicator while the strip's background (bottom-anchored
+            // above) still extends past it to the true edge.
+            [stack.bottomAnchor constraintEqualToAnchor:self.view.safeAreaLayoutGuide.bottomAnchor constant:-6.0],
         ]];
         if (_menuPip != nil) {
             _menuPipBottomConstraint.active = NO;
@@ -301,6 +330,12 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     // GCKeyboard notifications are not guaranteed to arrive on the main queue.
     dispatch_async(dispatch_get_main_queue(), ^{
         [self _updateAccessoryStripVisibility];
+        // A hardware keyboard disconnecting mid-session is exactly the
+        // no-hardware-keyboard condition -_autoShowKeyboardIfAppropriate
+        // gates on; catches the "started with one attached, unplugged it
+        // later" case, not just the at-connect one. Harmless no-op if a
+        // keyboard just connected instead -- the guard bails immediately.
+        [self _autoShowKeyboardIfAppropriate];
     });
 }
 
@@ -707,8 +742,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
         UserPreferences.shared.autoShowKeyboard = !autoShowKeyboard;
-        if (UserPreferences.shared.autoShowKeyboard)
-            [weakSelf.displayView becomeFirstResponder];
+        [weakSelf _autoShowKeyboardIfAppropriate];
         // Re-present so the toggled state is reflected, matching the same
         // deferred re-present WorkspaceViewController's handler uses.
         dispatch_async(dispatch_get_main_queue(), ^{
@@ -836,13 +870,30 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     // bring the output in line with the current orientation right away
     // rather than waiting for the next physical rotation.
     [self _requestDesktopSizeForViewSize:self.view.bounds.size];
-    // Mirrors TerminalViewController's -viewDidLoad/-focusTerminal gating on
-    // the same preference. DisplayRFBView otherwise only becomes first
-    // responder from a touch (-touchesBegan:), so without this the software
-    // keyboard never appears on its own even with the preference on --
-    // there was previously no auto-focus call site here at all to gate.
-    if (UserPreferences.shared.autoShowKeyboard)
-        [self.displayView becomeFirstResponder];
+    [self _autoShowKeyboardIfAppropriate];
+}
+
+// Mirrors TerminalViewController's -viewDidLoad/-focusTerminal gating on
+// the same preference. DisplayRFBView otherwise only becomes first
+// responder from a touch (-touchesBegan:), so without this the software
+// keyboard never appears on its own even with the preference on -- there
+// was previously no auto-focus call site here at all to gate.
+//
+// Additionally gated on there being no hardware keyboard attached (user
+// request, 2026-07-24): with one attached, becoming first responder would
+// only bring up the accessory strip anyway (real software keyboards don't
+// render alongside hardware input), so forcing a touch-keyboard-shaped
+// grab of first-responder status there is pure downside -- it steals a
+// touch-driven decision the user might make deliberately later, for zero
+// benefit. Auto-show is meant for the touch-only case.
+- (void)_autoShowKeyboardIfAppropriate {
+    if (!UserPreferences.shared.autoShowKeyboard)
+        return;
+    if (@available(iOS 14.0, *)) {
+        if (GCKeyboard.coalescedKeyboard != nil)
+            return;
+    }
+    [self.displayView becomeFirstResponder];
 }
 
 - (void)rfbClientDidUpdateFramebuffer:(DisplayRFBClient *)client {

@@ -24,6 +24,7 @@ NS_ASSUME_NONNULL_BEGIN
     // applies here). Modifier keys latch one-shot: they hold their keysym down
     // until the next key/character is sent, then release.
     UIInputView *_Nullable _accessoryBar;
+    UIStackView *_Nullable _accessoryKeyStack; // externally-hosted equivalent of _accessoryBar; see -accessoryKeyStack
     NSArray<BarButton *> *_Nullable _accessoryModifierKeys;
     // Last value -inputAccessoryView would have returned nil-ness for, so
     // -hardwareKeyboardDidChange: can tell a real change from a no-op one.
@@ -543,18 +544,14 @@ static const uint32_t kKeysymRight = 0xFF53;
 
 - (UIView *_Nullable)inputAccessoryView {
     // Externally hosted (standalone Display mode): the owner places
-    // -accessoryBarView itself and manages its visibility -- handing the
-    // same view to UIKit's keyboard host too would fight that placement.
+    // -accessoryKeyStack itself and manages its visibility -- handing a real
+    // accessory view to UIKit's keyboard host too would fight that placement.
     if (self.accessoryBarExternallyHosted)
         return nil;
     if (@available(iOS 14.0, *)) {
         if (GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard)
             return nil;
     }
-    return [self accessoryBar];
-}
-
-- (UIView *)accessoryBarView {
     return [self accessoryBar];
 }
 
@@ -598,6 +595,40 @@ static const uint32_t kKeysymRight = 0xFF53;
     bar.translatesAutoresizingMaskIntoConstraints = YES;
     bar.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
 
+    UIStackView *stack = [self _buildAccessoryKeyStack];
+    [bar addSubview:stack];
+    // Pinned to the input view's safe-area guide so the keys stay clear of the home
+    // indicator when the bar sits alone at the bottom (hardware keyboard attached);
+    // allowsSelfSizing lets these constraints determine the bar's height. This
+    // self-sizing behavior is specific to a REAL inputAccessoryView being
+    // hosted by UIKit's keyboard window -- see -accessoryKeyStack for the
+    // externally-hosted equivalent, which does NOT reuse this container.
+    NSArray<NSLayoutConstraint *> *stackConstraints = @[
+        [stack.leadingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.leadingAnchor constant:8],
+        [stack.trailingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.trailingAnchor constant:-8],
+        [stack.topAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.topAnchor constant:6],
+        [stack.bottomAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.bottomAnchor constant:-6],
+        [stack.heightAnchor constraintEqualToConstant:44],
+    ];
+    [NSLayoutConstraint activateConstraints:stackConstraints];
+
+    _accessoryBar = bar;
+    return bar;
+}
+
+// The button row alone, no container -- shared by -accessoryBar (embedded in
+// a real UIInputView, pinned to ITS safeAreaLayoutGuide, self-sized via
+// allowsSelfSizing) and -accessoryKeyStack (embedded directly by the owner
+// when externally hosted, with no self-sizing trick involved: allowsSelfSizing
+// and safeAreaLayoutGuide-driven implicit-height layout are UIInputView/real-
+// accessory-hosting behaviors that don't apply to a view added as a plain
+// subview -- reusing that same UIInputView as a dangling ordinary subview
+// left its height ambiguous, which is what silently broke touch delivery to
+// DisplayRFBView underneath it (2026-07-24, see project notes) once it
+// stopped being an actual inputAccessoryView. The externally-hosted path
+// gets an unambiguous, fully-constrained layout instead (see the owner's
+// container setup).
+- (UIStackView *)_buildAccessoryKeyStack {
     BarButton *ctrlKey = [self accessoryModifierKeyWithTitle:@"ctrl" label:@"Control" keysym:kKeysymControlL];
     BarButton *altKey = [self accessoryModifierKeyWithTitle:@"alt" label:@"Alt" keysym:kKeysymAltL];
     BarButton *superKey = [self accessoryModifierKeyWithTitle:@"❖" label:@"Super" keysym:kKeysymSuperL];
@@ -618,27 +649,14 @@ static const uint32_t kKeysymRight = 0xFF53;
     stack.axis = UILayoutConstraintAxisHorizontal;
     stack.distribution = UIStackViewDistributionFillEqually;
     stack.spacing = 6;
-    [bar addSubview:stack];
-    // Pinned to the input view's safe-area guide so the keys stay clear of the home
-    // indicator when the bar sits alone at the bottom (hardware keyboard attached);
-    // allowsSelfSizing lets these constraints determine the bar's height.
-    // Priority 999, not required: when externally hosted, the owner collapses
-    // the bar with a required zero-height constraint (hardware keyboard +
-    // "hide extra keys") -- these must yield to that instead of fighting it
-    // with unsatisfiable-constraint breakage.
-    NSArray<NSLayoutConstraint *> *stackConstraints = @[
-        [stack.leadingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.leadingAnchor constant:8],
-        [stack.trailingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.trailingAnchor constant:-8],
-        [stack.topAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.topAnchor constant:6],
-        [stack.bottomAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.bottomAnchor constant:-6],
-        [stack.heightAnchor constraintEqualToConstant:44],
-    ];
-    for (NSLayoutConstraint *constraint in stackConstraints)
-        constraint.priority = UILayoutPriorityRequired - 1;
-    [NSLayoutConstraint activateConstraints:stackConstraints];
+    return stack;
+}
 
-    _accessoryBar = bar;
-    return bar;
+- (UIStackView *)accessoryKeyStack {
+    if (_accessoryKeyStack != nil)
+        return _accessoryKeyStack;
+    _accessoryKeyStack = [self _buildAccessoryKeyStack];
+    return _accessoryKeyStack;
 }
 
 // BarButton does its setup in awakeFromNib (it has only ever been built from the

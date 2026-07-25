@@ -22,7 +22,7 @@ NS_ASSUME_NONNULL_BEGIN
 @property (nonatomic, nullable) DisplayRFBClient *rfbClient;
 
 // When YES, -inputAccessoryView returns nil and the owner is expected to
-// place -accessoryBarView in its own view hierarchy instead. Standalone
+// place -accessoryKeyStack in its own view hierarchy instead. Standalone
 // Display mode does this: UIKit's keyboard-host window (which hosts a real
 // inputAccessoryView) repositions the bar to clear the home indicator
 // whenever the indicator becomes visible -- and never lowers it again once
@@ -31,9 +31,15 @@ NS_ASSUME_NONNULL_BEGIN
 // placement outright.
 @property (nonatomic) BOOL accessoryBarExternallyHosted;
 
-// The accessory key strip (esc/tab/ctrl/alt/super/arrows), lazily built.
-// Same view -inputAccessoryView vends when not externally hosted.
-- (UIView *)accessoryBarView;
+// The accessory key row (esc/tab/ctrl/alt/super/arrows) alone, no container,
+// lazily built. For accessoryBarExternallyHosted use: the owner embeds this
+// in its own container view with its own constraints. Deliberately NOT the
+// same UIInputView -inputAccessoryView vends -- allowsSelfSizing and
+// safeAreaLayoutGuide-driven implicit sizing only work for a REAL
+// inputAccessoryView hosted by UIKit; reusing that container as a plain
+// subview left its height ambiguous, which silently broke touch delivery to
+// the rest of the view underneath it (2026-07-24).
+- (UIStackView *)accessoryKeyStack;
 
 - (instancetype)initWithFrame:(CGRect)frameRect;
 
