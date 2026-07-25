@@ -17,11 +17,14 @@ typedef NS_ENUM(uint8_t, DisplayRFBClientMessageType) {
     DisplayRFBClientMessageKeyEvent = 4,
     DisplayRFBClientMessagePointerEvent = 5,
     DisplayRFBClientMessageClientCutText = 6,
+    DisplayRFBClientMessageSetDesktopSize = 251,
 };
 
 static const int32_t DisplayRFBEncodingRaw = 0;
 static const int32_t DisplayRFBEncodingCopyRect = 1;
 static const int32_t DisplayRFBEncodingCursor = -239;
+static const int32_t DisplayRFBEncodingDesktopSize = -223;
+static const int32_t DisplayRFBEncodingExtendedDesktopSize = -308;
 
 static NSString *rfb_hex_dump(const uint8_t *bytes, size_t length) {
     NSMutableString *hex = [NSMutableString stringWithCapacity:length * 3];
@@ -77,6 +80,26 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
     uint8_t *_Nullable _framebuffer; // BGRA8888, framebufferWidth*framebufferHeight*4
     NSString *_Nullable _lastUpdateHeaderHex; // diagnostic: raw pad+count bytes of the in-progress FramebufferUpdate
     CGRect _dirtyRect; // bounding box of everything changed since the last acknowledge; CGRectNull = nothing yet
+
+    // Screen identity from the server's last ExtendedDesktopSize rect,
+    // echoed back verbatim in SetDesktopSize requests (the extension keys
+    // screens by id; wayvnc's single headless output shows up as one
+    // screen). Zero-initialized fallbacks are what wayvnc actually reports
+    // anyway (verified via the raw-protocol probe in the plan doc).
+    uint32_t _screenId;
+    uint32_t _screenFlags;
+    // Set when a DesktopSize/ExtendedDesktopSize rect actually changed the
+    // framebuffer size mid-update; any remaining rects of that same update
+    // may still describe the OLD geometry (encoded before the server
+    // processed the resize), so out-of-bounds rects are skipped instead of
+    // failing the connection while this is set. Cleared when the update
+    // completes -- the follow-up full FramebufferUpdateRequest (see
+    // _needsFullUpdateRequest) repaints everything at the new size anyway.
+    BOOL _tolerateOutOfBoundsRects;
+    // Ask for a non-incremental update on the next acknowledge, so a fresh
+    // full frame at the new size replaces the zeroed post-resize buffer
+    // without trusting the server's damage tracking across a mode change.
+    BOOL _needsFullUpdateRequest;
 }
 
 - (instancetype)init {
@@ -417,10 +440,16 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
     // Cursor (-239): the server composites the pointer image client-side
     // instead of redrawing it into the framebuffer on every pointer move,
     // cutting both wire bytes and server-side render cost for the common
-    // case of just moving the mouse around.
-    static const int32_t encodings[] = {DisplayRFBEncodingRaw, DisplayRFBEncodingCopyRect, DisplayRFBEncodingCursor};
+    // case of just moving the mouse around. DesktopSize (-223) and
+    // ExtendedDesktopSize (-308): the server may resize its desktop at any
+    // time (rotation via -requestDesktopSizeWidth:height:, or an external
+    // wlr-randr against the compositor) -- without these advertised, a
+    // resize under a live connection just starts producing rects beyond
+    // our framebuffer bounds and kills the session.
+    static const int32_t encodings[] = {DisplayRFBEncodingRaw, DisplayRFBEncodingCopyRect, DisplayRFBEncodingCursor,
+                                        DisplayRFBEncodingDesktopSize, DisplayRFBEncodingExtendedDesktopSize};
     const size_t count = sizeof(encodings) / sizeof(encodings[0]);
-    uint8_t msg[4 + 4 * 3];
+    uint8_t msg[4 + sizeof(encodings)];
     msg[0] = DisplayRFBClientMessageSetEncodings;
     msg[1] = 0;
     rfb_write_u16(&msg[2], (uint16_t) count);
@@ -479,6 +508,11 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
 
 - (void)_readRectAtIndex:(uint16_t)index of:(uint16_t)total {
     if (index >= total) {
+        // A resize-transition tolerance window (see the ivar doc) never
+        // outlives its own update: the follow-up request after this frame
+        // is full-size at the new geometry, so anything out-of-bounds in a
+        // LATER update is a genuine protocol violation again.
+        self->_tolerateOutOfBoundsRects = NO;
         // Whole FramebufferUpdate processed: notify, then go quiet on the
         // wire until the delegate calls -acknowledgeFramebufferRead. See
         // the header doc -- this is the backpressure mechanism, not just an
@@ -509,6 +543,25 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
             return;
         }
 
+        // Desktop-size pseudo-rects: w/h carry the new size, x/y are not a
+        // position (ExtendedDesktopSize reuses them as reason/status --
+        // deliberately ignored: wayvnc 0.10.1 returns a nonstandard status
+        // while demonstrably applying the resize, so the only thing treated
+        // as authoritative is the size itself; see the plan doc). Both must
+        // branch before the zero-area check: ExtendedDesktopSize always
+        // carries a screen-list payload that has to be consumed even if the
+        // size happens to be unchanged or degenerate.
+        if (encoding == DisplayRFBEncodingExtendedDesktopSize) {
+            [self _readExtendedDesktopSizeRectWithWidth:w height:h index:index total:total];
+            return;
+        }
+        if (encoding == DisplayRFBEncodingDesktopSize) {
+            if (![self _applyDesktopSizeWidth:w height:h])
+                return;
+            [self _readRectAtIndex:index + 1 of:total];
+            return;
+        }
+
         // A zero-area rect has no pixel payload under ANY encoding -- per
         // spec there's nothing to read regardless of what the encoding field
         // says, so check this before validating encoding/bounds at all.
@@ -522,6 +575,25 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
             return;
         }
         if ((uint32_t) x + w > self->_framebufferWidth || (uint32_t) y + h > self->_framebufferHeight) {
+            // Mid-resize (see _tolerateOutOfBoundsRects): rects encoded for
+            // the pre-resize geometry can trail the size rect within the
+            // same update. Their payload sizes are still self-describing,
+            // so consume and discard rather than either failing or trying
+            // to clip content that's about to be fully repainted anyway.
+            if (self->_tolerateOutOfBoundsRects && encoding == DisplayRFBEncodingCopyRect) {
+                [self _readExactly:4 completion:^(const uint8_t *ignored) {
+                    (void) ignored;
+                    [self _readRectAtIndex:index + 1 of:total];
+                }];
+                return;
+            }
+            if (self->_tolerateOutOfBoundsRects && encoding == DisplayRFBEncodingRaw) {
+                [self _readExactly:(uint32_t) w * h * 4 completion:^(const uint8_t *ignored) {
+                    (void) ignored;
+                    [self _readRectAtIndex:index + 1 of:total];
+                }];
+                return;
+            }
             [self _failWithMessage:[NSString stringWithFormat:
                 @"Rect out of framebuffer bounds: rect=%u,%u %ux%u fb=%ux%u",
                 x, y, w, h, (unsigned) self->_framebufferWidth, (unsigned) self->_framebufferHeight]];
@@ -633,6 +705,93 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
     }];
 }
 
+#pragma mark - Desktop resize
+
+// Applies a new desktop size announced by the server. Runs on _queue, and
+// only ever while processing rects -- i.e. between an acknowledge and the
+// next update-notify, when the delegate is contractually not reading the
+// framebuffer (the same quiescent window every pixel write already relies
+// on), so swapping the buffer out is race-free. Returns NO only on a fatal
+// allocation failure (the connection has already been failed).
+- (BOOL)_applyDesktopSizeWidth:(uint16_t)width height:(uint16_t)height {
+    if (width == 0 || height == 0)
+        return YES; // degenerate size rect: nothing sane to do with it, ignore
+    if (width == _framebufferWidth && height == _framebufferHeight)
+        return YES; // layout announcement with no size change (e.g. the initial ExtendedDesktopSize)
+    uint8_t *newFramebuffer = calloc((size_t) width * height, 4);
+    if (newFramebuffer == NULL) {
+        [self _failWithMessage:@"Failed to allocate resized framebuffer"];
+        return NO;
+    }
+    free(_framebuffer);
+    _framebuffer = newFramebuffer;
+    _framebufferWidth = width;
+    _framebufferHeight = height;
+    // The whole (currently zeroed) buffer is the dirty region: whatever the
+    // delegate uploads next must cover everything, not a stale sub-rect of
+    // the old geometry.
+    _dirtyRect = CGRectMake(0, 0, width, height);
+    _tolerateOutOfBoundsRects = YES;
+    _needsFullUpdateRequest = YES;
+    return YES;
+}
+
+- (void)_readExtendedDesktopSizeRectWithWidth:(uint16_t)width height:(uint16_t)height
+                                         index:(uint16_t)index total:(uint16_t)total {
+    // Payload: 1 byte screen count + 3 bytes padding, then 16 bytes per
+    // screen (id u32, x u16, y u16, w u16, h u16, flags u32).
+    [self _readExactly:4 completion:^(const uint8_t *header) {
+        uint8_t screenCount = header[0];
+        if (screenCount == 0) {
+            if (![self _applyDesktopSizeWidth:width height:height])
+                return;
+            [self _readRectAtIndex:index + 1 of:total];
+            return;
+        }
+        [self _readExactly:(uint32_t) screenCount * 16 completion:^(const uint8_t *screens) {
+            // Track the first screen's identity for echo-back in
+            // SetDesktopSize; wayvnc's single headless output is one screen.
+            self->_screenId = rfb_read_u32(&screens[0]);
+            self->_screenFlags = rfb_read_u32(&screens[12]);
+            if (![self _applyDesktopSizeWidth:width height:height])
+                return;
+            [self _readRectAtIndex:index + 1 of:total];
+        }];
+    }];
+}
+
+- (void)requestDesktopSizeWidth:(uint16_t)width height:(uint16_t)height {
+    dispatch_async(_queue, ^{
+        if (!self->_connected || self->_connection == nil)
+            return;
+        if (width == 0 || height == 0)
+            return;
+        if (width == self->_framebufferWidth && height == self->_framebufferHeight)
+            return;
+        // SetDesktopSize (251): 1 type, 1 pad, u16 w, u16 h, 1 screen count,
+        // 1 pad, then one 16-byte screen entry echoing the tracked identity
+        // at the new dimensions. Nothing local changes here -- the resize
+        // takes effect only when the server confirms it with a
+        // DesktopSize/ExtendedDesktopSize rect (which can arrive an update
+        // or two later; the apply is asynchronous server-side).
+        uint8_t msg[8 + 16];
+        msg[0] = DisplayRFBClientMessageSetDesktopSize;
+        msg[1] = 0;
+        rfb_write_u16(&msg[2], width);
+        rfb_write_u16(&msg[4], height);
+        msg[6] = 1;
+        msg[7] = 0;
+        rfb_write_u32(&msg[8], self->_screenId);
+        rfb_write_u16(&msg[12], 0);
+        rfb_write_u16(&msg[14], 0);
+        rfb_write_u16(&msg[16], width);
+        rfb_write_u16(&msg[18], height);
+        rfb_write_u32(&msg[20], self->_screenFlags);
+        nw_connection_send(self->_connection, dispatch_data_create(msg, sizeof(msg), self->_queue, DISPATCH_DATA_DESTRUCTOR_DEFAULT),
+                            NW_CONNECTION_DEFAULT_STREAM_CONTEXT, false, ^(nw_error_t _Nullable sendError) {});
+    });
+}
+
 - (void)_readServerCutTextHeader {
     [self _readExactly:7 completion:^(const uint8_t *bytes) {
         uint32_t length = rfb_read_u32(&bytes[3]);
@@ -662,7 +821,12 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
             return;
         self->_hasPendingFrame = NO;
         self->_dirtyRect = CGRectNull;
-        [self _sendFramebufferUpdateRequestIncremental:YES];
+        // After a desktop resize, the next request is non-incremental: the
+        // buffer was reallocated zeroed, so a full frame at the new size is
+        // needed regardless of what the server considers damaged.
+        BOOL fullUpdate = self->_needsFullUpdateRequest;
+        self->_needsFullUpdateRequest = NO;
+        [self _sendFramebufferUpdateRequestIncremental:!fullUpdate];
         [self _readNextServerMessage];
     });
 }

@@ -82,6 +82,19 @@ NS_ASSUME_NONNULL_BEGIN
 - (void)sendCtrlAltDel;
 - (void)sendClientCutText:(NSString *)text;
 
+#pragma mark - Desktop resize
+
+// Ask the server to resize its desktop (RFB SetDesktopSize, client message
+// 251). wayvnc implements this for headless outputs by resizing the actual
+// compositor output via wlr-output-management -- verified live on-device
+// (see docs/wayland_rotation_resize_plan.md): the labwc output really
+// changes mode, maximized windows reflow, and the new size arrives back as
+// a DesktopSize/ExtendedDesktopSize rect, which this client applies to its
+// framebuffer. Purely advisory: a server that doesn't support it (or
+// refuses) simply never sends a size rect and nothing changes. No-op when
+// the requested size already matches, or before the connection is up.
+- (void)requestDesktopSizeWidth:(uint16_t)width height:(uint16_t)height;
+
 @end
 
 NS_ASSUME_NONNULL_END

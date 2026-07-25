@@ -274,7 +274,27 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     [coordinator animateAlongsideTransition:nil completion:^(id<UIViewControllerTransitionCoordinatorContext> context) {
         if (self->_displayView.isFirstResponder)
             [self->_displayView reloadInputViews];
+        [self _requestDesktopSizeForViewSize:size];
     }];
+}
+
+// Per-orientation compositor resolution (docs/wayland_rotation_resize_plan.md):
+// instead of stretching the landscape-shaped canvas into a portrait viewport,
+// ask the server to resize its actual output to match the orientation --
+// wayvnc forwards SetDesktopSize to labwc via wlr-output-management on
+// headless outputs, and the maximized windows reflow (all verified live
+// on-device before this was built). Fixed 1280x720 <-> 720x1280 pair rather
+// than deriving from the exact view aspect: it matches the wlroots headless
+// default area, and a stable, predictable pair beats a slightly-truer aspect
+// that changes with every device model. Standalone mode only: the windowed
+// Workspace applet's canvas follows a user-resizable window, where a fixed
+// per-orientation size makes no sense. Harmless when unsupported
+// server-side: no confirmation rect ever arrives and everything stays as-is.
+- (void)_requestDesktopSizeForViewSize:(CGSize)size {
+    if (!self.standaloneMode || _rfbClient == nil)
+        return;
+    BOOL landscape = size.width >= size.height;
+    [_rfbClient requestDesktopSizeWidth:(landscape ? 1280 : 720) height:(landscape ? 720 : 1280)];
 }
 
 - (void)dealloc {
@@ -741,6 +761,11 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     _statusLabel.text = @"Connected";
     _statusLabel.numberOfLines = 1;
     _reconnectButton.hidden = YES;
+    // The session always starts at the compositor's landscape default; if
+    // the app launched (or reconnected) while the device is in portrait,
+    // bring the output in line with the current orientation right away
+    // rather than waiting for the next physical rotation.
+    [self _requestDesktopSizeForViewSize:self.view.bounds.size];
 }
 
 - (void)rfbClientDidUpdateFramebuffer:(DisplayRFBClient *)client {
