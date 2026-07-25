@@ -514,6 +514,18 @@ for test in$selected_tests; do
     cat "\$output"
     if [ "\$rc" -ne 0 ]; then
         status=\$rc
+        # A nonzero rc normally comes with the test's own verdict line
+        # ("NAME: FAIL failures=N"). A test that DIED -- SIGSYS on a syscall
+        # the emulator doesn't know, SIGSEGV, the alarm() watchdog -- prints
+        # no marker at all, so without this the whole run exits nonzero with
+        # zero failures recorded and nothing naming the test that did it.
+        if grep -q "^\$test: \(PASS\|FAIL\|SKIP\)\(\$\|[^A-Za-z]\)" "\$output"; then
+            :
+        elif [ "\$rc" -gt 128 ]; then
+            echo "\$test: FAIL no PASS/FAIL/SKIP marker, killed by signal \$((\$rc - 128)) (rc=\$rc)" >&2
+        else
+            echo "\$test: FAIL no PASS/FAIL/SKIP marker, exited rc=\$rc" >&2
+        fi
         continue
     fi
     if grep -q "^\$test: PASS\(\$\|[^A-Za-z]\)" "\$output"; then

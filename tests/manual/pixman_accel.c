@@ -6,10 +6,14 @@
 // with no libpixman-1 installed, instead of failing to build/run.
 //
 // Requires ISH_PIX_ACCEL=1 (and a build with the accelerator compiled in);
-// SKIPs if the accelerator syscall reports unavailable, same convention as
-// ambient_caps.c/chroot_getcwd.c's privilege-gated SKIPs.
+// SKIPs if the accelerator syscall reports unavailable -- or SIGSYSes, the
+// answer from an emulator build that hasn't wired 0xacc1 into this guest's
+// ABI (see probe_accel below) -- same convention as ambient_caps.c/
+// chroot_getcwd.c's privilege-gated SKIPs.
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <setjmp.h>
+#include <signal.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
@@ -313,12 +317,43 @@ static void test_composite_mask(int src_opaque, int dst_opaque,
     free_canvas(&dst_oracle);
 }
 
+// Probing for ISH_SYS_PIXOP is not simply "call it and read errno": iSH
+// answers a syscall number it doesn't know with SIGSYS, not real Linux's
+// ENOSYS, and 0xacc1 is unknown to any guest ABI the emulator hasn't wired it
+// into (it was arm64/riscv64-only until the x86 ABIs were added alongside this
+// test change). An uncaught SIGSYS kills the process mid-probe, which costs
+// more than the test: a death emits no "pixman_accel: PASS"/"FAIL" line at
+// all, so a suite run just exits 159 with nothing recorded pointing at why.
+// Catch it, and report the same clean SKIP as any other unavailable-
+// accelerator case so there is always a marker.
+static sigjmp_buf probe_jmp;
+
+static void probe_sigsys(int sig) {
+    (void) sig;
+    siglongjmp(probe_jmp, 1);
+}
+
+static long probe_accel(void) {
+    struct sigaction sa, old;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_handler = probe_sigsys;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSYS, &sa, &old);
+
+    volatile long ret = -1; // volatile: written between sigsetjmp and siglongjmp
+    if (sigsetjmp(probe_jmp, 1) == 0)
+        ret = pixop(PIX_OP_FILL, 0, NULL, 4, 0, 0, NULL, 0, 0, 0, 0, 0, 0);
+
+    sigaction(SIGSYS, &old, NULL);
+    return ret;
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     alarm(test_watchdog_secs(60));
     srand(0xC0FFEE);
 
-    long probe = pixop(PIX_OP_FILL, 0, NULL, 4, 0, 0, NULL, 0, 0, 0, 0, 0, 0);
+    long probe = probe_accel();
     if (probe != 0) {
         printf("pixman_accel: SKIP (accelerator unavailable, syscall ret %ld -- "
                "need a build with the accelerator + ISH_PIX_ACCEL=1)\n", probe);
