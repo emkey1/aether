@@ -72,10 +72,11 @@ On device (iPad, Arch aarch64, build 2026-07-25 11:45, which postdates every emu
 
 | Device run | Result |
 |------------|--------|
-| Native Arch aarch64 | 91 PASS / 2 FAIL (both root-only, see below) |
-| Devuan6-arm64 chroot, concurrent | 97 PASS / 0 FAIL |
+| Native Arch aarch64, as uid 1000 | 91 PASS / 2 FAIL (both root-only, see below) |
+| Devuan6-arm64 chroot, concurrent with the above | 97 PASS / 0 FAIL |
+| Native Arch aarch64, re-run as root, alone | **96 PASS / 0 FAIL** |
 
-Both native failures are privilege artifacts of the device suite running as uid 1000 rather than root, and both PASS when re-run under `sudo` on the same system: `netlink_audit` (AUDIT_GET needs CAP_AUDIT_CONTROL) and `oom_score_adj` (a negative adjustment needs CAP_SYS_RESOURCE). Sibling tests already guard for this and report SKIP instead (`ambient_caps: SKIP (needs root)`, `chroot_getcwd: SKIP (not privileged: euid=1000)`); these two should grow the same guard.
+The two failures in the uid-1000 run are privilege artifacts, not emulator bugs: `netlink_audit` (AUDIT_GET needs CAP_AUDIT_CONTROL) and `oom_score_adj` (a negative adjustment needs CAP_SYS_RESOURCE). The clean root re-run confirms it. Sibling tests already guard for this and report SKIP instead (`ambient_caps: SKIP (needs root)`, `chroot_getcwd: SKIP (not privileged: euid=1000)`); these two should grow the same guard. Run the device suite as root (`sudo sh /AOK/tests/setup-regressions.sh --run`) to avoid the noise.
 
 Cross-architecture device coverage was not possible this cycle: the non-aarch64 roots under `/AOK/roots` (`Alpine3.23.3`, `ArchLinux-x86_64`, `Alpine3.23.3-riscv64`, `Devuan6-riscv64`) are empty stubs rather than installed roots, so only the aarch64 roots can be chrooted into. The four-architecture coverage above therefore comes from the CLI harness. Reinstalling those roots would restore true cross-arch device testing.
 
@@ -83,6 +84,11 @@ CI is green on the release candidate (run 30169732364): `build-linux (clang)`, `
 
 ## Known Issues
 
+- **One unexplained whole-emulator wedge under heavy concurrent load, not root-caused.** Observed once on device during this cycle's release testing, with a live Wayland session running while two full regression suites (the native one plus a Devuan6-arm64 chroot one) ran concurrently against the same emulator process. sshd stopped answering, an established ssh session dropped, and the Wayland desktop locked; the app had to be restarted by hand. No crash log, so it was a hang rather than a crash. Both suites had already completed and exited 0 before it happened, so guest execution and signal delivery were working for a long stretch under that same load. Not reproduced since, and a subsequent full device suite run as root is clean (96 PASS / 0 FAIL). Two candidate explanations, both consistent with the symptom and distinguishable only from a backtrace of the wedged process:
+  - This cycle's JIT frame-sync changes. The device runs the aarch64 guest frontend that `9e8723b8` changed, a poke is how a sibling thread forces a task out of the JIT for signal delivery and the memory-quiesce barrier, and `8cf79974` exists precisely because a mishandled poke flag can livelock a task. A remaining narrow race there would stall signal delivery across many tasks, which is what was seen.
+  - A poll/sighand lock-order deadlock, a recurring class in this codebase. `signalfd_epoll_deadlock` was originally found from an on-device backtrace taken during a labwc Wayland session under load, which is close to this scenario.
+
+  If it recurs, attach lldb from Xcode and capture `thread backtrace all` before restarting: tasks parked in the JIT with a poke pending indicates the first, a cycle across `sighand->lock` and `poll->lock` the second. The load involved was deliberately adversarial and heavier than normal use.
 - Buildroot `make` crashes iSH-AOK at "checking for working sigaltstack" (issue #521), new this cycle, not yet root-caused.
 - Some Qt applications (Falkon) cannot connect to the session bus (issue #485).
 - Node.js is slow on aarch64 (issue #509).
