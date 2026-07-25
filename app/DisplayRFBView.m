@@ -542,6 +542,11 @@ static const uint32_t kKeysymDown = 0xFF54;
 static const uint32_t kKeysymRight = 0xFF53;
 
 - (UIView *_Nullable)inputAccessoryView {
+    // Externally hosted (standalone Display mode): the owner places
+    // -accessoryBarView itself and manages its visibility -- handing the
+    // same view to UIKit's keyboard host too would fight that placement.
+    if (self.accessoryBarExternallyHosted)
+        return nil;
     if (@available(iOS 14.0, *)) {
         if (GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard)
             return nil;
@@ -549,9 +554,18 @@ static const uint32_t kKeysymRight = 0xFF53;
     return [self accessoryBar];
 }
 
+- (UIView *)accessoryBarView {
+    return [self accessoryBar];
+}
+
 - (void)hardwareKeyboardDidChange:(NSNotification *)notification {
     // GCKeyboard notifications are not guaranteed to arrive on the main queue.
     dispatch_async(dispatch_get_main_queue(), ^{
+        // Externally hosted: the owner observes the same notifications and
+        // toggles the strip's visibility itself; reloadInputViews would only
+        // churn the (nil) inputAccessoryView.
+        if (self.accessoryBarExternallyHosted)
+            return;
         BOOL hidden = NO;
         if (@available(iOS 14.0, *)) {
             hidden = GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard;
@@ -608,13 +622,20 @@ static const uint32_t kKeysymRight = 0xFF53;
     // Pinned to the input view's safe-area guide so the keys stay clear of the home
     // indicator when the bar sits alone at the bottom (hardware keyboard attached);
     // allowsSelfSizing lets these constraints determine the bar's height.
-    [NSLayoutConstraint activateConstraints:@[
+    // Priority 999, not required: when externally hosted, the owner collapses
+    // the bar with a required zero-height constraint (hardware keyboard +
+    // "hide extra keys") -- these must yield to that instead of fighting it
+    // with unsatisfiable-constraint breakage.
+    NSArray<NSLayoutConstraint *> *stackConstraints = @[
         [stack.leadingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.leadingAnchor constant:8],
         [stack.trailingAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.trailingAnchor constant:-8],
         [stack.topAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.topAnchor constant:6],
         [stack.bottomAnchor constraintEqualToAnchor:bar.safeAreaLayoutGuide.bottomAnchor constant:-6],
         [stack.heightAnchor constraintEqualToConstant:44],
-    ]];
+    ];
+    for (NSLayoutConstraint *constraint in stackConstraints)
+        constraint.priority = UILayoutPriorityRequired - 1;
+    [NSLayoutConstraint activateConstraints:stackConstraints];
 
     _accessoryBar = bar;
     return bar;

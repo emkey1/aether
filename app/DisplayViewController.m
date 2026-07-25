@@ -7,6 +7,7 @@
 #import "GuestFileBridge.h"
 #import "UserPreferences.h"
 #import "NSObject+SaneKVO.h"
+#import <GameController/GameController.h>
 #include "kernel/init.h"
 #include "kernel/task.h"
 #include "kernel/calls.h"
@@ -65,6 +66,13 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     UIButton *_reconnectButton;
     UIButton *_Nullable _menuPip; // standalone mode only
     NSLayoutConstraint *_Nullable _menuPipBottomConstraint;
+    // Standalone mode only: DisplayRFBView's accessory key strip, hosted
+    // directly in this controller's view (NOT as an inputAccessoryView --
+    // see accessoryBarExternallyHosted in DisplayRFBView.h for why), pinned
+    // flush to the physical bottom edge. Collapsed to zero height when a
+    // hardware keyboard is attached and the user asked to hide extra keys.
+    UIView *_Nullable _accessoryStrip;
+    NSLayoutConstraint *_Nullable _accessoryStripZeroHeightConstraint;
     DisplayRFBView *_displayView;
     // Two alternate top constraints for _displayView, swapped by
     // -_updateMaximizeScreenSpaceLayout: the normal one sits below the
@@ -181,23 +189,9 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             [pip.widthAnchor constraintEqualToConstant:44.0],
             [pip.heightAnchor constraintEqualToConstant:44.0],
         ]];
-
-        // DisplayRFBView is its own first responder and supplies the accessory key strip
-        // (see -[DisplayRFBView accessoryBar]) as its inputAccessoryView. With a hardware
-        // keyboard attached there's no software keyboard to push content up -- the
-        // accessory bar is presented on its own at the bottom of the screen, right where
-        // this pip sits, and this view controller otherwise has no idea it's there. Track
-        // the same keyboard-frame notifications the terminal uses to keep its accessory
-        // bar clear of content, and nudge the pip up above whatever's covering it.
-        NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
-        [center addObserver:self
-                   selector:@selector(menuPipKeyboardDidSomething:)
-                       name:UIKeyboardWillChangeFrameNotification
-                     object:nil];
-        [center addObserver:self
-                   selector:@selector(menuPipKeyboardDidSomething:)
-                       name:UIKeyboardDidChangeFrameNotification
-                     object:nil];
+        // (The pip's bottom anchor is re-targeted onto the accessory strip
+        // once that's set up below -- the strip is what actually occupies
+        // the bottom edge in standalone mode.)
     }
 
     [NSNotificationCenter.defaultCenter addObserver:self
@@ -218,7 +212,96 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                 [self setNeedsStatusBarAppearanceUpdate];
             });
         }];
+
+        // Host the accessory key strip OURSELVES instead of letting UIKit's
+        // keyboard-host window place it (accessoryBarExternallyHosted --
+        // see DisplayRFBView.h): the keyboard host bumps a docked accessory
+        // view up to clear the home indicator the moment the indicator
+        // becomes visible (first touch after launch) and never lowers it
+        // again once the indicator auto-hides, which is exactly the
+        // observed "starts flush at the bottom, then pops up and stays"
+        // drift. As a regular subview pinned to the physical bottom edge,
+        // its position never moves; the home-indicator inset propagates
+        // INTO the bar (its keys are pinned to its own safe-area guide),
+        // so the background stays flush while the keys clear the curve.
+        DisplayRFBView *displayView = self.displayView;
+        displayView.accessoryBarExternallyHosted = YES;
+        UIView *strip = displayView.accessoryBarView;
+        strip.translatesAutoresizingMaskIntoConstraints = NO;
+        strip.clipsToBounds = YES;
+        [self.view addSubview:strip];
+        _accessoryStrip = strip;
+        _accessoryStripZeroHeightConstraint = [strip.heightAnchor constraintEqualToConstant:0.0];
+        NSLayoutYAxisAnchor *stripBottomAnchor;
+        if (@available(iOS 17.0, *)) {
+            // Rides the software keyboard's top when one is up; with
+            // usesBottomSafeArea off, sits exactly on the view's bottom
+            // edge (not the safe area's) when there's no keyboard.
+            self.view.keyboardLayoutGuide.usesBottomSafeArea = NO;
+            stripBottomAnchor = self.view.keyboardLayoutGuide.topAnchor;
+        } else {
+            // Pre-iOS-17 fallback: always flush at the bottom. A software
+            // keyboard would cover the strip, but this mode's primary use
+            // is with a hardware keyboard, and the strip's whole point is
+            // the keys that keyboard lacks.
+            stripBottomAnchor = self.view.bottomAnchor;
+        }
+        [NSLayoutConstraint activateConstraints:@[
+            [strip.leadingAnchor constraintEqualToAnchor:self.view.leadingAnchor],
+            [strip.trailingAnchor constraintEqualToAnchor:self.view.trailingAnchor],
+            [strip.bottomAnchor constraintEqualToAnchor:stripBottomAnchor],
+        ]];
+        if (_menuPip != nil) {
+            _menuPipBottomConstraint.active = NO;
+            _menuPipBottomConstraint = [_menuPip.bottomAnchor constraintEqualToAnchor:strip.topAnchor constant:-16.0];
+            _menuPipBottomConstraint.active = YES;
+            [self.view bringSubviewToFront:_menuPip];
+        }
+        [self _updateAccessoryStripVisibility];
+        if (@available(iOS 14.0, *)) {
+            NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
+            [center addObserver:self
+                       selector:@selector(_hardwareKeyboardChangedForStrip:)
+                           name:GCKeyboardDidConnectNotification
+                         object:nil];
+            [center addObserver:self
+                       selector:@selector(_hardwareKeyboardChangedForStrip:)
+                           name:GCKeyboardDidDisconnectNotification
+                         object:nil];
+        }
+        [UserPreferences.shared observe:@[@"hideExtraKeysWithExternalKeyboard"]
+                                options:0 owner:self usingBlock:^(typeof(self) self) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                [self _updateAccessoryStripVisibility];
+            });
+        }];
     }
+}
+
+// Same hide policy -inputAccessoryView applies in windowed mode: gone only
+// when a hardware keyboard is present AND the user asked for that. The
+// zero-height constraint collapses the strip's layout footprint too (a
+// hidden view still occupies space under Auto Layout), which also drops the
+// pip back to the bottom corner since it's anchored to the strip's top.
+- (void)_updateAccessoryStripVisibility {
+    if (_accessoryStrip == nil)
+        return;
+    BOOL hidden = NO;
+    if (@available(iOS 14.0, *)) {
+        hidden = GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard;
+    }
+    if (hidden == _accessoryStrip.hidden && _accessoryStripZeroHeightConstraint.active == hidden)
+        return;
+    _accessoryStrip.hidden = hidden;
+    _accessoryStripZeroHeightConstraint.active = hidden;
+    [self.view setNeedsLayout];
+}
+
+- (void)_hardwareKeyboardChangedForStrip:(NSNotification *)notification {
+    // GCKeyboard notifications are not guaranteed to arrive on the main queue.
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [self _updateAccessoryStripVisibility];
+    });
 }
 
 // "Maximize Screen Space" (About > External Keyboard) is otherwise only
@@ -587,41 +670,10 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     });
 }
 
-// Keeps the pip clear of DisplayRFBView's inputAccessoryView (the accessory key
-// strip, see -[DisplayRFBView accessoryBar]) whether it's riding above the
-// software keyboard or, with a hardware keyboard attached, sitting alone at the
-// bottom of the screen. Mirrors the frame math TerminalViewController uses for
-// the same reason (-keyboardDidSomething:).
-- (void)menuPipKeyboardDidSomething:(NSNotification *)notification {
-    if (_menuPipBottomConstraint == nil)
-        return;
-    CGRect screenKeyboardFrame = [notification.userInfo[UIKeyboardFrameEndUserInfoKey] CGRectValue];
-    UIWindow *window = self.view.window;
-    if (window == nil)
-        return;
-    CGRect keyboardFrame = [self.view convertRect:screenKeyboardFrame fromView:window];
-    // CGRectNull (a refused cross-UIScreen conversion, see TerminalViewController's
-    // -keyboardDidSomething: for the full history of that one) is not equal to
-    // CGRectZero, so both must be guarded -- a transient CGRectZero notification
-    // (observed after a portrait/landscape round trip) would otherwise compute an
-    // overlap of zero and snap the pip to its no-accessory-bar default position
-    // even though the bar is still actually showing, leaving it mostly covered
-    // with no further notification ever arriving to correct it.
-    if (CGRectIsNull(keyboardFrame) || CGRectEqualToRect(keyboardFrame, CGRectZero))
-        return;
-    CGRect overlap = CGRectIntersection(keyboardFrame, self.view.bounds);
-    CGFloat overlapHeight = CGRectIsNull(overlap) ? 0.0 : overlap.size.height;
-    // The pip sits off the safe-area guide already, so only push it up by however much
-    // the covering view eats into the safe area, not by its full height.
-    CGFloat extra = MAX(0.0, overlapHeight - self.view.safeAreaInsets.bottom);
-    _menuPipBottomConstraint.constant = -(16.0 + extra);
-
-    NSNumber *interval = notification.userInfo[UIKeyboardAnimationDurationUserInfoKey];
-    [UIView animateWithDuration:interval != nil ? interval.doubleValue : 0.25
-                     animations:^{
-        [self.view layoutIfNeeded];
-    }];
-}
+// (The old menuPipKeyboardDidSomething: keyboard-frame chasing is gone: the
+// pip is now anchored directly to the self-hosted accessory strip's top, and
+// the strip itself rides the keyboardLayoutGuide -- both follow the keyboard
+// automatically through plain Auto Layout, with no frame math to get wrong.)
 
 // Standalone-only lower-right pip: mirrors the Workspace desktop's corner
 // menu button so it's reachable from every mode. Workspace-desktop actions

@@ -21,6 +21,20 @@ NS_ASSUME_NONNULL_BEGIN
 // already be known). Reading pixels/sending input both go through this.
 @property (nonatomic, nullable) DisplayRFBClient *rfbClient;
 
+// When YES, -inputAccessoryView returns nil and the owner is expected to
+// place -accessoryBarView in its own view hierarchy instead. Standalone
+// Display mode does this: UIKit's keyboard-host window (which hosts a real
+// inputAccessoryView) repositions the bar to clear the home indicator
+// whenever the indicator becomes visible -- and never lowers it again once
+// the indicator auto-hides -- so the only way to keep the strip genuinely
+// flush at the physical bottom of a fullscreen surface is to own its
+// placement outright.
+@property (nonatomic) BOOL accessoryBarExternallyHosted;
+
+// The accessory key strip (esc/tab/ctrl/alt/super/arrows), lazily built.
+// Same view -inputAccessoryView vends when not externally hosted.
+- (UIView *)accessoryBarView;
+
 - (instancetype)initWithFrame:(CGRect)frameRect;
 
 // Forward DisplayRFBClientDelegate's cursor callback here. Renders the
