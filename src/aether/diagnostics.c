@@ -59,6 +59,13 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "array-mutation") == 0) {
             return "ARR-001";
         }
+        /* Slice sugar applied to a Text (`s[a..b]`). Slicing is arrays-only;
+         * the substring builtin is `copy(s, start, count)`. A plain type
+         * error -- the base is the wrong type for the operation -- so it
+         * points at the TYPE-001 guide section. */
+        if (strcmp(kind, "string-slice") == 0) {
+            return "TYPE-001";
+        }
     }
 
     if (!detail) {

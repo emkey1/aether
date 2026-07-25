@@ -4165,6 +4165,29 @@ static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int li
     /* inferLetTypeName only reads its argument (it never takes ownership), so
      * pass `base` directly -- the copy this used to make was leaked outright. */
     char *inferredName = inferLetTypeName(p, base);
+
+    /* `s[a..b]` where `s` is a Text. Slice sugar unconditionally builds an
+     * *array* temp, so a string base used to sail through the parser and then
+     * fail in the backend with the uncoded, misdirected "Type mismatch: Cannot
+     * assign ARRAY to string." Aether has no string-slice form -- the substring
+     * builtin is `copy(s, start, count)` -- so reject it here with a coded
+     * diagnostic that names the replacement. Slicing is the most natural way to
+     * reach for a substring, so this is a shape worth catching precisely. */
+    if (inferredName && (strcmp(inferredName, "Text") == 0 ||
+                         strcmp(inferredName, "str") == 0)) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), line, "string-slice",
+                "slice syntax `s[a..b]` works on arrays, not on Text.",
+                "use the substring builtin instead: `copy(s, start, count)` "
+                "(`start` is 1-based, `count` is a length -- so `s[a..b]` "
+                "becomes `copy(s, a, b - a)`).");
+        p->hadError = true;
+        free(inferredName);
+        freeAST(base);
+        freeAST(lo);
+        freeAST(hi);
+        return NULL;
+    }
+
     if (inferredName) {
         sliceTypeNode = buildTypeNodeFromName(inferredName, strlen(inferredName), line, &sliceVtype);
         if (!sliceTypeNode) {
@@ -4992,8 +5015,11 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
         tmpTypeName = otherTypeName ? strdup(otherTypeName) : NULL;
     }
     if (!tmpTypeName) {
+        /* Wording deliberately starts with "cannot infer the type of" so the
+         * detail-based fallback in aetherInferDiagnosticCode tags it TYPE-001
+         * rather than leaving it uncoded. */
         reportAetherAstError(aetherSemanticGetSourcePath(), concatLine, "return",
-                "cannot infer the array type of this concatenation.",
+                "cannot infer the type of this array concatenation.",
                 "bind it first: `let c: T[] = a + b; ret c;`.");
         p->hadError = true;
         free(otherTypeName);

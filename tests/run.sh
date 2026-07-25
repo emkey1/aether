@@ -2711,4 +2711,23 @@ if ! cmp -s /tmp/aether_array_slice_concat_operand_expected.out /tmp/aether_arra
     exit 1
 fi
 
+# TYPE-001: slice sugar `s[a..b]` on a Text. Slicing builds an array temp, so a
+# string base used to reach the backend and fail with the uncoded, misdirected
+# "Type mismatch: Cannot assign ARRAY to string." It must be a coded parser
+# diagnostic naming copy(s, start, count) as the substring replacement.
+if "$AETHER_BIN" --no-cache "$TESTS_DIR/string_slice_fail.aether" >/tmp/aether_string_slice_fail.out 2>&1; then
+    echo "expected TYPE-001 for a slice applied to a Text but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[TYPE-001\] Aether string-slice parser error: slice syntax .s\[a..b\]. works on arrays, not on Text" /tmp/aether_string_slice_fail.out; then
+    echo "missing TYPE-001 string-slice diagnostic (uncoded backend ARRAY-to-string error regressed?)" >&2
+    cat /tmp/aether_string_slice_fail.out >&2
+    exit 1
+fi
+if ! grep -q "copy(s, start, count)" /tmp/aether_string_slice_fail.out; then
+    echo "TYPE-001 string-slice diagnostic lost its copy() replacement hint" >&2
+    cat /tmp/aether_string_slice_fail.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

@@ -1,0 +1,11 @@
+// Slice sugar `s[a..b]` applied to a Text. Slicing builds an *array* temp, so a
+// string base used to sail past the parser and fail in the backend with the
+// uncoded, misdirected "Type mismatch: Cannot assign ARRAY to string." Aether
+// has no string-slice form -- the substring builtin is copy(s, start, count) --
+// so this must be a coded [TYPE-001] diagnostic that names the replacement.
+fn main() -> Void {
+    let s: Text = "hello";
+    let sub: Text = s[1..3];
+    fx { println(sub); }
+    ret;
+}
