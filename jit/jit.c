@@ -1294,6 +1294,20 @@ static inline size_t jit_cache_hash(guest_addr_t ip) {
     return (size_t) ((ip * 0x9E3779B97F4A7C15ull) >> 32) % JIT_CACHE_SIZE;
 }
 
+// Sync the JIT frame's working cpu_state back out to the task's cpu_state,
+// preserving the live poke flag. cpu->poked_ptr points at cpu->_poked, and the
+// frame holds a whole-struct SNAPSHOT taken at entry -- so a plain
+// `*cpu = frame->cpu` writes the snapshot's stale _poked over the real flag.
+// That silently destroys a poke that arrived while the JIT was running (the
+// pre-existing behavior, harmless-looking because the copy ran every block),
+// and if the snapshot happens to hold a stale TRUE it re-arms the flag forever:
+// every re-entry then yields at the first poke check with zero guest progress.
+static inline void jit_frame_sync_out(struct cpu_state *cpu, struct jit_frame *frame) {
+    bool poked = __atomic_load_n(cpu->poked_ptr, __ATOMIC_SEQ_CST);
+    *cpu = frame->cpu;
+    __atomic_store_n(cpu->poked_ptr, poked, __ATOMIC_SEQ_CST);
+}
+
 static inline bool cpu_take_poke(struct cpu_state *cpu) {
     return __atomic_exchange_n(cpu->poked_ptr, false, __ATOMIC_SEQ_CST);
 }
@@ -1788,6 +1802,7 @@ rearm_arm64:
 
         if (jit_should_yield(jit, cpu)) {
             interrupt = INT_TIMER;
+            jit_frame_sync_out(cpu, frame);
             break;
         }
         guest_addr_t ip = frame->cpu.arm64_pc;
@@ -1803,6 +1818,7 @@ rearm_arm64:
 
                 if (jit_should_yield(jit, cpu)) {
                     interrupt = INT_TIMER;
+                    jit_frame_sync_out(cpu, frame);
                     goto done_unlocked_arm64;
                 }
 
@@ -1824,10 +1840,14 @@ rearm_arm64:
 
                     if (jit_should_yield(jit, cpu)) {
                         interrupt = INT_TIMER;
+                        jit_frame_sync_out(cpu, frame);
                         goto done_unlocked_arm64;
                     }
                     block = jit_block_compile_arm64(ip, tlb);
                     if (block == NULL) {
+                        // Hand the caller the state this task died at: with the
+                        // per-block sync gone, *cpu is otherwise stale here.
+                        jit_frame_sync_out(cpu, frame);
                         printk("JIT OOM at %#llx pid %d: even after full flush, killing task\n",
                                (unsigned long long) ip, current ? current->pid : -1);
                         jit_crash_unwind_active = false;
@@ -1843,6 +1863,7 @@ rearm_arm64:
                 if (jit_should_yield(jit, cpu)) {
                     jit_block_free(NULL, block);
                     interrupt = INT_TIMER;
+                    jit_frame_sync_out(cpu, frame);
                     break;
                 }
 
@@ -1927,10 +1948,19 @@ rearm_arm64:
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
-        *cpu = frame->cpu;
+        // The frame is the authoritative cpu state while the JIT runs; syncing
+        // it back out per block cost ~28% of host time on CPU-bound guest code
+        // (a full cpu_state memcpy per block, and CPython-shaped code returns
+        // to C at nearly every basic block). Nothing between here and the next
+        // jit_enter reads guest registers from *cpu, so sync only when we are
+        // actually handing an interrupt back to the caller.
+        if (interrupt != INT_NONE)
+            jit_frame_sync_out(cpu, frame);
         if (current != NULL && current->force_no_jit_cache) {
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
+            // Already synced just above (interrupt was INT_TIMER); swallowing
+            // it here only resumes the loop.
             if (force_block_boundary_break && interrupt == INT_TIMER)
                 interrupt = INT_NONE;
         }
