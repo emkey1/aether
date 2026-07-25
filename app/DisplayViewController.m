@@ -347,10 +347,21 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         _accessoryStripZeroHeightConstraint.active = stripHidden;
         [self.view setNeedsLayout];
     }
-    // Switching hosting modes changes what -inputAccessoryView returns;
-    // UIKit only re-queries that on an explicit reload.
-    if (modeChanged && self.displayView.isFirstResponder)
-        [self.displayView reloadInputViews];
+    // Switching hosting modes is a bigger change than reloadInputViews is
+    // really meant for -- it's documented for "the SAME kind of accessory
+    // view changed shape/content", not "stop being hosted by UIKit at all
+    // and start being a plain subview instead" (or the reverse). A plain
+    // reloadInputViews call here left the strip simply never reappearing on
+    // a hardware-keyboard reconnect mid-session (user-reported, 2026-07-24)
+    // -- UIKit's keyboard-presentation state apparently doesn't fully reset
+    // across that boundary just from a reload. Force it: resign first
+    // responder, then immediately reclaim it, so UIKit tears down whatever
+    // it was presenting before re-evaluating -inputAccessoryView from a
+    // clean slate.
+    if (modeChanged && self.displayView.isFirstResponder) {
+        [self.displayView resignFirstResponder];
+        [self.displayView becomeFirstResponder];
+    }
 }
 
 - (void)_hardwareKeyboardChangedForStrip:(NSNotification *)notification {
