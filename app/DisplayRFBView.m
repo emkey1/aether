@@ -635,6 +635,7 @@ static const uint32_t kKeysymRight = 0xFF53;
     _accessoryModifierKeys = @[ctrlKey, altKey, superKey];
 
     UIStackView *stack = [[UIStackView alloc] initWithArrangedSubviews:@[
+        [self accessoryShowKeyboardKey],
         [self accessoryKeyWithTitle:@"esc" label:@"Escape" keysym:kKeysymEscape],
         [self accessoryKeyWithTitle:@"⇥" label:@"Tab" keysym:kKeysymTab],
         ctrlKey,
@@ -687,6 +688,36 @@ static const uint32_t kKeysymRight = 0xFF53;
     key.toggleable = YES;
     [key addTarget:self action:@selector(accessoryModifierToggled:) forControlEvents:UIControlEventPrimaryActionTriggered];
     return key;
+}
+
+// A manual escape hatch for -_autoShowKeyboardIfAppropriate's gate: with a
+// hardware keyboard attached, iOS suppresses the software keyboard
+// system-wide and there is no public API to force it back up (confirmed
+// against Apple's own forums, 2026-07-24 -- "no API for a keyboard
+// extension to show itself without the user interaction" once a hardware
+// keyboard is detected). This can't override that either; it's a
+// same-effort becomeFirstResponder retry the user can trigger themselves,
+// useful whenever no hardware keyboard is actually attached (e.g. this
+// device isn't detecting one, or one just went to sleep) -- costs nothing
+// otherwise, and is a harmless no-op if already first responder.
+- (BarButton *)accessoryShowKeyboardKey {
+    BarButton *key = [BarButton buttonWithType:UIButtonTypeCustom];
+    [key setImage:[UIImage systemImageNamed:@"keyboard"] forState:UIControlStateNormal];
+    // tintColor is set by BarButton's own -chooseBackground (driven by
+    // keyAppearance below), matching every other key -- not hardcoded here.
+    key.layer.cornerRadius = 5;
+    key.layer.shadowOffset = CGSizeMake(0, 1);
+    key.layer.shadowOpacity = 0.4;
+    key.layer.shadowRadius = 0;
+    key.accessibilityLabel = @"Show Keyboard";
+    key.accessibilityTraits |= UIAccessibilityTraitKeyboardKey;
+    key.keyAppearance = UserPreferences.shared.keyboardAppearance;
+    [key addTarget:self action:@selector(showKeyboardPressed:) forControlEvents:UIControlEventPrimaryActionTriggered];
+    return key;
+}
+
+- (void)showKeyboardPressed:(BarButton *)sender {
+    [self becomeFirstResponder];
 }
 
 - (void)accessoryKeyPressed:(BarButton *)sender {
