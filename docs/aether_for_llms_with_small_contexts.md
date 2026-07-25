@@ -511,10 +511,19 @@ println("");
 Helpers (complete surface): `has_toon()`, `toon_parse(text)`,
 `toon_parse_file(path)`, `toon_root(doc)`, `toon_close(doc)`,
 `toon_key(node, key)`, `toon_at(node, i)`, `toon_len(node)`,
-`toon_get_text/int/real/bool(node, key)` plus `_or(node, key, fallback)`
-variants, `toon_text/int/real/bool/null_value(node)`, `toon_type(node)`,
-`toon_has_key(node, key)`, `toon_has_at(node, i)`,
-`toon_is_text/int/real/bool/null/arr/obj(node)`.
+`toon_get_text(node, key)`, `toon_get_int(node, key)`,
+`toon_get_real(node, key)`, `toon_get_bool(node, key)`, plus the
+`toon_get_*_or(node, key, fallback)` variants
+(`toon_get_int_or`, `toon_get_text_or`, ...);
+`toon_text_value(node)`, `toon_int_value(node)`, `toon_real_value(node)`,
+`toon_bool_value(node)`, `toon_null_value(node)`; `toon_type(node)`,
+`toon_has_key(node, key)`, `toon_has_at(node, i)`;
+`toon_is_text(node)`, `toon_is_int(node)`, `toon_is_real(node)`,
+`toon_is_bool(node)`, `toon_is_null(node)`, `toon_is_arr(node)`,
+`toon_is_obj(node)`.
+
+Node-value accessors keep the `_value` suffix (`toon_int_value`); field
+getters do not (`toon_get_int`). There is no bare `toon_int`/`toon_text`.
 
 Keys are `Text`, indexes `Int`. Always `toon_close(doc)`.
 

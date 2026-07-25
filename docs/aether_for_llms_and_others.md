@@ -1100,11 +1100,16 @@ Golden shape rules:
 | root / close | `toon_root(doc)`, `toon_close(doc)` |
 | object field / array element | `toon_key(node, key)`, `toon_at(node, i)` |
 | TOON array length | `toon_len(node)` |
-| typed field get | `toon_get_text/int/real/bool(node, key)` |
-| typed field get w/ fallback | `toon_get_text_or/int_or/real_or/bool_or(node, key, fb)` |
-| node value | `toon_text/int/real/bool/null_value(node)` |
+| typed field get | `toon_get_text(node, key)`, `toon_get_int(node, key)`, `toon_get_real(node, key)`, `toon_get_bool(node, key)` |
+| typed field get w/ fallback | `toon_get_text_or(node, key, fb)`, `toon_get_int_or(node, key, fb)`, `toon_get_real_or(node, key, fb)`, `toon_get_bool_or(node, key, fb)` |
+| node value | `toon_text_value(node)`, `toon_int_value(node)`, `toon_real_value(node)`, `toon_bool_value(node)`, `toon_null_value(node)` |
 | kind / membership | `toon_type(node)`, `toon_has_key(node, key)`, `toon_has_at(node, i)` |
-| shape checks | `toon_is_text/int/real/bool/null/arr/obj(node)` |
+| shape checks | `toon_is_text(node)`, `toon_is_int(node)`, `toon_is_real(node)`, `toon_is_bool(node)`, `toon_is_null(node)`, `toon_is_arr(node)`, `toon_is_obj(node)` |
+
+Every name above is spelled out in full on purpose. The **node-value**
+accessors take the `_value` suffix (`toon_int_value`) while the **field**
+getters do not (`toon_get_int`). There is no bare `toon_int`, `toon_text`,
+or `toon_bool` — those are the most common wrong guesses.
 
 Prefer `toon_is_*` predicates for control flow instead of depending on exact
 `toon_type(node)` string values.
