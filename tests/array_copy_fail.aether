@@ -1,0 +1,11 @@
+// copy() is the *string* substring builtin. Handed an array it used to fail at
+// runtime with the uncoded "Copy expects (String/Char, Integer, Integer)." --
+// a message that never mentions Aether's actual subarray form, the slice sugar
+// arr[lo..hi]. The mirror of tests/string_slice_fail.aether (a slice applied to
+// a Text); both must be coded [TYPE-001] diagnostics naming the right spelling.
+fn main() -> Void {
+    let xs: Int[] = [5, 3, 8, 1];
+    let half: Int[] = copy(xs, 1, 2);
+    fx { println(length(half)); }
+    ret;
+}

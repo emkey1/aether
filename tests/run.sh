@@ -2730,4 +2730,22 @@ if ! grep -q "copy(s, start, count)" /tmp/aether_string_slice_fail.out; then
     exit 1
 fi
 
+# TYPE-001: copy() (the Text substring builtin) handed an array. Used to fail at
+# runtime with the uncoded "Copy expects (String/Char, Integer, Integer)." with
+# no mention of the slice sugar arr[lo..hi]. Mirror of the string_slice case.
+if "$AETHER_BIN" --no-cache "$TESTS_DIR/array_copy_fail.aether" >/tmp/aether_array_copy_fail.out 2>&1; then
+    echo "expected TYPE-001 for copy() applied to an array but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[TYPE-001\] Aether array-copy parser error: copy() is the substring builtin for Text" /tmp/aether_array_copy_fail.out; then
+    echo "missing TYPE-001 array-copy diagnostic (uncoded runtime 'Copy expects' regressed?)" >&2
+    cat /tmp/aether_array_copy_fail.out >&2
+    exit 1
+fi
+if ! grep -q "arr\[lo..hi\]" /tmp/aether_array_copy_fail.out; then
+    echo "TYPE-001 array-copy diagnostic lost its slice-form replacement hint" >&2
+    cat /tmp/aether_array_copy_fail.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

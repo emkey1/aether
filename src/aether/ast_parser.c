@@ -2617,6 +2617,32 @@ static AST *parsePrimary(AetherParser *p) {
             }
             moveArgsOntoCall(call, args);
             setTypeAST(call, TYPE_UNKNOWN);
+            /* `copy(arr, lo, n)` on an array. `copy` is the *string* substring
+             * builtin; handed an array it failed at runtime with the uncoded
+             * "Copy expects (String/Char, Integer, Integer)." -- a message that
+             * never mentions that Aether does have a subarray form, the slice
+             * sugar `arr[lo..hi]`. This is the exact mirror of the Text-base
+             * slice rejection in buildArraySlice, and the same confusion in the
+             * other direction, so give it the same treatment: name the right
+             * spelling, including the index translation. */
+            if (call->type == AST_PROCEDURE_CALL && call->token &&
+                call->token->value && strcasecmp(call->token->value, "copy") == 0 &&
+                call->child_count >= 1 && call->children[0]) {
+                char *baseTypeName = inferLetTypeName(p, call->children[0]);
+                if (baseTypeName && aetherTypeNameIsArray(baseTypeName)) {
+                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "array-copy",
+                            "copy() is the substring builtin for Text; it does not "
+                            "take an array.",
+                            "use the slice form for a subarray: `arr[lo..hi]` "
+                            "(half-open and 0-based, so copy(arr, start, count) "
+                            "becomes arr[start..start + count]).");
+                    p->hadError = true;
+                    free(baseTypeName);
+                    freeAST(call);
+                    return NULL;
+                }
+                free(baseTypeName);
+            }
             return parsePostfix(p, call);
         }
         /* Inside a method's contract expression, a bare field reference lowers to
