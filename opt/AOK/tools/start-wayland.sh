@@ -511,24 +511,14 @@ if [ "$COMPOSITOR_CMD" = "labwc" ] && [ ! -f "$HOME/.config/labwc/rc.xml" ]; the
   <theme>
     <name>iSH-Workspace</name>
   </theme>
-  <!-- labwc is a floating WM: a newly-mapped window opens at its own
-       preferred size wherever labwc's placement heuristic puts it, which for
-       foot is far smaller than the 1280x720 headless output. The applet's
-       DisplayRFBView stretches the WHOLE canvas (no letterboxing) to fill the
-       device screen, and its accessory key strip docks correctly to the true
-       bottom of that (real, native) screen, so any unmaximized desktop
-       space below/right of the actual window stretches right along with it,
-       showing up as a large gap between the window and the accessory bar
-       that has nothing to do with the bar's own position. Confirmed via a
-       live VNC screenshot (m4pt, 2026-07-24): foot occupied roughly half the
-       canvas with the rest as bare desktop. Maximizing every window on open
-       makes this a non-issue; matches the single-output, one-thing-at-a-time
-       way this headless session is actually used. -->
-  <windowRules>
-    <windowRule identifier="*">
-      <action name="Maximize"/>
-    </windowRule>
-  </windowRules>
+  <!-- Deliberately NO windowRules forcing Maximize: a wildcard Maximize-on-
+       open rule briefly lived here to hide the visual gap a small floating
+       window left on the stretched landscape canvas, but per-orientation
+       output resizing (DisplayRFBClient's SetDesktopSize support, see
+       docs/wayland_rotation_resize_plan.md) fixed the aspect mismatch that
+       made that gap confusing, and forcing EVERY app fullscreen was wrong
+       for normal desktop use (user-reported). Windows open floating at
+       their natural size, like any stock labwc desktop. -->
   <keyboard>
     <keybind key="A-Return">
       <action name="Execute"><command>foot</command></action>
