@@ -4277,14 +4277,33 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
     qword_t raw_args[6];
     dword_t args[6];
     qword_t syscall_num = dispatch->syscall_number(cpu);
-    // iSH-private syscalls live above the real asm-generic range (ISH_SYS_AEAD
-    // = 0xacc0, ISH_SYS_PIXOP = 0xacc1), so they'd fail the range check below
-    // and index the table out of bounds. Intercept them here (arm64/riscv64
-    // only) before that check.
-    if ((dispatch->abi == GUEST_ABI_ARM64 || dispatch->abi == GUEST_ABI_RISCV64) &&
-            (syscall_num == 0xacc0 || syscall_num == 0xacc1)) {
+    // iSH-private syscalls live above every real syscall range (ISH_SYS_AEAD =
+    // 0xacc0, ISH_SYS_PIXOP = 0xacc1), so they'd fail the range check below
+    // and index the table out of bounds. Intercept them here, for EVERY guest
+    // ABI, before that check.
+    //
+    // Both accelerators are ABI-neutral: the single argument is a guest
+    // pointer to a fixed-layout request struct (the two leading u32s pack the
+    // 64-bit fields to the same offsets under i386's 4-byte long long
+    // alignment as under any 64-bit ABI), and everything inside is an
+    // explicitly-sized field. Wiring only arm64/riscv64 didn't just make the
+    // accelerators unavailable to x86 guests -- it made *probing* for them
+    // fatal: an unknown syscall gets SIGSYS here, not real Linux's ENOSYS, so
+    // the guest-side consumers whose whole fall-back story is "probe once, and
+    // on ENOSYS pass everything through" (opt/AOK/tools/pixman's LD_PRELOAD
+    // shim, opt/AOK/crypto's OpenSSL provider, tests/manual/pixman_accel.c)
+    // died at the probe on i386/amd64 instead of falling back.
+    if (syscall_num == 0xacc0 || syscall_num == 0xacc1) {
         dispatch->syscall_args(cpu, raw_args);
-        handle_asm_generic_native_syscall(cpu, syscall_num, raw_args);
+        if (dispatch->abi == GUEST_ABI_ARM64 || dispatch->abi == GUEST_ABI_RISCV64) {
+            handle_asm_generic_native_syscall(cpu, syscall_num, raw_args);
+            return;
+        }
+        // i386/amd64: no legacy marshalling (raw_args[0] is a full guest
+        // address), and the result goes back through the ABI's own writer,
+        // which already sign-extends a negative errno the way each expects.
+        dispatch->syscall_result(cpu, syscall_num == 0xacc0 ?
+                sys_ish_aead_guest(raw_args[0]) : sys_ish_pixop_guest(raw_args[0]));
         return;
     }
     if (syscall_num >= dispatch->num_syscalls) {
