@@ -10,6 +10,12 @@
 
 NS_ASSUME_NONNULL_BEGIN
 
+// The synthetic "root name" for the /AOK/persist folder shown alongside the
+// installed roots in Files. Starts with '.', which RootNameIsValid (Roots.m)
+// forbids in a real (user-chosen or bundled) root name, so this can never
+// collide with an actual installed root.
+FOUNDATION_EXPORT NSString *const ISHFileProviderPersistRootName;
+
 struct fakefs_mount {
     struct fakefs_db db;
     int root_fd;

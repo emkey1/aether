@@ -168,6 +168,33 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
     return names;
 }
 
+NSString *const ISHFileProviderPersistRootName = @".persist";
+
+// /AOK/persist itself (see AOKPersistDirectoryURL in AppDelegate.m / PersistRootsDir
+// in Roots.m) -- a real, writable, host-backed directory shared by every booted
+// root, mounted by the guest kernel as a plain realfs mount (no fakefs metadata
+// db of its own). Unlike an installed root, it has no "data" subdirectory: this
+// directory itself is the mount's real content.
+static NSURL *ISHFileProviderPersistDirectoryURL(void) {
+    NSURL *container = ContainerURL();
+    if (container == nil)
+        return nil;
+    return [[container URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+            URLByAppendingPathComponent:@"persist" isDirectory:YES];
+}
+
+// The fakefs metadata db this extension keeps for browsing /AOK/persist through
+// Files. Deliberately a sibling of the persist directory (inside "AOK/", which
+// Files never lists) rather than a child of it, so it never shows up as a stray
+// entry in the Persist folder's own listing.
+static NSURL *ISHFileProviderPersistMetadataURL(void) {
+    NSURL *container = ContainerURL();
+    if (container == nil)
+        return nil;
+    return [[container URLByAppendingPathComponent:@"AOK" isDirectory:YES]
+            URLByAppendingPathComponent:@".persist-fileprovider-meta.db" isDirectory:NO];
+}
+
 @interface ISHFileProviderMount ()
 
 @property (nonatomic) struct fakefs_mount storage;
@@ -184,12 +211,33 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
     if (self == nil)
         return nil;
 
+    BOOL isPersist = [rootName isEqualToString:ISHFileProviderPersistRootName];
+
     _storage.root_fd = -1;
-    NSURL *container = ContainerURL();
-    NSURL *fs_dir = [[container URLByAppendingPathComponent:@"roots"]
-                     URLByAppendingPathComponent:rootName];
+    NSURL *metaURL;
+    if (isPersist) {
+        _rootURL = ISHFileProviderPersistDirectoryURL();
+        metaURL = ISHFileProviderPersistMetadataURL();
+        if (_rootURL == nil || metaURL == nil) {
+            if (error != nil)
+                *error = [NSError errorWithDomain:NSPOSIXErrorDomain code:ENOENT userInfo:nil];
+            return nil;
+        }
+        // The extension may run before the main app has ever booted (and thus
+        // ever created/mounted /AOK/persist) -- e.g. the very first time a
+        // fresh install is browsed from Files before iSH-AOK is launched.
+        [NSFileManager.defaultManager createDirectoryAtURL:_rootURL
+                                withIntermediateDirectories:YES
+                                                 attributes:nil
+                                                      error:nil];
+    } else {
+        NSURL *container = ContainerURL();
+        NSURL *fs_dir = [[container URLByAppendingPathComponent:@"roots"]
+                         URLByAppendingPathComponent:rootName];
+        _rootURL = [fs_dir URLByAppendingPathComponent:@"data"];
+        metaURL = [fs_dir URLByAppendingPathComponent:@"meta.db"];
+    }
     _rootName = [rootName copy];
-    _rootURL = [fs_dir URLByAppendingPathComponent:@"data"];
     _ioLock = [[NSRecursiveLock alloc] init];
     _storage.source = strdup(_rootURL.fileSystemRepresentation);
     _storage.root_fd = open(_storage.source, O_RDONLY | O_DIRECTORY);
@@ -201,9 +249,20 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
         return nil;
     }
 
-    int err = fake_db_init(&_storage.db,
-                           [fs_dir URLByAppendingPathComponent:@"meta.db"].fileSystemRepresentation,
-                           _storage.root_fd);
+    if (isPersist && ![NSFileManager.defaultManager fileExistsAtPath:metaURL.path]) {
+        int createErr = fake_db_create_schema(metaURL.fileSystemRepresentation);
+        if (createErr < 0) {
+            close(_storage.root_fd);
+            _storage.root_fd = -1;
+            free((void *) _storage.source);
+            _storage.source = NULL;
+            if (error != nil)
+                *error = [NSError errorWithISHErrno:createErr itemIdentifier:NSFileProviderRootContainerItemIdentifier];
+            return nil;
+        }
+    }
+
+    int err = fake_db_init(&_storage.db, metaURL.fileSystemRepresentation, _storage.root_fd);
     if (err < 0) {
         NSLog(@"error opening root: %d", err);
         close(_storage.root_fd);
@@ -213,6 +272,20 @@ static NSArray<NSString *> *ISHFileProviderInstalledRootNames(void) {
         if (error != nil)
             *error = [NSError errorWithISHErrno:err itemIdentifier:NSFileProviderRootContainerItemIdentifier];
         return nil;
+    }
+
+    if (isPersist) {
+        // A brand-new persist db has no root ("") row yet -- every real
+        // installed root gets one from fakefs_import/fakefs_init_empty, but
+        // this db skipped that step (fake_db_create_schema only lays down
+        // the tables). Mode 01777 matches fakefs_init_empty's shared-root
+        // convention: /AOK/persist is writable by every guest uid.
+        db_begin_write(&_storage.db);
+        if (!path_read_stat(&_storage.db, "", NULL, NULL)) {
+            struct ish_stat rootStat = {.mode = S_IFDIR | 01777};
+            path_create(&_storage.db, "", &rootStat);
+        }
+        db_commit(&_storage.db);
     }
 
     return self;

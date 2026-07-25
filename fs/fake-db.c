@@ -4,6 +4,7 @@
 #include "debug.h"
 #include "misc.h"
 #include "fs/fake-db.h"
+#include "fs/sqlutil.h"
 
 static void db_check_error(struct fakefs_db *fs) {
     int errcode = sqlite3_errcode(fs->db);
@@ -214,6 +215,29 @@ static inode_t fakefs_next_inode_init(struct fakefs_db *fs) {
 
 extern int fakefs_rebuild(struct fakefs_db *fs, int root_fd);
 extern int fakefs_migrate(struct fakefs_db *fs, int root_fd);
+
+// Same base schema tools/fakefs.c's fakefs_import/fakefs_init_empty lay down
+// for a fresh root (minus the synthetic root inode, which callers seed
+// themselves via path_create once fake_db_init has prepared the statements) --
+// needed because fake_db_init's migration path (fakefs_migrate) assumes these
+// tables already exist rather than creating them from nothing.
+int fake_db_create_schema(const char *db_path) {
+    sqlite3 *db;
+    int err = sqlite3_open_v2(db_path, &db, SQLITE_OPEN_READWRITE | SQLITE_OPEN_CREATE, NULL);
+    if (err != SQLITE_OK)
+        HANDLE_ERR_RET(db);
+    EXEC_RET("pragma journal_mode=wal");
+    EXEC_RET("begin");
+    EXEC_RET("create table meta (id integer unique default 0, db_inode integer);"
+             "insert into meta (db_inode) values (0);"
+             "create table stats (inode integer primary key, stat blob);"
+             "create table paths (path blob primary key, inode integer references stats(inode));"
+             "create index inode_to_path on paths (inode, path);"
+             "pragma user_version=5;");
+    EXEC_RET("commit");
+    sqlite3_close(db);
+    return 0;
+}
 
 int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd) {
     int err = sqlite3_open_v2(db_path, &fs->db, SQLITE_OPEN_READWRITE, NULL);

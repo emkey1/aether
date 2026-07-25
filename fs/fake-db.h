@@ -32,6 +32,12 @@ struct fakefs_db {
 
 int fake_db_init(struct fakefs_db *fs, const char *db_path, int root_fd);
 int fake_db_deinit(struct fakefs_db *fs);
+// Lays down a brand-new, empty fakefs metadata db at db_path (base schema,
+// no root inode) so fake_db_init -- whose migration path assumes the base
+// tables already exist -- can open it immediately. Mirrors the schema
+// tools/fakefs.c's fakefs_import/fakefs_init_empty create for a fresh root;
+// callers still need to seed a root ("") path_create themselves.
+int fake_db_create_schema(const char *db_path);
 
 void db_begin_read(struct fakefs_db *fs);
 void db_begin_write(struct fakefs_db *fs);

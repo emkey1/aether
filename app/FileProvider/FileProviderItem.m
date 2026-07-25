@@ -299,8 +299,11 @@ NSFileProviderItemIdentifier ISHFileProviderInnerIdentifier(NSFileProviderItemId
 - (NSString *)filename {
     if (self.isDomainRoot)
         return @"iSH-AOK";
-    if (self.isRoot)
+    if (self.isRoot) {
+        if ([self.rootName isEqualToString:ISHFileProviderPersistRootName])
+            return @"Persist";
         return self.rootName;
+    }
     NSString *filename = self.path.lastPathComponent;
     if ([filename isEqualToString:@""])
         filename = @"/";

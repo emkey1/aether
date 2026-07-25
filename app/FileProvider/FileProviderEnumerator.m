@@ -53,10 +53,13 @@ static NSNumber *ISHFileProviderEnumeratorDurationMilliseconds(NSTimeInterval st
         [observer finishEnumeratingUpToPage:page];
         return;
     }
-    // The synthetic domain root lists each installed root as a folder.
+    // The synthetic domain root lists each installed root as a folder, plus a
+    // "Persist" folder for /AOK/persist (shared across every root, and not
+    // itself an installed root).
     if (self.item.mountOwner == nil) {
         NSMutableArray<FileProviderItem *> *items = [NSMutableArray new];
-        for (NSString *rootName in [self.extension installedRootNames]) {
+        NSArray<NSString *> *rootNames = [[self.extension installedRootNames] arrayByAddingObject:ISHFileProviderPersistRootName];
+        for (NSString *rootName in rootNames) {
             NSError *err;
             ISHFileProviderMount *mount = [self.extension mountForRootName:rootName error:&err];
             if (mount == nil) {
