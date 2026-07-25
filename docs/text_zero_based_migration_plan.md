@@ -1,9 +1,21 @@
 # Migration plan: 0-based `Text` indexing
 
-Status: **proposed, not implemented.** Written 2026-07-25 for review before any
-code or retrain budget is committed. Measurements below are against `aether`
-at `bf9f2d8` and the 276-file corpus in
+Status: **implemented 2026-07-25.** Written as a proposal first; the plan below
+is kept as the record of what was decided and why. What actually shipped:
+
+- `pscal-core` `47353dd` -- `frontendIsZeroBasedStrings()`, the VM index sites,
+  `copy()`'s base and `pos()`'s base + `-1` sentinel.
+- `aether` -- submodule bump, `s[a..b]` on a Text lowered to `copy()` (the
+  "open question" below was answered yes), guide + fixture updates,
+  `tests/text_zero_based_pass.aether`.
+- Corpus -- 33 of 276 files edited (51 mechanical `copy()` rewrites plus 10
+  reviewed files); see "Result" at the end.
+
+Measurements below are against `aether` at `bf9f2d8` and the 276-file corpus in
 `PBuild/Tests/aether_specialization/corpus_candidates`.
+
+The **dataset rebuild and retrain are still outstanding** -- that is the one
+step of the sequencing not carried out here.
 
 ## Decision being proposed
 
@@ -212,13 +224,45 @@ submodule bump restores 1-based behavior wholesale. The corpus edits are the
 expensive half to undo, so do not start the corpus sweep until the compiler
 half has passed step 1 and step 3 above.
 
-## Open question for review
+## Open question for review — *answered yes, implemented*
 
 Should `s[a..b]` on a `Text` become a real substring once the bases agree?
-Today it is rejected with `TYPE-001` pointing at `copy()` (`2489b3c`). Slicing
-is the most natural way to reach for a substring, and after this change
-`s[a..b]` and `arr[a..b]` would finally mean the same thing. That is a feature
-addition rather than a base change, so it is deliberately excluded here -- but
-it is cheapest to do while the string-index code is already open, and it would
-retire the `copy()`-vs-slice confusion in both directions rather than only
-diagnosing it.
+It was rejected with `TYPE-001` pointing at `copy()` (`2489b3c`). Slicing is
+the most natural way to reach for a substring, and now that the bases agree
+`s[a..b]` and `arr[a..b]` mean the same thing.
+
+Implemented in `buildArraySlice`: a Text base lowers to `copy(s, a, b - a)`.
+Because the bases now agree the translation needs no index fixup, and because
+`copy` is an ordinary expression the slice stays an expression -- so unlike the
+array case it hoists nothing and works in `ret s[a..b];`, which has no
+statement slot to splice into. The `TYPE-001` rejection and its
+`string_slice_fail` fixture are gone; the mirror diagnostic for `copy()` on an
+*array* stays, since that one is still a genuine mistake.
+
+## Result
+
+Verified against all 276 corpus files, new binary vs the pre-migration
+reference:
+
+- **0 hard failures.**
+- **265 byte-identical.**
+- 10 differ only by inherent nondeterminism, each proven: 7 produce identical
+  output when the old and new binaries are run interleaved (time-seeded RNG,
+  thread interleaving), and 3 disagree with *themselves* across consecutive
+  runs (two print raw heap pointers, one is the Ising model).
+- 1 differs by exactly one line -- `aether_batch10_combined` prints `pos()`'s
+  raw result, so `pos demo = 3` became `2`. That is the intended semantic
+  change, not breakage, and the file was left alone.
+
+The mechanical `copy()` sweep handled 51 of 58 call sites. The 7 it could not,
+plus 3 files whose 1-based cursor lived outside a `copy()` argument, needed
+review -- and one file, `25_kv_store_persistence`, is why the sweep could not
+be fully mechanical: its *count* expressions were derived from `pos()`, so
+rewriting only the `start` argument produced a plausible but wrong result. Any
+future base change should treat "count derived from pos()" as a review case
+from the start.
+
+Two predicted traps both showed up in the corpus exactly as described:
+`pos(...) != 0` as the found-test (which a `-1` sentinel makes *always true*)
+in `06-29b_sched_m5_devstral_03`, and the 1-based `1..len` /`1..len+1` loop
+idioms in four more files.

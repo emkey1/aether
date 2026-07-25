@@ -1,0 +1,55 @@
+// Text is 0-based, uniform with arrays: s[0] is the first character, s[a..b]
+// is a half-open substring, copy()'s start is 0-based, and pos() returns a
+// 0-based index with -1 (not 0) meaning absent -- 0 is a real result there,
+// namely a match at the very start.
+//
+// The loop line is the point of the whole change. `loop i in 0..length(s)`
+// used to error on s[0]; the "obvious" 1-based repair, `1..length(s)`, then
+// silently DROPPED THE LAST CHARACTER with no diagnostic at all. It now means
+// exactly what the same line means over an array.
+//
+// Replaces the former string_slice_fail.aether, which asserted that s[a..b]
+// on a Text was rejected.
+
+@pure
+fn firstWord(s: Text) -> Text {
+    let sp: Int = pos(" ", s);
+    if sp < 0 { ret s; }
+    ret s[0..sp];
+}
+
+fn main() -> Void {
+    let s: Text = "hello world";
+    let w: Text = "héllo";
+    let e: Text = "";
+
+    fx {
+        println("len=", length(s));
+        println("first=", s[0], " last=", s[length(s) - 1]);
+
+        // Every character, exactly once -- the array idiom, now correct on Text.
+        print("chars:");
+        loop i in 0..length(s) { print(" ", s[i]); }
+        println("");
+
+        // Slice: half-open, same meaning as arr[a..b].
+        println("slice=[", s[0..5], "][", s[6..11], "]");
+        println("empty-slice=[", s[3..3], "]");
+
+        // copy(): start is 0-based, count is a length; clamps past the end.
+        println("copy=[", copy(s, 0, 5), "][", copy(s, 6, 5), "]");
+        println("copy-clamped=[", copy(s, 6, 99), "]");
+
+        // pos(): 0-based, -1 when absent, 0 for a prefix match.
+        println("pos-prefix=", pos("hello", s));
+        println("pos-mid=", pos("world", s));
+        println("pos-absent=", pos("zzz", s));
+        println("pos-empty-haystack=", pos("a", e));
+
+        // Multi-byte UTF-8 indexes and slices by codepoint, not byte.
+        println("utf8=", w[0], w[1], " slice=[", w[0..2], "] len=", length(w));
+
+        println("firstWord=[", firstWord(s), "]");
+    }
+    ret;
+}

@@ -2711,22 +2711,18 @@ if ! cmp -s /tmp/aether_array_slice_concat_operand_expected.out /tmp/aether_arra
     exit 1
 fi
 
-# TYPE-001: slice sugar `s[a..b]` on a Text. Slicing builds an array temp, so a
-# string base used to reach the backend and fail with the uncoded, misdirected
-# "Type mismatch: Cannot assign ARRAY to string." It must be a coded parser
-# diagnostic naming copy(s, start, count) as the substring replacement.
-if "$AETHER_BIN" --no-cache "$TESTS_DIR/string_slice_fail.aether" >/tmp/aether_string_slice_fail.out 2>&1; then
-    echo "expected TYPE-001 for a slice applied to a Text but program succeeded" >&2
-    exit 1
-fi
-if ! grep -q "\[TYPE-001\] Aether string-slice parser error: slice syntax .s\[a..b\]. works on arrays, not on Text" /tmp/aether_string_slice_fail.out; then
-    echo "missing TYPE-001 string-slice diagnostic (uncoded backend ARRAY-to-string error regressed?)" >&2
-    cat /tmp/aether_string_slice_fail.out >&2
-    exit 1
-fi
-if ! grep -q "copy(s, start, count)" /tmp/aether_string_slice_fail.out; then
-    echo "TYPE-001 string-slice diagnostic lost its copy() replacement hint" >&2
-    cat /tmp/aether_string_slice_fail.out >&2
+# Text is 0-based, uniform with arrays: s[0] is the first character, s[a..b] is
+# a half-open substring, copy()'s start is 0-based, pos() is 0-based with -1
+# meaning absent. The `loop i in 0..length(s)` line is the point of the change:
+# it used to error on s[0], and the "obvious" 1-based repair silently dropped
+# the last character. Also covers multi-byte UTF-8 (indexed by codepoint, not
+# byte), copy() clamping past the end, and a prefix match returning 0 rather
+# than being confused with absent.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/text_zero_based_pass.aether" >/tmp/aether_text_zero_based_pass.out
+printf 'len=11\nfirst=h last=d\nchars: h e l l o   w o r l d\nslice=[hello][world]\nempty-slice=[]\ncopy=[hello][world]\ncopy-clamped=[world]\npos-prefix=0\npos-mid=6\npos-absent=-1\npos-empty-haystack=-1\nutf8=hé slice=[hé] len=5\nfirstWord=[hello]\n' >/tmp/aether_text_zero_based_expected.out
+if ! cmp -s /tmp/aether_text_zero_based_expected.out /tmp/aether_text_zero_based_pass.out; then
+    echo "unexpected 0-based Text output (string index base / copy start / pos sentinel regressed?)" >&2
+    diff /tmp/aether_text_zero_based_expected.out /tmp/aether_text_zero_based_pass.out >&2 || true
     exit 1
 fi
 

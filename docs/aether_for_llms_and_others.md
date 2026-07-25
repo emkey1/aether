@@ -774,8 +774,10 @@ Additional verified `Text` builtins (all pure, no `fx` needed):
 
 | Builtin | Effect |
 |---|---|
-| `copy(s, start, count)` | substring; `start` is 1-based |
-| `pos(needle, s)` | 1-based index of `needle` in `s`, `0` if absent |
+| `s[i]` | the character at `i`; **0-based**, like arrays (`s[0]` is the first) |
+| `s[a..b]` | substring from `a` up to but not including `b`, like `arr[a..b]` |
+| `copy(s, start, count)` | substring; `start` is 0-based, `count` is a length |
+| `pos(needle, s)` | 0-based index of `needle` in `s`, **`-1` if absent** |
 | `trim(s)` | strip leading/trailing whitespace |
 | `stringofchar(ch, n)` | `n` copies of single-char `ch` |
 

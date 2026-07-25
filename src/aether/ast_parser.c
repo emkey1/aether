@@ -2621,10 +2621,11 @@ static AST *parsePrimary(AetherParser *p) {
              * builtin; handed an array it failed at runtime with the uncoded
              * "Copy expects (String/Char, Integer, Integer)." -- a message that
              * never mentions that Aether does have a subarray form, the slice
-             * sugar `arr[lo..hi]`. This is the exact mirror of the Text-base
-             * slice rejection in buildArraySlice, and the same confusion in the
-             * other direction, so give it the same treatment: name the right
-             * spelling, including the index translation. */
+             * sugar `arr[lo..hi]`. Name the right spelling instead.
+             *
+             * Note the bases now agree: `arr[a..b]`, `s[a..b]` and copy()'s
+             * `start` are all 0-based, so the translation below is a pure
+             * respelling with no index fixup. */
             if (call->type == AST_PROCEDURE_CALL && call->token &&
                 call->token->value && strcasecmp(call->token->value, "copy") == 0 &&
                 call->child_count >= 1 && call->children[0]) {
@@ -3324,6 +3325,9 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "openaichatcompletions", "Text" },
         { "aetherbuiltinsjson", "Text" }, { "aetherbuiltininfo", "Text" },
         { "inttostr", "Text" },
+        /* Substring. Also the lowering target of the `s[a..b]` Text-slice form,
+         * so an inferred `let sub = s[a..b];` resolves through here. */
+        { "copy", "Text" }, { "trim", "Text" },
         /* Int-returning. */
         { "length", "Int" }, { "YyjsonGetInt", "Int" }, { "YyjsonGetLength", "Int" },
         /* Real-returning. */
@@ -4192,26 +4196,35 @@ static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int li
      * pass `base` directly -- the copy this used to make was leaked outright. */
     char *inferredName = inferLetTypeName(p, base);
 
-    /* `s[a..b]` where `s` is a Text. Slice sugar unconditionally builds an
-     * *array* temp, so a string base used to sail through the parser and then
-     * fail in the backend with the uncoded, misdirected "Type mismatch: Cannot
-     * assign ARRAY to string." Aether has no string-slice form -- the substring
-     * builtin is `copy(s, start, count)` -- so reject it here with a coded
-     * diagnostic that names the replacement. Slicing is the most natural way to
-     * reach for a substring, so this is a shape worth catching precisely. */
+    /* `s[a..b]` where `s` is a Text -> `copy(s, a, b - a)`.
+     *
+     * Slicing is the most natural way to reach for a substring, and now that
+     * Text is 0-based this means exactly what `arr[a..b]` means: half-open,
+     * from `a` up to but not including `b`. Since `copy`'s `start` is also
+     * 0-based, the translation is direct and needs no index fixups.
+     *
+     * Unlike the array case below, nothing is hoisted: `copy` is an ordinary
+     * expression, so the slice stays an expression and works anywhere a Text
+     * does -- including the `ret s[a..b];` position that has no statement slot.
+     * (Before Text was 0-based this form was rejected outright with a coded
+     * TYPE-001 pointing at copy(); the rejection is what this replaces.) */
     if (inferredName && (strcmp(inferredName, "Text") == 0 ||
                          strcmp(inferredName, "str") == 0)) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), line, "string-slice",
-                "slice syntax `s[a..b]` works on arrays, not on Text.",
-                "use the substring builtin instead: `copy(s, start, count)` "
-                "(`start` is 1-based, `count` is a length -- so `s[a..b]` "
-                "becomes `copy(s, a, b - a)`).");
-        p->hadError = true;
         free(inferredName);
-        freeAST(base);
-        freeAST(lo);
-        freeAST(hi);
-        return NULL;
+        /* count = hi - lo, built before `lo` is handed to the call. */
+        Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
+        AST *count = newASTNode(AST_BINARY_OP, minusTok);
+        setLeft(count, hi);
+        setRight(count, copyAST(lo));
+        setTypeAST(count, TYPE_INTEGER);
+
+        Token *copyTok = newToken(TOKEN_IDENTIFIER, "copy", line, 0);
+        AST *call = newASTNode(AST_PROCEDURE_CALL, copyTok);
+        addChild(call, base);
+        addChild(call, lo);
+        addChild(call, count);
+        setTypeAST(call, TYPE_STRING);
+        return call;
     }
 
     if (inferredName) {

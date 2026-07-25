@@ -271,6 +271,10 @@ the `itoa`/`int_to_text` docs-only fix and the `socket*` docs-only entry
 above, neither of which bumped the guide version tag either).
 
 ### `s[i]`'s single-character result isn't accepted everywhere a `Text` is — *fixed 2026-07-19-8*
+(Historical: `Text` was 1-based when this was written; it is 0-based as of
+2026-07-25, so `s[0]` is now the first character. The bug and fix below are
+unaffected -- they are about the *type* of `s[i]`'s result, not its index.)
+
 `Text` supports 1-based bracket indexing (`s[1]` is the first character,
 matching `copy`'s convention) and the result concatenates fine with `+`
 (`reversed = reversed + s[i];` works), but was rejected by at least
@@ -1542,8 +1546,11 @@ against the no-Range-type decision (2026-07-01 pass-3 triage) — a slice
 SUGAR inside indexing brackets need not introduce a first-class range value.
 
 ### Misleading diagnostics to sharpen — *idea*
-1-based string indexing trips ~25 runtime errors (0-based prior): consider a
-hint on out-of-range string ops; nested-fn declarations get a misleading
+~~1-based string indexing trips ~25 runtime errors (0-based prior)~~ —
+**resolved 2026-07-25: `Text` is now 0-based**, uniform with arrays, along with
+`copy`'s `start` and `pos` (which returns `-1` when absent). See
+`docs/text_zero_based_migration_plan.md`. The remaining items stand:
+nested-fn declarations get a misleading
 diagnostic; `match` statements (8 families) could get a targeted "use if"
 SYN-001 the way not/and/or word-ops are being handled.
 

@@ -285,13 +285,22 @@ let ch: Text = chr(65);                    // Int -> Text(1 char)  "A"
 The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
 `parse_float`, `parse_bool`, `itoa`/`int_to_text`, `formatfloat`/`realtostr`,
 `ord`/`chr` (character <-> code point), plus `copy(s, start, count)`
-(substring, 1-based), `pos(needle, s)` (1-based, 0 if absent), `trim(s)`,
+(substring, `start` 0-based), `pos(needle, s)` (0-based, `-1` if absent),
+`trim(s)`,
 `stringofchar(ch, n)`. Do not invent richer helpers (no `replace`; no
 whole-string `to_upper`). Note: the `value:width:precision` spec only works
 inside `println`; use `formatfloat` to build a `Text`. `int(x)` is a numeric
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
 code point of `Text`; passing it a `Text` silently returns `0`. Use
 `parse_int` for numeric strings and `ord` for character codes.
+
+**`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
+the first character, `s[length(s) - 1]` the last, and `s[a..b]` is the
+substring from `a` up to but not including `b`. So one idiom covers both:
+
+```aether
+loop i in 0..length(s) { print(s[i]); }   // every character, exactly once
+```
 
 ## Math
 

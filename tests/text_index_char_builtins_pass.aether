@@ -7,23 +7,24 @@
 // everywhere a Text is"). Covers both ASCII indexing and a multi-byte UTF-8
 // codepoint (the "é" in "héllo"), since GET_CHAR_FROM_STRING's widechar path
 // is only reachable via UnicodeString/Text indexing, never via TYPE_CHAR.
+// Indices are 0-based (s[0] is the first character), uniform with arrays.
 fn main() -> Void {
     let s: Text = "5";
-    let c: Text = s[1];
+    let c: Text = s[0];
     let n: Int = parse_int(c);
-    let f: Real = parse_float(s[1]);
-    let b: Bool = parse_bool(s[1]);
-    let t: Text = trim(s[1]);
+    let f: Real = parse_float(s[0]);
+    let b: Bool = parse_bool(s[0]);
+    let t: Text = trim(s[0]);
     let padded: Text = "  9  ";
     let wide: Text = "héllo";
-    let e: Text = wide[2];
+    let e: Text = wide[1];
     fx {
         println(n);
         println(f);
         println(b);
         println(t);
         println(e);
-        println(trim(padded[1]));
+        println(trim(padded[0]));
     }
     ret;
 }
