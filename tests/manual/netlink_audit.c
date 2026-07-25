@@ -143,6 +143,22 @@ int main(int argc, char **argv) {
     }
     test_logf("audit_open: fd=%d\n", fd);
 
+    /* audit_open() succeeding is the regression this suite locks (the netlink
+     * protocol allow-list used to reject NETLINK_AUDIT with EPROTONOSUPPORT),
+     * and it needs no privilege -- so it is checked above, before this guard.
+     *
+     * The message exchange below does need privilege: audit_netlink_ok()
+     * gates control messages (AUDIT_GET/SET) on CAP_AUDIT_CONTROL and user
+     * messages on CAP_AUDIT_WRITE, returning EPERM otherwise, and iSH-AOK's
+     * own handler approximates both as euid==0. Skip rather than fail so an
+     * unprivileged run stays green -- the on-device suite runs as uid 1000.
+     * Same convention as ambient_caps.c / chroot_getcwd.c. */
+    if (geteuid() != 0) {
+        printf("netlink_audit: SKIP (not privileged: euid=%d)\n", (int) geteuid());
+        close(fd);
+        return 0;
+    }
+
     /* AUDIT_GET: data reply carrying audit_status, then the requested ACK */
     if (audit_send(fd, AUDIT_GET_T, NULL, 0, 1) < 0)
         failf("send AUDIT_GET", (uint64_t) errno, 0, 0, 0, 0, 0);

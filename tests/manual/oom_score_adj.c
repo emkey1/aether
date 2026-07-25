@@ -64,10 +64,26 @@ int main(int argc, char **argv) {
     test_init(argc, argv);
     const char *path = "/proc/self/oom_score_adj";
 
-    // Default value (matches Linux: 0 unless a parent adjusted it).
+    // Default value (matches Linux: 0 unless a parent adjusted it). The file
+    // existing and reading back at all is the regression this suite locks (it
+    // was missing entirely -> ENOENT -> systemd-executor exit(206)), and that
+    // half needs no privilege, so it runs before the guard below.
     int value = -12345;
     check(read_oom_score_adj(path, &value) == 0, "read /proc/self/oom_score_adj succeeds");
     check(value == 0, "default oom_score_adj is 0");
+    if (failures_total != 0)
+        return finish_suite("oom_score_adj");
+
+    // Everything past here writes the file, which needs privilege: on Linux
+    // *lowering* oom_score_adj needs CAP_SYS_RESOURCE (EACCES without it, and
+    // an unprivileged task can never walk a raised value back down), and under
+    // iSH the procfs entry is mode 0444 so every write needs root. Skip rather
+    // than fail so an unprivileged run stays green -- the on-device suite runs
+    // as uid 1000. Same convention as ambient_caps.c / chroot_getcwd.c.
+    if (geteuid() != 0) {
+        printf("oom_score_adj: SKIP (not privileged: euid=%d)\n", (int) geteuid());
+        return 0;
+    }
 
     // systemd-executor's actual write pattern: a small decimal string.
     check(write_oom_score_adj(path, "-900") == 0, "write oom_score_adj=-900 succeeds");
