@@ -697,6 +697,24 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
                                             handler:^(__unused UIAlertAction *action) {
         [weakSelf pasteToGuest:sender];
     }]];
+    // Same global preference + toggle UX as WorkspaceViewController's
+    // "Workspace" root menu (-presentDesktopRootMenuFromView:sourceRect:) --
+    // Display mode has no other way to reach it, and without exposing it
+    // here a user who turned it off in Workspace has no way back to auto-
+    // focus in Wayland mode short of switching back to Workspace to flip it.
+    BOOL autoShowKeyboard = UserPreferences.shared.autoShowKeyboard;
+    [sheet addAction:[UIAlertAction actionWithTitle:[NSString stringWithFormat:@"Auto-Show Keyboard: %@", autoShowKeyboard ? @"On" : @"Off"]
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        UserPreferences.shared.autoShowKeyboard = !autoShowKeyboard;
+        if (UserPreferences.shared.autoShowKeyboard)
+            [weakSelf.displayView becomeFirstResponder];
+        // Re-present so the toggled state is reflected, matching the same
+        // deferred re-present WorkspaceViewController's handler uses.
+        dispatch_async(dispatch_get_main_queue(), ^{
+            [weakSelf menuPipTapped:sender];
+        });
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Open Workspace…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
@@ -818,6 +836,13 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
     // bring the output in line with the current orientation right away
     // rather than waiting for the next physical rotation.
     [self _requestDesktopSizeForViewSize:self.view.bounds.size];
+    // Mirrors TerminalViewController's -viewDidLoad/-focusTerminal gating on
+    // the same preference. DisplayRFBView otherwise only becomes first
+    // responder from a touch (-touchesBegan:), so without this the software
+    // keyboard never appears on its own even with the preference on --
+    // there was previously no auto-focus call site here at all to gate.
+    if (UserPreferences.shared.autoShowKeyboard)
+        [self.displayView becomeFirstResponder];
 }
 
 - (void)rfbClientDidUpdateFramebuffer:(DisplayRFBClient *)client {
