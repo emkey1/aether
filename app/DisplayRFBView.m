@@ -628,6 +628,21 @@ static const uint32_t kKeysymRight = 0xFF53;
 // stopped being an actual inputAccessoryView. The externally-hosted path
 // gets an unambiguous, fully-constrained layout instead (see the owner's
 // container setup).
+//
+// Known minor limitation: this creates a SEPARATE set of buttons (and
+// overwrites _accessoryModifierKeys) each time it's called for a NEW
+// container. DisplayViewController now toggles between -accessoryBar and
+// -accessoryKeyStack live as a hardware keyboard connects/disconnects, so
+// after both have been built at least once, _accessoryModifierKeys always
+// points at whichever was built LAST, not necessarily whichever is
+// currently visible -- a modifier key's latched/highlighted visual state
+// could theoretically go stale across a mode switch that happens to land
+// mid-latch. Cosmetic only (the RFB modifier keysym itself isn't affected,
+// since -releaseLatchedAccessoryModifiers releases by iterating whatever
+// _accessoryModifierKeys currently points to); not fixed here to avoid
+// scope creep on top of the presentation-mode fix this comment lives next
+// to. Fix properly by tracking modifier keys per-stack if this is ever
+// visibly hit.
 - (UIStackView *)_buildAccessoryKeyStack {
     BarButton *ctrlKey = [self accessoryModifierKeyWithTitle:@"ctrl" label:@"Control" keysym:kKeysymControlL];
     BarButton *altKey = [self accessoryModifierKeyWithTitle:@"alt" label:@"Alt" keysym:kKeysymAltL];

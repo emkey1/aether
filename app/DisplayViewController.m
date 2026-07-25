@@ -213,15 +213,29 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             });
         }];
 
-        // Host the accessory key strip OURSELVES instead of letting UIKit's
-        // keyboard-host window place it (accessoryBarExternallyHosted --
-        // see DisplayRFBView.h): the keyboard host bumps a docked accessory
-        // view up to clear the home indicator the moment the indicator
-        // becomes visible (first touch after launch) and never lowers it
-        // again once the indicator auto-hides, which is exactly the
-        // observed "starts flush at the bottom, then pops up and stays"
-        // drift. As a regular subview pinned to the physical bottom edge,
-        // its position never moves.
+        // Self-host the accessory key strip ONLY while a hardware keyboard is
+        // attached (see -_updateAccessoryPresentationMode below): that's the
+        // case UIKit's own keyboard-host window mishandles -- it bumps a
+        // docked accessory view up to clear the home indicator the moment
+        // the indicator becomes visible (first touch after launch) and never
+        // lowers it again, which is exactly the observed "starts flush at
+        // the bottom, then pops up and stays" drift. As a regular subview
+        // pinned to the physical bottom edge, its position never moves.
+        //
+        // Without a hardware keyboard, UIKit's own inputAccessoryView
+        // hosting is used instead (accessoryBarExternallyHosted toggled to
+        // NO there): the self-hosted strip returning nil from
+        // -inputAccessoryView while still holding first-responder status
+        // left the real software keyboard never appearing at all (user-
+        // confirmed, 2026-07-24 -- even a direct becomeFirstResponder retry
+        // via the strip's own "Show Keyboard" key did nothing), suggesting
+        // UIKit's normal keyboard presentation depends on actually being
+        // asked for an accessory view, not on first-responder status +
+        // UIKeyInput conformance alone. Splitting by hardware-keyboard
+        // presence keeps the self-hosted fix for the case it was built for
+        // while letting UIKit's own (apparently load-bearing) machinery run
+        // the software-keyboard case, which self-hosting was never asked to
+        // fix and may have been working fine before today's changes touched it.
         //
         // -accessoryKeyStack is embedded in a plain UIView WE build and
         // fully constrain here, deliberately NOT via allowsSelfSizing/the
@@ -237,7 +251,6 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         // bottom, or self.view.safeAreaLayoutGuide for the keys' bottom
         // clearance -- so the container's size is always fully determined.
         DisplayRFBView *displayView = self.displayView;
-        displayView.accessoryBarExternallyHosted = YES;
         UIStackView *stack = displayView.accessoryKeyStack;
         UIView *strip = [[UIView alloc] initWithFrame:CGRectZero];
         strip.translatesAutoresizingMaskIntoConstraints = NO;
@@ -261,7 +274,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             stripBottomAnchor = self.view.bottomAnchor;
         }
         // Priority 999 on the strip-height-defining link: the required
-        // zero-height override (hidden case, see -_updateAccessoryStripVisibility)
+        // zero-height override (hidden case, see -_updateAccessoryPresentationMode)
         // must be able to win without an unsatisfiable-constraint conflict.
         NSLayoutConstraint *stripTopFollowsStack = [strip.topAnchor constraintEqualToAnchor:stack.topAnchor constant:-6.0];
         stripTopFollowsStack.priority = UILayoutPriorityRequired - 1;
@@ -286,7 +299,7 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             _menuPipBottomConstraint.active = YES;
             [self.view bringSubviewToFront:_menuPip];
         }
-        [self _updateAccessoryStripVisibility];
+        [self _updateAccessoryPresentationMode];
         if (@available(iOS 14.0, *)) {
             NSNotificationCenter *center = NSNotificationCenter.defaultCenter;
             [center addObserver:self
@@ -301,35 +314,49 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
         [UserPreferences.shared observe:@[@"hideExtraKeysWithExternalKeyboard"]
                                 options:0 owner:self usingBlock:^(typeof(self) self) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                [self _updateAccessoryStripVisibility];
+                [self _updateAccessoryPresentationMode];
             });
         }];
     }
 }
 
-// Same hide policy -inputAccessoryView applies in windowed mode: gone only
-// when a hardware keyboard is present AND the user asked for that. The
-// zero-height constraint collapses the strip's layout footprint too (a
-// hidden view still occupies space under Auto Layout), which also drops the
-// pip back to the bottom corner since it's anchored to the strip's top.
-- (void)_updateAccessoryStripVisibility {
+// Picks which of the two accessory presentations is active, and shows/hides
+// the self-hosted strip to match (see the setup comment above for the full
+// reasoning): self-hosted while a hardware keyboard is attached (fixes the
+// bar-drift bug that self-hosting exists for), UIKit-hosted inputAccessoryView
+// otherwise (needed for the real software keyboard to appear at all). The
+// self-hosted strip is ADDITIONALLY hidden -- same as -inputAccessoryView's
+// own hide policy -- when a hardware keyboard is present AND the user asked
+// to hide extra keys with one attached. The zero-height constraint collapses
+// the strip's layout footprint too (a hidden view still occupies space under
+// Auto Layout), which also drops the pip back to the bottom corner since
+// it's anchored to the strip's top.
+- (void)_updateAccessoryPresentationMode {
     if (_accessoryStrip == nil)
         return;
-    BOOL hidden = NO;
+    BOOL hardwareKeyboardPresent = NO;
     if (@available(iOS 14.0, *)) {
-        hidden = GCKeyboard.coalescedKeyboard != nil && UserPreferences.shared.hideExtraKeysWithExternalKeyboard;
+        hardwareKeyboardPresent = GCKeyboard.coalescedKeyboard != nil;
     }
-    if (hidden == _accessoryStrip.hidden && _accessoryStripZeroHeightConstraint.active == hidden)
-        return;
-    _accessoryStrip.hidden = hidden;
-    _accessoryStripZeroHeightConstraint.active = hidden;
-    [self.view setNeedsLayout];
+    BOOL selfHosted = hardwareKeyboardPresent;
+    BOOL stripHidden = !selfHosted || (hardwareKeyboardPresent && UserPreferences.shared.hideExtraKeysWithExternalKeyboard);
+    BOOL modeChanged = self.displayView.accessoryBarExternallyHosted != selfHosted;
+    self.displayView.accessoryBarExternallyHosted = selfHosted;
+    if (stripHidden != _accessoryStrip.hidden || _accessoryStripZeroHeightConstraint.active != stripHidden) {
+        _accessoryStrip.hidden = stripHidden;
+        _accessoryStripZeroHeightConstraint.active = stripHidden;
+        [self.view setNeedsLayout];
+    }
+    // Switching hosting modes changes what -inputAccessoryView returns;
+    // UIKit only re-queries that on an explicit reload.
+    if (modeChanged && self.displayView.isFirstResponder)
+        [self.displayView reloadInputViews];
 }
 
 - (void)_hardwareKeyboardChangedForStrip:(NSNotification *)notification {
     // GCKeyboard notifications are not guaranteed to arrive on the main queue.
     dispatch_async(dispatch_get_main_queue(), ^{
-        [self _updateAccessoryStripVisibility];
+        [self _updateAccessoryPresentationMode];
         // A hardware keyboard disconnecting mid-session is exactly the
         // no-hardware-keyboard condition -_autoShowKeyboardIfAppropriate
         // gates on; catches the "started with one attached, unplugged it
