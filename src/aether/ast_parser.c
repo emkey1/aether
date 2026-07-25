@@ -4162,7 +4162,9 @@ static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int li
      * typed empty array literal, just without the extra static-type info. */
     VarType sliceVtype = TYPE_ARRAY;
     AST *sliceTypeNode = NULL;
-    char *inferredName = inferLetTypeName(p, copyAST(base));
+    /* inferLetTypeName only reads its argument (it never takes ownership), so
+     * pass `base` directly -- the copy this used to make was leaked outright. */
+    char *inferredName = inferLetTypeName(p, base);
     if (inferredName) {
         sliceTypeNode = buildTypeNodeFromName(inferredName, strlen(inferredName), line, &sliceVtype);
         if (!sliceTypeNode) {
@@ -4946,6 +4948,178 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
     return outer;
 }
 
+/* `ret src + other;` / `ret src + [items...];` -> bind the concatenation to a
+ * temp, then return the temp:
+ *
+ *     let __aether_ret_concat_<line>: T[] = src;
+ *     <setlength + indexed-copy steps for `other`/`items`>
+ *     return __aether_ret_concat_<line>;
+ *
+ * Array `+` is not a VM operation: the front end lowers it into setlength plus
+ * an indexed element-copy, and those are *statements*, so they need a statement
+ * position to be spliced into. A `let` declaration provides one (see the
+ * hasArrayConcatInit / hasArrayAppendInit branches in parseLet); a bare `ret`
+ * is an expression position, so before this the raw `+` survived to the VM and
+ * died as "Operands must be numbers for arithmetic operation '+' ... Got ARRAY
+ * and ARRAY". Introducing the temp turns `ret` back into a statement position,
+ * which is exactly the `let c = a + b; ret c;` workaround, done by the parser.
+ *
+ * `value` (the parsed `+` expression) is consumed. Returns an AST_COMPOUND
+ * splice (i_val==1) so parseBlock flattens it, or NULL on failure (having set
+ * p->hadError). Callers detect the shape with returnArrayConcatNeedsLowering().
+ *
+ * `stageResultName` selects the tail: NULL emits the `return <temp>;` above,
+ * while a name (`"result"`) emits `<name> = <temp>;` instead and leaves the
+ * compound open for the caller to append a @post guard and its own return --
+ * that path stages `result` itself, so it needs the concat lowered *before* the
+ * guard runs rather than a finished return. */
+static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
+                                   const char *stageResultName) {
+    int concatLine = value->token->line;
+    bool isAppend = (value->right->type == AST_ARRAY_LITERAL);
+
+    /* `other`'s inferred type name -- only the concat shape needs it, and
+     * buildArrayConcatSteps takes ownership of it. */
+    char *otherTypeName = isAppend ? NULL : inferLetTypeName(p, value->right);
+
+    /* The temp's declared type. Prefer `src`'s own type; fall back to `other`'s
+     * (array-typed by construction in the concat shape -- the caller checked).
+     * The append shape has only `src` to go on, since a bare array literal
+     * infers no element type. */
+    char *tmpTypeName = inferLetTypeName(p, value->left);
+    if (!tmpTypeName || !aetherTypeNameIsArray(tmpTypeName)) {
+        free(tmpTypeName);
+        tmpTypeName = otherTypeName ? strdup(otherTypeName) : NULL;
+    }
+    if (!tmpTypeName) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), concatLine, "return",
+                "cannot infer the array type of this concatenation.",
+                "bind it first: `let c: T[] = a + b; ret c;`.");
+        p->hadError = true;
+        free(otherTypeName);
+        freeAST(value);
+        return NULL;
+    }
+
+    VarType tmpVt = TYPE_UNKNOWN;
+    AST *tmpTypeNode = buildTypeNodeFromName(tmpTypeName, strlen(tmpTypeName),
+                                             concatLine, &tmpVt);
+    if (!tmpTypeNode) {
+        p->hadError = true;
+        free(tmpTypeName);
+        free(otherTypeName);
+        freeAST(value);
+        return NULL;
+    }
+
+    char tmpName[64];
+    snprintf(tmpName, sizeof(tmpName), "__aether_ret_concat_%d", concatLine);
+    bindingTableSet(p->bindings, tmpName, tmpTypeName);
+    free(tmpTypeName);
+
+    /* Detach the operands and drop the now-empty `+` shell (and, for the append
+     * shape, the emptied array-literal shell with it). */
+    AST *src = value->left;
+    AST *other = NULL;
+    AST **appendItems = NULL;
+    int appendItemCount = 0;
+    if (isAppend) {
+        appendItemCount = value->right->child_count;
+        if (appendItemCount > 0) {
+            appendItems = (AST **)malloc(sizeof(AST *) * (size_t)appendItemCount);
+            if (!appendItems) {
+                p->hadError = true;
+                free(otherTypeName);
+                freeAST(tmpTypeNode);
+                freeAST(value);
+                return NULL;
+            }
+            for (int i = 0; i < appendItemCount; i++) {
+                appendItems[i] = value->right->children[i];
+                value->right->children[i] = NULL;
+                if (appendItems[i]) appendItems[i]->parent = NULL;
+            }
+            value->right->child_count = 0;
+        }
+    } else {
+        other = value->right;
+        value->right = NULL;
+        if (other) other->parent = NULL;
+    }
+    value->left = NULL;
+    if (src) src->parent = NULL;
+    freeAST(value);
+
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+
+    /* let __aether_ret_concat_<line>: T[] = src; */
+    AST *tmpVar = buildVarRef(tmpName, tmpVt, concatLine);
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, tmpVar);
+    setLeft(decl, src);
+    setRight(decl, tmpTypeNode);
+    setTypeAST(decl, tmpVt);
+    addChild(outer, decl);
+
+    if (isAppend) {
+        /* `tmpVar` is only read (copied) by buildArrayAppendSteps, exactly as in
+         * the parseLet append branch; ownership of each item transfers in. */
+        if (appendItemCount == 0 && aetherArrayInitMayAlias(src)) {
+            /* `ret src + [];` -- no append step follows, so nothing un-aliases
+             * the plain `tmp = src` copy; splice in the un-alias step the
+             * non-empty case gets for free from its first setlength. */
+            addChild(outer, buildArrayUnaliasStmt(tmpVar, concatLine));
+        }
+        for (int i = 0; i < appendItemCount; i++) {
+            AST *setlenStmt = NULL, *idxAssign = NULL;
+            buildArrayAppendSteps(tmpVar, appendItems[i], concatLine,
+                                  &setlenStmt, &idxAssign);
+            addChild(outer, setlenStmt);
+            addChild(outer, idxAssign);
+        }
+        free(appendItems);
+    } else if (!buildArrayConcatSteps(p, outer, tmpVar, other, otherTypeName,
+                                      concatLine)) {
+        /* Takes ownership of `other`/`otherTypeName` and frees them itself. */
+        freeAST(outer);
+        return NULL;
+    }
+
+    if (stageResultName) {
+        /* result = __aether_ret_concat_<line>;  (caller appends guard + return) */
+        addChild(outer, buildSimpleAssign(stageResultName,
+                                          buildVarRef(tmpName, tmpVt, concatLine),
+                                          line));
+    } else {
+        /* return __aether_ret_concat_<line>; */
+        Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
+        AST *ret = newASTNode(AST_RETURN, retTok);
+        setLeft(ret, buildVarRef(tmpName, tmpVt, concatLine));
+        setTypeAST(ret, tmpVt);
+        addChild(outer, ret);
+    }
+    return outer;
+}
+
+/* Does `value` need the buildReturnArrayConcat lowering -- i.e. is it an array
+ * `+` in return position? Mirrors the two known-good detection conditions in
+ * parseLet: an array *literal* right operand is the append shape (unconditional
+ * -- a literal can only be appended to an array), any other right operand is
+ * the concat shape and must infer to a manifestly array ("[]"-suffixed) type so
+ * ordinary Text/Int/Real `+` (string concat, arithmetic) is left untouched. */
+static bool returnArrayConcatNeedsLowering(AetherParser *p, const AST *value) {
+    if (!value || value->type != AST_BINARY_OP || !value->token ||
+        value->token->type != TOKEN_PLUS || !value->right || !value->left) {
+        return false;
+    }
+    if (value->right->type == AST_ARRAY_LITERAL) return true;
+    char *otherTypeName = inferLetTypeName(p, value->right);
+    bool isArray = otherTypeName && aetherTypeNameIsArray(otherTypeName);
+    free(otherTypeName);
+    return isArray;
+}
+
 /* ret [expr] ;  ->  AST_RETURN (mirrors rea parseReturn).
  *
  * Three contract/tuple-aware shapes (MILESTONE 3), matching translate.c:
@@ -5010,12 +5184,32 @@ static AST *parseRet(AetherParser *p) {
     }
     if (p->hadError) return NULL;
 
+    /* `ret src + other;` -- array concat/append in return position needs a
+     * statement position to splice its lowering into (see
+     * buildReturnArrayConcat). Under a @post guard the same lowering runs, but
+     * staged into `result` ahead of the guard, in the branch just below. */
+    if (value && !p->currentPostExpr && returnArrayConcatNeedsLowering(p, value)) {
+        return buildReturnArrayConcat(p, value, line, NULL);
+    }
+
     /* @post on a value-returning function: stage `result`, check, then return it,
      * exactly as the rewriter's translateReturnWithPost. */
     if (p->currentPostExpr && value) {
-        AST *outer = newASTNode(AST_COMPOUND, NULL);
-        outer->i_val = 1; /* splice into the surrounding block */
-        addChild(outer, buildSimpleAssign("result", value, line));
+        /* Captured up front: the concat lowering below consumes (frees) `value`,
+         * and the `return result;` tail still needs the returned type. */
+        VarType resultVt = value->var_type;
+        AST *outer;
+        if (returnArrayConcatNeedsLowering(p, value)) {
+            /* `@post ... ret a + b;` -- lower the concat into a temp first, then
+             * stage that into `result`, so the guard sees the finished array
+             * rather than a raw `+` the VM has no operator for. */
+            outer = buildReturnArrayConcat(p, value, line, "result");
+            if (!outer) return NULL;
+        } else {
+            outer = newASTNode(AST_COMPOUND, NULL);
+            outer->i_val = 1; /* splice into the surrounding block */
+            addChild(outer, buildSimpleAssign("result", value, line));
+        }
         AST *guard = buildContractGuard(p, p->currentPostExpr, "post",
                                         p->currentFunctionName, line);
         if (!guard) { freeAST(outer); return NULL; }
@@ -5024,9 +5218,9 @@ static AST *parseRet(AetherParser *p) {
         AST *ret = newASTNode(AST_RETURN, retTok);
         Token *resTok = newToken(TOKEN_IDENTIFIER, "result", line, 0);
         AST *resVar = newASTNode(AST_VARIABLE, resTok);
-        setTypeAST(resVar, value->var_type);
+        setTypeAST(resVar, resultVt);
         setLeft(ret, resVar);
-        setTypeAST(ret, value->var_type);
+        setTypeAST(ret, resultVt);
         addChild(outer, ret);
         return outer;
     }
@@ -5747,7 +5941,28 @@ static AST *parseStatement(AetherParser *p) {
         p->pendingObjLits[i] = NULL;
     }
     p->pendingObjLitCount = mark;
-    if (stmt) addChild(wrapper, stmt);
+    /* `stmt` may itself be a declaration-group splice (i_val==1) -- e.g. the
+     * let-position concat/append/object-init expansions, which put the new
+     * variable's decl inside that compound. Flatten it in rather than nesting
+     * it, exactly as the hoists above are flattened: parseBlock only splices
+     * ONE level, so a splice compound nested under this wrapper would survive
+     * as a real block and scope the declared variable away from the following
+     * statements. That is what broke `let r: Int[] = a[1..3] + b;` -- the slice
+     * hoist forced this wrapper to exist, the concat splice became its child,
+     * and every later use of `r` reported "[SCOPE-001] identifier 'r' not in
+     * scope". Either half alone is fine; only the combination nests. */
+    if (stmt) {
+        if (stmt->type == AST_COMPOUND && stmt->i_val == 1) {
+            for (int i = 0; i < stmt->child_count; i++) {
+                if (stmt->children[i]) addChild(wrapper, stmt->children[i]);
+                stmt->children[i] = NULL;
+            }
+            stmt->child_count = 0;
+            freeAST(stmt);
+        } else {
+            addChild(wrapper, stmt);
+        }
+    }
     return wrapper;
 }
 

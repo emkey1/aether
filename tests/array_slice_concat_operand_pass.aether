@@ -1,0 +1,44 @@
+// A slice used as a direct operand of array `+`. Both halves of this hoist
+// statements: the slice hoists its temp decl + copy loop (flushed ahead of the
+// statement by parseStatement), and the concat expands the declaration into a
+// splice group (i_val==1 AST_COMPOUND) holding the new variable's decl. Since
+// parseBlock only splices ONE level, the concat group used to survive as a real
+// nested block, scoping the declared variable away from every later statement:
+// `let r: Int[] = a[1..3] + b;` then reported "[SCOPE-001] identifier 'r' not in
+// scope" at each *use* site. Either half alone was always fine; only the
+// combination nested. Covers slice-on-the-left, slice-on-the-right, both sides
+// sliced, and the append shape, each followed by real uses of the new variable.
+
+fn dump(label: Text, xs: Int[]) -> Void {
+    fx {
+        print(label, " len=", length(xs), " [");
+        loop i in 0..length(xs) {
+            print(xs[i]);
+        }
+        println("]");
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let a: Int[] = [1, 2, 3, 4];
+    let b: Int[] = [7, 8];
+
+    let left: Int[] = a[1..3] + b;
+    let right: Int[] = b + a[0..2];
+    let both: Int[] = a[0..2] + a[2..4];
+    let appended: Int[] = a[1..3] + [9];
+
+    // Each use below is a *later* statement -- the shape that used to trip
+    // SCOPE-001 because the declaration had been scoped into a nested block.
+    dump("left", left);
+    dump("right", right);
+    dump("both", both);
+    dump("appended", appended);
+
+    // Slicing must copy, not alias: mutating a result leaves the source alone.
+    left[0] = 99;
+    dump("left-mut", left);
+    dump("a", a);
+    ret;
+}

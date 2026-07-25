@@ -1,0 +1,74 @@
+// Array `+` in return position. Array concat is not a VM operation -- the front
+// end lowers it to setlength + an indexed copy loop, which are *statements* and
+// need a statement position to splice into. A `let` provides one; a bare `ret`
+// is an expression position, so the raw `+` used to reach the VM and die with
+// "Operands must be numbers for arithmetic operation '+' ... Got ARRAY and
+// ARRAY". Covers the concat shape, the append shape, the empty-append shape,
+// a slice as a direct operand, value semantics (the source must be untouched),
+// and the @post variant (lowered before the guard runs).
+
+fn joinRet(a: Int[], b: Int[]) -> Int[] {
+    ret a + b;
+}
+
+fn appendRet(a: Int[]) -> Int[] {
+    ret a + [7, 8];
+}
+
+fn emptyAppendRet(a: Int[]) -> Int[] {
+    ret a + [];
+}
+
+fn sliceConcatRet(a: Int[], b: Int[]) -> Int[] {
+    ret a[1..3] + b;
+}
+
+@post length(result) > 0
+fn guardedJoinRet(a: Int[], b: Int[]) -> Int[] {
+    ret a + b;
+}
+
+// Non-array `+` in return position must be left completely alone.
+fn textRet(a: Text, b: Text) -> Text {
+    ret a + b;
+}
+
+fn intRet(a: Int, b: Int) -> Int {
+    ret a + b;
+}
+
+fn dump(label: Text, xs: Int[]) -> Void {
+    fx {
+        print(label, " len=", length(xs), " [");
+        loop i in 0..length(xs) {
+            print(xs[i]);
+        }
+        println("]");
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let src: Int[] = [1, 2];
+    let other: Int[] = [3, 4];
+
+    let joined: Int[] = joinRet(src, other);
+    let appended: Int[] = appendRet(src);
+    let empty: Int[] = emptyAppendRet(src);
+    let sliced: Int[] = sliceConcatRet([1, 2, 3, 4], [9]);
+    let guarded: Int[] = guardedJoinRet(src, other);
+
+    dump("joined", joined);
+    dump("appended", appended);
+    dump("empty", empty);
+    dump("sliced", sliced);
+    dump("guarded", guarded);
+    // The concat temp must copy, not alias: `src` is still 2 long.
+    dump("src", src);
+
+    fx {
+        println("text=", textRet("ab", "cd"));
+        println("int=", intRet(2, 3));
+    }
+    ret;
+}

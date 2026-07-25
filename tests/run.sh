@@ -2684,4 +2684,31 @@ if ! cmp -s /tmp/aether_array_literal_tmp_slot_expected.out /tmp/aether_array_li
     exit 1
 fi
 
+# Array `+` in return position. Array concat lowers to setlength + an indexed
+# copy loop -- statements, which need a statement position to splice into. A
+# `let` provides one; a bare `ret` is an expression position, so the raw `+`
+# used to reach the VM and die as "Got ARRAY and ARRAY". Covers the concat,
+# append and empty-append shapes, a slice operand, value semantics, the @post
+# variant, and confirms non-array `+` (Text/Int) is left alone.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_return_pass.aether" >/tmp/aether_array_concat_return_pass.out
+printf 'joined len=4 [1234]\nappended len=4 [1278]\nempty len=2 [12]\nsliced len=3 [239]\nguarded len=4 [1234]\nsrc len=2 [12]\ntext=abcd\nint=5\n' >/tmp/aether_array_concat_return_expected.out
+if ! cmp -s /tmp/aether_array_concat_return_expected.out /tmp/aether_array_concat_return_pass.out; then
+    echo "unexpected array-concat-in-return output (regression: array '+' reaching the VM from ret position?)" >&2
+    cat /tmp/aether_array_concat_return_pass.out >&2
+    exit 1
+fi
+
+# A slice as a direct operand of array `+`. The slice hoists statements and the
+# concat expands the declaration into a splice group; parseBlock only splices
+# one level, so the concat group used to survive as a nested block and scope the
+# declared variable away -- `let r: Int[] = a[1..3] + b;` then reported
+# "[SCOPE-001] identifier 'r' not in scope" at every later use site.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_slice_concat_operand_pass.aether" >/tmp/aether_array_slice_concat_operand_pass.out
+printf 'left len=4 [2378]\nright len=4 [7812]\nboth len=4 [1234]\nappended len=3 [239]\nleft-mut len=4 [99378]\na len=4 [1234]\n' >/tmp/aether_array_slice_concat_operand_expected.out
+if ! cmp -s /tmp/aether_array_slice_concat_operand_expected.out /tmp/aether_array_slice_concat_operand_pass.out; then
+    echo "unexpected slice-as-concat-operand output (regression: SCOPE-001 from a nested declaration-group splice?)" >&2
+    cat /tmp/aether_array_slice_concat_operand_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"
