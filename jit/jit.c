@@ -1647,7 +1647,7 @@ rearm_i386:
             interrupt = INT_TIMER;
         if (cc1_trace)
             amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
-        *cpu = frame->cpu;
+        jit_frame_sync_out(cpu, frame);
         if (current != NULL && current->force_no_jit_cache) {
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
@@ -2075,7 +2075,7 @@ static int cpu_single_step_arm64(struct cpu_state *cpu, struct tlb *tlb) {
     jit_crash_frame = NULL;
     jit_crash_cpu = NULL;
 
-    *cpu = frame->cpu;
+    jit_frame_sync_out(cpu, frame);
     free(state.block);
 
     if (interrupt == INT_NONE)
@@ -2307,7 +2307,7 @@ rearm_riscv64:
             interrupt = INT_TIMER;
         if (interrupt == INT_NONE && ++frame->cpu.cycle % (1 << 10) == 0)
             interrupt = INT_TIMER;
-        *cpu = frame->cpu;
+        jit_frame_sync_out(cpu, frame);
         if (current != NULL && current->force_no_jit_cache) {
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
@@ -2473,7 +2473,7 @@ rearm_amd64:
         if (unlikely(amd64_frontend_debug_active()) && amd64_cc1_force_interp_block(ip)) {
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
-            *cpu = frame->cpu;
+            jit_frame_sync_out(cpu, frame);
             // If an explicit RIP range is set (ISH_AMD64_FORCE_INTERP_LO/_HI), run
             // the interpreter ONLY while rip stays in the range, then hand back to
             // the JIT. A tight range isolates a single instruction, so a bisection
@@ -2501,7 +2501,7 @@ rearm_amd64:
                 jit_crash_unwind_active = false;
                 jit_crash_frame = NULL;
                 jit_crash_cpu = NULL;
-                *cpu = frame->cpu;
+                jit_frame_sync_out(cpu, frame);
                 return rc;
             }
             jit_crash_lock = NULL;
@@ -2510,7 +2510,7 @@ rearm_amd64:
             jit_crash_unwind_active = false;
             jit_crash_frame = NULL;
             jit_crash_cpu = NULL;
-            *cpu = frame->cpu;
+            jit_frame_sync_out(cpu, frame);
             return cpu_run_to_interrupt_amd64(cpu, tlb);
         }
         size_t cache_index = jit_cache_hash(ip);
@@ -2533,7 +2533,7 @@ rearm_amd64:
                 if (block == NULL) {
                     amd64_jit_debug("frontend no-block ip=%llx fallback=%d",
                             (unsigned long long) ip, fallback_to_interp);
-                    *cpu = frame->cpu;
+                    jit_frame_sync_out(cpu, frame);
                     jit_crash_unwind_active = false;
                     jit_crash_frame = NULL;
                     jit_crash_cpu = NULL;
@@ -2588,7 +2588,7 @@ rearm_amd64:
             jit_crash_track_mutex_unlock(&jit->lock);
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
-            *cpu = frame->cpu;
+            jit_frame_sync_out(cpu, frame);
             ret = cpu_run_to_interrupt_amd64(cpu, tlb);
             break;
         }
@@ -2637,17 +2637,17 @@ rearm_amd64:
         frame->cpu.eip = (dword_t) frame->cpu.amd64_rip;
         frame->last_block = NULL;
         if (interrupt != INT_NONE) {
-            *cpu = frame->cpu;
+            jit_frame_sync_out(cpu, frame);
             ret = interrupt;
             break;
         }
         if (cpu_take_poke(cpu)) {
-            *cpu = frame->cpu;
+            jit_frame_sync_out(cpu, frame);
             ret = INT_TIMER;
             break;
         }
         if (++blocks_executed >= AMD64_FRONTEND_TIMER_BLOCK_QUANTUM) {
-            *cpu = frame->cpu;
+            jit_frame_sync_out(cpu, frame);
             ret = INT_TIMER;
             break;
         }
