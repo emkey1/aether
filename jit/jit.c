@@ -1434,6 +1434,7 @@ rearm_i386:
         // inside jit_block_compile under debug malloc.
         if (jit_should_yield(jit, cpu)) {
             interrupt = INT_TIMER;
+            jit_frame_sync_out(cpu, frame);
             break;
         }
         addr_t ip = frame->cpu.eip;
@@ -1454,6 +1455,7 @@ rearm_i386:
 
                 if (jit_should_yield(jit, cpu)) {
                     interrupt = INT_TIMER;
+                    jit_frame_sync_out(cpu, frame);
                     goto done_unlocked;
                 }
 
@@ -1479,6 +1481,7 @@ rearm_i386:
 
                     if (jit_should_yield(jit, cpu)) {
                         interrupt = INT_TIMER;
+                        jit_frame_sync_out(cpu, frame);
                         goto done_unlocked;
                     }
                     block = jit_block_compile(ip, tlb);
@@ -1503,6 +1506,7 @@ rearm_i386:
 
                         if (jit_should_yield(jit, cpu)) {
                             interrupt = INT_TIMER;
+                            jit_frame_sync_out(cpu, frame);
                             goto done_unlocked;
                         }
                         block = jit_block_compile(ip, tlb);
@@ -1514,6 +1518,7 @@ rearm_i386:
                             jit_crash_frame = NULL;
                             jit_crash_cpu = NULL;
                             jit_crash_lock = NULL;
+                            jit_frame_sync_out(cpu, frame);
                             return INT_GPF;
                         }
                     }
@@ -1527,6 +1532,7 @@ rearm_i386:
                 if (jit_should_yield(jit, cpu)) {
                     jit_block_free(NULL, block);
                     interrupt = INT_TIMER;
+                    jit_frame_sync_out(cpu, frame);
                     break;
                 }
 
@@ -1647,7 +1653,14 @@ rearm_i386:
             interrupt = INT_TIMER;
         if (cc1_trace)
             amd64_cc1_jit_trace_record(block->addr, tlb, &before_block_cpu, &frame->cpu, interrupt);
-        jit_frame_sync_out(cpu, frame);
+        // Same reasoning as the arm64 frontend (see cpu_step_to_interrupt_arm64):
+        // the frame is authoritative while the JIT runs, and syncing the whole
+        // cpu_state out per block is pure overhead. Nothing below reads guest
+        // registers from *cpu unless an interrupt is being returned -- the
+        // INT_GPF retry path's jit_x86_gpf_looks_retryable(cpu) does, and that
+        // only runs when interrupt == INT_GPF, which is covered here.
+        if (interrupt != INT_NONE)
+            jit_frame_sync_out(cpu, frame);
         if (current != NULL && current->force_no_jit_cache) {
             frame->last_block = NULL;
             memset(frame->ret_cache, 0, sizeof(frame->ret_cache));
