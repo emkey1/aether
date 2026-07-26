@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-26-2*
+*Guide version: 2026-07-26-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -670,6 +670,7 @@ Numeric builtins use Pascal naming — note **`arctan`** (not `atan`) and **`ln`
 | compare / clamp | `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)` |
 | integer | `odd(n) -> Bool`, `factorial(n) -> Int`, `fibonacci(n) -> Int` |
 | random | `random() -> Real` in `[0, 1)`; `random(n) -> Int` in `[0, n)`; seed with `randomize()` |
+| clock | `realtimeclock() -> Int` (Unix epoch seconds — the one you usually want); `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)` fill **var out-parameters** |
 
 `random` is two functions sharing a name, and they return **different types**.
 Assigning the no-argument form to an `Int` truncates `[0, 1)` to a constant `0`,

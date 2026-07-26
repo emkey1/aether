@@ -7361,10 +7361,18 @@ static AST *parseTypeDecl(AetherParser *p) {
                     }
                     if (!aetherFieldDefaultIsConstant(defExpr)) {
                         reportAetherAstError(aetherSemanticGetSourcePath(), eqLine, "field-default",
-                                "only constant field defaults are supported; set computed values at "
-                                "construction via `new T { field: value }`.",
-                                "use a literal or constant expression (e.g. `= 0`, `= \"\"`, `= true`), "
-                                "or drop the default and set the value in `new T { ... }`.");
+                                "a field default must be a literal; this one is not.",
+                                /* The old wording said \"set computed values at construction\" and
+                                 * offered \"a constant expression\" as the remedy. Both mislead: the
+                                 * check rejects a named const (`= MAX_SCORE`) and any arithmetic over
+                                 * one (`= MAX_SCORE + 1`), neither of which is computed, and the
+                                 * second is exactly the thing being suggested. Say literal, and name
+                                 * the const case outright since it is the form a reader assumes
+                                 * works. */
+                                "use a literal (`= 0`, `= \"\"`, `= true`, `= []`). A named const is "
+                                "NOT accepted -- `= MAX` fails just as `= MAX + 1` does. For anything "
+                                "else, drop the default and set it at construction: "
+                                "`new T { field: MAX + 1 }`.");
                         freeAST(defExpr);
                         p->hadError = true;
                         break;

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-26-2*
+*Guide version: 2026-07-26-3*
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
@@ -335,6 +335,9 @@ banned in `@pure` functions:
 - `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
 - `mkdir(path)`, `rmdir(path)`
 - `paramcount() -> Int`, `paramstr(i) -> Text` (`paramstr(0)` = program)
+- clock: `realtimeclock() -> Int` (Unix epoch seconds) is a function and is
+  usually what you want. `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)`
+  are **procedures** that fill var out-parameters — `let t = gettime();` fails.
 
 ```aether
 fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }

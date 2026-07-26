@@ -12,6 +12,19 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-7
+
+**The `FIELD-003` message no longer contradicts itself.** It said *"only
+constant field defaults are supported; set computed values at construction"*
+and hinted *"use a literal or constant expression"* — but the check rejects a
+named `const` (`= MAX_SCORE`) and any arithmetic over one (`= MAX_SCORE + 1`).
+Neither is *computed*, and the second is exactly what the hint recommended, so
+someone who hit this the obvious way could not act on the message. It now says a
+field default must be a **literal**, names the named-const case outright, and
+points at construction for anything else.
+
+No behaviour change — the same programs are accepted and rejected as before.
+
 ## 2026-07-26-6
 
 **`ARR-002`: a one-dimensional array indexed twice is now a compile-time error.**

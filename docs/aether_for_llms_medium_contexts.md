@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-07-26-4*
+*Guide version: 2026-07-26-5*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -240,6 +240,35 @@ and makes the intent visible.
 
 Each thread gets its own random stream, so `par` branches draw independent
 numbers. With no `randomize()` call a run is reproducible.
+
+**Clock.** `realtimeclock() -> Int` returns Unix epoch seconds and is an
+ordinary function — reach for this one. The wall-clock component readers are
+*procedures* that write into var out-parameters rather than returning anything,
+a calling convention that appears nowhere else in Aether except `readln`:
+
+```aether
+fn main() -> Void {
+    let hour: Int = 0;
+    let minute: Int = 0;
+    let second: Int = 0;
+    let centis: Int = 0;
+    let year: Int = 0;
+    let month: Int = 0;
+    let day: Int = 0;
+    let weekday: Int = 0;
+    fx {
+        let stamp: Int = realtimeclock();          // a function -- returns a value
+        gettime(hour, minute, second, centis);     // a procedure -- fills its arguments
+        getdate(year, month, day, weekday);
+        println("epoch ", stamp);
+        println(year, "-", month, "-", day, " ", hour, ":", minute, ":", second);
+    }
+    ret;
+}
+```
+
+`let t = gettime();` fails with *"Built-in procedure 'gettime' cannot be used as
+a function in an expression."* — it has no return value at all.
 
 `Int / Int` is integer division (`7 / 2` is `3`). Force a `Real` operand when you
 want decimals: `let pct: Real = ok * 100.0 / total;`

@@ -50,6 +50,9 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/strings
 ./build/bin/aether examples/base/dynamic_arrays
 ./build/bin/aether examples/base/nested_arrays
+./build/bin/aether examples/base/text_processing
+./build/bin/aether examples/base/tuple_returns
+./build/bin/aether examples/base/bitwise_ops
 ./build/bin/aether examples/base/parsing
 ./build/bin/aether examples/base/clamp_minmax
 ./build/bin/aether examples/base/recursion
@@ -192,6 +195,22 @@ These examples stay within the currently supported Aether Core subset:
   both indexes, jagged rows, and bounding the inner loop with
   `length(table[r])`. The DP-table shape: models reach for it, declare a 1-D
   `Int[]`, index it `x[i][j]`, and get an uncoded runtime error
+- `text_processing`: the whole `Text` surface on one parsing job — `split`
+  (empty fields are kept), `trim`, `pos`, `copy` vs the `s[a..b]` slice, and
+  `ord`/`chr` to build the `to_upper` that does not exist. Written because
+  **`pos` is the most-misused builtin in the language**: it is
+  `pos(needle, haystack)`, and reversing the arguments returns `-1`, which reads
+  as "not found" rather than "wrong order". It also returns `-1` when absent
+  while `0` is a legitimate match at the first character, so the test is
+  `>= 0`, never `> 0`
+- `tuple_returns`: `-> (T, U)`, destructuring a direct call, positional `.0`/`.1`
+  on a bound variable, `@post result.0`, and the record fallback. The closing
+  comment lists each TUP-001 wall — chaining `.0` onto a call, an out-of-range
+  index (caught at compile time), a method returning a tuple — all verified
+- `bitwise_ops`: `& | ^ << >>` (and `xor`, the word spelling of `^`) driving
+  flag masks, an XOR cipher that round-trips, `popCount`, and a bit-mixing hash.
+  Includes the quiet precedence trap: `flags & mask != 0` parses as
+  `flags & (mask != 0)` and yields an **Int**, not a Bool, without erroring
 - `parsing`: `parse_int` / `parse_bool` / `parse_float`, and `split` into a `Text[]`
 - `clamp_minmax`: `clamp(x, lo, hi)` plus `min` / `max` as accumulators instead
   of if-chains

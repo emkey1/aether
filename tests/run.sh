@@ -1739,7 +1739,11 @@ if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >/tmp/ae
     echo "expected non-constant field default failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "only constant field defaults are supported" /tmp/aether_type_field_default_nonconst_fail.out; then
+# Wording asserted deliberately: the old message said "set computed values at
+# construction" and offered "a constant expression" as the remedy, while the
+# check rejects a named const and any arithmetic over one -- neither computed,
+# and the second being exactly what it suggested.
+if ! grep -q "a field default must be a literal" /tmp/aether_type_field_default_nonconst_fail.out; then
     echo "missing non-constant field default failure message" >&2
     cat /tmp/aether_type_field_default_nonconst_fail.out >&2
     exit 1
@@ -2816,6 +2820,23 @@ fi
 if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_cached.out; then
     echo "unexpected cached imported-type-methods output (cache verifier rejecting Void methods?)" >&2
     diff /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_cached.out >&2 || true
+    exit 1
+fi
+
+# FIELD-003 must reject a bare named const, not just an expression over one --
+# that is the form the old wording positively invited.
+cat > /tmp/aether_field_default_const.aether <<'AEEOF'
+const MAX_SCORE: Int = 100;
+type S { m: Int = MAX_SCORE; }
+fn main() -> Void { ret; }
+AEEOF
+if "$AETHER_BIN" --no-cache --no-run /tmp/aether_field_default_const.aether >/tmp/aether_field_default_const.out 2>&1; then
+    echo "expected FIELD-003 for a named-const field default" >&2
+    exit 1
+fi
+if ! grep -q "A named const is NOT accepted" /tmp/aether_field_default_const.out; then
+    echo "FIELD-003 hint no longer names the const case" >&2
+    cat /tmp/aether_field_default_const.out >&2
     exit 1
 fi
 

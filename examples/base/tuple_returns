@@ -1,0 +1,86 @@
+// Tuple returns: the two ways to read one, and the wall you hit past them.
+//
+// A function may return `(T, U)`. That is the whole feature -- tuples exist for
+// "two results, no record needed" and nothing more. Everything below the
+// working forms is a TUP-001 error, and the answer to every one of them is the
+// same: return a record instead.
+
+type Split {
+    quotient: Int = 0;
+    remainder: Int = 0;
+}
+
+@pure
+fn divmod(a: Int, b: Int) -> (Int, Int) {
+    ret (a / b, a % b);
+}
+
+@pure
+fn bounds(xs: Int[]) -> (Int, Int) {
+    let lo: Int = xs[0];
+    let hi: Int = xs[0];
+    loop i in 1..length(xs) {
+        lo = min(lo, xs[i]);
+        hi = max(hi, xs[i]);
+    }
+    ret (lo, hi);
+}
+
+// A @post on a tuple return addresses the slots positionally.
+@post result.0 <= result.1
+@pure
+fn ordered(a: Int, b: Int) -> (Int, Int) {
+    if a <= b {
+        ret (a, b);
+    }
+    ret (b, a);
+}
+
+// The fallback whenever a tuple will not do -- a method, three-plus values, or
+// a producer that is not a direct top-level call. Records have none of the
+// restrictions and cost one `type` block.
+@pure
+fn divmodRecord(a: Int, b: Int) -> Split {
+    ret new Split { quotient: a / b, remainder: a % b };
+}
+
+fn main() -> Void {
+    // 1. Destructure a DIRECT call to a top-level tuple-returning function.
+    let (q, r) = divmod(47, 5);
+
+    // 2. Or bind it and read slots positionally, zero-based. No annotation:
+    //    the binding takes the synthesized tuple type.
+    let t = divmod(47, 5);
+
+    let scores: Int[] = [82, 41, 97, 63];
+    let (lo, hi) = bounds(scores);
+    let (small, large) = ordered(9, 4);
+
+    fx {
+        println("divmod(47, 5)  -> q=", q, " r=", r);
+        println("same, bound    -> t.0=", t.0, " t.1=", t.1);
+        println("bounds(scores) -> lo=", lo, " hi=", hi);
+        println("ordered(9, 4)  -> ", small, ", ", large);
+    }
+
+    // The record fallback reads the same way, with names instead of positions.
+    let s: Split = divmodRecord(47, 5);
+    fx {
+        println("record         -> quotient=", s.quotient, " remainder=", s.remainder);
+    }
+
+    ret;
+}
+
+// What does NOT work, all TUP-001, all fixed by returning a record:
+//
+//   divmod(47, 5).0            chaining a slot onto the call -- bind it first
+//   t.2                        index at or past the arity; caught at COMPILE
+//                              time, not as a runtime crash
+//   let (a, b) = obj.pair();   a method may not return a tuple
+//   let (a, b) = someExpr;     the producer must be a direct call to a
+//                              top-level tuple-return function
+//
+// Recursion through a tuple-returning function, and calls to one from several
+// concurrent `par` branches, are both fine: a tuple return lowers to a record
+// returned by value, so it is reentrant per call.

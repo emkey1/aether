@@ -1,0 +1,125 @@
+// The Text surface, used together on a realistic parsing job.
+//
+// Four things here are guessed wrong more often than anything else in the
+// language, so each is exercised deliberately:
+//
+//   pos(needle, haystack)  -- needle FIRST. pos(haystack, needle) returns -1,
+//                             which reads like "not found" instead of "wrong
+//                             argument order", so the mistake hides.
+//   pos returns -1 when absent, and 0 is a LEGITIMATE match at the first
+//                             character. Test `>= 0`, never `> 0`.
+//   copy(s, start, count)  -- start is 0-based. `s[a..b]` is the same
+//                             substring written as a half-open slice.
+//   split keeps empty fields -- "a,,b" is three parts, the middle one empty.
+//
+// There is no `replace`, no `to_upper`, no `contains`. Build them from this
+// surface with a loop; `upper` below is the pattern.
+
+const FIELD_SEP: Text = ",";
+const KV_SEP: Text = "=";
+
+// No whole-string case conversion exists -- map code points with ord/chr.
+// Anything outside 'a'..'z' passes through untouched, so digits and
+// punctuation survive.
+@pure
+fn upper(s: Text) -> Text {
+    let out: Text = "";
+    loop i in 0..string_len(s) {
+        let c: Int = ord(s[i]);
+        if c >= 97 && c <= 122 {
+            out = out + chr(c - 32);
+        } else {
+            out = out + s[i];
+        }
+    }
+    ret out;
+}
+
+@pure
+fn contains(haystack: Text, needle: Text) -> Bool {
+    ret pos(needle, haystack) >= 0;     // >= 0, because 0 is a real match
+}
+
+// Split one "key=value" pair. Returns the key; the value comes back through
+// the record so both halves survive one pass.
+type Field {
+    key: Text = "";
+    value: Text = "";
+    valid: Bool = false;
+}
+
+@pure
+fn parseField(raw: Text) -> Field {
+    let f: Field = new Field();
+    let trimmed: Text = trim(raw);
+    let at: Int = pos(KV_SEP, trimmed);
+    if at < 0 {
+        ret f;                          // no '=' -- leave valid false
+    }
+    f.key = trim(trimmed[0..at]);
+    f.value = trim(trimmed[at + string_len(KV_SEP)..string_len(trimmed)]);
+    f.valid = string_len(f.key) > 0;
+    ret f;
+}
+
+fn rule(width: Int) -> Void {
+    fx {
+        println(stringofchar("-", width));
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let record: Text = "  name = ada lovelace ,  role=engineer,, id = 0042 ,note=";
+
+    fx {
+        println("raw: [", record, "]");
+        println("length ", string_len(record), ", trimmed ", string_len(trim(record)));
+    }
+    rule(46);
+
+    let parts: Text[] = split(record, FIELD_SEP);
+    fx {
+        println("split into ", length(parts), " fields (empties are kept)");
+    }
+
+    let good: Int = 0;
+    let skipped: Int = 0;
+    loop i in 0..length(parts) {
+        let f: Field = parseField(parts[i]);
+        if !f.valid {
+            skipped = skipped + 1;
+            fx {
+                println("  field ", i, ": skipped [", trim(parts[i]), "]");
+            }
+        } else {
+            good = good + 1;
+            fx {
+                println("  field ", i, ": ", upper(f.key), " = [", f.value, "]");
+            }
+        }
+    }
+
+    rule(46);
+    fx {
+        println("parsed ", good, ", skipped ", skipped);
+    }
+
+    // Two spellings of the same substring, and the search that finds it.
+    let sentence: Text = "the quick brown fox";
+    let at: Int = pos("brown", sentence);
+    fx {
+        println("");
+        println("pos(\"brown\", s) = ", at);
+        println("pos(s, \"brown\") = ", pos(sentence, "brown"), "  <- arguments reversed");
+        println("copy(s, ", at, ", 5) = ", copy(sentence, at, 5));
+        println("s[", at, "..", at + 5, "]   = ", sentence[at..at + 5]);
+        println("");
+        println("first char is at index 0, so a hit there returns 0:");
+        println("  pos(\"the\", s) = ", pos("the", sentence),
+                "   -- `> 0` would call this a miss");
+        println("  contains(s, \"the\")  = ", contains(sentence, "the"));
+        println("  contains(s, \"zebra\") = ", contains(sentence, "zebra"));
+    }
+    ret;
+}

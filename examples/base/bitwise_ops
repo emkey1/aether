@@ -1,0 +1,139 @@
+// Bitwise and shift operators, on Int only: & | ^ << >>
+//
+// `xor` is a word spelling of `^` -- the same operator, not a separate one.
+//
+// These are NOT the logical operators. `&&` and `||` are logical, short-circuit,
+// and take Bool; `&` and `|` are bitwise, evaluate both sides, and take Int.
+// Writing `a & b` where you meant `a && b` compiles and quietly computes
+// something else.
+//
+// Precedence, tightest to loosest: `* / %`, then `+ -`, then `<< >>`, then
+// comparisons, then `== !=`, then `&`, then `^`, then `|`, then `&&`, then
+// `||`.
+//
+// `&` binding LOOSER than `!=` is the trap, and it fails quietly. With
+// flags = 3 and mask = 2:
+//
+//   (flags & mask) != 0   ->  true   (Bool, what you meant)
+//    flags & mask != 0    ->  1      (Int!  parses as flags & (mask != 0))
+//
+// The second is not an error -- it yields an Int that prints as 1, so a test
+// written that way looks like it works. Always parenthesize the mask.
+
+const FLAG_READ: Int = 1;      // 0001
+const FLAG_WRITE: Int = 2;     // 0010
+const FLAG_EXEC: Int = 4;      // 0100
+const FLAG_ADMIN: Int = 8;     // 1000
+
+@pure
+fn hasFlag(flags: Int, mask: Int) -> Bool {
+    ret (flags & mask) != 0;   // parentheses required -- & is looser than !=
+}
+
+@pure
+fn setFlag(flags: Int, mask: Int) -> Int {
+    ret flags | mask;
+}
+
+// Clear without a NOT operator: XOR only the bits that are actually set, so
+// clearing an absent flag is a no-op rather than setting it.
+@pure
+fn clearFlag(flags: Int, mask: Int) -> Int {
+    ret flags ^ (flags & mask);
+}
+
+@pure
+fn describe(flags: Int) -> Text {
+    let out: Text = "";
+    if hasFlag(flags, FLAG_READ) { out = out + "r"; } else { out = out + "-"; }
+    if hasFlag(flags, FLAG_WRITE) { out = out + "w"; } else { out = out + "-"; }
+    if hasFlag(flags, FLAG_EXEC) { out = out + "x"; } else { out = out + "-"; }
+    if hasFlag(flags, FLAG_ADMIN) { out = out + "a"; } else { out = out + "-"; }
+    ret out;
+}
+
+// Right-shift and mask off the low bit, repeatedly.
+@pure
+fn popCount(value: Int) -> Int {
+    let n: Int = value;
+    let count: Int = 0;
+    loop n > 0 {
+        count = count + (n & 1);
+        n = n >> 1;
+    }
+    ret count;
+}
+
+@pure
+fn toBinary(value: Int, width: Int) -> Text {
+    let out: Text = "";
+    let i: Int = width - 1;
+    loop i >= 0 {
+        out = out + int_to_text((value >> i) & 1);
+        i = i - 1;
+    }
+    ret out;
+}
+
+// XOR is its own inverse, so one function both encrypts and decrypts.
+@pure
+fn xorCipher(text: Text, key: Int) -> Text {
+    let out: Text = "";
+    loop i in 0..string_len(text) {
+        out = out + chr(ord(text[i]) ^ key);
+    }
+    ret out;
+}
+
+// Bit-mixing hash: shift-xor-multiply, masked back into 16 bits each round so
+// it cannot run away.
+@pure
+fn mixHash(s: Text) -> Int {
+    let h: Int = 5381;
+    loop i in 0..string_len(s) {
+        h = ((h << 5) + h + ord(s[i])) & 65535;
+        h = h ^ (h >> 7);
+    }
+    ret h;
+}
+
+fn main() -> Void {
+    fx {
+        println("6 & 3  = ", 6 & 3, "     (0110 & 0011 = 0010)");
+        println("6 | 3  = ", 6 | 3, "     (0110 | 0011 = 0111)");
+        println("6 ^ 3  = ", 6 ^ 3, "     (0110 ^ 0011 = 0101)");
+        println("6 xor 3= ", 6 xor 3, "     -- `xor` is the same operator as ^");
+        println("6 << 1 = ", 6 << 1, "    (shift left doubles)");
+        println("6 >> 1 = ", 6 >> 1, "     (shift right halves, truncating)");
+        println("");
+    }
+
+    let perms: Int = setFlag(setFlag(0, FLAG_READ), FLAG_WRITE);
+    let elevated: Int = setFlag(perms, FLAG_ADMIN);
+    let dropped: Int = clearFlag(elevated, FLAG_WRITE);
+
+    fx {
+        println("perms    = ", perms, "  ", toBinary(perms, 4), "  ", describe(perms));
+        println("elevated = ", elevated, " ", toBinary(elevated, 4), "  ", describe(elevated));
+        println("dropped  = ", dropped, " ", toBinary(dropped, 4), "  ", describe(dropped));
+        println("clearing an unset flag is a no-op: ",
+                toBinary(clearFlag(dropped, FLAG_WRITE), 4));
+        println("bits set in ", elevated, ": ", popCount(elevated));
+        println("");
+    }
+
+    let secret: Text = "Aether";
+    let key: Int = 42;
+    let hidden: Text = xorCipher(secret, key);
+    let restored: Text = xorCipher(hidden, key);
+
+    fx {
+        println("plain     : ", secret);
+        println("xor(", key, ")   : ", toBinary(ord(hidden[0]), 8), " (first byte)");
+        println("round trip: ", restored, "  matches=", restored == secret);
+        println("");
+        println("mixHash(\"Aether\") = ", mixHash("Aether"));
+        println("mixHash(\"aether\") = ", mixHash("aether"), "  -- one bit of input, different hash");
+    }
+    ret;
+}

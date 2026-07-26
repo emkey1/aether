@@ -2527,3 +2527,70 @@ one both models drew.
 **Suggested action:** document the real shape, or expose a function-form clock.
 The var-out-parameter calling convention appears nowhere else in the Aether
 surface except `readln`, so it needs an example if it is to stay.
+
+---
+
+## Corpus and diagnostic sweep — 2026-07-26
+
+Working the gap list from the coverage audit. Four examples, two diagnostics,
+and one non-decision.
+
+### Examples added
+
+- `examples/base/text_processing` — the whole `Text` surface on one parsing job.
+  Built around `pos`, which is the most-misused builtin in the language: **two
+  independent models got its argument order backwards** in the same week. It is
+  `pos(needle, haystack)`; reversing the arguments returns `-1`, which reads as
+  "not found" rather than "wrong order", so the mistake never announces itself.
+  It also returns `-1` when absent while `0` is a legitimate match at the first
+  character, so the test is `>= 0` and `> 0` is silently wrong.
+- `examples/base/tuple_returns` — destructuring, positional `.0`/`.1`,
+  `@post result.0`, and the record fallback. Eleven fixtures backed this feature
+  against one example, and that one only showed the `@post` form. The closing
+  comment lists each TUP-001 wall, all re-verified: chaining `.0` onto a call,
+  an out-of-range index (a compile-time error, not a crash), and a method
+  returning a tuple.
+- `examples/base/bitwise_ops` — flag masks, an XOR cipher that round-trips,
+  `popCount`, a bit-mixing hash. Bitwise was added on 2026-07-19 *because*
+  models wanted XOR ciphers and bit-mixing hashes, and then no example used it.
+- `examples/base/nested_arrays` (earlier commit) — `Int[][]`.
+
+### Precedence trap worth its own note
+
+`&` binds looser than `!=`, and the failure is silent:
+
+```
+(flags & mask) != 0   ->  true   (Bool)
+ flags & mask != 0    ->  1      (Int -- parses as flags & (mask != 0))
+```
+
+The second is not an error. It yields an `Int` that prints as `1`, so a
+permission test written that way looks like it passes. Documented in
+`bitwise_ops`; a candidate for a future coded warning, since the type change is
+mechanically detectable.
+
+### FIELD-003 message rewritten — *fixed 2026-07-26-7*
+
+The old text was actively self-contradicting: *"only constant field defaults are
+supported; set computed values at construction"* with the hint *"use a literal
+or constant expression"*. But the check rejects a named `const` and any
+arithmetic over one — neither of which is *computed*, and the second being
+precisely what the hint recommends. It now says "a field default must be a
+literal", names the const case outright (`= MAX` fails just as `= MAX + 1`
+does), and points at construction. A fixture pins the named-const case
+specifically, since that is the form a reader assumes works.
+
+### `gettime` — resolved without a language decision
+
+The open question was whether to document the var-out-parameter convention or
+add a function-form clock. Neither: **a function-form clock already exists and
+was simply undocumented.** `realtimeclock()` returns Unix epoch seconds as an
+`Int` — verified against `date +%s` — and appears nowhere in any guide, only in
+this backlog. It is the thing every model reaching for a clock actually wanted.
+
+The component readers are procedures filling var out-parameters, now confirmed
+by experiment rather than guessed: `gettime(hour, minute, second, centisecond)`
+matched the wall clock exactly, and `getdate(year, month, day, weekday)`
+returned `2026, 7, 26, 0`. All three are documented in all three guides now,
+with `realtimeclock` named as the default choice and the out-parameter
+convention flagged as appearing nowhere else in Aether except `readln`.
