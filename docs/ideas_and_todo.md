@@ -2220,3 +2220,113 @@ their own coded diagnostics; neither is on the path to embedded modules.
 
 **Unblocked.** With this fixed, an embedded module has a payload that genuinely
 could not have been a builtin, so the `--dump-module` idea is worth costing out.
+
+---
+
+## `random` follow-ups — 2026-07-26
+
+*Found while checking a hand-written "Animated Fractal Tree" program a user
+asked about. It compiles clean, runs, exits 0, emits no diagnostic — and draws
+its entire "random" tree in a single repeated character. Chasing why turned up
+three separate issues, the last of which is the serious one.*
+
+### 1. `random()` vs `random(n)` is a same-name/different-return-type trap — *example added 2026-07-26*
+
+```aether
+let idx: Int = 0;
+fx { idx = random(); }          // ALWAYS 0
+idx = idx % length(chars);      // ...so this is 0 too
+ret chars[idx];                 // ...so this is always chars[0]
+```
+
+`random()` returns a **Real** in `[0, 1)`; `random(n)` returns an **Int** in
+`[0, n)`. Assigning the no-argument form to an `Int` truncates the fraction to a
+constant `0`, so every "random" choice in the program is the same choice
+forever.
+
+Both guides *do* document the two forms correctly (full guide line 667, small
+guide line 321), so this is not a documentation error. It is a coverage and
+placement problem:
+
+- **`random` appeared nowhere in the example corpus or the test fixtures.**
+  Zero uses, exactly like `formatfloat` before this week. The trap is one
+  the reader has to derive from two return types listed in a table cell.
+- Line 667 is fourteen lines from the `min`/`max`/`clamp` row at 653 that the
+  2026-07-26 trace could not see. The same truncation zone keeps eating the
+  same class of information: arity/type details of small helpers.
+- Note that `BUILT-002` cannot help here — both arities are legal, so an arity
+  check has nothing to object to. The error is in the *return type*.
+
+**Done:** `examples/base/random_values` demonstrates the bounded-Int form for
+indices and rolls, the Real form kept as a Real, and `int(random() * 100.0)` as
+the explicit-truncation route.
+
+### 2. Every implicit `Real` → `Int` narrowing is silent — *candidate `NARROW-001`*
+
+`random()` is only the most damaging instance of a general hole. All four of
+these compile without a word and truncate:
+
+```aether
+let a: Int = 0;  fx { a = random(); }   // 0    -- builtin, effectful position
+let b: Int = 3.7;                       // 3    -- a literal, at the declaration
+let c: Int = half();                    // 0    -- user fn returning Real
+let d: Int = 0;  d = sqrt(2.0);         // 1    -- builtin, plain assignment
+```
+
+`let b: Int = 3.7;` is the striking one: the value is a literal, the target type
+is written on the same line, and the loss is knowable at parse time. Aether
+already has `int(x)` as the explicit truncating cast and already documents it,
+so the escape hatch exists — there is just nothing steering anyone toward it.
+
+**Suggested action:** a coded **warning** (not an error — narrowing is sometimes
+meant) on an implicit `Real`-valued expression assigned to an `Int` target,
+suppressed when the source is written `int(expr)`. Precedent for the shape is
+`ARR-001`, which uses `reportAetherWarningCoded` for exactly this
+"you probably meant something else, but it might be deliberate" case. The
+`random()` instance would then be caught at compile time on the very line that
+produces it.
+
+Worth sizing before committing to it: the warning must not fire on the many
+legitimate `Int`-in/`Int`-out paths, and `abs`/`min`/`max`/`clamp` preserve
+operand type, so their result type depends on their arguments.
+
+### 3. `par` branches all draw the IDENTICAL random stream — *bug, unfixed*
+
+The serious one. `rand_seed` in pscal-core (`builtin.c`) is
+`static _Thread_local unsigned int rand_seed = 1;`, and `randomize()` sets
+`rand_seed = time(NULL)` **on the calling thread only**. Every worker thread
+therefore starts from the hardcoded seed `1` and generates the same sequence:
+
+```
+par branch 1 : 807 249 73
+par branch 2 : 807 249 73     <- identical
+main thread  : 208 990 249    <- the only thread randomize() reached
+```
+
+Calling `randomize()` *inside* each branch does not fix it, because
+`time(NULL)` has whole-second resolution and both branches call it in the same
+second:
+
+```
+branch 1 : 120 680 653
+branch 2 : 120 680 653        <- still identical
+```
+
+So **there is currently no way to obtain independent random streams across
+`par` branches.** A parallel Monte Carlo, sampler, shuffle, or randomized
+search — precisely the workload `par` exists to serve — silently computes the
+same draws in every branch and reports a confidently wrong aggregate. Nothing
+warns, and the output looks plausible.
+
+The same second-resolution seeding also means two single-threaded runs launched
+within one second replay an identical sequence, which is a trap for anything
+that runs the binary in a tight loop (eval harnesses included).
+
+**Suggested action:** seed per-thread at thread start from something that
+actually differs — mix `time`, a thread id/counter, and an address — rather than
+leaving worker threads on the constant `1`, and give `randomize()` sub-second
+entropy so back-to-back runs diverge. Needs a decision on whether `randomize()`
+should be documented as seeding only the calling thread, or made to seed the
+pool. This is a pscal-core change (submodule push-order applies), and it should
+land before anything in the corpus or benchmark suite demonstrates parallel
+sampling.

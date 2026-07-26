@@ -46,6 +46,7 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/self_mutation
 ./build/bin/aether examples/base/number_formatting
 ./build/bin/aether examples/base/real_to_text
+./build/bin/aether examples/base/random_values
 ./build/bin/aether examples/base/strings
 ./build/bin/aether examples/base/dynamic_arrays
 ./build/bin/aether examples/base/parsing
@@ -177,6 +178,11 @@ These examples stay within the currently supported Aether Core subset:
   Written because the two spellings sit next to each other in the guide and get
   merged into a nonexistent three-argument `formatfloat(r, 0, prec)`, which
   compiles and only fails once the line runs
+- `random_values`: `random()` -> `Real` in `[0, 1)` vs `random(n)` -> `Int` in
+  `[0, n)`, and why assigning the no-argument form to an `Int` silently pins
+  every "random" choice to `0`. Also notes the two seeding limits: whole-second
+  `randomize()` granularity, and the per-thread seed that makes every `par`
+  branch draw an identical stream
 - `strings`: `Text` concatenation, `string_len`, `int_to_text`, and `==` equality
 - `dynamic_arrays`: empty literal, append (`xs = xs + [v]`), indexed read/write,
   `length`, and iteration

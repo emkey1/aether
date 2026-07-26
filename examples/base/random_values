@@ -1,0 +1,54 @@
+// random() and random(n) are two different functions wearing one name, and
+// they return different TYPES. Picking the wrong one is silent.
+//
+//   random()  -> Real in [0, 1)   -- a fraction
+//   random(n) -> Int  in [0, n)   -- an index or a roll
+//
+// Assigning the no-argument form to an Int truncates [0, 1) to a constant 0:
+//
+//   let idx: Int = 0;
+//   idx = random();          // ALWAYS 0 -- and then idx % length(xs) is 0 too
+//
+// Nothing warns about that, so a program built on it compiles, runs, exits 0,
+// and quietly makes the same "random" choice forever. When you want an index,
+// a roll, or any whole number, pass the bound: random(n).
+//
+// Seed once with randomize(). random/randomize are effectful -- fx.
+//
+// Two seeding limits worth knowing: randomize() seeds from the clock at whole-
+// second resolution, so two runs launched in the same second replay the same
+// sequence; and the seed is per-thread, so every `par` branch draws an
+// IDENTICAL stream (see docs/ideas_and_todo.md, 2026-07-26). Do not build a
+// parallel sampler on this yet.
+
+fn main() -> Void {
+    let faces: Text[] = ["*", "+", "#", "@", "&", "%"];
+
+    let roll: Int = 0;
+    let pick: Text = "";
+    let fraction: Real = 0.0;
+    let percent: Int = 0;
+
+    fx {
+        randomize();
+
+        // Correct: bounded Int, already in range -- no % needed.
+        roll = random(6) + 1;
+        pick = faces[random(length(faces))];
+
+        // Correct use of the no-argument form: it is a Real, so keep it one.
+        fraction = random();
+
+        // Scaling the fraction to a whole number is the other valid route --
+        // but only because int() makes the truncation explicit.
+        percent = int(random() * 100.0);
+    }
+
+    fx {
+        println("d6 roll        : ", roll);
+        println("random face    : ", pick);
+        println("fraction       : ", formatfloat(fraction, 4));
+        println("scaled percent : ", percent);
+    }
+    ret;
+}
