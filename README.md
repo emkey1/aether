@@ -127,8 +127,9 @@ off by default; build with `-DAETHER_ENABLE_SDL=ON` and see
 In-depth language documentation is in [`docs/`](docs/):
 
 - [`aether_architecture_and_rationale.md`](docs/aether_architecture_and_rationale.md): design and rationale
-- [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full language guide
-- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (for small contexts)
+- [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full language guide (~17K tokens; frontier contexts)
+- [`aether_for_llms_medium_contexts.md`](docs/aether_for_llms_medium_contexts.md): the working guide (~11K tokens; ~32K contexts)
+- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (~9K tokens; 8–16K contexts)
 
 See [`src/aether/DESIGN.md`](src/aether/DESIGN.md) for the front-end internals.
 
