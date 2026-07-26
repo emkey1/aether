@@ -1897,3 +1897,193 @@ two-dimensionally (and/or for appending an `Int[]` into an `Int[]` whose declare
 type is 1-D), with a hint showing how to build a jagged/2-D array. Likely a real
 score unlock on `cs_lcs` and any other DP-table task, across all models rather
 than one.
+
+---
+
+## Mined from an unprompted "impress me" transcript — 2026-07-26
+
+*Source: a reasoning trace from a model we had not sampled before, writing its
+first Aether program (a "Release Board Analyzer") from the guide alone, with no
+compiler in the loop. Unlike the idea-miner batches above, this is a **thinking
+trace, not a diagnostic log** — it shows where the model second-guessed itself
+and, in two places, where it talked itself into a wrong answer. That makes it
+useful for a class of problem the miner cannot see: failures the model never
+gets to observe because it never runs anything.*
+
+Verified against `aether` 2026-07-26-1. Two of the six items were real bugs in
+the generated program; the rest were the model correctly reaching a safe answer
+by a wasteful route, which is its own signal about the guide.
+
+### 1. Hallucinated `toon_parse_string`, then fabricated a guide citation for it — *fixed (docs) 2026-07-26*
+
+The model wrote `toon_parse_string(payload)`, paused to check itself, and
+produced this:
+
+> Actually, looking at the guide examples:
+> ```aether
+> let doc: ToonDoc = toon_parse_string(payload);
+> ```
+> Yes, this is shown. Good.
+
+No such line exists in either guide, and `toon_parse_string` is not a builtin —
+it is a hard `SCOPE-001`. The self-verification step did not consult anything;
+it re-emitted the model's own invention and accepted it as evidence. This is
+worse than an ordinary hallucination: the model's *doubt* fired correctly and
+then got answered by a confabulation, so every downstream check ("am I using
+only listed builtins?") returned a false pass.
+
+The name is over-determined by our own surface: `toon_parse_file(path)` exists,
+so an LLM reads `toon_parse` as the bare stem and expects `_string` to be the
+sibling of `_file`. `parse_json` → `toon_parse` is already in the alias table in
+`ast_prepasses.c` (`rewriteAetherBuiltinAliases`) for exactly this kind of
+plausible guess.
+
+**Done:** added `toon_parse_string` to the **Never Generate These** list in
+`aether_for_llms_and_others.md` and to the TOON rules in
+`..._with_small_contexts.md`, in both cases naming the `_file`-implies-`_string`
+inference explicitly rather than just listing the bad name.
+
+**Open decision:** whether to also add `toon_parse_string` → `toon_parse` to the
+alias table. *For:* one-line change, exact precedent (`parse_json`), converts a
+hard failure into a working program for a guess this predictable. *Against:* the
+guide's whole discipline is "do not invent builtins," and silently accepting
+invented names teaches the opposite. Not done pending a call.
+
+### 2. Merged `formatfloat(r, prec)` with the `println`-only `r:0:prec` form — *fixed (docs + example) 2026-07-26*
+
+The model wrote `formatfloat(sa.averageScore(), 0, 2)` throughout — a
+three-argument call that does not exist. The contamination source is a single
+table row in the full guide:
+
+| Real → Text | `formatfloat(r, prec)` | `realtostr(r)` | `r:0:prec` as a value (it is `println`-only) |
+
+Canonical form and forbidden form sit in the same row, and the forbidden column
+supplies the exact extra token (`0`) needed to build the wrong arity. The model
+took the width slot from the "never" column and spliced it into the "canonical"
+column's argument list.
+
+This one is nastier than a normal arity error because **it is not caught at
+compile time**. `aether --no-run` accepts it; the failure is a runtime message
+with no diagnostic code at all:
+
+```
+FormatFloat expects (numeric [, integer precision]).
+[Error Location] Offset: 125, Line: 12
+```
+
+So a generated program can pass a compile-only gate and die on its first
+formatted number.
+
+Aggravating factor: **`formatfloat` appeared nowhere in the 55-program example
+corpus.** `number_formatting` demonstrates only the `value:width:precision`
+spelling. The one conversion the guide calls canonical had zero worked examples,
+while its forbidden alternative had a whole example to itself.
+
+**Done:** new `examples/base/real_to_text` puts `formatfloat(r, prec)`,
+`realtostr(r)`, and `r:width:prec` side by side and names the three-argument
+trap in a comment; the guide table row now states the arity and lists
+`formatfloat(r, 0, prec)` as a never-generate; the small-context guide carries
+the same warning inline.
+
+**Still open:** the runtime diagnostic deserves a code and a compile-time arity
+check. Builtin arity is knowable at compile time for a direct call with literal
+arguments; letting this reach the VM is a gap, not a design choice.
+
+### 3. The guide's "discover it before you call it" advice is unusable in the generation context
+
+The model correctly recalled the rule — *"if one is not listed here, discover
+its exact name and signature before calling rather than assuming"* — and then:
+
+> Since I can't actually call `builtin_info` in this context (I'm writing code,
+> not running it), I should be careful.
+
+This is the right read. `builtins_json()` / `builtin_info(...)` are **runtime**
+builtins; a model producing a source file in one shot has no way to invoke them.
+The guide currently offers discovery as the escape hatch for anything unlisted,
+and for the single largest consumer of the guide that hatch is nailed shut. The
+model's fallback — route around the unknown getter by using `toon_get_text_or`
+plus `parse_int` — was safe but produced worse code than the `toon_get_int_or`
+that has been in the guide all along.
+
+**Suggested action:** the guide should say what to do when discovery is
+unavailable (prefer the listed surface; if it is not listed, restructure to
+avoid it — do not guess a name), and the listed surface has to be complete
+enough that this is actually possible. Alternatively, ship the builtin inventory
+as a static appendix so "discover" can mean "look further down this document."
+
+### 4. Truncation drops the exact tables the model then guesses around
+
+The trace says *"Looking through the truncated guide"* — the model was working
+from a cut copy of `aether_for_llms_and_others.md`. Everything it went on to
+guess at was in the part it lost:
+
+| The model reasoned... | Actually in the guide at |
+|---|---|
+| "`toon_get_int_or` is a reasonable guess... but the guide says not to guess" | line 1106 (full `_or` table) |
+| "I need to check if `max_real` exists. The guide doesn't list it." | line 653 — `min`, `max`, **`clamp(x, lo, hi)`** |
+
+It wanted a clamp, invented `max_real`, correctly rejected it, and hand-rolled
+an `if raw < 0.0 { ret 0.0; }`. `clamp(raw, 0.0, 100.0)` was two lines past
+its context window, and `examples/base/clamp_minmax` exists.
+
+Both tables live past line 650 of a 1667-line document, i.e. in the half that
+gets cut first. The high-frequency conversion and math surfaces are ordered
+after prose that a generating model needs far less.
+
+**Suggested action:** treat "survives truncation at 40%" as a documented
+ordering constraint for the full guide, and hoist the conversion / math /
+TOON-getter tables above the long-form rationale. This is cheap and it is the
+single highest-leverage change on this list — items 1, 2 and 3 above all
+partially reduce to "the model could not see the table."
+
+### 5. Contradictory import guidance produced real paralysis
+
+The model spent a visible stretch on whether TOON needs an import, quoting the
+guide against itself — *"Use verified modules only. Never invent imports"* vs
+*"use canonical `use "module_name";`"* — with no way to tell which modules are
+"verified." It settled on emitting no imports, which is correct, but by
+elimination rather than by knowing.
+
+Verified: `use "toon";` is a **silent no-op**. It compiles and runs; the
+`[IMP-001] Aether ignored missing import 'toon'` warning only appears under
+`--verbose-compat`.
+
+**Suggested action:** state plainly that all builtins — TOON included — are in
+the prelude and need no import, and that `use` is *only* for sibling `.aether`
+modules in the same directory. The current phrasing implies a registry of
+"verified modules" that does not exist.
+
+### 6. Correctly-guessed constructs, confirmed working (no action)
+
+Everything else the model was unsure about does work, and is worth knowing is
+uncontroversial: field defaults in a `type` body (`total: Int = 0;`); forward
+references to a `type` declared later in the file; `@pure` on a function that
+takes a `ToonNode` and calls `toon_get_*`; `@pure` on a function that does
+`new T()` and returns it; a `let i: Int = 0;` binding coexisting with
+`loop i in 0..n` (the 2026-07-19 SCOPE-001 fix holds); self-mutating methods
+called from inside a `par` branch, both via a wrapper `fn` and as a direct
+`x.bump();` statement; and free `Int`/`Real` mixing in arithmetic with
+`Int / Int` still truncating. A misspelled `self.reveiw` gives a clean
+`[FIELD-002] Unknown field 'reveiw' on class 'A'`.
+
+### 7. Incidental: the examples lap was not compile-checking `showcase/` at all — *fixed 2026-07-26*
+
+Found while adding `examples/showcase/release_board`. `tests/run_examples.sh`
+selected showcase programs with `find "$EX_DIR/showcase" -name '*.aether'`, but
+showcase programs are extensionless (`agent_report`, `gradebook`) exactly like
+`base/` ones. The glob matched **zero files**, so the lap's own comment
+("including gradebook") had been false since it was written, and `gradebook`
+was covered only indirectly. Fixed to the same "not README, not .json" filter
+`base/` uses; the lap went from 54 to 57 programs.
+
+### Corpus additions from this trace
+
+- `examples/base/real_to_text` — the Real→Text surface, item 2.
+- `examples/showcase/release_board` — the program the model was *trying* to
+  write, corrected and running: nested records with field defaults, self-mutating
+  accumulator methods, `@pure`/`@post` helpers, a `par` block where each branch
+  owns its record while sharing read-only `ToonNode` handles, defaulted TOON
+  reads over a deliberately malformed row, `clamp`/`max`, and both `formatfloat`
+  and `r:0:1` used correctly in the same report. Turning a failed generation
+  into a canonical worked example targets the exact shape models pick when asked
+  to show the language off.

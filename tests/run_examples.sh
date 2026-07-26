@@ -62,12 +62,14 @@ for src in "$EX_DIR"/base/*; do
     check_one "$src" "base/$name"
 done
 
-# showcase/: every .aether program (run.sh executes agent_report end to end;
-# here we at least compile-check all of them, including gradebook).
+# showcase/: every program (run.sh executes agent_report end to end; here we at
+# least compile-check all of them, including gradebook). Showcase programs are
+# extensionless like base/, so match on "not README, not .json" the same way --
+# an earlier `-name '*.aether'` filter here silently matched nothing at all.
 while IFS= read -r src; do
     rel="${src#"$EX_DIR"/}"
     check_one "$src" "$rel"
-done < <(find "$EX_DIR/showcase" -name '*.aether' -type f | sort)
+done < <(find "$EX_DIR/showcase" -type f ! -name 'README.md' ! -name '*.json' | sort)
 
 # sdl/: only meaningful on SDL-enabled builds; skipped by default.
 if [ "${AETHER_EXAMPLES_SDL:-0}" = "1" ]; then

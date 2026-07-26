@@ -1,0 +1,264 @@
+// Release board analyzer.
+//
+// A TOON document describes two release trains. Each train is scored, validated
+// against policy, and summarized; the two trains are analyzed concurrently in a
+// `par` block, then merged and reported.
+//
+// This program is the corrected form of a shape LLMs reach for unprompted, and
+// it pins down the details they most often get wrong:
+//
+//   * the parser is `toon_parse(text)` -- there is no `toon_parse_string`
+//   * `formatfloat(value, precision)` takes two arguments, never three
+//   * `clamp` / `min` / `max` exist; hand-rolled if-chains are not needed
+//   * every `par` branch writes only the record it was handed
+//   * `Int` and `Real` mix freely in arithmetic; `Int / Int` still truncates
+
+const READY_CUTOFF: Real = 85.0;
+const CRITICAL_LEVEL: Int = 4;
+const BLOCKER_PENALTY: Real = 6.5;
+
+type Severity {
+    level: Int = 1;
+    label: Text = "minor";
+
+    fn isCritical() -> Bool {
+        ret self.level >= CRITICAL_LEVEL;
+    }
+}
+
+type Release {
+    id: Text = "unknown";
+    version: Text = "0.0.0";
+    score: Int = 0;
+    blockers: Int = 0;
+    ready: Bool = false;
+    severity: Severity;
+
+    // Policy: a score outside 0..100 or a severity outside 1..5 means the row
+    // was malformed upstream and must not feed the averages.
+    fn isValid() -> Bool {
+        ret self.score >= 0 && self.score <= 100
+            && self.severity.level >= 1 && self.severity.level <= 5;
+    }
+
+    // Each open blocker costs BLOCKER_PENALTY points, floored at zero.
+    fn adjustedScore() -> Real {
+        let raw: Real = self.score - self.blockers * BLOCKER_PENALTY;
+        ret clamp(raw, 0.0, 100.0);
+    }
+
+    fn status() -> Text {
+        if !self.isValid() {
+            ret "invalid";
+        }
+        if self.severity.isCritical() {
+            ret "critical";
+        }
+        if self.ready && self.adjustedScore() >= READY_CUTOFF {
+            ret "ready";
+        }
+        ret "review";
+    }
+}
+
+type Section {
+    name: Text = "";
+    seen: Int = 0;
+    valid: Int = 0;
+    ready: Int = 0;
+    critical: Int = 0;
+    scoreSum: Real = 0.0;
+    best: Real = 0.0;
+
+    fn record(r: Release) -> Void {
+        self.seen = self.seen + 1;
+        if !r.isValid() {
+            ret;
+        }
+        self.valid = self.valid + 1;
+        let adj: Real = r.adjustedScore();
+        self.scoreSum = self.scoreSum + adj;
+        self.best = max(self.best, adj);
+        if r.severity.isCritical() {
+            self.critical = self.critical + 1;
+        }
+        if r.ready && adj >= READY_CUTOFF {
+            self.ready = self.ready + 1;
+        }
+        ret;
+    }
+
+    fn average() -> Real {
+        if self.valid == 0 {
+            ret 0.0;
+        }
+        ret self.scoreSum / self.valid;
+    }
+
+    fn readiness() -> Real {
+        if self.valid == 0 {
+            ret 0.0;
+        }
+        ret self.ready * 100.0 / self.valid;
+    }
+}
+
+@pure
+@post result >= 1
+fn severityLevel(raw: Int) -> Int {
+    ret clamp(raw, 1, 5);
+}
+
+@pure
+fn severityLabel(level: Int) -> Text {
+    if level >= 5 {
+        ret "blocker";
+    }
+    if level >= CRITICAL_LEVEL {
+        ret "major";
+    }
+    if level >= 2 {
+        ret "moderate";
+    }
+    ret "minor";
+}
+
+// Reads one TOON row into a Release. Defaulted getters (`_or`) keep a missing
+// or mistyped field from aborting the whole report.
+fn readRelease(row: ToonNode) -> Release {
+    let sev: Severity = new Severity();
+    sev.level = severityLevel(toon_get_int_or(row, "severity", 1));
+    sev.label = severityLabel(sev.level);
+
+    let r: Release = new Release();
+    r.id = toon_get_text_or(row, "id", "unknown");
+    r.version = toon_get_text_or(row, "version", "0.0.0");
+    r.score = toon_get_int_or(row, "score", 0);
+    r.blockers = toon_get_int_or(row, "blockers", 0);
+    r.ready = toon_get_bool_or(row, "ready", false);
+    r.severity = sev;
+    ret r;
+}
+
+// One `par` branch's worth of work: `sink` is the only record this writes.
+fn analyzeTrain(sink: Section, rows: ToonNode) -> Void {
+    loop i in 0..toon_len(rows) {
+        let row: ToonNode = toon_at(rows, i);
+        sink.record(readRelease(row));
+    }
+    ret;
+}
+
+fn mergeInto(total: Section, part: Section) -> Void {
+    total.seen = total.seen + part.seen;
+    total.valid = total.valid + part.valid;
+    total.ready = total.ready + part.ready;
+    total.critical = total.critical + part.critical;
+    total.scoreSum = total.scoreSum + part.scoreSum;
+    total.best = max(total.best, part.best);
+    ret;
+}
+
+fn reportSection(s: Section) -> Void {
+    fx {
+        println("  ", s.name);
+        println("    rows seen / valid : ", s.seen, " / ", s.valid);
+        println("    ready / critical  : ", s.ready, " / ", s.critical);
+        println("    adjusted average  : ", formatfloat(s.average(), 2));
+        println("    best adjusted     : ", formatfloat(s.best, 2));
+        println("    readiness         : ", s.readiness():0:1, "%");
+    }
+    ret;
+}
+
+fn reportRows(label: Text, rows: ToonNode) -> Void {
+    fx {
+        println("  ", label);
+    }
+    loop i in 0..toon_len(rows) {
+        let r: Release = readRelease(toon_at(rows, i));
+        fx {
+            println("    ", r.id, " v", r.version,
+                    "  adj=", formatfloat(r.adjustedScore(), 1),
+                    "  sev=", r.severity.label,
+                    "  -> ", r.status());
+        }
+    }
+    ret;
+}
+
+fn main() -> Void {
+    if !has_toon() {
+        fx {
+            println("yyjson/TOON unavailable in this build");
+        }
+        ret;
+    }
+
+    let payload: Text = "{\"core\":[{\"id\":\"core-api\",\"version\":\"4.2.0\",\"score\":94,\"blockers\":0,\"severity\":2,\"ready\":true},{\"id\":\"core-auth\",\"version\":\"4.1.7\",\"score\":88,\"blockers\":2,\"severity\":4,\"ready\":true},{\"id\":\"core-jobs\",\"version\":\"0.9.1\",\"score\":140,\"blockers\":0,\"severity\":1,\"ready\":true}],\"edge\":[{\"id\":\"edge-cdn\",\"version\":\"2.0.0\",\"score\":91,\"blockers\":1,\"severity\":1,\"ready\":true},{\"id\":\"edge-proxy\",\"version\":\"1.8.3\",\"score\":72,\"blockers\":3,\"ready\":false},{\"id\":\"edge-tls\",\"version\":\"1.8.4\",\"score\":97,\"blockers\":0,\"severity\":5,\"ready\":true}]}";
+
+    let doc: ToonDoc = toon_parse(payload);
+    let root: ToonNode = toon_root(doc);
+
+    if !toon_has_key(root, "core") || !toon_has_key(root, "edge") {
+        fx {
+            println("payload is missing a release train");
+        }
+        toon_close(doc);
+        ret;
+    }
+
+    let coreRows: ToonNode = toon_key(root, "core");
+    let edgeRows: ToonNode = toon_key(root, "edge");
+
+    let core: Section = new Section();
+    core.name = "core train";
+    let edge: Section = new Section();
+    edge.name = "edge train";
+
+    // Each branch owns exactly one Section; nothing is shared but the read-only
+    // TOON handles.
+    par {
+        analyzeTrain(core, coreRows);
+        analyzeTrain(edge, edgeRows);
+    }
+
+    let board: Section = new Section();
+    board.name = "whole board";
+    mergeInto(board, core);
+    mergeInto(board, edge);
+
+    fx {
+        println("== release board ==");
+        println("");
+        println("per-release status");
+    }
+    reportRows("core train", coreRows);
+    reportRows("edge train", edgeRows);
+
+    fx {
+        println("");
+        println("per-train rollup");
+    }
+    reportSection(core);
+    reportSection(edge);
+
+    fx {
+        println("");
+        println("board rollup");
+    }
+    reportSection(board);
+
+    fx {
+        println("");
+        if board.critical > 0 {
+            println("HOLD: ", board.critical, " critical release(s) still open");
+        } else {
+            println("CLEAR: no critical releases outstanding");
+        }
+        println("dropped as invalid: ", board.seen - board.valid);
+    }
+
+    toon_close(doc);
+    ret;
+}

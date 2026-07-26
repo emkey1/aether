@@ -1,0 +1,29 @@
+// Real -> Text: the three conversions, and the one arity that does not exist.
+//
+// `formatfloat` takes exactly TWO arguments -- formatfloat(value, precision).
+// It has no width parameter: `formatfloat(v, 0, 2)` is not a compile error, it
+// is a *runtime* failure ("FormatFloat expects (numeric [, integer precision])")
+// that only fires once that line executes. The width:precision spelling belongs
+// to the separate `value:width:precision` form, which is println-only and
+// cannot be bound to a Text.
+
+fn main() -> Void {
+    let ratio: Real = 87.4567;
+
+    let two: Text = formatfloat(ratio, 2);      // "87.46" -- precision only
+    let none: Text = formatfloat(ratio, 0);     // "87"
+    let full: Text = realtostr(ratio);          // "87.456700" -- always 6 dp
+
+    // Only the formatfloat/realtostr results are Text, so only they concatenate.
+    let label: Text = "score: " + formatfloat(ratio, 1) + "%";
+
+    fx {
+        println("formatfloat(r, 2) = ", two);
+        println("formatfloat(r, 0) = ", none);
+        println("realtostr(r)      = ", full);
+        println("concatenated      = ", label);
+        println("println-only form = ", ratio:0:2);
+        println("width 8, prec 2   = [", ratio:8:2, "]");
+    }
+    ret;
+}

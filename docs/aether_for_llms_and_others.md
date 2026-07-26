@@ -123,6 +123,13 @@ when unsure about a type, add it explicitly.
 - `use module_name;` or `export { ... }` in new code; use canonical
   `use "module_name";` and `mod Name { export ... }`
 - invented helper functions not listed in this document (BUILT-001)
+- `toon_parse_string(text)` — the parser is `toon_parse(text)`. The `_file`
+  suffix on `toon_parse_file(path)` does **not** imply a matching `_string`
+  sibling; `toon_parse` already takes `Text` (SCOPE-001)
+- `formatfloat(r, 0, prec)` — `formatfloat` takes exactly two arguments,
+  `formatfloat(r, prec)`. The width slot belongs to the separate, `println`-only
+  `r:width:prec` form; the three-argument call compiles and then fails at
+  *runtime* with `FormatFloat expects (numeric [, integer precision])`
 - anonymous functions, inline `fn(...) -> T { ... }` literals, lambdas, or
   passing a function as a value; `task_spawn` / `task_queue` take a builtin
   *name* as `Text`, and there is no `map` / `filter` / `reduce` (FUNC-001)
@@ -158,7 +165,7 @@ Generate the canonical form unless preserving existing code.
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Int → Text | `int_to_text(n)` | `itoa(n)` | inventing `n.toString()` |
-| Real → Text | `formatfloat(r, prec)` | `realtostr(r)` (always 6 dp) | `r:0:prec` as a value (it is `println`-only) |
+| Real → Text | `formatfloat(r, prec)` — exactly 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (no width arg — runtime error); `r:0:prec` as a value (it is `println`-only) |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (silently returns `0` for `Text`; it casts `Real`/`Bool`, not `Text`) |
 | Int code → Char | `chr(code)` | — | inventing a lookup table |
 | Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |

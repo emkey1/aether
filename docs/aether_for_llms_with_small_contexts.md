@@ -289,7 +289,10 @@ The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
 `trim(s)`,
 `stringofchar(ch, n)`. Do not invent richer helpers (no `replace`; no
 whole-string `to_upper`). Note: the `value:width:precision` spec only works
-inside `println`; use `formatfloat` to build a `Text`. `int(x)` is a numeric
+inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes
+exactly two arguments — never borrow the width slot from the `println` form:
+`formatfloat(r, 0, 2)` compiles and then fails at *runtime* with `FormatFloat
+expects (numeric [, integer precision])`. `int(x)` is a numeric
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
 code point of `Text`; passing it a `Text` silently returns `0`. Use
 `parse_int` for numeric strings and `ord` for character codes.
@@ -540,6 +543,9 @@ Handle ownership:
 
 - `toon_parse_file(path)` is **effectful** (file I/O — call inside `fx`);
   `toon_parse(text)` and the node ops below are pure (call outside `fx`)
+- the text parser is `toon_parse(text)`. There is **no** `toon_parse_string` —
+  the `_file` suffix on `toon_parse_file` does not imply a `_string` sibling,
+  and inventing one is a hard `SCOPE-001`
 - `ToonDoc` owns all `ToonNode` handles derived from it
 - `toon_root(...)`, `toon_key(...)`, and `toon_at(...)` create node handles
 - `toon_free(node)` releases one node handle early

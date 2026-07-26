@@ -45,6 +45,7 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/self_alias
 ./build/bin/aether examples/base/self_mutation
 ./build/bin/aether examples/base/number_formatting
+./build/bin/aether examples/base/real_to_text
 ./build/bin/aether examples/base/strings
 ./build/bin/aether examples/base/dynamic_arrays
 ./build/bin/aether examples/base/parsing
@@ -170,6 +171,12 @@ These examples stay within the currently supported Aether Core subset:
 
 - `number_formatting`: fixed-precision Real output (`value:width:precision`),
   real division, and a real mean over an `Int[]`
+- `real_to_text`: the Real -> `Text` conversions side by side --
+  `formatfloat(r, prec)` (exactly two arguments), `realtostr(r)` (always 6 dp),
+  and the `println`-only `r:width:prec` form that cannot be bound to a `Text`.
+  Written because the two spellings sit next to each other in the guide and get
+  merged into a nonexistent three-argument `formatfloat(r, 0, prec)`, which
+  compiles and only fails once the line runs
 - `strings`: `Text` concatenation, `string_len`, `int_to_text`, and `==` equality
 - `dynamic_arrays`: empty literal, append (`xs = xs + [v]`), indexed read/write,
   `length`, and iteration
