@@ -1,7 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-15-2*
-
+*Guide version: 2026-07-26-1*
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
@@ -318,7 +317,10 @@ Args/results are `Real` unless noted.
 - trig: `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `atan2(y, x)`, `cotan`
 - hyperbolic: `sinh`, `cosh`, `tanh`
 - helpers: `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)`, `odd(n) -> Bool`,
-  `factorial(n)`, `fibonacci(n)`, `random()` `[0,1)`, `random(n)` `[0,n)`, `randomize()`
+  `factorial(n)`, `fibonacci(n)`, `randomize()`, and **two different `random`s**:
+  `random()` returns a **Real** in `[0,1)`, `random(n)` an **Int** in `[0,n)`.
+  Assigning `random()` to an `Int` truncates to a constant `0` -- `[NARROW-001]`.
+  Each thread has its own stream, so `par` branches draw independently.
 
 ```aether
 let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);
@@ -871,6 +873,9 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
 - **[TUP-001]** tuple misuse → destructure a direct top-level call, `let (a, b) = pair();`, or bind and read one field, `let t = pair(); t.0;` (never `pair().0` directly); otherwise return a record/object and read its fields. Recursion (direct or indirect) and concurrent `par`-branch calls through a tuple-returning function are fine — tuple returns are reentrant (lowered to a record returned by value).
+- **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int
+  = 3.7;`, `n = random();`) → the fraction is discarded. Use a `Real` target, or
+  `int(...)` if truncating is intended.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.

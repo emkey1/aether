@@ -2819,4 +2819,62 @@ if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_
     exit 1
 fi
 
+# NARROW-001: implicit Real -> Int truncation used to be completely silent in
+# every position. A warning, not an error, so the program must still run.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_warn_pass.aether" >/tmp/aether_narrowing_warn.out 2>&1
+if [ "$(grep -c '\[NARROW-001\]' /tmp/aether_narrowing_warn.out)" != "8" ]; then
+    echo "expected 8 NARROW-001 warnings (literal, user fn, builtin, arithmetic, division, parse_float, random(), assignment)" >&2
+    cat /tmp/aether_narrowing_warn.out >&2
+    exit 1
+fi
+if ! grep -q 'random() -- the no-argument form returns a Real' /tmp/aether_narrowing_warn.out; then
+    echo "NARROW-001 lost the random() arity-specific explanation" >&2
+    exit 1
+fi
+# ...and it must stay quiet on everything that only LOOKS like a narrowing: the
+# resolved types lie here (min/max/clamp annotate REAL though they preserve
+# operand type, Int / Int annotates REAL, an inferred let reads as integral
+# during the pass), so a naive check fires on ordinary integer code.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_quiet_pass.aether" >/tmp/aether_narrowing_quiet.out 2>&1
+if grep -q '\[NARROW-001\]' /tmp/aether_narrowing_quiet.out; then
+    echo "NARROW-001 false positive on non-narrowing code" >&2
+    grep '\[NARROW-001\]' /tmp/aether_narrowing_quiet.out >&2
+    exit 1
+fi
+
+# Random seeding. Every `par` branch used to draw an identical stream: rand_seed
+# is _Thread_local and started at the constant 1 on every worker, while
+# randomize() only ever seeded the calling thread. A parallel sampler therefore
+# computed the same draws in each branch and reported a confidently wrong
+# aggregate, silently.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/random_par_streams_pass.aether" >/tmp/aether_random_par_streams.out
+if ! grep -qx 'streams: independent' /tmp/aether_random_par_streams.out; then
+    echo "par branches drew the same random stream (per-thread seeding regressed?)" >&2
+    cat /tmp/aether_random_par_streams.out >&2
+    exit 1
+fi
+# ...and the fix must not cost reproducibility: with no randomize() call the
+# base seed never moves, so two runs of the same program must match exactly.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/random_reproducible_pass.aether" >/tmp/aether_random_repro_a.out
+"$AETHER_BIN" --no-cache "$TESTS_DIR/random_reproducible_pass.aether" >/tmp/aether_random_repro_b.out
+if ! cmp -s /tmp/aether_random_repro_a.out /tmp/aether_random_repro_b.out; then
+    echo "an unseeded run is no longer reproducible (per-thread seeding regressed?)" >&2
+    diff /tmp/aether_random_repro_a.out /tmp/aether_random_repro_b.out >&2 || true
+    exit 1
+fi
+# randomize() must move the sequence. time(NULL) alone has whole-second
+# resolution, so two runs launched back to back replayed identically; the fix
+# folds in microseconds. Retry once before failing -- this is the one assertion
+# here that samples entropy rather than checking a fixed value.
+random_seeded_differs() {
+    "$AETHER_BIN" --no-cache "$TESTS_DIR/random_seeded_pass.aether" >/tmp/aether_random_seeded_a.out
+    "$AETHER_BIN" --no-cache "$TESTS_DIR/random_seeded_pass.aether" >/tmp/aether_random_seeded_b.out
+    ! cmp -s /tmp/aether_random_seeded_a.out /tmp/aether_random_seeded_b.out
+}
+if ! random_seeded_differs && ! random_seeded_differs; then
+    echo "randomize() produced the same sequence twice (sub-second entropy regressed?)" >&2
+    cat /tmp/aether_random_seeded_a.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

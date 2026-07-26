@@ -1,0 +1,37 @@
+// Regression: NARROW-001 must stay silent on everything that is not actually a
+// narrowing. The node's own resolved type is unreliable here -- min/max/clamp
+// annotate REAL although they preserve their operand type, Int / Int annotates
+// REAL although it evaluates to Int, and an inferred `let` whose initializer
+// mentions variables still reads as integral during this pass even though it
+// resolves to Real. All of those must produce no warning.
+@pure
+fn scale(base: Int, factor: Real) -> Real {
+    let inferred = base * factor;   // inferred binding -- resolves to Real, not a narrowing
+    ret inferred;
+}
+
+fn whole() -> Int {
+    ret 5;
+}
+
+fn main() -> Void {
+    let n1: Int = 7 / 2;            // Int / Int is Int
+    let n2: Int = min(3, 5);        // min/max/clamp/abs preserve operand type
+    let n3: Int = max(3, 5);
+    let n4: Int = clamp(7, 1, 5);
+    let n5: Int = abs(-3);
+    let n6: Int = round(1.7);       // round/trunc/floor/ceil return Int
+    let n7: Int = trunc(1.7);
+    let n8: Int = int(3.7);         // the explicit truncation spelling
+    let n9: Int = whole();
+    let n10: Int = sqr(3);
+    let n11: Int = 0;
+    let n12: Real = 1.5 * 2;
+    fx {
+        n11 = random(10);           // random(n) is the Int arity
+        n11 = int(random() * 100.0);
+        println(n1, n2, n3, n4, n5, n6, n7, n8, n9, n10, n11);
+        println(formatfloat(n12, 2), " ", formatfloat(scale(4, 0.5), 2));
+    }
+    ret;
+}

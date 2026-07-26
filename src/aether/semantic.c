@@ -2797,6 +2797,192 @@ static void aetherValidateEffectsAndPurity(const AST *root) {
     aetherWalkEffectsAndPurity(root, 0, NULL);
 }
 
+/* NARROW-001 (warning): a Real-valued expression stored into an Int target.
+ *
+ * Every implicit Real -> Int narrowing used to be completely silent, in every
+ * position -- `let n: Int = 3.7;` quietly became 3 even though the literal and
+ * the declared type sit on the same line. The worst instance is `random()`,
+ * whose no-argument form returns a Real in [0, 1): assigned to an Int it
+ * truncates to a constant 0, so every "random" choice in the program becomes
+ * the same choice and nothing ever says so.
+ *
+ * This is a warning, not an error: truncation is sometimes exactly what the
+ * author meant. `int(expr)` is the explicit spelling and is never flagged --
+ * `int` returns Int, so it simply fails the Real test below.
+ *
+ * The node's own resolved `var_type` is NOT trustworthy for this decision, and
+ * that is the whole reason for the curated table. Sampling the annotations:
+ * `min(3, 5)` is annotated REAL though it returns Int (min/max/clamp/abs
+ * preserve their operand type), `7 / 2` is annotated REAL though Int / Int
+ * evaluates to Int, `sqr(3)` comes through as VOID, and zero-argument
+ * `random()` is annotated INTEGER even though that arity is the Real one.
+ * Trusting the annotation would fire on `min` and on every integer division.
+ *
+ * So a value counts as Real only when it is one of:
+ *   - a literal carrying a decimal point,
+ *   - a call to a builtin verified to always return Real (table below),
+ *   - `random` at arity 0 specifically,
+ *   - a call to a user function whose *declared* return type is Real (the
+ *     annotation is reliable here -- it comes from the signature),
+ *   - a variable declared Real,
+ *   - an arithmetic expression with a Real operand by these same rules.
+ * Anything else is left alone, which is why Int / Int and min/max/clamp/abs
+ * stay quiet.
+ */
+static const char *const kAetherAlwaysRealBuiltins[] = {
+    "sqrt", "pow", "power", "exp", "ln", "log10",
+    "sin", "cos", "tan", "arcsin", "arccos", "arctan", "atan2", "cotan",
+    "sinh", "cosh", "tanh",
+    "parse_float", "toon_get_real", "toon_get_real_or", "toon_real_value",
+};
+
+static int aetherIsAlwaysRealBuiltin(const char *name) {
+    size_t i;
+    if (!name) {
+        return 0;
+    }
+    for (i = 0; i < sizeof(kAetherAlwaysRealBuiltins) / sizeof(kAetherAlwaysRealBuiltins[0]); ++i) {
+        if (strcmp(name, kAetherAlwaysRealBuiltins[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static int aetherTypeIsIntegral(VarType t) {
+    return t == TYPE_INTEGER || t == TYPE_INT64 || t == TYPE_INT32 ||
+           t == TYPE_INT16 || t == TYPE_INT8 || t == TYPE_BYTE || t == TYPE_WORD;
+}
+
+static int aetherTypeIsReal(VarType t) {
+    return t == TYPE_REAL || t == TYPE_DOUBLE || t == TYPE_FLOAT ||
+           t == TYPE_LONG_DOUBLE;
+}
+
+/* Returns a short description of why the value is Real (for the message), or
+ * NULL when it is not provably Real. */
+static const char *aetherRealValuedReason(const AST *node, int depth) {
+    if (!node || depth > 6) {
+        return NULL;
+    }
+    switch (node->type) {
+        case AST_NUMBER:
+            if (aetherTypeIsReal(node->var_type)) {
+                return "a Real literal";
+            }
+            return NULL;
+        case AST_VARIABLE:
+            if (aetherTypeIsReal(node->var_type)) {
+                return "a Real value";
+            }
+            return NULL;
+        case AST_PROCEDURE_CALL: {
+            const char *name = (node->token && node->token->value) ? node->token->value : NULL;
+            if (!name) {
+                return NULL;
+            }
+            /* random() is Real; random(n) is Int. The annotation does not
+             * distinguish them, so key off the argument count directly. */
+            if (strcmp(name, "random") == 0) {
+                return node->child_count == 0 ? "random() -- the no-argument form returns a Real in [0, 1)" : NULL;
+            }
+            if (aetherIsAlwaysRealBuiltin(name)) {
+                return "a Real-returning builtin";
+            }
+            {
+                /* The call node's own var_type is still 0 here, so consult the
+                 * declared return type recorded when the function was parsed. */
+                int returnsReal = 0;
+                if (aetherAstLookupFunctionReturnsReal(name, &returnsReal) && returnsReal) {
+                    return "a function declared to return Real";
+                }
+            }
+            return NULL;
+        }
+        case AST_BINARY_OP: {
+            const char *op = (node->token && node->token->value) ? node->token->value : NULL;
+            const char *reason;
+            if (!op || !(strcmp(op, "+") == 0 || strcmp(op, "-") == 0 ||
+                         strcmp(op, "*") == 0 || strcmp(op, "/") == 0)) {
+                return NULL;
+            }
+            reason = aetherRealValuedReason(node->left, depth + 1);
+            if (reason) {
+                return reason;
+            }
+            return aetherRealValuedReason(node->right, depth + 1);
+        }
+        case AST_UNARY_OP:
+            return aetherRealValuedReason(node->left, depth + 1);
+        default:
+            return NULL;
+    }
+}
+
+static void aetherReportNarrowing(const AST *site, const char *target, const char *reason) {
+    char detail[288];
+    snprintf(detail, sizeof(detail),
+             "%s is Int, but the value assigned is %s; the fractional part is "
+             "discarded silently. Write int(...) if the truncation is intended.",
+             target, reason);
+    reportAetherWarningCoded("NARROW-001", "narrowing", aetherAstNodeLine(site), detail);
+}
+
+static void aetherWalkNarrowing(const AST *node) {
+    int i;
+    if (!node) {
+        return;
+    }
+    /* Only an explicitly written `: Int` can contradict its initializer. An
+     * inferred `let x = a * realVal;` still reads as integral here (its type
+     * resolves after this pass), and warning on it would be plain wrong -- the
+     * binding becomes Real. tests/numeric_expr_inference_pass.aether is exactly
+     * that shape and caught this during the corpus sweep. */
+    if (node->type == AST_VAR_DECL && aetherAstDeclHasExplicitType(node) &&
+        aetherTypeIsIntegral(node->var_type) && node->left) {
+        const char *reason = aetherRealValuedReason(node->left, 0);
+        if (reason) {
+            const char *name = NULL;
+            for (i = 0; i < node->child_count; i++) {
+                const AST *c = node->children[i];
+                if (c && c->type == AST_VARIABLE && c->token && c->token->value) {
+                    name = c->token->value;
+                    break;
+                }
+            }
+            if (name) {
+                char target[96];
+                snprintf(target, sizeof(target), "'%s'", name);
+                aetherReportNarrowing(node, target, reason);
+            } else {
+                aetherReportNarrowing(node, "this binding", reason);
+            }
+        }
+    }
+    if (node->type == AST_ASSIGN && node->left && node->right &&
+        node->left->type == AST_VARIABLE &&
+        aetherTypeIsIntegral(node->left->var_type)) {
+        const char *reason = aetherRealValuedReason(node->right, 0);
+        if (reason) {
+            char target[96];
+            const char *name = (node->left->token && node->left->token->value)
+                                   ? node->left->token->value : NULL;
+            if (name) {
+                snprintf(target, sizeof(target), "'%s'", name);
+            } else {
+                snprintf(target, sizeof(target), "the assignment target");
+            }
+            aetherReportNarrowing(node, target, reason);
+        }
+    }
+    aetherWalkNarrowing(node->left);
+    aetherWalkNarrowing(node->right);
+    aetherWalkNarrowing(node->extra);
+    for (i = 0; i < node->child_count; i++) {
+        aetherWalkNarrowing(node->children[i]);
+    }
+}
+
 /* --------------------------------------------------------------------------
  * ARR-001 (warning): array-parameter mutation with no observable effect on
  * the caller.
@@ -2953,6 +3139,13 @@ void aetherPerformSemanticAnalysis(AST *root) {
      * gate above (there's nothing to gate: it never increments the counter). */
     aetherValidateArrayParamMutation(root);
     reaPerformSemanticAnalysis(root);
+    /* NARROW-001 is likewise a warning and never touches the error counter.
+     * It must run AFTER reaPerformSemanticAnalysis: a bare AST_VARIABLE
+     * reference and a call to a user function both still carry TYPE_UNKNOWN
+     * until that pass resolves them, so running earlier saw every assignment
+     * target as untyped and fired only on `let` declarations, whose type comes
+     * straight off the parsed declaration. */
+    aetherWalkNarrowing(root);
 }
 
 void aetherSemanticSetSourcePath(const char *path) {

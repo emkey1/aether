@@ -126,6 +126,11 @@ typedef struct {
 typedef struct {
     char *name;
     int isPure;
+    /* Declared return type is a Real flavour. Recorded here rather than read
+     * off the call node because an AST_PROCEDURE_CALL still carries
+     * var_type 0 through semantic analysis -- the JSON dump's type
+     * annotations are produced by a later stage. Used by NARROW-001. */
+    int returnsReal;
 } AetherFnPurityEntry;
 
 typedef struct {
@@ -138,6 +143,13 @@ static struct { AetherFnPurityEntry *items; size_t count; size_t cap; } g_aether
 static struct { char **items; size_t count; size_t cap; } g_aetherTopLevelFns;
 static struct { AetherCallSurfaceEntry *items; size_t count; size_t cap; } g_aetherCallSurfaces;
 static struct { const AST **items; size_t count; size_t cap; } g_aetherSynthesized;
+/* AST_VAR_DECL nodes whose type the author actually wrote (`let x: Int = ...`),
+ * as opposed to an inferred `let x = ...`. NARROW-001 needs the distinction and
+ * cannot get it from the node: an inferred binding whose initializer mentions
+ * variables still carries the wrong var_type during semantic analysis, so it
+ * looks Int-declared when it will in fact resolve to Real. Only a declaration
+ * the author typed can contradict its initializer. */
+static struct { const AST **items; size_t count; size_t cap; } g_aetherExplicitTypedDecls;
 
 void aetherAstRegisterFxBlock(const AST *block, int line) {
     if (!block) return;
@@ -194,8 +206,40 @@ void aetherAstRegisterFunctionPurity(const char *name, int isPure) {
         if (!copy) return;
         g_aetherFnPurity.items[g_aetherFnPurity.count].name = copy;
         g_aetherFnPurity.items[g_aetherFnPurity.count].isPure = isPure;
+        g_aetherFnPurity.items[g_aetherFnPurity.count].returnsReal = 0;
         g_aetherFnPurity.count++;
     }
+}
+
+/* Kept separate from aetherAstRegisterFunctionPurity so that function's two
+ * existing call sites (mangled `Type.method` and bare method name) keep their
+ * signature; this reuses whichever entry they just created. */
+void aetherAstRegisterFunctionReturnsReal(const char *name, int returnsReal) {
+    if (!name || !*name) return;
+    for (size_t i = 0; i < g_aetherFnPurity.count; i++) {
+        if (strcmp(g_aetherFnPurity.items[i].name, name) == 0) {
+            g_aetherFnPurity.items[i].returnsReal = returnsReal;
+            return;
+        }
+    }
+    aetherAstRegisterFunctionPurity(name, 0);
+    for (size_t i = 0; i < g_aetherFnPurity.count; i++) {
+        if (strcmp(g_aetherFnPurity.items[i].name, name) == 0) {
+            g_aetherFnPurity.items[i].returnsReal = returnsReal;
+            return;
+        }
+    }
+}
+
+int aetherAstLookupFunctionReturnsReal(const char *name, int *returnsReal) {
+    if (!name) return 0;
+    for (size_t i = 0; i < g_aetherFnPurity.count; i++) {
+        if (strcmp(g_aetherFnPurity.items[i].name, name) == 0) {
+            if (returnsReal) *returnsReal = g_aetherFnPurity.items[i].returnsReal;
+            return 1;
+        }
+    }
+    return 0;
 }
 
 int aetherAstLookupFunctionPurity(const char *name, int *isPure) {
@@ -323,6 +367,28 @@ void aetherAstRegisterSynthesizedSubtree(const AST *node) {
     g_aetherSynthesized.items[g_aetherSynthesized.count++] = node;
 }
 
+void aetherAstRegisterExplicitTypedDecl(const AST *node) {
+    if (!node) return;
+    if (aetherAstDeclHasExplicitType(node)) return;
+    if (g_aetherExplicitTypedDecls.count == g_aetherExplicitTypedDecls.cap) {
+        size_t newCap = g_aetherExplicitTypedDecls.cap ? g_aetherExplicitTypedDecls.cap * 2 : 16;
+        const AST **grown = (const AST **)realloc((void *)g_aetherExplicitTypedDecls.items,
+                                                  newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherExplicitTypedDecls.items = grown;
+        g_aetherExplicitTypedDecls.cap = newCap;
+    }
+    g_aetherExplicitTypedDecls.items[g_aetherExplicitTypedDecls.count++] = node;
+}
+
+int aetherAstDeclHasExplicitType(const AST *node) {
+    if (!node) return 0;
+    for (size_t i = 0; i < g_aetherExplicitTypedDecls.count; i++) {
+        if (g_aetherExplicitTypedDecls.items[i] == node) return 1;
+    }
+    return 0;
+}
+
 int aetherAstNodeIsSynthesizedSubtree(const AST *node) {
     if (!node) return 0;
     for (size_t i = 0; i < g_aetherSynthesized.count; i++) {
@@ -362,6 +428,10 @@ void aetherAstClearSemanticRegistries(void) {
     g_aetherCallSurfaces.cap = 0;
 
     free((void *)g_aetherSynthesized.items);
+    free((void *)g_aetherExplicitTypedDecls.items);
+    g_aetherExplicitTypedDecls.items = NULL;
+    g_aetherExplicitTypedDecls.count = 0;
+    g_aetherExplicitTypedDecls.cap = 0;
     g_aetherSynthesized.items = NULL;
     g_aetherSynthesized.count = 0;
     g_aetherSynthesized.cap = 0;
@@ -3891,6 +3961,9 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     setLeft(decl, init);
     setRight(decl, typeNode);
     setTypeAST(decl, vtype);
+    if (explicitType) {
+        aetherAstRegisterExplicitTypedDecl(decl);
+    }
     if (hasArrayAppendInit) {
         /* `let x: T[] = src + [items...];` -- `decl` above now declares `x` as
          * a copy of `src` (init was rewritten to `src` further up); splice in
@@ -6640,11 +6713,15 @@ static AST *parseFnDecl(AetherParser *p) {
      * name (the decl token) and the bare method name (what a call site's
      * AST_PROCEDURE_CALL token carries). */
     if (nameTok->value) {
+        int fnReturnsReal = (vtype == TYPE_REAL || vtype == TYPE_DOUBLE ||
+                             vtype == TYPE_FLOAT || vtype == TYPE_LONG_DOUBLE);
         aetherAstRegisterFunctionPurity(nameTok->value, fnIsPure);
+        aetherAstRegisterFunctionReturnsReal(nameTok->value, fnReturnsReal);
         if (isMethod) {
             const char *dot = strrchr(nameTok->value, '.');
             if (dot && dot[1]) {
                 aetherAstRegisterFunctionPurity(dot + 1, fnIsPure);
+                aetherAstRegisterFunctionReturnsReal(dot + 1, fnReturnsReal);
             }
         } else {
             /* Not a `type { ... }`-body method: this bare name shadows any

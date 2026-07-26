@@ -36,6 +36,12 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "builtin") == 0) {
             return "BUILT-002";
         }
+        /* Implicit Real -> Int truncation. A warning, not an error: `int(x)` is
+         * the explicit spelling and is never flagged. semantic.c emits this
+         * explicitly via reportAetherWarningCoded; kind-based backstop only. */
+        if (strcmp(kind, "narrowing") == 0) {
+            return "NARROW-001";
+        }
         if (strcmp(kind, "redeclaration") == 0) {
             return "NAME-001";
         }

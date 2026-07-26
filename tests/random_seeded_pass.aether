@@ -1,0 +1,15 @@
+// Regression: randomize() seeded from time(NULL), whose whole-second resolution
+// meant two runs launched back to back replayed the same sequence -- a real
+// trap for any harness invoking the binary in a tight loop. The fix folds
+// microseconds into the base seed. tests/run.sh runs this twice and requires
+// the outputs to differ.
+fn main() -> Void {
+    fx {
+        randomize();
+        loop i in 0..6 {
+            print(random(1000000), " ");
+        }
+        println("");
+    }
+    ret;
+}

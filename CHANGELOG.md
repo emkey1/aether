@@ -12,6 +12,54 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-4
+
+**Each thread gets its own random stream, and implicit `Real` → `Int`
+truncation now warns as `NARROW-001`.** Both close findings recorded on
+2026-07-26.
+
+`rand_seed` in pscal-core is `_Thread_local`, which is what makes `rand_r`
+thread-safe — but a worker that never seeded itself started from the same
+constant `1` as every other worker and drew an **identical** sequence.
+`randomize()` only ever touched the calling thread, and calling it inside each
+branch did not help either: it seeded from `time(NULL)`, whose whole-second
+resolution handed concurrent callers the same value. So every `par` branch
+produced the same "random" numbers, and a parallel Monte Carlo, sampler, or
+shuffle silently computed the same draws in each branch and reported a
+confidently wrong aggregate.
+
+Each thread now derives its seed on first draw from a shared base mixed with a
+unique per-thread index. Three properties hold together: branches diverge
+because their indices differ; with no `randomize()` a run stays bit-for-bit
+reproducible; and `randomize()` moves the base with microsecond entropy, so two
+runs launched inside the same second no longer replay. Which branch gets which
+stream is not deterministic — indices are handed out in first-draw order — but
+the streams are independent, which is the property that matters.
+
+`NARROW-001` is a new **warning** (never an error — truncation is sometimes
+meant) for a Real-valued expression stored in an `Int` target. It fires on a
+Real literal, an always-Real builtin, a call to a function declared `-> Real`,
+arithmetic with a Real operand, and specifically on zero-argument `random()`,
+whose `[0, 1)` result truncates to a constant `0` and quietly pins every
+"random" choice to the same value. `int(...)` is the explicit spelling and is
+never flagged.
+
+The check deliberately does not trust the AST's resolved types, because they
+are wrong in exactly the places that matter: `min(3, 5)` is annotated `REAL`
+though min/max/clamp/abs preserve their operand type, `7 / 2` is annotated
+`REAL` though `Int / Int` evaluates to `Int`, `sqr(3)` comes through as `VOID`,
+and zero-argument `random()` is annotated `INTEGER` even though that is the
+Real arity. A naive check fires on ordinary integer code. Instead the pass uses
+a hand-verified always-Real builtin table, an arity check for `random`, and a
+newly recorded per-function "declared return type is Real" flag; the call
+node's own `var_type` is still `0` during semantic analysis.
+
+It also fires only on an **explicitly written** `: Int`. An inferred
+`let x = intVal * realVal;` still reads as integral during the pass even though
+it resolves to Real, so warning on it would be plain wrong — only a type the
+author typed can contradict its initializer. Verified against the whole corpus:
+zero warnings across all 58 examples and every test fixture.
+
 ## 2026-07-26-3
 
 **A `type` with methods now survives a `use "..."` import.** Calling any method

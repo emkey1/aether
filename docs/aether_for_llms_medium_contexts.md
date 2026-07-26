@@ -1,7 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-07-26-2*
-
+*Guide version: 2026-07-26-3*
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
 program, and repair it once.
@@ -126,6 +125,9 @@ which.
 - `let stream: Int = mstreamcreate();` — streams are `MStream` (MS-001)
 - annotations inside a function body (ANN-001)
 - `pair().0` — bind the tuple first (TUP-001)
+- an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
+  `let n: Int = sqrt(2.0);`. It is a `[NARROW-001]` warning, so it compiles —
+  write `int(...)` when you mean to truncate
 - mixed-type output that assumes `+` will stringify numbers
 - foreign object/JSON APIs: `JsonDoc`, `JsonNode`, `json.parseFile(...)`,
   `root.get(...)`, `Int.MIN`, `value.toString()`
@@ -224,9 +226,13 @@ fx {
 }
 ```
 
-More generally: **every implicit `Real` → `Int` narrowing is silent.**
-`let n: Int = 3.7;` gives `3` with no warning. Write `int(expr)` when you mean to
-truncate, so the intent is visible.
+More generally, an implicit `Real` → `Int` narrowing raises `[NARROW-001]`:
+`let n: Int = 3.7;` gives `3` and warns. It is only a warning, so the program
+still compiles — write `int(expr)` when you mean to truncate, which silences it
+and makes the intent visible.
+
+Each thread gets its own random stream, so `par` branches draw independent
+numbers. With no `randomize()` call a run is reproducible.
 
 `Int / Int` is integer division (`7 / 2` is `3`). Force a `Real` operand when you
 want decimals: `let pct: Real = ok * 100.0 / total;`
@@ -1105,6 +1111,8 @@ The compiler prints a stable code in brackets, and on newer builds a
   field; never chain onto the call.
 - **[ARR-001]** (warning) a `Void` function mutating an array parameter → return
   the array and reassign at the call site.
+- **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
+  fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
 - **[MUT-001]** `let mut` → drop `mut`.
 - **[PAR-001]** the same record in more than one `par` branch → give each branch
   its own and combine afterwards.
@@ -1113,8 +1121,8 @@ The compiler prints a stable code in brackets, and on newer builds a
 If the program *compiles* but the output is wrong, no code is printed. Those are
 authoring rules nothing can check: extra headings, wrong spacing or precision (an
 integer where decimals were wanted → add a `Real` operand such as `100.0`),
-guessed JSON keys, an unguarded nested lookup, iterating an object root, or a
-silent `Real` → `Int` truncation. Re-read the prompt and match it exactly.
+guessed JSON keys, an unguarded nested lookup, or iterating an object root.
+Re-read the prompt and match it exactly.
 
 ## Validation checklist
 

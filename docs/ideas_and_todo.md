@@ -2278,17 +2278,32 @@ is written on the same line, and the loss is knowable at parse time. Aether
 already has `int(x)` as the explicit truncating cast and already documents it,
 so the escape hatch exists — there is just nothing steering anyone toward it.
 
-**Suggested action:** a coded **warning** (not an error — narrowing is sometimes
-meant) on an implicit `Real`-valued expression assigned to an `Int` target,
-suppressed when the source is written `int(expr)`. Precedent for the shape is
-`ARR-001`, which uses `reportAetherWarningCoded` for exactly this
-"you probably meant something else, but it might be deliberate" case. The
-`random()` instance would then be caught at compile time on the very line that
-produces it.
+**Fixed 2026-07-26-4.** `NARROW-001`, a warning (never an error), shaped like
+`ARR-001`. Fires on a Real literal, an always-Real builtin, a call to a function
+declared `-> Real`, arithmetic with a Real operand, and zero-argument
+`random()`; `int(...)` is never flagged.
 
-Worth sizing before committing to it: the warning must not fire on the many
-legitimate `Int`-in/`Int`-out paths, and `abs`/`min`/`max`/`clamp` preserve
-operand type, so their result type depends on their arguments.
+The sizing concern above turned out to be the whole difficulty, and the answer
+is that **the AST's resolved types cannot be trusted for this**. Sampling them:
+`min(3, 5)` is annotated `REAL` although min/max/clamp/abs preserve operand
+type, `7 / 2` is annotated `REAL` although `Int / Int` evaluates to `Int`,
+`sqr(3)` arrives as `VOID`, and zero-argument `random()` is annotated `INTEGER`
+even though that is the Real arity. A check that trusted the annotation fired on
+`min` and on every integer division. What works instead is a hand-verified
+always-Real builtin table, an explicit arity test for `random`, and a new
+per-function "declared return type is Real" flag recorded at parse time — the
+call node's own `var_type` is still `0` throughout semantic analysis, so the
+type annotations visible in `--dump-ast-json` come from a later stage.
+
+Two further constraints found by building it. The pass must run **after**
+`reaPerformSemanticAnalysis`, or every assignment target still reads as
+untyped and only `let` declarations are ever checked. And it must fire only on
+an **explicitly written** `: Int`: an inferred `let x = intVal * realVal;`
+still reads as integral during the pass despite resolving to Real, so warning on
+it is simply wrong. That last one was caught by sweeping the corpus rather than
+by reasoning — `tests/numeric_expr_inference_pass.aether` was the single false
+positive out of 58 examples plus every fixture, and it is now the regression
+case in `tests/narrowing_quiet_pass.aether`.
 
 ### 3. `par` branches all draw the IDENTICAL random stream — *bug, unfixed*
 
@@ -2322,11 +2337,23 @@ The same second-resolution seeding also means two single-threaded runs launched
 within one second replay an identical sequence, which is a trap for anything
 that runs the binary in a tight loop (eval harnesses included).
 
-**Suggested action:** seed per-thread at thread start from something that
-actually differs — mix `time`, a thread id/counter, and an address — rather than
-leaving worker threads on the constant `1`, and give `randomize()` sub-second
-entropy so back-to-back runs diverge. Needs a decision on whether `randomize()`
-should be documented as seeding only the calling thread, or made to seed the
-pool. This is a pscal-core change (submodule push-order applies), and it should
-land before anything in the corpus or benchmark suite demonstrates parallel
-sampling.
+**Fixed 2026-07-26-4** (pscal-core `5cbedfb`). Each thread derives its seed on
+first draw from a shared base mixed with a unique per-thread index, through a
+splitmix32 avalanche so adjacent indices do not produce visibly correlated early
+output. `randomize()` now stores a base built from microsecond entropy and
+reseeds the calling thread immediately, so two branches that each call it still
+diverge.
+
+Three properties hold simultaneously, and all three are pinned by fixtures:
+branches draw independent streams (`random_par_streams_pass`); a run with no
+`randomize()` is bit-for-bit reproducible (`random_reproducible_pass`, executed
+twice and compared); and `randomize()` makes back-to-back runs differ
+(`random_seeded_pass`, likewise run twice — the one assertion here that samples
+entropy rather than a fixed value, so it retries once before failing).
+
+Resolved the open question the entry raised: `randomize()` seeds the *base* for
+every thread that has not yet drawn, plus the calling thread outright. The
+remaining limit is deliberate — thread indices are handed out in first-draw
+order, so *which* branch gets which stream is not deterministic across runs.
+Pinning a stream to a particular branch would need a branch id the VM does not
+expose to builtins, and independence is the property the bug was about.

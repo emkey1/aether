@@ -1,0 +1,25 @@
+// Regression: NARROW-001 warns when a Real-valued expression lands in an Int
+// target. Every one of these truncations used to be completely silent -- the
+// worst being random(), whose no-argument form returns a Real in [0, 1) and so
+// pins an Int to a constant 0, making every "random" choice the same choice.
+// This is a warning, so the program still compiles and runs.
+fn half() -> Real {
+    ret 0.5;
+}
+
+fn main() -> Void {
+    let w1: Int = 3.7;              // Real literal
+    let w2: Int = half();           // user fn declared -> Real
+    let w3: Int = sqrt(2.0);        // always-Real builtin
+    let w4: Int = 3 * 1.5;          // arithmetic with a Real operand
+    let w5: Int = 7.0 / 2;          // Real numerator
+    let w6: Int = parse_float("1.5");
+    let w7: Int = 0;
+    let w8: Int = 0;
+    w8 = sqrt(9.0);                 // plain assignment, not just declarations
+    fx {
+        w7 = random();              // the motivating case
+        println(w1, w2, w3, w4, w5, w6, w7, w8);
+    }
+    ret;
+}

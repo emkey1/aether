@@ -39,6 +39,10 @@ int aetherAstFxBlockLine(const AST *node);
 void aetherAstRegisterFunctionPurity(const char *name, int isPure);
 /* Returns 1 if `name` is a declared Aether function; *isPure set when known. */
 int aetherAstLookupFunctionPurity(const char *name, int *isPure);
+void aetherAstRegisterFunctionReturnsReal(const char *name, int returnsReal);
+void aetherAstRegisterExplicitTypedDecl(const AST *node);
+int aetherAstDeclHasExplicitType(const AST *node);
+int aetherAstLookupFunctionReturnsReal(const char *name, int *returnsReal);
 
 /* Record a top-level (non-method, i.e. not declared inside a `type { ... }`
  * body) function declaration's bare name. Used to let a user's own function

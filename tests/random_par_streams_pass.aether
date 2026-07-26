@@ -1,0 +1,48 @@
+// Regression: every `par` branch used to draw an IDENTICAL random stream.
+// rand_seed is _Thread_local and started at the constant 1 on every worker,
+// and randomize() only ever seeded the calling thread -- so a parallel sampler
+// silently computed the same draws in each branch.
+//
+// Deliberately does NOT call randomize(): with the base seed left at its
+// default each thread still derives a distinct seed from its own index, so this
+// fixture is reproducible run to run while still proving the streams diverge.
+// Which branch gets which stream is not pinned (thread indices are handed out
+// in first-draw order), so assert only that the two differ.
+type Draws {
+    a: Int = -1;
+    b: Int = -1;
+    c: Int = -1;
+    d: Int = -1;
+}
+
+fn fill(out: Draws) -> Void {
+    fx {
+        out.a = random(100000);
+        out.b = random(100000);
+        out.c = random(100000);
+        out.d = random(100000);
+    }
+    ret;
+}
+
+@pure
+fn sameStream(x: Draws, y: Draws) -> Bool {
+    ret x.a == y.a && x.b == y.b && x.c == y.c && x.d == y.d;
+}
+
+fn main() -> Void {
+    let p: Draws = new Draws();
+    let q: Draws = new Draws();
+    par {
+        fill(p);
+        fill(q);
+    }
+    fx {
+        if sameStream(p, q) {
+            println("streams: identical");
+        } else {
+            println("streams: independent");
+        }
+    }
+    ret;
+}

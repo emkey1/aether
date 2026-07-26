@@ -1,7 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-15-2*
-
+*Guide version: 2026-07-26-1*
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
 
@@ -148,6 +147,10 @@ when unsure about a type, add it explicitly.
 - annotations inside a function body (ANN-001)
 - a tuple index chained directly onto a call: `pair().0` — bind it first,
   `let t = pair(); t.0;` (TUP-001)
+- an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
+  `let n: Int = sqrt(2.0);`. The fractional part is discarded silently — this is
+  a `[NARROW-001]` **warning**, so it still compiles. Write `int(...)` when the
+  truncation is intended (NARROW-001)
 - mixed-type output that guesses `+` will stringify numbers
 - foreign object/JSON APIs such as `JsonDoc`, `JsonNode`, `json.parseFile(...)`,
   `root.get(...)`, `Int.MIN`, and `value.toString()`
@@ -665,6 +668,15 @@ Numeric builtins use Pascal naming — note **`arctan`** (not `atan`) and **`ln`
 | compare / clamp | `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)` |
 | integer | `odd(n) -> Bool`, `factorial(n) -> Int`, `fibonacci(n) -> Int` |
 | random | `random() -> Real` in `[0, 1)`; `random(n) -> Int` in `[0, n)`; seed with `randomize()` |
+
+`random` is two functions sharing a name, and they return **different types**.
+Assigning the no-argument form to an `Int` truncates `[0, 1)` to a constant `0`,
+so every "random" choice becomes the same choice; when you want an index or a
+roll, pass the bound — `random(n)`. This now raises `[NARROW-001]`.
+
+`randomize()` seeds from the clock. Each thread derives its own stream, so
+`par` branches draw independent numbers; with no `randomize()` call a run is
+reproducible.
 
 `abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
 `round`/`trunc`/`floor`/`ceil` always return `Int`.

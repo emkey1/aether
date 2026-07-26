@@ -1,0 +1,14 @@
+// Regression: with no randomize() call, a run must stay bit-for-bit
+// reproducible. The per-thread seeding fix derives each thread's seed from a
+// shared base mixed with the thread index; when randomize() never moves that
+// base, the whole run must replay identically. tests/run.sh executes this
+// twice and compares the output.
+fn main() -> Void {
+    fx {
+        loop i in 0..6 {
+            print(random(1000000), " ");
+        }
+        println("");
+    }
+    ret;
+}
