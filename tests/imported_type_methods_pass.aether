@@ -1,0 +1,30 @@
+use "imported_type_methods_mod";
+
+type Local {
+    n: Int = 0;
+
+    fn bump() -> Void {
+        self.n = self.n + 1;
+        ret;
+    }
+
+    fn get() -> Int {
+        ret self.n;
+    }
+}
+
+fn main() -> Void {
+    let s: Stack = StackMod.make();
+    s.push(3);
+    s.pushTwice(9);
+
+    let l: Local = new Local();
+    l.bump();
+
+    fx {
+        println("depth=", s.depth());
+        println("top=", s.top());
+        println("local=", l.get());
+    }
+    ret;
+}

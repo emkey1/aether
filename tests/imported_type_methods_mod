@@ -1,0 +1,34 @@
+mod StackMod {
+    const BUMP: Int = 10;
+
+    fn scaled(v: Int) -> Int {
+        ret v + BUMP;
+    }
+
+    export type Stack {
+        data: Int[] = [];
+
+        fn push(v: Int) -> Void {
+            self.data = self.data + [scaled(v)];
+            ret;
+        }
+
+        fn pushTwice(v: Int) -> Void {
+            self.push(v);
+            self.push(v);
+            ret;
+        }
+
+        fn depth() -> Int {
+            ret length(self.data);
+        }
+
+        fn top() -> Int {
+            ret self.data[length(self.data) - 1];
+        }
+    }
+
+    export fn make() -> Stack {
+        ret new Stack();
+    }
+}

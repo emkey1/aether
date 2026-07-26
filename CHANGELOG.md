@@ -12,6 +12,35 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-3
+
+**A `type` with methods now survives a `use "..."` import.** Calling any method
+on an imported type used to die at runtime with `Runtime Error: Global
+'<class>_vtable' not found in symbol table.`, so an imported module could export
+functions, constants and method-less records, but not the one thing a C builtin
+cannot introduce — a type with behaviour.
+
+An imported module is compiled as its own unit, and the backend prefixed the
+enclosing module's name onto every routine name it compiled. For a plain export
+that is correct (`StackMod.make`), but a method's name is *already* mangled by
+the semantic pass as `class.method`, so a method arrived at codegen as
+`stackmod.stack.push` and got a second, differently-named procedure symbol. The
+canonical `stack.push` symbol — the one the class's method table, the vtable
+emitter, and every call site resolve through — was left with no bytecode
+address. `emitVTables` derives the vtable global from the text before the first
+dot, so it emitted `stackmod_vtable` (the module's name, and a single table
+shared by every class in the module) while `new Stack()` still loaded
+`stack_vtable`, which nothing ever defined. Codegen now applies the unit prefix
+only to unqualified routine names, leaving class-mangled methods on their
+canonical symbol. A visible side effect: the compiler no longer emits a
+duplicate copy of an imported method's body at its first call site, which it
+did to give the address-less symbol an address.
+
+Two limits are unchanged and unrelated to this fix. Type names are global, so
+two imported modules that each export a same-named type still collide, and a
+type and a function whose names differ only in case (`Shape` / `shape`) still
+collide within a module.
+
 ## 2026-07-26-2
 
 **Wrong builtin arity is a compile-time `BUILT-002`, and `toon_parse_string`

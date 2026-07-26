@@ -2125,3 +2125,98 @@ a place to import imagined libraries").
   and `r:0:1` used correctly in the same report. Turning a failed generation
   into a canonical worked example targets the exact shape models pick when asked
   to show the language off.
+
+---
+
+## Imported types with methods: the vtable global was emitted under the module's name — *fixed 2026-07-26*
+
+*Source: scoping work for a proposed "modules embedded in the binary" surface —
+a small set of `use`-discoverable modules compiled into `aether` itself, dumpable
+via a `--dump-module` flag, so a program needs no files beyond the binary. The
+only payload such a module can carry that a plain C builtin cannot is an Aether
+`type` with methods; a builtin can export functions and constants but cannot
+introduce a type. So the whole idea rested on imported types with methods
+working, and they did not.*
+
+The repro is two files in one directory (the module file extensionless, since
+`use "stackmod";` resolves the literal string as a path relative to the importing
+source — `resolveRelativePath`, `src/aether/ast_prepasses.c:389`):
+
+```
+mod StackMod {
+    export type Stack {
+        data: Int[] = [];
+        fn push(v: Int) -> Void { self.data = self.data + [v]; ret; }
+        fn depth() -> Int { ret length(self.data); }
+    }
+    export fn make() -> Stack { ret new Stack(); }
+}
+```
+
+Any call through the imported type died with:
+
+```
+Runtime Error: Global 'stack_vtable' not found in symbol table.
+```
+
+The boundary was sharp and misleading: `export fn` and `export const` across an
+import worked, and so did a method-*less* record, so it read like a problem with
+types rather than with methods.
+
+**Cause.** An imported module is not textually spliced; it is loaded, analyzed,
+and compiled as its own unit into the shared chunk (`compileModuleAST`), with
+`compilerSetCurrentUnitName(moduleName)` set for the duration. `compileDefinedFunction`
+prefixed that unit name onto every routine name it compiled. For a plain export
+that is right and necessary (`stackmod.make`). But a method's name is *already*
+mangled by the semantic pass as `class.method`, so `Stack.push` became
+`stackmod.stack.push` and — finding no such symbol — got a freshly minted second
+procedure symbol. The canonical `stack.push` that `collectMethods` had registered,
+which the class's method table and every call site resolve through, was left with
+`bytecode_address == 0`.
+
+`emitVTables` then derives the class name from the text before the **first** dot,
+so it built a table for a "class" named `stackmod`, emitted it as `stackmod_vtable`,
+and skipped the real `stack` table as unresolved — while `new Stack()` kept loading
+`stack_vtable`, which nothing defined. Two further symptoms fall out of the same
+split symbol: a module with several classes would have had them all collapse into
+one module-named table, and the first call to an imported method emitted a *second
+complete copy of the method body* inline (the "ensure the target procedure is
+compiled" path in `compileNode`, firing because the symbol it resolved had no
+address).
+
+**Fix** (`external/pscal-core`, `src/compiler/compiler.c`): apply the unit prefix
+only to unqualified routine names — a name that already contains a dot is a
+class-mangled method and stays on its canonical symbol. Same-file classes are
+unaffected (they never had a unit name set).
+
+A second, latent defect surfaced immediately behind it. Once methods bind to the
+symbol the semantic pass created, that symbol's `type` is whatever `calloc` left —
+`TYPE_UNKNOWN`, not `TYPE_VOID`. That field is serialized into the bytecode cache,
+and the verifier reads it back to decide whether a `RETURN` must leave a value on
+the stack, so every cached chunk containing an imported `-> Void` method failed
+verification, printed `Warning: rejecting corrupt cached bytecode ...`, and was
+thrown away — correct output, no caching, noise on stderr. `compileDefinedFunction`
+now marks a value-less routine `TYPE_VOID` on whichever symbol it binds. Only the
+VOID/non-VOID distinction is corrected: a value-returning function's recorded type
+also drives return-value coercion at runtime, and overwriting a resolved one with
+the *declared* type changes results — `tests/extension_call_alias_pass.aether`
+catches exactly that (an `-> Int` function whose body is `Int / Int`, which is real
+division, prints `5.000000`).
+
+**Regression coverage.** `tests/imported_type_methods_pass.aether` plus the
+extensionless `tests/imported_type_methods_mod`: a Void method, a method calling a
+sibling method, a method calling a module-private function, and a same-file type
+with methods alongside the imported one. The block in `tests/run.sh` asserts both
+the `--no-cache` run and a second, cached run (the latter guards the verifier
+regression, which a `--no-cache`-only assertion cannot see).
+
+**Two adjacent limits, unchanged and pre-existing.** Type names are global, so two
+imported modules that each export a same-named type still collide — now as
+`VM Error: No procedure found at address N for indirect call` rather than the
+missing-vtable error. And a type and a function whose names differ only in case
+(`type Shape` beside `fn shape()`) collide inside a module, reported as the
+thoroughly unhelpful `'shape' is not exported from module 'Shapes'`. Both are worth
+their own coded diagnostics; neither is on the path to embedded modules.
+
+**Unblocked.** With this fixed, an embedded module has a payload that genuinely
+could not have been a builtin, so the `--dump-module` idea is worth costing out.

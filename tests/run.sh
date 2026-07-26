@@ -2793,4 +2793,30 @@ if grep -qx 'Aether 42' /tmp/aether_toon_parse_string_alias_pass.out &&
     exit 1
 fi
 
+# An Aether `type` with methods carried across a `use "..."` import. The imported
+# module is compiled as its own unit, and compileDefinedFunction used to prefix the
+# enclosing module name onto every routine it compiled -- including class-mangled
+# method names, producing "stackmod.stack.push" instead of the "stack.push" that the
+# semantic pass registered and that emitVTables derives "<class>_vtable" from. The
+# class's vtable was therefore emitted under the module's name (stackmod_vtable) while
+# `new Stack()` still pointed at stack_vtable, and any dispatch died with "Runtime
+# Error: Global 'stack_vtable' not found in symbol table." Exercises a Void method, a
+# method calling a sibling method, a method calling a module-private function, and a
+# same-file type with methods alongside the imported one. The second, cached run also
+# guards the bytecode verifier's VOID/non-VOID RETURN rule for imported Void methods.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/imported_type_methods_pass.aether" >/tmp/aether_imported_type_methods_pass.out
+printf 'depth=3\ntop=19\nlocal=1\n' >/tmp/aether_imported_type_methods_expected.out
+if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_pass.out; then
+    echo "unexpected imported-type-methods output (imported type's vtable global regressed?)" >&2
+    diff /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_pass.out >&2 || true
+    exit 1
+fi
+"$AETHER_BIN" "$TESTS_DIR/imported_type_methods_pass.aether" >/dev/null 2>&1 || true
+"$AETHER_BIN" "$TESTS_DIR/imported_type_methods_pass.aether" >/tmp/aether_imported_type_methods_cached.out 2>&1
+if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_cached.out; then
+    echo "unexpected cached imported-type-methods output (cache verifier rejecting Void methods?)" >&2
+    diff /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_cached.out >&2 || true
+    exit 1
+fi
+
 echo "aether smoke tests passed"
