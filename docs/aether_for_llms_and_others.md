@@ -72,12 +72,12 @@ If you only read one part of this document, read **Highest-Value Rules** and
     local; `self.name` means the field.
 18. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields on a type.
-19. **FIELD-003.** A record/type field may declare a **constant** default:
-    `field: Type = <const>` (e.g. `count: Int = 0`, `name: Text = ""`,
-    `on: Bool = true`, `xs: Int[] = []`). Only compile-time constants are
-    allowed — a default may not reference another field, `self`, or call a
-    function. For a computed initial value, set it at construction with
-    `new T { field: value }`.
+19. **FIELD-003.** A record/type field default must be a **literal**:
+    `count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`.
+    Not an expression, not another field, not `self`, not a call — and **not a
+    named `const` either**. `limit: Int = MAX_SCORE;` is rejected exactly like
+    `limit: Int = MAX_SCORE + 1;`, so a sentinel built from a constant must be
+    set at construction instead: `new T { limit: MAX_SCORE + 1 }`.
 20. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path.
 21. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
@@ -421,9 +421,10 @@ type JobSummary {
 - use `type`, never `class`; fields are `name: Type;` (semicolons)
 - a field may carry a **constant** default: `name: Type = <const>`
   (`count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`).
-  The default must be a compile-time constant — it cannot reference another
-  field, `self`, or call a function (FIELD-003). For a computed initial value,
-  set it at construction with `new T { field: value }`. A field with no default
+  The default must be a **literal** — not an expression, not another field, not
+  `self`, not a call, and not a named `const` (`= MAX_SCORE` fails just as
+  `= MAX_SCORE + 1` does) (FIELD-003). For anything else, set it at
+  construction with `new T { field: value }`. A field with no default
   falls back to the type zero (integers `0`, reals `0.0`, booleans `false`,
   text empty).
 - **define methods inside the `type` block; `self` is implicit — never give a
@@ -1628,7 +1629,8 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   not mix, do arithmetic on, or cross-assign them.
 - **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
   the type explicitly if the prompt really requires that field.
-- **[FIELD-003]** a field default that is not a compile-time constant (references
+- **[FIELD-003]** a field default that is not a literal — an expression, a named
+  `const` (`= MAX_SCORE` is rejected, not just `= MAX_SCORE + 1`), or (references
   another field, `self`, or calls a function), or a populated array default →
   use a literal/constant (`count: Int = 0`), or drop the default and set the
   value at construction with `new T { field: value }`. A type-mismatched default

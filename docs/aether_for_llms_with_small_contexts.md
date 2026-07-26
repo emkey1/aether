@@ -56,11 +56,11 @@
     `valid` means the local; `self.valid` means the field.
 18. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields.
-19. **FIELD-003.** A record/type field may declare a **constant** default:
-    `field: Type = <const>` (`count: Int = 0`, `on: Bool = true`,
-    `xs: Int[] = []`). Only compile-time constants — a default cannot reference
-    another field, `self`, or call a function. For a computed value, set it at
-    construction with `new T { field: value }`.
+19. **FIELD-003.** A field default must be a **literal**: `count: Int = 0`,
+    `on: Bool = true`, `xs: Int[] = []`. Not an expression, not another field,
+    not `self`, not a call, and **not a named `const`** — `n: Int = MAX;` is
+    rejected as surely as `n: Int = MAX + 1;`. Set anything else at
+    construction: `new T { field: value }`.
 20. **FLOW-001.** Every non-`Void` helper must return a value on every
     reachable top-level path.
 21. **FMT-001.** If the prompt specifies exact output, match it exactly:
@@ -861,10 +861,10 @@ The compiler prints a stable code in brackets, and on newer builds a
   cross-assignment with TOON handles (see HTTP requests).
 - **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
   to the type if the prompt truly requires it).
-- **[FIELD-003]** a field default that is not a compile-time constant (names
-  another field, `self`, or calls a function), or a populated array default →
-  use a literal/constant (`count: Int = 0`), or set the value at construction
-  with `new T { field: value }`. A type-mismatched default (`value: Int = "x"`)
+- **[FIELD-003]** a field default that is not a literal (an expression, a named
+  `const`, another field, `self`, a call), or a populated array default → use a
+  literal (`count: Int = 0`), or set the value at construction with
+  `new T { field: value }`. A type-mismatched default (`value: Int = "x"`)
   is `[TYPE-001]` instead — match the field's type.
 - **[FLOW-001]** a fallthrough path with no return value → add a final `ret ...`
   on every reachable top-level path.

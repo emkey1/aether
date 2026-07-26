@@ -2357,3 +2357,49 @@ remaining limit is deliberate — thread indices are handed out in first-draw
 order, so *which* branch gets which stream is not deterministic across runs.
 Pinning a stream to a particular branch would need a branch id the VM does not
 expose to builtins, and independence is the property the bug was about.
+
+---
+
+## A field default must be a literal, but every guide said "constant" — 2026-07-26
+
+Found while adding `examples/showcase/grade_report`. A statistics accumulator
+wants sentinel-seeded bounds:
+
+```aether
+const MAX_SCORE: Int = 100;
+
+type Stats {
+    min: Int = MAX_SCORE + 1;   // [FIELD-003]
+    max: Int = -1;              // fine
+}
+```
+
+`FIELD-003` rejects it — and it rejects the bare `min: Int = MAX_SCORE;` too.
+Only a **literal** is accepted. Verified across four forms: `= 101` works,
+`= -1` works, `= MAX_SCORE` fails, `= MAX_SCORE + 1` fails.
+
+All three guides said something materially different. The full guide's wording
+was *"A record/type field may declare a **constant** default: `field: Type =
+<const>` ... Only compile-time constants are allowed — a default may not
+reference another field, `self`, or call a function."* A named `const` is a
+compile-time constant, is not another field, is not `self`, and is not a call,
+so the documented rule positively invites `= MAX_SCORE`. The small and medium
+guides carried the same claim.
+
+The diagnostic reinforces the misreading: *"only constant field defaults are
+supported; set computed values at construction"* — but `MAX_SCORE` is not
+computed, so a model that just wrote it has no way to tell what is being
+objected to. The hint (*"use a literal or constant expression (e.g. `= 0`,
+`= ""`, `= true`)"*) says "constant expression" while rejecting exactly that.
+
+**Fixed (docs) 2026-07-26:** all three guides now say *literal*, name the
+named-`const` case explicitly since it is the one a reader would otherwise
+assume works, and point at construction (`new T { limit: MAX_SCORE + 1 }`) as
+the route for anything else.
+
+**Still open:** either widen the check to accept a constant-folded expression
+over `const` values — it is a parse-time fold, and sentinel bounds derived from
+a declared maximum are an ordinary thing to want — or reword the diagnostic and
+its hint to say "literal" and stop offering "constant expression" as a remedy
+for a constant expression. The current message cannot be acted on correctly by
+someone who hit it the obvious way.

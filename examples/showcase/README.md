@@ -9,6 +9,7 @@ Run them from the repository root with:
 ./build/bin/aether examples/showcase/agent_report
 ./build/bin/aether examples/showcase/gradebook
 ./build/bin/aether examples/showcase/release_board
+./build/bin/aether examples/showcase/grade_report
 ```
 
 `agent_report` exercises the current Aether surface in combination:
@@ -48,3 +49,23 @@ asked to show off the language, and it pins down the details they get wrong:
 `toon_parse` (not `toon_parse_string`), two-argument `formatfloat`, and that
 `clamp`/`min`/`max` already exist. It guards on `has_toon()` and exits cleanly
 if the build lacks yyjson/TOON.
+
+`grade_report` parses a TOON dataset of exam scores and prints a per-student
+table plus a summary rollup, then runs the whole thing again over an **empty**
+dataset:
+
+- the one pattern no other example shows: TOON rows **retained** into a
+  `Student[]` via `result = result + [s]`, then walked twice — once to
+  accumulate, once to print. The other TOON showcases fold each row into an
+  accumulator and never keep it.
+- `@pure` on methods, and the fact that purity is transitive: a `@pure`
+  top-level function calling an unmarked method is an `ANN-001`
+- every derived statistic guarded against a zero divisor, and sentinel-seeded
+  `min`/`max` suppressed rather than printed when there is no data. The original
+  draft guarded two of three division sites and crashed on an empty list — that
+  is the failure this example is built around.
+- sentinels set at construction (`new Stats { min: MAX_SCORE + 1, max: -1 }`)
+  because a field default must be a literal — a named `const` is rejected too
+- grade bands as explicit constants rather than `PASS_MARK + 10` / `+ 5`
+  arithmetic, which reads as principled but yields a 20-point B against a
+  5-point C

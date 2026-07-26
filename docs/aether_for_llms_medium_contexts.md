@@ -1,6 +1,7 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
 *Guide version: 2026-07-26-3*
+
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
 program, and repair it once.
@@ -70,10 +71,12 @@ wrong shape is what stops you writing it.
     is the local; `self.valid` is the field.
 17. **FIELD-002.** Field names must exist exactly as declared. Do not invent
     fields.
-18. **FIELD-003.** A field default must be a compile-time constant —
-    `count: Int = 0`, `on: Bool = true`, `xs: Int[] = []`. It cannot reference
-    another field, `self`, or call a function. For a computed value, set it at
-    construction: `new T { field: value }`.
+18. **FIELD-003.** A field default must be a **literal** — `count: Int = 0`,
+    `on: Bool = true`, `name: Text = ""`, `xs: Int[] = []`. Not an expression,
+    not another field, not `self`, not a call — and **not a named `const`
+    either**: `limit: Int = MAX_SCORE;` is rejected just like
+    `limit: Int = MAX_SCORE + 1;`. For anything else, set it at construction:
+    `new T { limit: MAX_SCORE + 1 }`.
 19. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path. **FLOW-002.** A bare `ret;` in a non-`Void`
     function is an error — give it a value or declare `-> Void`.
