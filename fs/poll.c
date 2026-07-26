@@ -665,6 +665,21 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
         if (res > 0)
             break;
 
+        // Snapshot while poll_->lock is still held: poll_->poll_fds is
+        // mutated (under this same lock) by poll_add_fd/poll_del_fd/
+        // poll_mod_fd/poll_cleanup_fd from other threads, including fd
+        // teardown that frees the struct fd a poll_fd points to. The
+        // lock is dropped below (to let real_poll_wait block without
+        // pinning it), and the check used to run unlocked after that --
+        // an unsynchronized read of a list other threads splice/free
+        // entries out of concurrently. Under heavy concurrent fd churn
+        // (many OS threads opening/closing sockets and pipes -- routine
+        // for a Go program's runtime) that races poll_cleanup_fd's
+        // list_remove and crashes dereferencing a freed struct fd's
+        // ->ops (seen on device as a SIGSEGV in a Go build's own
+        // netpoller thread, address a freed-memory poison pattern).
+        bool needs_periodic_host_rescan = poll_needs_periodic_host_rescan(poll_);
+
         lock(&current->sighand->lock,0);
         bool signal_pending = !!((current->pending | current->sighand->pending) & ~current->blocked);
         unlock(&current->sighand->lock);
@@ -715,7 +730,7 @@ int poll_wait(struct poll *poll_, poll_callback_t callback, void *context, struc
                         }
                         wait_timeout = &remaining_timeout;
                     }
-                    if (poll_needs_periodic_host_rescan(poll_)) {
+                    if (needs_periodic_host_rescan) {
                         if (wait_timeout == NULL ||
                                 wait_timeout->tv_sec > periodic_rescan_timeout.tv_sec ||
                                 (wait_timeout->tv_sec == periodic_rescan_timeout.tv_sec &&
