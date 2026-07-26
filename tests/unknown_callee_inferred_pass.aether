@@ -1,0 +1,15 @@
+// Regression guard for the fix above: the redirect must stay narrow. A REAL
+// builtin whose return type the inference table does not carry must still get
+// [TYPE-001] and the annotate hint, because there the hint is correct.
+fn main() -> Void {
+    let n: Int = 0;
+    fx {
+        let s: Int = socketcreate(0);
+        n = s;
+        socketclose(s);
+    }
+    if n > 0 {
+        fx { println("socket handle acquired"); }
+    }
+    ret;
+}

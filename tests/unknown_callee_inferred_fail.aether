@@ -1,0 +1,13 @@
+// Regression: an inferred `let` whose initializer calls a name that does not
+// exist used to report [TYPE-001] "cannot infer the type of 'db'" with a hint
+// to add an annotation -- which then produced a different code, [SCOPE-001],
+// making the fix look like it had caused a new problem. One model reading the
+// two codes alternately concluded the compiler was non-deterministic. Both
+// spellings must now name the unknown callee.
+fn main() -> Void {
+    fx {
+        let db = sqlite_open("test.db");
+        println(db);
+    }
+    ret;
+}

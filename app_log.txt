@@ -1,0 +1,3 @@
+INFO: System started
+WARN: High CPU usage detected
+ERROR: Disk full

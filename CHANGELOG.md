@@ -12,6 +12,35 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-5
+
+**An inferred `let` calling a name that does not exist now says so.** It used to
+report a type-inference failure and advise an annotation — which then produced a
+*different* diagnostic for the same root cause:
+
+```aether
+let db = sqlite_open("x");        // [TYPE-001] cannot infer the type of 'db'
+                                  // hint: add an explicit type ...
+let db: Int = sqlite_open("x");   // [SCOPE-001] identifier 'sqlite_open' not in scope
+```
+
+Both spellings share one cause — the builtin does not exist — and the inferred
+form never said so. The hint made it worse by sending the reader toward the
+annotation, so the real error looked like a consequence of following the advice.
+A model alternating between the two forms sees one program yield two unrelated
+codes; one did exactly that and spent a dozen turns concluding the compiler was
+non-deterministic.
+
+When the inferred-`let` path cannot derive a type and the initializer calls a
+name that is provably unknown — not a declared top-level function, not a
+registered VM builtin, not in the function-return table — it now reports
+`SCOPE-001` naming the callee, with a hint pointing at the builtin list.
+
+The redirect is deliberately narrow. A real builtin whose return type the
+inference table does not carry (`let s = socketcreate(0);`) still gets
+`TYPE-001` and the annotate hint, because there the hint is correct; so does an
+untyped array literal.
+
 ## 2026-07-26-4
 
 **Each thread gets its own random stream, and implicit `Real` → `Int`

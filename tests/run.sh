@@ -2819,6 +2819,28 @@ if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_
     exit 1
 fi
 
+# SCOPE-001 over TYPE-001: an inferred `let` calling a nonexistent name used to
+# report "cannot infer the type of 'db'" and advise adding an annotation, which
+# then surfaced a *different* code (SCOPE-001) -- so the two spellings of one
+# mistake looked like unrelated problems and the hint appeared to cause the
+# second. Both must now name the unknown callee.
+if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_fail.aether" >/tmp/aether_unknown_callee.out 2>&1; then
+    echo "expected SCOPE-001 for an inferred let calling a nonexistent builtin" >&2
+    exit 1
+fi
+if ! grep -q "\[SCOPE-001\].*identifier 'sqlite_open' not in scope" /tmp/aether_unknown_callee.out; then
+    echo "unknown callee in an inferred let did not report SCOPE-001 (regressed to the misleading TYPE-001?)" >&2
+    cat /tmp/aether_unknown_callee.out >&2
+    exit 1
+fi
+# ...and the redirect must stay narrow: a real builtin with no inferable return
+# type still deserves TYPE-001 and the annotate hint.
+"$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_pass.aether" >/tmp/aether_known_callee.out 2>&1 || {
+    echo "annotated call to a real builtin (socketcreate) failed to compile" >&2
+    cat /tmp/aether_known_callee.out >&2
+    exit 1
+}
+
 # NARROW-001: implicit Real -> Int truncation used to be completely silent in
 # every position. A warning, not an error, so the program must still run.
 "$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_warn_pass.aether" >/tmp/aether_narrowing_warn.out 2>&1

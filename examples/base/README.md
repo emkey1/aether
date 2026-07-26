@@ -49,6 +49,7 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/random_values
 ./build/bin/aether examples/base/strings
 ./build/bin/aether examples/base/dynamic_arrays
+./build/bin/aether examples/base/nested_arrays
 ./build/bin/aether examples/base/parsing
 ./build/bin/aether examples/base/clamp_minmax
 ./build/bin/aether examples/base/recursion
@@ -186,6 +187,11 @@ These examples stay within the currently supported Aether Core subset:
 - `strings`: `Text` concatenation, `string_len`, `int_to_text`, and `==` equality
 - `dynamic_arrays`: empty literal, append (`xs = xs + [v]`), indexed read/write,
   `length`, and iteration
+- `nested_arrays`: `Int[][]` — literal 2-D construction, building a table row by
+  row (`row = row + [v]`, then `table = table + [row]`), writing a cell through
+  both indexes, jagged rows, and bounding the inner loop with
+  `length(table[r])`. The DP-table shape: models reach for it, declare a 1-D
+  `Int[]`, index it `x[i][j]`, and get an uncoded runtime error
 - `parsing`: `parse_int` / `parse_bool` / `parse_float`, and `split` into a `Text[]`
 - `clamp_minmax`: `clamp(x, lo, hi)` plus `min` / `max` as accumulators instead
   of if-chains

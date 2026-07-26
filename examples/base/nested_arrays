@@ -1,0 +1,85 @@
+// Nested (2-D) arrays: `Int[][]` is a real type, and every 1-D operation
+// composes into it.
+//
+// A row is just an `Int[]`, so a table is an array of those. Build one the same
+// way you build any dynamic array -- `row = row + [v]` to grow a row,
+// `table = table + [row]` to add the row -- then index it twice.
+//
+// `length(table)` is the row count and `length(table[r])` is that row's width,
+// so rows do not have to be the same length (see the jagged section below).
+
+fn main() -> Void {
+    // Literal construction, when the shape is known up front.
+    let grid: Int[][] = [[1, 2, 3], [4, 5, 6]];
+
+    fx {
+        println("grid[0][1] = ", grid[0][1]);
+        println("grid[1][2] = ", grid[1][2]);
+        println("rows = ", length(grid), "  cols = ", length(grid[0]));
+        println("");
+    }
+
+    // Built row by row -- the shape most tables need, since the size is
+    // usually a runtime value.
+    let rows: Int = 4;
+    let cols: Int = 5;
+    let table: Int[][] = [];
+    loop r in 0..rows {
+        let row: Int[] = [];
+        loop c in 0..cols {
+            row = row + [(r + 1) * (c + 1)];
+        }
+        table = table + [row];
+    }
+
+    // Cells are writable through both indexes.
+    table[0][0] = 0;
+
+    fx {
+        println("multiplication table:");
+        loop r in 0..length(table) {
+            loop c in 0..length(table[r]) {
+                print(table[r][c], "\t");
+            }
+            println("");
+        }
+        println("");
+    }
+
+    // Rows are independent arrays, so a table may be jagged. Always bound the
+    // inner loop with `length(table[r])`, never with the first row's width.
+    let jagged: Int[][] = [];
+    loop r in 0..4 {
+        let row: Int[] = [];
+        loop c in 0..r + 1 {
+            row = row + [c];
+        }
+        jagged = jagged + [row];
+    }
+
+    fx {
+        println("jagged rows:");
+        loop r in 0..length(jagged) {
+            print("  len ", length(jagged[r]), ":");
+            loop c in 0..length(jagged[r]) {
+                print(" ", jagged[r][c]);
+            }
+            println("");
+        }
+        println("");
+    }
+
+    // Summing a whole table: the inner loop is the only place the width is
+    // read, so this works on rectangular and jagged tables alike.
+    let total: Int = 0;
+    loop r in 0..length(table) {
+        loop c in 0..length(table[r]) {
+            total = total + table[r][c];
+        }
+    }
+
+    fx {
+        println("table sum = ", total);
+    }
+    ret;
+}

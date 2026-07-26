@@ -41,6 +41,8 @@
 
 #include "aether/parser.h"
 
+#include "backend_ast/builtin.h"   /* getVmBuiltinID: does this builtin exist at all? */
+
 #include <ctype.h>
 #include <limits.h>
 #include <stdarg.h>
@@ -3915,6 +3917,41 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             const char *vn = nameTok->value ? nameTok->value : "";
             char detail[256];
             char hint[256];
+            /* An initializer that calls a name which does not exist lands here
+             * too, because there is no return type to infer from. Reporting
+             * that as "cannot infer the type of 'x'" with a hint to add an
+             * annotation actively sends the reader the wrong way: annotating
+             * makes the *real* error (SCOPE-001, unknown callee) appear
+             * instead, so the two codes look like unrelated problems and the
+             * hint reads as having caused the second one. One model chasing
+             * this concluded the compiler was non-deterministic and burned a
+             * dozen turns on it (docs/ideas_and_todo.md, 2026-07-26). Name the
+             * unknown callee up front when we can prove it is unknown --
+             * neither a declared top-level function nor a registered builtin. */
+            if (init->type == AST_PROCEDURE_CALL && init->token && init->token->value) {
+                const char *callee = init->token->value;
+                const char *canonical = aliasBuiltinName(callee);
+                if (!canonical) {
+                    canonical = callee;
+                }
+                if (!aetherAstIsTopLevelUserFunction(callee) &&
+                    !aetherAstIsTopLevelUserFunction(canonical) &&
+                    getVmBuiltinID(canonical) < 0 &&
+                    (!p->funcReturns ||
+                     !bindingTableGet(p->funcReturns, callee, strlen(callee)))) {
+                    char scopeDetail[256];
+                    snprintf(scopeDetail, sizeof(scopeDetail),
+                             "identifier '%s' not in scope.", callee);
+                    reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "scope",
+                            scopeDetail,
+                            "this helper does not exist -- check the name against the "
+                            "guide's builtin list, or define it before use.");
+                    p->hadError = true;
+                    freeToken(nameTok);
+                    freeAST(init);
+                    return NULL;
+                }
+            }
             snprintf(detail, sizeof(detail),
                      "cannot infer the type of '%s' from its initializer.", vn);
             snprintf(hint, sizeof(hint),

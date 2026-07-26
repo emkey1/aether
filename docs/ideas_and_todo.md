@@ -2403,3 +2403,103 @@ a declared maximum are an ordinary thing to want — or reword the diagnostic an
 its hint to say "literal" and stop offering "constant expression" as a remedy
 for a constant expression. The current message cannot be acted on correctly by
 someone who hit it the obvious way.
+
+---
+
+## Evaluating an outside contribution — 2026-07-26
+
+*A second model was pointed at the corpus-gap list and asked to fill it. Its
+final deliverable was a "verified reference" for Aether. Most of it is wrong,
+and the ways it is wrong are more useful than the parts that are right.*
+
+Everything below was re-tested against the compiler rather than taken on trust.
+
+### What it got right, and what that corrects on our side
+
+**2-D arrays work.** `let grid: Int[][] = [[1, 2, 3], [4, 5, 6]];` compiles and
+`grid[0][1]` reads back `2`. So does the shape that actually matters: building a
+table row by row (`row = row + [v]`, then `table = table + [row]`), writing a
+cell through both indexes, jagged rows, and `length(table[r])` for a row width.
+
+This corrects a statement made in the same session's gap analysis — that the
+backlog "suggests they may not work". Re-reading the *1-D array indexed as 2-D*
+entry above, it never said that. It says models **declare `Int[]` and then index
+`x[i][j]`**, which is a type error that surfaces as an uncoded runtime message.
+The language was never the problem; the corpus was. Nothing in 60 example files
+showed the correct `Int[][]` declaration, so there was nothing to copy.
+
+`examples/base/nested_arrays` now covers it. That is the corpus half of the
+`cs_lcs` fix and probably the cheaper half — the coded diagnostic proposed in
+that entry is still worth adding, but a model that has seen `Int[][]` written
+correctly will not reach the diagnostic in the first place.
+
+### The finding worth keeping: one mistake, two unrelated diagnostics — *fixed 2026-07-26-5*
+
+The contribution burned roughly a dozen turns convinced the compiler was
+non-deterministic, writing things like *"This is extremely inconsistent... the
+only explanation is that the compiler is not fully isolated between runs."* It
+was not. The same nonexistent builtin reported differently depending on one
+unrelated detail:
+
+```aether
+let db = sqlite_open("x");        // [TYPE-001] cannot infer the type of 'db'
+                                  // hint: add an explicit type ...
+let db: Int = sqlite_open("x");   // [SCOPE-001] identifier 'sqlite_open' not in scope
+```
+
+Both spellings share one root cause — `sqlite_open` does not exist — and neither
+diagnostic said so in the inferred form. Worse, **the hint sent the reader the
+wrong way**: it advised adding an annotation, which then produced a completely
+different code, so the fix looked like it had *caused* the second error. A model
+alternating between the two forms sees the same program yield SCOPE-001 and
+TYPE-001 unpredictably, which is exactly the "non-deterministic compiler"
+conclusion it reached.
+
+**Fixed.** When the inferred-`let` path cannot derive a type and the initializer
+is a call to a name that is provably unknown — not a declared top-level
+function, not a registered VM builtin (`getVmBuiltinID` < 0), not in the
+function-return table — it now reports `SCOPE-001` naming the callee, with a
+hint pointing at the builtin list. Both spellings now give the same code.
+
+Deliberately narrow: a *real* builtin whose return type is not in the inference
+table (`let s = socketcreate(0);`) still gets TYPE-001 and the annotate hint,
+because there the hint is correct. So does an untyped array literal.
+
+### What it got wrong, and why each is a corpus or guide signal
+
+- **`par` fabricated.** Its reference presents
+  `let r = par(task_a(), task_b()); r[0]` as working concurrency. It never ran:
+  its own transcript shows TYPE-001, then `TUP-001`, then *"expected '{' to open
+  par block"* — which is the compiler telling it `par` is a block construct. It
+  wrote the failure up as a feature anyway. Verified still broken exactly as
+  reported.
+- **Sockets declared unavailable.** *"Socket/SQLite: Not available in this
+  environment (not in scope)."* False — `socketcreate(0)` returns a handle and
+  `socketclose` works. It guessed `socket`, `tcp_socket`, `socket_create`; the
+  real names have no underscores. The full guide lists them, in the region a
+  truncated copy loses first. Third independent instance of the truncation
+  failure mode.
+- **`pos` arguments backwards.** It wrote `pos(s, "world")`, got `-1`, wondered
+  *"maybe there's a bug"*, and shipped the backwards form in its reference. The
+  signature is `pos(needle, haystack)` — `pos("world", s)` is `6`. `pos` appears
+  in exactly one example file, which is the whole problem.
+- **`paramstr(0)` documented as returning a count as an integer**, contradicting
+  its own transcript where that exact line failed with *"Cannot assign STRING to
+  integer"*. `paramcount()` is the count; `paramstr(0)` is the program name.
+- **Citations to an unrelated project.** Its sources are a GoogleCloudPlatform
+  repo and a Reddit post about an actor-based language, neither of which is this
+  Aether. It noticed the syntax did not match and proceeded anyway.
+
+### `gettime` has no documented signature — *open*
+
+Both models that reached for a clock wrote `let t = gettime();` and got
+*"Built-in procedure 'gettime' cannot be used as a function in an expression."*
+It is a DOS-style procedure taking **four var out-parameters**
+(`dosGettime expects 4 var arguments`). The guides name `gettime` only in a
+parenthetical list of effectful builtins — *"the clock (`gettime`)"* — and never
+show a call, so the only reachable conclusion from the documented surface is the
+one both models drew.
+
+**Suggested action:** document the real shape, or expose a function-form clock.
+The var-out-parameter calling convention appears nowhere else in the Aether
+surface except `readln`, so it needs an example if it is to stay.
