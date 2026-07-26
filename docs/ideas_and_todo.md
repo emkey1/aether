@@ -1861,3 +1861,39 @@ Minimal example (model `ibm/granite-4-h-tiny`, intent: Simple state machine with
 **Suggested action:** Candidate **language gap**: add the builtin/construct, or add a guide entry steering models to the existing equivalent. Repair did not rescue it.
 
 Models: ibm/granite-4-h-tiny.
+
+---
+
+## Coded diagnostic: 1-D array indexed as 2-D (found in cs-aug20 eval, 2026-07-26)
+
+`cs_lcs` fails across models with a generic runtime error. The generated shape is:
+
+```aether
+let dp: Int[] = [];                       // declared 1-D
+loop i in 0..(n + 1) { dp = dp + [0]; }
+let row: Int[] = []; ... dp = dp + row;   // appends/flattens into the same 1-D array
+dp[i][j] = ...                            // then indexed 2-D
+```
+
+which produces:
+
+```
+VM Error: Expected a pointer to an array for element access.
+```
+
+Two things worth separating:
+
+- The 0-based `Text` migration **worked** here. Models now correctly write
+  `loop i in 1..(n + 1)` with `a[i - 1]`, the right 0-based translation of a
+  1-based DP recurrence. Clearing that blocker is what exposed this one.
+- Declaring `Int[]` and indexing `x[i][j]` is a **type error knowable at compile
+  time**, but it surfaces at runtime with no code and no hint. This is the same
+  shape `copy()`-applied-to-an-array had before the coded TYPE-001 hint in
+  `bf9f2d8`, which per the cs-aug20 brief had been costing ~9 attempts on
+  `cs_merge_sort`.
+
+**Suggested action:** add a coded diagnostic for indexing a 1-D array
+two-dimensionally (and/or for appending an `Int[]` into an `Int[]` whose declared
+type is 1-D), with a hint showing how to build a jagged/2-D array. Likely a real
+score unlock on `cs_lcs` and any other DP-table task, across all models rather
+than one.

@@ -33,6 +33,105 @@ rather than trusting a name at face value.
 
 ---
 
+## cs-aug20 (0-based `Text` corpus; 8B/9B precision grid only)
+
+**Scope:** 2 models x 3 training precisions. This does **not** supersede
+`cs-aug4` as the full-roster board -- the 14B-35B tier has not been trained on
+this corpus.
+
+**Corpus:** `cs-aug20` (`Tests/aether_specialization/out_cs_aug20`, dataset
+`2026-07-25-1`), 726 instruction + 38 repair records, built against aether
+`c660b1b` (0-based `Text`; stamped `2026-07-20-1`, see the VERSION note below).
+Predecessor `cs-aug19` was 723 + 38.
+
+**What changed vs cs-aug19:** the 0-based `Text` migration was finished in the
+corpus. `c710d4251` had rewritten `copy()` call sites but missed every
+hand-managed cursor, leaving `ok=679 drifted=3 run-failed=11`; the corpus is now
+`ok=729 drifted=0 run-failed=0`. Two seed repair pairs were also found inverted:
+`repair_string_zero_index` taught rewriting correct 0-based code *into* the
+broken 1-based form, and `repair_array_slice` taught replacing now-valid
+`vals[1..3]` slice sugar with a hand-rolled loop, cutting against the TYPE-001
+hint added in `bf9f2d8`. Both were fixed; the latter now teaches
+`copy(arr, start, count)` -> `arr[start..start + count]`.
+
+**Recipe:** r=32 alpha=64 lr=1e-4 bs=1 ga=8, nominal 3 epochs. Eval `--docs none`,
+3 repeats, temperature 0, graded by aether `c660b1b`.
+
+### Results -- cs-aug19 -> cs-aug20
+
+| model | simple (35) | large (9) | cs (19) |
+|---|---|---|---|
+| `qwen3-8b-nothink` 4bit | 27 -> 27 (0) | 3 -> 2 (-1) | 10 -> **11** (+1) |
+| `qwen3-8b-nothink` 8bit | 27 -> 30 (+3) | 4 -> 6 (+2) | 10 -> **13** (+3) |
+| `qwen3-8b-nothink` 16bit | 28 -> 25 (-3) | 3 -> 3 (0) | 9 -> **12** (+3) |
+| `qwen35-9b` 4bit | 24 -> 30 (+6) | 4 -> 1 (-3) | 8 -> **12** (+4) |
+| `qwen35-9b` 8bit | 30 -> **32** (+2) | 4 -> **6** (+2) | 9 -> **11** (+2) |
+| `qwen35-9b` 16bit | 24 -> 29 (+5) | 1 -> 1 (0) | 8 -> **11**+ (+3) |
+| **total** | **160 -> 173 (+13)** | **19 -> 19 (0)** | **54 -> 70 (+16)** |
+
++ floor: `cs_collatz` returned empty content on all 3 repeats for this model
+(the known reasoning-model empty-output failure), so the true value is 11 or 12.
+
+### Findings
+
+**`cs` improved in 6 of 6 arms** (+1/+3/+3/+4/+2/+3, +16 aggregate on a
+114-point base) -- both families, all three precisions, no negatives. `cs` is the
+suite carrying the substring/LCS/merge-sort tasks that the three fixed failure
+modes lived in (0-based `Text`, `copy()`-as-array-slice, hallucinated
+`toon_int`), so the improvement lands where the corpus work was aimed. Six
+independent positive results with no negatives is not a plausible noise pattern.
+
+`simple` is +13 but mixed in sign (one arm -3): likely a real but weaker
+secondary effect. `large` is exactly net zero and, at 9 tasks, stays too small
+an instrument to read.
+
+**Training dynamics corroborate the corpus change independently of scoring.**
+5 of 6 aug20 arms trained longer before `eval_loss` plateaued; the `qwen35-9b`
+8bit and 16bit arms more than doubled (0.534 -> 1.17 epochs). Removing labels
+that contradicted each other left more to learn before convergence.
+
+**8-bit won its family for the third generation running** (after cs-aug18 and
+cs-aug19). `qwen35-9b` 8bit at 32/6/11 is the strongest model on this board.
+
+### Methodological notes
+
+**Nothing in this experiment has ever trained the nominal 3 epochs.** Every run
+in aug18/19/20 early-stops on an `eval_loss` plateau, between 0.53 and 2.02
+epochs. `ep=3` in the queue scripts is an upper bound, not a description. Note
+also that training length is a poor predictor of score here: the best model in
+the cs-aug19 baseline (`qwen35-9b` 8bit, 30/35) trained the *least* of any run
+at 0.534 epochs, while its 16bit sibling stopped at the identical point and
+scored 24.
+
+**The 3 repeats are ~97% deterministic, not 100%.** At temperature 0 one task
+out of 37 examined split across repeats (`hard_expense_outliers`: F/T/T),
+consistent with vLLM continuous batching perturbing numerics by batch
+composition. A per-suite total that is not divisible by the repeat count is the
+tell. This independently supports treating +-1 as noise.
+
+**`--gpu-memory-utilization 0.18` is an 8B constant, not a claw3 constant.** All
+three `qwen35-9b` models failed to serve with "Engine core initialization
+failed": the 9B loads 17.66 GiB of weights against a ~21.5 GiB budget at 0.18,
+leaving too little for KV cache. 0.22 works (4.79 GiB KV cache, 139k tokens).
+Two traps made this slower to diagnose than it should have been: the serve
+loop's `docker logs --tail 15` captured only the outer wrapper traceback, not
+the root cause in the EngineCore subprocess (raise it to ~120), and
+`vllm/vllm-openai:latest` is a **moving tag** -- it is now 0.25.1, and cs-aug19
+served these same checkpoints at 0.18 on an older build, so the aug19/aug20
+`qwen35-9b` rows were produced under different vLLM versions. Pin the image.
+
+### Known-open
+
+`cs_lcs` still fails, but no longer on `Text` indexing -- models now correctly
+write `loop i in 1..(n + 1)` with `a[i - 1]`. It fails because they declare
+`let dp: Int[] = []` and then index `dp[i][j]`, which surfaces at runtime as a
+generic "VM Error: Expected a pointer to an array for element access". That is a
+compile-time type error with no coded hint, the same shape
+`copy()`-on-an-array had before TYPE-001. A coded diagnostic for it is likely a
+real unlock on any DP-table task, across all models.
+
+---
+
 ## cs-aug4 (current primary board)
 
 **Corpus:** `cs-aug4` (`Tests/aether_specialization/out_cs_aug4`, dataset
