@@ -29,8 +29,13 @@
 //                   the next SP-relative load read stale/wrong memory.
 //                   Found via a real crash: LuaJIT's `and sp, x1, #mask`
 //                   stack realignment on a call return.
+//  int-arg-upper    a 32-bit syscall argument whose register's upper half
+//                   holds junk (legal per AAPCS64; Linux truncates) was
+//                   validated as a full 64-bit value and SIGSYS'd the caller
+//                   -- `uv venv` died with "Bad system call" on fchmod.
 
 #include <errno.h>
+#include <fcntl.h>
 #include <stdint.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -334,9 +339,42 @@ static void check_and_sp(void) {
         test_logf("and-sp ANDS/TST ok\n");
 }
 
+// ---- int-arg-upper ---------------------------------------------------------
+
+static void check_int_arg_upper(void) {
+    // AAPCS64 leaves the upper 32 bits of a register carrying a 32-bit
+    // argument UNDEFINED, and Linux truncates each syscall arg to its declared
+    // type -- so `fchmod(fd, mode)` with junk above bit 31 of x0 is a
+    // perfectly legal call. The legacy 32-bit marshaller used to validate the
+    // whole 64-bit register and SIGSYS the caller instead ("Bad system call"
+    // from `uv venv`, where LLVM loads the fd as a whole 64-bit stack word and
+    // an unrelated neighbouring field rides along in the upper half).
+    static const char *path = "/tmp/ish-int-arg-upper";
+    int fd = open(path, O_CREAT | O_RDWR | O_TRUNC, 0600);
+    if (fd < 0) {
+        failf("int-arg-upper open", (uint64_t) (int64_t) fd, 0, 0, 0, 0, 0);
+        return;
+    }
+    // Junk above bit 31 of x0, exactly as the compiler-generated call does.
+    register uint64_t x0 __asm__("x0") = (0x7fffull << 32) | (uint32_t) fd;
+    register uint64_t x1 __asm__("x1") = 0444;
+    register uint64_t x8 __asm__("x8") = SYS_fchmod;
+    __asm__ volatile("svc #0" : "+r"(x0) : "r"(x1), "r"(x8) : "memory");
+    // Reaching this line at all is most of the test -- the bug killed the
+    // process with SIGSYS before fchmod ran. The result must also show the fd
+    // was truncated to w0 rather than taken as a wild 64-bit descriptor.
+    if ((int64_t) x0 != 0)
+        failf("int-arg-upper fchmod", x0, (uint64_t) (int64_t) fd, 0, 0, 0, 0);
+    else
+        test_logf("int-arg-upper ok\n");
+    close(fd);
+    unlink(path);
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     check_ldp32_upper();
+    check_int_arg_upper();
     check_eor_vec();
     check_block_cap();
     check_tlb_48bit();

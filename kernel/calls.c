@@ -3591,6 +3591,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 306: // syncfs(fd) -- single fd arg; upper regs are garbage
         return 1;
     case 277: // sync_file_range -- success stub ignores all args
+    case 152: // munlockall() -- no args at all
         return 0;
     case 15:  // rt_sigreturn
     case 24:  // sched_yield
@@ -3687,6 +3688,7 @@ static unsigned amd64_syscall_legacy_arg_count(qword_t syscall_num) {
     case 135: // personality
     case 149: // mlock
     case 150: // munlock
+    case 151: // mlockall(flags) -- x86-64 rsi-rbp are caller garbage here
     case 161: // chroot
     case 164: // settimeofday
     case 166: // umount2
@@ -4031,6 +4033,189 @@ static unsigned arm64_syscall_legacy_arg_count(qword_t syscall_num) {
     }
 }
 
+// True when every argument this syscall actually uses is a 32-bit scalar (fd,
+// flag, mode, pid, signal, uid, ...) rather than a pointer or a 64-bit value.
+//
+// Both 64-bit psABIs leave the UPPER HALF of an argument register undefined
+// when the argument's declared type is 32 bits, and real Linux truncates
+// accordingly (SYSCALL_DEFINEn casts each arg to its declared type before the
+// handler sees it). So the dword-fit check in marshal_syscall_args_legacy must
+// not run for these: a caller that legally left junk above bit 31 of a 32-bit
+// argument would be killed for making a perfectly valid syscall. Observed: uv
+// (Rust) calls fchmod(fd, 0666) with the fd loaded as a whole 64-bit stack
+// word -- LLVM knows only w0 is architecturally meaningful, so the neighbouring
+// struct field rides along in the upper half -- and `uv venv` died with "Bad
+// system call" on an aarch64 guest.
+//
+// The lists are exhaustive for what actually reaches the legacy marshaller:
+// every other syscall is either dispatched full-width by
+// handle_asm_generic_native_syscall / handle_amd64_native_memory_syscall, or
+// is a stub classified 0-arg by the arg-count tables above. Anything NOT
+// listed keeps the old validate-everything behaviour, so a pointer-taking
+// syscall added to a legacy table by mistake still fails loudly instead of
+// silently truncating a guest address (how arm64 dmesg broke).
+static bool syscall_legacy_args_are_scalars(enum guest_abi abi, qword_t syscall_num) {
+    // riscv64 shares arm64's numbering and its legacy table (see
+    // riscv64_syscall_dispatch), so it shares this list too.
+    if (abi == GUEST_ABI_ARM64 || abi == GUEST_ABI_RISCV64) {
+        switch (syscall_num) {
+        case 19:  // eventfd2
+        case 20:  // epoll_create
+        case 23:  // dup
+        case 24:  // dup3
+        case 26:  // inotify_init1
+        case 28:  // inotify_rm_watch
+        case 30:  // ioprio_set
+        case 31:  // ioprio_get
+        case 32:  // flock
+        case 50:  // fchdir
+        case 52:  // fchmod
+        case 55:  // fchown
+        case 57:  // close
+        case 82:  // fsync
+        case 83:  // fdatasync
+        case 85:  // timerfd_create
+        case 92:  // personality
+        case 93:  // exit
+        case 94:  // exit_group
+        case 97:  // unshare
+        case 109: // timer_getoverrun
+        case 111: // timer_delete
+        case 120: // sched_getscheduler
+        case 124: // sched_yield
+        case 125: // sched_get_priority_max
+        case 126: // sched_get_priority_min
+        case 129: // kill
+        case 130: // tkill
+        case 131: // tgkill
+        case 140: // setpriority
+        case 141: // getpriority
+        case 142: // reboot (the 4th arg is a pointer sys_reboot never reads)
+        case 143: // setregid
+        case 144: // setgid
+        case 145: // setreuid
+        case 146: // setuid
+        case 147: // setresuid
+        case 149: // setresgid
+        case 151: // setfsuid
+        case 152: // setfsgid
+        case 154: // setpgid
+        case 155: // getpgid
+        case 156: // getsid
+        case 157: // setsid
+        case 166: // umask
+        case 172: // getpid
+        case 173: // getppid
+        case 174: // getuid
+        case 175: // geteuid
+        case 176: // getgid
+        case 177: // getegid
+        case 178: // gettid
+        case 198: // socket
+        case 201: // listen
+        case 210: // shutdown
+        case 219: // keyctl (sys_keyctl only switches on cmd; arg2-arg5 unread)
+        case 230: // mlockall
+        case 231: // munlockall
+        case 258: // riscv_hwprobe (ENOSYS stub; args unread)
+        case 259: // riscv_flush_icache (no-op stub; args unread)
+        case 267: // syncfs
+        case 424: // pidfd_send_signal (the siginfo pointer is never dereferenced)
+        case 432: // fsmount
+        case 434: // pidfd_open
+        case 436: // close_range
+            return true;
+        }
+        return false;
+    }
+
+    if (abi == GUEST_ABI_AMD64) {
+        switch (syscall_num) {
+        // Deliberately absent, and the reason this is a list rather than a
+        // blanket "the legacy path is scalars-only" rule: settimeofday (164),
+        // splice (275) and clock_settime64 (404) reach the legacy marshaller
+        // WITH real pointer args, so they must keep failing loudly until they
+        // get full-width dispatch.
+        case 3:   // close
+        case 15:  // rt_sigreturn
+        case 24:  // sched_yield
+        case 32:  // dup
+        case 33:  // dup2
+        case 34:  // pause
+        case 37:  // alarm
+        case 39:  // getpid
+        case 41:  // socket
+        case 48:  // shutdown
+        case 50:  // listen
+        case 57:  // fork
+        case 58:  // vfork
+        case 60:  // exit
+        case 62:  // kill
+        case 73:  // flock
+        case 74:  // fsync
+        case 75:  // fdatasync
+        case 81:  // fchdir
+        case 91:  // fchmod
+        case 95:  // umask
+        case 102: // getuid
+        case 104: // getgid
+        case 105: // setuid
+        case 106: // setgid
+        case 107: // geteuid
+        case 108: // getegid
+        case 109: // setpgid
+        case 110: // getppid
+        case 111: // getpgrp
+        case 112: // setsid
+        case 113: // setreuid
+        case 114: // setregid
+        case 117: // setresuid
+        case 119: // setresgid
+        case 121: // getpgid
+        case 122: // setfsuid
+        case 123: // setfsgid
+        case 124: // getsid
+        case 135: // personality
+        case 140: // getpriority
+        case 141: // setpriority
+        case 145: // sched_getscheduler
+        case 146: // sched_get_priority_max
+        case 147: // sched_get_priority_min
+        case 151: // mlockall
+        case 152: // munlockall
+        case 169: // reboot (4th arg is a pointer sys_reboot never reads)
+        case 186: // gettid
+        case 200: // tkill
+        case 213: // epoll_create
+        case 225: // timer_getoverrun
+        case 226: // timer_delete
+        case 231: // exit_group
+        case 234: // tgkill
+        case 250: // keyctl (arg2-arg5 unread, as on arm64)
+        case 251: // ioprio_set
+        case 252: // ioprio_get
+        case 253: // inotify_init
+        case 255: // inotify_rm_watch
+        case 272: // unshare
+        case 284: // eventfd
+        case 290: // eventfd2
+        case 291: // epoll_create1
+        case 292: // dup3
+        case 294: // inotify_init1
+        case 306: // syncfs
+        case 312: // kcmp
+        case 324: // membarrier
+        case 424: // pidfd_send_signal (siginfo pointer never dereferenced)
+        case 432: // fsmount
+        case 434: // pidfd_open
+            return true;
+        }
+        return false;
+    }
+
+    return false;
+}
+
 static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
         const qword_t raw_args[6], dword_t args[6]) {
     if (abi == GUEST_ABI_AMD64) {
@@ -4111,11 +4296,15 @@ static bool marshal_syscall_args_legacy(enum guest_abi abi, qword_t syscall_num,
                        : (abi == GUEST_ABI_ARM64 || abi == GUEST_ABI_RISCV64)
                            ? arm64_syscall_legacy_arg_count(syscall_num)
                        : 6;
+    // ...unless every argument is a 32-bit scalar, in which case the upper
+    // half of each argument register is architecturally undefined and there is
+    // nothing to validate — see syscall_legacy_args_are_scalars.
+    bool scalar_args = syscall_legacy_args_are_scalars(abi, syscall_num);
     for (unsigned i = 0; i < arg_count; i++) {
         // All 64-bit ABIs validate: a 64-bit value reaching the 32-bit
         // marshalling is a dispatch bug, and failing loudly here (SIGSYS)
         // beats silently truncating a pointer (how arm64 dmesg broke).
-        if (guest_abi_is_64bit(abi) &&
+        if (guest_abi_is_64bit(abi) && !scalar_args &&
                 !syscall_arg_fits_legacy_dword(raw_args[i]))
             return false;
         args[i] = (dword_t) raw_args[i];
@@ -4373,8 +4562,12 @@ void handle_syscall_interrupt(struct cpu_state *cpu) {
         return;
     }
     if (!marshal_syscall_args_legacy(dispatch->abi, syscall_num, raw_args, args)) {
-        printk("ERROR: %d(%s) %s syscall %llu needs full-width args before it can be emulated\n",
-               current->pid, current->comm, dispatch->name, syscall_num);
+        printk("ERROR: %d(%s) %s syscall %llu needs full-width args before it can be emulated "
+               "(args %#llx %#llx %#llx %#llx %#llx %#llx)\n",
+               current->pid, current->comm, dispatch->name, syscall_num,
+               (unsigned long long) raw_args[0], (unsigned long long) raw_args[1],
+               (unsigned long long) raw_args[2], (unsigned long long) raw_args[3],
+               (unsigned long long) raw_args[4], (unsigned long long) raw_args[5]);
         deliver_signal(current, SIGSYS_, SIGINFO_NIL);
         return;
     }
