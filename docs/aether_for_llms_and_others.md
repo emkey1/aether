@@ -890,7 +890,7 @@ character's code:
 fn appendText(ms: MStream, text: Text) -> Void {
     let n: Int = length(text);
     loop i in 0..n {
-        let ch: Text = copy(text, i + 1, 1);
+        let ch: Text = copy(text, i, 1);
         mstreamappendbyte(ms, ord(ch));
     }
     ret;
