@@ -1,0 +1,25 @@
+// Regression guard for ARR-002: it must not fire on a genuine nested array, on
+// a slice (which lowers through a temp before the second index), or on a Text
+// (rank 0). Only a variable whose DECLARED type carries exactly one `[]` and is
+// indexed twice is wrong.
+fn main() -> Void {
+    let table: Int[][] = [];
+    loop r in 0..3 {
+        let row: Int[] = [];
+        loop c in 0..3 {
+            row = row + [r * 3 + c];
+        }
+        table = table + [row];
+    }
+    table[1][1] = 99;
+
+    let flat: Int[] = [10, 20, 30, 40];
+    let mid: Int[] = flat[1..3];
+    let s: Text = "abc";
+
+    fx {
+        println(table[0][2], " ", table[1][1], " ", length(table[2]));
+        println(mid[0], " ", flat[2], " ", s[1]);
+    }
+    ret;
+}

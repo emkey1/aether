@@ -1892,11 +1892,35 @@ Two things worth separating:
   `bf9f2d8`, which per the cs-aug20 brief had been costing ~9 attempts on
   `cs_merge_sort`.
 
-**Suggested action:** add a coded diagnostic for indexing a 1-D array
-two-dimensionally (and/or for appending an `Int[]` into an `Int[]` whose declared
-type is 1-D), with a hint showing how to build a jagged/2-D array. Likely a real
-score unlock on `cs_lcs` and any other DP-table task, across all models rather
-than one.
+**Fixed 2026-07-26-6** as `ARR-002`, a parse-time check. It names the binding
+and its declared type and gives both remedies (`Int[][]` with rows built as
+arrays, or a computed offset `dp[r * width + c]`):
+
+```
+[ARR-002] 'dp' is declared 'Int[]', a one-dimensional array, but is indexed
+twice here.
+hint: declare it as 'Int[][]' for a real 2-D array (rows are themselves arrays:
+`row = row + [v];` then `dp = dp + [row];`), or index it once with a computed
+offset such as `dp[r * width + c]`.
+```
+
+Deliberately narrow — it fires only when the base is a plain variable whose
+*declared* type name carries exactly one `[]`. A slice (`xs[a..b][i]`) lowers
+through a temp before the second index, a field base (`self.rows[i][j]`) is not
+a bare variable, and `Text` has rank 0. Zero hits sweeping all 60 examples and
+every fixture.
+
+The other half of this entry mattered more than the diagnostic, and was fixed
+first: **nothing in the corpus showed `Int[][]` written correctly**, so a model
+had no correct form to copy and the wrong rank was the path of least
+resistance. `examples/base/nested_arrays` and a nested-array section in all
+three guides close that. The diagnostic is the backstop for models that still
+get it wrong; the example is what stops them reaching it.
+
+Not done: the mirror case the entry also raised — appending an `Int[]` into an
+`Int[]` whose declared type is 1-D. That is a different site (assignment /
+concat type checking, not indexing) and did not reproduce as a runtime failure
+in the shapes tested, so it needs its own repro before it gets a check.
 
 ---
 

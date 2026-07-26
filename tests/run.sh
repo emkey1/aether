@@ -2819,6 +2819,38 @@ if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_
     exit 1
 fi
 
+# ARR-002: a one-dimensional array indexed twice. The DP-table shape -- models
+# declare `Int[]` and then write dp[i][j] -- which used to compile and die at
+# runtime with an uncoded "Expected a pointer to an array for element access."
+if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/array_rank_2d_fail.aether" >/tmp/aether_array_rank.out 2>&1; then
+    echo "expected ARR-002 for a 1-D array indexed twice" >&2
+    exit 1
+fi
+if ! grep -q "\[ARR-002\].*'dp' is declared 'Int\[\]'" /tmp/aether_array_rank.out; then
+    echo "missing ARR-002 rank diagnostic (regressed to the uncoded runtime error?)" >&2
+    cat /tmp/aether_array_rank.out >&2
+    exit 1
+fi
+if ! grep -q "Int\[\]\[\]" /tmp/aether_array_rank.out; then
+    echo "ARR-002 lost its nested-array declaration hint" >&2
+    cat /tmp/aether_array_rank.out >&2
+    exit 1
+fi
+# ...and it must not fire on a real Int[][], on a slice (which lowers through a
+# temp before the second index), or on Text indexing.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_rank_2d_pass.aether" >/tmp/aether_array_rank_ok.out 2>&1
+if grep -q "ARR-002" /tmp/aether_array_rank_ok.out; then
+    echo "ARR-002 false positive on a genuine nested array / slice / Text" >&2
+    cat /tmp/aether_array_rank_ok.out >&2
+    exit 1
+fi
+printf '2 99 3\n20 30 b\n' >/tmp/aether_array_rank_expected.out
+if ! cmp -s /tmp/aether_array_rank_expected.out /tmp/aether_array_rank_ok.out; then
+    echo "unexpected nested-array output" >&2
+    cat /tmp/aether_array_rank_ok.out >&2
+    exit 1
+fi
+
 # SCOPE-001 over TYPE-001: an inferred `let` calling a nonexistent name used to
 # report "cannot infer the type of 'db'" and advise adding an annotation, which
 # then surfaced a *different* code (SCOPE-001) -- so the two spellings of one

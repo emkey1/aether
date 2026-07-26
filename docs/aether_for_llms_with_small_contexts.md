@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-26-1*
+*Guide version: 2026-07-26-2*
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
@@ -481,6 +481,11 @@ xs = xs + ys;                // concatenation: `arr1 + arr2`, both already-built
 let mid: Int[] = ys[0..2];  // slice: half-open range, elements 0 and 1 (a copy, not a view)
 ```
 
+**Nested arrays**: a row is an `Int[]`, so a table is `Int[][]`. Build it
+`row = row + [v];` then `table = table + [row];`, index `table[r][c]`, and bound
+the inner loop with `length(table[r])` (rows may be jagged). Declaring `Int[]`
+and indexing twice is `ARR-002`.
+
 Never `toon_len(xs)` on a dynamic array. Indexed reads/writes and
 multi-element literals are supported. `xs = xs + [a, b, ...]` appends every
 element of a literal of any length. `xs = xs + ys` / `let zs: T[] = xs + ys`
@@ -876,6 +881,9 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int
   = 3.7;`, `n = random();`) → the fraction is discarded. Use a `Real` target, or
   `int(...)` if truncating is intended.
+- **[ARR-002]** a one-dimensional array indexed twice (`let dp: Int[] = [];`
+  then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
+  as its own `Int[]`, or index once with `dp[r * width + c]`.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.

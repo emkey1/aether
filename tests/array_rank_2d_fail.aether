@@ -1,0 +1,26 @@
+// Regression: a one-dimensional array indexed twice. This is the DP-table shape
+// models write when they want a 2-D table -- they get the declaration's rank
+// wrong, not the syntax. It used to compile and die at runtime with an uncoded
+// "Expected a pointer to an array for element access.", which names neither the
+// variable nor the rank. Must be a compile-time [ARR-002].
+fn lcs(a: Text, b: Text) -> Int {
+    let n: Int = string_len(a);
+    let m: Int = string_len(b);
+    let dp: Int[] = [];
+    loop i in 0..(n + 1) * (m + 1) {
+        dp = dp + [0];
+    }
+    loop i in 1..n + 1 {
+        loop j in 1..m + 1 {
+            if a[i - 1] == b[j - 1] {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            }
+        }
+    }
+    ret dp[n][m];
+}
+
+fn main() -> Void {
+    fx { println(lcs("abc", "abd")); }
+    ret;
+}

@@ -1,6 +1,7 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-26-1*
+*Guide version: 2026-07-26-2*
+
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
 
@@ -1047,6 +1048,27 @@ fn main() -> Void {
 
 ## Dynamic arrays
 
+**Nested arrays are real.** A row is an `Int[]`, so a table is `Int[][]`, and
+every 1-D operation composes into it:
+
+```aether
+let table: Int[][] = [];
+loop r in 0..rows {
+    let row: Int[] = [];
+    loop c in 0..cols {
+        row = row + [r * cols + c];
+    }
+    table = table + [row];
+}
+table[1][2] = 99;                       // writable through both indexes
+let width: Int = length(table[1]);      // rows are independent -- may be jagged
+```
+
+Bound an inner loop with `length(table[r])`, never the first row's width.
+Declaring `Int[]` and then writing `dp[i][j]` is `[ARR-002]`: the rank of the
+*declaration* is wrong, not the indexing syntax. If you would rather keep one
+dimension, index with a computed offset — `table[r * width + c]`.
+
 ```aether
 let xs: Int[] = [];
 xs = xs + [7];          // append pattern (any literal length: [7], [7, 8], even [])
@@ -1636,6 +1658,12 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   value at construction with `new T { field: value }`. A type-mismatched default
   (`value: Int = "x"`) is a `[TYPE-001]` instead — make the default's type match
   the field.
+- **[ARR-002]** a one-dimensional array indexed twice → the *declaration's* rank
+  is wrong, not the indexing syntax. Nested arrays are real: declare `T[][]`,
+  build each row as its own `T[]` (`row = row + [v];` then
+  `table = table + [row];`), and bound inner loops with `length(table[r])` since
+  rows may be jagged. Or keep one dimension and index with a computed offset,
+  `table[r * width + c]`.
 - **[FLOW-001]** a fallthrough path with no return value → add an explicit final
   `ret ...` on every reachable top-level path in the non-`Void` helper.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function (a `ret` with no value)

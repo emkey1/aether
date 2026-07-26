@@ -1762,6 +1762,7 @@ static char *inferLetTypeName(AetherParser *p, AST *init);
 static void buildArrayAppendSteps(const AST *target, AST *item, int line,
                                   AST **outSetlenStmt, AST **outIdxAssign);
 static bool aetherTypeNameIsArray(const char *name);
+static int aetherTypeNameRank(const char *name);
 static AST *buildArrayUnaliasStmt(const AST *target, int line);
 static bool aetherArrayInitMayAlias(const AST *init);
 static AST *parseAdd(AetherParser *p);
@@ -2160,6 +2161,45 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 snprintf(msg, sizeof(msg), "expected ']' to close index expression (opened at line %d).", openLine);
                 reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
                 p->hadError = true;
+            }
+            /* ARR-002: a second index applied to a variable declared with only
+             * one `[]`. `let dp: Int[] = []; dp[i][j]` is the DP-table shape
+             * models write when they want a 2-D table -- they declare the rank
+             * wrong rather than the syntax. It used to compile and die at
+             * runtime with an uncoded "Expected a pointer to an array for
+             * element access.", which names neither the variable nor the rank,
+             * so the reader has nothing to act on. Aether does have real nested
+             * arrays, so the fix is a declaration change, not a redesign.
+             *
+             * Only fires when the base is a plain variable whose declared type
+             * name is known and has exactly one `[]`. A slice (`xs[a..b][i]`)
+             * lowers to a temp variable before reaching here, and a field base
+             * (`self.rows[i][j]`) is not AST_VARIABLE, so neither is judged. */
+            if (node && node->type == AST_ARRAY_ACCESS && node->left &&
+                node->left->type == AST_VARIABLE && node->left->token &&
+                node->left->token->value && p->bindings) {
+                const char *baseName = node->left->token->value;
+                const char *declared = bindingTableGet(p->bindings, baseName,
+                                                       strlen(baseName));
+                if (declared && aetherTypeNameRank(declared) == 1) {
+                    char detail[256];
+                    char hint[256];
+                    snprintf(detail, sizeof(detail),
+                             "'%s' is declared '%s', a one-dimensional array, but is "
+                             "indexed twice here.", baseName, declared);
+                    snprintf(hint, sizeof(hint),
+                             "declare it as '%s[]' for a real 2-D array (rows are "
+                             "themselves arrays: `row = row + [v];` then "
+                             "`%s = %s + [row];`), or index it once with a computed "
+                             "offset such as `%s[r * width + c]`.",
+                             declared, baseName, baseName, baseName);
+                    reportAetherAstError(aetherSemanticGetSourcePath(), openLine,
+                                         "array-rank", detail, hint);
+                    p->hadError = true;
+                    freeAST(index);
+                    freeAST(node);
+                    return NULL;
+                }
             }
             AST *acc = newASTNode(AST_ARRAY_ACCESS, NULL);
             setLeft(acc, node);
@@ -4493,6 +4533,19 @@ static bool aetherTypeNameIsArray(const char *name) {
     if (!name) return false;
     size_t n = strlen(name);
     return n >= 2 && name[n - 2] == '[' && name[n - 1] == ']';
+}
+
+/* Trailing `[]` pairs on an Aether type name: "Int" 0, "Int[]" 1, "Int[][]" 2.
+ * Used by ARR-002 to tell a genuinely 1-D declaration from a nested one. */
+static int aetherTypeNameRank(const char *name) {
+    if (!name) return 0;
+    size_t n = strlen(name);
+    int rank = 0;
+    while (n >= 2 && name[n - 2] == '[' && name[n - 1] == ']') {
+        rank++;
+        n -= 2;
+    }
+    return rank;
 }
 
 /* Build a fresh reference to local `name` (a distinct AST_VARIABLE instance --

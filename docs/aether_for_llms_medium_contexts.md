@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-07-26-3*
+*Guide version: 2026-07-26-4*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -77,25 +77,29 @@ wrong shape is what stops you writing it.
     either**: `limit: Int = MAX_SCORE;` is rejected just like
     `limit: Int = MAX_SCORE + 1;`. For anything else, set it at construction:
     `new T { limit: MAX_SCORE + 1 }`.
-19. **FLOW-001.** Every non-`Void` function must return a value on every
+19. **ARR-002.** A one-dimensional array indexed twice is a compile-time error.
+    Aether has real nested arrays — declare the rank you actually want.
+    ✗ `let dp: Int[] = []; dp[i][j] = 1;`
+    ✓ `let dp: Int[][] = [];` with rows that are themselves `Int[]`
+20. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path. **FLOW-002.** A bare `ret;` in a non-`Void`
     function is an error — give it a value or declare `-> Void`.
-20. **NAME-001.** Do not redeclare a local in the same scope.
-21. **TUP-001.** Tuples are narrow. `let (a, b) = pair();` works on a direct
+21. **NAME-001.** Do not redeclare a local in the same scope.
+22. **TUP-001.** Tuples are narrow. `let (a, b) = pair();` works on a direct
     top-level helper call. To read one field, bind first: `let t = pair(); t.0;`
     — never `pair().0` chained onto the call. If the producer is a method or an
     expression, return a record and read its fields instead.
-22. **IMP-001 / MOD-001 / MOD-002.** Canonical import is `use "module_name";`.
+23. **IMP-001 / MOD-001 / MOD-002.** Canonical import is `use "module_name";`.
     Never invent an import. Imported names match exported names *exactly* — `use`
     does not rename, so an export called `classifySupport` is called
     `classifySupport`, never a guessed `classify`.
-23. **MS-001.** `MStream` is the memory-stream handle type. `mstreamcreate()`
+24. **MS-001.** `MStream` is the memory-stream handle type. `mstreamcreate()`
     returns `MStream`, never `Int` or `Text`; read contents with
     `mstreambuffer(ms) -> Text`.
-24. **FMT-001.** If the prompt specifies exact output, match it exactly —
+25. **FMT-001.** If the prompt specifies exact output, match it exactly —
     spacing, casing, line order, decimal precision. Print `avg0=0`, not
     `avg0 = 0`.
-25. **OUT-001.** Return raw Aether source only. No Markdown fences.
+26. **OUT-001.** Return raw Aether source only. No Markdown fences.
 
 Default stance: single-file programs; variadic `println("label = ", v)` rather
 than `+` concatenation; explicit types on TOON values and non-trivial results;
@@ -572,6 +576,31 @@ fn main() -> Void {
 
 `xs[a..b]` is half-open, matching `loop i in a..b`. There is no first-class
 Range value — `a..b` is meaningful only inside `[...]` or a `loop` header.
+
+**Nested arrays are real.** A row is just an `Int[]`, so a table is `Int[][]`:
+
+```aether
+fn main() -> Void {
+    let table: Int[][] = [];
+    loop r in 0..3 {
+        let row: Int[] = [];
+        loop c in 0..4 {
+            row = row + [r * 4 + c];
+        }
+        table = table + [row];
+    }
+    table[1][2] = 99;
+    fx {
+        println(table[1][2], " rows=", length(table), " cols=", length(table[0]));
+    }
+    ret;
+}
+```
+
+Bound the inner loop with `length(table[r])`, not the first row's width — rows
+are independent arrays, so a table may be jagged. Declaring `Int[]` and then
+writing `dp[i][j]` is `ARR-002`: the rank of the *declaration* is what is wrong,
+not the indexing syntax.
 
 **Arrays are value-copied at the call boundary; records are not.** Passing `xs`
 into a function gives that function its own copy, so mutating it there never
@@ -1116,6 +1145,9 @@ The compiler prints a stable code in brackets, and on newer builds a
   the array and reassign at the call site.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
   fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
+- **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
+  build rows as arrays, or index once with a computed offset
+  (`grid[r * width + c]`).
 - **[MUT-001]** `let mut` → drop `mut`.
 - **[PAR-001]** the same record in more than one `par` branch → give each branch
   its own and combine afterwards.

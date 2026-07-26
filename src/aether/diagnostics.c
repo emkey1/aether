@@ -81,6 +81,14 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "array-copy") == 0) {
             return "TYPE-001";
         }
+        /* A one-dimensional array indexed twice (`let dp: Int[]; dp[i][j]`).
+         * Distinct from TYPE-001 because the fix is specific and mechanical --
+         * change the declaration's rank, or flatten to one index -- and worth
+         * its own guide section rather than being folded into the general
+         * annotate-your-types advice. */
+        if (strcmp(kind, "array-rank") == 0) {
+            return "ARR-002";
+        }
     }
 
     if (!detail) {

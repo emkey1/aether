@@ -12,6 +12,35 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-6
+
+**`ARR-002`: a one-dimensional array indexed twice is now a compile-time error.**
+Declaring `Int[]` and then writing `dp[i][j]` is the DP-table shape models
+produce — they get the *declaration's rank* wrong, not the indexing syntax.
+Aether has real nested arrays, so the fix is one character in the type.
+
+It used to compile and fail at runtime with an uncoded message that names
+neither the variable nor the rank:
+
+```
+VM Error: Expected a pointer to an array for element access.
+```
+
+Per the cs-aug20 eval this was failing `cs_lcs` across models. The new
+diagnostic names the binding and its declared type, and offers both remedies —
+`Int[][]` with rows built as arrays, or a computed offset `dp[r * width + c]`.
+
+The check is parse-time and deliberately narrow: it fires only when the base is
+a plain variable whose *declared* type name carries exactly one `[]`. A slice
+(`xs[a..b][i]`) lowers through a temp before the second index, a field base
+(`self.rows[i][j]`) is not a bare variable, and `Text` has rank 0 — none are
+judged. Zero hits across all 60 examples and every test fixture.
+
+All three guides gain a nested-array section, since the corpus gap is what
+produced the wrong declarations in the first place: `examples/base/nested_arrays`
+landed in the previous commit and nothing before it showed `Int[][]` written
+correctly.
+
 ## 2026-07-26-5
 
 **An inferred `let` calling a name that does not exist now says so.** It used to
