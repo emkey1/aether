@@ -2557,6 +2557,102 @@ static const char *aetherBareFunctionName(const char *name) {
     return (dot && dot[1]) ? dot + 1 : name;
 }
 
+/* Compile-time arity guard for a small, hand-verified set of fixed-arity
+ * builtins (BUILT-002).
+ *
+ * These all previously reached the VM and failed at *runtime*, so a wrong-arity
+ * call sailed past `--no-run` and only died once that line executed -- a
+ * generated program could pass a compile-only gate and then blow up on its
+ * first formatted number. `formatfloat` is the motivating case: the guide's
+ * Real->Text row lists canonical `formatfloat(r, prec)` beside the forbidden,
+ * println-only `r:0:prec`, and models splice the width slot out of the second
+ * into the first, producing `formatfloat(r, 0, prec)` (see the 2026-07-26
+ * transcript findings in docs/ideas_and_todo.md).
+ *
+ * Every min/max pair below is read off the corresponding `arg_count` guard in
+ * pscal-core (builtin.c / ext_builtins/strings/parse.c) -- do NOT add an entry
+ * from a doc signature alone. `formatfloat`'s published signature says two
+ * parameters, but the VM accepts one or two; guessing from the signature would
+ * have rejected the valid one-argument call. Builtins with genuinely variadic
+ * or overloaded arity (length, println, write) are deliberately absent. */
+typedef struct {
+    const char *name;
+    size_t nameLen;
+    int minArgs;
+    int maxArgs;
+} AetherBuiltinArity;
+
+static const AetherBuiltinArity kAetherBuiltinArity[] = {
+    {"formatfloat", 11, 1, 2},
+    {"realtostr",    9, 1, 1},
+    {"clamp",        5, 3, 3},
+    {"min",          3, 2, 2},
+    {"max",          3, 2, 2},
+    {"ord",          3, 1, 1},
+    {"chr",          3, 1, 1},
+    {"copy",         4, 3, 3},
+    {"pos",          3, 2, 2},
+    {"trim",         4, 1, 1},
+    {"parse_int",    9, 1, 1},
+    {"parse_float", 11, 1, 1},
+    {"parse_bool",  10, 1, 1},
+    {"split",        5, 2, 2},
+};
+
+static void aetherCheckBuiltinArity(const AST *node,
+                                    const char *canonical,
+                                    const char *display,
+                                    int line) {
+    size_t len;
+    size_t i;
+
+    if (!node || !canonical) {
+        return;
+    }
+    /* A user's own top-level `fn max(a, b, c)` shadows the builtin; judge the
+     * call against the declaration, not this table. Method calls carry a
+     * receiver in ->left and are resolved by the field/method checker, so a
+     * `type` with its own `min` method is not our business either. */
+    if (node->left || aetherAstIsTopLevelUserFunction(canonical)) {
+        return;
+    }
+    len = strlen(canonical);
+    for (i = 0; i < sizeof(kAetherBuiltinArity) / sizeof(kAetherBuiltinArity[0]); ++i) {
+        const AetherBuiltinArity *entry = &kAetherBuiltinArity[i];
+        char detail[256];
+        int given;
+
+        if (len != entry->nameLen || strncmp(canonical, entry->name, len) != 0) {
+            continue;
+        }
+        given = node->child_count;
+        if (given >= entry->minArgs && given <= entry->maxArgs) {
+            return;
+        }
+        if (entry->minArgs == entry->maxArgs) {
+            snprintf(detail,
+                     sizeof(detail),
+                     "'%s' takes %d argument%s, but %d %s given.",
+                     display,
+                     entry->minArgs,
+                     entry->minArgs == 1 ? "" : "s",
+                     given,
+                     given == 1 ? "was" : "were");
+        } else {
+            snprintf(detail,
+                     sizeof(detail),
+                     "'%s' takes %d to %d arguments, but %d %s given.",
+                     display,
+                     entry->minArgs,
+                     entry->maxArgs,
+                     given,
+                     given == 1 ? "was" : "were");
+        }
+        reportAetherErrorCoded("BUILT-002", "builtin", line, detail);
+        return;
+    }
+}
+
 static void aetherCheckCallNode(const AST *node,
                                 const char *canonical,
                                 int fxDepth,
@@ -2582,6 +2678,7 @@ static void aetherCheckCallNode(const AST *node,
     if (!display) {
         display = canonical;
     }
+    aetherCheckBuiltinArity(node, canonical, display, line);
     isEffectful = aetherIsEffectfulBuiltin(canonical, strlen(canonical));
     if (isEffectful && aetherAstIsTopLevelUserFunction(canonical)) {
         /* A user-declared top-level function shadows a same-named vm_builtin

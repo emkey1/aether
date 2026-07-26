@@ -3258,7 +3258,13 @@ static int braceDeltaForLine(const char *line) {
 
 static char *rewriteAetherBuiltinAliases(const char *start, const char *end) {
     static const struct { const char *from; size_t fromLen; const char *to; } kAliases[] = {
-        {"parse_json",    10, "toon_parse"},
+        {"parse_json",        10, "toon_parse"},
+        /* `toon_parse_file(path)` exists, so models read `toon_parse` as a bare
+         * stem and expect `_string` to be the sibling of `_file` -- one trace
+         * even hallucinated a guide citation for it (docs/ideas_and_todo.md,
+         * 2026-07-26). Matching is whole-identifier, so real `toon_parse` (10)
+         * and `toon_parse_file` (15) never collide with this 17-char entry. */
+        {"toon_parse_string", 17, "toon_parse"},
         {"root_node",      9, "toon_root"},
         {"close_doc",      9, "toon_close"},
         {"lookup_string", 13, "toon_get_text"},

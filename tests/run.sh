@@ -2744,4 +2744,53 @@ if ! grep -q "arr\[lo..hi\]" /tmp/aether_array_copy_fail.out; then
     exit 1
 fi
 
+# BUILT-002: wrong argument count for a fixed-arity builtin. formatfloat(r, 0, 2)
+# borrows the width slot from the println-only `r:0:prec` form; it used to reach
+# the VM and fail with the uncoded runtime "FormatFloat expects (numeric [,
+# integer precision])", so it sailed past a --no-run gate and only died once the
+# line executed. Must now be a compile-time diagnostic -- assert under --no-run
+# so a regression to runtime-only detection fails this lap.
+if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/builtin_arity_fail.aether" >/tmp/aether_builtin_arity_fail.out 2>&1; then
+    echo "expected BUILT-002 for formatfloat(r, 0, 2) but compilation succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[BUILT-002\] Aether builtin error: 'formatfloat' takes 1 to 2 arguments, but 3 were given." /tmp/aether_builtin_arity_fail.out; then
+    echo "missing BUILT-002 arity diagnostic (regressed to the uncoded runtime FormatFloat error?)" >&2
+    cat /tmp/aether_builtin_arity_fail.out >&2
+    exit 1
+fi
+# ...and the table must not over-fire: every accepted arity still compiles and
+# runs, including formatfloat's one-argument form (which its published signature
+# does not advertise), and a user fn / method may shadow a table name freely.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_pass.aether" >/tmp/aether_builtin_arity_pass.out
+printf '87.46 87.456700 87.456700\n3 2 9\n65 B ell\n2 x\n7 true 2\n' >/tmp/aether_builtin_arity_expected.out
+if ! cmp -s /tmp/aether_builtin_arity_expected.out /tmp/aether_builtin_arity_pass.out; then
+    echo "unexpected builtin-arity output (BUILT-002 table rejecting a valid arity?)" >&2
+    cat /tmp/aether_builtin_arity_pass.out >&2
+    exit 1
+fi
+"$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_shadow_pass.aether" >/tmp/aether_builtin_arity_shadow_pass.out
+if ! grep -qx '9 92' /tmp/aether_builtin_arity_shadow_pass.out; then
+    echo "BUILT-002 table fired on a user-shadowed name (fn max / method min)" >&2
+    cat /tmp/aether_builtin_arity_shadow_pass.out >&2
+    exit 1
+fi
+
+# toon_parse_string: not a builtin. Models infer it from toon_parse_file's
+# `_file` suffix (one trace even hallucinated a guide citation for it), so an
+# alias normalizes it to toon_parse. Whole-identifier matching must leave the
+# real toon_parse / toon_parse_file names alone. Accept the no-yyjson fallback.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/toon_parse_string_alias_pass.aether" >/tmp/aether_toon_parse_string_alias_pass.out
+if ! grep -qxE 'Aether 42|toon unavailable' /tmp/aether_toon_parse_string_alias_pass.out; then
+    echo "unexpected toon_parse_string alias output" >&2
+    cat /tmp/aether_toon_parse_string_alias_pass.out >&2
+    exit 1
+fi
+if grep -qx 'Aether 42' /tmp/aether_toon_parse_string_alias_pass.out &&
+   ! grep -qx 'canonical' /tmp/aether_toon_parse_string_alias_pass.out; then
+    echo "toon_parse_string alias broke the canonical toon_parse call beside it" >&2
+    cat /tmp/aether_toon_parse_string_alias_pass.out >&2
+    exit 1
+fi
+
 echo "aether smoke tests passed"

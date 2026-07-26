@@ -1,8 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
 *Guide version: 2026-07-15-2*
-Aether is a compact PSCAL front end. It uses the existing backend, bytecode
-compiler, and VM. It is not a separate runtime.
 
 ## Highest-Value Rules
 
@@ -17,7 +15,13 @@ compiler, and VM. It is not a separate runtime.
    but `loop` is canonical and covers every form — prefer it.
 3. **BUILT-001.** The builtins named here are the supported surface. Do not
    invent helpers (`substring`, `to_upper`, `replace`, ...) or guess names. More
-   exist (discover via `builtin_info(...)`), but never assume an unlisted name.
+   exist, but `builtin_info(...)` is a *runtime* builtin — if you are writing a
+   source file in one shot you cannot call it, so never assume an unlisted name;
+   restructure to use a listed one instead.
+   **BUILT-002:** right name, wrong argument count is its own error, caught at
+   compile time for the fixed-arity conversion/math helpers. Most common:
+   `formatfloat(r, 0, 2)` — it takes `(value, precision)`, and the width slot
+   belongs only to the `println`-only `r:0:prec` form.
 4. **IMP-001.** Never invent `use "..."` imports. Only import verified modules.
 5. **MOD-001.** If a module exports `getFortyTwo`, call `getFortyTwo`. Do not
    rename exports to `get_forty_two`, `AetherName`, `APP_NAME`, or other guesses.
@@ -289,10 +293,9 @@ The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
 `trim(s)`,
 `stringofchar(ch, n)`. Do not invent richer helpers (no `replace`; no
 whole-string `to_upper`). Note: the `value:width:precision` spec only works
-inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes
-exactly two arguments — never borrow the width slot from the `println` form:
-`formatfloat(r, 0, 2)` compiles and then fails at *runtime* with `FormatFloat
-expects (numeric [, integer precision])`. `int(x)` is a numeric
+inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes one
+or two arguments — never borrow the width slot from the `println` form:
+`formatfloat(r, 0, 2)` is a compile-time `[BUILT-002]`. `int(x)` is a numeric
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
 code point of `Text`; passing it a `Text` silently returns `0`. Use
 `parse_int` for numeric strings and `ord` for character codes.
@@ -543,9 +546,9 @@ Handle ownership:
 
 - `toon_parse_file(path)` is **effectful** (file I/O — call inside `fx`);
   `toon_parse(text)` and the node ops below are pure (call outside `fx`)
-- the text parser is `toon_parse(text)`. There is **no** `toon_parse_string` —
-  the `_file` suffix on `toon_parse_file` does not imply a `_string` sibling,
-  and inventing one is a hard `SCOPE-001`
+- the text parser is `toon_parse(text)`. There is no `toon_parse_string` — the
+  `_file` suffix on `toon_parse_file` does not imply a `_string` sibling. (A
+  compatibility alias rewrites it, so it runs; write the canonical name anyway)
 - `ToonDoc` owns all `ToonNode` handles derived from it
 - `toon_root(...)`, `toon_key(...)`, and `toon_at(...)` create node handles
 - `toon_free(node)` releases one node handle early

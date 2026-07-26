@@ -1,0 +1,26 @@
+// Regression: the BUILT-002 arity table must not fire on a name the user
+// redeclared. A top-level `fn max` shadows the builtin outright (any arity),
+// and a method named after a table entry is resolved by the receiver, not the
+// builtin surface -- neither may be judged against the builtin's arity.
+fn max(a: Int, b: Int, c: Int) -> Int {
+    let m: Int = a;
+    if b > m { m = b; }
+    if c > m { m = c; }
+    ret m;
+}
+
+type Range {
+    a: Int = 100;
+
+    fn min(pad: Int, extra: Int) -> Int {
+        ret self.a - pad - extra;
+    }
+}
+
+fn main() -> Void {
+    let g: Range = new Range();
+    fx {
+        println(max(1, 9, 4), " ", g.min(5, 3));
+    }
+    ret;
+}

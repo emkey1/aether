@@ -1,0 +1,12 @@
+// Regression: wrong argument count for a fixed-arity builtin is a compile-time
+// [BUILT-002], not a runtime FormatFloat error that survives --no-run.
+// The three-argument call borrows the width slot from the println-only
+// `r:0:prec` form, which is the shape LLMs actually generate.
+fn main() -> Void {
+    let r: Real = 87.4567;
+    let bad: Text = formatfloat(r, 0, 2);
+    fx {
+        println(bad);
+    }
+    ret;
+}

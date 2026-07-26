@@ -1,0 +1,21 @@
+// Regression: toon_parse_string is not a builtin -- models infer it from
+// toon_parse_file's `_file` suffix -- so an alias normalizes it to toon_parse.
+// Whole-identifier matching must leave real toon_parse / toon_parse_file alone.
+fn main() -> Void {
+    if !has_toon() {
+        fx {
+            println("toon unavailable");
+        }
+        ret;
+    }
+    let doc: ToonDoc = toon_parse_string("{\"name\":\"Aether\",\"score\":42}");
+    let root: ToonNode = toon_root(doc);
+    let canon: ToonDoc = toon_parse("{\"name\":\"canonical\"}");
+    fx {
+        println(toon_get_text(root, "name"), " ", toon_get_int(root, "score"));
+        println(toon_get_text(toon_root(canon), "name"));
+    }
+    toon_close(canon);
+    toon_close(doc);
+    ret;
+}

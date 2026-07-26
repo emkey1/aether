@@ -28,6 +28,14 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "scope") == 0) {
             return "SCOPE-001";
         }
+        /* Wrong argument count for a real builtin. Distinct from BUILT-001,
+         * which is "this helper does not exist at all" -- here the name is
+         * right and only the call shape is wrong, so the guide fix is the
+         * signature, not the helper surface. semantic.c emits this explicitly
+         * via reportAetherErrorCoded; this entry is the kind-based backstop. */
+        if (strcmp(kind, "builtin") == 0) {
+            return "BUILT-002";
+        }
         if (strcmp(kind, "redeclaration") == 0) {
             return "NAME-001";
         }

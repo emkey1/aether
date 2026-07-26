@@ -1,8 +1,6 @@
 # Aether for Humans and LLMs
 
 *Guide version: 2026-07-15-2*
-Aether is a compact front end for the PSCAL suite. It targets the existing
-shared PSCAL backend, bytecode compiler, and VM. It is not a separate runtime.
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -53,40 +51,48 @@ If you only read one part of this document, read **Highest-Value Rules** and
 12. **BUILT-001.** The builtins listed here are the supported, recommended
     surface. Do not invent helpers (`substring`, `to_upper`, `replace`, ...) and
     do not guess names. More builtins exist and are discoverable via
-    `builtins_json()` / `builtin_info(...)`, but if one is not listed here,
-    discover its exact name and signature before calling rather than assuming.
-13. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
+    `builtins_json()` / `builtin_info(...)`, but those are *runtime* builtins —
+    if you are generating a source file in one shot you cannot call them. In
+    that situation do not guess: restructure to use a helper that *is* listed.
+13. **BUILT-002.** Call a listed builtin with the argument count shown in its
+    signature. Getting the name right and the arity wrong is a distinct error
+    (`[BUILT-002] 'formatfloat' takes 1 to 2 arguments, but 3 were given.`) and
+    is now caught at compile time for the fixed-arity conversion and math
+    helpers. The classic case is splicing the width slot out of the
+    `println`-only `r:0:prec` form into `formatfloat`, which takes
+    `(value, precision)` and nothing more.
+14. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
     object-shaped, extract the named array with `toon_key(...)` before
     iterating; never iterate an object root as if it were the array.
-14. **SCOPE-001.** A name must be declared before use and still be in scope at
+15. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. Do not rely on guessed globals, expired loop locals, or
     helper-local names from another function.
-15. **METH-001.** Methods do not capture outer locals. If a method needs a loop
+16. **METH-001.** Methods do not capture outer locals. If a method needs a loop
     index, label, or other caller context, pass it as a parameter.
-16. **FIELD-001.** Method locals may reuse field names. Bare `name` means the
+17. **FIELD-001.** Method locals may reuse field names. Bare `name` means the
     local; `self.name` means the field.
-17. **FIELD-002.** Record and type field names must exist exactly as declared.
+18. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields on a type.
-18. **FIELD-003.** A record/type field may declare a **constant** default:
+19. **FIELD-003.** A record/type field may declare a **constant** default:
     `field: Type = <const>` (e.g. `count: Int = 0`, `name: Text = ""`,
     `on: Bool = true`, `xs: Int[] = []`). Only compile-time constants are
     allowed — a default may not reference another field, `self`, or call a
     function. For a computed initial value, set it at construction with
     `new T { field: value }`.
-19. **FLOW-001.** Every non-`Void` function must return a value on every
+20. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path.
-20. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
+21. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
     no inline `fn(...) -> T { ... }` literals, no lambdas, and no closures.
     Never pass a function as an argument. `task_spawn` / `task_queue` take a
     builtin *name* as `Text` (`task_spawn("delay", "worker", 5)`), not a
     function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
     To run your own code concurrently, call your functions inside a
     `par { ... }` block (see **Concurrency**), not `task_spawn`.
-21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+22. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block.
-22. **MS-001.** `MStream` is the opaque memory-stream handle type.
+23. **MS-001.** `MStream` is the opaque memory-stream handle type.
     `mstreamcreate()` / `mstreamfromstring(text)` return `MStream` — never
     declare the binding `Int` or `Text`. Extract contents with
     `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`. HTTP responses
@@ -125,11 +131,11 @@ when unsure about a type, add it explicitly.
 - invented helper functions not listed in this document (BUILT-001)
 - `toon_parse_string(text)` — the parser is `toon_parse(text)`. The `_file`
   suffix on `toon_parse_file(path)` does **not** imply a matching `_string`
-  sibling; `toon_parse` already takes `Text` (SCOPE-001)
-- `formatfloat(r, 0, prec)` — `formatfloat` takes exactly two arguments,
+  sibling; `toon_parse` already takes `Text`. (A compatibility alias quietly
+  rewrites it, so it runs — write the canonical name anyway)
+- `formatfloat(r, 0, prec)` — `formatfloat` takes one or two arguments,
   `formatfloat(r, prec)`. The width slot belongs to the separate, `println`-only
-  `r:width:prec` form; the three-argument call compiles and then fails at
-  *runtime* with `FormatFloat expects (numeric [, integer precision])`
+  `r:width:prec` form. This is a compile-time `[BUILT-002]`
 - anonymous functions, inline `fn(...) -> T { ... }` literals, lambdas, or
   passing a function as a value; `task_spawn` / `task_queue` take a builtin
   *name* as `Text`, and there is no `map` / `filter` / `reduce` (FUNC-001)
@@ -184,9 +190,8 @@ Generate the canonical form unless preserving existing code.
 
 Small-to-medium automation programs that parse structured payloads, extract
 typed fields, classify or transform data, and print or store results inside
-`fx` — with visible effect boundaries and lightweight contracts, lowering onto
-the shared PSCAL toolchain. It is not a separate runtime, not a dynamic
-scripting language, and not a place to import imagined libraries.
+`fx` — with visible effect boundaries and lightweight contracts. It is not a
+dynamic scripting language, and not a place to import imagined libraries.
 
 ## Smallest useful program
 
@@ -962,13 +967,13 @@ The gotcha every generated socket example must handle: `socketaccept` and
 — call either one with no counterpart running concurrently and the program
 hangs forever. Two ways to avoid that:
 
-1. **Same-process client + server via `par`** (recommended for a
+2. **Same-process client + server via `par`** (recommended for a
    self-contained demo). Create, bind, and put the listening socket into
    listen state *before* the `par` block — not inside one of its branches —
    so the client branch can never race ahead of a not-yet-listening server;
    `par` already joins (waits for both) before continuing (see
    **Concurrency**).
-2. **Non-blocking + `socketpoll`.** Call `socketsetblocking(socket, false)`,
+3. **Non-blocking + `socketpoll`.** Call `socketsetblocking(socket, false)`,
    then loop on `socketpoll(socket, timeoutMs, 1)` until it reports readable
    (or a deadline passes) before calling `socketaccept`/`socketreceive`.
 

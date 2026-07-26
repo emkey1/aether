@@ -1943,11 +1943,13 @@ plausible guess.
 `..._with_small_contexts.md`, in both cases naming the `_file`-implies-`_string`
 inference explicitly rather than just listing the bad name.
 
-**Open decision:** whether to also add `toon_parse_string` → `toon_parse` to the
-alias table. *For:* one-line change, exact precedent (`parse_json`), converts a
-hard failure into a working program for a guess this predictable. *Against:* the
-guide's whole discipline is "do not invent builtins," and silently accepting
-invented names teaches the opposite. Not done pending a call.
+**Also done (2026-07-26-2):** `toon_parse_string` → `toon_parse` added to the
+alias table, per the precedent above. Matching is whole-identifier, so the real
+`toon_parse` (10 chars) and `toon_parse_file` (15) never collide with the 17-char
+entry; `tests/toon_parse_string_alias_pass.aether` pins both the rewrite and the
+non-collision. The alias stays undocumented except as a never-generate entry —
+listing it in the guides would legitimize the invented name, which is the
+opposite of what the alias table is for.
 
 ### 2. Merged `formatfloat(r, prec)` with the `println`-only `r:0:prec` form — *fixed (docs + example) 2026-07-26*
 
@@ -1985,9 +1987,29 @@ trap in a comment; the guide table row now states the arity and lists
 `formatfloat(r, 0, prec)` as a never-generate; the small-context guide carries
 the same warning inline.
 
-**Still open:** the runtime diagnostic deserves a code and a compile-time arity
-check. Builtin arity is knowable at compile time for a direct call with literal
-arguments; letting this reach the VM is a gap, not a design choice.
+**Also done (2026-07-26-2):** new `BUILT-002` diagnostic, checked at compile
+time in `aetherCheckBuiltinArity` (`semantic.c`) over a hand-verified table of
+fourteen fixed-arity conversion/math builtins. `formatfloat(r, 0, 2)` now fails
+under `--no-run` with `[BUILT-002] 'formatfloat' takes 1 to 2 arguments, but 3
+were given.`, and the code flows through `--diagnostics-json`/`-toon` so the
+repair loop stops seeing `code:null`.
+
+Two things worth remembering from building it. First, **the arity ranges cannot
+be derived from the published signatures.** `formatfloat`'s metadata entry in
+`query_builtin.c` says `(value: Real, precision: Int)` — two parameters, no
+optional marker — but the VM guard is `arg_count < 1 || arg_count > 2`. A
+signature-driven check would have rejected the perfectly valid one-argument
+call. Every entry is read off the `arg_count` guard in pscal-core instead.
+Second, shadowing has to be excluded on two axes: a top-level `fn max(a, b, c)`
+shadows the builtin outright, and a `type` method named `min` is resolved by its
+receiver — the table must fire on neither
+(`tests/builtin_arity_shadow_pass.aether`).
+
+**Still open:** the table is hand-maintained and covers fourteen names. The
+general fix is an exported accessor for `kAetherBuiltinMeta` in pscal-core plus
+a real optional-parameter marker in the signature strings, which would let the
+frontend check every builtin instead of a curated list. That is a submodule
+change with the usual push-order cost, so it was not bundled here.
 
 ### 3. The guide's "discover it before you call it" advice is unusable in the generation context
 
@@ -2005,11 +2027,15 @@ model's fallback — route around the unknown getter by using `toon_get_text_or`
 plus `parse_int` — was safe but produced worse code than the `toon_get_int_or`
 that has been in the guide all along.
 
-**Suggested action:** the guide should say what to do when discovery is
-unavailable (prefer the listed surface; if it is not listed, restructure to
-avoid it — do not guess a name), and the listed surface has to be complete
-enough that this is actually possible. Alternatively, ship the builtin inventory
-as a static appendix so "discover" can mean "look further down this document."
+**Partly done (2026-07-26):** BUILT-001 in both guides now says outright that
+`builtins_json()` / `builtin_info(...)` are *runtime* builtins a one-shot
+generator cannot call, and that the fallback is to restructure onto a listed
+helper rather than guess a name.
+
+**Still open:** that only works if the listed surface is complete enough to
+restructure onto, which item 4 shows it effectively is not once the document is
+truncated. The durable fix is shipping the builtin inventory as a static
+appendix so "discover" can mean "look further down this document."
 
 ### 4. Truncation drops the exact tables the model then guesses around
 
@@ -2075,6 +2101,18 @@ showcase programs are extensionless (`agent_report`, `gradebook`) exactly like
 ("including gradebook") had been false since it was written, and `gradebook`
 was covered only indirectly. Fixed to the same "not README, not .json" filter
 `base/` uses; the lap went from 54 to 57 programs.
+
+### 8. Guide preamble trimmed — 2026-07-26
+
+Removed from the top of both guides: *"Aether is a compact front end for the
+PSCAL suite. It targets the existing shared PSCAL backend, bytecode compiler,
+and VM. It is not a separate runtime."* It is implementation trivia that changes
+nothing about what a model should generate, it burns tokens in the part of the
+document least likely to survive truncation (item 4), and a human can learn it
+from `README.md` or `aether_architecture_and_rationale.md`. The same clause was
+also trimmed out of the "what Aether is for" paragraph further down, keeping the
+half that does constrain generation ("not a dynamic scripting language, and not
+a place to import imagined libraries").
 
 ### Corpus additions from this trace
 

@@ -12,6 +12,46 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-2
+
+**Wrong builtin arity is a compile-time `BUILT-002`, and `toon_parse_string`
+aliases to `toon_parse`.** Both come from a 2026-07-26 reasoning trace (full
+writeup in `docs/ideas_and_todo.md`) in which a model wrote its first Aether
+program from the guide alone.
+
+`BUILT-002` is a new diagnostic for a call with the right builtin name and the
+wrong argument count, checked at compile time for a hand-verified set of
+fixed-arity conversion and math helpers (`formatfloat`, `realtostr`, `clamp`,
+`min`, `max`, `ord`, `chr`, `copy`, `pos`, `trim`, `parse_int`, `parse_float`,
+`parse_bool`, `split`). The motivating case is `formatfloat(r, 0, 2)` — the
+width slot spliced out of the `println`-only `r:0:prec` form — which previously
+reached the VM and failed with the uncoded runtime message `FormatFloat expects
+(numeric [, integer precision])`. That meant a generated program passed a
+`--no-run` gate and died on its first formatted number; the repair loop also saw
+`code:null`. It now fails at compile time and carries `BUILT-002` through
+`--diagnostics-json` / `--diagnostics-toon`.
+
+Each arity range is read off the corresponding `arg_count` guard in pscal-core,
+not off the published signature: `formatfloat`'s signature says
+`(value: Real, precision: Int)` but the VM accepts one or two arguments, so a
+signature-derived check would have rejected the valid one-argument call. A
+name the user redeclares — a top-level `fn max(a, b, c)` or a method named
+`min` — is not judged against the table. Variadic or overloaded builtins
+(`length`, `println`, `write`) are deliberately absent.
+
+**Breaking, narrowly:** a program that called one of those fourteen builtins
+with a bad argument count used to compile and fail later at runtime. It now
+fails to compile. Any such program was already broken at that line.
+
+`toon_parse_string(text)` joins the existing compatibility-alias table
+(`parse_json`, `root_node`, `close_doc`, `lookup_string`, `lookup_int`) and
+rewrites to `toon_parse(text)`. The name is over-determined by our own surface:
+`toon_parse_file(path)` exists, so `toon_parse` reads as a bare stem whose
+`_string` sibling ought to exist. Matching is whole-identifier, so the real
+`toon_parse` and `toon_parse_file` are untouched. As with every alias, it stays
+out of the guides except as a never-generate entry — the canonical name is
+`toon_parse`.
+
 ## 2026-07-26-1
 
 **`Text` is 0-based.** `s[0]` is the first character (it was a runtime error),

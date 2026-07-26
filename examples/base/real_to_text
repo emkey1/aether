@@ -1,11 +1,10 @@
 // Real -> Text: the three conversions, and the one arity that does not exist.
 //
-// `formatfloat` takes exactly TWO arguments -- formatfloat(value, precision).
-// It has no width parameter: `formatfloat(v, 0, 2)` is not a compile error, it
-// is a *runtime* failure ("FormatFloat expects (numeric [, integer precision])")
-// that only fires once that line executes. The width:precision spelling belongs
-// to the separate `value:width:precision` form, which is println-only and
-// cannot be bound to a Text.
+// `formatfloat` takes one or two arguments -- formatfloat(value[, precision]).
+// It has no width parameter: `formatfloat(v, 0, 2)` is a compile-time
+// [BUILT-002] arity error. The width:precision spelling belongs to the separate
+// `value:width:precision` form, which is println-only and cannot be bound to a
+// Text.
 
 fn main() -> Void {
     let ratio: Real = 87.4567;
