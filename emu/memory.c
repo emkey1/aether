@@ -372,6 +372,51 @@ static page_t mem_next_mapped_page(struct mem *mem, page_t page) {
     return BAD_PAGE;
 }
 
+// mmap_min_addr: Linux refuses to map anything under this (and advertises the
+// same 65536 in /proc/sys/vm/mmap_min_addr, which fs/proc/sys.c already
+// reports), specifically so that a NULL dereference always faults.
+#define MEM_MIN_MAP_PAGE ((page_t) (65536 >> PAGE_BITS))
+// How far below a MAP_GROWSDOWN region a single fault may extend it. Linux
+// bounds this by RLIMIT_STACK measured from the stack top (8 MiB by default --
+// see kernel/init.c's init_rlimits); this is a deliberately looser constant so
+// that a guest that raises its stack limit and touches deep into a big frame
+// still behaves, while a wild pointer far below the stack does not.
+#define MEM_GROWSDOWN_MAX_PAGES ((page_t) ((32 * 1024 * 1024) >> PAGE_BITS))
+
+// May this unmapped page be materialized by extending a MAP_GROWSDOWN region
+// (i.e. the stack) down onto it?
+//
+// Linux only extends a growsdown VMA for a fault *close below* it:
+// expand_downwards() refuses anything under mmap_min_addr, and anything more
+// than RLIMIT_STACK below the stack. iSH had no bound at all -- any unmapped
+// page whose next mapped neighbour *anywhere* above it happened to be
+// growsdown was mapped on demand. That is catastrophic in the 64-bit guest
+// layouts, where the stack (~4 GiB) is the LOWEST mapping in the address space
+// and the executable and every library sit far above it (0x7fff_....): every
+// address below the stack -- the whole NULL page included -- silently
+// allocated zero-filled memory instead of faulting. A guest NULL dereference
+// read zeros and a guest NULL store SUCCEEDED, so instead of an immediate,
+// obvious SIGSEGV at the offending instruction the guest wandered on with
+// corrupted state and crashed somewhere else entirely.
+//
+// Found from a foot(1) render-worker crash on device: foot passed a NULL
+// pixman_image_t to pixman_image_fill_rectangles(), and rather than faulting
+// on the first field read, _pixman_image_validate() read a stale
+// non-NULL "transform" out of the auto-mapped NULL page (written earlier by
+// some other NULL store) and faulted three loads later on a garbage pointer,
+// with nothing in the report pointing back at the actual NULL.
+static bool mem_growsdown_allowed(struct mem *mem, page_t page) {
+    if (page < MEM_MIN_MAP_PAGE)
+        return false;
+    page_t p = mem_next_mapped_page(mem, page + 1);
+    if (p == BAD_PAGE || p >= mem->page_limit)
+        return false;
+    if (p - page > MEM_GROWSDOWN_MAX_PAGES)
+        return false;
+    struct pt_entry *next = mem_pt(mem, p);
+    return next != NULL && (next->flags & P_GROWSDOWN);
+}
+
 void mem_init(struct mem *mem) {
     mem->pgdir_root = calloc(MEM_PGDIR_ROOT_SIZE, sizeof(*mem->pgdir_root));
     if (mem->pgdir_root == NULL)
@@ -935,12 +980,8 @@ void *mem_ptr(struct mem *mem, guest_addr_t addr, int type) {
 
     if (entry == NULL) {
         // page does not exist
-        // look to see if the next VM region is willing to grow down
-        page_t p = page + 1;
-        p = mem_next_mapped_page(mem, p);
-        if (p == BAD_PAGE || p >= mem->page_limit)
-            return NULL;
-        if (!(mem_pt(mem, p)->flags & P_GROWSDOWN))
+        // look to see if the next VM region is willing to grow down onto it
+        if (!mem_growsdown_allowed(mem, page))
             return NULL;
 
         // Changing memory maps must be done with the write lock. But this is
@@ -1039,14 +1080,7 @@ void *mem_ptr_fault(struct mem *mem, guest_addr_t addr, int type) {
 
     struct pt_entry *entry = mem_pt(mem, page);
     if (entry == NULL) {
-        page_t p = page + 1;
-        p = mem_next_mapped_page(mem, p);
-        if (p == BAD_PAGE || p >= mem->page_limit) {
-            write_unlock(&mem->lock);
-            return NULL;
-        }
-        struct pt_entry *next = mem_pt(mem, p);
-        if (next == NULL || !(next->flags & P_GROWSDOWN)) {
+        if (!mem_growsdown_allowed(mem, page)) {
             write_unlock(&mem->lock);
             return NULL;
         }

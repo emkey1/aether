@@ -81,6 +81,7 @@ tmpfs_statfs.c
 memfd_mmap.c
 mount_stdev.c
 mmap_truncate_sigbus.c
+null_page_fault.c
 signalfd_epoll_deadlock.c
 signalfd_thread_group.c
 wayland_scm_shm.c
