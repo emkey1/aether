@@ -53,6 +53,9 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/text_processing
 ./build/bin/aether examples/base/tuple_returns
 ./build/bin/aether examples/base/bitwise_ops
+./build/bin/aether examples/base/branching
+./build/bin/aether examples/base/file_io
+./build/bin/aether examples/base/sockets
 ./build/bin/aether examples/base/parsing
 ./build/bin/aether examples/base/clamp_minmax
 ./build/bin/aether examples/base/recursion
@@ -211,6 +214,20 @@ These examples stay within the currently supported Aether Core subset:
   flag masks, an XOR cipher that round-trips, `popCount`, and a bit-mixing hash.
   Includes the quiet precedence trap: `flags & mask != 0` parses as
   `flags & (mask != 0)` and yields an **Int**, not a Bool, without erroring
+- `branching`: every branching form together — sequential `if` + `ret` beside
+  the equivalent `else if` chain (both computed and compared at runtime), `if`
+  as an *expression* with braced arms including inside a `println` argument,
+  `continue` / `break`, and the three loop shapes side by side
+- `file_io`: `File` is a handle type and the one binding declared without an
+  initializer. `assign` attaches a path; the *mode* is chosen by which open call
+  follows (`rewrite` truncates, `reset` reads, `append` extends). `readln(f, line)`
+  fills `line` rather than returning it, and `eof(f)` is tested at the TOP of
+  the loop. Cleans up after itself with `erase`
+- `sockets`: a TCP client and server in one process joined by `par`. The names
+  are one word — `socketcreate`, never `socket_create` or `tcp_socket`.
+  `socketaccept`/`socketreceive` block, so the halves must run concurrently, and
+  the listener is bound and listening *before* the `par` block or the client can
+  race it. `socketreceive` returns an `MStream`, read via `mstreambuffer`
 - `parsing`: `parse_int` / `parse_bool` / `parse_float`, and `split` into a `Text[]`
 - `clamp_minmax`: `clamp(x, lo, hi)` plus `min` / `max` as accumulators instead
   of if-chains

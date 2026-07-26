@@ -2823,6 +2823,17 @@ if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_
     exit 1
 fi
 
+# readln must not alias: a Text filled by its out-parameter used to be mutated
+# in place, so every earlier copy shared the StringObj and tracked later reads.
+# Reading a file into an array gave N copies of the last line, silently.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/readln_no_alias_pass.aether" >/tmp/aether_readln_alias.out 2>&1
+printf 'one two three\none two three \n' >/tmp/aether_readln_alias_expected.out
+if ! cmp -s /tmp/aether_readln_alias_expected.out /tmp/aether_readln_alias.out; then
+    echo "readln aliased a saved Text copy (in-place StringObj mutation regressed?)" >&2
+    cat /tmp/aether_readln_alias.out >&2
+    exit 1
+fi
+
 # FIELD-003 must reject a bare named const, not just an expression over one --
 # that is the form the old wording positively invited.
 cat > /tmp/aether_field_default_const.aether <<'AEEOF'

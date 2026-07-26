@@ -12,6 +12,34 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-8
+
+**`readln` no longer aliases every copy of the `Text` it fills** (pscal-core
+`7ac4275`, pointer bumped here).
+
+Copying a string Value copies the `StringObj` pointer, so any number of Values
+share one object. `readln` reused the object already attached to its
+out-parameter, mutating every sharer at once:
+
+```aether
+readln(f, line);  a = line;    // "one"
+readln(f, line);  b = line;    // "two"
+readln(f, line);               // "three"
+// a, b and line ALL read "three"
+```
+
+**Reading a file into an array produced N copies of the last line**, with no
+error and no warning — in a language whose stated purpose is parsing structured
+input. It surfaced because a new example that tracks the longest line it has
+read reported the last line instead.
+
+Plain assignment was never affected — `s = t;` then `t = "x";` leaves `s` alone,
+because assignment rebinds rather than mutating. `readln` now does the same.
+
+Also in this release: four examples closing the last corpus holes — `file_io`,
+`sockets`, `branching`, and (from the previous commit) the text/tuple/bitwise
+set. No other language behaviour changed.
+
 ## 2026-07-26-7
 
 **The `FIELD-003` message no longer contradicts itself.** It said *"only

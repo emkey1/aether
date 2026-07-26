@@ -1,0 +1,122 @@
+// Every branching form Aether has, and the loop controls that go with them.
+//
+// `if` is both a statement and an expression. As an expression it needs braces
+// around each arm -- `if c { a } else { b }`, not `if c then a else b` -- and it
+// can appear anywhere a value is expected, including inside a `println`
+// argument list.
+//
+// The canonical multi-branch shape in a function that returns is sequential
+// `if` + `ret` with no `else` at all: each branch leaves, so the fallthrough at
+// the bottom is the default case. Reach for `else if` when the branches share a
+// tail, or when you are not returning.
+
+const PASS: Int = 60;
+
+@pure
+fn tierByReturn(score: Int) -> Text {
+    // Sequential if + ret. No else needed -- returning ends the branch.
+    if score >= 90 {
+        ret "gold";
+    }
+    if score >= 75 {
+        ret "silver";
+    }
+    if score >= PASS {
+        ret "bronze";
+    }
+    ret "none";
+}
+
+@pure
+fn tierByChain(score: Int) -> Text {
+    // The same decision as an else-if chain. Equivalent here; prefer this when
+    // the branches must fall through to shared work below.
+    let tier: Text = "";
+    if score >= 90 {
+        tier = "gold";
+    } else if score >= 75 {
+        tier = "silver";
+    } else if score >= PASS {
+        tier = "bronze";
+    } else {
+        tier = "none";
+    }
+    ret tier;
+}
+
+fn main() -> Void {
+    let scores: Int[] = [95, 82, 64, 41, 77, 90, 12, 68];
+
+    fx {
+        println("both spellings agree:");
+        loop i in 0..length(scores) {
+            let s: Int = scores[i];
+            println("  ", s, " -> ", tierByReturn(s), " / ", tierByChain(s),
+                    "  match=", tierByReturn(s) == tierByChain(s));
+        }
+        println("");
+    }
+
+    // if as an EXPRESSION: braces around each arm, usable as a value.
+    let best: Int = scores[0];
+    loop i in 1..length(scores) {
+        best = if scores[i] > best { scores[i] } else { best };
+    }
+
+    let verdict: Text = if best >= 90 { "excellent" } else if best >= 75 { "good" } else { "fair" };
+
+    fx {
+        println("best = ", best, ", verdict = ", verdict);
+        // ...including directly inside a call's argument list.
+        println("parity of best: ", if best % 2 == 0 { "even" } else { "odd" });
+        println("");
+    }
+
+    // continue skips the rest of THIS iteration; break leaves the loop.
+    let passing: Int = 0;
+    let sum: Int = 0;
+    let scanned: Int = 0;
+    loop i in 0..length(scores) {
+        scanned = scanned + 1;
+        if scores[i] < PASS {
+            continue;                  // ignore failures, keep scanning
+        }
+        if passing == 4 {
+            break;                     // stop once four have been collected
+        }
+        passing = passing + 1;
+        sum = sum + scores[i];
+    }
+
+    fx {
+        println("scanned ", scanned, " of ", length(scores), " entries");
+        println("collected ", passing, " passing scores, sum ", sum);
+        println("");
+    }
+
+    // The three loop shapes, side by side.
+    let countdown: Int = 3;
+    loop countdown > 0 {               // condition loop
+        countdown = countdown - 1;
+    }
+
+    let ranged: Int = 0;
+    loop n in 0..4 {                   // half-open range: 0, 1, 2, 3
+        ranged = ranged + n;
+    }
+
+    let spins: Int = 0;
+    loop {                             // infinite; break is the only exit
+        spins = spins + 1;
+        if spins == 5 {
+            break;
+        }
+    }
+
+    fx {
+        println("countdown ended at ", countdown);
+        println("range 0..4 summed to ", ranged);
+        println("infinite loop spun ", spins, " times");
+    }
+    ret;
+}

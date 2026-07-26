@@ -1,0 +1,107 @@
+// A TCP client and server in one process, joined by `par`.
+//
+// The names are `socket*` and `dnslookup` — one word, no underscores. There is
+// no `socket()`, no `tcp_socket()`, no `socket_create()`; guessing any of those
+// gives SCOPE-001 and looks like the capability is missing when it is not.
+//
+// Two properties shape the whole program:
+//
+//   * `socketaccept` and `socketreceive` BLOCK. With no peer they hang forever,
+//     which is why the two halves must run concurrently.
+//   * `socketreceive` returns an `MStream`, never Text. Read it with
+//     `mstreambuffer(ms)` and release it with `mstreamfree(ms)`.
+//
+// The listening socket is created, bound and listening BEFORE the `par` block.
+// Do it inside the server branch and the client can reach `socketconnect`
+// first, against a socket that is not listening yet — a race that passes on a
+// fast machine and fails on a loaded one.
+//
+// Each branch writes its own record (PAR-001); the listen handle is read-only
+// in both, which is fine — it is the written-to record that must be private.
+
+const PORT: Int = 23557;
+const BACKLOG: Int = 1;
+const BUF: Int = 256;
+
+type Exchange {
+    got: Text = "";
+    bytes: Int = 0;
+    ok: Bool = false;
+}
+
+fn server(listenSock: Int, out: Exchange) -> Void {
+    fx {
+        let conn: Int = socketaccept(listenSock);   // blocks until the client connects
+        let ms: MStream = socketreceive(conn, BUF); // blocks until data arrives
+        out.got = mstreambuffer(ms);
+        out.bytes = string_len(out.got);
+        out.ok = out.bytes > 0;
+        mstreamfree(ms);
+
+        socketsend(conn, "pong:" + out.got);
+        socketclose(conn);
+    }
+    ret;
+}
+
+fn client(port: Int, out: Exchange) -> Void {
+    fx {
+        let sock: Int = socketcreate(0);            // 0 = TCP, 1 = UDP
+        if socketconnect(sock, "127.0.0.1", port) == 0 {
+            socketsend(sock, "ping");
+            let ms: MStream = socketreceive(sock, BUF);
+            out.got = mstreambuffer(ms);
+            out.bytes = string_len(out.got);
+            out.ok = out.bytes > 0;
+            mstreamfree(ms);
+        }
+        socketclose(sock);
+    }
+    ret;
+}
+
+fn main() -> Void {
+    // No has_builtin() guard here on purpose: that probe only sees the
+    // *extended* builtin registry, so has_builtin("network", "SocketCreate")
+    // returns false even though socketcreate works perfectly. The real check is
+    // the bind result below.
+    let listenSock: Int = 0;
+    let bound: Int = -1;
+    let serverSide: Exchange = new Exchange();
+    let clientSide: Exchange = new Exchange();
+
+    // Listen first, then fan out. A zero-length receive means the peer closed
+    // cleanly; it is not an error.
+    fx {
+        listenSock = socketcreate(0);
+        bound = socketbind(listenSock, PORT);
+        if bound == 0 {
+            socketlisten(listenSock, BACKLOG);
+        }
+    }
+
+    if bound != 0 {
+        fx {
+            println("could not bind port ", PORT, " (", socketlasterror(), ")");
+            socketclose(listenSock);
+        }
+        ret;
+    }
+
+    par {
+        server(listenSock, serverSide);
+        client(PORT, clientSide);
+    }
+
+    fx {
+        socketclose(listenSock);
+        println("server received : [", serverSide.got, "] ", serverSide.bytes, " bytes");
+        println("client received : [", clientSide.got, "] ", clientSide.bytes, " bytes");
+        if serverSide.ok && clientSide.ok {
+            println("round trip ok");
+        } else {
+            println("round trip incomplete");
+        }
+    }
+    ret;
+}

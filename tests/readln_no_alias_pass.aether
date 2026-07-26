@@ -1,0 +1,48 @@
+// Regression: a Text filled by readln's out-parameter used to be mutated IN
+// PLACE. Copying a string Value copies the StringObj pointer, so every earlier
+// copy shared that object and silently tracked later reads -- `a`, `b` and
+// `line` below all came back "three", and reading a file into an array yielded
+// N copies of the last line with no error. readln now rebinds to a fresh
+// StringObj, matching what plain assignment always did.
+fn main() -> Void {
+    let f: File;
+    let line: Text = "";
+    let a: Text = "";
+    let b: Text = "";
+    let lines: Text[] = [];
+
+    fx {
+        assign(f, "readln_no_alias.txt");
+        rewrite(f);
+        writeln(f, "one");
+        writeln(f, "two");
+        writeln(f, "three");
+        close(f);
+
+        assign(f, "readln_no_alias.txt");
+        reset(f);
+        readln(f, line);
+        a = line;
+        readln(f, line);
+        b = line;
+        readln(f, line);
+        close(f);
+
+        assign(f, "readln_no_alias.txt");
+        reset(f);
+        loop {
+            if eof(f) { break; }
+            readln(f, line);
+            lines = lines + [line];
+        }
+        close(f);
+        erase(f);
+
+        println(a, " ", b, " ", line);
+        loop i in 0..length(lines) {
+            print(lines[i], " ");
+        }
+        println("");
+    }
+    ret;
+}

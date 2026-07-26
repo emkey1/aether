@@ -2594,3 +2594,68 @@ matched the wall clock exactly, and `getdate(year, month, day, weekday)`
 returned `2026, 7, 26, 0`. All three are documented in all three guides now,
 with `realtimeclock` named as the default choice and the out-parameter
 convention flagged as appearing nowhere else in Aether except `readln`.
+
+---
+
+## Two bugs found by writing the missing examples — 2026-07-26
+
+Filling the last corpus holes (File I/O, sockets, branching) turned up two
+defects that no amount of reading would have surfaced. Both were found because
+the example produced a wrong *answer*, not because anything errored.
+
+### `readln` aliased every copy of the Text it filled — *fixed 2026-07-26-8*
+
+`examples/base/file_io` tracks the longest line it reads. It reported `delta`
+where the answer is `alpha`, and chasing that produced this:
+
+```aether
+readln(f, line);  a = line;    // "one"
+readln(f, line);  b = line;    // "two"
+readln(f, line);               // "three"
+// a, b and line ALL read "three"
+```
+
+Copying a string Value copies the `StringObj` pointer, so any number of Values
+share one object. `vmBuiltinReadln` reused that object — freed the old buffer,
+installed the new one, re-tagged the same wrapper — which mutated every sharer
+at once. **Reading a file into an array produced N copies of the last line**,
+silently, which is about as bad as a bug gets in a language whose stated purpose
+is parsing structured input.
+
+Plain assignment was never affected (`s = t;` then `t = "x";` left `s` alone)
+because assignment *rebinds* the pointer instead of mutating the object. The fix
+makes `readln` do the same: allocate a fresh `StringObj` and rebind. The old
+object is no longer freed there, precisely because a sharer may still hold it —
+it is header-managed.
+
+Worth checking whether any other out-parameter builtin mutates in place the same
+way. `readln` is the only one in the Aether surface, but the pattern is in
+pscal-core generally.
+
+### `has_builtin` only sees *extended* builtins — *open*
+
+The first draft of `examples/base/sockets` guarded with
+`has_builtin("network", "SocketCreate")` and printed "socket support
+unavailable" — on a build where `socketcreate(0)` returns a working handle.
+
+`has_builtin(category, function)` searches the **extended** builtin registry
+only. Core VM builtins are not in it at any category name:
+
+```
+has_builtin("system", "FileExists")    = true    (extended)
+has_builtin("yyjson", "YyjsonRead")    = true    (extended)
+has_builtin("network", "SocketCreate") = false   ... but socketcreate works
+has_builtin("system", "SocketCreate")  = false
+```
+
+Both guides present `has_builtin` as *the* capability probe without saying what
+it can see, so a guard written for a core builtin is not merely useless — it is
+inverted, and reports a working capability as missing. `has_toon()` and
+`has_ai()` are separate purpose-built probes precisely because of this, which is
+the shape of the answer.
+
+**Suggested action:** either extend `has_builtin` to fall back to the core
+registry (`getVmBuiltinID(name) >= 0`) when the category lookup misses, or
+document plainly that it covers extended builtins only and that core builtins
+are always present. The first is a small change and removes the trap; the second
+leaves a probe that silently lies for the most obvious use.
