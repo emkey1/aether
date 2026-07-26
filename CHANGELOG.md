@@ -12,6 +12,28 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-1
+
+**`Text` is 0-based.** `s[0]` is the first character (it was a runtime error),
+`s[a..b]` is a real half-open substring like an array slice, `copy(s, start,
+count)` takes a 0-based `start`, and `pos(needle, s)` returns `-1` when the
+needle is absent instead of `0`. Arrays were always 0-based and are unchanged;
+this removes the split where `Text` alone indexed from 1.
+
+The semantics landed in `0a557a5` but the version stamp was missed at the time.
+This entry records it retroactively, so `aether --version` and the benchmark
+provenance stamp finally distinguish 0-based from 1-based builds. Anything
+stamped `2026-07-20-1` or earlier is 1-based; note that the cs-aug20 training
+corpus and eval results were produced against `0a557a5`/`c660b1b`, which are
+0-based despite carrying the older stamp.
+
+Migrating: a hand-managed cursor is the thing to look for, not just `copy()`
+call sites. `loop i in 1..string_len(s) + 1`, `let i = n; loop i >= 1`, a
+two-pointer seeded at `1`/`n`, `copy(s, i + 1, 1)` inside a `0..n` loop, and
+`pos(...) == 0` as an absent-test all still compile and silently do the wrong
+thing. The last one is the worst: absent is now `-1`, and `0` is a legitimate
+match at the first character, so the test is wrong in both directions.
+
 ## 2026-07-20-1
 
 **Three language-level fixes for gaps the corpus/specialization board had been
