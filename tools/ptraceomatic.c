@@ -10,12 +10,14 @@
 #include <fcntl.h>
 #include <sys/wait.h>
 #include <sys/ptrace.h>
+#include <sys/syscall.h>
 #include <sys/user.h>
 #undef PAGE_SIZE // defined in sys/user.h, but we want the version from emu/memory.h
 #include <sys/personality.h>
 #include <sys/socket.h>
 
 #include "debug.h"
+#include "kernel/abi.h"
 #include "kernel/calls.h"
 #include "fs/path.h"
 #include "fs/fd.h"
@@ -48,8 +50,31 @@ static inline int step(int pid) {
     return 0;
 }
 
+// ptrace requests must come from the thread that attached, and a tracee that
+// is running rather than stopped rejects them too. Both show up as a bare
+// ESRCH, so report the state that actually explains it.
+static void diagnose_ptrace_esrch(int pid, const char *what) {
+    fprintf(stderr, "ptraceomatic: %s failed: %s\n", what, strerror(errno));
+    fprintf(stderr, "  caller pid=%d tid=%ld\n", (int) getpid(), (long) syscall(SYS_gettid));
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    FILE *f = fopen(path, "r");
+    if (f == NULL) {
+        fprintf(stderr, "  tracee %d: no /proc entry, it is gone\n", pid);
+        exit(1);
+    }
+    char line[256];
+    while (fgets(line, sizeof(line), f) != NULL)
+        if (strncmp(line, "State:", 6) == 0 || strncmp(line, "TracerPid:", 10) == 0 ||
+            strncmp(line, "Pid:", 4) == 0)
+            fprintf(stderr, "  tracee %s", line);
+    fclose(f);
+    exit(1);
+}
+
 static inline void getregs(int pid, struct user_regs_struct *regs) {
-    trycall(ptrace(PTRACE_GETREGS, pid, NULL, regs), "ptrace getregs");
+    if (ptrace(PTRACE_GETREGS, pid, NULL, regs) < 0)
+        diagnose_ptrace_esrch(pid, "PTRACE_GETREGS");
 }
 
 static inline void setregs(int pid, struct user_regs_struct *regs) {
@@ -483,8 +508,43 @@ do_step:
     setregs(pid, &regs);
 }
 
+// The tracee dying during setup used to surface only as a bare
+// "ptrace getregs: No such process" from whatever call happened to run next,
+// with no indication of which setup step killed it. kill(pid, 0) is not enough:
+// a tracee that has exited but not been reaped is a zombie, which still accepts
+// signal 0, so read the state out of /proc instead.
+static void check_tracee_alive(int pid, const char *where) {
+    char path[64];
+    snprintf(path, sizeof(path), "/proc/%d/status", pid);
+    FILE *f = fopen(path, "r");
+    if (f == NULL) {
+        fprintf(stderr, "ptraceomatic: tracee vanished during %s\n", where);
+        exit(1);
+    }
+    char line[256];
+    char state = '?';
+    while (fgets(line, sizeof(line), f) != NULL)
+        if (strncmp(line, "State:", 6) == 0) {
+            sscanf(line, "State:\t%c", &state);
+            break;
+        }
+    fclose(f);
+    if (state == 'Z' || state == 'X') {
+        fprintf(stderr, "ptraceomatic: tracee died during %s (state %c)\n", where, state);
+        int status = 0;
+        if (waitpid(pid, &status, WNOHANG) == pid) {
+            if (WIFEXITED(status))
+                fprintf(stderr, "  exited with status %d\n", WEXITSTATUS(status));
+            else if (WIFSIGNALED(status))
+                fprintf(stderr, "  killed by signal %d\n", WTERMSIG(status));
+        }
+        exit(1);
+    }
+}
+
 static void prepare_tracee(int pid) {
     struct user_regs_struct regs;
+    check_tracee_alive(pid, "entry to prepare_tracee");
     if (current->abi == GUEST_ABI_AMD64) {
         // match the emulator's initial rsp/rip. (vdso + argv/auxv stack sync for
         // programs that actually read them is amd64 phase-2 work.)
@@ -493,9 +553,24 @@ static void prepare_tracee(int pid) {
         regs.rip = current->cpu.amd64_rip;
         setregs(pid, &regs);
     } else {
+        check_tracee_alive(pid, "exec");
         transplant_vdso(pid, vdso_data, sizeof(vdso_data));
-        // copy the stack
-        pt_copy(pid, 0xffffd000, 0x1000);
+        check_tracee_alive(pid, "vdso transplant");
+        // Copy the initial stack into the tracee. This used to hardcode
+        // 0xffffd000/0x1000, which still happens to be the right range for the
+        // i386 layout -- but only by coincidence, since the layout owns those
+        // addresses and has several variants. Derive them so a layout change
+        // cannot silently start copying the wrong page.
+        struct guest_vm_layout layout = guest_abi_vm_layout(current->abi);
+        addr_t stack_top = (addr_t) layout.stack_pointer;
+        addr_t stack_first = current->cpu.esp & ~(addr_t) (PAGE_SIZE - 1);
+        if (stack_first >= stack_top) {
+            // esp is already at or above the top (nothing pushed yet): fall
+            // back to the single page the layout reserves for the stack.
+            stack_first = (addr_t) layout.stack_page << PAGE_BITS;
+        }
+        pt_copy(pid, stack_first, stack_top - stack_first);
+        check_tracee_alive(pid, "stack copy");
         getregs(pid, &regs);
         regs.rsp = current->cpu.esp;
         setregs(pid, &regs);
@@ -562,6 +637,7 @@ int main(int argc, char *const argv[]) {
     int sender = fds[0], receiver = fds[1];
     /* close(receiver); // only needed in the child */
     prepare_tracee(pid);
+    check_tracee_alive(pid, "prepare_tracee");
 
     struct cpu_state *cpu = &current->cpu;
     cpu->tf = true;
@@ -570,6 +646,7 @@ int main(int argc, char *const argv[]) {
     int undefined_flags = 2;
     struct cpu_state old_cpu = *cpu;
     int i = 0;
+    check_tracee_alive(pid, "pre-loop");
     while (true) {
         while (compare_cpus(cpu, &tlb, pid, undefined_flags) < 0) {
             printk("failure: resetting cpu\n");
