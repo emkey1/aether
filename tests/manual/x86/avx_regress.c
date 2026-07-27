@@ -1360,6 +1360,81 @@ static void test_evex_masking(void) {
     }
 }
 
+/* ---- AVX-512 compares, mask/vector conversions, and cross-lane byte permute ----
+   VPCMP* writes a k register rather than a vector, and its imm8 selects the
+   predicate. A write-mask on a compare acts as a zeroing AND, never a merge. */
+__attribute__((target("avx512f,avx512bw,avx512dq,avx512vl,avx512vbmi")))
+static void test_avx512_compare_and_permute(void) {
+    static const uint32_t s1[8] __attribute__((aligned(32))) = {1, 2, 3, 4, 5, 6, 7, 8};
+    static const uint32_t s2[8] __attribute__((aligned(32))) = {9, 2, 0, 4, 99, 6, 1, 8};
+    uint32_t r[8] __attribute__((aligned(32)));
+
+    { /* predicate 0 = equal; lanes 1,3,5,7 match */
+        uint32_t k = 0;
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\tvmovdqu32 (%2),%%ymm2\n\t"
+                         "vpcmpd $0,%%ymm2,%%ymm1,%%k1\n\tkmovd %%k1,%0\n\tvzeroupper"
+                         : "=r"(k) : "r"(s1), "r"(s2) : "ymm1", "ymm2", "k1");
+        check64("vpcmpd.eq", k, 0xaa);
+    }
+    { /* signed and unsigned less-than must disagree on a negative operand */
+        static const uint32_t neg[8] __attribute__((aligned(32))) =
+            {0xffffffff, 0, 0, 0, 0, 0, 0, 0};
+        static const uint32_t one[8] __attribute__((aligned(32))) = {1,1,1,1,1,1,1,1};
+        uint32_t ks = 0, ku = 0;
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\tvmovdqu32 (%2),%%ymm2\n\t"
+                         "vpcmpd $1,%%ymm2,%%ymm1,%%k1\n\tkmovd %%k1,%0\n\tvzeroupper"
+                         : "=r"(ks) : "r"(neg), "r"(one) : "ymm1", "ymm2", "k1");
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\tvmovdqu32 (%2),%%ymm2\n\t"
+                         "vpcmpud $1,%%ymm2,%%ymm1,%%k1\n\tkmovd %%k1,%0\n\tvzeroupper"
+                         : "=r"(ku) : "r"(neg), "r"(one) : "ymm1", "ymm2", "k1");
+        check64("vpcmpd.signed_lt", ks & 1, 1);      /* -1 < 1 */
+        check64("vpcmpud.unsigned_lt", ku & 1, 0);   /* 0xffffffff > 1 */
+    }
+    { /* VPTEST sets ZF/CF and writes no register */
+        uint32_t zf = 0, cf = 0;
+        static const uint32_t z[8] __attribute__((aligned(32))) = {0,0,0,0,0,0,0,0};
+        __asm__ volatile("vmovdqu (%2),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vptest %%ymm2,%%ymm1\n\tsetz %b0\n\tsetc %b1\n\t"
+                         "movzbl %b0,%0\n\tmovzbl %b1,%1\n\tvzeroupper"
+                         : "=&r"(zf), "=&r"(cf) : "r"(z) : "ymm1", "ymm2", "cc");
+        check64("vptest.zero.zf", zf, 1);
+    }
+    { /* mask -> vector -> mask round trip */
+        __asm__ volatile("kmovd %1,%%k1\n\tvpmovm2d %%k1,%%ymm3\n\t"
+                         "vmovdqu32 %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(0x0au) : "memory", "ymm3", "k1");
+        static const uint32_t w[8] = {0, 0xffffffff, 0, 0xffffffff, 0, 0, 0, 0};
+        check8("vpmovm2d", r, w);
+        uint32_t back = 0;
+        __asm__ volatile("kmovd %1,%%k1\n\tvpmovm2d %%k1,%%ymm3\n\t"
+                         "vpmovd2m %%ymm3,%%k2\n\tkmovd %%k2,%0\n\tvzeroupper"
+                         : "=r"(back) : "r"(0x0au) : "ymm3", "k1", "k2");
+        check64("vpmovd2m.roundtrip", back, 0x0a);
+    }
+    { /* VPERMB crosses the 128-bit lane boundary: reverse all 32 bytes */
+        static const uint8_t idx[32] __attribute__((aligned(32))) =
+            {31,30,29,28,27,26,25,24,23,22,21,20,19,18,17,16,
+             15,14,13,12,11,10,9,8,7,6,5,4,3,2,1,0};
+        static const uint8_t src[32] __attribute__((aligned(32))) =
+            {0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,
+             16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31};
+        uint8_t got[32] __attribute__((aligned(32)));
+        __asm__ volatile("vmovdqu8 (%1),%%ymm1\n\tvmovdqu8 (%2),%%ymm2\n\t"
+                         "vpermb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu8 %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(got), "r"(idx), "r"(src)
+                         : "memory", "ymm1", "ymm2", "ymm3");
+        int ok = 1;
+        for (int i = 0; i < 32; i++)
+            if (got[i] != 31 - i) ok = 0;
+        if (!ok) {
+            printf("FAIL vpermb got[0]=%d got[31]=%d\n", got[0], got[31]);
+            failures_total++;
+        } else {
+            test_logf("PASS vpermb\n");
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -1389,6 +1464,7 @@ int main(int argc, char **argv) {
     test_bmi();
     test_kregs();
     test_evex_masking();
+    test_avx512_compare_and_permute();
 
     return finish_suite("avx_regress");
 }

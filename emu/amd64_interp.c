@@ -2151,7 +2151,9 @@ void dump_amd64_as_stack_task(const struct task *task) {
     }
 }
 
-#define AMD64_XMM_COUNT ((unsigned) (sizeof(((struct cpu_state *) 0)->xmm) / sizeof(((struct cpu_state *) 0)->xmm[0])))
+// Legacy (non-VEX) encodings can only name xmm0-15 even with REX, so this
+// stays at 16 even though cpu_state now carries 32 slots for EVEX.
+#define AMD64_XMM_COUNT 16u
 
 static inline qword_t amd64_cvtt_scalar_to_int(double value, bool wide) {
     if (isnan(value))
@@ -4242,7 +4244,7 @@ static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
 // masked/zeroing EVEX form is likewise rejected -- both report INT_UNDEFINED
 // (a guest SIGILL) rather than silently computing a wrong answer.
 
-#define AMD64_AVX_MAX_REG 16
+#define AMD64_AVX_MAX_REG 32
 
 struct amd64_vex_prefix {
     bool present;
@@ -4255,6 +4257,8 @@ struct amd64_vex_prefix {
     bool r, x, b;   // register-extension bits, already un-inverted
     unsigned mask;  // EVEX aaa: k1-k7 predicate, 0 = unmasked
     bool zeroing;   // EVEX z: zero masked-out elements instead of merging
+    bool bcast;     // EVEX b: memory operand is one element, broadcast to all
+    bool reg_hi;    // EVEX R': the reg operand is in the 16-31 range
 };
 
 // Decodes the VEX/EVEX payload following a 0xC4/0xC5/0x62 lead byte the
@@ -4305,7 +4309,7 @@ static inline bool amd64_decode_vex(struct cpu_state *cpu, struct tlb *tlb,
         vex->r = (p0 & 0x80) == 0;
         vex->x = (p0 & 0x40) == 0;
         vex->b = (p0 & 0x20) == 0;
-        bool rprime = (p0 & 0x10) == 0; // R': extends reg to 16-31, unsupported
+        bool rprime = (p0 & 0x10) == 0; // R': high bit of the reg operand
         vex->map = p0 & 0x3;
         vex->w = (p1 & 0x80) != 0;
         vex->vvvv = (~(p1 >> 3)) & 0xf;
@@ -4316,16 +4320,20 @@ static inline bool amd64_decode_vex(struct cpu_state *cpu, struct tlb *tlb,
         unsigned ll = (p2 >> 5) & 0x3;
         vex->vlen = ll == 0 ? 128 : ll == 1 ? 256 : ll == 2 ? 512 : 0;
         vex->mask = p2 & 0x7;
-        bool vprime = (p2 & 0x8) == 0; // V': extends vvvv to 16-31, unsupported
-        vex->present = vex->vlen != 0 && !rprime && !vprime
-            && vex->map >= 1 && vex->map <= 3;
+        vex->bcast = (p2 & 0x10) != 0;
+        bool vprime = (p2 & 0x8) == 0; // V': high bit of the vvvv operand
+        if (rprime)
+            vex->reg_hi = true;
+        if (vprime)
+            vex->vvvv |= 16;
+        vex->present = vex->vlen != 0 && vex->map >= 1 && vex->map <= 3;
         return true;
     }
     return false;
 }
 
 static inline void amd64_vec_reg_read(struct cpu_state *cpu, unsigned idx, unsigned vlen, uint8_t *out) {
-    memcpy(out, &cpu->xmm[idx], 16);
+    memcpy(out, avx_xmm(cpu, idx), 16);
     if (vlen >= 256)
         memcpy(out + 16, &cpu->ymm_hi[idx], 16);
     if (vlen >= 512)
@@ -4337,7 +4345,7 @@ static inline void amd64_vec_reg_read(struct cpu_state *cpu, unsigned idx, unsig
 // semantics (e.g. a VEX.128 write to xmm3 zeroes ymm3's and zmm3's upper
 // bits too).
 static inline void amd64_vec_reg_write(struct cpu_state *cpu, unsigned idx, unsigned vlen, const uint8_t *in) {
-    memcpy(&cpu->xmm[idx], in, 16);
+    memcpy(avx_xmm(cpu, idx), in, 16);
     if (vlen >= 256)
         memcpy(&cpu->ymm_hi[idx], in + 16, 16);
     else
@@ -4526,6 +4534,100 @@ static int amd64_vex_kreg(struct amd64_vex_ctx *c, byte_t op) {
     return INT_UNDEFINED;
 }
 
+// Decodes ModRM and then applies EVEX's extra register-extension bits, which
+// the shared decoder cannot know about: R' is the reg operand's bit 4, and for
+// a REGISTER r/m operand X doubles as the r/m operand's bit 4 (for a memory
+// operand X keeps its usual meaning as the SIB index extension).
+static bool amd64_vex_decode_modrm(struct amd64_vex_ctx *c, struct amd64_modrm *modrm) {
+    if (!amd64_decode_modrm(c->cpu, c->tlb, c->rex, modrm))
+        return false;
+    if (c->vex.is_evex) {
+        if (c->vex.reg_hi)
+            modrm->reg |= 16;
+        if (modrm->is_reg && c->vex.x)
+            modrm->rm |= 16;
+    }
+    return true;
+}
+
+// Masking granularity for an instruction, in bytes, or 0 if this front-end
+// cannot apply a predicate to it. Having one function answer this means the
+// gate in amd64_vex_step and the writebacks in the handlers can never
+// disagree -- a handler that silently dropped the predicate would write
+// elements the guest asked to preserve.
+static unsigned amd64_vex_mask_elem(struct amd64_vex_ctx *c, byte_t op) {
+    if (c->vex.map == 1) {
+        switch (op) {
+        // Moves: the element size comes from the prefix and W bit
+        // (VMOVDQU8/16 vs VMOVDQA32/64 vs VMOVDQU32/64).
+        case 0x6f: case 0x7f:
+            return c->vex.pp == 3 ? (c->vex.w ? 2 : 1) : (c->vex.w ? 8 : 4);
+        case 0x10: case 0x11: case 0x28: case 0x29:
+            return c->vex.pp == 1 ? 8 : 4;
+        // Bitwise ops are byte-wise in effect but mask per dword/qword by W.
+        case 0x54: case 0x55: case 0x56: case 0x57:
+        case 0xef: case 0xeb: case 0xdb: case 0xdf:
+            return c->vex.w ? 8 : 4;
+        // Everything else masks at its own lane width.
+        case 0xfc: case 0xf8: case 0x74: case 0x64:
+        case 0xd8: case 0xdc: case 0xe8: case 0xec:
+        case 0xda: case 0xde: case 0xe0:
+            return 1;
+        case 0xfd: case 0xf9: case 0x75: case 0x65:
+        case 0xd9: case 0xdd: case 0xe9: case 0xed:
+        case 0xea: case 0xee: case 0xe3: case 0xd5: case 0xe5: case 0xe4:
+        case 0x71: case 0xd1: case 0xe1: case 0xf1:
+            return 2;
+        case 0xfe: case 0xfa: case 0x76: case 0x66:
+        case 0x72: case 0xd2: case 0xe2: case 0xf2:
+        case 0x70:
+            return 4;
+        case 0xd4: case 0xfb: case 0x73: case 0xd3: case 0xf3: case 0xf4:
+            return 8;
+        // Packed FP arithmetic masks per element by prefix.
+        case 0x58: case 0x59: case 0x5c: case 0x5d: case 0x5e: case 0x5f:
+        case 0x51:
+            return c->vex.pp == 1 || c->vex.pp == 3 ? 8 : 4;
+        default:
+            return 0;
+        }
+    }
+    if (c->vex.map == 2) {
+        switch (op) {
+        case 0x00: case 0x04: return 1;
+        case 0x38: case 0x3c: case 0x1c: return 1;
+        case 0x3a: case 0x3e: case 0x1d: return 2;
+        case 0x39: case 0x3b: case 0x3d: case 0x3f:
+        case 0x40: case 0x1e: case 0x36:
+            return 4;
+        case 0x29: case 0x37: return 8;
+        case 0x45: case 0x46: case 0x47: return c->vex.w ? 8 : 4;
+        case 0x50: case 0x52: return 4;
+        default: return 0;
+        }
+    }
+    return 0;
+}
+
+// Reads the r/m operand, honouring EVEX's embedded-broadcast bit: with b set
+// and a memory operand the instruction reads a single element and replicates
+// it across the register, so the access is 4 or 8 bytes rather than the full
+// operation width. Embedded broadcast is only defined for the 32/64-bit
+// element instructions, hence the W-derived element size.
+static bool amd64_vex_read_rm(struct amd64_vex_ctx *c, const struct amd64_modrm *modrm,
+        unsigned vlen, uint8_t *out) {
+    if (c->vex.is_evex && c->vex.bcast && !modrm->is_reg) {
+        unsigned lb = c->vex.w ? 8 : 4;
+        uint8_t elem[8];
+        qword_t addr = amd64_effective_addr(c->cpu, modrm, c->fs_prefix);
+        if (!amd64_mem_read(c->cpu, c->tlb, addr, elem, lb))
+            return false;
+        avx_broadcast(lb, vlen, elem, out);
+        return true;
+    }
+    return amd64_vec_read_rm(c->cpu, c->tlb, modrm, c->fs_prefix, vlen, out);
+}
+
 // Legacy-map (0F) instructions.
 static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     struct cpu_state *cpu = c->cpu;
@@ -4561,7 +4663,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     if ((op == 0x10 || op == 0x11) && c->vex.pp >= 2) {
         bool is_double = c->vex.pp == 3;
         unsigned lb = is_double ? 8 : 4;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4606,7 +4708,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
             : (c->vex.pp == 0 || c->vex.pp == 1);
         if (!prefix_ok)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4617,7 +4719,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
             ? (c->vex.pp == 3 ? (c->vex.w ? 2 : 1) : (c->vex.w ? 8 : 4))
             : (c->vex.pp == 1 ? 8 : 4);
         if (is_load) {
-            if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, out))
+            if (!amd64_vex_read_rm(c, &modrm, vlen, out))
                 return INT_PF;
             amd64_vec_write_masked(c, modrm.reg, vlen, out, elem);
         } else {
@@ -4680,17 +4782,43 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         case 0xe4: kind = AVX_MULHIU; lb = 2; break;             // pmulhuw
         default: matched = false; break;
         }
+        if (matched && c->vex.is_evex &&
+            (kind == AVX_CMPEQ || kind == AVX_CMPGT) && c->vex.pp == 1) {
+            if (!amd64_vex_decode_modrm(c, &modrm))
+                return INT_GPF;
+            if (c->vex.vvvv >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+                return INT_PF;
+            amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+            unsigned n = (vlen / 8) / lb;
+            uint64_t result = 0;
+            for (unsigned i = 0; i < n; i++) {
+                uint64_t x = avx_lane_get(a + i * lb, lb);
+                uint64_t y = avx_lane_get(b + i * lb, lb);
+                bool hit = kind == AVX_CMPEQ
+                    ? x == y
+                    : avx_lane_sext(x, lb) > avx_lane_sext(y, lb);
+                if (hit)
+                    result |= UINT64_C(1) << i;
+            }
+            // A predicate on a compare is a zeroing AND, never a merge.
+            if (c->vex.mask != 0)
+                result &= cpu->avx512_k[c->vex.mask];
+            cpu->avx512_k[modrm.reg & 7] = result;
+            return INT_NONE;
+        }
         if (matched) {
             // The float-logical forms (54-57) are pp 0 (PS) or 1 (PD); every
             // integer op here requires the 66 prefix.
             bool float_logical = op >= 0x54 && op <= 0x57;
             if (float_logical ? (c->vex.pp > 1) : (c->vex.pp != 1))
                 return INT_UNDEFINED;
-            if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            if (!amd64_vex_decode_modrm(c, &modrm))
                 return INT_GPF;
             if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
                 return INT_UNDEFINED;
-            if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            if (!amd64_vex_read_rm(c, &modrm, vlen, b))
                 return INT_PF;
             amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
             avx_binop(kind, lb, vlen, a, b, out);
@@ -4723,7 +4851,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         if (matched) {
             bool scalar = c->vex.pp >= 2;
             bool is_double = c->vex.pp == 1 || c->vex.pp == 3;
-            if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            if (!amd64_vex_decode_modrm(c, &modrm))
                 return INT_GPF;
             if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
                 return INT_UNDEFINED;
@@ -4737,7 +4865,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
                 memset(b, 0, sizeof(b));
                 if (!amd64_mem_read(cpu, tlb, addr, b, is_double ? 8 : 4))
                     return INT_PF;
-            } else if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b)) {
+            } else if (!amd64_vex_read_rm(c, &modrm, vlen, b)) {
                 return INT_PF;
             }
             amd64_vec_reg_read(cpu, c->vex.vvvv, width, a);
@@ -4753,7 +4881,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0x51: { // vsqrtps/pd/ss/sd
         bool scalar = c->vex.pp >= 2;
         bool is_double = c->vex.pp == 1 || c->vex.pp == 3;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4786,7 +4914,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0xc2: { // vcmpps/pd/ss/sd
         bool scalar = c->vex.pp >= 2;
         bool is_double = c->vex.pp == 1 || c->vex.pp == 3;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4805,11 +4933,11 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0x14: case 0x15: { // vunpcklps/pd, vunpckhps/pd
         if (c->vex.pp > 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_unpack(op == 0x15, c->vex.pp == 1 ? 8 : 4, vlen, a, b, out);
@@ -4819,7 +4947,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0x50: { // vmovmskps/pd -- sign bits into a GPR
         if (c->vex.pp > 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!modrm.is_reg || modrm.rm >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4835,15 +4963,18 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0xc6: { // vshufps/pd
         if (c->vex.pp > 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         // Lane-local: the low half of each destination lane comes from src1,
         // the high half from src2.
@@ -4871,11 +5002,11 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         unsigned lb = (op == 0x60 || op == 0x68) ? 1
                     : (op == 0x61 || op == 0x69) ? 2
                     : (op == 0x62 || op == 0x6a) ? 4 : 8;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_unpack(high, lb, vlen, a, b, out);
@@ -4885,11 +5016,11 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0x63: case 0x67: case 0x6b: { // packsswb / packuswb / packssdw
         if (c->vex.pp != 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_pack(op != 0x67, op == 0x6b ? 4 : 2, vlen, a, b, out);
@@ -4899,15 +5030,18 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0x70: { // pshufd (66) / pshufhw (F3) / pshuflw (F2)
         if (c->vex.pp == 0)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, a))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, a))
+            return INT_PF;
         if (c->vex.pp == 1)
             avx_pshufd(vlen, imm, a, out);
         else
@@ -4918,7 +5052,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0x71: case 0x72: case 0x73: { // shift group by imm8, sub-op in modrm.reg
         if (c->vex.pp != 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
@@ -4942,7 +5076,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         } else {
             return INT_UNDEFINED;
         }
-        amd64_vec_reg_write(cpu, c->vex.vvvv, vlen, out);
+        amd64_vec_write_masked(c, c->vex.vvvv, vlen, out, lb);
         return INT_NONE;
     }
     case 0xd1: case 0xd2: case 0xd3:   // psrlw / psrld / psrlq
@@ -4950,7 +5084,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0xf1: case 0xf2: case 0xf3: { // psllw / pslld / psllq
         if (c->vex.pp != 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4960,7 +5094,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         if (modrm.is_reg) {
             if (modrm.rm >= AMD64_AVX_MAX_REG)
                 return INT_UNDEFINED;
-            memcpy(cnt, &cpu->xmm[modrm.rm], 16);
+            memcpy(cnt, avx_xmm(cpu, modrm.rm), 16);
         } else {
             qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
             if (!amd64_mem_read(cpu, tlb, addr, cnt, 16))
@@ -4972,13 +5106,13 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
                     : (op == 0xd2 || op == 0xe2 || op == 0xf2) ? 4 : 8;
         enum avx_shift_kind kind = (op >= 0xf1) ? AVX_SHL : (op >= 0xe1) ? AVX_SAR : AVX_SHR;
         avx_shift(kind, lb, vlen, a, count, out);
-        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        amd64_vec_write_masked(c, modrm.reg, vlen, out, lb);
         return INT_NONE;
     }
     case 0xd7: { // pmovmskb -- destination is a GPR, one bit per source byte
         if (c->vex.pp != 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!modrm.is_reg || modrm.rm >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -4993,11 +5127,11 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     case 0xf4: case 0xf5: case 0xf6: { // pmuludq / pmaddwd / psadbw
         if (c->vex.pp != 1)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         if (op == 0xf4)
@@ -5015,7 +5149,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         if (op == 0x7e && c->vex.pp == 2) {
             if (vlen != 128)
                 return INT_UNDEFINED;
-            if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            if (!amd64_vex_decode_modrm(c, &modrm))
                 return INT_GPF;
             if (modrm.reg >= AMD64_AVX_MAX_REG)
                 return INT_UNDEFINED;
@@ -5035,7 +5169,7 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         }
         if (c->vex.pp != 1 || vlen != 128)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -5092,7 +5226,7 @@ static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
     qword_t src, vv;
 
     if (c->vex.map == 3 && op == 0xf0 && c->vex.pp == 3) { // rorx imm8
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
             return INT_PF;
@@ -5112,7 +5246,7 @@ static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
     case 0xf2: { // andn: dst = ~vvvv & rm
         if (c->vex.pp != 0)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
             return INT_PF;
@@ -5125,7 +5259,7 @@ static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
     case 0xf3: { // group: /1 blsr, /2 blsmsk, /3 blsi -- destination is vvvv
         if (c->vex.pp != 0)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
             return INT_PF;
@@ -5144,7 +5278,7 @@ static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0xf5: { // pp0 bzhi, pp2 pext, pp3 pdep
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
             return INT_PF;
@@ -5188,7 +5322,7 @@ static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
     case 0xf6: { // mulx: unsigned multiply, no flags, high half into vvvv
         if (c->vex.pp != 3)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
             return INT_PF;
@@ -5212,7 +5346,7 @@ static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0xf7: { // pp0 bextr, pp1 shlx, pp2 sarx, pp3 shrx
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
             return INT_PF;
@@ -5253,15 +5387,106 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
     if (op == 0xf2 || op == 0xf3 || op == 0xf5 || op == 0xf6 || op == 0xf7)
         return amd64_vex_bmi(c, op);
 
+    // Mask <-> vector conversions are F3-prefixed, so they have to be handled
+    // before the 66-only gate below.
+    if (c->vex.pp == 2 && c->vex.is_evex &&
+        (op == 0x28 || op == 0x29 || op == 0x38 || op == 0x39)) {
+        // 28/38 = VPMOVM2{B,W}/{D,Q} (mask -> vector, all-ones per set bit)
+        // 29/39 = VPMOV{B,W}2M/{D,Q}2M (vector -> mask, one bit per element MSB)
+        bool to_vector = (op == 0x28 || op == 0x38);
+        unsigned lb = (op == 0x28 || op == 0x29) ? (c->vex.w ? 2 : 1)
+                                                 : (c->vex.w ? 8 : 4);
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        unsigned n = (vlen / 8) / lb;
+        if (to_vector) {
+            if (modrm.reg >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            uint64_t k = cpu->avx512_k[modrm.rm & 7];
+            memset(out, 0, sizeof(out));
+            for (unsigned i = 0; i < n; i++)
+                if (k & (UINT64_C(1) << i))
+                    avx_lane_put(out + i * lb, lb, avx_lane_mask(lb));
+            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        } else {
+            if (modrm.rm >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            amd64_vec_reg_read(cpu, modrm.rm, vlen, a);
+            uint64_t k = 0;
+            for (unsigned i = 0; i < n; i++)
+                if (a[i * lb + lb - 1] & 0x80)
+                    k |= UINT64_C(1) << i;
+            cpu->avx512_k[modrm.reg & 7] = k;
+        }
+        return INT_NONE;
+    }
+
     if (c->vex.pp != 1)
         return INT_UNDEFINED;
+
+    if (op == 0x17) { // VPTEST -- sets ZF/CF, writes no register
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, modrm.reg, vlen, a);
+        bool zf = true, cf = true;
+        for (unsigned i = 0; i < vlen / 8; i++) {
+            if (a[i] & b[i])
+                zf = false;          // ZF = (DEST AND SRC) == 0
+            if (~a[i] & b[i])
+                cf = false;          // CF = (SRC AND NOT DEST) == 0
+        }
+        cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+        cpu->af_ops = 0;
+        cpu->zf = zf;
+        cpu->cf = cf;
+        cpu->sf = cpu->pf = cpu->af = cpu->of = 0;
+        collapse_flags(cpu);
+        return INT_NONE;
+    }
+
+    if (op >= 0x7a && op <= 0x7c) { // VPBROADCAST{B,W,D,Q} from a GPR
+        if (!c->vex.is_evex)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm) || !modrm.is_reg)
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        unsigned lb = op == 0x7a ? 1 : op == 0x7b ? 2 : (c->vex.w ? 8 : 4);
+        uint64_t v = amd64_reg_get(cpu, modrm.rm, 64);
+        memset(a, 0, sizeof(a));
+        avx_lane_put(a, lb, v);
+        avx_broadcast(lb, vlen, a, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+
+    if (op == 0x8d) { // VPERMB -- byte permute across the WHOLE register
+        if (!c->vex.is_evex)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);  // indices
+        unsigned n = vlen / 8;
+        for (unsigned i = 0; i < n; i++)
+            out[i] = b[a[i] & (n - 1)];
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
 
     // Two-operand (dst, src) forms with no vvvv operand.
     bool is_broadcast = op == 0x78 || op == 0x79 || op == 0x58 || op == 0x59 || op == 0x5a;
     bool is_widen = (op >= 0x20 && op <= 0x25) || (op >= 0x30 && op <= 0x35);
     bool is_abs = op >= 0x1c && op <= 0x1e;
     if (is_broadcast || is_widen || is_abs) {
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -5335,11 +5560,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         default: matched = false; break;
         }
         if (matched) {
-            if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            if (!amd64_vex_decode_modrm(c, &modrm))
                 return INT_GPF;
             if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
                 return INT_UNDEFINED;
-            if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            if (!amd64_vex_read_rm(c, &modrm, vlen, b))
                 return INT_PF;
             amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
             avx_binop(kind, lb, vlen, a, b, out);
@@ -5352,11 +5577,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
     // shape; AES's "round key" is the rm operand.
     switch (op) {
     case 0xdc: case 0xdd: case 0xde: case 0xdf: { // vaesenc/enclast/dec/declast
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         bool decrypt = op >= 0xde;
@@ -5368,11 +5593,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x50: case 0x52: { // vpdpbusd / vpdpwssd -- accumulate into the dest
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         uint8_t acc[64];
@@ -5385,7 +5610,7 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x18: case 0x19: { // vbroadcastss / vbroadcastsd
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -5428,11 +5653,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         // Scalar FMA forms (odd nibble pairs with W-dependent scalar encodings)
         // share these opcodes in the 0F38 map only for the packed variants
         // handled here.
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         uint8_t dst_in[64];
         amd64_vec_reg_read(cpu, modrm.reg, vlen, dst_in);
@@ -5442,11 +5667,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x00: case 0x04: { // pshufb / pmaddubsw
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         if (op == 0x00)
@@ -5459,11 +5684,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
     case 0x36: { // vpermd: dword gather across the WHOLE register, not lane-local
         if (vlen < 256)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a); // indices
         unsigned n = (vlen / 8) / 4;
@@ -5475,11 +5700,11 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x45: case 0x46: case 0x47: { // psrlvd/q, psravd, psllvd/q
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         unsigned lb = c->vex.w ? 8 : 4;
@@ -5509,32 +5734,123 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     if (c->vex.pp != 1)
         return INT_UNDEFINED;
 
-    switch (op) {
-    case 0x44: { // vpclmulqdq
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
-            return INT_GPF;
-        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+    // Compare into a mask register. imm8's low 3 bits pick the predicate; the
+    // result is one bit per element, ANDed with the write-mask if present.
+    if (op == 0x1e || op == 0x1f || op == 0x3e || op == 0x3f) {
+        if (!c->vex.is_evex)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
-            return INT_PF;
+        bool is_unsigned = (op == 0x1e || op == 0x3e);
+        unsigned lb = (op == 0x3e || op == 0x3f) ? (c->vex.w ? 2 : 1)
+                                                 : (c->vex.w ? 8 : 4);
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        unsigned n = (vlen / 8) / lb;
+        uint64_t result = 0;
+        for (unsigned i = 0; i < n; i++) {
+            uint64_t x = avx_lane_get(a + i * lb, lb);
+            uint64_t y = avx_lane_get(b + i * lb, lb);
+            bool r;
+            if (is_unsigned) {
+                switch (imm & 7) {
+                case 0: r = x == y; break;
+                case 1: r = x < y; break;
+                case 2: r = x <= y; break;
+                case 3: r = false; break;
+                case 4: r = x != y; break;
+                case 5: r = x >= y; break;
+                case 6: r = x > y; break;
+                default: r = true; break;
+                }
+            } else {
+                int64_t sx = avx_lane_sext(x, lb), sy = avx_lane_sext(y, lb);
+                switch (imm & 7) {
+                case 0: r = sx == sy; break;
+                case 1: r = sx < sy; break;
+                case 2: r = sx <= sy; break;
+                case 3: r = false; break;
+                case 4: r = sx != sy; break;
+                case 5: r = sx >= sy; break;
+                case 6: r = sx > sy; break;
+                default: r = true; break;
+                }
+            }
+            if (r)
+                result |= UINT64_C(1) << i;
+        }
+        // A write-mask on a compare acts as a zeroing AND, never a merge.
+        if (c->vex.mask != 0)
+            result &= cpu->avx512_k[c->vex.mask];
+        cpu->avx512_k[modrm.reg & 7] = result;
+        return INT_NONE;
+    }
+
+    if (op == 0x3b) { // VEXTRACTI32X8 / VEXTRACTI64X4 -- 256-bit half of a zmm
+        if (!c->vex.is_evex || vlen != 512)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        amd64_vec_reg_read(cpu, modrm.reg, 512, a);
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        memcpy(out, a + ((imm & 1) ? 32 : 0), 32);
+        if (modrm.is_reg) {
+            if (modrm.rm >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            amd64_vec_reg_write(cpu, modrm.rm, 256, out);
+        } else {
+            qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+            if (!amd64_mem_write(cpu, tlb, addr, out, 32))
+                return INT_PF;
+        }
+        return INT_NONE;
+    }
+
+    switch (op) {
+    case 0x44: { // vpclmulqdq
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_pclmulqdq(vlen, imm, a, b, out);
         amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
         return INT_NONE;
     }
     case 0xce: { // vgf2p8affineqb
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_gf2p8affine(vlen, imm, a, b, out);
         amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
@@ -5543,15 +5859,18 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x25: { // vpternlogd/q -- EVEX only
         if (!c->vex.is_evex)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
         uint8_t dst_in[64];
         amd64_vec_reg_read(cpu, modrm.reg, vlen, dst_in);
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
@@ -5560,15 +5879,18 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x0f: { // vpalignr
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_palignr(vlen, imm, a, b, out);
         amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
@@ -5577,15 +5899,18 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x00: { // vpermq (W=1): qword gather across the whole register
         if (!c->vex.w || vlen < 256)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, a))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, a))
+            return INT_PF;
         for (unsigned i = 0; i < 4; i++)
             avx_lane_put(out + i * 8, 8, avx_lane_get(a + ((imm >> (2 * i)) & 3) * 8, 8));
         amd64_vec_reg_write(cpu, modrm.reg, 256, out);
@@ -5594,10 +5919,15 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x38: { // vinserti128
         if (vlen < 256)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
+        // imm8 first: a RIP-relative displacement counts it as part of the
+        // instruction's length.
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
         if (modrm.is_reg) {
             if (modrm.rm >= AMD64_AVX_MAX_REG)
                 return INT_UNDEFINED;
@@ -5607,9 +5937,6 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
             if (!amd64_mem_read(cpu, tlb, addr, b, 16))
                 return INT_PF;
         }
-        byte_t imm;
-        if (!amd64_fetch_u8(cpu, tlb, &imm))
-            return INT_GPF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, 256, out);
         memcpy(out + ((imm & 1) ? 16 : 0), b, 16);
         amd64_vec_reg_write(cpu, modrm.reg, 256, out);
@@ -5618,7 +5945,7 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x39: { // vextracti128 -- destination is the rm operand
         if (vlen < 256)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -5641,7 +5968,7 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x46: { // vperm2i128
         if (vlen < 256)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -5664,15 +5991,18 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x02: case 0x0e: { // vpblendd / vpblendw
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
-            return INT_PF;
+        // The imm8 must be consumed before the effective address is
+        // computed: a RIP-relative displacement is relative to the END
+        // of the instruction, imm8 included.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         unsigned lb = op == 0x02 ? 4 : 2;
         unsigned n = (vlen / 8) / lb;
@@ -5687,11 +6017,11 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x4c: { // vpblendvb -- mask register comes from the is4 immediate byte
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
-        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
             return INT_PF;
         byte_t is4;
         if (!amd64_fetch_u8(cpu, tlb, &is4))
@@ -5710,7 +6040,7 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x14: case 0x15: case 0x16: { // vpextrb / vpextrw / vpextrd,q
         if (vlen != 128)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
@@ -5728,17 +6058,19 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     case 0x20: case 0x22: { // vpinsrb / vpinsrd,q
         if (vlen != 128)
             return INT_UNDEFINED;
-        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+        if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
         unsigned lb = op == 0x20 ? 1 : (c->vex.w ? 8 : 4);
-        qword_t value;
-        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, lb == 1 ? 8 : lb * 8, &value))
-            return INT_PF;
+        // imm8 first: a RIP-relative displacement counts it as part of the
+        // instruction's length.
         byte_t imm;
         if (!amd64_fetch_u8(cpu, tlb, &imm))
             return INT_GPF;
+        qword_t value;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, lb == 1 ? 8 : lb * 8, &value))
+            return INT_PF;
         amd64_vec_reg_read(cpu, c->vex.vvvv, 128, out);
         avx_lane_put(out + (imm & (16 / lb - 1)) * lb, lb, value);
         amd64_vec_reg_write(cpu, modrm.reg, 128, out);
@@ -5768,19 +6100,15 @@ static int amd64_vex_step(struct cpu_state *cpu, struct tlb *tlb,
         .vlen = vex.vlen,
     };
 
-    // Refuse a predicate on any instruction whose handler does not apply one:
+    // Refuse a predicate on any instruction whose handler cannot apply one:
     // silently ignoring it would write elements the guest asked to preserve.
     if (vex.is_evex && vex.mask != 0) {
-        bool maskable = vex.map == 1 &&
-            (op == 0x6f || op == 0x7f || op == 0x10 || op == 0x11 ||
-             op == 0x28 || op == 0x29 ||
-             op == 0x54 || op == 0x55 || op == 0x56 || op == 0x57 ||
-             op == 0xef || op == 0xeb || op == 0xdb || op == 0xdf ||
-             op == 0xfc || op == 0xfd || op == 0xfe || op == 0xd4 ||
-             op == 0xf8 || op == 0xf9 || op == 0xfa || op == 0xfb ||
-             op == 0x74 || op == 0x75 || op == 0x76 ||
-             op == 0x64 || op == 0x65 || op == 0x66);
-        if (!maskable)
+        bool compare_into_mask =
+            (vex.map == 3 && (op == 0x1e || op == 0x1f || op == 0x3e || op == 0x3f)) ||
+            (vex.map == 1 && vex.pp == 1 &&
+             (op == 0x74 || op == 0x75 || op == 0x76 ||
+              op == 0x64 || op == 0x65 || op == 0x66));
+        if (!compare_into_mask && amd64_vex_mask_elem(&ctx, op) == 0)
             return INT_UNDEFINED;
     }
 

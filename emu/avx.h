@@ -101,6 +101,13 @@ void avx_pternlog(unsigned vlen, byte_t imm, const uint8_t *s1, const uint8_t *s
 // ymm_hi[i] holds 128-255, zmm_hi[i] holds 256-511. avx_reg_write always
 // zeroes everything above `vlen`, which is what VEX/EVEX require of any
 // write (a VEX.128 write to xmm3 clears ymm3's and zmm3's upper bits).
+// Bits 0-127 of vector register `idx`. Registers 0-15 live in cpu->xmm (where
+// every legacy SSE gadget expects them); 16-31 are EVEX-only and live in
+// cpu->xmm_ext, so the two ranges must never be indexed as one array.
+static inline union xmm_reg *avx_xmm(struct cpu_state *cpu, unsigned idx) {
+    return idx < 16 ? &cpu->xmm[idx] : &cpu->xmm_ext[idx - 16];
+}
+
 void avx_reg_read(struct cpu_state *cpu, unsigned idx, unsigned vlen, uint8_t *out);
 void avx_reg_write(struct cpu_state *cpu, unsigned idx, unsigned vlen, const uint8_t *in);
 

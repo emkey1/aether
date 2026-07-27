@@ -1206,7 +1206,8 @@ scalar_fp_pairwise sfminnmp, fminnmp
     add x14, _cpu, #CPU_v0
     add x15, x14, x10, lsl #4
     add x16, x14, x11, lsl #4
-    add x17, _cpu, #LOCAL_value
+    mov x17, LOCAL_value
+    add x17, _cpu, x17
     cbz x13, 1f
     ldr q0, [x15]
     ldr q1, [x16]

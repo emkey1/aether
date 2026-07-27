@@ -2781,14 +2781,16 @@ amd64_vmem_read_miss:
 amd64_vmem_crosspage_read:
     save_c
     sub x0, _tlb, TLB_entries
-    add x2, _cpu, LOCAL_value
+    mov x2, LOCAL_value
+    add x2, _cpu, x2
     mov x1, x9
     mov x3, x19
     bl NAME(__tlb_read_cross_page)
     mov x19, x0
     restore_c
     cbz x19, amd64_vmem_segfault_read
-    add x9, _cpu, LOCAL_value
+    mov x9, LOCAL_value
+    add x9, _cpu, x9
     ret
 
 .global amd64_vmem_segfault_read
@@ -2872,7 +2874,8 @@ amd64_vwback_\id:
 
 # After the store, if x9 was the cross-page staging buffer, flush it to memory.
 .macro amd64_vwrite_done size, id
-    add  x8, _cpu, LOCAL_value
+    mov x8, LOCAL_value
+    add x8, _cpu, x8
     cmp  x8, x9
     b.ne amd64_vwdone_\id
     mov  x19, \size
@@ -2886,7 +2889,8 @@ amd64_vwmiss_\id:
     b    amd64_vwback_\id
 amd64_vwxpage_\id:
     str  x9, [_cpu, LOCAL_value_addr]
-    add  x9, _cpu, LOCAL_value
+    mov x9, LOCAL_value
+    add x9, _cpu, x9
     b    amd64_vwback_\id
 .endm
 
@@ -2919,7 +2923,8 @@ amd64_vmem_write_miss:
 amd64_vmem_crosspage_write:
     save_c
     sub  x0, _tlb, TLB_entries
-    add  x2, _cpu, LOCAL_value
+    mov x2, LOCAL_value
+    add x2, _cpu, x2
     ldr  x1, [_cpu, LOCAL_value_addr]
     mov  x3, x19
     bl   NAME(__tlb_write_cross_page)

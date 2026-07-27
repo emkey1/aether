@@ -142,7 +142,8 @@ riscv64_resolve_write_ptr:
 riscv64_crosspage_load:
     save_c
     sub x0, _tlb, #TLB_entries
-    add x2, _cpu, #LOCAL_value
+    mov x2, LOCAL_value
+    add x2, _cpu, x2
     mov x3, x27             // size in bytes, set by the caller (gadgets.h's bullshit macro)
     mov x1, _addr
     bl NAME(__tlb_read_cross_page)
@@ -150,7 +151,8 @@ riscv64_crosspage_load:
     restore_c
     cbz x27, riscv64_segfault_read
     str _addr, [_cpu, #LOCAL_value_addr]
-    add _addr, _cpu, #LOCAL_value
+    mov _addr, LOCAL_value
+    add _addr, _cpu, _addr
     ret
 
 // Real bug caught by re-reading i386's flow (not by a failing test --
@@ -168,7 +170,8 @@ riscv64_crosspage_store:
     // consume x2 (_tlb) before writing it, write x1 (_cpu) last.
     sub x0, _tlb, #TLB_entries
     ldr x3, [_cpu, #LOCAL_value_addr] // guest addr, staged in x3 while _cpu is intact
-    add x2, _cpu, #LOCAL_value
+    mov x2, LOCAL_value
+    add x2, _cpu, x2
     mov x1, x3
     mov x3, x27             // size in bytes, set by the caller (gadgets.h's write_bullshit)
     bl NAME(__tlb_write_cross_page)

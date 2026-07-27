@@ -119,7 +119,8 @@ resolve_write_ptr:
 crosspage_load:
     save_c
     sub x0, _tlb, TLB_entries
-    add x2, _cpu, LOCAL_value
+    mov x2, LOCAL_value
+    add x2, _cpu, x2
     mov w1, _addr
     mov x3, x19
     bl NAME(__tlb_read_cross_page)
@@ -127,14 +128,16 @@ crosspage_load:
     restore_c
     cbz x19, segfault_read
     str _addr, [_cpu, LOCAL_value_addr]
-    add _xaddr, _cpu, LOCAL_value
+    mov _xaddr, LOCAL_value
+    add _xaddr, _cpu, _xaddr
     ret
 
 .global crosspage_store
 crosspage_store:
     save_c
     sub x0, _tlb, TLB_entries
-    add x2, _cpu, LOCAL_value
+    mov x2, LOCAL_value
+    add x2, _cpu, x2
     ldr w1, [_cpu, LOCAL_value_addr]
     mov x3, x19
     bl NAME(__tlb_write_cross_page)

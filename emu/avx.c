@@ -591,7 +591,7 @@ void avx_pternlog(unsigned vlen, byte_t imm, const uint8_t *s1,
 // ---- register-file access ----
 
 void avx_reg_read(struct cpu_state *cpu, unsigned idx, unsigned vlen, uint8_t *out) {
-    memcpy(out, &cpu->xmm[idx], 16);
+    memcpy(out, avx_xmm(cpu, idx), 16);
     if (vlen >= 256)
         memcpy(out + 16, &cpu->ymm_hi[idx], 16);
     if (vlen >= 512)
@@ -599,7 +599,7 @@ void avx_reg_read(struct cpu_state *cpu, unsigned idx, unsigned vlen, uint8_t *o
 }
 
 void avx_reg_write(struct cpu_state *cpu, unsigned idx, unsigned vlen, const uint8_t *in) {
-    memcpy(&cpu->xmm[idx], in, 16);
+    memcpy(avx_xmm(cpu, idx), in, 16);
     if (vlen >= 256)
         memcpy(&cpu->ymm_hi[idx], in + 16, 16);
     else

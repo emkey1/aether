@@ -254,7 +254,8 @@ crosspage_store_\id :
 .endr
 
 .macro write_done size, id
-    add x9, _cpu, #LOCAL_value
+    mov x9, LOCAL_value
+    add x9, _cpu, x9
     cmp x9, x7
     b.eq crosspage_store_\id
 back_write_done_\id :
