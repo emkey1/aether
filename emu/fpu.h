@@ -118,6 +118,7 @@ void fpu_xam(struct cpu_state *cpu);
 void fpu_xtract(struct cpu_state *cpu);
 
 void fpu_stcw16(struct cpu_state *cpu, uint16_t *i);
+void fpu_stsw16(struct cpu_state *cpu, uint16_t *i);
 void fpu_ldcw16(struct cpu_state *cpu, uint16_t *i);
 void fpu_stenv32(struct cpu_state *cpu, struct fpu_env32 *env);
 void fpu_ldenv32(struct cpu_state *cpu, struct fpu_env32 *env);

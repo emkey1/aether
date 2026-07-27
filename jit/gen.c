@@ -10372,7 +10372,7 @@ void helper_rdtsc(struct cpu_state *cpu);
 #define FSQRT() h(fpu_sqrt)
 #define FYL2X() h(fpu_yl2x)
 #define F2XM1() h(fpu_2xm1)
-#define FSTSW(dst) if (arg_##dst == arg_reg_a) g(fstsw_ax); else UNDEFINED
+#define FSTSW(dst) if (arg_##dst == arg_reg_a) g(fstsw_ax); else h_write(fpu_stsw, 16)
 #define FSTCW(dst) if (arg_##dst == arg_reg_a) UNDEFINED; else h_write(fpu_stcw, 16)
 #define FLDCW(dst) if (arg_##dst == arg_reg_a) UNDEFINED; else h_read(fpu_ldcw, 16)
 #define FSTENV(val,z) h_write(fpu_stenv, z)

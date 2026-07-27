@@ -392,6 +392,9 @@ void fpu_xam(struct cpu_state *cpu) {
 void fpu_stcw16(struct cpu_state *cpu, uint16_t *i) {
     *i = cpu->fcw;
 }
+void fpu_stsw16(struct cpu_state *cpu, uint16_t *i) {
+    *i = cpu->fsw;
+}
 void fpu_ldcw16(struct cpu_state *cpu, uint16_t *i) {
     cpu->fcw = *i;
     f80_rounding_mode = cpu->rc;

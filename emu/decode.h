@@ -1293,6 +1293,7 @@ restart:
                     case 0xdd3: TRACE("fstp mem64"); FSTM(mem_addr_real,64); FPOP; break;
                     case 0xdd4: TRACE("frstor mem32"); FRESTORE(mem_addr,32); break;
                     case 0xdd6: TRACE("fnsave mem32"); FSAVE(mem_addr,32); break;
+                    case 0xdd7: TRACE("fnstsw mem16"); FSTSW(mem_addr); break;
                     case 0xde0: TRACE("fiadd mem16"); FIADD(mem_addr,16); break;
                     case 0xde1: TRACE("fimul mem16"); FIMUL(mem_addr,16); break;
                     case 0xde2: TRACE("ficom mem16"); FICOM(mem_addr,16); break;
