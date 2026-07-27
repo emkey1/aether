@@ -395,9 +395,20 @@ void fpu_stcw16(struct cpu_state *cpu, uint16_t *i) {
 void fpu_stsw16(struct cpu_state *cpu, uint16_t *i) {
     *i = cpu->fsw;
 }
+// Control-word PC field -> significand bits. 01b is reserved; Intel treats it
+// as extended, so do the same.
+static int f80_precision_from_pc(unsigned pc) {
+    switch (pc) {
+        case 0: return 24;
+        case 2: return 53;
+        default: return 64;
+    }
+}
+
 void fpu_ldcw16(struct cpu_state *cpu, uint16_t *i) {
     cpu->fcw = *i;
     f80_rounding_mode = cpu->rc;
+    f80_precision = f80_precision_from_pc(cpu->pc);
 }
 
 struct fpu_env32 {
@@ -421,6 +432,10 @@ void fpu_stenv32(struct cpu_state *cpu, struct fpu_env32 *env) {
 void fpu_ldenv32(struct cpu_state *cpu, struct fpu_env32 *env) {
     cpu->fcw = env->control;
     cpu->fsw = env->status;
+    // frstor/fldenv restore the control word too, so the live rounding and
+    // precision state has to follow it.
+    f80_rounding_mode = cpu->rc;
+    f80_precision = f80_precision_from_pc(cpu->pc);
 }
 
 struct fpu_state32 {

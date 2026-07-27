@@ -34,6 +34,7 @@ static int unbias_denormal(unsigned exp) {
 #define CURSED_BIT (1ul << 63)
 
 __thread enum f80_rounding_mode f80_rounding_mode;
+__thread int f80_precision = 64;
 
 static bool round_away_from_zero(int sign) {
     return (f80_rounding_mode == round_up && !sign) ||
@@ -182,13 +183,21 @@ static float80 u128_normalize_round(uint128_t signif, int exp, int sign) {
     // and round
     float80 f;
     f.exp = bias(exp);
+    // Round straight to the precision-control width rather than to 64 bits and
+    // then again to the target -- double rounding would give a different answer
+    // in the halfway cases. extra == 0 (the default, PC = extended) reduces
+    // this to exactly what it did before.
+    int extra = 64 - f80_precision;
+    if (extra < 0 || extra > 40)
+        extra = 0;
     // hack around cases where u128_shift_right_round returns 0x10000000000000000
     // such as signif = 0xffffffffffffffff0000000000000000
-    signif = u128_shift_right_round(signif, 64, sign);
-    if (signif >> 64 != 0) {
+    signif = u128_shift_right_round(signif, 64 + extra, sign);
+    if (signif >> (64 - extra) != 0) {
         signif >>= 1;
         f.exp++;
     }
+    signif <<= extra;
     f.signif = signif;
     f.sign = sign;
     return f;

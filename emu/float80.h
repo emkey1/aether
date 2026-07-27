@@ -56,6 +56,12 @@ enum f80_rounding_mode {
 };
 extern __thread enum f80_rounding_mode f80_rounding_mode;
 
+// x87 precision control: the number of significand bits arithmetic results are
+// rounded to. 64 (extended, the default), 53 (double) or 24 (single). Set from
+// the control word's PC field, exactly like the rounding mode above -- glibc's
+// i386 sin()/cos() switch to 53 and depend on every step rounding there.
+extern __thread int f80_precision;
+
 #define F80_NAN ((float80) {.signif = 0xc000000000000000, .exp = 0x7fff, .sign = 0})
 #define F80_INF ((float80) {.signif = 0x8000000000000000, .exp = 0x7fff, .sign = 0})
 
