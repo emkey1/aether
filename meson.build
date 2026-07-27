@@ -148,6 +148,7 @@ emu_src = [
     'emu/tlb.c',
     'emu/fpu.c',
     'emu/vec.c',
+    'emu/avx.c', # arch-independent AVX/VEX semantics, shared by the amd64 and i386 front-ends
     'emu/mmx.c',
     'emu/float80.c',
     'emu/amd64_interp.c', # always built: host gadgets + jit/gen.c link its amd64_jit_* helpers
