@@ -110,7 +110,22 @@ int main(int argc, char **argv) {
             // A query returns a clock state, not an error, and populates the
             // struct. Real Linux reports TIME_ERROR (5) when unsynchronised.
             check("adjtimex query returns a clock state", r >= 0, 1);
-            check("adjtimex query fills in tick", tx.tick != 0, 1);
+            // The struct contents are only meaningful when libc's struct timex
+            // agrees with the layout raw syscall 124 actually uses. On a 32-bit
+            // ABI whose libc has a 64-bit time_t (musl 1.2+, glibc built with
+            // _TIME_BITS=64), libc's timex is the 64-bit __kernel_timex layout
+            // while syscall 124 is the legacy old_timex32 one, so `time` is 4
+            // bytes wider than the kernel wrote and every field after it --
+            // including tick -- is read from the wrong offset. That is a libc
+            // property, not an emulator bug: real Linux reads tick=0 here too
+            // (verified on the mint oracle by running this exact static i386
+            // musl binary on an x86_64 kernel, which FAILs the same assertion).
+            if (sizeof(void *) == 8 || sizeof(tx.time.tv_sec) == 4) {
+                check("adjtimex query fills in tick", tx.tick != 0, 1);
+            } else {
+                test_logf("  skip adjtimex field check: libc timex is time64 "
+                          "but raw syscall %d is the legacy layout\n", SYS_adjtimex);
+            }
         }
 
         // Any modes != 0 needs privilege we deliberately do not grant.
