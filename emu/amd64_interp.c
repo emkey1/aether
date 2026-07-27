@@ -4222,6 +4222,388 @@ static inline bool amd64_write_rm(struct cpu_state *cpu, struct tlb *tlb,
     }
 }
 
+// ---- AVX/AVX-512 (VEX/EVEX) support (GH #525) ----
+//
+// Ground truth (disassembly of the real Bun binary bundled by
+// @anthropic-ai/claude-code -- see GH #525) shows pervasive compiler/stdlib
+// function-multiversioning: baseline/AVX2/AVX-512 variants of hot routines
+// (checksums, memcpy-style loops, hashing) coexist in one binary and are
+// selected by a runtime CPUID check. This implements the highest-frequency
+// slice of that instruction traffic at the interpreter level. Only the
+// interpreter needs to understand VEX/EVEX -- the JIT's own decoder
+// (gen_decode_amd64) never recognizes these lead bytes and already bails to
+// the interpreter for anything it doesn't translate (jit/gen.c, the
+// amd64_bridge_step fallback), so no JIT codegen changes are required for
+// correctness, only for performance of code that uses these instructions.
+//
+// Registers 16-31 (EVEX-only, via the R'/V' extension bits) are not
+// supported -- cpu_state's xmm/ymm_hi/zmm_hi arrays are sized for 16, and a
+// masked/zeroing EVEX form is likewise rejected -- both report INT_UNDEFINED
+// (a guest SIGILL) rather than silently computing a wrong answer.
+
+#define AMD64_AVX_MAX_REG 16
+
+struct amd64_vex_prefix {
+    bool present;
+    bool is_evex;
+    unsigned map;   // 1 = 0F, 2 = 0F38, 3 = 0F3A
+    unsigned pp;    // 0 = none, 1 = 66, 2 = F3, 3 = F2
+    bool w;
+    unsigned vvvv;  // second source register operand, 0-15
+    unsigned vlen;  // 128, 256, or 512 (0 = invalid/unsupported form)
+    bool r, x, b;   // register-extension bits, already un-inverted
+};
+
+// Decodes the VEX/EVEX payload following a 0xC4/0xC5/0x62 lead byte the
+// caller already consumed. Returns false only on a genuine fetch failure
+// (end of mapped memory); a form this doesn't support (masked/zeroing EVEX,
+// register range 16-31) is reported via vex->present == false so the caller
+// falls back to INT_UNDEFINED like any other unimplemented opcode.
+static inline bool amd64_decode_vex(struct cpu_state *cpu, struct tlb *tlb,
+        byte_t lead, struct amd64_vex_prefix *vex) {
+    memset(vex, 0, sizeof(*vex));
+    if (lead == 0xc5) {
+        byte_t b1;
+        if (!amd64_fetch_u8(cpu, tlb, &b1))
+            return false;
+        vex->r = (b1 & 0x80) == 0;
+        // 2-byte VEX has no X/B fields; they are implicitly zero (no register
+        // extension), NOT "set" -- treating them as set would add 8 to every
+        // rm/base register number.
+        vex->x = false;
+        vex->b = false;
+        vex->map = 1; // 2-byte VEX always implies the 0F map
+        vex->vvvv = (~(b1 >> 3)) & 0xf;
+        vex->vlen = (b1 & 0x4) ? 256 : 128;
+        vex->pp = b1 & 0x3;
+        vex->present = true;
+        return true;
+    }
+    if (lead == 0xc4) {
+        byte_t b1, b2;
+        if (!amd64_fetch_u8(cpu, tlb, &b1) || !amd64_fetch_u8(cpu, tlb, &b2))
+            return false;
+        vex->r = (b1 & 0x80) == 0;
+        vex->x = (b1 & 0x40) == 0;
+        vex->b = (b1 & 0x20) == 0;
+        vex->map = b1 & 0x1f;
+        vex->w = (b2 & 0x80) != 0;
+        vex->vvvv = (~(b2 >> 3)) & 0xf;
+        vex->vlen = (b2 & 0x4) ? 256 : 128;
+        vex->pp = b2 & 0x3;
+        vex->present = vex->map >= 1 && vex->map <= 3;
+        return true;
+    }
+    if (lead == 0x62) {
+        byte_t p0, p1, p2;
+        if (!amd64_fetch_u8(cpu, tlb, &p0) || !amd64_fetch_u8(cpu, tlb, &p1) || !amd64_fetch_u8(cpu, tlb, &p2))
+            return false;
+        vex->is_evex = true;
+        vex->r = (p0 & 0x80) == 0;
+        vex->x = (p0 & 0x40) == 0;
+        vex->b = (p0 & 0x20) == 0;
+        bool rprime = (p0 & 0x10) == 0; // R': extends reg to 16-31, unsupported
+        vex->map = p0 & 0x3;
+        vex->w = (p1 & 0x80) != 0;
+        vex->vvvv = (~(p1 >> 3)) & 0xf;
+        if ((p1 & 0x4) == 0)
+            return true; // reserved bit must be 1; leave vex->present false
+        vex->pp = p1 & 0x3;
+        bool zeroing = (p2 & 0x80) != 0;
+        unsigned ll = (p2 >> 5) & 0x3;
+        vex->vlen = ll == 0 ? 128 : ll == 1 ? 256 : ll == 2 ? 512 : 0;
+        unsigned mask = p2 & 0x7;
+        bool vprime = (p2 & 0x8) == 0; // V': extends vvvv to 16-31, unsupported
+        vex->present = vex->vlen != 0 && !rprime && !vprime && !zeroing && mask == 0
+            && vex->map >= 1 && vex->map <= 3;
+        return true;
+    }
+    return false;
+}
+
+static inline void amd64_vec_reg_read(struct cpu_state *cpu, unsigned idx, unsigned vlen, uint8_t *out) {
+    memcpy(out, &cpu->xmm[idx], 16);
+    if (vlen >= 256)
+        memcpy(out + 16, &cpu->ymm_hi[idx], 16);
+    if (vlen >= 512)
+        memcpy(out + 32, cpu->zmm_hi[idx].u8, 32);
+}
+
+// Writes the low `vlen` bits of register idx and zeroes everything above it,
+// matching real hardware's VEX/EVEX "zero the upper bits of the destination"
+// semantics (e.g. a VEX.128 write to xmm3 zeroes ymm3's and zmm3's upper
+// bits too).
+static inline void amd64_vec_reg_write(struct cpu_state *cpu, unsigned idx, unsigned vlen, const uint8_t *in) {
+    memcpy(&cpu->xmm[idx], in, 16);
+    if (vlen >= 256)
+        memcpy(&cpu->ymm_hi[idx], in + 16, 16);
+    else
+        memset(&cpu->ymm_hi[idx], 0, 16);
+    if (vlen >= 512)
+        memcpy(cpu->zmm_hi[idx].u8, in + 32, 32);
+    else
+        memset(cpu->zmm_hi[idx].u8, 0, 32);
+}
+
+static inline bool amd64_vec_read_rm(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned vlen, uint8_t *out) {
+    if (modrm->is_reg) {
+        if (modrm->rm >= AMD64_AVX_MAX_REG)
+            return false;
+        amd64_vec_reg_read(cpu, modrm->rm, vlen, out);
+        return true;
+    }
+    qword_t addr = amd64_effective_addr(cpu, modrm, fs_prefix);
+    return amd64_mem_read(cpu, tlb, addr, out, vlen / 8);
+}
+
+static inline bool amd64_vec_write_rm(struct cpu_state *cpu, struct tlb *tlb,
+        const struct amd64_modrm *modrm, bool fs_prefix, unsigned vlen, const uint8_t *in) {
+    if (modrm->is_reg) {
+        if (modrm->rm >= AMD64_AVX_MAX_REG)
+            return false;
+        amd64_vec_reg_write(cpu, modrm->rm, vlen, in);
+        return true;
+    }
+    qword_t addr = amd64_effective_addr(cpu, modrm, fs_prefix);
+    return amd64_mem_write(cpu, tlb, addr, in, vlen / 8);
+}
+
+// Elementwise binary op across the whole vlen-byte buffer. AVX defines
+// wide arithmetic/logical/compare ops as independent per-128-bit-lane
+// operations, but for a purely elementwise op (every lane width divides
+// evenly into 128 bits, and no lane reads another lane's data) iterating
+// over the flat buffer gives an identical result to iterating lane-by-lane,
+// so this is correct for xor/and/or/andn/add/pcmpeq without extra bookkeeping.
+enum amd64_vex_binop { AVX_XOR, AVX_AND, AVX_ANDN, AVX_OR, AVX_ADD, AVX_PCMPEQ };
+
+static void amd64_vex_binop(enum amd64_vex_binop kind, unsigned lane_bytes,
+        unsigned vlen, const uint8_t *src1, const uint8_t *src2, uint8_t *dst) {
+    unsigned total = vlen / 8;
+    if (kind == AVX_XOR || kind == AVX_AND || kind == AVX_ANDN || kind == AVX_OR) {
+        for (unsigned i = 0; i < total; i++) {
+            switch (kind) {
+            case AVX_XOR: dst[i] = src1[i] ^ src2[i]; break;
+            case AVX_AND: dst[i] = src1[i] & src2[i]; break;
+            case AVX_ANDN: dst[i] = ~src1[i] & src2[i]; break;
+            case AVX_OR: dst[i] = src1[i] | src2[i]; break;
+            default: break;
+            }
+        }
+        return;
+    }
+    for (unsigned off = 0; off < total; off += lane_bytes) {
+        switch (lane_bytes) {
+        case 1: {
+            uint8_t a = src1[off], b = src2[off];
+            dst[off] = kind == AVX_ADD ? (uint8_t) (a + b) : (a == b ? 0xff : 0);
+            break;
+        }
+        case 2: {
+            uint16_t a, b, r;
+            memcpy(&a, src1 + off, 2); memcpy(&b, src2 + off, 2);
+            r = kind == AVX_ADD ? (uint16_t) (a + b) : (a == b ? 0xffff : 0);
+            memcpy(dst + off, &r, 2);
+            break;
+        }
+        case 4: {
+            uint32_t a, b, r;
+            memcpy(&a, src1 + off, 4); memcpy(&b, src2 + off, 4);
+            r = kind == AVX_ADD ? (uint32_t) (a + b) : (a == b ? 0xffffffffu : 0);
+            memcpy(dst + off, &r, 4);
+            break;
+        }
+        case 8: {
+            uint64_t a, b, r;
+            memcpy(&a, src1 + off, 8); memcpy(&b, src2 + off, 8);
+            r = kind == AVX_ADD ? (uint64_t) (a + b) : (a == b ? ~UINT64_C(0) : 0);
+            memcpy(dst + off, &r, 8);
+            break;
+        }
+        }
+    }
+}
+
+// VPSHUFD/lane-local dword shuffle: same imm8 control applied independently
+// within each 128-bit lane (true even for 256/512-bit forms -- this one
+// genuinely cannot be flattened like the ops above).
+static void amd64_vex_pshufd(unsigned vlen, byte_t imm, const uint8_t *src, uint8_t *dst) {
+    for (unsigned lane = 0; lane < vlen / 8; lane += 16) {
+        uint32_t in[4], out[4];
+        memcpy(in, src + lane, 16);
+        for (unsigned j = 0; j < 4; j++)
+            out[j] = in[(imm >> (2 * j)) & 3];
+        memcpy(dst + lane, out, 16);
+    }
+}
+
+static int amd64_vex_step(struct cpu_state *cpu, struct tlb *tlb,
+        qword_t saved_rip, struct amd64_vex_prefix vex, bool fs_prefix) {
+    byte_t op;
+    if (!amd64_fetch_u8(cpu, tlb, &op)) {
+        cpu->amd64_rip = saved_rip;
+        cpu->segfault_addr = saved_rip;
+        return INT_GPF;
+    }
+
+    struct amd64_rex_prefix rex = { .present = true, .w = vex.w, .r = vex.r, .x = vex.x, .b = vex.b };
+    struct amd64_modrm modrm;
+    unsigned vlen = vex.vlen;
+    uint8_t a[64], b[64], out[64];
+
+    if (vex.map == 1) {
+        // Plain data movement: MOVUPS/MOVUPD (0F 10/11), MOVAPS/MOVAPD
+        // (0F 28/29), MOVDQU/MOVDQA (0F 6F/7F, pp F3/66). All four move the
+        // same bits; this emulator doesn't fault on real hardware's
+        // alignment requirement for the "A" forms.
+        bool is_load = op == 0x10 || op == 0x28 || op == 0x6f;
+        bool is_store = op == 0x11 || op == 0x29 || op == 0x7f;
+        // The legal prefixes differ per opcode: 10/11 and 28/29 are the
+        // packed-float moves (pp 0 = PS, pp 1 = PD), where pp F3/F2 would
+        // instead mean the *scalar* MOVSS/MOVSD (different semantics, not
+        // handled here); 6F/7F are the integer moves (pp 1 = MOVDQA,
+        // pp 2 = MOVDQU), where pp 0 would be a legacy MMX form that has no
+        // VEX encoding.
+        bool prefix_ok = (op == 0x6f || op == 0x7f) ? (vex.pp == 1 || vex.pp == 2)
+                                                    : (vex.pp == 0 || vex.pp == 1);
+        if ((is_load || is_store) && prefix_ok) {
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+                goto amd64_vex_gpf;
+            if (modrm.reg >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            if (is_load) {
+                if (!amd64_vec_read_rm(cpu, tlb, &modrm, fs_prefix, vlen, out))
+                    goto amd64_vex_pf;
+                amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            } else {
+                amd64_vec_reg_read(cpu, modrm.reg, vlen, out);
+                if (!amd64_vec_write_rm(cpu, tlb, &modrm, fs_prefix, vlen, out))
+                    goto amd64_vex_pf;
+            }
+            goto amd64_vex_done;
+        }
+
+        // 3-operand elementwise ops: dst(modrm.reg) = vvvv OP modrm.rm
+        enum amd64_vex_binop kind;
+        unsigned lane_bytes = 1;
+        bool matched = true;
+        switch (op) {
+        case 0x57: kind = AVX_XOR; lane_bytes = 1; break;      // xorps/xorpd
+        case 0xef: kind = AVX_XOR; lane_bytes = 1; break;      // pxor
+        case 0xeb: kind = AVX_OR; lane_bytes = 1; break;       // por
+        case 0xdb: kind = AVX_AND; lane_bytes = 1; break;      // pand
+        case 0xdf: kind = AVX_ANDN; lane_bytes = 1; break;     // pandn
+        case 0xfc: kind = AVX_ADD; lane_bytes = 1; break;      // paddb
+        case 0xfd: kind = AVX_ADD; lane_bytes = 2; break;      // paddw
+        case 0xfe: kind = AVX_ADD; lane_bytes = 4; break;      // paddd
+        case 0xd4: kind = AVX_ADD; lane_bytes = 8; break;      // paddq
+        case 0x74: kind = AVX_PCMPEQ; lane_bytes = 1; break;   // pcmpeqb
+        case 0x75: kind = AVX_PCMPEQ; lane_bytes = 2; break;   // pcmpeqw
+        case 0x76: kind = AVX_PCMPEQ; lane_bytes = 4; break;   // pcmpeqd
+        default: matched = false; break;
+        }
+        if (matched) {
+            // xorps/xorpd (0x57) is valid with pp 0 or 1; the rest need 66.
+            if (op != 0x57 && vex.pp != 1)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+                goto amd64_vex_gpf;
+            if (modrm.reg >= AMD64_AVX_MAX_REG || vex.vvvv >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            if (!amd64_vec_read_rm(cpu, tlb, &modrm, fs_prefix, vlen, b))
+                goto amd64_vex_pf;
+            amd64_vec_reg_read(cpu, vex.vvvv, vlen, a);
+            amd64_vex_binop(kind, lane_bytes, vlen, a, b, out);
+            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            goto amd64_vex_done;
+        }
+
+        if (op == 0x70) { // PSHUFD (66), PSHUFHW (F3), PSHUFLW (F2) -- only PSHUFD implemented
+            if (vex.pp != 1)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+                goto amd64_vex_gpf;
+            if (modrm.reg >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            byte_t imm;
+            if (!amd64_fetch_u8(cpu, tlb, &imm))
+                goto amd64_vex_gpf;
+            if (!amd64_vec_read_rm(cpu, tlb, &modrm, fs_prefix, vlen, a))
+                goto amd64_vex_pf;
+            amd64_vex_pshufd(vlen, imm, a, out);
+            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            goto amd64_vex_done;
+        }
+
+        if (op == 0x77 && vex.pp == 0) { // VZEROUPPER (L=0) / VZEROALL (L=1)
+            for (unsigned i = 0; i < AMD64_AVX_MAX_REG; i++) {
+                memset(&cpu->ymm_hi[i], 0, sizeof(cpu->ymm_hi[i]));
+                memset(cpu->zmm_hi[i].u8, 0, sizeof(cpu->zmm_hi[i].u8));
+                if (vlen == 256) // vzeroall also clears the low 128 bits
+                    memset(&cpu->xmm[i], 0, sizeof(cpu->xmm[i]));
+            }
+            goto amd64_vex_done;
+        }
+
+        if ((op == 0x6e || op == 0x7e || op == 0xd6) && vex.pp == 1 && !vex.is_evex) {
+            // MOVD/MOVQ (66 0F 6E load, 66 0F 7E GPR-store) and MOVQ store
+            // (66 0F D6, xmm/mem dest). VEX only defines these at L=0.
+            if (vlen != 128)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, rex, &modrm))
+                goto amd64_vex_gpf;
+            if (modrm.reg >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            unsigned gpr_size = vex.w ? 64 : 32;
+            if (op == 0x6e) {
+                qword_t value;
+                if (!amd64_read_rm(cpu, tlb, &modrm, fs_prefix, gpr_size, &value))
+                    goto amd64_vex_pf;
+                memset(out, 0, sizeof(out));
+                memcpy(out, &value, gpr_size / 8);
+                amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            } else if (op == 0x7e) {
+                amd64_vec_reg_read(cpu, modrm.reg, vlen, out);
+                qword_t value = 0;
+                memcpy(&value, out, gpr_size / 8);
+                if (!amd64_write_rm(cpu, tlb, &modrm, fs_prefix, gpr_size, value))
+                    goto amd64_vex_pf;
+            } else { // 0xd6: store low 64 bits of xmm to xmm/mem
+                amd64_vec_reg_read(cpu, modrm.reg, vlen, out);
+                if (modrm.is_reg) {
+                    if (modrm.rm >= AMD64_AVX_MAX_REG)
+                        return INT_UNDEFINED;
+                    memset(a, 0, sizeof(a));
+                    memcpy(a, out, 8);
+                    amd64_vec_reg_write(cpu, modrm.rm, vlen, a);
+                } else {
+                    qword_t addr = amd64_effective_addr(cpu, &modrm, fs_prefix);
+                    if (!amd64_mem_write(cpu, tlb, addr, out, 8))
+                        goto amd64_vex_pf;
+                }
+            }
+            goto amd64_vex_done;
+        }
+    }
+
+    // Not (yet) implemented -- see docs/avx_support_plan.md for the
+    // frequency-ranked backlog of remaining instructions.
+    return INT_UNDEFINED;
+
+amd64_vex_done:
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+
+amd64_vex_gpf:
+    cpu->amd64_rip = saved_rip;
+    cpu->segfault_addr = saved_rip;
+    return INT_GPF;
+
+amd64_vex_pf:
+    cpu->amd64_rip = saved_rip;
+    return INT_PF;
+}
+
 static void amd64_fill_fxsave_area(struct cpu_state *cpu, struct amd64_fxsave_area *area) {
     memset(area, 0, sizeof(*area));
     area->fcw = cpu->fcw;
@@ -5256,6 +5638,22 @@ restart_prefix:
         rex.x = (opcode & 0x2) != 0;
         rex.b = (opcode & 0x1) != 0;
         goto restart_prefix;
+    }
+    // 0xC4/0xC5/0x62 are unambiguous VEX/EVEX lead bytes in 64-bit mode
+    // (LES/LDS, which use these opcodes in 32-bit mode, don't exist in long
+    // mode). No legacy prefix or REX can legally precede VEX/EVEX, so it's
+    // safe to check for it here regardless of what's already been consumed
+    // above -- real VEX-encoded instructions never combine the two anyway.
+    if (opcode == 0xc4 || opcode == 0xc5 || opcode == 0x62) {
+        struct amd64_vex_prefix vex;
+        if (!amd64_decode_vex(cpu, tlb, opcode, &vex)) {
+            cpu->amd64_rip = saved_rip;
+            cpu->segfault_addr = saved_rip;
+            return INT_GPF;
+        }
+        if (!vex.present)
+            return INT_UNDEFINED;
+        return amd64_vex_step(cpu, tlb, saved_rip, vex, fs_prefix);
     }
 
     unsigned op_size = rex.w ? 64 : (operand_size_prefix ? 16 : 32);

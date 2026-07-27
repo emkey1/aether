@@ -232,6 +232,7 @@ need_file kcmp.c
 need_file procfd_reopen.c
 if [ "$is_amd64_guest" -eq 1 ]; then
     need_file x86/amd64_regress.c
+    need_file x86/avx_regress.c
 fi
 
 if ! mkdir -p "$work_dir/bin"; then
@@ -466,7 +467,7 @@ if [ "$is_x86_guest" -eq 1 ]; then
     all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 cow_atomic_fault $all_tests"
 fi
 if [ "$is_amd64_guest" -eq 1 ]; then
-    all_tests="$all_tests amd64_regress"
+    all_tests="$all_tests amd64_regress avx_regress"
 fi
 if [ "$is_arm64_guest" -eq 1 ]; then
     all_tests="$all_tests atomics64 arm64_regress vector_smoke smc_stale_block stlr_ldar_publish ptrace_singlestep ands_bcond_fusion hle_loop"
