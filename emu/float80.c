@@ -35,6 +35,8 @@ static int unbias_denormal(unsigned exp) {
 
 __thread enum f80_rounding_mode f80_rounding_mode;
 __thread int f80_precision = 64;
+__thread int f80_inexact;
+__thread int f80_rounded_up;
 
 static bool round_away_from_zero(int sign) {
     return (f80_rounding_mode == round_up && !sign) ||
@@ -49,10 +51,14 @@ static uint128_t u128_shift_right_round(uint128_t i, int shift, int sign) {
     if (shift == 0)
         return i;
     if (shift > 127) {
+        if (i != 0)
+            f80_inexact = 1;
         // If we should be rounding away from zero, and there are any nonzero
         // bits involved, an infinite amount of right shift should give 1
-        if (round_away_from_zero(sign) && i != 0)
+        if (round_away_from_zero(sign) && i != 0) {
+            f80_rounded_up = 1;
             return 1;
+        }
         return 0;
     }
 
@@ -67,13 +73,20 @@ static uint128_t u128_shift_right_round(uint128_t i, int shift, int sign) {
     if (guard == 0 && rest == 0)
         return i;
 
+    // Bits were discarded, so the result is inexact regardless of which way it
+    // ends up going.
+    f80_inexact = 1;
     if (round_away_from_zero(sign)) {
         i++;
+        f80_rounded_up = 1;
     } else if (f80_rounding_mode == round_to_nearest && guard) {
-        if (rest != 0)
+        if (rest != 0) {
             i++; // round up
-        else if (i & 1)
+            f80_rounded_up = 1;
+        } else if (i & 1) {
             i++; // round to nearest even
+            f80_rounded_up = 1;
+        }
     }
     return i;
 }

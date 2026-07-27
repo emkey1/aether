@@ -145,6 +145,19 @@ FCMOVcc(nu, !PF)
 
 // math
 
+// The status word's PE is a sticky exception flag: any operation whose result
+// had to be rounded sets it, and only fclex/fldenv clear it. C1 is not sticky
+// -- it reports the rounding direction of the most recent operation -- so it is
+// assigned each time rather than accumulated. f80_inexact/f80_rounded_up are
+// set by the rounding path in float80.c.
+#define FPU_ROUND_BEGIN() do { f80_inexact = 0; f80_rounded_up = 0; } while (0)
+#define FPU_ROUND_END() do {                    \
+    if (f80_inexact)                            \
+        cpu->pe = 1;                            \
+    cpu->c1 = f80_rounded_up ? 1 : 0;           \
+} while (0)
+
+
 void fpu_prem(struct cpu_state *cpu) {
     ST(0) = f80_mod(ST(0), ST(1));
     cpu->c2 = 0; // say we finished the entire remainder
@@ -161,15 +174,21 @@ void fpu_scale(struct cpu_state *cpu) {
 void fpu_rndint(struct cpu_state *cpu) {
     if (f80_isinf(ST(0)) || f80_isnan(ST(0)))
         return;
+    FPU_ROUND_BEGIN();
     ST(0) = f80_round(ST(0));
+    FPU_ROUND_END();
 }
 
 void fpu_sqrt(struct cpu_state *cpu) {
+    FPU_ROUND_BEGIN();
     ST(0) = f80_sqrt(ST(0));
+    FPU_ROUND_END();
 }
 
 void fpu_yl2x(struct cpu_state *cpu) {
+    FPU_ROUND_BEGIN();
     ST(1) = f80_mul(ST(1), f80_log2(ST(0)));
+    FPU_ROUND_END();
     fpu_pop(cpu);
 }
 
@@ -224,22 +243,34 @@ void fpu_chs(struct cpu_state *cpu) {
 }
 
 void fpu_add(struct cpu_state *cpu, int srci, int dsti) {
+    FPU_ROUND_BEGIN();
     ST(dsti) = f80_add(ST(dsti), ST(srci));
+    FPU_ROUND_END();
 }
 void fpu_sub(struct cpu_state *cpu, int srci, int dsti) {
+    FPU_ROUND_BEGIN();
     ST(dsti) = f80_sub(ST(dsti), ST(srci));
+    FPU_ROUND_END();
 }
 void fpu_subr(struct cpu_state *cpu, int srci, int dsti) {
+    FPU_ROUND_BEGIN();
     ST(dsti) = f80_sub(ST(srci), ST(dsti));
+    FPU_ROUND_END();
 }
 void fpu_mul(struct cpu_state *cpu, int srci, int dsti) {
+    FPU_ROUND_BEGIN();
     ST(dsti) = f80_mul(ST(dsti), ST(srci));
+    FPU_ROUND_END();
 }
 void fpu_div(struct cpu_state *cpu, int srci, int dsti) {
+    FPU_ROUND_BEGIN();
     ST(dsti) = f80_div(ST(dsti), ST(srci));
+    FPU_ROUND_END();
 }
 void fpu_divr(struct cpu_state *cpu, int srci, int dsti) {
+    FPU_ROUND_BEGIN();
     ST(dsti) = f80_div(ST(srci), ST(dsti));
+    FPU_ROUND_END();
 }
 
 void fpu_iadd16(struct cpu_state *cpu, int16_t *i) {
@@ -343,13 +374,17 @@ void fpu_sin(struct cpu_state *cpu) {
     double arg = f80_to_double(ST(0));
     if (fpu_trig_out_of_range(cpu, arg))
         return;
+    FPU_ROUND_BEGIN();
     ST(0) = f80_from_double(sin(arg));
+    FPU_ROUND_END();
 }
 void fpu_cos(struct cpu_state *cpu) {
     double arg = f80_to_double(ST(0));
     if (fpu_trig_out_of_range(cpu, arg))
         return;
+    FPU_ROUND_BEGIN();
     ST(0) = f80_from_double(cos(arg));
+    FPU_ROUND_END();
 }
 void fpu_sincos(struct cpu_state *cpu) {
     // ST(0) is replaced by sin, then cos is pushed, so on exit ST(0) is cos
@@ -358,8 +393,10 @@ void fpu_sincos(struct cpu_state *cpu) {
     double arg = f80_to_double(ST(0));
     if (fpu_trig_out_of_range(cpu, arg))
         return;
+    FPU_ROUND_BEGIN();
     ST(0) = f80_from_double(sin(arg));
     fpush(f80_from_double(cos(arg)));
+    FPU_ROUND_END();
 }
 
 void fpu_xtract(struct cpu_state *cpu) {

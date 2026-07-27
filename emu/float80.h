@@ -62,6 +62,15 @@ extern __thread enum f80_rounding_mode f80_rounding_mode;
 // i386 sin()/cos() switch to 53 and depend on every step rounding there.
 extern __thread int f80_precision;
 
+// Set by the rounding path on every operation that had to discard bits:
+// f80_inexact says the result was rounded at all, f80_rounded_up says that
+// rounding went away from zero. The x87 layer turns these into the status
+// word's PE (a sticky exception flag) and C1 (the rounding-direction
+// indicator, which reflects only the most recent operation). Callers clear
+// them before an operation and read them after.
+extern __thread int f80_inexact;
+extern __thread int f80_rounded_up;
+
 #define F80_NAN ((float80) {.signif = 0xc000000000000000, .exp = 0x7fff, .sign = 0})
 #define F80_INF ((float80) {.signif = 0x8000000000000000, .exp = 0x7fff, .sign = 0})
 

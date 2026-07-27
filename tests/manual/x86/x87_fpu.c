@@ -285,6 +285,62 @@ static void test_fcmov(void) {
     check_d("fcmovnu  flags from and (lazy)",   fcmov_nu(1),  2.0);
 }
 
+// ------------------------------------------------------------- PE and C1
+
+// PE (status word bit 5) is a sticky exception flag: any operation whose result
+// had to be rounded sets it, and only fclex/fldenv clear it. C1 (bit 9) is not
+// sticky -- it reports whether the most recent rounding went away from zero.
+// Neither was implemented: every operation left both at whatever they were.
+//
+// Only operations that genuinely round in our implementation report these.
+// fsin/fcos/fsincos/f2xm1 go through the host's double-precision libm and are
+// then widened exactly, so no rounding happens on our side and they leave PE
+// and C1 alone where hardware would set them. Reporting a rounding direction we
+// never computed would be worse than reporting none, so that gap stands.
+static unsigned short arith_status(double a, double b, int divide) {
+    unsigned short sw = 0;
+    if (divide)
+        __asm__ volatile("fnclex\n\tfldl %1\n\tfldl %2\n\tfdivp %%st,%%st(1)\n\t"
+                         "fnstsw %0\n\tfstp %%st(0)"
+                         : "=m"(sw) : "m"(a), "m"(b) : "memory");
+    else
+        __asm__ volatile("fnclex\n\tfldl %1\n\tfldl %2\n\tfaddp %%st,%%st(1)\n\t"
+                         "fnstsw %0\n\tfstp %%st(0)"
+                         : "=m"(sw) : "m"(a), "m"(b) : "memory");
+    return sw;
+}
+
+static void test_pe_c1(void) {
+    unsigned short sw;
+
+    // 1/3 cannot be represented, so it rounds -- and on this operand rounds up.
+    sw = arith_status(3.0, 1.0, 1);
+    check("1/3 sets PE", (sw >> 5) & 1, 1);
+    check("1/3 sets C1 (rounded up)", (sw >> 9) & 1, 1);
+
+    // Exact results must leave both clear.
+    sw = arith_status(2.0, 4.0, 1);
+    check("4/2 leaves PE clear", (sw >> 5) & 1, 0);
+    check("4/2 leaves C1 clear", (sw >> 9) & 1, 0);
+    sw = arith_status(2.0, 1.0, 0);
+    check("1+2 leaves PE clear", (sw >> 5) & 1, 0);
+    check("1+2 leaves C1 clear", (sw >> 9) & 1, 0);
+
+    // PE is sticky across a later exact operation; C1 is not.
+    {
+        double one = 1.0, three = 3.0, two = 2.0, four = 4.0;
+        unsigned short after = 0;
+        __asm__ volatile("fnclex\n\t"
+                         "fldl %1\n\tfldl %2\n\tfdivp %%st,%%st(1)\n\tfstp %%st(0)\n\t"
+                         "fldl %3\n\tfldl %4\n\tfdivp %%st,%%st(1)\n\tfstp %%st(0)\n\t"
+                         "fnstsw %0"
+                         : "=m"(after)
+                         : "m"(three), "m"(one), "m"(two), "m"(four) : "memory");
+        check("PE stays set across a later exact op", (after >> 5) & 1, 1);
+        check("C1 is cleared by that later exact op", (after >> 9) & 1, 0);
+    }
+}
+
 // -------------------------------------------------------------- fabs/fchs
 
 static void test_abs_chs(void) {
@@ -314,6 +370,7 @@ int main(int argc, char **argv) {
     test_precision_control();
     test_fcomi();
     test_fcmov();
+    test_pe_c1();
     test_abs_chs();
 
     if (failures_total != 0) {
