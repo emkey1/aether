@@ -10183,6 +10183,12 @@ static inline bool gen_mov(struct gen_state *state, enum arg src, enum arg dst, 
 #define JMP(loc) load(loc, OP_SIZE); g(jmp_indir); end_block = true
 #define JMP_REL(off) gg(jmp, fake_ip + off); jump_ips(-1, 0); end_block = true
 #define JCXZ_REL(off) ggg(jcxz, fake_ip + off, fake_ip); jump_ips(-2, -1); end_block = true
+
+void helper_loop_dec_ecx(struct cpu_state *cpu);
+// LOOP rel8 (0xe2): decrement ECX without touching flags, then branch if the
+// result is nonzero. That is jcxz with its two ip slots swapped, so the
+// existing gadget covers it on both hosts.
+#define LOOP_REL(off) h(helper_loop_dec_ecx); ggg(jcxz, fake_ip, fake_ip + off); jump_ips(-2, -1); end_block = true
 #define jcc(cc, to, otherwise) do { \
     if (gen_try_fuse_jcc(state, cond_##cc)) { GEN(to); GEN(otherwise); } \
     else { gagg(jmp, cond_##cc, to, otherwise); } \

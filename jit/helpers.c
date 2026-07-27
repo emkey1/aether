@@ -164,3 +164,11 @@ int rep_string_fast(struct cpu_state *cpu, struct tlb *tlb, unsigned elem_size, 
     }
     return 0;
 }
+
+// LOOP decrements ECX and, unlike DEC, leaves the flags alone. The branch
+// itself reuses the jcxz gadget with its two ip slots swapped, since "jump if
+// ECX != 0" is exactly the inverse of jcxz -- so this needs no new gadget on
+// either host.
+void helper_loop_dec_ecx(struct cpu_state *cpu) {
+    cpu->ecx--;
+}
