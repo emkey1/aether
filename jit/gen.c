@@ -10207,6 +10207,11 @@ void helper_aad(struct cpu_state *cpu, uint32_t base);
 // result is nonzero. That is jcxz with its two ip slots swapped, so the
 // existing gadget covers it on both hosts.
 #define LOOP_REL(off) h(helper_loop_dec_ecx); ggg(jcxz, fake_ip, fake_ip + off); jump_ips(-2, -1); end_block = true
+// LOOPZ/LOOPE (0xe1) and LOOPNZ/LOOPNE (0xe0): same decrement, but the branch
+// also tests ZF, which needs a gadget -- the taken/not-taken decision can't be
+// expressed by swapping jcxz's targets. Operand 0 = taken, operand 1 = else.
+#define LOOPZ_REL(off)  h(helper_loop_dec_ecx); ggg(loopz,  fake_ip + off, fake_ip); jump_ips(-2, -1); end_block = true
+#define LOOPNZ_REL(off) h(helper_loop_dec_ecx); ggg(loopnz, fake_ip + off, fake_ip); jump_ips(-2, -1); end_block = true
 #define jcc(cc, to, otherwise) do { \
     if (gen_try_fuse_jcc(state, cond_##cc)) { GEN(to); GEN(otherwise); } \
     else { gagg(jmp, cond_##cc, to, otherwise); } \

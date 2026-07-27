@@ -1392,10 +1392,12 @@ restart:
         case 0xd4: TRACEI("aam imm8\t"); READIMM8; AAM(imm); break;
         case 0xd5: TRACEI("aad imm8\t"); READIMM8; AAD(imm); break;
 
+        case 0xe0: TRACEI("loopnz rel8\t");
+                   READIMM8; LOOPNZ_REL(imm); break;
+        case 0xe1: TRACEI("loopz rel8\t");
+                   READIMM8; LOOPZ_REL(imm); break;
         case 0xe2: TRACEI("loop rel8\t");
                    READIMM8; LOOP_REL(imm); break;
-        // 0xe0 (loopnz) and 0xe1 (loopz) also need ZF, which lives in the lazy
-        // flag model, so they need a gadget rather than a helper -- see #533.
 
         case 0xe3: TRACEI("jcxz rel8\t");
                    READIMM8; JCXZ_REL(imm); break;

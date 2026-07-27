@@ -145,6 +145,31 @@
     .endif; .endif; .endif; .endif; .endif; .endif; .endif; .endif
 .endm
 
+# LOOPZ/LOOPE (0xe1) and LOOPNZ/LOOPNE (0xe0) -- see the aarch64 copy for the
+# rationale. ECX is decremented by a helper before this runs; ZF goes through
+# do_jump so the lazy flag state is honoured. Labels 4/5 because do_jump and
+# res_or_flag already use 1-3.
+.gadget loopz
+    cmpl $0, %ecx
+    jz 4f
+    do_jump z, 5f
+4:
+    movq 8(%_ip), %_ip
+    jmp jit_ret_chain
+5:
+    movq (%_ip), %_ip
+    jmp jit_ret_chain
+
+.gadget loopnz
+    cmpl $0, %ecx
+    jz 4f
+    do_jump z, 4f
+    movq (%_ip), %_ip
+    jmp jit_ret_chain
+4:
+    movq 8(%_ip), %_ip
+    jmp jit_ret_chain
+
 .irp cond, COND_LIST
     .gadget jmp_\cond
         do_jump \cond, 1f

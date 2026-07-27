@@ -175,6 +175,31 @@
     .endif N .endif N .endif N .endif N .endif N .endif N .endif N .endif
 .endm
 
+# LOOPZ/LOOPE (0xe1) and LOOPNZ/LOOPNE (0xe0). gen.c emits a helper that
+# decrements ECX first -- LOOP must not touch flags -- so these only branch:
+# taken when ECX != 0 and ZF matches. The ZF test goes through do_jump so it
+# reads the lazy flag state; a bare CPU_eflags bit test would be wrong
+# whenever ZF is still deferred in CPU_res. Labels 4/5 because do_jump and
+# check_res_or_flag already use 1-3.
+.gadget loopz
+    cbz ecx, 4f
+    do_jump z, 5f
+4:
+    ldr _ip, [_ip, 8]
+    b jit_ret_chain
+5:
+    ldr _ip, [_ip]
+    b jit_ret_chain
+
+.gadget loopnz
+    cbz ecx, 4f
+    do_jump z, 4f
+    ldr _ip, [_ip]
+    b jit_ret_chain
+4:
+    ldr _ip, [_ip, 8]
+    b jit_ret_chain
+
 .irp cond, COND_LIST
     .gadget jmp_\cond
         do_jump \cond, 1f
