@@ -33,16 +33,15 @@ rather than trusting a name at face value.
 
 ---
 
-## cs-aug20 (0-based `Text` corpus; 8B/9B precision grid only)
-
-**Scope:** 2 models x 3 training precisions. This does **not** supersede
-`cs-aug4` as the full-roster board -- the 14B-35B tier has not been trained on
-this corpus.
+## cs-aug20 (0-based `Text` corpus -- current primary board)
 
 **Corpus:** `cs-aug20` (`Tests/aether_specialization/out_cs_aug20`, dataset
 `2026-07-25-1`), 726 instruction + 38 repair records, built against aether
-`c660b1b` (0-based `Text`; stamped `2026-07-20-1`, see the VERSION note below).
-Predecessor `cs-aug19` was 723 + 38.
+`c660b1b`. Predecessor `cs-aug19` was 723 + 38.
+
+**Coverage:** 11 models -- the 8B/9B precision grid (2 models x 4/8/16-bit) plus
+the 14B-35B roster (5 models, 4-bit). This supersedes `cs-aug4` as the
+full-roster board.
 
 **What changed vs cs-aug19:** the 0-based `Text` migration was finished in the
 corpus. `c710d4251` had rewritten `copy()` call sites but missed every
@@ -54,10 +53,12 @@ broken 1-based form, and `repair_array_slice` taught replacing now-valid
 hint added in `bf9f2d8`. Both were fixed; the latter now teaches
 `copy(arr, start, count)` -> `arr[start..start + count]`.
 
-**Recipe:** r=32 alpha=64 lr=1e-4 bs=1 ga=8, nominal 3 epochs. Eval `--docs none`,
-3 repeats, temperature 0, graded by aether `c660b1b`.
+**Recipe:** r=32 alpha=64 lr=1e-4 bs=1 ga=8, nominal 3 epochs (every run
+early-stops -- see below). Eval `--docs none`, 3 repeats, temperature 0,
+`--repair-attempts 2`, graded by aether `c660b1b` **pinned** for the life of the
+board.
 
-### Results -- cs-aug19 -> cs-aug20
+### Results -- small tier, first attempt only (comparable to cs-aug19, which ran repair-0)
 
 | model | simple (35) | large (9) | cs (19) |
 |---|---|---|---|
@@ -65,74 +66,172 @@ hint added in `bf9f2d8`. Both were fixed; the latter now teaches
 | `qwen3-8b-nothink` 8bit | 27 -> 30 (+3) | 4 -> 6 (+2) | 10 -> **13** (+3) |
 | `qwen3-8b-nothink` 16bit | 28 -> 25 (-3) | 3 -> 3 (0) | 9 -> **12** (+3) |
 | `qwen35-9b` 4bit | 24 -> 30 (+6) | 4 -> 1 (-3) | 8 -> **12** (+4) |
-| `qwen35-9b` 8bit | 30 -> **32** (+2) | 4 -> **6** (+2) | 9 -> **11** (+2) |
+| `qwen35-9b` 8bit | 30 -> 32 (+2) | 4 -> 6 (+2) | 9 -> **11** (+2) |
 | `qwen35-9b` 16bit | 24 -> 29 (+5) | 1 -> 1 (0) | 8 -> **11**+ (+3) |
 | **total** | **160 -> 173 (+13)** | **19 -> 19 (0)** | **54 -> 70 (+16)** |
 
-+ floor: `cs_collatz` returned empty content on all 3 repeats for this model
-(the known reasoning-model empty-output failure), so the true value is 11 or 12.
+### Results -- larger tier, with repair (cs-aug4 ran repair-1, we run repair-2)
+
+| model | simple (35) | large (9) | cs (19) |
+|---|---|---|---|
+| `qwen25-14b` | 34 -> 33 (-1) | 7 -> 4 (-3) | 12 -> **15** (+3) |
+| `mistral24b` | 32 -> 34 (+2) | 5 -> 7 (+2) | 9 -> **14** (+5) |
+| `qwen36-27b` | 33 -> 32 (-1) | 6 -> 6 (0) | 9 -> **19** (+10) |
+| `qwen3-coder30b-a3b` | 28 -> 28 (0) | 7 -> 8 (+1) | 9 -> **16** (+7) |
+| `qwen36-35b-a3b` | 34 -> 34 (0) | 6 -> 7 (+1) | 12 -> **19** (+7) |
+| **total** | **161 -> 161 (0)** | **31 -> 32 (+1)** | **51 -> 83 (+32)** |
+
++ floor: `cs_collatz` returns empty content on all 3 repeats for `qwen35-9b`
+16bit (reproducible across two independent runs), so `gen_ok` is 54/57 there.
+
+**cs-aug4 baseline cells are 4-tuples** -- *Compiled/Correct/Retried/Fixed*,
+overlapping tallies. The exact-match score is the **second** number. Reading the
+first (Compiled) inflates the baseline and manufactures a regression; this cost
+a wrong delta once during this run.
+
+### Both tiers on identical settings (repair-2), for cross-tier comparison
+
+| tier | model | simple (35) | large (9) | cs (19) |
+|---|---|---|---|---|
+| small | `qwen3-8b-nothink` 4bit | 33 | 4 | 14 |
+| small | `qwen3-8b-nothink` 8bit | 30 | 7 | 14 |
+| small | `qwen3-8b-nothink` 16bit | 27 | 6 | 15 |
+| small | `qwen35-9b` 4bit | 33 | 4 | 13 |
+| small | `qwen35-9b` 8bit | 32 | 8 | 11 |
+| small | `qwen35-9b` 16bit | 32 | 2 | 11+ |
+| large | `qwen25-14b` | 33 | 4 | 15 |
+| large | `mistral24b` | 34 | 7 | 14 |
+| large | `qwen36-27b` | 32 | 6 | **19** |
+| large | `qwen3-coder30b-a3b` | 28 | 8 | 16 |
+| large | `qwen36-35b-a3b` | 34 | 7 | **19** |
 
 ### Findings
 
-**`cs` improved in 6 of 6 arms** (+1/+3/+3/+4/+2/+3, +16 aggregate on a
-114-point base) -- both families, all three precisions, no negatives. `cs` is the
-suite carrying the substring/LCS/merge-sort tasks that the three fixed failure
-modes lived in (0-based `Text`, `copy()`-as-array-slice, hallucinated
-`toon_int`), so the improvement lands where the corpus work was aimed. Six
-independent positive results with no negatives is not a plausible noise pattern.
+**`cs` improved in 11 of 11 models, +48 aggregate**, across both tiers, both
+model families, all precisions, with no negatives. `cs` holds the
+substring/LCS/merge-sort tasks where the three fixed failure modes lived
+(0-based `Text`, `copy()`-as-array-slice, hallucinated `toon_int`), so the
+improvement lands exactly where the corpus work was aimed. `simple` is +13 on
+the small tier and exactly 0 on the larger one; `large` is +0/+1. Eleven
+independent positive results on one suite with flat neighbours is not a
+plausible noise pattern.
 
-`simple` is +13 but mixed in sign (one arm -3): likely a real but weaker
-secondary effect. `large` is exactly net zero and, at 9 tasks, stays too small
-an instrument to read.
+**The gains scale with model size**: +1..+4 on 8B/9B, +3..+10 on 14B-35B, with
+two perfect 19/19 scores (`qwen36-27b`, `qwen36-35b-a3b`). Consistent with the
+three failure modes being the binding constraint for models otherwise capable of
+these tasks.
 
-**Training dynamics corroborate the corpus change independently of scoring.**
-5 of 6 aug20 arms trained longer before `eval_loss` plateaued; the `qwen35-9b`
-8bit and 16bit arms more than doubled (0.534 -> 1.17 epochs). Removing labels
-that contradicted each other left more to learn before convergence.
+**All three originally-diagnosed tasks now pass.** `cs_substring` and
+`cs_merge_sort` pass first-attempt; `cs_lcs` passes after repair (see
+Known-open). They had cost 6, 9 and 15 attempts respectively.
 
-**8-bit won its family for the third generation running** (after cs-aug18 and
-cs-aug19). `qwen35-9b` 8bit at 32/6/11 is the strongest model on this board.
+**Repair matters more than precision.** With repair enabled the precision spread
+largely dissolves -- 8B goes `cs` 14/14/15 and 9B 14/11/11, neither monotonic,
+and the two families move in opposite directions on `simple` (33/30/27 vs
+33/32/32). The "8-bit always wins" pattern from cs-aug18/19 was substantially an
+artifact of repair-0 scoring: it measured which models needed a second attempt,
+not which were better. Do not carry that finding forward without re-testing it
+under repair.
 
 ### Methodological notes
 
-**Nothing in this experiment has ever trained the nominal 3 epochs.** Every run
-in aug18/19/20 early-stops on an `eval_loss` plateau, between 0.53 and 2.02
-epochs. `ep=3` in the queue scripts is an upper bound, not a description. Note
-also that training length is a poor predictor of score here: the best model in
-the cs-aug19 baseline (`qwen35-9b` 8bit, 30/35) trained the *least* of any run
-at 0.534 epochs, while its 16bit sibling stopped at the identical point and
-scored 24.
+**Grader drift is real; pin it.** Another session pushed `13f241f`, `d05ee22`
+(BUILT-002 compile-time builtin arity check), `3e37352` and more while this board
+was running, and autodeploy moved every claw's `aether-current` with them. The
+8B/9B half had been graded with `c660b1b`. Fixed by building `c660b1b` at
+`/home/claw/aether-c660b1b` on claw2 **and** claw3 and pinning `--aether-bin` to
+it. A differential probe did not find a case where the compilers disagree, so
+treat this as a control, not a known correction.
 
-**The 3 repeats are ~97% deterministic, not 100%.** At temperature 0 one task
-out of 37 examined split across repeats (`hard_expense_outliers`: F/T/T),
-consistent with vLLM continuous batching perturbing numerics by batch
-composition. A per-suite total that is not divisible by the repeat count is the
-tell. This independently supports treating +-1 as noise.
+**`--repair-attempts` defaults to 0.** cs-aug4 ran with 1. Scoring cs-aug20 at
+the default silently gave the baseline a free extra attempt on every failure.
+Per-attempt records are kept in the result JSON, so one repair-2 run yields both
+metrics (`scratchpad/score2.py`): first-attempt for repair-0 comparisons, final
+for repair-1+. Rescue rates on `qwen25-14b`: 18 cases by repair #1, a further 6
+by repair #2 -- a 25% rescue rate on what remained, so 2 is worth its runtime.
 
-**`--gpu-memory-utilization 0.18` is an 8B constant, not a claw3 constant.** All
-three `qwen35-9b` models failed to serve with "Engine core initialization
-failed": the 9B loads 17.66 GiB of weights against a ~21.5 GiB budget at 0.18,
-leaving too little for KV cache. 0.22 works (4.79 GiB KV cache, 139k tokens).
-Two traps made this slower to diagnose than it should have been: the serve
-loop's `docker logs --tail 15` captured only the outer wrapper traceback, not
-the root cause in the EngineCore subprocess (raise it to ~120), and
-`vllm/vllm-openai:latest` is a **moving tag** -- it is now 0.25.1, and cs-aug19
-served these same checkpoints at 0.18 on an older build, so the aug19/aug20
-`qwen35-9b` rows were produced under different vLLM versions. Pin the image.
+**Every run early-stops, and the criterion is high-variance.** Runs stopped
+between 0.53 and 2.77 epochs of a nominal 3. The default is a **12-sample** eval
+set checked every 5 steps with `early_stopping_threshold=0.0` and patience 2, so
+a 0.03% uptick ends training. Tested directly: `qwen3-8b-nothink-8bit` re-trained
+with a 75-case holdout, threshold 0.001, patience 4, eval every 20 steps ran to
+epoch 2.77 instead of 1.70 -- **but scored the same** (30/7/13 vs 30/7/14). With
+a proper eval set the true optimum is ~epoch 1.85 and eval_loss genuinely rises
+after, and `load_best_model_at_end` means both runs export a near-best
+checkpoint regardless. So the criterion is noisy but not systematically costly;
+it does not invalidate this board. (Caveat: the treatment also trained on 8%
+fewer records, 689 vs 752, because of the larger holdout.) A
+`--early-stopping-threshold` flag was added, defaulting to 0.0 for
+backward compatibility.
+
+**Serving constants are per-model and per-host, not global.**
+`--gpu-memory-utilization 0.18` fits the 8B on claw3 but **not** the 9B, which
+needs 0.22 (17.66 GiB of weights against a ~21.5 GiB budget leaves too little for
+KV cache; the failure is a bare "Engine core initialization failed"). The
+14B-35B merges (28-67 GB) do not fit claw3 at all and were served on claw2 at
+0.85, which is what `serve_any.sh` has always defaulted to. torch
+`mem_get_info` reports only ~26% of unified memory as free on these GB10s
+(claw2 31.8 GiB of 121.6, claw3 ~27, claw1 6.5 with something resident); that
+figure bounds serving but **not** training. No NVFP4 step is needed for this
+tier. Also: the serve loop's `docker logs --tail 15` captures only the outer
+wrapper traceback, not the EngineCore root cause -- use ~120.
+
+**Per-model response-masking markers.** `unsloth_qwen_coder_30b_sft.py` defaults
+`--instruction-part`/`--response-part` to ChatML/Qwen. Mistral-Small-24B renders
+`<s>[SYSTEM_PROMPT]..[/SYSTEM_PROMPT][INST]user[/INST]assistant</s>`, so the
+defaults matched nothing, `train_on_responses_only` masked every token, and the
+run died with `Removed 752 out of 752 samples ... num_samples=0`. Fix:
+`--instruction-part '[INST]' --response-part '[/INST]'`, no trailing whitespace.
+Check a new model with `claw2:/storage/render_template.py <model_path>` **before**
+training. `qwen36-27b`/`35b-a3b` render `<|im_start|>assistant\n<think>\n\n</think>\n\n`
+-- the default marker is still present, so they are fine.
+
+**The Mistral Tekken tokenizer bug recurred, and `tokenizer.json` does not
+detect it.** cs-aug4 documented it; cs-aug20 hit it again. The Unsloth merge
+drops **`tekken.json`** (Mistral's native tokenizer) and rewrites
+`tokenizer_config.json`/`special_tokens_map.json`, so vLLM falls back to the HF
+path and drops spaces in generated text: `"hello from benchmark"` ->
+`"hellofrombenchmark"`, `"95 => "` -> `"95=>"`. `mistral24b` scored **9/35** on
+`simple` until served with `--tokenizer <base snapshot>`, then **34/35** on
+identical weights. Note the merged `tokenizer.json` is **byte-identical to the
+base** and a tokenizer round-trip test passes -- neither detects this. The
+absent `tekken.json` is the tell.
+
+**`enable_thinking=false` applies to `qwen36-*` as well as `qwen35-*`** -- same
+`qwen3_5`/`qwen3_5_moe` lineage. Verified 0 reasoning-trace leaks across the
+larger tier.
+
+**The 3 repeats are ~97% deterministic, not 100%.** At temperature 0, one task
+in 37 split across repeats (`hard_expense_outliers`: F/T/T), consistent with
+vLLM continuous batching perturbing numerics by batch composition. Score
+per-task by majority of repeats; a suite total not divisible by the repeat count
+is the tell. Generation itself is fully reproducible across runs and hosts: all
+six small-tier first-attempt scores reproduced their repair-0 originals exactly.
 
 ### Known-open
 
-`cs_lcs` still fails, but no longer on `Text` indexing -- models now correctly
-write `loop i in 1..(n + 1)` with `a[i - 1]`. It fails because they declare
-`let dp: Int[] = []` and then index `dp[i][j]`, which surfaces at runtime as a
-generic "VM Error: Expected a pointer to an array for element access". That is a
-compile-time type error with no coded hint, the same shape
-`copy()`-on-an-array had before TYPE-001. A coded diagnostic for it is likely a
-real unlock on any DP-table task, across all models.
+**`cs_lcs`** no longer fails on `Text` indexing -- models correctly write
+`loop i in 1..(n + 1)` with `a[i - 1]`. It now fails first-attempt because they
+declare `let dp: Int[] = []` and index `dp[i][j]`, which surfaces at runtime as a
+generic `VM Error: Expected a pointer to an array for element access`. Repair
+rescues it (`qwen36-27b`: 0/3 first, 3/3 final), so it costs a first attempt
+rather than the task. A coded diagnostic would convert it to a first-attempt
+pass.
+
+**Redefining a builtin reports `[SYN-001] expected parameter name`.** Models
+write `fn has_toon() -> Bool` as a helper -- natural, since the guide's own
+examples call `has_toon()` -- but it is a builtin, and the resulting parse error
+describes nothing about the real problem, so repair cannot fix it (the model
+rewrites a signature that was never wrong). Name-specific: `has_toon` fails,
+`has_toon_support`/`has_too`/`printer`/`copy_of` all parse. Cost 3 of 9 `large`
+tasks for `qwen25-14b` (9 cases); **0 cases in the other four larger models**, so
+it is not a board-wide artifact. Renaming clears SYN-001 and the program then
+proceeds to a genuine `FX-001`, so fixing the diagnostic would not by itself pass
+the task -- it would let repair attack the real error.
 
 ---
 
-## cs-aug4 (current primary board)
+## cs-aug4 (superseded by cs-aug20)
 
 **Corpus:** `cs-aug4` (`Tests/aether_specialization/out_cs_aug4`, dataset
 `2026-07-15-1`) — same instruction+repair shape as `cs-aug3` (390 corpus items,

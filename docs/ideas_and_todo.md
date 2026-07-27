@@ -2769,3 +2769,42 @@ context, so a fix in one place can regress another; run all three.
 The remaining allowlisted blocks are genuine prose: negative examples, `...`
 elisions, and module sketches whose module is not on disk. Their count is
 asserted, so a negative example that starts compiling is caught too.
+
+---
+
+## Coded diagnostic: redefining a builtin (found in cs-aug20 eval, 2026-07-27)
+
+Models write a helper named after a builtin and get a parse error that describes
+something else entirely:
+
+```aether
+fn has_toon() -> Bool { ret true; }        // has_toon() is a BUILTIN
+fn main() -> Void { fx { println(has_toon()); } ret; }
+```
+
+```
+[SYN-001] Aether parser error: expected parameter name.
+[SYN-001] Aether function parser error: functions must declare an explicit return type.
+hint: write `fn name(args) -> Void { ... }` ...
+```
+
+Name-specific, confirmed: `has_toon` fails; `has_toon_support`, `has_too`,
+`has_t`, `has_`, `has_x`, `toon_thing`, `printer`, `print_it`, `length_of` and
+`copy_of` all parse fine. So it is builtin redefinition, not a lexing quirk.
+
+Models reach for `fn has_toon()` naturally because the guide's own examples call
+`has_toon()` repeatedly (`aether_for_llms_and_others.md` ~1100, 1196, 1428, 1456).
+
+**Why it is worse than an ordinary error:** the message misdirects repair. Told
+"expected parameter name", the model rewrites a signature that was never wrong,
+collides again, and burns every repair attempt without seeing the real problem.
+Measured cost: 3 of 9 `large` tasks for `qwen25-14b` (9 cases). Zero cases in the
+other four larger models, so it is model-dependent, not board-wide.
+
+**Suggested action:** emit a coded, accurate diagnostic, e.g.
+`[NAME-00X] cannot redefine builtin 'has_toon'` with a hint to rename or call the
+builtin directly. Same family as the TYPE-001 `copy()`-on-an-array hint
+(`bf9f2d8`). Worth deciding separately whether redefinition should shadow rather
+than error -- but if it stays an error it must say so. Renaming clears SYN-001
+and the program proceeds to a genuine `FX-001`, so this unblocks repair rather
+than passing the task by itself.
