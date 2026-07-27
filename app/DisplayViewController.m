@@ -787,6 +787,16 @@ typedef NS_ENUM(NSInteger, DisplayConnectionState) {
             [weakSelf menuPipTapped:sender];
         });
     }]];
+    // GH #529: no way to dismiss the on-screen keyboard in standalone Wayland
+    // mode short of leaving the session (Terminal has hideKeyboardButton for
+    // exactly this; Display had nothing). resignFirstResponder is a no-op if
+    // the keyboard isn't up, so this is safe to always offer rather than
+    // tracking first-responder state just to conditionally hide the action.
+    [sheet addAction:[UIAlertAction actionWithTitle:@"Hide Keyboard"
+                                              style:UIAlertActionStyleDefault
+                                            handler:^(__unused UIAlertAction *action) {
+        [weakSelf.displayView resignFirstResponder];
+    }]];
     [sheet addAction:[UIAlertAction actionWithTitle:@"Open Workspace…"
                                               style:UIAlertActionStyleDefault
                                             handler:^(__unused UIAlertAction *action) {
