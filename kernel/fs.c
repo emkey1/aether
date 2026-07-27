@@ -2137,9 +2137,30 @@ static int generic_fsetattr(struct fd *fd, struct attr attr) {
     int err = fd->mount->fs->fstat(fd, &stat);
     if (err < 0)
         return err;
-    err = setattr_check(&stat, attr);
-    if (err < 0)
-        return err;
+    if (attr.type == attr_size) {
+        // ftruncate(2) takes its permission from the DESCRIPTOR, not the
+        // inode: Linux's do_sys_ftruncate checks only FMODE_WRITE, and returns
+        // EINVAL (not EACCES) when the file was not opened for writing. The
+        // inode check belongs to path-based truncate(2), which still gets it
+        // via generic_setattrat.
+        //
+        // Running access_check(AC_W) here as well broke the legitimate pattern
+        // of holding a writable fd to a file whose mode bits deny writing.
+        // wlroots does exactly that for every keymap: it creates a /dev/shm
+        // file 0600, reopens it read-only, fchmod()s it to 000 so nobody can
+        // reopen it writable, then ftruncate()s through the descriptor it
+        // still holds. That returned EACCES, so wlr_keyboard_set_keymap
+        // failed, the keyboard kept a NULL keymap, and labwc later called
+        // xkb_state_get_keymap(NULL) and died before it ever created its
+        // Wayland socket -- i.e. the whole desktop failed to start.
+        int accmode = fd_getflags(fd) & O_ACCMODE_;
+        if (accmode != O_WRONLY_ && accmode != O_RDWR_)
+            return _EINVAL;
+    } else {
+        err = setattr_check(&stat, attr);
+        if (err < 0)
+            return err;
+    }
     err = fd->mount->fs->fsetattr(fd, attr);
     if (err >= 0 && inotify_has_instances()) {
         char path[MAX_PATH];
