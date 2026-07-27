@@ -364,6 +364,30 @@ struct cpu_state {
 
     union mm_reg mm[8];
     union xmm_reg xmm[16];
+    // AVX/AVX-512 wide-vector storage (GH #525). ymm[i] holds bits 128-255
+    // of the register whose low 128 bits live in xmm[i] above; zmm_hi[i]
+    // holds bits 256-511. Kept as separate arrays rather than widening
+    // xmm[] itself so every existing SSE gadget/bridge site that reads
+    // cpu->xmm[i] keeps working unchanged -- VEX.128 forms only ever touch
+    // xmm[i] and zero these upper arrays as an explicit side effect
+    // (amd64_vex_zero_upper), matching real hardware's VEX.128 zeroing
+    // semantics.
+    //
+    // Deliberately NOT threaded through ptrace GETFPREGS/signal frame
+    // construction/clone: those paths only need to preserve state that's
+    // observable across a syscall/signal boundary or another process's
+    // debugger, which no current guest workload exercises for AVX state.
+    // A debugger inspecting %ymm/%zmm mid-signal, or a coredump wanting
+    // full vector state, won't see it here -- a known, narrow gap, not a
+    // straight-line-execution correctness bug.
+    union xmm_reg ymm_hi[16];
+    struct {
+        uint8_t u8[32];
+    } zmm_hi[16];
+    // EVEX mask registers k0-k7 (k0 is architecturally "no masking" and is
+    // never written by a masked EVEX instruction, but is stored like any
+    // other slot for uniformity).
+    uint64_t avx512_k[8];
 
     // fpu
     float80 fp[8];

@@ -11,7 +11,8 @@
     // save ip-to-arguments to return cache
     ubfx w12, w8, 4, 12
     write_done 32, call // clobbers w8
-    add x13, _cpu, LOCAL_ret_cache
+    mov x13, LOCAL_ret_cache
+    add x13, _cpu, x13
     str _ip, [x13, x12, lsl 3]
     // jump to target
     ldr _ip, [_ip, 32]
@@ -29,7 +30,8 @@
     // save ip-to-arguments to return cache
     ubfx w12, w8, 4, 12
     write_done 32, call_indir // clobbers w8
-    add x13, _cpu, LOCAL_ret_cache
+    mov x13, LOCAL_ret_cache
+    add x13, _cpu, x13
     str _ip, [x13, x12, lsl 3]
     // jump to target
     mov eip, _tmp
@@ -46,7 +48,8 @@
     add esp, esp, w8
     // load saved ip in return cache
     ubfx w12, _tmp, 4, 12
-    add x13, _cpu, LOCAL_ret_cache
+    mov x13, LOCAL_ret_cache
+    add x13, _cpu, x13
     ldr _ip, [x13, x12, lsl 3]
     // found?
     cbz _ip, 2f
