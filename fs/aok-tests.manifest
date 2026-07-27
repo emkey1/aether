@@ -20,6 +20,9 @@ x86/atomic_cmpxchg32.c
 x86/atomic_cmpxchg8b.c
 x86/atomic_logic32.c
 x86/cow_atomic_fault.c
+x86/x87_fpu.c
+x86/x86_loop.c
+x86/bcd_adjust.c
 signal_core.c
 signal_restart.c
 signal_realtime.c
@@ -110,6 +113,8 @@ siocoutq.c
 epoll_nested.c
 tmpfs_exec.c
 kcmp.c
+file_perms.c
+syscall_wiring.c
 x86/amd64_regress.c
 x86/avx_regress.c
 x86/avx32_smoke.c
