@@ -314,6 +314,7 @@ dword_t sys_truncate64(addr_t path_addr, dword_t size_low, dword_t size_high);
 dword_t sys_truncate64_guest(guest_addr_t path_addr, dword_t size_low, dword_t size_high);
 dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high);
 dword_t sys_ftruncate(fd_t f, dword_t size);
+dword_t sys_truncate(addr_t path_addr, dword_t size);
 dword_t sys_fallocate(fd_t f, dword_t mode, dword_t offset_low, dword_t offset_high, dword_t len_low, dword_t len_high);
 dword_t sys_mkdir(addr_t path_addr, mode_t_ mode);
 dword_t sys_mkdir_guest(guest_addr_t path_addr, mode_t_ mode);

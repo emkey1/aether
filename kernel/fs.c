@@ -2303,7 +2303,11 @@ dword_t sys_truncate64_guest(guest_addr_t path_addr, dword_t size_low, dword_t s
     int path_err = user_read_path(path_addr, path, sizeof(path));
     if (path_err)
         return path_err;
-    return generic_setattrat(NULL, path, make_attr(size, size), true);
+    // AT_PWD, not NULL: since path_normalize started treating a genuinely-NULL
+    // dirfd as "bad/closed dirfd" and returning EBADF, passing NULL here made
+    // every truncate(2) fail with EBADF on all ABIs. truncate takes no dirfd,
+    // so a relative path resolves against the cwd.
+    return generic_setattrat(AT_PWD, path, make_attr(size, size), true);
 }
 dword_t sys_truncate64(addr_t path_addr, dword_t size_low, dword_t size_high) {
     return sys_truncate64_guest(path_addr, size_low, size_high);
@@ -2317,7 +2321,16 @@ dword_t sys_ftruncate64(fd_t f, dword_t size_low, dword_t size_high) {
     return generic_fsetattr(fd, make_attr(size, size));
 }
 
-dword_t sys_ftruncate(fd_t f, dword_t size) { 
+dword_t sys_truncate(addr_t path_addr, dword_t size) {
+    // The 32-bit truncate(2) takes a signed long length. Linux rejects a
+    // negative one with EINVAL rather than reading it as a huge unsigned size,
+    // which is what widening it into the 64-bit path would do.
+    if ((sdword_t) size < 0)
+        return _EINVAL;
+    return sys_truncate64(path_addr, size, 0);
+}
+
+dword_t sys_ftruncate(fd_t f, dword_t size) {
     struct fd *fd = f_get(f);
     if (fd == NULL)
         return _EBADF;

@@ -935,6 +935,7 @@ static syscall_t i386_syscall_table[] = {
     [88]  = (syscall_t) sys_reboot,
     [90]  = (syscall_t) sys_mmap,
     [91]  = (syscall_t) sys_munmap,
+    [92]  = (syscall_t) sys_truncate,
     [93]  = (syscall_t) sys_ftruncate,
     [94]  = (syscall_t) sys_fchmod,
     [96]  = (syscall_t) sys_getpriority,
