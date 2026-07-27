@@ -7223,6 +7223,13 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
                 goto amd64_fpu_gpf_restore;
             break;
         }
+        case 0xdd7: {
+            uint16_t value;
+            fpu_stsw16(cpu, &value);
+            if (!amd64_mem_write(cpu, tlb, addr, &value, sizeof(value)))
+                goto amd64_fpu_gpf_restore;
+            break;
+        }
         case 0xde0: {
             int16_t value;
             if (!amd64_mem_read(cpu, tlb, addr, &value, sizeof(value)))
@@ -7517,6 +7524,9 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
         return INT_NONE;
     case 0xd970:
         fpu_prem(cpu);
+        return INT_NONE;
+    case 0xd973:
+        fpu_sincos(cpu);
         return INT_NONE;
     case 0xd972:
         fpu_sqrt(cpu);
