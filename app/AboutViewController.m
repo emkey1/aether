@@ -141,7 +141,6 @@ BOOL ISHLLMClientEnabled(void) {
 @property (weak, nonatomic) IBOutlet UITableViewCell *initialWindowCell;
 @property (weak, nonatomic) IBOutlet UITableViewCell *diagnosticsCell;
 @property (weak, nonatomic) IBOutlet UISwitch *disableDimmingSwitch;
-@property (weak, nonatomic) IBOutlet UISwitch *enableExperimentalAmd64JitSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableMulticoreSwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableHLESwitch;
 @property (weak, nonatomic) IBOutlet UISwitch *enableCryptoAccelSwitch;
@@ -3709,7 +3708,6 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 - (void)_updateUI {
     NSAssert(NSThread.isMainThread, @"This method needs to be called on the main thread");
     self.disableDimmingSwitch.on = UserPreferences.shared.shouldDisableDimming;
-    self.enableExperimentalAmd64JitSwitch.on = UserPreferences.shared.shouldEnableExperimentalAmd64Jit;
     self.enableMulticoreSwitch.on = UserPreferences.shared.shouldEnableMulticore;
     self.enableHLESwitch.on = UserPreferences.shared.shouldEnableHLE;
     self.enableCryptoAccelSwitch.on = UserPreferences.shared.shouldEnableCryptoAccel;
@@ -4060,10 +4058,6 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 
 - (IBAction)disableDimmingChanged:(id)sender {
     UserPreferences.shared.shouldDisableDimming = self.disableDimmingSwitch.on;
-}
-
-- (IBAction)enableExperimentalAmd64JitChanged:(id)sender {
-    UserPreferences.shared.shouldEnableExperimentalAmd64Jit = self.enableExperimentalAmd64JitSwitch.on;
 }
 
 - (IBAction)enableCryptoAccelChanged:(id)sender {

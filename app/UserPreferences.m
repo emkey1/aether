@@ -36,7 +36,6 @@ static NSString *const kPreferenceEnableHLEKey = @"Enable HLE Accel";
 static NSString *const kPreferenceEnableCryptoAccelKey = @"Enable Crypto Accel";
 static NSString *const kPreferenceEnablePixAccelKey = @"Enable Pixman Accel";
 static NSString *const kPreferenceEnableExtraLockingKey = @"Enable Additional Locking";
-static NSString *const kPreferenceEnableExperimentalAmd64JitKey = @"Enable Experimental amd64 JIT";
 static NSString *const kPreferenceEnableLLMClientKey = @"Enable LLM Client";
 static NSString *const kPreferenceLLMProviderKey = @"LLM Provider";
 static NSString *const kPreferenceLLMServerURLKey = @"LLM Server URL";
@@ -153,12 +152,16 @@ bool remove_user_default_impl(const char *name) {
     return true;
 }
 
+// Backs /proc/ish/amd64_jit, the debugging lever for taking an amd64 guest off
+// the JIT frontend and onto the interpreter (bisecting a suspected JIT bug).
+// Deliberately not persisted: the JIT is the only supported configuration, so
+// every launch starts on it and a knob left off can't silently follow the user
+// forever. Same semantics as the CLI build (platform/standalone.c).
 bool amd64_jit_preference_get(void) {
-    return [NSUserDefaults.standardUserDefaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey];
+    return amd64_jit_is_enabled();
 }
 
 void amd64_jit_preference_set(bool enabled) {
-    [NSUserDefaults.standardUserDefaults setBool:enabled forKey:kPreferenceEnableExperimentalAmd64JitKey];
     amd64_jit_set_enabled(enabled);
 }
 
@@ -195,7 +198,6 @@ bool (*remove_user_default)(const char *name);
             kPreferenceEnableCryptoAccelKey: @(NO),
             kPreferenceEnablePixAccelKey: @(NO),
             kPreferenceEnableExtraLockingKey: @(YES),
-            kPreferenceEnableExperimentalAmd64JitKey: @(YES),
             kPreferenceEnableLLMClientKey: @(NO),
             kPreferenceLLMProviderKey: @"OpenRouter Free",
             kPreferenceLLMServerURLKey: @"https://openrouter.ai/api/v1",
@@ -240,7 +242,11 @@ bool (*remove_user_default)(const char *name);
         get_user_default = get_user_default_impl;
         set_user_default = set_user_default_impl;
         remove_user_default = remove_user_default_impl;
-        amd64_jit_set_enabled([_defaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey]);
+        // The amd64 JIT is the only supported configuration on iOS; the
+        // interpreter fallback survives purely as a debugging lever behind
+        // /proc/ish/amd64_jit (and the per-program containment in jit.c that
+        // keeps GNU `as` interpreted regardless).
+        amd64_jit_set_enabled(true);
         friendlyPreferenceMapping = @{
             @"enable_multicore": kPreferenceEnableMulticoreKey,
             @"enable_hle": kPreferenceEnableHLEKey,
@@ -259,7 +265,6 @@ bool (*remove_user_default)(const char *name);
             @"font_family": kPreferenceFontFamilyKey,
             @"font_size": kPreferenceFontSizeKey,
             @"disable_dimming": kPreferenceDisableDimmingKey,
-            @"enable_experimental_amd64_jit": kPreferenceEnableExperimentalAmd64JitKey,
             @"enable_llm_client": kPreferenceEnableLLMClientKey,
             @"llm_provider": kPreferenceLLMProviderKey,
             @"llm_server_url": kPreferenceLLMServerURLKey,
@@ -304,7 +309,6 @@ bool (*remove_user_default)(const char *name);
             kPreferenceFontFamilyKey: property(fontFamily),
             kPreferenceFontSizeKey: property(fontSize),
             kPreferenceDisableDimmingKey: property(shouldDisableDimming),
-            kPreferenceEnableExperimentalAmd64JitKey: property(shouldEnableExperimentalAmd64Jit),
             kPreferenceEnableLLMClientKey: property(shouldEnableLLMClient),
             kPreferenceLLMProviderKey: property(llmProvider),
             kPreferenceLLMServerURLKey: property(llmServerURL),
@@ -560,19 +564,6 @@ bool (*remove_user_default)(const char *name);
 }
 
 - (BOOL)validateShouldDisableDimming:(id *)value error:(NSError **)error {
-    return [*value isKindOfClass:NSNumber.class];
-}
-
-// MARK: shouldEnableExperimentalAmd64Jit
-- (BOOL)shouldEnableExperimentalAmd64Jit {
-    return [_defaults boolForKey:kPreferenceEnableExperimentalAmd64JitKey];
-}
-
-- (void)setShouldEnableExperimentalAmd64Jit:(BOOL)enabled {
-    amd64_jit_preference_set(enabled);
-}
-
-- (BOOL)validateShouldEnableExperimentalAmd64Jit:(id *)value error:(NSError **)error {
     return [*value isKindOfClass:NSNumber.class];
 }
 

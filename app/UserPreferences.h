@@ -72,7 +72,6 @@ extern NSString *const kThemeBackgroundColor;
 @property BOOL shouldEnableCryptoAccel;
 @property BOOL shouldEnablePixAccel;
 @property BOOL shouldEnableExtraLocking;
-@property BOOL shouldEnableExperimentalAmd64Jit;
 @property BOOL shouldEnableLLMClient;
 @property (nonatomic) NSString *llmProvider;
 @property (nonatomic) NSString *llmServerURL;
