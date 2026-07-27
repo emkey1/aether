@@ -823,6 +823,289 @@ static void test_blend_and_insert(void) {
     }
 }
 
+
+/* ---- crypto / FP / VNNI tier ---- */
+
+/* Full AES-128 encryption of the FIPS-197 Appendix C.1 known-answer vector,
+   built from VAESENC/VAESENCLAST. This validates the round against the
+   published standard rather than against my own reading of the round order:
+   x86's AESENC is ShiftRows,SubBytes,MixColumns,AddRoundKey, which equals one
+   standard round only because ShiftRows and SubBytes commute. (Note ARM's AESE
+   orders it differently, so the two are not interchangeable.) */
+static void test_aes(void) {
+    static const uint8_t key[16] = {
+        0x00,0x01,0x02,0x03,0x04,0x05,0x06,0x07,
+        0x08,0x09,0x0a,0x0b,0x0c,0x0d,0x0e,0x0f};
+    static const uint8_t plain[16] = {
+        0x00,0x11,0x22,0x33,0x44,0x55,0x66,0x77,
+        0x88,0x99,0xaa,0xbb,0xcc,0xdd,0xee,0xff};
+    static const uint8_t expect[16] = {
+        0x69,0xc4,0xe0,0xd8,0x6a,0x7b,0x04,0x30,
+        0xd8,0xcd,0xb7,0x80,0x70,0xb4,0xc5,0x5a};
+
+    /* Key expansion in plain scalar C (no AESKEYGENASSIST needed). */
+    static const uint8_t sbox[256] = {
+        0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+        0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+        0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+        0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+        0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+        0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+        0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+        0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+        0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+        0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+        0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+        0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+        0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+        0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+        0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+        0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16};
+    uint8_t w[11][16];
+    uint8_t rcon = 1;
+    memcpy(w[0], key, 16);
+    for (int r = 1; r <= 10; r++) {
+        uint8_t t[4];
+        t[0] = (uint8_t) (sbox[w[r-1][13]] ^ rcon);
+        t[1] = sbox[w[r-1][14]];
+        t[2] = sbox[w[r-1][15]];
+        t[3] = sbox[w[r-1][12]];
+        for (int i = 0; i < 4; i++)
+            w[r][i] = w[r-1][i] ^ t[i];
+        for (int i = 4; i < 16; i++)
+            w[r][i] = w[r-1][i] ^ w[r][i-4];
+        rcon = (uint8_t) ((rcon << 1) ^ ((rcon & 0x80) ? 0x1b : 0));
+    }
+
+    uint8_t state[16] __attribute__((aligned(16)));
+    for (int i = 0; i < 16; i++)
+        state[i] = plain[i] ^ w[0][i];
+
+    for (int r = 1; r <= 9; r++) {
+        __asm__ volatile("vmovdqu (%0),%%xmm0\n\tvmovdqu (%1),%%xmm1\n\t"
+                         "vaesenc %%xmm1,%%xmm0,%%xmm0\n\tvmovdqu %%xmm0,(%0)"
+                         : : "r"(state), "r"(w[r]) : "memory", "xmm0", "xmm1");
+    }
+    __asm__ volatile("vmovdqu (%0),%%xmm0\n\tvmovdqu (%1),%%xmm1\n\t"
+                     "vaesenclast %%xmm1,%%xmm0,%%xmm0\n\tvmovdqu %%xmm0,(%0)"
+                     : : "r"(state), "r"(w[10]) : "memory", "xmm0", "xmm1");
+
+    if (memcmp(state, expect, 16) != 0) {
+        printf("FAIL vaesenc.fips197\n  got: ");
+        for (int i = 0; i < 16; i++) printf("%02x", state[i]);
+        printf("\n  want:");
+        for (int i = 0; i < 16; i++) printf("%02x", expect[i]);
+        printf("\n");
+        failures_total++;
+    } else {
+        test_logf("PASS vaesenc.fips197\n");
+    }
+}
+
+static void test_pclmulqdq(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    /* Carryless square of 0xff spreads its 8 set bits: 0b0101...01 = 0x5555. */
+    static const uint32_t x[4] __attribute__((aligned(16))) = {0xff, 0, 0, 0};
+    static const uint32_t want[8] = {0x5555, 0, 0, 0, 0, 0, 0, 0};
+    __asm__ volatile("vmovdqu (%1),%%xmm1\n\t"
+                     "vpclmulqdq $0x00,%%xmm1,%%xmm1,%%xmm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x) : "memory", "ymm1", "ymm3");
+    check8("vpclmulqdq.square", out, want);
+
+    /* Selecting the HIGH qword of each source must pick a different operand. */
+    {
+        static const uint32_t y[4] __attribute__((aligned(16))) = {0, 0, 0x0f, 0};
+        /* high qword = 0x0f; carryless square of 0b1111 = 0b01010101 = 0x55 */
+        static const uint32_t want2[8] = {0x55, 0, 0, 0, 0, 0, 0, 0};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\t"
+                         "vpclmulqdq $0x11,%%xmm1,%%xmm1,%%xmm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(y) : "memory", "ymm1", "ymm3");
+        check8("vpclmulqdq.high_select", out, want2);
+    }
+}
+
+/* VPTERNLOG's imm8 is a complete 3-input truth table, so a handful of well
+   known immediates pin the operand ORDER as well as the logic. */
+static void test_pternlog(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t A3[8] __attribute__((aligned(32))) = {
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00,
+        0xff00ff00, 0xff00ff00, 0xff00ff00, 0xff00ff00};
+    static const uint32_t B3[8] __attribute__((aligned(32))) = {
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000,
+        0xffff0000, 0xffff0000, 0xffff0000, 0xffff0000};
+    static const uint32_t C3[8] __attribute__((aligned(32))) = {
+        0xf0f0f0f0, 0xf0f0f0f0, 0xf0f0f0f0, 0xf0f0f0f0,
+        0xf0f0f0f0, 0xf0f0f0f0, 0xf0f0f0f0, 0xf0f0f0f0};
+
+#define TERNLOG(imm, label, wantexpr)                                          \
+    do {                                                                       \
+        uint32_t want[8];                                                      \
+        for (int i = 0; i < 8; i++) {                                          \
+            uint32_t a = A3[i], b = B3[i], c = C3[i];                          \
+            (void) a; (void) b; (void) c;                                      \
+            want[i] = (wantexpr);                                              \
+        }                                                                      \
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\t"                             \
+                         "vmovdqu (%2),%%ymm2\n\t"                             \
+                         "vmovdqu (%3),%%ymm3\n\t"                             \
+                         "vpternlogd $" #imm ",%%ymm3,%%ymm2,%%ymm1\n\t"       \
+                         "vmovdqu %%ymm1,(%0)\n\tvzeroupper"                   \
+                         : : "r"(out), "r"(A3), "r"(B3), "r"(C3)               \
+                         : "memory", "ymm1", "ymm2", "ymm3");                  \
+        check8(label, out, want);                                              \
+    } while (0)
+
+    /* 0xf0 = "first operand", 0xcc = "second", 0xaa = "third" -- these three
+       are exactly what catch an operand-order mixup. */
+    TERNLOG(0xf0, "vpternlogd.selects_a", a);
+    TERNLOG(0xcc, "vpternlogd.selects_b", b);
+    TERNLOG(0xaa, "vpternlogd.selects_c", c);
+    TERNLOG(0x96, "vpternlogd.xor3", a ^ b ^ c);
+    TERNLOG(0x80, "vpternlogd.and3", a & b & c);
+    TERNLOG(0xfe, "vpternlogd.or3", a | b | c);
+#undef TERNLOG
+}
+
+static void test_vnni(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    /* vpdpbusd: src1 bytes UNSIGNED, src2 bytes SIGNED, 4 products summed into
+       each dword and ADDED to the destination's existing value. Using 0xff in
+       both operands distinguishes the signedness: unsigned 255 * signed -1. */
+    static const uint32_t acc[8] __attribute__((aligned(32))) = {
+        100, 0, 0, 0, 0, 0, 0, 0};
+    static const uint32_t s1[8] __attribute__((aligned(32))) = {
+        0xff010101, 0, 0, 0, 0, 0, 0, 0};
+    static const uint32_t s2[8] __attribute__((aligned(32))) = {
+        0xff020202, 0, 0, 0, 0, 0, 0, 0};
+    /* dword0 bytes: s1 = 01,01,01,ff (unsigned 1,1,1,255)
+                     s2 = 02,02,02,ff (signed  2,2,2,-1)
+       products: 2 + 2 + 2 + (255 * -1) = 6 - 255 = -249; 100 + -249 = -149 */
+    static const uint32_t want[8] = {(uint32_t) -149, 0, 0, 0, 0, 0, 0, 0};
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vmovdqu (%3),%%ymm3\n\t"
+                     "vpdpbusd %%ymm3,%%ymm2,%%ymm1\n\t"
+                     "vmovdqu %%ymm1,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(acc), "r"(s1), "r"(s2)
+                     : "memory", "ymm1", "ymm2", "ymm3");
+    check8("vpdpbusd.mixed_sign", out, want);
+}
+
+static void test_float(void) {
+    float fout[8] __attribute__((aligned(32)));
+    static const float fa[8] __attribute__((aligned(32))) = {1, 2, 3, 4, 5, 6, 7, 8};
+    static const float fb[8] __attribute__((aligned(32))) = {10, 20, 30, 40, 50, 60, 70, 80};
+
+    __asm__ volatile("vmovups (%1),%%ymm1\n\tvmovups (%2),%%ymm2\n\t"
+                     "vaddps %%ymm2,%%ymm1,%%ymm3\n\tvmovups %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(fout), "r"(fa), "r"(fb) : "memory", "ymm1", "ymm2", "ymm3");
+    {
+        int ok = 1;
+        for (int i = 0; i < 8; i++)
+            if (fout[i] != fa[i] + fb[i]) ok = 0;
+        if (!ok) { printf("FAIL vaddps\n"); failures_total++; }
+        else test_logf("PASS vaddps\n");
+    }
+
+    __asm__ volatile("vmovups (%1),%%ymm1\n\tvmovups (%2),%%ymm2\n\t"
+                     "vmulps %%ymm2,%%ymm1,%%ymm3\n\tvmovups %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(fout), "r"(fa), "r"(fb) : "memory", "ymm1", "ymm2", "ymm3");
+    {
+        int ok = 1;
+        for (int i = 0; i < 8; i++)
+            if (fout[i] != fa[i] * fb[i]) ok = 0;
+        if (!ok) { printf("FAIL vmulps\n"); failures_total++; }
+        else test_logf("PASS vmulps\n");
+    }
+
+    /* x86 MINPS is NOT NaN-propagating and NOT commutative: it is defined as
+       "(src1 < src2) ? src1 : src2", so a NaN in EITHER operand yields src2.
+       An fminf()-style implementation gets this backwards. */
+    {
+        float nan_v = 0.0f / 0.0f;
+        float src1[4] __attribute__((aligned(16))) = {nan_v, 1.0f, 5.0f, 5.0f};
+        float src2[4] __attribute__((aligned(16))) = {7.0f, nan_v, 3.0f, 9.0f};
+        float got[4] __attribute__((aligned(16)));
+        __asm__ volatile("vmovups (%1),%%xmm1\n\tvmovups (%2),%%xmm2\n\t"
+                         "vminps %%xmm2,%%xmm1,%%xmm3\n\tvmovups %%xmm3,(%0)"
+                         : : "r"(got), "r"(src1), "r"(src2)
+                         : "memory", "xmm1", "xmm2", "xmm3");
+        /* lane0: src1 is NaN -> src2 = 7; lane1: src2 is NaN -> src2 = NaN;
+           lane2: 5<3 false -> 3;         lane3: 5<9 true  -> 5 */
+        int ok = got[0] == 7.0f && (got[1] != got[1]) && got[2] == 3.0f && got[3] == 5.0f;
+        if (!ok) {
+            printf("FAIL vminps.nan got=%f %f %f %f\n",
+                   (double) got[0], (double) got[1], (double) got[2], (double) got[3]);
+            failures_total++;
+        } else {
+            test_logf("PASS vminps.nan\n");
+        }
+    }
+
+    /* Scalar ops touch ONLY lane 0 and take the rest from src1 (vvvv). */
+    {
+        float src1[4] __attribute__((aligned(16))) = {1.0f, 111.0f, 222.0f, 333.0f};
+        float src2[4] __attribute__((aligned(16))) = {2.0f, 999.0f, 999.0f, 999.0f};
+        float got[4] __attribute__((aligned(16)));
+        __asm__ volatile("vmovups (%1),%%xmm1\n\tvmovups (%2),%%xmm2\n\t"
+                         "vaddss %%xmm2,%%xmm1,%%xmm3\n\tvmovups %%xmm3,(%0)"
+                         : : "r"(got), "r"(src1), "r"(src2)
+                         : "memory", "xmm1", "xmm2", "xmm3");
+        int ok = got[0] == 3.0f && got[1] == 111.0f && got[2] == 222.0f && got[3] == 333.0f;
+        if (!ok) {
+            printf("FAIL vaddss.scalar got=%f %f %f %f\n",
+                   (double) got[0], (double) got[1], (double) got[2], (double) got[3]);
+            failures_total++;
+        } else {
+            test_logf("PASS vaddss.scalar\n");
+        }
+    }
+
+    /* A true FP compare yields ALL ONES in that lane, not 1. */
+    {
+        float src1[4] __attribute__((aligned(16))) = {1.0f, 5.0f, 3.0f, 4.0f};
+        float src2[4] __attribute__((aligned(16))) = {2.0f, 2.0f, 3.0f, 4.0f};
+        uint32_t got[4] __attribute__((aligned(16)));
+        __asm__ volatile("vmovups (%1),%%xmm1\n\tvmovups (%2),%%xmm2\n\t"
+                         "vcmpltps %%xmm2,%%xmm1,%%xmm3\n\tvmovups %%xmm3,(%0)"
+                         : : "r"(got), "r"(src1), "r"(src2)
+                         : "memory", "xmm1", "xmm2", "xmm3");
+        int ok = got[0] == 0xffffffffu && got[1] == 0 && got[2] == 0 && got[3] == 0;
+        if (!ok) {
+            printf("FAIL vcmpltps got=%08x %08x %08x %08x\n",
+                   got[0], got[1], got[2], got[3]);
+            failures_total++;
+        } else {
+            test_logf("PASS vcmpltps\n");
+        }
+    }
+
+    /* FMA 213: dst = src2*dst + src3. */
+    {
+        float d[4] __attribute__((aligned(16))) = {3.0f, 3.0f, 3.0f, 3.0f};
+        float s2[4] __attribute__((aligned(16))) = {2.0f, 2.0f, 2.0f, 2.0f};
+        float s3[4] __attribute__((aligned(16))) = {4.0f, 4.0f, 4.0f, 4.0f};
+        float got[4] __attribute__((aligned(16)));
+        __asm__ volatile("vmovups (%1),%%xmm0\n\tvmovups (%2),%%xmm1\n\t"
+                         "vmovups (%3),%%xmm2\n\t"
+                         "vfmadd213ps %%xmm2,%%xmm1,%%xmm0\n\t"
+                         "vmovups %%xmm0,(%0)"
+                         : : "r"(got), "r"(d), "r"(s2), "r"(s3)
+                         : "memory", "xmm0", "xmm1", "xmm2");
+        int ok = 1;
+        for (int i = 0; i < 4; i++)
+            if (got[i] != 2.0f * 3.0f + 4.0f) ok = 0;
+        if (!ok) {
+            printf("FAIL vfmadd213ps got=%f want=10\n", (double) got[0]);
+            failures_total++;
+        } else {
+            test_logf("PASS vfmadd213ps\n");
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -844,6 +1127,11 @@ int main(int argc, char **argv) {
     test_pmovmskb_and_madd();
     test_minmax_and_mul();
     test_blend_and_insert();
+    test_aes();
+    test_pclmulqdq();
+    test_pternlog();
+    test_vnni();
+    test_float();
 
     return finish_suite("avx_regress");
 }

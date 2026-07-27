@@ -4694,6 +4694,301 @@ static void avx_abs(unsigned lb, unsigned vlen, const uint8_t *s, uint8_t *d) {
     }
 }
 
+// ---- floating point ----
+//
+// Emulated with host float/double arithmetic. x86's MIN/MAX are deliberately
+// NOT symmetric and NOT NaN-propagating: both are defined as "compare, and on
+// anything other than a strict ordered win for src1, return src2", so a NaN in
+// either operand yields src2. Writing these as fminf()/C ternaries with the
+// operands the other way round is a classic silent-wrong-answer bug.
+enum avx_fp_op { AVX_FADD, AVX_FSUB, AVX_FMUL, AVX_FDIV, AVX_FMIN, AVX_FMAX };
+
+static double avx_fp_apply(enum avx_fp_op op, double a, double b) {
+    switch (op) {
+    case AVX_FADD: return a + b;
+    case AVX_FSUB: return a - b;
+    case AVX_FMUL: return a * b;
+    case AVX_FDIV: return a / b;
+    case AVX_FMIN: return a < b ? a : b;
+    case AVX_FMAX: return a > b ? a : b;
+    }
+    return 0;
+}
+
+static void avx_fp_binop(enum avx_fp_op op, bool is_double, unsigned vlen,
+        const uint8_t *s1, const uint8_t *s2, uint8_t *d) {
+    unsigned lb = is_double ? 8 : 4;
+    for (unsigned i = 0; i < vlen / 8; i += lb) {
+        if (is_double) {
+            double a, b, r;
+            memcpy(&a, s1 + i, 8);
+            memcpy(&b, s2 + i, 8);
+            r = avx_fp_apply(op, a, b);
+            memcpy(d + i, &r, 8);
+        } else {
+            float a, b, r;
+            memcpy(&a, s1 + i, 4);
+            memcpy(&b, s2 + i, 4);
+            r = (float) avx_fp_apply(op, a, b);
+            memcpy(d + i, &r, 4);
+        }
+    }
+}
+
+// VCMPPS/VCMPPD imm8 predicates. Only the low 5 bits select; this implements
+// the original SSE set (0-7), which is what compilers emit outside AVX-512
+// masked code. "Q"/"S" (quiet vs signalling) differ only in whether a QNaN
+// raises the invalid flag -- the emulator does not model FP exception flags,
+// so they behave identically here.
+static bool avx_fp_compare(unsigned pred, double a, double b) {
+    bool unordered = a != a || b != b;
+    switch (pred & 7) {
+    case 0: return a == b;                  // EQ_OQ
+    case 1: return !unordered && a < b;     // LT_OS
+    case 2: return !unordered && a <= b;    // LE_OS
+    case 3: return unordered;               // UNORD_Q
+    case 4: return unordered || a != b;     // NEQ_UQ
+    case 5: return !(!unordered && a < b);  // NLT_US
+    case 6: return !(!unordered && a <= b); // NLE_US
+    default: return !unordered;             // ORD_Q
+    }
+}
+
+static void avx_fp_cmp(unsigned pred, bool is_double, unsigned vlen,
+        const uint8_t *s1, const uint8_t *s2, uint8_t *d) {
+    unsigned lb = is_double ? 8 : 4;
+    for (unsigned i = 0; i < vlen / 8; i += lb) {
+        double a, b;
+        if (is_double) {
+            memcpy(&a, s1 + i, 8);
+            memcpy(&b, s2 + i, 8);
+        } else {
+            float fa, fb;
+            memcpy(&fa, s1 + i, 4);
+            memcpy(&fb, s2 + i, 4);
+            a = fa; b = fb;
+        }
+        // A true compare produces all-ones in that lane, not 1.
+        avx_lane_put(d + i, lb, avx_fp_compare(pred, a, b) ? avx_lane_mask(lb) : 0);
+    }
+}
+
+// FMA. The 132/213/231 suffix names which operands are multiplied and which is
+// the addend, all writing back to the first: 213 is dst = src2*dst + src3.
+static void avx_fma(unsigned form, bool is_double, bool negate_mul, bool subtract,
+        unsigned vlen, const uint8_t *dst_in, const uint8_t *s2, const uint8_t *s3, uint8_t *d) {
+    unsigned lb = is_double ? 8 : 4;
+    for (unsigned i = 0; i < vlen / 8; i += lb) {
+        double x, y, z, r;
+        if (is_double) {
+            memcpy(&x, dst_in + i, 8);
+            memcpy(&y, s2 + i, 8);
+            memcpy(&z, s3 + i, 8);
+        } else {
+            float fx, fy, fz;
+            memcpy(&fx, dst_in + i, 4);
+            memcpy(&fy, s2 + i, 4);
+            memcpy(&fz, s3 + i, 4);
+            x = fx; y = fy; z = fz;
+        }
+        double mul_a, mul_b, addend;
+        if (form == 132) { mul_a = x; mul_b = z; addend = y; }
+        else if (form == 213) { mul_a = y; mul_b = x; addend = z; }
+        else { mul_a = y; mul_b = z; addend = x; } // 231
+        double product = mul_a * mul_b;
+        if (negate_mul)
+            product = -product;
+        r = subtract ? product - addend : product + addend;
+        if (is_double) {
+            memcpy(d + i, &r, 8);
+        } else {
+            float fr = (float) r;
+            memcpy(d + i, &fr, 4);
+        }
+    }
+}
+
+// ---- crypto ----
+
+static const uint8_t avx_aes_sbox[256] = {
+    0x63,0x7c,0x77,0x7b,0xf2,0x6b,0x6f,0xc5,0x30,0x01,0x67,0x2b,0xfe,0xd7,0xab,0x76,
+    0xca,0x82,0xc9,0x7d,0xfa,0x59,0x47,0xf0,0xad,0xd4,0xa2,0xaf,0x9c,0xa4,0x72,0xc0,
+    0xb7,0xfd,0x93,0x26,0x36,0x3f,0xf7,0xcc,0x34,0xa5,0xe5,0xf1,0x71,0xd8,0x31,0x15,
+    0x04,0xc7,0x23,0xc3,0x18,0x96,0x05,0x9a,0x07,0x12,0x80,0xe2,0xeb,0x27,0xb2,0x75,
+    0x09,0x83,0x2c,0x1a,0x1b,0x6e,0x5a,0xa0,0x52,0x3b,0xd6,0xb3,0x29,0xe3,0x2f,0x84,
+    0x53,0xd1,0x00,0xed,0x20,0xfc,0xb1,0x5b,0x6a,0xcb,0xbe,0x39,0x4a,0x4c,0x58,0xcf,
+    0xd0,0xef,0xaa,0xfb,0x43,0x4d,0x33,0x85,0x45,0xf9,0x02,0x7f,0x50,0x3c,0x9f,0xa8,
+    0x51,0xa3,0x40,0x8f,0x92,0x9d,0x38,0xf5,0xbc,0xb6,0xda,0x21,0x10,0xff,0xf3,0xd2,
+    0xcd,0x0c,0x13,0xec,0x5f,0x97,0x44,0x17,0xc4,0xa7,0x7e,0x3d,0x64,0x5d,0x19,0x73,
+    0x60,0x81,0x4f,0xdc,0x22,0x2a,0x90,0x88,0x46,0xee,0xb8,0x14,0xde,0x5e,0x0b,0xdb,
+    0xe0,0x32,0x3a,0x0a,0x49,0x06,0x24,0x5c,0xc2,0xd3,0xac,0x62,0x91,0x95,0xe4,0x79,
+    0xe7,0xc8,0x37,0x6d,0x8d,0xd5,0x4e,0xa9,0x6c,0x56,0xf4,0xea,0x65,0x7a,0xae,0x08,
+    0xba,0x78,0x25,0x2e,0x1c,0xa6,0xb4,0xc6,0xe8,0xdd,0x74,0x1f,0x4b,0xbd,0x8b,0x8a,
+    0x70,0x3e,0xb5,0x66,0x48,0x03,0xf6,0x0e,0x61,0x35,0x57,0xb9,0x86,0xc1,0x1d,0x9e,
+    0xe1,0xf8,0x98,0x11,0x69,0xd9,0x8e,0x94,0x9b,0x1e,0x87,0xe9,0xce,0x55,0x28,0xdf,
+    0x8c,0xa1,0x89,0x0d,0xbf,0xe6,0x42,0x68,0x41,0x99,0x2d,0x0f,0xb0,0x54,0xbb,0x16,
+};
+
+static const uint8_t avx_aes_inv_sbox[256] = {
+    0x52,0x09,0x6a,0xd5,0x30,0x36,0xa5,0x38,0xbf,0x40,0xa3,0x9e,0x81,0xf3,0xd7,0xfb,
+    0x7c,0xe3,0x39,0x82,0x9b,0x2f,0xff,0x87,0x34,0x8e,0x43,0x44,0xc4,0xde,0xe9,0xcb,
+    0x54,0x7b,0x94,0x32,0xa6,0xc2,0x23,0x3d,0xee,0x4c,0x95,0x0b,0x42,0xfa,0xc3,0x4e,
+    0x08,0x2e,0xa1,0x66,0x28,0xd9,0x24,0xb2,0x76,0x5b,0xa2,0x49,0x6d,0x8b,0xd1,0x25,
+    0x72,0xf8,0xf6,0x64,0x86,0x68,0x98,0x16,0xd4,0xa4,0x5c,0xcc,0x5d,0x65,0xb6,0x92,
+    0x6c,0x70,0x48,0x50,0xfd,0xed,0xb9,0xda,0x5e,0x15,0x46,0x57,0xa7,0x8d,0x9d,0x84,
+    0x90,0xd8,0xab,0x00,0x8c,0xbc,0xd3,0x0a,0xf7,0xe4,0x58,0x05,0xb8,0xb3,0x45,0x06,
+    0xd0,0x2c,0x1e,0x8f,0xca,0x3f,0x0f,0x02,0xc1,0xaf,0xbd,0x03,0x01,0x13,0x8a,0x6b,
+    0x3a,0x91,0x11,0x41,0x4f,0x67,0xdc,0xea,0x97,0xf2,0xcf,0xce,0xf0,0xb4,0xe6,0x73,
+    0x96,0xac,0x74,0x22,0xe7,0xad,0x35,0x85,0xe2,0xf9,0x37,0xe8,0x1c,0x75,0xdf,0x6e,
+    0x47,0xf1,0x1a,0x71,0x1d,0x29,0xc5,0x89,0x6f,0xb7,0x62,0x0e,0xaa,0x18,0xbe,0x1b,
+    0xfc,0x56,0x3e,0x4b,0xc6,0xd2,0x79,0x20,0x9a,0xdb,0xc0,0xfe,0x78,0xcd,0x5a,0xf4,
+    0x1f,0xdd,0xa8,0x33,0x88,0x07,0xc7,0x31,0xb1,0x12,0x10,0x59,0x27,0x80,0xec,0x5f,
+    0x60,0x51,0x7f,0xa9,0x19,0xb5,0x4a,0x0d,0x2d,0xe5,0x7a,0x9f,0x93,0xc9,0x9c,0xef,
+    0xa0,0xe0,0x3b,0x4d,0xae,0x2a,0xf5,0xb0,0xc8,0xeb,0xbb,0x3c,0x83,0x53,0x99,0x61,
+    0x17,0x2b,0x04,0x7e,0xba,0x77,0xd6,0x26,0xe1,0x69,0x14,0x63,0x55,0x21,0x0c,0x7d,
+};
+
+// GF(2^8) multiply for MixColumns, reducing by the AES polynomial 0x11b.
+static inline uint8_t avx_gf_mul(uint8_t a, uint8_t b) {
+    uint8_t r = 0;
+    for (int i = 0; i < 8; i++) {
+        if (b & 1)
+            r ^= a;
+        bool hi = (a & 0x80) != 0;
+        a = (uint8_t) (a << 1);
+        if (hi)
+            a ^= 0x1b;
+        b >>= 1;
+    }
+    return r;
+}
+
+// One 128-bit AES round. x86 orders an encrypt round as ShiftRows, SubBytes,
+// MixColumns (omitted for the "last" round), then XOR the round key -- note
+// this differs from ARM's AESE, which does AddRoundKey first, so the two are
+// not a drop-in substitution for each other.
+static void avx_aes_round(bool decrypt, bool last, const uint8_t *state,
+        const uint8_t *round_key, uint8_t *out) {
+    static const uint8_t enc_shift[16] = {0,5,10,15,4,9,14,3,8,13,2,7,12,1,6,11};
+    static const uint8_t dec_shift[16] = {0,13,10,7,4,1,14,11,8,5,2,15,12,9,6,3};
+    const uint8_t *shift = decrypt ? dec_shift : enc_shift;
+    const uint8_t *sbox = decrypt ? avx_aes_inv_sbox : avx_aes_sbox;
+
+    uint8_t tmp[16];
+    for (int i = 0; i < 16; i++)
+        tmp[i] = sbox[state[shift[i]]];
+
+    if (!last) {
+        uint8_t mixed[16];
+        for (int col = 0; col < 4; col++) {
+            const uint8_t *s = tmp + col * 4;
+            uint8_t *o = mixed + col * 4;
+            if (decrypt) {
+                o[0] = avx_gf_mul(s[0],14) ^ avx_gf_mul(s[1],11) ^ avx_gf_mul(s[2],13) ^ avx_gf_mul(s[3],9);
+                o[1] = avx_gf_mul(s[0],9)  ^ avx_gf_mul(s[1],14) ^ avx_gf_mul(s[2],11) ^ avx_gf_mul(s[3],13);
+                o[2] = avx_gf_mul(s[0],13) ^ avx_gf_mul(s[1],9)  ^ avx_gf_mul(s[2],14) ^ avx_gf_mul(s[3],11);
+                o[3] = avx_gf_mul(s[0],11) ^ avx_gf_mul(s[1],13) ^ avx_gf_mul(s[2],9)  ^ avx_gf_mul(s[3],14);
+            } else {
+                o[0] = (uint8_t) (avx_gf_mul(s[0],2) ^ avx_gf_mul(s[1],3) ^ s[2] ^ s[3]);
+                o[1] = (uint8_t) (s[0] ^ avx_gf_mul(s[1],2) ^ avx_gf_mul(s[2],3) ^ s[3]);
+                o[2] = (uint8_t) (s[0] ^ s[1] ^ avx_gf_mul(s[2],2) ^ avx_gf_mul(s[3],3));
+                o[3] = (uint8_t) (avx_gf_mul(s[0],3) ^ s[1] ^ s[2] ^ avx_gf_mul(s[3],2));
+            }
+        }
+        memcpy(tmp, mixed, 16);
+    }
+
+    for (int i = 0; i < 16; i++)
+        out[i] = tmp[i] ^ round_key[i];
+}
+
+// VPCLMULQDQ: carryless (XOR-based) 64x64 -> 128 multiply, per 128-bit lane.
+// imm8 bit 0 picks src1's qword, bit 4 picks src2's.
+static void avx_pclmulqdq(unsigned vlen, byte_t imm, const uint8_t *s1, const uint8_t *s2, uint8_t *d) {
+    for (unsigned lane = 0; lane < vlen / 8; lane += 16) {
+        uint64_t a = avx_lane_get(s1 + lane + ((imm & 0x01) ? 8 : 0), 8);
+        uint64_t b = avx_lane_get(s2 + lane + ((imm & 0x10) ? 8 : 0), 8);
+        uint64_t lo = 0, hi = 0;
+        for (unsigned i = 0; i < 64; i++) {
+            if ((b >> i) & 1) {
+                lo ^= a << i;
+                // Shifting by 64 is undefined in C, so the i==0 case (where
+                // nothing spills into the high word) must be special-cased.
+                if (i != 0)
+                    hi ^= a >> (64 - i);
+            }
+        }
+        avx_lane_put(d + lane, 8, lo);
+        avx_lane_put(d + lane + 8, 8, hi);
+    }
+}
+
+// VGF2P8AFFINEQB: per byte, an 8x8 GF(2) matrix-vector product against the
+// qword-wide matrix operand, then XOR the imm8 constant.
+static void avx_gf2p8affine(unsigned vlen, byte_t imm, const uint8_t *s1, const uint8_t *s2, uint8_t *d) {
+    for (unsigned q = 0; q < vlen / 8; q += 8) {
+        for (unsigned j = 0; j < 8; j++) {
+            uint8_t x = s1[q + j];
+            uint8_t r = 0;
+            for (unsigned bit = 0; bit < 8; bit++) {
+                // Row `bit` of the matrix is byte 7-bit of the qword; the
+                // result bit is the parity of (row & x).
+                uint8_t row = s2[q + 7 - bit];
+                uint8_t v = row & x;
+                unsigned parity = 0;
+                for (unsigned k = 0; k < 8; k++)
+                    parity ^= (v >> k) & 1;
+                if (parity)
+                    r |= (uint8_t) (1u << bit);
+            }
+            d[q + j] = r ^ imm;
+        }
+    }
+}
+
+// VPDPBUSD / VPDPWSSD: multiply-accumulate dot products into the destination's
+// existing dword lanes (the original GH #525 finding -- a vectorized checksum).
+static void avx_vpdpbusd(unsigned vlen, const uint8_t *acc, const uint8_t *s1,
+        const uint8_t *s2, uint8_t *d) {
+    for (unsigned i = 0; i < vlen / 8; i += 4) {
+        int64_t sum = (int32_t) avx_lane_get(acc + i, 4);
+        for (unsigned j = 0; j < 4; j++)
+            sum += (int32_t) s1[i + j] * (int32_t) (int8_t) s2[i + j];
+        avx_lane_put(d + i, 4, (uint32_t) sum);
+    }
+}
+
+static void avx_vpdpwssd(unsigned vlen, const uint8_t *acc, const uint8_t *s1,
+        const uint8_t *s2, uint8_t *d) {
+    for (unsigned i = 0; i < vlen / 8; i += 4) {
+        int64_t sum = (int32_t) avx_lane_get(acc + i, 4);
+        for (unsigned j = 0; j < 2; j++) {
+            int32_t a = (int16_t) avx_lane_get(s1 + i + j * 2, 2);
+            int32_t b = (int16_t) avx_lane_get(s2 + i + j * 2, 2);
+            sum += a * b;
+        }
+        avx_lane_put(d + i, 4, (uint32_t) sum);
+    }
+}
+
+// VPTERNLOG{D,Q}: imm8 is a full 3-input truth table -- bit (a<<2|b<<1|c) of
+// the immediate gives the output for that combination of source bits. Bitwise
+// across the whole register, so the lane width is irrelevant to the result.
+static void avx_pternlog(unsigned vlen, byte_t imm, const uint8_t *s1,
+        const uint8_t *s2, const uint8_t *s3, uint8_t *d) {
+    for (unsigned i = 0; i < vlen / 8; i++) {
+        uint8_t r = 0;
+        for (unsigned bit = 0; bit < 8; bit++) {
+            unsigned a = (s1[i] >> bit) & 1;
+            unsigned b = (s2[i] >> bit) & 1;
+            unsigned c = (s3[i] >> bit) & 1;
+            if ((imm >> ((a << 2) | (b << 1) | c)) & 1)
+                r |= (uint8_t) (1u << bit);
+        }
+        d[i] = r;
+    }
+}
+
 // ---- dispatch ----
 
 struct amd64_vex_ctx {
@@ -4730,6 +5025,46 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     // instead mean the *scalar* MOVSS/MOVSD (different semantics, not handled
     // here); 6F/7F are the integer moves (pp 1 = MOVDQA, pp 2 = MOVDQU),
     // where pp 0 would be a legacy MMX form with no VEX encoding.
+    // VMOVSS/VMOVSD (F3/F2 0F 10/11): scalar, and register-to-register form
+    // merges with vvvv rather than zeroing the rest of the low 128 bits.
+    if ((op == 0x10 || op == 0x11) && c->vex.pp >= 2) {
+        bool is_double = c->vex.pp == 3;
+        unsigned lb = is_double ? 8 : 4;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (op == 0x10) {
+            memset(out, 0, sizeof(out));
+            if (modrm.is_reg) {
+                if (modrm.rm >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+                    return INT_UNDEFINED;
+                amd64_vec_reg_read(cpu, c->vex.vvvv, 128, out);
+                amd64_vec_reg_read(cpu, modrm.rm, 128, a);
+                memcpy(out, a, lb);
+            } else {
+                qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+                if (!amd64_mem_read(cpu, tlb, addr, out, lb))
+                    return INT_PF;
+            }
+            amd64_vec_reg_write(cpu, modrm.reg, 128, out);
+        } else {
+            amd64_vec_reg_read(cpu, modrm.reg, 128, a);
+            if (modrm.is_reg) {
+                if (modrm.rm >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+                    return INT_UNDEFINED;
+                amd64_vec_reg_read(cpu, c->vex.vvvv, 128, out);
+                memcpy(out, a, lb);
+                amd64_vec_reg_write(cpu, modrm.rm, 128, out);
+            } else {
+                qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+                if (!amd64_mem_write(cpu, tlb, addr, a, lb))
+                    return INT_PF;
+            }
+        }
+        return INT_NONE;
+    }
+
     bool is_load = op == 0x10 || op == 0x28 || op == 0x6f;
     bool is_store = op == 0x11 || op == 0x29 || op == 0x7f;
     if (is_load || is_store) {
@@ -4820,8 +5155,165 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         }
     }
 
+    // Packed / scalar floating point. pp picks the flavour: 0 = packed
+    // single, 1 = packed double, 2 = scalar single, 3 = scalar double.
+    // The scalar forms compute only lane 0 and take the rest of the low 128
+    // bits from src1 (vvvv), which is why they can't share the packed path.
+    {
+        enum avx_fp_op fop;
+        bool matched = true;
+        switch (op) {
+        case 0x58: fop = AVX_FADD; break;
+        case 0x59: fop = AVX_FMUL; break;
+        case 0x5c: fop = AVX_FSUB; break;
+        case 0x5d: fop = AVX_FMIN; break;
+        case 0x5e: fop = AVX_FDIV; break;
+        case 0x5f: fop = AVX_FMAX; break;
+        default: matched = false; break;
+        }
+        if (matched) {
+            bool scalar = c->vex.pp >= 2;
+            bool is_double = c->vex.pp == 1 || c->vex.pp == 3;
+            if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+                return INT_GPF;
+            if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            unsigned width = scalar ? 128 : vlen;
+            if (scalar && modrm.is_reg) {
+                if (modrm.rm >= AMD64_AVX_MAX_REG)
+                    return INT_UNDEFINED;
+                amd64_vec_reg_read(cpu, modrm.rm, 128, b);
+            } else if (scalar) {
+                qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+                memset(b, 0, sizeof(b));
+                if (!amd64_mem_read(cpu, tlb, addr, b, is_double ? 8 : 4))
+                    return INT_PF;
+            } else if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b)) {
+                return INT_PF;
+            }
+            amd64_vec_reg_read(cpu, c->vex.vvvv, width, a);
+            memcpy(out, a, sizeof(out));
+            avx_fp_binop(fop, is_double, scalar ? (is_double ? 64 : 32) : vlen, a, b, out);
+            amd64_vec_reg_write(cpu, modrm.reg, width, out);
+            return INT_NONE;
+        }
+    }
+
     // Ops with their own shape.
     switch (op) {
+    case 0x51: { // vsqrtps/pd/ss/sd
+        bool scalar = c->vex.pp >= 2;
+        bool is_double = c->vex.pp == 1 || c->vex.pp == 3;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        unsigned width = scalar ? 128 : vlen;
+        if (scalar) {
+            if (c->vex.vvvv >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            amd64_vec_reg_read(cpu, c->vex.vvvv, 128, out);
+        }
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, width, a))
+            return INT_PF;
+        unsigned lb = is_double ? 8 : 4;
+        unsigned span = scalar ? lb : width / 8;
+        for (unsigned i = 0; i < span; i += lb) {
+            if (is_double) {
+                double v;
+                memcpy(&v, a + i, 8);
+                v = sqrt(v);
+                memcpy(out + i, &v, 8);
+            } else {
+                float v;
+                memcpy(&v, a + i, 4);
+                v = sqrtf(v);
+                memcpy(out + i, &v, 4);
+            }
+        }
+        amd64_vec_reg_write(cpu, modrm.reg, width, out);
+        return INT_NONE;
+    }
+    case 0xc2: { // vcmpps/pd/ss/sd
+        bool scalar = c->vex.pp >= 2;
+        bool is_double = c->vex.pp == 1 || c->vex.pp == 3;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        unsigned width = scalar ? 128 : vlen;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, width, b))
+            return INT_PF;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, width, a);
+        memcpy(out, a, sizeof(out));
+        avx_fp_cmp(imm, is_double, scalar ? (is_double ? 64 : 32) : width, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, width, out);
+        return INT_NONE;
+    }
+    case 0x14: case 0x15: { // vunpcklps/pd, vunpckhps/pd
+        if (c->vex.pp > 1)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        avx_unpack(op == 0x15, c->vex.pp == 1 ? 8 : 4, vlen, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+    case 0x50: { // vmovmskps/pd -- sign bits into a GPR
+        if (c->vex.pp > 1)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!modrm.is_reg || modrm.rm >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        amd64_vec_reg_read(cpu, modrm.rm, vlen, a);
+        unsigned lb = c->vex.pp == 1 ? 8 : 4;
+        uint64_t mask = 0;
+        for (unsigned i = 0, bit = 0; i < vlen / 8; i += lb, bit++)
+            if (a[i + lb - 1] & 0x80)
+                mask |= UINT64_C(1) << bit;
+        amd64_reg_set(cpu, modrm.reg, 64, mask);
+        return INT_NONE;
+    }
+    case 0xc6: { // vshufps/pd
+        if (c->vex.pp > 1)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        // Lane-local: the low half of each destination lane comes from src1,
+        // the high half from src2.
+        for (unsigned lane = 0; lane < vlen / 8; lane += 16) {
+            uint8_t tmp[16];
+            if (c->vex.pp == 1) { // shufpd: one selector bit per qword
+                memcpy(tmp, a + lane + (((imm >> (lane / 8)) & 1) ? 8 : 0), 8);
+                memcpy(tmp + 8, b + lane + (((imm >> (lane / 8 + 1)) & 1) ? 8 : 0), 8);
+            } else {
+                for (unsigned j = 0; j < 4; j++) {
+                    const uint8_t *src = j < 2 ? a : b;
+                    memcpy(tmp + j * 4, src + lane + ((imm >> (2 * j)) & 3) * 4, 4);
+                }
+            }
+            memcpy(out + lane, tmp, 16);
+        }
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
     case 0x60: case 0x61: case 0x62: case 0x6c:   // punpckl bw/wd/dq/qdq
     case 0x68: case 0x69: case 0x6a: case 0x6d: { // punpckh bw/wd/dq/qdq
         if (c->vex.pp != 1)
@@ -5113,7 +5605,99 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         }
     }
 
+    // AES rounds and the VNNI dot products all take the classic 3-operand
+    // shape; AES's "round key" is the rm operand.
     switch (op) {
+    case 0xdc: case 0xdd: case 0xde: case 0xdf: { // vaesenc/enclast/dec/declast
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        bool decrypt = op >= 0xde;
+        bool last = op == 0xdd || op == 0xdf;
+        // VAES applies the round independently to each 128-bit lane.
+        for (unsigned lane = 0; lane < vlen / 8; lane += 16)
+            avx_aes_round(decrypt, last, a + lane, b + lane, out + lane);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+    case 0x50: case 0x52: { // vpdpbusd / vpdpwssd -- accumulate into the dest
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        uint8_t acc[64];
+        amd64_vec_reg_read(cpu, modrm.reg, vlen, acc);
+        if (op == 0x50)
+            avx_vpdpbusd(vlen, acc, a, b, out);
+        else
+            avx_vpdpwssd(vlen, acc, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+    case 0x18: case 0x19: { // vbroadcastss / vbroadcastsd
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        unsigned lb = op == 0x18 ? 4 : 8;
+        if (op == 0x19 && vlen < 256)
+            return INT_UNDEFINED;
+        if (modrm.is_reg) {
+            if (modrm.rm >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            amd64_vec_reg_read(cpu, modrm.rm, 128, a);
+        } else {
+            qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+            if (!amd64_mem_read(cpu, tlb, addr, a, lb))
+                return INT_PF;
+        }
+        avx_broadcast(lb, vlen, a, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+    // FMA: 98/99 = 132, A8/A9 = 213, B8/B9 = 231; even opcode = packed
+    // single, odd = packed double. 9C/AC/BC and friends are the negated-
+    // multiply (FNMADD) and subtract (FMSUB) variants.
+    case 0x96: case 0x97: case 0x98: case 0x99: case 0x9a: case 0x9b:
+    case 0x9c: case 0x9d: case 0x9e: case 0x9f:
+    case 0xa6: case 0xa7: case 0xa8: case 0xa9: case 0xaa: case 0xab:
+    case 0xac: case 0xad: case 0xae: case 0xaf:
+    case 0xb6: case 0xb7: case 0xb8: case 0xb9: case 0xba: case 0xbb:
+    case 0xbc: case 0xbd: case 0xbe: case 0xbf: {
+        unsigned hi = op >> 4;
+        unsigned lo = op & 0xf;
+        unsigned form = hi == 0x9 ? 132 : hi == 0xa ? 213 : 231;
+        // Within each group: 8/9 = FMADD, A/B = FMSUB, C/D = FNMADD,
+        // E/F = FNMSUB; 6/7 = FMADDSUB/FMSUBADD, which alternate per lane and
+        // are not implemented.
+        if (lo < 0x8)
+            return INT_UNDEFINED;
+        bool is_double = (lo & 1) != 0;
+        bool negate_mul = lo >= 0xc;
+        bool subtract = (lo & 0x2) != 0;
+        // Scalar FMA forms (odd nibble pairs with W-dependent scalar encodings)
+        // share these opcodes in the 0F38 map only for the packed variants
+        // handled here.
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        uint8_t dst_in[64];
+        amd64_vec_reg_read(cpu, modrm.reg, vlen, dst_in);
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        avx_fma(form, is_double, negate_mul, subtract, vlen, dst_in, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
     case 0x00: case 0x04: { // pshufb / pmaddubsw
         if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
             return INT_GPF;
@@ -5180,6 +5764,55 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
         return INT_UNDEFINED;
 
     switch (op) {
+    case 0x44: { // vpclmulqdq
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        avx_pclmulqdq(vlen, imm, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+    case 0xce: { // vgf2p8affineqb
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        avx_gf2p8affine(vlen, imm, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
+    case 0x25: { // vpternlogd/q -- EVEX only
+        if (!c->vex.is_evex)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, b))
+            return INT_PF;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        uint8_t dst_in[64];
+        amd64_vec_reg_read(cpu, modrm.reg, vlen, dst_in);
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        avx_pternlog(vlen, imm, dst_in, a, b, out);
+        amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        return INT_NONE;
+    }
     case 0x0f: { // vpalignr
         if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
             return INT_GPF;
