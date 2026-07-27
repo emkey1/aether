@@ -22,7 +22,12 @@ struct tty_driver *tty_drivers[256] = {
 lock_t ttys_lock = LOCK_INITIALIZER;
 
 struct tty *tty_alloc(struct tty_driver *driver, int type, int num) {
-    struct tty *tty = malloc(sizeof(struct tty));
+    // Zero everything: the driver-specific union at the end (real tty thread,
+    // pty state) is only partly filled in by the per-driver init hooks, so a
+    // plain malloc leaves fields like pty.packet_mode holding whatever the
+    // previous owner of the block left there -- and a recycled "true" turns
+    // packet mode on for a pty nobody ever asked it of.
+    struct tty *tty = calloc(1, sizeof(struct tty));
     if (tty == NULL)
         return NULL;
 

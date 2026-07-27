@@ -23,6 +23,7 @@ static int pty_master_init(struct tty *tty) {
     tty->termios.iflags = 0;
     tty->termios.oflags = 0;
     tty->termios.lflags = 0;
+    tty->pty.packet_mode = false;
 
     struct tty *slave = tty_alloc(&pty_slave, TTY_PSEUDO_SLAVE_MAJOR, tty->num);
     slave->refcount = 1;

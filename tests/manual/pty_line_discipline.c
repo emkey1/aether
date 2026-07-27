@@ -1,10 +1,16 @@
-// Covers two related pty/tty line-discipline gaps (issue #423 Tier 3):
+// Covers three related pty/tty line-discipline gaps (issue #423 Tier 3):
 //  1. ECHOKE vs plain ECHOK on VKILL -- and the fact that ECHOKE_ was
 //     previously defined at the wrong termios c_lflag bit (1<<6, which is
 //     actually ECHONL's position) so it never matched what any real program
 //     set via tcsetattr.
 //  2. tty_poll() unconditionally reported POLLOUT even when the peer side of
 //     a pty had a full input buffer and a write would actually block/EAGAIN.
+//  3. A freshly allocated pty must start with packet mode OFF. tty_alloc()
+//     malloc'd struct tty without zeroing it and no init hook ever set
+//     pty.packet_mode, so a recycled block whose previous owner had turned
+//     packet mode on (TIOCPKT) handed the new pty a stale "on": every master
+//     read then carried a leading TIOCPKT_DATA status byte (0x00) that the
+//     opener never asked for and does not expect.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -12,9 +18,15 @@
 #include <poll.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/ioctl.h>
 #include <termios.h>
 #include <unistd.h>
 #include "test_common.h"
+
+// TIOCGPKT/TIOCSPTLCK are Linux 3.8+; some older headers lack them.
+#ifndef TIOCGPKT
+#define TIOCGPKT 0x80045438
+#endif
 
 static void dump_buf(char *out, const char *buf, ssize_t n) {
     size_t o = 0;
@@ -117,10 +129,89 @@ static void test_pty_pollout_backpressure(void) {
     close(slave);
 }
 
+// Read whatever the master has, non-blocking, after giving the echo a moment
+// to land. Returns the byte count (0 on EAGAIN).
+static ssize_t master_slurp(int master, char *buf, size_t cap) {
+    usleep(50000);
+    int flags = fcntl(master, F_GETFL);
+    fcntl(master, F_SETFL, flags | O_NONBLOCK);
+    ssize_t n = read(master, buf, cap);
+    fcntl(master, F_SETFL, flags);
+    return n < 0 ? 0 : n;
+}
+
+// A pty is created with packet mode off, and a previous pty that turned it on
+// must not be able to leave it on for the next one. The "previous" pty is
+// closed first so its kernel-side state is freed (and, on iSH, its struct tty
+// block recycled) before the fresh one is opened.
+static void test_fresh_pty_packet_mode(void) {
+    int master, slave;
+    if (openpty(&master, &slave, NULL, NULL, NULL) != 0) {
+        printf("FAIL fresh_pty_packet_mode: openpty (first) failed\n");
+        failures_total++;
+        return;
+    }
+    int on = 1;
+    if (ioctl(master, TIOCPKT, &on) < 0) {
+        printf("FAIL fresh_pty_packet_mode: TIOCPKT on: %s\n", strerror(errno));
+        failures_total++;
+        close(master); close(slave);
+        return;
+    }
+    // Positive control: with packet mode explicitly on, the master read really
+    // does carry the leading status byte. Without this a build that ignored
+    // TIOCPKT entirely would sail through the rest of the test.
+    char buf[256];
+    write(master, "abc", 3);
+    ssize_t n = master_slurp(master, buf, sizeof(buf));
+    int pkt_prefixed = (n == 4 && buf[0] == '\0' && memcmp(buf + 1, "abc", 3) == 0);
+    test_logf("fresh_pty_packet_mode: packet-on read n=%zd prefixed=%d\n", n, pkt_prefixed);
+    if (!pkt_prefixed) {
+        printf("FAIL fresh_pty_packet_mode: packet mode on: got n=%zd, want 4 bytes \"\\0abc\"\n", n);
+        failures_total++;
+    }
+    close(master);
+    close(slave);
+
+    // Now a brand new pty: packet mode must be off, and the echo must come
+    // back with no status byte in front of it.
+    for (int i = 0; i < 4; i++) {
+        if (openpty(&master, &slave, NULL, NULL, NULL) != 0) {
+            printf("FAIL fresh_pty_packet_mode: openpty (fresh #%d) failed\n", i);
+            failures_total++;
+            return;
+        }
+        int pkt = -1;
+        if (ioctl(master, TIOCGPKT, &pkt) < 0) {
+            // TIOCGPKT is not universally available; the read check below is
+            // the one that actually matters.
+            test_logf("fresh_pty_packet_mode: TIOCGPKT unavailable: %s\n", strerror(errno));
+            pkt = 0;
+        }
+        write(master, "abc", 3);
+        n = master_slurp(master, buf, sizeof(buf));
+        int clean = (n == 3 && memcmp(buf, "abc", 3) == 0);
+        test_logf("fresh_pty_packet_mode: fresh #%d TIOCGPKT=%d read n=%zd clean=%d\n",
+                  i, pkt, n, clean);
+        if (pkt != 0) {
+            printf("FAIL fresh_pty_packet_mode: fresh pty #%d reports packet mode %d, want 0\n", i, pkt);
+            failures_total++;
+        }
+        if (!clean) {
+            printf("FAIL fresh_pty_packet_mode: fresh pty #%d read n=%zd first=0x%02x, want 3 bytes \"abc\"\n",
+                   i, n, n > 0 ? (unsigned char) buf[0] : 0);
+            failures_total++;
+        }
+        close(master);
+        close(slave);
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     test_kill_echo("kill_with_echoke", 1, "abc^H ^H^H ^H^H ^H");
     test_kill_echo("kill_without_echoke", 0, "abc^U\\r\\n");
     test_pty_pollout_backpressure();
+    test_fresh_pty_packet_mode();
     return finish_suite("pty_line_discipline");
 }
