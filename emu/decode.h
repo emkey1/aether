@@ -1001,6 +1001,68 @@ restart:
 
         case 0x67: TRACEI("address size prefix (ignored)"); goto restart;
 
+        case 0xc4:
+        case 0xc5: {
+#if OP_SIZE == 32
+            // VEX prefix (AVX). In 32-bit mode these opcodes are also LES/LDS,
+            // which are distinguished from VEX by the next byte's mod field:
+            // VEX requires mod == 11. That holds for both forms because 32-bit
+            // mode forces VEX.R (and X/B, and vvvv's top bit) to their inverted
+            // "1" encoding, which lands in exactly those two bits. LES/LDS are
+            // not implemented here either way, so a non-VEX encoding falls
+            // through to UNDEFINED.
+            byte_t vex_lead = insn, vex1, vex2 = 0, vex_op;
+            unsigned vex_map, vex_pp, vex_vvvv, vex_l, vex_w = 0;
+            uint8_t vex_imm = 0;
+            _READIMM(vex1, 8);
+            if ((vex1 & 0xc0) != 0xc0) {
+                TRACEI("les/lds (unimplemented)");
+                UNDEFINED;
+            }
+            if (vex_lead == 0xc5) {
+                vex_map = 1; // the 2-byte form always implies the 0F map
+                vex_pp = vex1 & 3;
+                vex_l = (vex1 >> 2) & 1;
+                vex_vvvv = (~(vex1 >> 3)) & 0xf;
+            } else {
+                _READIMM(vex2, 8);
+                vex_map = vex1 & 0x1f;
+                vex_pp = vex2 & 3;
+                vex_l = (vex2 >> 2) & 1;
+                vex_vvvv = (~(vex2 >> 3)) & 0xf;
+                vex_w = (vex2 >> 7) & 1;
+            }
+            if (vex_map < 1 || vex_map > 3) {
+                TRACEI("vex reserved map");
+                UNDEFINED;
+            }
+            _READIMM(vex_op, 8);
+            TRACEI("vex insn");
+            if (avx32_has_modrm(vex_map, vex_op, vex_pp)) {
+                READMODRM;
+            } else {
+                // No ModRM byte: synthesize a register-form operand so the
+                // shared emit path below has something well-defined to encode.
+                modrm.type = modrm_reg;
+                modrm.opcode = 0;
+                modrm.rm_opcode = 0;
+            }
+            if (avx32_has_imm8(vex_map, vex_op, vex_pp))
+                _READIMM(vex_imm, 8);
+            if (!gen_vex32(state, tlb, &modrm, seg_tls, vex_map, vex_pp, vex_op,
+                           vex_l, vex_w, vex_vvvv, vex_imm))
+                return false;
+            break;
+#else
+            // Reached only via a 0x66 prefix, and VEX after a legacy
+            // operand-size prefix is architecturally #UD.
+            TRACEI("vex after operand-size prefix");
+            UNDEFINED;
+#endif
+        }
+
+
+
         case 0x68: TRACEI("push imm\t");
                    READIMM; PUSH(imm,oz); break;
         case 0x69: TRACEI("imul imm\t");

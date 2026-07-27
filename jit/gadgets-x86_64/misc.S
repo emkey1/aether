@@ -281,7 +281,10 @@ do_helper_tlb_retint 2
     .irp rm, reg,imm
         do_vec_helper \rm, \_imm
     .endr
-    .irp size, SIZE_LIST,64,128
+    # 256 is for AVX (GH #525): a 256-bit memory operand. The crosspage
+    # staging buffer (jit/frame.h value[4]) is exactly 32 bytes, so this is
+    # the widest access these gadgets can stage.
+    .irp size, SIZE_LIST,64,128,256
         do_vec_helper read, \_imm, \size
         do_vec_helper write, \_imm, \size
     .endr

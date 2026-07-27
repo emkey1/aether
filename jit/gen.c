@@ -10,6 +10,7 @@
 #include "emu/modrm.h"
 #include "emu/cpuid.h"
 #include "emu/fpu.h"
+#include "emu/avx.h"
 #include "emu/vec.h"
 #include "emu/interrupt.h"
 #include "emu/arch/arm64/decode.h"
@@ -10433,6 +10434,73 @@ static inline uint16_t cpu_reg_offset(enum arg arg, int index) {
     if (arg == arg_modrm_reg || arg == arg_modrm_val)
         return CPU_OFFSET(regs[index]);
     return 0;
+}
+
+// VEX-encoded (AVX/AVX2) instructions for the i386 guest (GH #525).
+//
+// i386 is JIT-only -- there is no interpreter to bail to the way amd64 does --
+// so the prefix is decoded here at codegen time and the whole instruction is
+// described to the runtime by a single 32-bit word carried in the vec-helper
+// gadgets' existing immediate slot. See emu/avx.h for the descriptor layout
+// and vec_avx32 (emu/avx.c) for execution.
+//
+// 32-bit mode makes this simpler than amd64: VEX.R/X/B are ignored, so every
+// operand is xmm0-7, and there is no REX interaction to worry about.
+static inline bool gen_vex32(struct gen_state *state, struct tlb *tlb, struct modrm *modrm,
+        bool seg_tls, unsigned map, unsigned pp, unsigned op, unsigned l, unsigned w,
+        unsigned vvvv, uint8_t imm8) {
+    unsigned vlen = l ? 256 : 128;
+
+    // VEX.vvvv is 4 bits but 32-bit mode has only 8 vector registers, so the
+    // top bit must be zero once un-inverted.
+    if (vvvv > 7)
+        UNDEFINED;
+
+    unsigned mem_bits = avx32_mem_bits(map, op, pp, w, vlen);
+    bool rm_mem = modrm->type != modrm_reg;
+    bool rm_dst = avx32_rm_is_dst(map, op, pp);
+
+    // mem_bits == 0 means "not implemented by this front-end" -- but it is
+    // also the honest answer for the register-only forms (the shift-by-imm8
+    // group, VZEROUPPER, VPMOVMSKB), so only reject it when there really is a
+    // memory operand to size.
+    if (rm_mem && mem_bits == 0)
+        UNDEFINED;
+    // Register-only forms legitimately report mem_bits == 0: the shift-by-imm8
+    // group, VZEROUPPER/VZEROALL, and the mask-to-GPR extracts.
+    if (!rm_mem && mem_bits == 0 && !(map == 1 && (op == 0x71 || op == 0x72 || op == 0x73 ||
+                                                   op == 0x77 || op == 0xd7 || op == 0x50)))
+        UNDEFINED;
+
+    uint32_t desc = AVX32_DESC(map, pp, op, l, w, vvvv, modrm->opcode,
+                               rm_mem ? 1 : 0, rm_mem ? 0 : modrm->rm_opcode, imm8);
+    uint16_t reg_off = CPU_OFFSET(xmm[modrm->opcode]);
+
+    if (!rm_mem) {
+        uint16_t rm_off = CPU_OFFSET(xmm[modrm->rm_opcode]);
+        g(vec_helper_reg_imm);
+        GEN(vec_avx32);
+        GEN((uint64_t) rm_off | ((uint64_t) reg_off << 16) | ((uint64_t) desc << 32));
+        return true;
+    }
+
+    gen_addr(state, modrm, seg_tls);
+    // The gadget size bakes in the access width, so it has to match the
+    // instruction's actual memory operand rather than the operation width.
+    switch (mem_bits) {
+        case 8:   if (rm_dst) g(vec_helper_write8_imm);   else g(vec_helper_read8_imm);   break;
+        case 16:  if (rm_dst) g(vec_helper_write16_imm);  else g(vec_helper_read16_imm);  break;
+        case 32:  if (rm_dst) g(vec_helper_write32_imm);  else g(vec_helper_read32_imm);  break;
+        case 64:  if (rm_dst) g(vec_helper_write64_imm);  else g(vec_helper_read64_imm);  break;
+        case 128: if (rm_dst) g(vec_helper_write128_imm); else g(vec_helper_read128_imm); break;
+        case 256: if (rm_dst) g(vec_helper_write256_imm); else g(vec_helper_read256_imm); break;
+        default: UNDEFINED;
+    }
+    GEN(state->orig_ip);
+    GEN(vec_avx32);
+    GEN((uint64_t) reg_off | ((uint64_t) desc << 32));
+    (void) tlb;
+    return true;
 }
 
 static inline bool gen_vec(enum arg src, enum arg dst, void (*helper)(), gadget_t read_mem_gadget, gadget_t write_mem_gadget, struct gen_state *state, struct modrm *modrm, uint8_t imm, bool seg_tls, bool has_imm) {

@@ -1,3 +1,5 @@
+#include <math.h>
+
 #include "emu/avx.h"
 
 // Elementwise binary ops. AVX defines wide integer ops as independent
@@ -585,3 +587,652 @@ void avx_pternlog(unsigned vlen, byte_t imm, const uint8_t *s1,
     }
 }
 
+
+// ---- register-file access ----
+
+void avx_reg_read(struct cpu_state *cpu, unsigned idx, unsigned vlen, uint8_t *out) {
+    memcpy(out, &cpu->xmm[idx], 16);
+    if (vlen >= 256)
+        memcpy(out + 16, &cpu->ymm_hi[idx], 16);
+    if (vlen >= 512)
+        memcpy(out + 32, cpu->zmm_hi[idx].u8, 32);
+}
+
+void avx_reg_write(struct cpu_state *cpu, unsigned idx, unsigned vlen, const uint8_t *in) {
+    memcpy(&cpu->xmm[idx], in, 16);
+    if (vlen >= 256)
+        memcpy(&cpu->ymm_hi[idx], in + 16, 16);
+    else
+        memset(&cpu->ymm_hi[idx], 0, 16);
+    if (vlen >= 512)
+        memcpy(cpu->zmm_hi[idx].u8, in + 32, 32);
+    else
+        memset(cpu->zmm_hi[idx].u8, 0, 32);
+}
+
+// ---- i386 front-end ----
+
+bool avx32_rm_is_dst(unsigned map, unsigned op, unsigned pp) {
+    if (map == 1)
+        return op == 0x11 || op == 0x29 || op == 0x7f || op == 0xd6
+            || (op == 0x7e && pp == 1);
+    if (map == 3)
+        return op == 0x39 || op == 0x14 || op == 0x15 || op == 0x16;
+    return false;
+}
+
+bool avx32_has_modrm(unsigned map, unsigned op, unsigned pp) {
+    // VZEROUPPER (L=0) / VZEROALL (L=1) are the only operand-less forms here.
+    if (map == 1 && op == 0x77 && pp == 0)
+        return false;
+    return true;
+}
+
+bool avx32_has_imm8(unsigned map, unsigned op, unsigned pp) {
+    if (map == 3)
+        return true; // every 0F3A form this front-end implements takes one
+    if (map == 1)
+        return op == 0x70 || op == 0x71 || op == 0x72 || op == 0x73 || op == 0xc2 || op == 0xc6;
+    (void) pp;
+    return false;
+}
+
+unsigned avx32_mem_bits(unsigned map, unsigned op, unsigned pp, unsigned w, unsigned vlen) {
+    if (map == 1) {
+        switch (op) {
+        // Full-width moves and the elementwise/lane ops: the memory operand
+        // is the operation width.
+        case 0x10: case 0x11:
+            return pp >= 2 ? (pp == 3 ? 64 : 32) : vlen;  // MOVSS/MOVSD are scalar
+        case 0x28: case 0x29: case 0x6f: case 0x7f:
+        case 0x54: case 0x55: case 0x56: case 0x57:
+        case 0x14: case 0x15: case 0xc6:
+        case 0xef: case 0xeb: case 0xdb: case 0xdf:
+        case 0xfc: case 0xfd: case 0xfe: case 0xd4:
+        case 0xf8: case 0xf9: case 0xfa: case 0xfb:
+        case 0xec: case 0xed: case 0xdc: case 0xdd:
+        case 0xe8: case 0xe9: case 0xd8: case 0xd9:
+        case 0x74: case 0x75: case 0x76:
+        case 0x64: case 0x65: case 0x66:
+        case 0xda: case 0xde: case 0xea: case 0xee:
+        case 0xe0: case 0xe3: case 0xd5: case 0xe5: case 0xe4:
+        case 0x60: case 0x61: case 0x62: case 0x6c:
+        case 0x68: case 0x69: case 0x6a: case 0x6d:
+        case 0x63: case 0x67: case 0x6b:
+        case 0x70: case 0xf4: case 0xf5: case 0xf6:
+            return vlen;
+        // Packed/scalar FP: scalar forms touch one element only.
+        case 0x58: case 0x59: case 0x5c: case 0x5d: case 0x5e: case 0x5f:
+        case 0x51: case 0xc2:
+            return pp >= 2 ? (pp == 3 ? 64 : 32) : vlen;
+        // Shift-by-xmm always reads a 128-bit count operand.
+        case 0xd1: case 0xd2: case 0xd3:
+        case 0xe1: case 0xe2:
+        case 0xf1: case 0xf2: case 0xf3:
+            return 128;
+        case 0x6e: case 0x7e:
+            return w ? 64 : 32;
+        case 0xd6:
+            return 64;
+        // Shift-by-imm8 and VZEROUPPER have no memory operand at all.
+        case 0x71: case 0x72: case 0x73: case 0x77: case 0xd7: case 0x50:
+            return 0;
+        default:
+            return 0;
+        }
+    }
+    if (map == 2) {
+        switch (op) {
+        case 0x78: return 8;    // vpbroadcastb
+        case 0x79: return 16;   // vpbroadcastw
+        case 0x58: case 0x18: return 32;   // vpbroadcastd / vbroadcastss
+        case 0x59: case 0x19: return 64;   // vpbroadcastq / vbroadcastsd
+        case 0x5a: return 128;  // vbroadcasti128
+        // Sign/zero widening reads a fraction of the destination width.
+        case 0x20: case 0x30: return vlen / 2;   // bw
+        case 0x21: case 0x31: return vlen / 4;   // bd
+        case 0x22: case 0x32: return vlen / 8;   // bq
+        case 0x23: case 0x33: return vlen / 2;   // wd
+        case 0x24: case 0x34: return vlen / 4;   // wq
+        case 0x25: case 0x35: return vlen / 2;   // dq
+        case 0x1c: case 0x1d: case 0x1e:
+        case 0x29: case 0x37:
+        case 0x38: case 0x39: case 0x3a: case 0x3b:
+        case 0x3c: case 0x3d: case 0x3e: case 0x3f:
+        case 0x40: case 0x00: case 0x04: case 0x36:
+        case 0x45: case 0x46: case 0x47:
+        case 0xdc: case 0xdd: case 0xde: case 0xdf:
+        case 0x50: case 0x52:
+            return vlen;
+        default:
+            return 0;
+        }
+    }
+    if (map == 3) {
+        switch (op) {
+        case 0x0f: case 0x00: case 0x46: case 0x02: case 0x0e: case 0x4c:
+        case 0x44: case 0xce: case 0x25:
+            return vlen;
+        case 0x38: case 0x39: return 128;  // vinserti128 / vextracti128
+        case 0x14: return 8;
+        case 0x15: return 16;
+        case 0x16: case 0x22: return w ? 64 : 32;
+        case 0x20: return 8;
+        default:
+            return 0;
+        }
+    }
+    return 0;
+}
+
+// Runtime execution. Operands are gathered into flat buffers, handed to the
+// shared avx_* semantics, and written back. Register operands come from
+// cpu->xmm/ymm_hi via the indices packed into `desc`; the single memory
+// operand (if any) arrives as the gadget's already-translated host pointer,
+// so page faults and crosspage staging are resolved before this is entered.
+void vec_avx32(struct cpu_state *cpu, const void *src, void *dst, uint32_t desc) {
+    unsigned map = desc & 3;
+    unsigned pp = (desc >> 2) & 3;
+    unsigned op = (desc >> 4) & 0xff;
+    unsigned vlen = ((desc >> 12) & 1) ? 256 : 128;
+    unsigned w = (desc >> 13) & 1;
+    unsigned vvvv = (desc >> 14) & 7;
+    unsigned reg = (desc >> 17) & 7;
+    bool rm_mem = (desc >> 20) & 1;
+    unsigned rm = (desc >> 21) & 7;
+    uint8_t imm = (desc >> 24) & 0xff;
+
+    bool rm_dst = avx32_rm_is_dst(map, op, pp);
+    unsigned mem_bits = avx32_mem_bits(map, op, pp, w, vlen);
+    unsigned mem_bytes = mem_bits / 8;
+    // For a store the memory pointer arrives as `dst`; otherwise as `src`.
+    const void *rm_ptr = rm_dst ? (const void *) dst : src;
+
+    uint8_t a[64] = {0}, b[64] = {0}, out[64] = {0};
+
+    // Gather the r/m operand unless it is the destination.
+    if (!rm_dst) {
+        if (rm_mem)
+            memcpy(b, rm_ptr, mem_bytes);
+        else
+            avx_reg_read(cpu, rm, vlen, b);
+    }
+
+    if (map == 1) {
+        // VZEROUPPER (L=0) / VZEROALL (L=1): no operands. 32-bit mode has
+        // only xmm0-7 to clear.
+        if (op == 0x77 && pp == 0) {
+            for (unsigned i = 0; i < 8; i++) {
+                memset(&cpu->ymm_hi[i], 0, sizeof(cpu->ymm_hi[i]));
+                memset(cpu->zmm_hi[i].u8, 0, sizeof(cpu->zmm_hi[i].u8));
+                if (vlen == 256)
+                    memset(&cpu->xmm[i], 0, sizeof(cpu->xmm[i]));
+            }
+            return;
+        }
+
+        // Scalar MOVSS/MOVSD: register-to-register merges the upper lanes
+        // from vvvv; a load from memory zeroes them.
+        if ((op == 0x10 || op == 0x11) && pp >= 2) {
+            if (op == 0x10) {
+                if (rm_mem) {
+                    memcpy(out, rm_ptr, mem_bytes);
+                } else {
+                    avx_reg_read(cpu, vvvv, 128, out);
+                    memcpy(out, b, mem_bytes);
+                }
+                avx_reg_write(cpu, reg, 128, out);
+            } else {
+                avx_reg_read(cpu, reg, 128, a);
+                if (rm_mem) {
+                    memcpy(dst, a, mem_bytes);
+                } else {
+                    avx_reg_read(cpu, vvvv, 128, out);
+                    memcpy(out, a, mem_bytes);
+                    avx_reg_write(cpu, rm, 128, out);
+                }
+            }
+            return;
+        }
+
+        // Full-width moves.
+        if (op == 0x10 || op == 0x28 || op == 0x6f) {
+            avx_reg_write(cpu, reg, vlen, b);
+            return;
+        }
+        if (op == 0x11 || op == 0x29 || op == 0x7f) {
+            avx_reg_read(cpu, reg, vlen, out);
+            if (rm_mem)
+                memcpy(dst, out, mem_bytes);
+            else
+                avx_reg_write(cpu, rm, vlen, out);
+            return;
+        }
+
+        // MOVD/MOVQ. 32-bit mode has no 64-bit GPRs, so the register forms
+        // are always 32-bit; the 64-bit memory form (0F D6) still exists.
+        if (op == 0x6e) {
+            uint32_t v = rm_mem ? (uint32_t) avx_lane_get(rm_ptr, 4) : cpu->regs[rm];
+            memcpy(out, &v, 4);
+            avx_reg_write(cpu, reg, 128, out);
+            return;
+        }
+        if (op == 0x7e && pp == 1) {
+            avx_reg_read(cpu, reg, 128, a);
+            if (rm_mem)
+                memcpy(dst, a, 4);
+            else
+                cpu->regs[rm] = (uint32_t) avx_lane_get(a, 4);
+            return;
+        }
+        if (op == 0x7e && pp == 2) { // F3 0F 7E: load low 64 bits, zero the rest
+            memcpy(out, b, 8);
+            avx_reg_write(cpu, reg, 128, out);
+            return;
+        }
+        if (op == 0xd6) { // store low 64 bits
+            avx_reg_read(cpu, reg, 128, a);
+            if (rm_mem)
+                memcpy(dst, a, 8);
+            else {
+                memcpy(out, a, 8);
+                avx_reg_write(cpu, rm, 128, out);
+            }
+            return;
+        }
+
+        // Mask extraction into a GPR.
+        if (op == 0xd7) { // vpmovmskb
+            uint32_t mask = 0;
+            for (unsigned i = 0; i < vlen / 8; i++)
+                if (b[i] & 0x80)
+                    mask |= 1u << i;
+            cpu->regs[reg] = mask;
+            return;
+        }
+        if (op == 0x50) { // vmovmskps/pd
+            unsigned lb = pp == 1 ? 8 : 4;
+            uint32_t mask = 0;
+            for (unsigned i = 0, bit = 0; i < vlen / 8; i += lb, bit++)
+                if (b[i + lb - 1] & 0x80)
+                    mask |= 1u << bit;
+            cpu->regs[reg] = mask;
+            return;
+        }
+
+        // Shift by imm8. NDD form: destination is vvvv, source is r/m.
+        if (op == 0x71 || op == 0x72 || op == 0x73) {
+            unsigned lb = op == 0x71 ? 2 : op == 0x72 ? 4 : 8;
+            unsigned sub = reg & 7; // the modrm.reg field is the sub-opcode here
+            if (op == 0x73 && (sub == 3 || sub == 7))
+                avx_byte_shift(sub == 7, vlen, imm > 16 ? 16 : imm, b, out);
+            else if (sub == 2)
+                avx_shift(AVX_SHR, lb, vlen, b, imm, out);
+            else if (sub == 4 && lb != 8)
+                avx_shift(AVX_SAR, lb, vlen, b, imm, out);
+            else if (sub == 6)
+                avx_shift(AVX_SHL, lb, vlen, b, imm, out);
+            else
+                return;
+            avx_reg_write(cpu, vvvv, vlen, out);
+            return;
+        }
+
+        avx_reg_read(cpu, vvvv, vlen, a);
+
+        // Shift by a 128-bit count operand.
+        if (op == 0xd1 || op == 0xd2 || op == 0xd3 ||
+            op == 0xe1 || op == 0xe2 ||
+            op == 0xf1 || op == 0xf2 || op == 0xf3) {
+            unsigned lb = (op == 0xd1 || op == 0xe1 || op == 0xf1) ? 2
+                        : (op == 0xd2 || op == 0xe2 || op == 0xf2) ? 4 : 8;
+            enum avx_shift_kind kind = op >= 0xf1 ? AVX_SHL : op >= 0xe1 ? AVX_SAR : AVX_SHR;
+            avx_shift(kind, lb, vlen, a, avx_lane_get(b, 8), out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+
+        if (op == 0x70) { // pshufd / pshufhw / pshuflw
+            if (pp == 1)
+                avx_pshufd(vlen, imm, b, out);
+            else
+                avx_pshufw_half(vlen, imm, pp == 2, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+
+        // Packed / scalar floating point.
+        {
+            enum avx_fp_op fop;
+            bool matched = true;
+            switch (op) {
+            case 0x58: fop = AVX_FADD; break;
+            case 0x59: fop = AVX_FMUL; break;
+            case 0x5c: fop = AVX_FSUB; break;
+            case 0x5d: fop = AVX_FMIN; break;
+            case 0x5e: fop = AVX_FDIV; break;
+            case 0x5f: fop = AVX_FMAX; break;
+            default: matched = false; break;
+            }
+            if (matched) {
+                bool scalar = pp >= 2, is_double = pp == 1 || pp == 3;
+                unsigned width = scalar ? 128 : vlen;
+                avx_reg_read(cpu, vvvv, width, out);
+                avx_fp_binop(fop, is_double, scalar ? (is_double ? 64 : 32) : vlen, a, b, out);
+                avx_reg_write(cpu, reg, width, out);
+                return;
+            }
+        }
+        if (op == 0x51) { // vsqrt
+            bool scalar = pp >= 2, is_double = pp == 1 || pp == 3;
+            unsigned width = scalar ? 128 : vlen;
+            unsigned lb = is_double ? 8 : 4;
+            unsigned span = scalar ? lb : width / 8;
+            if (scalar)
+                avx_reg_read(cpu, vvvv, 128, out);
+            for (unsigned i = 0; i < span; i += lb) {
+                if (is_double) {
+                    double v;
+                    memcpy(&v, b + i, 8);
+                    v = sqrt(v);
+                    memcpy(out + i, &v, 8);
+                } else {
+                    float v;
+                    memcpy(&v, b + i, 4);
+                    v = sqrtf(v);
+                    memcpy(out + i, &v, 4);
+                }
+            }
+            avx_reg_write(cpu, reg, width, out);
+            return;
+        }
+        if (op == 0xc2) { // vcmp
+            bool scalar = pp >= 2, is_double = pp == 1 || pp == 3;
+            unsigned width = scalar ? 128 : vlen;
+            avx_reg_read(cpu, vvvv, width, out);
+            avx_fp_cmp(imm, is_double, scalar ? (is_double ? 64 : 32) : width, a, b, out);
+            avx_reg_write(cpu, reg, width, out);
+            return;
+        }
+        if (op == 0xc6) { // vshufps / vshufpd
+            for (unsigned lane = 0; lane < vlen / 8; lane += 16) {
+                uint8_t tmp[16];
+                if (pp == 1) {
+                    memcpy(tmp, a + lane + (((imm >> (lane / 8)) & 1) ? 8 : 0), 8);
+                    memcpy(tmp + 8, b + lane + (((imm >> (lane / 8 + 1)) & 1) ? 8 : 0), 8);
+                } else {
+                    for (unsigned j = 0; j < 4; j++) {
+                        const uint8_t *s = j < 2 ? a : b;
+                        memcpy(tmp + j * 4, s + lane + ((imm >> (2 * j)) & 3) * 4, 4);
+                    }
+                }
+                memcpy(out + lane, tmp, 16);
+            }
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+
+        // Unpacks (FP and integer share the shape, only the lane width differs).
+        if (op == 0x14 || op == 0x15) {
+            avx_unpack(op == 0x15, pp == 1 ? 8 : 4, vlen, a, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x60 || op == 0x61 || op == 0x62 || op == 0x6c ||
+            op == 0x68 || op == 0x69 || op == 0x6a || op == 0x6d) {
+            bool high = op >= 0x68;
+            unsigned lb = (op == 0x60 || op == 0x68) ? 1
+                        : (op == 0x61 || op == 0x69) ? 2
+                        : (op == 0x62 || op == 0x6a) ? 4 : 8;
+            avx_unpack(high, lb, vlen, a, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x63 || op == 0x67 || op == 0x6b) {
+            avx_pack(op != 0x67, op == 0x6b ? 4 : 2, vlen, a, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0xf4) { avx_pmuludq(vlen, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0xf5) { avx_pmaddwd(vlen, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0xf6) { avx_psadbw(vlen, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+
+        // Elementwise integer / logical.
+        {
+            enum avx_op kind;
+            unsigned lb = 1;
+            bool matched = true;
+            switch (op) {
+            case 0x57: kind = AVX_XOR; break;
+            case 0x54: kind = AVX_AND; break;
+            case 0x55: kind = AVX_ANDN; break;
+            case 0x56: kind = AVX_OR; break;
+            case 0xef: kind = AVX_XOR; break;
+            case 0xeb: kind = AVX_OR; break;
+            case 0xdb: kind = AVX_AND; break;
+            case 0xdf: kind = AVX_ANDN; break;
+            case 0xfc: kind = AVX_ADD; lb = 1; break;
+            case 0xfd: kind = AVX_ADD; lb = 2; break;
+            case 0xfe: kind = AVX_ADD; lb = 4; break;
+            case 0xd4: kind = AVX_ADD; lb = 8; break;
+            case 0xf8: kind = AVX_SUB; lb = 1; break;
+            case 0xf9: kind = AVX_SUB; lb = 2; break;
+            case 0xfa: kind = AVX_SUB; lb = 4; break;
+            case 0xfb: kind = AVX_SUB; lb = 8; break;
+            case 0xec: kind = AVX_ADDS; lb = 1; break;
+            case 0xed: kind = AVX_ADDS; lb = 2; break;
+            case 0xdc: kind = AVX_ADDUS; lb = 1; break;
+            case 0xdd: kind = AVX_ADDUS; lb = 2; break;
+            case 0xe8: kind = AVX_SUBS; lb = 1; break;
+            case 0xe9: kind = AVX_SUBS; lb = 2; break;
+            case 0xd8: kind = AVX_SUBUS; lb = 1; break;
+            case 0xd9: kind = AVX_SUBUS; lb = 2; break;
+            case 0x74: kind = AVX_CMPEQ; lb = 1; break;
+            case 0x75: kind = AVX_CMPEQ; lb = 2; break;
+            case 0x76: kind = AVX_CMPEQ; lb = 4; break;
+            case 0x64: kind = AVX_CMPGT; lb = 1; break;
+            case 0x65: kind = AVX_CMPGT; lb = 2; break;
+            case 0x66: kind = AVX_CMPGT; lb = 4; break;
+            case 0xda: kind = AVX_MINU; lb = 1; break;
+            case 0xde: kind = AVX_MAXU; lb = 1; break;
+            case 0xea: kind = AVX_MINS; lb = 2; break;
+            case 0xee: kind = AVX_MAXS; lb = 2; break;
+            case 0xe0: kind = AVX_AVG; lb = 1; break;
+            case 0xe3: kind = AVX_AVG; lb = 2; break;
+            case 0xd5: kind = AVX_MULLO; lb = 2; break;
+            case 0xe5: kind = AVX_MULHI; lb = 2; break;
+            case 0xe4: kind = AVX_MULHIU; lb = 2; break;
+            default: matched = false; break;
+            }
+            if (matched) {
+                avx_binop(kind, lb, vlen, a, b, out);
+                avx_reg_write(cpu, reg, vlen, out);
+            }
+            return;
+        }
+    }
+
+    if (map == 2) {
+        // Two-operand forms (no vvvv).
+        if (op == 0x78 || op == 0x79 || op == 0x58 || op == 0x59 ||
+            op == 0x18 || op == 0x19) {
+            unsigned lb = (op == 0x78) ? 1 : (op == 0x79) ? 2
+                        : (op == 0x58 || op == 0x18) ? 4 : 8;
+            avx_broadcast(lb, vlen, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x5a) { // vbroadcasti128
+            for (unsigned i = 0; i < vlen / 8; i += 16)
+                memcpy(out + i, b, 16);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if ((op >= 0x20 && op <= 0x25) || (op >= 0x30 && op <= 0x35)) {
+            bool sign = op < 0x30;
+            unsigned kind = op & 0xf;
+            unsigned src_lb = kind <= 2 ? 1 : kind <= 4 ? 2 : 4;
+            unsigned dst_lb = kind == 0 ? 2 : kind == 1 ? 4 : kind == 2 ? 8
+                            : kind == 3 ? 4 : 8;
+            avx_widen(sign, src_lb, dst_lb, vlen, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op >= 0x1c && op <= 0x1e) {
+            avx_abs(op == 0x1c ? 1 : op == 0x1d ? 2 : 4, vlen, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+
+        avx_reg_read(cpu, vvvv, vlen, a);
+
+        if (op == 0x00) { avx_pshufb(vlen, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0x04) { avx_pmaddubsw(vlen, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0x36) { // vpermd -- crosses lanes by design
+            unsigned n = (vlen / 8) / 4;
+            for (unsigned i = 0; i < n; i++) {
+                uint32_t idx = (uint32_t) avx_lane_get(a + i * 4, 4) & (n - 1);
+                avx_lane_put(out + i * 4, 4, avx_lane_get(b + idx * 4, 4));
+            }
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x45 || op == 0x46 || op == 0x47) {
+            unsigned lb = w ? 8 : 4;
+            if (op == 0x46 && w)
+                return; // VPSRAVQ is AVX-512 only
+            avx_shift_var(op == 0x45 ? AVX_SHR : op == 0x46 ? AVX_SAR : AVX_SHL,
+                          lb, vlen, a, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op >= 0xdc && op <= 0xdf) { // vaesenc / enclast / dec / declast
+            for (unsigned lane = 0; lane < vlen / 8; lane += 16)
+                avx_aes_round(op >= 0xde, op == 0xdd || op == 0xdf,
+                              a + lane, b + lane, out + lane);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x50 || op == 0x52) { // vpdpbusd / vpdpwssd accumulate into dst
+            uint8_t acc[64];
+            avx_reg_read(cpu, reg, vlen, acc);
+            if (op == 0x50)
+                avx_vpdpbusd(vlen, acc, a, b, out);
+            else
+                avx_vpdpwssd(vlen, acc, a, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        {
+            enum avx_op kind;
+            unsigned lb = 1;
+            bool matched = true;
+            switch (op) {
+            case 0x29: kind = AVX_CMPEQ; lb = 8; break;
+            case 0x37: kind = AVX_CMPGT; lb = 8; break;
+            case 0x38: kind = AVX_MINS; lb = 1; break;
+            case 0x39: kind = AVX_MINS; lb = 4; break;
+            case 0x3a: kind = AVX_MINU; lb = 2; break;
+            case 0x3b: kind = AVX_MINU; lb = 4; break;
+            case 0x3c: kind = AVX_MAXS; lb = 1; break;
+            case 0x3d: kind = AVX_MAXS; lb = 4; break;
+            case 0x3e: kind = AVX_MAXU; lb = 2; break;
+            case 0x3f: kind = AVX_MAXU; lb = 4; break;
+            case 0x40: kind = AVX_MULLO; lb = 4; break;
+            default: matched = false; break;
+            }
+            if (matched) {
+                avx_binop(kind, lb, vlen, a, b, out);
+                avx_reg_write(cpu, reg, vlen, out);
+            }
+            return;
+        }
+    }
+
+    if (map == 3) {
+        if (op == 0x00) { // vpermq -- crosses lanes
+            for (unsigned i = 0; i < 4; i++)
+                avx_lane_put(out + i * 8, 8, avx_lane_get(b + ((imm >> (2 * i)) & 3) * 8, 8));
+            avx_reg_write(cpu, reg, 256, out);
+            return;
+        }
+        if (op == 0x39) { // vextracti128 -- r/m is the destination
+            avx_reg_read(cpu, reg, 256, a);
+            memcpy(out, a + ((imm & 1) ? 16 : 0), 16);
+            if (rm_mem)
+                memcpy(dst, out, 16);
+            else
+                avx_reg_write(cpu, rm, 128, out);
+            return;
+        }
+        if (op == 0x14 || op == 0x15 || op == 0x16) { // vpextrb/w/d
+            unsigned lb = op == 0x14 ? 1 : op == 0x15 ? 2 : 4;
+            avx_reg_read(cpu, reg, 128, a);
+            uint64_t v = avx_lane_get(a + (imm & (16 / lb - 1)) * lb, lb);
+            if (rm_mem)
+                memcpy(dst, &v, lb);
+            else
+                cpu->regs[rm] = (uint32_t) v;
+            return;
+        }
+        if (op == 0x20 || op == 0x22) { // vpinsrb / vpinsrd
+            unsigned lb = op == 0x20 ? 1 : 4;
+            uint64_t v = rm_mem ? avx_lane_get(rm_ptr, lb) : cpu->regs[rm];
+            avx_reg_read(cpu, vvvv, 128, out);
+            avx_lane_put(out + (imm & (16 / lb - 1)) * lb, lb, v);
+            avx_reg_write(cpu, reg, 128, out);
+            return;
+        }
+
+        avx_reg_read(cpu, vvvv, vlen, a);
+
+        if (op == 0x0f) { avx_palignr(vlen, imm, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0x44) { avx_pclmulqdq(vlen, imm, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0xce) { avx_gf2p8affine(vlen, imm, a, b, out); avx_reg_write(cpu, reg, vlen, out); return; }
+        if (op == 0x25) { // vpternlog
+            uint8_t dst_in[64];
+            avx_reg_read(cpu, reg, vlen, dst_in);
+            avx_pternlog(vlen, imm, dst_in, a, b, out);
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x38) { // vinserti128
+            avx_reg_read(cpu, vvvv, 256, out);
+            memcpy(out + ((imm & 1) ? 16 : 0), b, 16);
+            avx_reg_write(cpu, reg, 256, out);
+            return;
+        }
+        if (op == 0x46) { // vperm2i128
+            for (unsigned half = 0; half < 2; half++) {
+                unsigned sel = (imm >> (half * 4)) & 0xf;
+                if (sel & 0x8) {
+                    memset(out + half * 16, 0, 16);
+                } else {
+                    const uint8_t *s = (sel & 0x2) ? b : a;
+                    memcpy(out + half * 16, s + ((sel & 1) ? 16 : 0), 16);
+                }
+            }
+            avx_reg_write(cpu, reg, 256, out);
+            return;
+        }
+        if (op == 0x02 || op == 0x0e) { // vpblendd / vpblendw
+            unsigned lb = op == 0x02 ? 4 : 2;
+            unsigned n = (vlen / 8) / lb;
+            for (unsigned i = 0; i < n; i++) {
+                unsigned bit = op == 0x02 ? i : (i & 7);
+                const uint8_t *s = (imm >> bit) & 1 ? b : a;
+                memcpy(out + i * lb, s + i * lb, lb);
+            }
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+        if (op == 0x4c) { // vpblendvb -- mask register in the is4 immediate
+            uint8_t mask[64];
+            avx_reg_read(cpu, (imm >> 4) & 7, vlen, mask);
+            for (unsigned i = 0; i < vlen / 8; i++)
+                out[i] = (mask[i] & 0x80) ? b[i] : a[i];
+            avx_reg_write(cpu, reg, vlen, out);
+            return;
+        }
+    }
+}
