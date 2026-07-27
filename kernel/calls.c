@@ -957,6 +957,7 @@ static syscall_t i386_syscall_table[] = {
     [119] = (syscall_t) sys_sigreturn,
     [120] = (syscall_t) sys_clone,
     [122] = (syscall_t) sys_uname,
+    [124] = (syscall_t) sys_adjtimex, // adjtimex
     [125] = (syscall_t) sys_mprotect,
     [126] = (syscall_t) sys_sigprocmask,
     [132] = (syscall_t) sys_getpgid,
@@ -1451,6 +1452,7 @@ static syscall_t amd64_syscall_table[470] = {
     [153] = (syscall_t) syscall_success_stub, // vhangup (tty-cleanup no-op)
     [157] = (syscall_t) sys_prctl,
     [158] = (syscall_t) sys_arch_prctl,
+    [159] = (syscall_t) sys_adjtimex, // adjtimex (pointer arg goes through the native handler)
     [160] = (syscall_t) sys_setrlimit64,
     [161] = (syscall_t) sys_chroot,
     [162] = (syscall_t) syscall_success_stub, // sync
@@ -3034,6 +3036,11 @@ static bool handle_amd64_native_memory_syscall(struct cpu_state *cpu, qword_t sy
     case 160:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_setrlimit64_guest(
                 (dword_t) raw_args[0], raw_args[1]));
+        return true;
+    case 159: // adjtimex: the timex buffer is a pointer, so it needs the full
+              // 64-bit addr (mirrors the asm-generic [171] case)
+        amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_adjtimex_guest(
+                raw_args[0]));
         return true;
     case 125:
         amd64_syscall_result_qword(cpu, (qword_t) (sqword_t) sys_capget_guest(
