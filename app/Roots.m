@@ -917,6 +917,22 @@ void root_progress_callback(void *cookie, double progress, const char *message, 
     NSAssert(![self.roots containsObject:name], @"root already exists: %@", name);
     struct fakefsify_error fs_err;
     NSURL *destination = [self rootUrl:name];
+    // RootsDir() returns nil when the app group container is unavailable (a
+    // missing or misconfigured App Group entitlement -- notably a build made
+    // with CODE_SIGNING_ALLOWED=NO, which strips entitlements entirely). It
+    // logs and returns gracefully, but a nil destination then flows into
+    // -moveItemAtURL:toURL:options:error: below, which raises
+    // NSInvalidArgumentException and aborts the whole app instead of surfacing
+    // the "Import failed" alert this method's error return already drives.
+    if (destination == nil) {
+        if (error != NULL) {
+            *error = [NSError errorWithDomain:@"iSH" code:0 userInfo:@{
+                NSLocalizedDescriptionKey: @"No filesystem storage available "
+                    @"(the app group container is missing -- check the App Group entitlement)"
+            }];
+        }
+        return NO;
+    }
     NSURL *temporaryDirectory = NSFileManager.defaultManager.temporaryDirectory;
     NSURL *tempDestination = [temporaryDirectory URLByAppendingPathComponent:[NSProcessInfo.processInfo globallyUniqueString]];
     if (tempDestination == nil)
