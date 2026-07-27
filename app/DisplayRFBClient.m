@@ -89,13 +89,21 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
     uint32_t _screenId;
     uint32_t _screenFlags;
     // Set when a DesktopSize/ExtendedDesktopSize rect actually changed the
-    // framebuffer size mid-update; any remaining rects of that same update
-    // may still describe the OLD geometry (encoded before the server
-    // processed the resize), so out-of-bounds rects are skipped instead of
-    // failing the connection while this is set. Cleared when the update
-    // completes -- the follow-up full FramebufferUpdateRequest (see
-    // _needsFullUpdateRequest) repaints everything at the new size anyway.
+    // framebuffer size; out-of-bounds rects are skipped instead of failing
+    // the connection while this is set, because the compositor's actual
+    // output can lag its own resize confirmation by more than one update --
+    // labwc/wlroots reconfiguring a headless output and redrawing at the
+    // new resolution isn't instantaneous, so a stale rect encoded at the OLD
+    // geometry can arrive in a LATER, separate FramebufferUpdate, not just
+    // trailing rects of the same one. Cleared once a rect actually fits the
+    // current bounds (the real signal the server has caught up), not
+    // unconditionally at the end of the update that requested the resize --
+    // that premature clear is what let a stale post-reconnect frame at the
+    // previous orientation's size hard-fail the connection (GH #529).
+    // _toleratedUpdatesSinceResize bounds the wait so a genuinely broken/
+    // stuck server still fails eventually instead of tolerating forever.
     BOOL _tolerateOutOfBoundsRects;
+    unsigned _toleratedUpdatesSinceResize;
     // Ask for a non-incremental update on the next acknowledge, so a fresh
     // full frame at the new size replaces the zeroed post-resize buffer
     // without trusting the server's damage tracking across a mode change.
@@ -508,11 +516,16 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
 
 - (void)_readRectAtIndex:(uint16_t)index of:(uint16_t)total {
     if (index >= total) {
-        // A resize-transition tolerance window (see the ivar doc) never
-        // outlives its own update: the follow-up request after this frame
-        // is full-size at the new geometry, so anything out-of-bounds in a
-        // LATER update is a genuine protocol violation again.
-        self->_tolerateOutOfBoundsRects = NO;
+        // The tolerance window (see the ivar doc) spans updates until a rect
+        // actually fits the current bounds or the cap below trips -- NOT
+        // unconditionally cleared here at the end of every update. It only
+        // still needs bookkeeping at this boundary: count this update
+        // against the cap if the server still hasn't caught up.
+        if (self->_tolerateOutOfBoundsRects) {
+            self->_toleratedUpdatesSinceResize++;
+            if (self->_toleratedUpdatesSinceResize > 5)
+                self->_tolerateOutOfBoundsRects = NO;
+        }
         // Whole FramebufferUpdate processed: notify, then go quiet on the
         // wire until the delegate calls -acknowledgeFramebufferRead. See
         // the header doc -- this is the backpressure mechanism, not just an
@@ -599,6 +612,13 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
                 x, y, w, h, (unsigned) self->_framebufferWidth, (unsigned) self->_framebufferHeight]];
             return;
         }
+        // A rect that actually fits the current bounds is the real signal
+        // the compositor has caught up to the resize -- end the tolerance
+        // window here rather than waiting for this update to finish, so a
+        // stale rect trailing in the SAME update (the original case this
+        // was built for) is still tolerated, but we're not left tolerating
+        // indefinitely past the update where the server actually settles.
+        self->_tolerateOutOfBoundsRects = NO;
         if (encoding == DisplayRFBEncodingCopyRect) {
             [self _readCopyRectSourceForDestX:x y:y w:w h:h index:index total:total];
             return;
@@ -732,6 +752,7 @@ static inline void rfb_write_u32(uint8_t *p, uint32_t hostValue) {
     // the old geometry.
     _dirtyRect = CGRectMake(0, 0, width, height);
     _tolerateOutOfBoundsRects = YES;
+    _toleratedUpdatesSinceResize = 0;
     _needsFullUpdateRequest = YES;
     return YES;
 }
