@@ -10185,6 +10185,24 @@ static inline bool gen_mov(struct gen_state *state, enum arg src, enum arg dst, 
 #define JCXZ_REL(off) ggg(jcxz, fake_ip + off, fake_ip); jump_ips(-2, -1); end_block = true
 
 void helper_loop_dec_ecx(struct cpu_state *cpu);
+
+void helper_aaa(struct cpu_state *cpu);
+void helper_aas(struct cpu_state *cpu);
+void helper_daa(struct cpu_state *cpu);
+void helper_das(struct cpu_state *cpu);
+void helper_aam(struct cpu_state *cpu, uint32_t base);
+void helper_aad(struct cpu_state *cpu, uint32_t base);
+#define AAA() h(helper_aaa)
+#define AAS() h(helper_aas)
+#define DAA() h(helper_daa)
+#define DAS() h(helper_das)
+// aam with base 0 is a divide error. The base is an immediate, so that is
+// decidable here rather than in the helper.
+#define AAM(base) do { \
+    if ((base) == 0) { gggg(interrupt, INT_DIV, state->orig_ip, state->orig_ip); return false; } \
+    hh(helper_aam, base); \
+} while (0)
+#define AAD(base) hh(helper_aad, base)
 // LOOP rel8 (0xe2): decrement ECX without touching flags, then branch if the
 // result is nonzero. That is jcxz with its two ip slots swapped, so the
 // existing gadget covers it on both hosts.

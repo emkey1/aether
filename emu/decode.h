@@ -1384,6 +1384,13 @@ restart:
             }
             break;
 
+        case 0x27: TRACEI("daa"); DAA(); break;
+        case 0x2f: TRACEI("das"); DAS(); break;
+        case 0x37: TRACEI("aaa"); AAA(); break;
+        case 0x3f: TRACEI("aas"); AAS(); break;
+        case 0xd4: TRACEI("aam imm8\t"); READIMM8; AAM(imm); break;
+        case 0xd5: TRACEI("aad imm8\t"); READIMM8; AAD(imm); break;
+
         case 0xe2: TRACEI("loop rel8\t");
                    READIMM8; LOOP_REL(imm); break;
         // 0xe0 (loopnz) and 0xe1 (loopz) also need ZF, which lives in the lazy
