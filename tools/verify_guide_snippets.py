@@ -15,16 +15,38 @@ OUT = tempfile.mkdtemp(prefix="aether_guide_snip_")
 EXPECT_FAIL = {
     'toon_get_text(doc, "name");     // TOON-001': "negative example: getter on a ToonDoc",
     'use "bench_support";': "imports a module that is not on disk here",
+    'WRONG — free-standing method': "deliberate WRONG/RIGHT contrast; the WRONG half must not compile",
+    'if status == "ready" { ... }': "prose block using ... elision, not real source",
+    'let name: Text = toon_get_text(doc, "name");': "negative example: getter on a ToonDoc",
+    'xs = doubleAll(xs);': "prose block mixing a declaration with a bare call statement",
+    'let user: ToonNode = toon_at(root, i);': "shows both root shapes side by side, so `root` is declared twice",
+    'export fn clampSupport(score: Int) -> Int { ... }': "module sketch using ... elision, not real source",
+    'let value: Int = answer();': "calls an export from a module that is not on disk here",
+    'if name == "Aether" { ... }': "prose block using ... elision, not real source",
 }
 
+# Names the guides' prose fragments reference without declaring. Kept in one
+# place so a fragment that legitimately uses a new name is a one-line fix here
+# rather than a reason to stop checking that block.
 CONTEXT = """
 type Ctx { label: Text = ""; }
+type Point { x: Int = 0; y: Int = 0; }
+type Counter { value: Int = 0; }
+type Tx { id: Text = ""; amount: Int = 0; }
 
-fn ctxDoc() -> ToonDoc { ret toon_parse("{\\"rows\\":[{\\"meta\\":{}}],\\"server\\":{}}"); }
+fn workerA() -> Void { ret; }
+fn workerB() -> Void { ret; }
+type Tally { count: Int = 0; }
+fn tally(t: Tally, upTo: Int) -> Void { ret; }
+fn doubleAll(arr: Int[]) -> Int[] { ret arr; }
 
 fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           j: Int, id: Text, pct: Real, s: Text, url: Text, n: Int,
-          xs: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc) -> Void {
+          rows: Int, cols: Int, path: Text, value: Int, answer: Int,
+          successful: Int, amount: Int, name: Text, status: Text, ok: Int,
+          a: Tally, b: Tally,
+          xs: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc,
+          tx: Tx) -> Void {
 """
 
 text = open(GUIDE).read()
@@ -58,6 +80,16 @@ for k, (ln, src) in enumerate(blocks):
         kind = "frag"
         full = CONTEXT + body + "\n    ret;\n}\n\nfn main() -> Void {\n    ret;\n}\n"
     rc, out = compile_src(full, f"b{k:02d}_L{ln}")
+    if rc != 0 and kind == "frag":
+        # Retry inside an effect block: a fragment quoted from prose may be a
+        # bare `println(...)` that the surrounding text already establishes is
+        # inside `fx`.
+        wrapped = ("\n".join("        " + x for x in src.split("\n")))
+        full_fx = (CONTEXT + "    fx {\n" + wrapped + "\n    }\n    ret;\n}\n"
+                   "\nfn main() -> Void {\n    ret;\n}\n")
+        rc2, out2 = compile_src(full_fx, f"b{k:02d}_L{ln}_fx")
+        if rc2 == 0:
+            rc, out = rc2, out2
     results.append((ln, kind, rc, out, src, why_fail))
 
 unexpected = [r for r in results if (r[2] != 0) != (r[5] is not None)]

@@ -2717,3 +2717,55 @@ wrong number.
 having as general type hygiene, and would catch this at the append rather than
 at first use. It is no longer a `cs_lcs`-class score blocker, so it should be
 scheduled as type-checker work rather than as a diagnostic patch.
+
+---
+
+## The builtin appendix, and all three guides now gated — 2026-07-26
+
+### Complete builtin inventory in the full guide — *done*
+
+The standing concern was that `BUILT-001` says "if it is not listed here, it does
+not exist" while the guide listed a curated subset, and pointed at
+`builtin_info(...)` for the rest — a *runtime* call a one-shot generator cannot
+make. The rule was unfalsifiable from the reader's side.
+
+The full guide now ends with the complete inventory, generated from the compiler
+by `tools/gen_builtin_appendix.py` (110 documented signatures, 302 name-only,
+~3K tokens). Two tiers, and the second carries most of the value: a name-only
+entry confirms a name is real **without** licensing a guess at its arguments,
+and anything in neither tier does not exist.
+
+Checked against every name guessed wrong in this week's transcripts:
+
+| Guessed | In appendix? | Real name |
+|---|---|---|
+| `socket_create`, `tcp_socket` | no | `socketcreate` |
+| `toon_parse_string` | no | `toon_parse` |
+| `sqlite_open` | no | `sqliteopen` |
+| `substring`, `to_upper`, `replace` | no | do not exist |
+
+Every one would have been settled by looking. The `sqlite_open` case is the
+sharpest: the outside model's guess was one underscore off a real builtin, and
+concluded from the failure that SQLite was unavailable.
+
+**This was affordable only because the medium guide exists.** While the full
+guide had to serve constrained contexts, 3K tokens of appendix was a real cost;
+now the constrained tier has its own document and the full guide has no ceiling.
+The size-tiering work paid for this directly.
+
+### All three guides are snippet-gated — *done*
+
+`tools/verify_guide_snippets.py` previously covered the medium guide only; the
+other two had never been checked. Extending the context prelude and adding an
+`fx`-retry for prose fragments brought the full guide from 13 unverified blocks
+to 0 and the small guide from 7 to 0.
+
+Two traps worth remembering, both hit while doing it. An `EXPECT_FAIL` key
+matching a block in *another* guide silently marks a good snippet as
+expected-to-fail — keys must be specific enough to identify one block. And the
+same prose fragment appears in more than one guide with different surrounding
+context, so a fix in one place can regress another; run all three.
+
+The remaining allowlisted blocks are genuine prose: negative examples, `...`
+elisions, and module sketches whose module is not on disk. Their count is
+asserted, so a negative example that starts compiling is caught too.

@@ -17,7 +17,33 @@ past ~13K tokens it stops being the thing it exists to be — cut, do not creep.
 
 Because the medium guide now covers the 32K tier, **the full guide is free to
 grow**. It no longer has to be the document that fits everywhere, so prefer
-adding depth there over compressing it.
+adding depth there over compressing it. The builtin appendix is the first thing
+added on that basis: it would have been unaffordable when the full guide had to
+serve constrained contexts, and it costs ~3K tokens of a budget that no longer
+has a ceiling.
+
+### The builtin appendix is generated
+
+`docs/aether_for_llms_and_others.md` ends with a complete builtin inventory
+between `<!-- BEGIN GENERATED BUILTIN INVENTORY -->` / `<!-- END ... -->`
+markers. **Do not hand-edit it.** Regenerate after adding, renaming or removing
+a builtin:
+
+```sh
+python3 tools/gen_builtin_appendix.py
+```
+
+It reads `builtins_json(true)` from the built compiler, so it reflects that
+build. Two tiers, and the second is the point: names with a documented signature
+are safe to call, while name-only entries confirm a name is real *without*
+licensing a guess at its arguments. Anything in neither tier does not exist,
+which is what makes BUILT-001 checkable instead of an assertion.
+
+The generator drops host-registered `3d` / `user` categories (demo and graphics
+surfaces that are not the language) and internal backend spellings (any name
+that is another entry's `backend_name`, since the Aether-facing alias is what
+should be written). If a build registers a new host category, add it to
+`SKIP_CATEGORIES` rather than letting it into the guide.
 
 ### What the medium guide must preserve
 
@@ -62,11 +88,32 @@ plainly and never offers discovery as a fallback for an unlisted name.
 
 ### Verifying the guides
 
-Every ` ```aether ` block in the medium guide compiles. Extract each block, wrap
-fragments in a function with a context prelude supplying the names they reference,
-append a trivial `main` to declaration-only blocks, and run `aether --no-run`
-over the lot. Two blocks are expected to fail and are allowlisted: the `TOON-001`
-negative example, and the module-import example whose module is not on disk.
+**All three** guides are gated, not just the medium one:
+
+```sh
+for g in and_others medium_contexts with_small_contexts; do
+    python3 tools/verify_guide_snippets.py docs/aether_for_llms_$g.md || exit 1
+done
+```
+
+It extracts every ` ```aether ` block, wraps fragments in a function with a
+context prelude supplying the names prose snippets reference, appends a trivial
+`main` to declaration-only blocks, and runs `aether --no-run` over the lot. A
+fragment that fails is retried inside an `fx { }` block, since a snippet quoted
+from prose may be a bare `println(...)` whose surrounding text already
+established it is inside one. Exit status is nonzero on any unexpected result,
+so it can gate.
+
+Blocks that *must* fail are allowlisted by a distinctive substring in
+`EXPECT_FAIL`, and the count of them is asserted — so a deliberate negative
+example silently starting to compile is also caught. They fall into three kinds:
+negative examples (a TOON getter handed a `ToonDoc`), prose sketches using `...`
+elision, and module examples whose module is not on disk.
+
+Two maintenance notes. When a fragment references a new name, add it to
+`CONTEXT` rather than dropping the block from the check. And keep `EXPECT_FAIL`
+keys **specific** — a key broad enough to match a block in another guide will
+mark a perfectly good snippet as expected-to-fail and hide a real regression.
 
 Beyond compiling, the recipes in **Writing what the surface does not give you**
 are executed and their output checked — a sort or a `replaceFirst` that compiles
