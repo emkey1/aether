@@ -3884,6 +3884,21 @@ static int inet_nat_bind_fallback(struct fd *sock, struct sockaddr_in *sin, int 
     sock->socket.inet_nat_bound_port = guest_port;
     STRACE(" [nat: guest %#x:%u -> host 127.0.0.1:%u]",
             ntohl(guest_addr), ntohs(guest_port), ntohs(host_sin.sin_port));
+    // The loopback-alias case (127.x.y.z -> 127.0.0.1) is a transparent,
+    // harmless substitution -- same reachability either way. A wildcard
+    // bind on a privileged port is not: the guest asked to be reachable
+    // from the whole network (e.g. sshd on :22) and, because iSH never
+    // runs as root, silently got a loopback-only listener instead, with
+    // no error to notice. Surfacing that distinction is the whole point
+    // of this warning; ports >=1024 don't hit this path at all, since a
+    // non-root process can really bind those on a wildcard address.
+    if (wildcard && priv_port) {
+        printk("WARNING: %d(%s) bound 0.0.0.0:%u but iSH can't bind privileged "
+               "ports as non-root -- this socket is loopback-only, NOT reachable "
+               "from the network. Use a port >=1024 for anything meant to accept "
+               "external connections.\n",
+               current->pid, current->comm, ntohs(guest_port));
+    }
     return 0;
 }
 
