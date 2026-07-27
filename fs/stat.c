@@ -333,6 +333,17 @@ int generic_statat_full(struct fd *at, const char *path_raw, struct statbuf *sta
     } else {
         const char *resolve_path =
             (empty_path && at == AT_PWD && strcmp(path_raw, "") == 0) ? "." : path_raw;
+        // A plain stat() (not lstat()) following the final symlink of a
+        // /proc/PID/fd/N entry needs procfd_statat's special handling, not
+        // the generic symlink chase -- see its doc comment. lstat()
+        // (!follow_links) reports the symlink itself and is unaffected.
+        // mnt_id (rarely requested together with this path shape) stays at
+        // its default here rather than threading a mount through the lookup.
+        if (follow_links) {
+            int procfd_err;
+            if (procfd_statat(at, resolve_path, stat, &procfd_err))
+                return procfd_err;
+        }
         err = path_normalize(at, resolve_path, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
         if (err < 0)
             return err;

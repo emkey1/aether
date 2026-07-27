@@ -83,6 +83,11 @@ int generic_statat_ext(struct fd *at, const char *path, struct statbuf *stat, in
 int generic_statat_full(struct fd *at, const char *path, struct statbuf *stat, int flags, bool *is_mount_root, int *mnt_id);
 // fstat with the mount's anonymous st_dev stamped when the fs leaves dev 0
 int generic_fstat(struct fd *fd, struct statbuf *stat);
+// stat(2)/lstat(2)-following a /proc/PID/fd/N magic symlink: reports the
+// pointee's real attributes via generic_fstat rather than chasing its
+// descriptive (non-path) readlink target. False if path isn't such an
+// entry (result untouched, caller falls through to normal resolution).
+bool procfd_statat(struct fd *at, const char *path, struct statbuf *stat, int *err_out);
 int generic_setattrat(struct fd *at, const char *path, struct attr attr, bool follow_links);
 int generic_utime(struct fd *at, const char *path, struct timespec atime, struct timespec mtime, bool follow_links);
 ssize_t generic_readlinkat(struct fd *at, const char *path, char *buf, size_t bufsize);

@@ -58,56 +58,102 @@ static bool procfd_accmode_ok(int have, int want) {
     return have == want || have == O_RDWR_;
 }
 
+// Resolves path_raw down to a /proc/PID/fd/N entry, following symlinks by
+// hand rather than through path_normalize's N_SYMLINK_FOLLOW, and returns a
+// retained reference to the underlying struct fd if so. False (nothing
+// retained) when path_raw doesn't ultimately name such an entry.
+//
+// A single path_normalize(..., N_SYMLINK_NOFOLLOW) call is not enough: it
+// leaves the RAW INPUT's own final component unresolved, which is exactly
+// right when that input directly names "/proc/PID/fd/N" (intermediate
+// components like "PID"/"self" are still followed normally, only the
+// final "N" stays as symlink text -- so its descriptive readlink target,
+// "pipe:[12345]" or similar, never gets chased as if it were a real path).
+// But /dev/stdin is a DIFFERENT symlink whose own target merely HAPPENS to
+// end in "/proc/self/fd/0" -- NOFOLLOW on ITS final component stops at
+// "/dev/stdin" itself, never reaching procfs at all, so callers taking
+// that indirection (install(1) statting /dev/stdin among them -- GH #527)
+// saw this fail even though a direct /proc/self/fd/0 argument worked.
+// Chase one hop at a time instead, re-checking the procfs-fd/N shape
+// after each, so any number of symlink hops on the way in still lands
+// correctly once they bottom out at a real fd/N entry.
+static bool procfd_resolve(struct fd *at, const char *path_raw, struct fd **fd_out) {
+    char path[MAX_PATH];
+    strncpy(path, path_raw, sizeof(path) - 1);
+    path[sizeof(path) - 1] = '\0';
+
+    for (int hops = 0; hops < 10; hops++) {
+        char normalized[MAX_PATH];
+        // `at` (not reassigned across hops): path_normalize ignores it for
+        // an absolute path, which every hop's target is in the real-world
+        // case this exists for. See the note below the readlink call for
+        // why a relative-target hop isn't handled more precisely than this.
+        int err = path_normalize(at, path, normalized, N_SYMLINK_NOFOLLOW);
+        if (err < 0)
+            return false;
+
+        struct mount *mount = find_mount_and_trim_path(normalized);
+        if (mount == NULL)
+            return false;
+        bool is_procfs = mount->fs == &procfs;
+        int pid = 0, fd_no = 0, n = 0;
+        bool matched = is_procfs &&
+            sscanf(normalized, "/%d/fd/%d%n", &pid, &fd_no, &n) == 2 && normalized[n] == '\0';
+        if (matched) {
+            mount_release(mount);
+            struct task *task = pid_get_task_ref(pid);
+            if (task == NULL)
+                return false;
+            struct fdtable *files = procfd_task_files_retain(task);
+            if (files == NULL) {
+                task_ref_cnt_mod(task, -1);
+                return false;
+            }
+            lock(&files->lock, 0);
+            struct fd *fd = fdtable_get(files, fd_no);
+            if (fd != NULL)
+                fd = fd_retain(fd);
+            unlock(&files->lock);
+            fdtable_release(files);
+            task_ref_cnt_mod(task, -1);
+            if (fd == NULL)
+                return false;
+            *fd_out = fd;
+            return true;
+        }
+        // Not (yet) a procfs fd/N entry: if the fully-intermediate-resolved
+        // final component is itself a symlink, follow it by hand and retry.
+        char target[MAX_PATH];
+        ssize_t target_len = mount->fs->readlink != NULL
+            ? mount->fs->readlink(mount, normalized, target, sizeof(target) - 1)
+            : _EINVAL;
+        mount_release(mount);
+        if (target_len < 0)
+            return false; // not a symlink (or unreadable) -- genuinely not this pattern
+        target[target_len] = '\0';
+        // path_normalize ignores `at` for an absolute path (leading '/'), so
+        // hop_at only matters for a relative target -- which the real-world
+        // case this exists for (/dev/stdin -> /proc/self/fd/0) never is. A
+        // relative target left as-is resolves against the ORIGINAL caller's
+        // `at`/cwd rather than the symlink's own containing directory,
+        // which is wrong in the general case but not a regression: this
+        // whole multi-hop path is new, and no caller could reach a procfs
+        // fd/N entry through a relative-target hop before this existed.
+        strncpy(path, target, sizeof(path) - 1);
+        path[sizeof(path) - 1] = '\0';
+    }
+    return false; // too many hops -- treat like ELOOP by just not matching
+}
+
 static struct fd *procfd_openat(struct fd *at, const char *path_raw, int flags) {
     // O_NOFOLLOW must fail the open with ELOOP and O_PATH|O_NOFOLLOW must
     // open the magic symlink itself; both operate on the link, not the
     // target, so leave them to normal path resolution.
     if (flags & (O_NOFOLLOW_ | O_PATH_))
         return NULL;
-    char path[MAX_PATH];
-    int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
-    if (err < 0)
+    struct fd *fd;
+    if (!procfd_resolve(at, path_raw, &fd))
         return NULL;
-
-    struct mount *mount = find_mount_and_trim_path(path);
-    if (mount == NULL)
-        return NULL;
-    if (mount->fs != &procfs) {
-        mount_release(mount);
-        return NULL;
-    }
-
-    int pid;
-    int fd_no;
-    int n = 0;
-    if (sscanf(path, "/%d/fd/%d%n", &pid, &fd_no, &n) != 2 || path[n] != '\0') {
-        mount_release(mount);
-        return NULL;
-    }
-    mount_release(mount);
-
-    struct task *task = pid_get_task_ref(pid);
-    if (task == NULL)
-        return ERR_PTR(_ENOENT);
-
-    struct fdtable *files = procfd_task_files_retain(task);
-    if (files == NULL) {
-        task_ref_cnt_mod(task, -1);
-        return ERR_PTR(_ENOENT);
-    }
-
-    lock(&files->lock, 0);
-    struct fd *fd = fdtable_get(files, fd_no);
-    if (fd == NULL) {
-        unlock(&files->lock);
-        fdtable_release(files);
-        task_ref_cnt_mod(task, -1);
-        return ERR_PTR(_ENOENT);
-    }
-    fd = fd_retain(fd);
-    unlock(&files->lock);
-    fdtable_release(files);
-    task_ref_cnt_mod(task, -1);
 
     // Linux procfd opens give regular files a fresh file position and the
     // CALLER's flags, which shell script loaders rely on when they execute
@@ -132,6 +178,26 @@ static struct fd *procfd_openat(struct fd *at, const char *path_raw, int flags) 
     if (S_ISREG(fd->type) && fd->ops != NULL && fd->ops->lseek != NULL)
         fd->ops->lseek(fd, 0, SEEK_SET);
     return fd;
+}
+
+// Like procfd_openat, but for stat(2)/lstat(2)-following-the-final-symlink
+// on a /proc/PID/fd/N entry: Linux gives these their own getattr that
+// reports the pointee's real attributes directly. The generic symlink-
+// chasing path resolution instead takes the descriptive readlink target
+// ("pipe:[12345]", "socket:[67890]", "anon_inode:[eventfd]") and tries to
+// re-resolve THAT as a path -- which it isn't, so it always fails ENOENT.
+// Real-world hit: /dev/stdin is a plain symlink to /proc/self/fd/0; any
+// tool that stat()s its source before reading it (install(1) is one) fails
+// statting a pipe/socket/anon-inode fd reached that way (GH #527).
+// Returns false (result untouched) when path isn't a /proc/PID/fd/N entry,
+// so the caller falls through to normal resolution.
+bool procfd_statat(struct fd *at, const char *path_raw, struct statbuf *stat, int *err_out) {
+    struct fd *fd;
+    if (!procfd_resolve(at, path_raw, &fd))
+        return false;
+    *err_out = generic_fstat(fd, stat);
+    fd_close(fd);
+    return true;
 }
 
 struct mount *find_mount_and_trim_path(char *path) {
