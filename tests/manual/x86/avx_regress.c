@@ -1435,6 +1435,182 @@ static void test_avx512_compare_and_permute(void) {
     }
 }
 
+/* ---- AVX-512 compress/expand, VALIGN, KSHIFT, and conversions ----
+   VPCOMPRESS/VPEXPAND are the one family where the mask is not a per-lane
+   predicate but a SELECTOR: it chooses which elements participate and they
+   are packed contiguously, so they cannot share the normal masked writeback.
+   VALIGND likewise differs from VPALIGNR by crossing the 128-bit lane
+   boundary. */
+__attribute__((target("avx512f,avx512bw,avx512dq,avx512vl,avx512vbmi2")))
+static void test_avx512_compress_and_align(void) {
+    static const uint32_t s[8] __attribute__((aligned(32))) = {0, 1, 2, 3, 4, 5, 6, 7};
+    uint32_t r[8] __attribute__((aligned(32)));
+
+    { /* k = 0xa5 selects lanes 0,2,5,7 -> values packed into the low end */
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\tkmovw %2,%%k1\n\t"
+                         "vpxor %%ymm2,%%ymm2,%%ymm2\n\t"
+                         "vpcompressd %%ymm1,%%ymm2%{%%k1%}\n\t"
+                         "vmovdqu32 %%ymm2,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(s), "r"(0xa5u)
+                         : "memory", "ymm1", "ymm2", "k1");
+        static const uint32_t w[8] = {0, 2, 5, 7, 0, 0, 0, 0};
+        check8("vpcompressd", r, w);
+    }
+    { /* the inverse: low elements scattered back out to the mask positions */
+        static const uint32_t packed[8] __attribute__((aligned(32))) = {9,8,7,6,0,0,0,0};
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\tkmovw %2,%%k1\n\t"
+                         "vpxor %%ymm2,%%ymm2,%%ymm2\n\t"
+                         "vpexpandd %%ymm1,%%ymm2%{%%k1%}%{z%}\n\t"
+                         "vmovdqu32 %%ymm2,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(packed), "r"(0xa5u)
+                         : "memory", "ymm1", "ymm2", "k1");
+        static const uint32_t w[8] = {9, 0, 8, 0, 0, 7, 0, 6};
+        check8("vpexpandd", r, w);
+    }
+    { /* VALIGND rotates across the whole register, not per 128-bit lane */
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\t"
+                         "valignd $3,%%ymm1,%%ymm1,%%ymm2\n\t"
+                         "vmovdqu32 %%ymm2,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(s) : "memory", "ymm1", "ymm2");
+        static const uint32_t w[8] = {3, 4, 5, 6, 7, 0, 1, 2};
+        check8("valignd.crosslane", r, w);
+    }
+    { /* VPHADDD sums adjacent pairs WITHIN each 128-bit lane */
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvphaddd %%ymm1,%%ymm1,%%ymm2\n\t"
+                         "vmovdqu %%ymm2,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(s) : "memory", "ymm1", "ymm2");
+        static const uint32_t w[8] = {1, 5, 1, 5, 9, 13, 9, 13};
+        check8("vphaddd.lane_local", r, w);
+    }
+    {
+        uint32_t k = 0;
+        __asm__ volatile("kmovw %1,%%k1\n\tkshiftlw $4,%%k1,%%k2\n\tkmovw %%k2,%0"
+                         : "=r"(k) : "r"(0x000fu) : "k1", "k2");
+        check64("kshiftlw", k, 0x00f0u);
+        __asm__ volatile("kmovw %1,%%k1\n\tkshiftrw $4,%%k1,%%k2\n\tkmovw %%k2,%0"
+                         : "=r"(k) : "r"(0x00f0u) : "k1", "k2");
+        check64("kshiftrw", k, 0x000fu);
+    }
+    { /* VPTESTMD writes a mask: bit set where (a & b) != 0 */
+        uint32_t k = 0;
+        static const uint32_t m[8] __attribute__((aligned(32))) = {1,0,1,0,1,0,1,0};
+        __asm__ volatile("vmovdqu32 (%1),%%ymm1\n\tvmovdqu32 (%2),%%ymm2\n\t"
+                         "vptestmd %%ymm2,%%ymm1,%%k1\n\tkmovw %%k1,%0\n\tvzeroupper"
+                         : "=r"(k) : "r"(s), "r"(m) : "ymm1", "ymm2", "k1");
+        uint32_t want = 0;
+        for (unsigned i = 0; i < 8; i++)
+            if (i & m[i]) want |= 1u << i;
+        check64("vptestmd", k, want);
+    }
+    {
+        int64_t back = 0;
+        __asm__ volatile("vcvtsi2sdq %1,%%xmm1,%%xmm1\n\tvcvttsd2si %%xmm1,%0"
+                         : "=r"(back) : "r"((int64_t) -12345) : "xmm1");
+        check64("vcvtsi2sd.roundtrip", (uint64_t) back, (uint64_t) (int64_t) -12345);
+    }
+    { /* VPEXTRW also has a 0F C5 form distinct from the 0F3A 15 one */
+        uint32_t v = 0;
+        static const uint32_t src[4] __attribute__((aligned(16))) =
+            {0x11112222, 0x33334444, 0, 0};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpextrw $1,%%xmm1,%0"
+                         : "=r"(v) : "r"(src) : "xmm1");
+        check64("vpextrw.0fc5", v, 0x1111);
+    }
+}
+
+/* ---- rounding, blends, conversions, and the scalar FP compares ----
+   VBLENDVPS and VTESTPS look only at each element's SIGN BIT, unlike
+   VPBLENDVB (per-byte) and VPTEST (all bits). VPBLENDM* differs again: it
+   always writes every element, choosing between sources, rather than
+   preserving the destination the way a predicate does. */
+__attribute__((target("avx512f,avx512bw,avx512dq,avx512vl")))
+static void test_round_blend_convert(void) {
+    float fr[4] __attribute__((aligned(16)));
+    uint32_t ir[4] __attribute__((aligned(16)));
+
+    { /* imm 1 = floor (toward -inf), imm 3 = truncate (toward zero) */
+        static const float v[4] __attribute__((aligned(16))) = {1.7f, -1.7f, 2.5f, -2.5f};
+        __asm__ volatile("vmovups (%1),%%xmm1\n\tvroundps $1,%%xmm1,%%xmm2\n\t"
+                         "vmovups %%xmm2,(%0)"
+                         : : "r"(fr), "r"(v) : "memory", "xmm1", "xmm2");
+        if (fr[0] != 1.0f || fr[1] != -2.0f || fr[2] != 2.0f || fr[3] != -3.0f) {
+            printf("FAIL vroundps.floor\n"); failures_total++;
+        } else { test_logf("PASS vroundps.floor\n"); }
+        __asm__ volatile("vmovups (%1),%%xmm1\n\tvroundps $3,%%xmm1,%%xmm2\n\t"
+                         "vmovups %%xmm2,(%0)"
+                         : : "r"(fr), "r"(v) : "memory", "xmm1", "xmm2");
+        if (fr[0] != 1.0f || fr[1] != -1.0f || fr[2] != 2.0f || fr[3] != -2.0f) {
+            printf("FAIL vroundps.trunc\n"); failures_total++;
+        } else { test_logf("PASS vroundps.trunc\n"); }
+    }
+    { /* int -> float -> int must round trip through negative values */
+        static const uint32_t iv[4] __attribute__((aligned(16))) =
+            {1, (uint32_t) -2, 3, (uint32_t) -4};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvcvtdq2ps %%xmm1,%%xmm2\n\t"
+                         "vcvttps2dq %%xmm2,%%xmm3\n\tvmovdqu %%xmm3,(%0)"
+                         : : "r"(ir), "r"(iv) : "memory", "xmm1", "xmm2", "xmm3");
+        for (int i = 0; i < 4; i++)
+            if (ir[i] != iv[i]) { printf("FAIL vcvtdq2ps.roundtrip\n"); failures_total++; break; }
+        test_logf("PASS vcvtdq2ps.roundtrip\n");
+    }
+    { /* VBLENDVPS selects per element on the mask's sign bit */
+        static const float x[4] __attribute__((aligned(16))) = {1, 2, 3, 4};
+        static const float y[4] __attribute__((aligned(16))) = {10, 20, 30, 40};
+        static const uint32_t m[4] __attribute__((aligned(16))) =
+            {0x80000000, 0, 0x80000000, 0};
+        __asm__ volatile("vmovups (%1),%%xmm1\n\tvmovups (%2),%%xmm2\n\t"
+                         "vmovdqu (%3),%%xmm3\n\t"
+                         "vblendvps %%xmm3,%%xmm2,%%xmm1,%%xmm4\n\tvmovups %%xmm4,(%0)"
+                         : : "r"(fr), "r"(x), "r"(y), "r"(m)
+                         : "memory", "xmm1", "xmm2", "xmm3", "xmm4");
+        if (fr[0] != 10 || fr[1] != 2 || fr[2] != 30 || fr[3] != 4) {
+            printf("FAIL vblendvps\n"); failures_total++;
+        } else { test_logf("PASS vblendvps\n"); }
+    }
+    { /* VMOVDDUP duplicates the low qword of each 128-bit lane */
+        static const uint32_t v[4] __attribute__((aligned(16))) =
+            {0xaaaa, 0xbbbb, 0xcccc, 0xdddd};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvmovddup %%xmm1,%%xmm2\n\t"
+                         "vmovdqu %%xmm2,(%0)"
+                         : : "r"(ir), "r"(v) : "memory", "xmm1", "xmm2");
+        if (ir[0] != 0xaaaa || ir[1] != 0xbbbb || ir[2] != 0xaaaa || ir[3] != 0xbbbb) {
+            printf("FAIL vmovddup\n"); failures_total++;
+        } else { test_logf("PASS vmovddup\n"); }
+    }
+    { /* VPBLENDMD writes every element, unlike a predicate */
+        static const uint32_t x[4] __attribute__((aligned(16))) = {1, 2, 3, 4};
+        static const uint32_t y[4] __attribute__((aligned(16))) = {10, 20, 30, 40};
+        __asm__ volatile("vmovdqu32 (%1),%%xmm1\n\tvmovdqu32 (%2),%%xmm2\n\t"
+                         "kmovw %3,%%k1\n\t"
+                         "vpblendmd %%xmm2,%%xmm1,%%xmm3%{%%k1%}\n\t"
+                         "vmovdqu32 %%xmm3,(%0)"
+                         : : "r"(ir), "r"(x), "r"(y), "r"(0x5u)
+                         : "memory", "xmm1", "xmm2", "xmm3", "k1");
+        if (ir[0] != 10 || ir[1] != 2 || ir[2] != 30 || ir[3] != 4) {
+            printf("FAIL vpblendmd\n"); failures_total++;
+        } else { test_logf("PASS vpblendmd\n"); }
+    }
+    { /* VTESTPS tests SIGN BITS only -- nonzero positive values give ZF=1,
+         where VPTEST on the same data would give ZF=0 */
+        uint32_t zf = 0;
+        static const uint32_t pos[4] __attribute__((aligned(16))) = {1, 2, 3, 4};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvmovdqu (%1),%%xmm2\n\t"
+                         "vtestps %%xmm2,%%xmm1\n\tsetz %b0\n\tmovzbl %b0,%0"
+                         : "=&r"(zf) : "r"(pos) : "xmm1", "xmm2", "cc");
+        check64("vtestps.signbits_only", zf, 1);
+    }
+    { /* VUCOMISS writes EFLAGS: equal -> ZF=1, less -> CF=1, NaN -> both + PF */
+        uint32_t zf = 0, cf = 0;
+        __asm__ volatile("vmovss %2,%%xmm1\n\tvmovss %3,%%xmm2\n\t"
+                         "vucomiss %%xmm2,%%xmm1\n\tsetz %b0\n\tsetc %b1\n\t"
+                         "movzbl %b0,%0\n\tmovzbl %b1,%1"
+                         : "=&r"(zf), "=&r"(cf) : "m"(*(float[]){1.0f}), "m"(*(float[]){2.0f})
+                         : "xmm1", "xmm2", "cc");
+        check64("vucomiss.less.cf", cf, 1);
+        check64("vucomiss.less.zf", zf, 0);
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -1465,6 +1641,8 @@ int main(int argc, char **argv) {
     test_kregs();
     test_evex_masking();
     test_avx512_compare_and_permute();
+    test_avx512_compress_and_align();
+    test_round_blend_convert();
 
     return finish_suite("avx_regress");
 }
