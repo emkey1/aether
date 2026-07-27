@@ -695,6 +695,37 @@ int generic_linkat(struct fd *src_at, const char *src_raw, struct fd *dst_at, co
     return err;
 }
 
+// Linux's check_sticky(): in a directory with the sticky bit set (S_ISVTX,
+// as /tmp has), you may only remove or rename an entry if you own the entry,
+// own the directory, or are privileged. Without this a world-writable /tmp is
+// not safe -- any user can delete anyone else's files.
+#define S_ISVTX_ 01000
+static int sticky_check(struct mount *mount, const char *path, struct statbuf *entry_stat) {
+    if (superuser())
+        return 0;
+    // Derive the parent from the already mount-trimmed path; the entry and its
+    // parent are necessarily on the same mount.
+    char parent[MAX_PATH];
+    strcpy(parent, path);
+    char *slash = strrchr(parent, '/');
+    if (slash == NULL)
+        return 0;
+    if (slash == parent)
+        parent[1] = '\0'; // entry sits directly in the mount root
+    else
+        *slash = '\0';
+    struct statbuf dir_stat;
+    if (mount->fs->stat(mount, parent, &dir_stat) < 0)
+        return 0;
+    if (!(dir_stat.mode & S_ISVTX_))
+        return 0;
+    if (current->fsuid == entry_stat->uid)
+        return 0;
+    if (current->fsuid == dir_stat.uid)
+        return 0;
+    return _EPERM;
+}
+
 int generic_unlinkat(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW | N_PARENT_DIR_WRITE);
@@ -714,10 +745,19 @@ int generic_unlinkat(struct fd *at, const char *path_raw) {
     // Linux reports EISDIR for unlink of a directory. Enforce it here so the
     // host's own errno (EPERM on Darwin/iOS hosts) does not leak to the guest.
     struct statbuf ust;
-    if (mount->fs->stat(mount, path, &ust) >= 0 && S_ISDIR(ust.mode)) {
+    bool have_ust = mount->fs->stat(mount, path, &ust) >= 0;
+    if (have_ust && S_ISDIR(ust.mode)) {
         unlock(&inodes_lock);
         mount_release(mount);
         return _EISDIR;
+    }
+    if (have_ust) {
+        err = sticky_check(mount, path, &ust);
+        if (err < 0) {
+            unlock(&inodes_lock);
+            mount_release(mount);
+            return err;
+        }
     }
     err = _EPERM;
     if (mount->fs->unlink)
@@ -773,9 +813,18 @@ int generic_renameat(struct fd *src_at, const char *src_raw, struct fd *dst_at, 
         if ((flags & RENAME_NOREPLACE_) && mount->fs->stat(mount, dst, &stat) >= 0) {
             err = _EEXIST;
         } else {
-            if (mount->fs->stat(mount, src, &stat) >= 0)
+            err = 0;
+            // Rename removes the source entry from its parent, and replaces
+            // the destination if it exists, so sticky applies to both.
+            if (mount->fs->stat(mount, src, &stat) >= 0) {
                 is_dir = S_ISDIR(stat.mode);
-            err = mount->fs->rename(mount, src, dst);
+                err = sticky_check(mount, src, &stat);
+            }
+            struct statbuf dst_stat;
+            if (err >= 0 && mount->fs->stat(mount, dst, &dst_stat) >= 0)
+                err = sticky_check(mount, dst, &dst_stat);
+            if (err >= 0)
+                err = mount->fs->rename(mount, src, dst);
         }
     }
     unlock(&inodes_lock);
@@ -955,6 +1004,15 @@ int generic_rmdirat(struct fd *at, const char *path_raw) {
     // real-rmdir + metadata-update against a concurrent
     // open(O_CREAT)/mkdir/unlink/etc. on the same path.
     lock(&inodes_lock, 0); // TODO: don't do this
+    struct statbuf dst_stat;
+    if (mount->fs->stat(mount, path, &dst_stat) >= 0) {
+        err = sticky_check(mount, path, &dst_stat);
+        if (err < 0) {
+            unlock(&inodes_lock);
+            mount_release(mount);
+            return err;
+        }
+    }
     err = _EPERM;
     if (mount->fs->rmdir)
         err = mount->fs->rmdir(mount, path);
