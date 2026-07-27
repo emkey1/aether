@@ -2823,6 +2823,40 @@ if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_
     exit 1
 fi
 
+# PREC-001: `flags & mask != 0` parses as `flags & (mask != 0)` and yields an
+# Int, not a Bool -- it compiles and prints a number, so the check looks like it
+# works. A warning, so the program must still run. Exactly three fire: the
+# parenthesized form and the two eager-boolean uses (`&`/`|` on Bool operands)
+# must stay silent, which is why the check requires a provably-Int left operand.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_precedence_warn_pass.aether" >/tmp/aether_prec.out 2>&1
+if [ "$(grep -c '\[PREC-001\]' /tmp/aether_prec.out)" != "3" ]; then
+    echo "expected exactly 3 PREC-001 warnings (& | ^ against a comparison)" >&2
+    cat /tmp/aether_prec.out >&2
+    exit 1
+fi
+if ! grep -q "produces an Int, not a Bool" /tmp/aether_prec.out; then
+    echo "PREC-001 lost its Int-not-Bool explanation" >&2
+    exit 1
+fi
+if ! grep -qx '1' /tmp/aether_prec.out || ! grep -qx 'true' /tmp/aether_prec.out; then
+    echo "bitwise precedence fixture did not run to completion" >&2
+    cat /tmp/aether_prec.out >&2
+    exit 1
+fi
+
+# has_builtin must see CORE builtins, not only extended ones. Searching only the
+# extended registry made the probe inverted: has_builtin("network",
+# "SocketCreate") answered false on a build where socketcreate(0) works, so a
+# guard written the obvious way skipped code that would have run. The last two
+# assertions are the safety half -- a name that exists nowhere must stay false.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/has_builtin_core_pass.aether" >/tmp/aether_has_builtin_core.out 2>&1
+printf 'core     = true\ncore2    = true\nextended = true\nabsent   = false\nempty    = false\n' >/tmp/aether_has_builtin_core_expected.out
+if ! cmp -s /tmp/aether_has_builtin_core_expected.out /tmp/aether_has_builtin_core.out; then
+    echo "has_builtin core-registry fallback regressed" >&2
+    cat /tmp/aether_has_builtin_core.out >&2
+    exit 1
+fi
+
 # readln must not alias: a Text filled by its out-parameter used to be mutated
 # in place, so every earlier copy shared the StringObj and tracked later reads.
 # Reading a file into an array gave N copies of the last line, silently.

@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-26-3*
+*Guide version: 2026-07-26-4*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1331,7 +1331,10 @@ Core signatures:
 - `task_stats() -> Array`
 - `task_stats_json() -> Text`
 - `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`
-- probes: `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`
+- probes: `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`.
+  `has_builtin` answers "can I call this?" across both the extended and the core
+  builtin registries; a core builtin matches on the function name whatever
+  category you pass, since core builtins are not filed under one
 
 Use `sleep(ms)` for a blocking millisecond pause. It is the compact Aether
 spelling for the shared PSCAL `delay(ms)` builtin and is effectful, so it must
@@ -1659,6 +1662,11 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   value at construction with `new T { field: value }`. A type-mismatched default
   (`value: Int = "x"`) is a `[TYPE-001]` instead — make the default's type match
   the field.
+- **[PREC-001]** (warning) a bitwise operator against a comparison,
+  `flags & mask != 0` → `&`, `|` and `^` bind looser than `== != < <= > >=`, so
+  this groups as `flags & (mask != 0)` and evaluates to an **Int**, not a Bool.
+  It compiles and prints a number, so the test looks like it passes.
+  Parenthesize the mask: `(flags & mask) != 0`.
 - **[ARR-002]** a one-dimensional array indexed twice → the *declaration's* rank
   is wrong, not the indexing syntax. Nested arrays are real: declare `T[][]`,
   build each row as its own `T[]` (`row = row + [v];` then

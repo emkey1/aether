@@ -1,0 +1,25 @@
+// Regression: `& | ^` bind LOOSER than the comparison operators, so a mask test
+// written without parentheses silently changes both the grouping and the result
+// TYPE -- `flags & mask != 0` parses as `flags & (mask != 0)` and yields an Int,
+// not a Bool. It compiles and prints a number, so the check looks like it works.
+// PREC-001 is a warning, so the program still runs.
+//
+// The `ready & (n == 0)` lines must stay SILENT: `&` and `|` double as eager
+// (non-short-circuiting) boolean operators on Bool operands, which is a real
+// use, so the warning only fires when the left operand is provably Int.
+fn main() -> Void {
+    let flags: Int = 3;
+    let mask: Int = 2;
+    let ready: Bool = true;
+    let n: Int = 0;
+    fx {
+        println(flags & mask != 0);
+        println(flags | mask == 2);
+        println(flags ^ mask < 4);
+        println((flags & mask) != 0);
+        println(ready & (n == 0));
+        println(ready | (n > 5));
+        println(flags & mask);
+    }
+    ret;
+}

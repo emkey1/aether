@@ -481,6 +481,29 @@ static void reportAetherAstError(const char *path, int line, const char *kind,
     aetherReportGuideHelp(code);
 }
 
+/* Parse-time warning. Mirrors reportAetherAstError's formatting but never sets
+ * p->hadError and never increments an error counter -- a warning must not fail
+ * a build. First user: PREC-001. Note the forward-declaration pre-pass mutes
+ * stderr (see below), so a warning emitted from an expression it re-parses is
+ * printed once, by the authoritative pass. */
+static void reportAetherAstWarning(const char *path, int line, const char *kind,
+                                   const char *detail, const char *hint) {
+    const char *code = aetherInferDiagnosticCode(kind, detail);
+    if (code) {
+        aetherDiagf("%s:%d: warning: [%s] Aether %s warning: %s\n",
+                path ? path : "<aether>", line > 0 ? line : 1, code,
+                kind ? kind : "parser", detail ? detail : "unknown warning.");
+    } else {
+        aetherDiagf("%s:%d: warning: Aether %s warning: %s\n",
+                path ? path : "<aether>", line > 0 ? line : 1,
+                kind ? kind : "parser", detail ? detail : "unknown warning.");
+    }
+    if (hint && *hint) {
+        aetherDiagf("hint: %s\n", hint);
+    }
+    aetherReportGuideHelp(code);
+}
+
 /* Temporarily mute stderr. Returns a saved descriptor to pass to
  * aetherUnmuteStderr, or -1 if muting could not be set up (in which case
  * restoration is a no-op). Used to silence the throwaway forward-declaration
@@ -2966,6 +2989,69 @@ static AST *parseEquality(AetherParser *p) {
     return node;
 }
 
+/* PREC-001: `flags & mask != 0` parses as `flags & (mask != 0)`.
+ *
+ * `&`, `|` and `^` all bind LOOSER than the comparison operators, so a mask
+ * test written without parentheses silently changes both the grouping and the
+ * result TYPE -- it yields an Int, not a Bool, and no error is raised:
+ *
+ *     (flags & mask) != 0   ->  true   (Bool, what was meant)
+ *      flags & mask != 0    ->  1      (Int)
+ *
+ * A permission check written the second way prints 1 and looks like it works.
+ *
+ * Not warned unconditionally, because `&` and `|` double as EAGER boolean
+ * operators on Bool operands, where `ready & (n == 0)` is a legitimate
+ * non-short-circuiting conjunction. The warning therefore fires only when the
+ * left operand is provably Int -- an integer literal, or a variable whose
+ * declared type is exactly `Int` -- which is the bitmask case and not the
+ * boolean one. Anything whose type is not visible here is left alone. */
+static int aetherNodeIsComparison(const AST *node) {
+    const char *op;
+    if (!node || node->type != AST_BINARY_OP || !node->token || !node->token->value) {
+        return 0;
+    }
+    op = node->token->value;
+    return strcmp(op, "==") == 0 || strcmp(op, "!=") == 0 ||
+           strcmp(op, "<") == 0  || strcmp(op, "<=") == 0 ||
+           strcmp(op, ">") == 0  || strcmp(op, ">=") == 0;
+}
+
+static int aetherNodeIsDeclaredInt(AetherParser *p, const AST *node) {
+    if (!node) {
+        return 0;
+    }
+    if (node->type == AST_NUMBER) {
+        return node->var_type == TYPE_INT64 || node->var_type == TYPE_INT32 ||
+               node->var_type == TYPE_INTEGER;
+    }
+    if (node->type == AST_VARIABLE && node->token && node->token->value && p->bindings) {
+        const char *t = bindingTableGet(p->bindings, node->token->value,
+                                        strlen(node->token->value));
+        return t && strcmp(t, "Int") == 0;
+    }
+    return 0;
+}
+
+static void aetherWarnBitwisePrecedence(AetherParser *p, const char *opText,
+                                        const AST *left, const AST *right, int line) {
+    char detail[288];
+    char hint[288];
+    if (!aetherNodeIsComparison(right) || !aetherNodeIsDeclaredInt(p, left)) {
+        return;
+    }
+    snprintf(detail, sizeof(detail),
+             "'%s' binds looser than '%s', so this parses as `a %s (b %s c)` and "
+             "produces an Int, not a Bool.",
+             opText, right->token->value, opText, right->token->value);
+    snprintf(hint, sizeof(hint),
+             "parenthesize the mask: `(a %s b) %s c`. As written the comparison "
+             "runs first and its result is combined bitwise, which compiles and "
+             "prints a number.",
+             opText, right->token->value);
+    reportAetherAstWarning(aetherSemanticGetSourcePath(), line, "precedence", detail, hint);
+}
+
 static AST *parseBitwiseAnd(AetherParser *p) {
     AST *node = parseEquality(p);
     if (!node) return NULL;
@@ -2974,6 +3060,7 @@ static AST *parseBitwiseAnd(AetherParser *p) {
         aetherAdvance(p);
         AST *right = parseEquality(p);
         if (!right) return NULL;
+        aetherWarnBitwisePrecedence(p, "&", node, right, op.line);
         Token *tok = newToken(TOKEN_AND, "&", op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
         setLeft(bin, node);
@@ -2995,6 +3082,7 @@ static AST *parseBitwiseXor(AetherParser *p) {
         AST *right = parseBitwiseAnd(p);
         if (!right) return NULL;
         const char *lexeme = (strncmp(op.start, "xor", op.length) == 0) ? "xor" : "^";
+        aetherWarnBitwisePrecedence(p, lexeme, node, right, op.line);
         Token *tok = newToken(TOKEN_XOR, lexeme, op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
         setLeft(bin, node);
@@ -3022,6 +3110,7 @@ static AST *parseBitwiseOr(AetherParser *p) {
         aetherAdvance(p);
         AST *right = parseBitwiseXor(p);
         if (!right) return NULL;
+        aetherWarnBitwisePrecedence(p, "|", node, right, op.line);
         Token *tok = newToken(TOKEN_OR, "|", op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
         setLeft(bin, node);

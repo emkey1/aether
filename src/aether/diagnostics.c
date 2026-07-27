@@ -89,6 +89,13 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "array-rank") == 0) {
             return "ARR-002";
         }
+        /* Bitwise operator whose right operand is a comparison, e.g.
+         * `flags & mask != 0`. `& | ^` bind looser than the comparisons, so
+         * this groups as `flags & (mask != 0)` and yields an Int rather than a
+         * Bool -- it compiles, prints a number, and looks like it works. */
+        if (strcmp(kind, "precedence") == 0) {
+            return "PREC-001";
+        }
     }
 
     if (!detail) {

@@ -12,6 +12,37 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-07-26-9
+
+**`PREC-001`, and `has_builtin` can now see core builtins.**
+
+`PREC-001` is a new **warning** for a bitwise operator whose right operand is a
+comparison. `&`, `|` and `^` bind looser than `== != < <= > >=`, so
+
+```aether
+(flags & mask) != 0    // true  -- Bool, what was meant
+ flags & mask != 0     // 1     -- Int, parses as flags & (mask != 0)
+```
+
+The second is not an error. It yields an `Int` that prints as `1`, so a
+permission check written that way looks like it passes.
+
+It is not warned unconditionally, because `&` and `|` double as **eager**
+(non-short-circuiting) boolean operators on `Bool` operands, where
+`ready & (n == 0)` is a legitimate conjunction. The warning fires only when the
+left operand is provably `Int` — an integer literal, or a variable declared
+`Int` — which is the bitmask case and not the boolean one. Zero hits across all
+66 examples and every fixture.
+
+**`has_builtin` searched only the extended registry** (pscal-core `3a5de72`),
+which made it inverted for core builtins rather than merely unhelpful:
+`has_builtin("network", "SocketCreate")` answered false on a build where
+`socketcreate(0)` returns a working handle, so a guard written the obvious way
+skipped code that would have run. It now falls back to the core registry when
+the category lookup misses. The category is ignored on that path since core
+builtins are not filed under one. A name in neither registry still answers
+false — the half that matters, so an absent OpenAI builtin is not waved through.
+
 ## 2026-07-26-8
 
 **`readln` no longer aliases every copy of the `Text` it fills** (pscal-core

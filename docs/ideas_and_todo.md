@@ -2659,3 +2659,61 @@ registry (`getVmBuiltinID(name) >= 0`) when the category lookup misses, or
 document plainly that it covers extended builtins only and that core builtins
 are always present. The first is a small change and removes the trap; the second
 leaves a probe that silently lies for the most obvious use.
+
+---
+
+## Closing the open compiler items — 2026-07-26
+
+### `has_builtin` now sees core builtins — *fixed 2026-07-26-9*
+
+Fixed as suggested in the entry above, with the fallback keyed on the function
+name alone: core builtins are not filed under a category, so no category could
+match, and the function is the actual question. `has_builtin("anything",
+"socketcreate")` is therefore true. A name in neither registry still answers
+false, which is the assertion the fixture leads with — an absent OpenAI builtin
+must not be waved through, and the `ai_helpers` skip path depends on that.
+
+### `PREC-001` for a bitwise operator against a comparison — *fixed 2026-07-26-9*
+
+Recorded when writing `bitwise_ops`, now a warning. The shape:
+
+```
+(flags & mask) != 0   ->  true   (Bool)
+ flags & mask != 0    ->  1      (Int -- flags & (mask != 0))
+```
+
+Deliberately not unconditional. `&` and `|` **double as eager, non-short-
+circuiting boolean operators** on `Bool` operands, so `ready & (n == 0)` is a
+legitimate conjunction and must stay silent. The warning fires only when the
+left operand is provably `Int` — an integer literal, or a variable declared
+`Int`. Anything whose type is not visible at parse time is left alone, which is
+the same discipline `NARROW-001` and `ARR-002` use.
+
+Adding it needed a parse-time warning reporter (`reportAetherAstWarning`);
+there was only an error path before. It never sets `p->hadError`.
+
+### The `ARR-002` mirror case is narrower than it looked — *mostly covered, residual open*
+
+The original entry proposed a second check for "appending an `Int[]` into an
+`Int[]` whose declared type is 1-D". Now reproduced, and the priority is lower
+than assumed:
+
+```aether
+let flat: Int[] = [];
+let row: Int[] = [1, 2, 3];
+flat = flat + [row];        // accepted -- length becomes 1
+fx { println(flat[0]); }    // prints ARRAY(dims:1, base_type:INT64, ...)
+fx { println(flat[0][1]); } // [ARR-002] -- caught
+```
+
+The append is a declared-type violation and is accepted silently, so the hole is
+real: array concat does not check element types against the declared element
+type. But the damaging path — building a table this way and then indexing it —
+is **already caught by `ARR-002` at the use site**, and the residual path
+produces visibly wrong output (`ARRAY(dims:1, ...)`) rather than a plausible
+wrong number.
+
+**Suggested action, downgraded:** element-type checking on array concat is worth
+having as general type hygiene, and would catch this at the append rather than
+at first use. It is no longer a `cs_lcs`-class score blocker, so it should be
+scheduled as type-checker work rather than as a diagnostic patch.

@@ -1,0 +1,18 @@
+// Regression: has_builtin searched only the EXTENDED registry, so a guard for a
+// core builtin was inverted -- has_builtin("network", "SocketCreate") answered
+// false on a build where socketcreate(0) returns a working handle, so the guard
+// skipped code that would have worked. It now falls back to the core registry.
+//
+// The safety-critical half is the last two lines: a name that does not exist
+// anywhere must still be false, or a guard would wave through a call that
+// cannot be made.
+fn main() -> Void {
+    fx {
+        println("core     = ", has_builtin("network", "SocketCreate"));
+        println("core2    = ", has_builtin("anything", "socketcreate"));
+        println("extended = ", has_builtin("yyjson", "YyjsonRead"));
+        println("absent   = ", has_builtin("system", "definitelyNotAThing"));
+        println("empty    = ", has_builtin("system", ""));
+    }
+    ret;
+}

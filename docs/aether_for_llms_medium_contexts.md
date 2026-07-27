@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-07-26-5*
+*Guide version: 2026-07-26-6*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -307,7 +307,10 @@ fn main() -> Void {
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (short-circuit).
 - Bitwise / shift, `Int` only: `&`, `|`, `^` (`xor` is the same operator as `^`),
   `<<`, `>>`. `6 & 3` is `2`; `6 << 1` is `12`. These are not logical operators —
-  use `&&` / `||` for `Bool`.
+  use `&&` / `||` for `Bool`. **They bind looser than the comparisons**, so
+  `flags & mask != 0` groups as `flags & (mask != 0)` and produces an `Int`
+  rather than a `Bool`; always write `(flags & mask) != 0`. That mistake is a
+  `PREC-001` warning, not an error — it compiles and prints a number.
 - Numeric literals accept `_` separators between digits: `1_000_000`, `0xFF_FF`.
 
 Every `fn` declares a return type. Procedures use `-> Void` and a bare `ret;`.
@@ -1177,6 +1180,9 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
   build rows as arrays, or index once with a computed offset
   (`grid[r * width + c]`).
+- **[PREC-001]** (warning) `flags & mask != 0` → `&`, `|` and `^` bind looser
+  than the comparisons, so this groups as `flags & (mask != 0)` and yields an
+  **Int**, not a Bool. Parenthesize: `(flags & mask) != 0`.
 - **[MUT-001]** `let mut` → drop `mut`.
 - **[PAR-001]** the same record in more than one `par` branch → give each branch
   its own and combine afterwards.
@@ -1317,7 +1323,9 @@ All effectful.
   `task_stats() -> Array`, `task_stats_json() -> Text`
 - `ai_chat(model, messages, system = "", apiKey = "", endpoint = "") -> Text`
 - probes: `has_ai() -> Bool`, `has_toon() -> Bool`,
-  `has_builtin(category: Text, function: Text) -> Bool`
+  `has_builtin(category: Text, function: Text) -> Bool` — true for extended
+  *and* core builtins; a core builtin matches on the function name whatever
+  category you pass
 
 `task_wait` waits on a handle, not a duration. `task_spawn` and `task_queue`
 dispatch an allow-listed **runtime builtin by name** (for example `"delay"`) —

@@ -61,10 +61,10 @@ fn client(port: Int, out: Exchange) -> Void {
 }
 
 fn main() -> Void {
-    // No has_builtin() guard here on purpose: that probe only sees the
-    // *extended* builtin registry, so has_builtin("network", "SocketCreate")
-    // returns false even though socketcreate works perfectly. The real check is
-    // the bind result below.
+    // has_builtin("network", "SocketCreate") is true on any build that has the
+    // socket builtins, so it is available as a guard. It is not used here
+    // because the bind result below is the stronger check -- it catches the
+    // case that actually fails in practice, a port already in use.
     let listenSock: Int = 0;
     let bound: Int = -1;
     let serverSide: Exchange = new Exchange();

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-26-3*
+*Guide version: 2026-07-26-4*
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
@@ -105,6 +105,9 @@ flags the authoring-only ones.
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit).
 - Bitwise/shift (Int only): `& | ^`/`xor` (`^` and `xor` are the same operator), `<< >>`.
   Example: `6 & 3` = `2`, `6 << 1` = `12`. Not logical -- use `&&`/`||` for Bool.
+  They bind **looser than the comparisons**: `flags & mask != 0` is
+  `flags & (mask != 0)` and yields an Int. Write `(flags & mask) != 0`
+  (PREC-001).
 - Numeric literals allow `_` digit separators between digits: `1_000_000`, `0xFF_FF`.
 
 ```aether
@@ -675,7 +678,11 @@ functions.
 `task_status(handle: Int) -> Int`, `task_result(handle: Int) -> Int`,
 `task_stats() -> Array`, `task_stats_json() -> Text`,
 `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`,
-probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`.
+probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`
+(true for extended *and* core builtins; a core builtin matches on the function
+name whatever category you pass)
+(true for extended *and* core builtins; a core builtin matches on the function
+name whatever category you pass).
 All are effectful and must stay inside `fx`. `sleep(ms)` is a blocking
 millisecond pause. `task_wait` waits on a task handle, not a duration.
 `task_spawn`/`task_queue` dispatch an allow-listed runtime builtin by name (for
@@ -887,6 +894,9 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[ARR-002]** a one-dimensional array indexed twice (`let dp: Int[] = [];`
   then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
   as its own `Int[]`, or index once with `dp[r * width + c]`.
+- **[PREC-001]** (warning) `flags & mask != 0` → `& | ^` bind looser than the
+  comparisons, so this is `flags & (mask != 0)` and yields an Int, not a Bool.
+  Write `(flags & mask) != 0`.
 - **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
