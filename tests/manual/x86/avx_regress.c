@@ -1106,6 +1106,111 @@ static void test_float(void) {
     }
 }
 
+
+/* ---- BMI1/BMI2 ----
+   VEX-encoded but general-purpose, not vector. The flag split is the trap:
+   ANDN, the BLSx ops, BZHI and BEXTR write flags; SHLX/SHRX/SARX/MULX/RORX/PDEP/PEXT must
+   leave every flag untouched. */
+static void check64(const char *label, uint64_t got, uint64_t want) {
+    if (got != want) {
+        printf("FAIL %s got=%016llx want=%016llx\n", label,
+               (unsigned long long) got, (unsigned long long) want);
+        failures_total++;
+    } else {
+        test_logf("PASS %s\n", label);
+    }
+}
+
+static void test_bmi(void) {
+    uint64_t r = 0;
+    uint32_t r32 = 0;
+
+    /* andn: ~src1 & src2 */
+    __asm__ volatile("andnq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0x00000000000000ffull),
+                       "r"((uint64_t) 0x0000000000ffffffull) : "cc");
+    check64("andnq", r, 0x0000000000ffff00ull);
+
+    /* blsr clears the lowest set bit; blsi isolates it; blsmsk masks up to it */
+    __asm__ volatile("blsrq %1,%0" : "=r"(r) : "r"((uint64_t) 0b10110000ull) : "cc");
+    check64("blsrq", r, 0b10100000ull);
+    __asm__ volatile("blsiq %1,%0" : "=r"(r) : "r"((uint64_t) 0b10110000ull) : "cc");
+    check64("blsiq", r, 0b00010000ull);
+    __asm__ volatile("blsmskq %1,%0" : "=r"(r) : "r"((uint64_t) 0b10110000ull) : "cc");
+    check64("blsmskq", r, 0b00011111ull);
+
+    /* bzhi zeroes bits at and above the index */
+    __asm__ volatile("bzhiq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0xffffffffffffffffull), "r"((uint64_t) 8) : "cc");
+    check64("bzhiq", r, 0xffull);
+
+    /* bextr extracts a run: start in bits 7:0, length in bits 15:8 */
+    __asm__ volatile("bextrq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0x0123456789abcdefull),
+                       "r"((uint64_t) ((8ull << 8) | 4ull)) : "cc");
+    check64("bextrq", r, 0xdeull);
+
+    /* shlx/shrx/sarx: count masked to the operand width, flags untouched */
+    __asm__ volatile("shlxq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 1), "r"((uint64_t) 40) : "cc");
+    check64("shlxq", r, 1ull << 40);
+    __asm__ volatile("shrxq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0x8000000000000000ull), "r"((uint64_t) 63) : "cc");
+    check64("shrxq.logical", r, 1);
+    __asm__ volatile("sarxq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0x8000000000000000ull), "r"((uint64_t) 63) : "cc");
+    check64("sarxq.arithmetic", r, 0xffffffffffffffffull);
+    /* a count of 64 wraps to 0 for a 64-bit operand (masked, not saturated) */
+    __asm__ volatile("shlxq %2,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0x1234), "r"((uint64_t) 64) : "cc");
+    check64("shlxq.count_masked", r, 0x1234);
+
+    /* 32-bit forms must zero-extend into the full 64-bit register */
+    __asm__ volatile("shlxl %2,%1,%0" : "=r"(r32)
+                     : "r"((uint32_t) 1), "r"((uint32_t) 31) : "cc");
+    check64("shlxl", r32, 0x80000000ull);
+
+    /* rorx rotates by an immediate and writes no flags */
+    __asm__ volatile("rorxq $8,%1,%0" : "=r"(r)
+                     : "r"((uint64_t) 0x00000000000000ffull) :);
+    check64("rorxq", r, 0xff00000000000000ull);
+
+    /* mulx: 64x64 -> 128, implicit source is rdx, no flags */
+    {
+        uint64_t lo = 0, hi = 0;
+        __asm__ volatile("movq %2,%%rdx\n\tmulxq %3,%0,%1"
+                         : "=r"(lo), "=r"(hi)
+                         : "r"((uint64_t) 0xffffffffffffffffull),
+                           "r"((uint64_t) 0xffffffffffffffffull)
+                         : "rdx");
+        /* (2^64-1)^2 = 2^128 - 2^65 + 1 -> hi=0xfffffffffffffffe, lo=1 */
+        check64("mulxq.lo", lo, 1);
+        check64("mulxq.hi", hi, 0xfffffffffffffffeull);
+    }
+
+    /* pdep/pext are inverses under the same mask */
+    {
+        uint64_t mask = 0xff00ff00ff00ff00ull, packed = 0, spread = 0;
+        __asm__ volatile("pdepq %2,%1,%0" : "=r"(spread)
+                         : "r"((uint64_t) 0xabcd), "r"(mask) :);
+        __asm__ volatile("pextq %2,%1,%0" : "=r"(packed)
+                         : "r"(spread), "r"(mask) :);
+        check64("pdep_pext.roundtrip", packed, 0xabcd);
+    }
+
+    /* SHRX must NOT disturb flags -- set ZF via a test, shift, then read it. */
+    {
+        uint64_t zf = 0;
+        __asm__ volatile("xorq %%rax,%%rax\n\t"   /* sets ZF=1 */
+                         "shrxq %2,%1,%1\n\t"     /* must not clobber ZF */
+                         "setz %b0\n\tmovzbq %b0,%0"
+                         : "=&r"(zf)
+                         : "r"((uint64_t) 0xff), "r"((uint64_t) 4)
+                         : "rax", "cc");
+        check64("shrxq.preserves_flags", zf, 1);
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -1132,6 +1237,7 @@ int main(int argc, char **argv) {
     test_pternlog();
     test_vnni();
     test_float();
+    test_bmi();
 
     return finish_suite("avx_regress");
 }

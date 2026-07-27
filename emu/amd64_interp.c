@@ -5461,6 +5461,29 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
     case 0x6e: case 0x7e: case 0xd6: { // movd/movq
+        // F3 0F 7E is a distinct instruction: load the low 64 bits, zeroing
+        // the rest -- not the 66-prefixed store-to-GPR form below.
+        if (op == 0x7e && c->vex.pp == 2) {
+            if (vlen != 128)
+                return INT_UNDEFINED;
+            if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+                return INT_GPF;
+            if (modrm.reg >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            memset(out, 0, sizeof(out));
+            if (modrm.is_reg) {
+                if (modrm.rm >= AMD64_AVX_MAX_REG)
+                    return INT_UNDEFINED;
+                amd64_vec_reg_read(cpu, modrm.rm, 128, a);
+                memcpy(out, a, 8);
+            } else {
+                qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+                if (!amd64_mem_read(cpu, tlb, addr, out, 8))
+                    return INT_PF;
+            }
+            amd64_vec_reg_write(cpu, modrm.reg, 128, out);
+            return INT_NONE;
+        }
         if (c->vex.pp != 1 || vlen != 128)
             return INT_UNDEFINED;
         if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
@@ -5503,12 +5526,183 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
 }
 
 // Three-byte 0F38 map.
+// BMI1/BMI2. These are VEX-encoded but operate on general-purpose registers,
+// not vectors -- they were folded into the VEX encoding space purely to get
+// three-operand forms. Measured on the GH #525 binary they are a bigger slice
+// of its VEX traffic than most of the actual vector ops, because compilers
+// emit SHLX/SHRX/MULX/RORX pervasively in ordinary integer code.
+//
+// Flag behaviour splits the family in two and is easy to get wrong: ANDN,
+// BLSR, BLSMSK, BLSI, BZHI and BEXTR write flags, while SHLX/SHRX/SARX,
+// MULX, RORX, PDEP and PEXT leave every flag untouched.
+static int amd64_vex_bmi(struct amd64_vex_ctx *c, byte_t op) {
+    struct cpu_state *cpu = c->cpu;
+    struct tlb *tlb = c->tlb;
+    struct amd64_modrm modrm;
+    unsigned size = c->vex.w ? 64 : 32;
+    qword_t src, vv;
+
+    if (c->vex.map == 3 && op == 0xf0 && c->vex.pp == 3) { // rorx imm8
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
+            return INT_PF;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        unsigned n = imm & (size - 1);
+        qword_t val = amd64_trunc(src, size);
+        qword_t r = n == 0 ? val : ((val >> n) | (val << (size - n)));
+        amd64_reg_set(cpu, modrm.reg, size, amd64_trunc(r, size));
+        return INT_NONE; // rorx does not touch flags
+    }
+    if (c->vex.map != 2)
+        return INT_UNDEFINED;
+
+    switch (op) {
+    case 0xf2: { // andn: dst = ~vvvv & rm
+        if (c->vex.pp != 0)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
+            return INT_PF;
+        vv = amd64_reg_get(cpu, c->vex.vvvv, size);
+        qword_t r = amd64_trunc(~vv & src, size);
+        amd64_reg_set(cpu, modrm.reg, size, r);
+        amd64_set_logic_flags(cpu, r, size);
+        return INT_NONE;
+    }
+    case 0xf3: { // group: /1 blsr, /2 blsmsk, /3 blsi -- destination is vvvv
+        if (c->vex.pp != 0)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
+            return INT_PF;
+        qword_t v = amd64_trunc(src, size), r;
+        unsigned sub = modrm.reg & 7;
+        if (sub == 1) r = amd64_trunc(v & (v - 1), size);        // blsr
+        else if (sub == 2) r = amd64_trunc(v ^ (v - 1), size);   // blsmsk
+        else if (sub == 3) r = amd64_trunc(v & (~v + 1), size);  // blsi
+        else return INT_UNDEFINED;
+        amd64_reg_set(cpu, c->vex.vvvv, size, r);
+        amd64_set_logic_flags(cpu, r, size);
+        // CF is source-dependent rather than the logic-op zero: BLSR/BLSMSK
+        // set it when the source was zero, BLSI when it was non-zero.
+        cpu->cf = sub == 3 ? (v != 0) : (v == 0);
+        collapse_flags(cpu);
+        return INT_NONE;
+    }
+    case 0xf5: { // pp0 bzhi, pp2 pext, pp3 pdep
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
+            return INT_PF;
+        vv = amd64_trunc(amd64_reg_get(cpu, c->vex.vvvv, size), size);
+        qword_t v = amd64_trunc(src, size);
+        if (c->vex.pp == 0) { // bzhi: zero bits at and above index vvvv
+            unsigned n = vv & 0xff;
+            qword_t r = n >= size ? v : amd64_trunc(v & ((UINT64_C(1) << n) - 1), size);
+            amd64_reg_set(cpu, modrm.reg, size, r);
+            amd64_set_logic_flags(cpu, r, size);
+            cpu->cf = n >= size;
+            collapse_flags(cpu);
+            return INT_NONE;
+        }
+        // pext/pdep gather/scatter source bits under a mask; no flags. The
+        // mask is the r/m operand and the value is vvvv (the opposite way
+        // round from BZHI/BEXTR just above, which take their control operand
+        // from vvvv).
+        qword_t mask = v, r = 0;
+        v = vv;
+        if (c->vex.pp == 2) { // pext
+            for (unsigned i = 0, k = 0; i < size; i++)
+                if ((mask >> i) & 1) {
+                    if ((v >> i) & 1)
+                        r |= UINT64_C(1) << k;
+                    k++;
+                }
+        } else if (c->vex.pp == 3) { // pdep
+            for (unsigned i = 0, k = 0; i < size; i++)
+                if ((mask >> i) & 1) {
+                    if ((v >> k) & 1)
+                        r |= UINT64_C(1) << i;
+                    k++;
+                }
+        } else {
+            return INT_UNDEFINED;
+        }
+        amd64_reg_set(cpu, modrm.reg, size, amd64_trunc(r, size));
+        return INT_NONE;
+    }
+    case 0xf6: { // mulx: unsigned multiply, no flags, high half into vvvv
+        if (c->vex.pp != 3)
+            return INT_UNDEFINED;
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
+            return INT_PF;
+        qword_t implicit = amd64_trunc(amd64_reg_get(cpu, amd64_rdx, size), size);
+        qword_t v = amd64_trunc(src, size);
+        qword_t lo, hi;
+        if (size == 32) {
+            uint64_t p = (uint64_t) (uint32_t) implicit * (uint32_t) v;
+            lo = (uint32_t) p;
+            hi = (uint32_t) (p >> 32);
+        } else {
+            unsigned __int128 p = (unsigned __int128) implicit * v;
+            lo = (qword_t) p;
+            hi = (qword_t) (p >> 64);
+        }
+        // MULX r64a, r64b, r/m64 puts the HIGH half in r64a (ModRM.reg) and
+        // the LOW half in r64b (vvvv). Write low first so that when both name
+        // the same register the high half wins, per the architecture.
+        amd64_reg_set(cpu, c->vex.vvvv, size, lo);
+        amd64_reg_set(cpu, modrm.reg, size, hi);
+        return INT_NONE;
+    }
+    case 0xf7: { // pp0 bextr, pp1 shlx, pp2 sarx, pp3 shrx
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, size, &src))
+            return INT_PF;
+        vv = amd64_trunc(amd64_reg_get(cpu, c->vex.vvvv, size), size);
+        qword_t v = amd64_trunc(src, size), r;
+        if (c->vex.pp == 0) { // bextr: start/length in the vvvv operand
+            unsigned start = vv & 0xff;
+            unsigned len = (vv >> 8) & 0xff;
+            r = start >= size ? 0 : v >> start;
+            if (len < size)
+                r &= (UINT64_C(1) << len) - 1;
+            r = amd64_trunc(r, size);
+            amd64_reg_set(cpu, modrm.reg, size, r);
+            amd64_set_logic_flags(cpu, r, size);
+            return INT_NONE;
+        }
+        // The shift count is masked to the operand width, and these three
+        // leave flags alone (unlike the legacy SHL/SHR/SAR).
+        unsigned n = vv & (size - 1);
+        if (c->vex.pp == 1) r = v << n;
+        else if (c->vex.pp == 2) r = (qword_t) (amd64_sign_extend(v, size) >> n);
+        else r = v >> n;
+        amd64_reg_set(cpu, modrm.reg, size, amd64_trunc(r, size));
+        return INT_NONE;
+    }
+    default:
+        return INT_UNDEFINED;
+    }
+}
+
 static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
     struct cpu_state *cpu = c->cpu;
     struct tlb *tlb = c->tlb;
     unsigned vlen = c->vlen;
     struct amd64_modrm modrm;
     uint8_t a[64], b[64], out[64];
+
+    if (op == 0xf2 || op == 0xf3 || op == 0xf5 || op == 0xf6 || op == 0xf7)
+        return amd64_vex_bmi(c, op);
 
     if (c->vex.pp != 1)
         return INT_UNDEFINED;
@@ -5759,6 +5953,9 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
     unsigned vlen = c->vlen;
     struct amd64_modrm modrm;
     uint8_t a[64], b[64], out[64];
+
+    if (op == 0xf0)
+        return amd64_vex_bmi(c, op); // rorx
 
     if (c->vex.pp != 1)
         return INT_UNDEFINED;
