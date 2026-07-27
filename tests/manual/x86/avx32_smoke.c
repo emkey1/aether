@@ -114,6 +114,15 @@ void _start(void) {
       static const u32 w[1] = {(1u << 1) | (1u << 3) | (1u << 31)};
       chk("vpmovmskb.gpr", g, w, 1); }
 
-    put(fails ? "\nSOME FAILED\n" : "\nALL PASSED\n");
+    /* The regression runner keys off a "NAME: PASS" / "NAME: FAIL" verdict
+       line and reports anything else as a failure, so emit one. No libc here,
+       so the failure count is spelled out by hand rather than printf'd. */
+    if (fails) {
+        put("\navx32_smoke: FAIL failures=");
+        puthex((u32) fails);
+        put("\n");
+    } else {
+        put("\navx32_smoke: PASS\n");
+    }
     sys_exit(fails ? 1 : 0);
 }

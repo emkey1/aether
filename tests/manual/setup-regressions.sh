@@ -130,6 +130,9 @@ if [ "$is_x86_guest" -eq 1 ]; then
     need_file x86/x86_loop.c
     need_file x86/bcd_adjust.c
 fi
+if [ "$is_x86_guest" -eq 1 ] && [ "$is_amd64_guest" -eq 0 ]; then
+    need_file x86/avx32_smoke.c
+fi
 if [ "$is_arm64_guest" -eq 1 ]; then
     need_file arm64/atomics64.c
     need_file arm64/arm64_regress.c
@@ -452,6 +455,14 @@ build_one() {
     name=$1
     echo "+ build $name"
     src_file=$(src_for "$name")
+    # avx32_smoke is freestanding on purpose: it makes raw int $0x80 syscalls so
+    # it can run on an i386 root with no libc, and defines its own _start, which
+    # collides with the crt startup object under the ordinary link. It needs
+    # -mavx2 to emit VEX at all, and none of the libc flags apply.
+    if [ "$name" = avx32_smoke ]; then
+        cc -O1 -mavx2 -nostdlib -static -o "$work_dir/bin/$name" "$src_file"
+        return
+    fi
     if [ "$gas_imm_reg_workaround" -eq 0 ]; then
         cc -O2 -pthread -I"$src_dir" -o "$work_dir/bin/$name" "$src_file" -lm -ldl
         return
@@ -468,6 +479,11 @@ all_tests="signal_core signal_restart signal_realtime signal_altstack signal_sto
 if [ "$is_x86_guest" -eq 1 ]; then
     # x86 flag-semantics atomics (lock-prefixed inline asm)
     all_tests="atomic_xadd32 atomic_cmpxchg32 atomic_cmpxchg8b atomic_logic32 cow_atomic_fault x87_fpu x86_loop bcd_adjust $all_tests"
+fi
+if [ "$is_x86_guest" -eq 1 ] && [ "$is_amd64_guest" -eq 0 ]; then
+    # VEX on the i386 guest, which is JIT-only and decodes VEX at codegen time.
+    # amd64 covers the same ground, and much more, through avx_regress.
+    all_tests="avx32_smoke $all_tests"
 fi
 if [ "$is_amd64_guest" -eq 1 ]; then
     all_tests="$all_tests amd64_regress avx_regress"
