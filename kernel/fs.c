@@ -338,6 +338,32 @@ int access_check(struct statbuf *stat, int check) {
     return 0;
 }
 
+// Linux's setattr_prepare(): chmod and chown are owner-or-privileged
+// operations regardless of the file's mode bits, while a size change is an
+// ordinary write. We used to apply no check at all here, so any process could
+// chmod/chown/truncate a file it did not own.
+int setattr_check(struct statbuf *stat, struct attr attr) {
+    if (superuser())
+        return 0;
+    switch (attr.type) {
+        case attr_mode:
+            // Only the owner may change the mode.
+            return current->fsuid == stat->uid ? 0 : _EPERM;
+        case attr_uid:
+            // Handing a file to another user needs privilege; "changing" it to
+            // the current owner is a no-op Linux permits.
+            if (attr.uid == (uid_t_) -1 || attr.uid == stat->uid)
+                return current->fsuid == stat->uid ? 0 : _EPERM;
+            return _EPERM;
+        case attr_gid:
+            // The owner may change a file's group; anyone else may not.
+            return current->fsuid == stat->uid ? 0 : _EPERM;
+        case attr_size:
+            return access_check(stat, AC_W);
+    }
+    return 0;
+}
+
 #define AT_EACCESS_ 0x200
 #define FACCESSAT_ALLOWED_FLAGS_ (AT_EACCESS_ | AT_SYMLINK_NOFOLLOW_ | AT_EMPTY_PATH_)
 #define FCHMODAT2_ALLOWED_FLAGS_ (AT_SYMLINK_NOFOLLOW_ | AT_EMPTY_PATH_)
@@ -2107,7 +2133,14 @@ dword_t sys_utime(addr_t path_addr, addr_t times_addr) {
 static int generic_fsetattr(struct fd *fd, struct attr attr) {
     if (fd->mount->fs->fsetattr == NULL)
         return _EPERM;
-    int err = fd->mount->fs->fsetattr(fd, attr);
+    struct statbuf stat = {};
+    int err = fd->mount->fs->fstat(fd, &stat);
+    if (err < 0)
+        return err;
+    err = setattr_check(&stat, attr);
+    if (err < 0)
+        return err;
+    err = fd->mount->fs->fsetattr(fd, attr);
     if (err >= 0 && inotify_has_instances()) {
         char path[MAX_PATH];
         if (generic_getpath(fd, path) == 0) {

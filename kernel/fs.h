@@ -94,6 +94,7 @@ ssize_t generic_readlinkat(struct fd *at, const char *path, char *buf, size_t bu
 int generic_mkdirat(struct fd *at, const char *path, mode_t_ mode);
 
 int access_check(struct statbuf *stat, int check);
+int setattr_check(struct statbuf *stat, struct attr attr);
 
 // iSH-internal mount flag, NOT part of the guest mount(2) ABI. fs/mount.c's
 // sys_mount masks incoming guest flags to MS_FLAGS before calling do_mount(),
