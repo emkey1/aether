@@ -1211,6 +1211,155 @@ static void test_bmi(void) {
     }
 }
 
+/* ---- AVX-512 opmask (k) registers ----
+   VEX-encoded but not vector ops: these manipulate the 8 predicate registers
+   that every masked EVEX instruction selects between. The width comes from pp
+   and W (pp 0 = W/Q, pp 1 = B/D), and KMOV's operand order flips between the
+   GPR->k form (opcode 92) and the k->GPR form (93).
+
+   The target attribute is needed so the compiler permits inline asm to clobber
+   k registers; the regression runner builds everything with a plain cc -O2. */
+__attribute__((target("avx512f,avx512bw,avx512dq,avx512vl")))
+static void test_kregs(void) {
+    {
+        uint64_t back = 0;
+        __asm__ volatile("kmovq %1,%%k1\n\tkmovq %%k1,%0"
+                         : "=r"(back) : "r"((uint64_t) 0x0123456789abcdefull) : "k1");
+        check64("kmovq.roundtrip", back, 0x0123456789abcdefull);
+    }
+    {
+        uint32_t back = 0;
+        __asm__ volatile("kmovd %1,%%k2\n\tkmovd %%k2,%0"
+                         : "=r"(back) : "r"((uint32_t) 0xdeadbeefu) : "k2");
+        check64("kmovd.roundtrip", back, 0xdeadbeefu);
+    }
+    /* KMOVW is 16-bit: the high half of the source must be dropped. */
+    {
+        uint32_t back = 0;
+        __asm__ volatile("kmovw %1,%%k3\n\tkmovw %%k3,%0"
+                         : "=r"(back) : "r"((uint32_t) 0xffff1234u) : "k3");
+        check64("kmovw.truncates", back, 0x1234);
+    }
+    {
+        uint32_t r = 0;
+        __asm__ volatile("kmovd %1,%%k1\n\tkmovd %2,%%k2\n\tkandd %%k2,%%k1,%%k3\n\tkmovd %%k3,%0"
+                         : "=r"(r) : "r"(0xff00ff00u), "r"(0x0f0f0f0fu) : "k1", "k2", "k3");
+        check64("kandd", r, 0x0f000f00u);
+    }
+    {
+        uint32_t r = 0;
+        __asm__ volatile("kmovd %1,%%k1\n\tkmovd %2,%%k2\n\tkord %%k2,%%k1,%%k3\n\tkmovd %%k3,%0"
+                         : "=r"(r) : "r"(0xff00ff00u), "r"(0x0f0f0f0fu) : "k1", "k2", "k3");
+        check64("kord", r, 0xff0fff0fu);
+    }
+    {
+        uint32_t r = 0;
+        __asm__ volatile("kmovd %1,%%k1\n\tkmovd %2,%%k2\n\tkxord %%k2,%%k1,%%k3\n\tkmovd %%k3,%0"
+                         : "=r"(r) : "r"(0xff00ff00u), "r"(0x0f0f0f0fu) : "k1", "k2", "k3");
+        check64("kxord", r, 0xf00ff00fu);
+    }
+    /* KANDN is ~src1 & src2 -- asymmetric, so operand order shows up here. */
+    {
+        uint32_t r = 0;
+        __asm__ volatile("kmovd %1,%%k1\n\tkmovd %2,%%k2\n\tkandnd %%k2,%%k1,%%k3\n\tkmovd %%k3,%0"
+                         : "=r"(r) : "r"(0xff00ff00u), "r"(0x0f0f0f0fu) : "k1", "k2", "k3");
+        check64("kandnd", r, 0x000f000fu);
+    }
+    /* KNOT has no vvvv operand at all. */
+    {
+        uint32_t r = 0;
+        __asm__ volatile("kmovw %1,%%k1\n\tknotw %%k1,%%k2\n\tkmovw %%k2,%0"
+                         : "=r"(r) : "r"(0x00ffu) : "k1", "k2");
+        check64("knotw", r, 0xff00u);
+    }
+    /* KORTEST sets ZF when the OR is zero and CF when it is all ones -- and
+       "all ones" is relative to the mask WIDTH, not to 64 bits. */
+    {
+        uint32_t zf = 0, cf = 0;
+        __asm__ volatile("kmovw %2,%%k1\n\tkmovw %2,%%k2\n\tkortestw %%k2,%%k1\n\t"
+                         "setz %b0\n\tsetc %b1\n\tmovzbl %b0,%0\n\tmovzbl %b1,%1"
+                         : "=&r"(zf), "=&r"(cf) : "r"(0u) : "k1", "k2", "cc");
+        check64("kortestw.zero.zf", zf, 1);
+        check64("kortestw.zero.cf", cf, 0);
+    }
+    {
+        uint32_t zf = 0, cf = 0;
+        __asm__ volatile("kmovw %2,%%k1\n\tkmovw %2,%%k2\n\tkortestw %%k2,%%k1\n\t"
+                         "setz %b0\n\tsetc %b1\n\tmovzbl %b0,%0\n\tmovzbl %b1,%1"
+                         : "=&r"(zf), "=&r"(cf) : "r"(0xffffu) : "k1", "k2", "cc");
+        check64("kortestw.ones.zf", zf, 0);
+        check64("kortestw.ones.cf", cf, 1);
+    }
+}
+
+/* ---- EVEX predication ----
+   Merging (the default) leaves masked-out elements at their previous value;
+   {z} zeroes them instead. The masking GRANULARITY is a property of the
+   opcode rather than of the operand size -- VMOVDQU8 masks per byte while
+   VMOVDQU32 masks per dword -- so one wrong granularity writes 4x too much. */
+__attribute__((target("avx512f,avx512bw,avx512dq,avx512vl")))
+static void test_evex_masking(void) {
+    static const uint32_t seq[8] __attribute__((aligned(32))) = {1, 2, 3, 4, 5, 6, 7, 8};
+    static const uint32_t val[8] __attribute__((aligned(32))) =
+        {0x10, 0x20, 0x30, 0x40, 0x50, 0x60, 0x70, 0x80};
+    uint32_t r[8] __attribute__((aligned(32)));
+
+    /* Merging: k = 0xa5 selects lanes 0,2,5,7; the rest keep seq's values. */
+    __asm__ volatile("vmovdqu32 (%1),%%ymm3\n\t"
+                     "vmovdqu32 (%2),%%ymm1\n\t"
+                     "kmovw %3,%%k1\n\t"
+                     "vpaddd %%ymm1,%%ymm1,%%ymm3%{%%k1%}\n\t"
+                     "vmovdqu32 %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(r), "r"(seq), "r"(val), "r"(0xa5u)
+                     : "memory", "ymm1", "ymm3", "k1");
+    {
+        static const uint32_t w[8] = {0x20, 2, 0x60, 4, 5, 0xc0, 7, 0x100};
+        check8("evex.vpaddd.merge", r, w);
+    }
+
+    /* Zeroing: same predicate, but cleared lanes become 0. */
+    __asm__ volatile("vmovdqu32 (%1),%%ymm3\n\t"
+                     "vmovdqu32 (%2),%%ymm1\n\t"
+                     "kmovw %3,%%k1\n\t"
+                     "vpaddd %%ymm1,%%ymm1,%%ymm3%{%%k1%}%{z%}\n\t"
+                     "vmovdqu32 %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(r), "r"(seq), "r"(val), "r"(0xa5u)
+                     : "memory", "ymm1", "ymm3", "k1");
+    {
+        static const uint32_t w[8] = {0x20, 0, 0x60, 0, 0, 0xc0, 0, 0x100};
+        check8("evex.vpaddd.zeroing", r, w);
+    }
+
+    /* The same predicate semantics on a plain data move. */
+    __asm__ volatile("vmovdqu32 (%1),%%ymm3\n\t"
+                     "kmovw %3,%%k2\n\t"
+                     "vmovdqu32 (%2),%%ymm3%{%%k2%}\n\t"
+                     "vmovdqu32 %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(r), "r"(seq), "r"(val), "r"(0x0fu)
+                     : "memory", "ymm3", "k2");
+    {
+        static const uint32_t w[8] = {0x10, 0x20, 0x30, 0x40, 5, 6, 7, 8};
+        check8("evex.vmovdqu32.merge", r, w);
+    }
+
+    /* VMOVDQU8 masks per BYTE: k = 5 selects bytes 0 and 2 of the whole
+       register, not dwords 0 and 2. */
+    {
+        static const uint32_t zeros[8] __attribute__((aligned(32))) = {0,0,0,0,0,0,0,0};
+        static const uint32_t ones[8] __attribute__((aligned(32))) =
+            {0xffffffff,0xffffffff,0xffffffff,0xffffffff,
+             0xffffffff,0xffffffff,0xffffffff,0xffffffff};
+        __asm__ volatile("vmovdqu32 (%1),%%ymm3\n\t"
+                         "kmovd %3,%%k3\n\t"
+                         "vmovdqu8 (%2),%%ymm3%{%%k3%}\n\t"
+                         "vmovdqu32 %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(zeros), "r"(ones), "r"(0x00000005u)
+                         : "memory", "ymm3", "k3");
+        static const uint32_t w[8] = {0x00ff00ff, 0, 0, 0, 0, 0, 0, 0};
+        check8("evex.vmovdqu8.byte_granular", r, w);
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -1238,6 +1387,8 @@ int main(int argc, char **argv) {
     test_vnni();
     test_float();
     test_bmi();
+    test_kregs();
+    test_evex_masking();
 
     return finish_suite("avx_regress");
 }

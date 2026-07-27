@@ -4253,6 +4253,8 @@ struct amd64_vex_prefix {
     unsigned vvvv;  // second source register operand, 0-15
     unsigned vlen;  // 128, 256, or 512 (0 = invalid/unsupported form)
     bool r, x, b;   // register-extension bits, already un-inverted
+    unsigned mask;  // EVEX aaa: k1-k7 predicate, 0 = unmasked
+    bool zeroing;   // EVEX z: zero masked-out elements instead of merging
 };
 
 // Decodes the VEX/EVEX payload following a 0xC4/0xC5/0x62 lead byte the
@@ -4310,12 +4312,12 @@ static inline bool amd64_decode_vex(struct cpu_state *cpu, struct tlb *tlb,
         if ((p1 & 0x4) == 0)
             return true; // reserved bit must be 1; leave vex->present false
         vex->pp = p1 & 0x3;
-        bool zeroing = (p2 & 0x80) != 0;
+        vex->zeroing = (p2 & 0x80) != 0;
         unsigned ll = (p2 >> 5) & 0x3;
         vex->vlen = ll == 0 ? 128 : ll == 1 ? 256 : ll == 2 ? 512 : 0;
-        unsigned mask = p2 & 0x7;
+        vex->mask = p2 & 0x7;
         bool vprime = (p2 & 0x8) == 0; // V': extends vvvv to 16-31, unsupported
-        vex->present = vex->vlen != 0 && !rprime && !vprime && !zeroing && mask == 0
+        vex->present = vex->vlen != 0 && !rprime && !vprime
             && vex->map >= 1 && vex->map <= 3;
         return true;
     }
@@ -4382,6 +4384,148 @@ struct amd64_vex_ctx {
     unsigned vlen;
 };
 
+// Writes a result honouring an EVEX predicate: elements whose mask bit is
+// clear either keep the destination's previous value (merging, the default) or
+// become zero (z=1). elem_bytes is the masking granularity, which is a
+// property of the specific instruction -- VPADDB masks per byte, VPADDQ per
+// qword -- so every caller has to pass its own.
+static void amd64_vec_write_masked(struct amd64_vex_ctx *c, unsigned reg,
+        unsigned vlen, const uint8_t *result, unsigned elem_bytes) {
+    if (!c->vex.is_evex || c->vex.mask == 0) {
+        amd64_vec_reg_write(c->cpu, reg, vlen, result);
+        return;
+    }
+    uint8_t merged[64];
+    amd64_vec_reg_read(c->cpu, reg, vlen, merged);
+    uint64_t k = c->cpu->avx512_k[c->vex.mask];
+    unsigned n = (vlen / 8) / elem_bytes;
+    for (unsigned i = 0; i < n; i++) {
+        if (k & (UINT64_C(1) << i))
+            memcpy(merged + i * elem_bytes, result + i * elem_bytes, elem_bytes);
+        else if (c->vex.zeroing)
+            memset(merged + i * elem_bytes, 0, elem_bytes);
+    }
+    amd64_vec_reg_write(c->cpu, reg, vlen, merged);
+}
+
+// AVX-512 opmask (k register) instructions. Like BMI these are VEX-encoded
+// without being vector ops -- they manipulate the 8 predicate registers that
+// every masked EVEX instruction selects between. Width comes from pp and W:
+// pp 0 = W (16-bit) or Q (64-bit) by W, pp 1 (66) = B (8-bit) or D (32-bit).
+static unsigned amd64_kreg_width(unsigned pp, bool w) {
+    if (pp == 1)
+        return w ? 32 : 8;
+    return w ? 64 : 16;
+}
+
+static int amd64_vex_kreg(struct amd64_vex_ctx *c, byte_t op) {
+    struct cpu_state *cpu = c->cpu;
+    struct tlb *tlb = c->tlb;
+    struct amd64_modrm modrm;
+    unsigned width = amd64_kreg_width(c->vex.pp, c->vex.w);
+    uint64_t wmask = width >= 64 ? ~UINT64_C(0) : (UINT64_C(1) << width) - 1;
+
+    if (op >= 0x90 && op <= 0x93) {
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm))
+            return INT_GPF;
+        unsigned kreg = modrm.reg & 7;
+        if (op == 0x92) { // KMOV k, r32 -- width from pp: F2 = D/Q, F3 = B, none = W
+            if (!modrm.is_reg)
+                return INT_UNDEFINED;
+            unsigned gw = c->vex.pp == 3 ? (c->vex.w ? 64 : 32)
+                        : c->vex.pp == 2 ? 8 : 16;
+            uint64_t gm = gw >= 64 ? ~UINT64_C(0) : (UINT64_C(1) << gw) - 1;
+            cpu->avx512_k[kreg] = amd64_reg_get(cpu, modrm.rm, 64) & gm;
+            return INT_NONE;
+        }
+        if (op == 0x93) { // KMOV r32, k
+            if (!modrm.is_reg)
+                return INT_UNDEFINED;
+            unsigned gw = c->vex.pp == 3 ? (c->vex.w ? 64 : 32)
+                        : c->vex.pp == 2 ? 8 : 16;
+            uint64_t gm = gw >= 64 ? ~UINT64_C(0) : (UINT64_C(1) << gw) - 1;
+            // Always a 32- or 64-bit GPR write even for the 8/16-bit forms.
+            amd64_reg_set(cpu, modrm.reg, gw > 32 ? 64 : 32,
+                          cpu->avx512_k[modrm.rm & 7] & gm);
+            return INT_NONE;
+        }
+        if (op == 0x90) { // KMOV k, k/m
+            if (modrm.is_reg) {
+                cpu->avx512_k[kreg] = cpu->avx512_k[modrm.rm & 7] & wmask;
+            } else {
+                qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+                uint64_t v = 0;
+                if (!amd64_mem_read(cpu, tlb, addr, &v, width / 8))
+                    return INT_PF;
+                cpu->avx512_k[kreg] = v & wmask;
+            }
+            return INT_NONE;
+        }
+        // op == 0x91: KMOV m, k
+        if (modrm.is_reg)
+            return INT_UNDEFINED;
+        {
+            qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+            uint64_t v = cpu->avx512_k[kreg] & wmask;
+            if (!amd64_mem_write(cpu, tlb, addr, &v, width / 8))
+                return INT_PF;
+        }
+        return INT_NONE;
+    }
+
+    // Binary and unary logic: KAND/KANDN/KNOT/KOR/KXNOR/KXOR/KADD, plus
+    // KUNPCK which concatenates two half-width masks.
+    if ((op >= 0x41 && op <= 0x47) || op == 0x4a || op == 0x4b) {
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm) || !modrm.is_reg)
+            return INT_GPF;
+        uint64_t a = cpu->avx512_k[c->vex.vvvv & 7];
+        uint64_t b = cpu->avx512_k[modrm.rm & 7];
+        uint64_t r;
+        switch (op) {
+        case 0x41: r = a & b; break;
+        case 0x42: r = ~a & b; break;
+        case 0x44: r = ~b; break;               // KNOT has no vvvv operand
+        case 0x45: r = a | b; break;
+        case 0x46: r = ~(a ^ b); break;
+        case 0x47: r = a ^ b; break;
+        case 0x4a: r = a + b; break;
+        default: {                              // 0x4b KUNPCK
+            unsigned half = width / 2;
+            uint64_t hm = (UINT64_C(1) << half) - 1;
+            r = ((a & hm) << half) | (b & hm);
+            break;
+        }
+        }
+        cpu->avx512_k[modrm.reg & 7] = r & wmask;
+        return INT_NONE;
+    }
+
+    if (op == 0x98 || op == 0x99) { // KORTEST / KTEST
+        if (!amd64_decode_modrm(cpu, tlb, c->rex, &modrm) || !modrm.is_reg)
+            return INT_GPF;
+        uint64_t a = cpu->avx512_k[modrm.reg & 7] & wmask;
+        uint64_t b = cpu->avx512_k[modrm.rm & 7] & wmask;
+        bool zf, cf;
+        if (op == 0x98) {              // KORTEST: ZF = OR is zero, CF = OR is all ones
+            uint64_t t = (a | b) & wmask;
+            zf = t == 0;
+            cf = t == wmask;
+        } else {                       // KTEST: ZF = AND is zero, CF = ANDN is zero
+            zf = ((a & b) & wmask) == 0;
+            cf = ((~a & b) & wmask) == 0;
+        }
+        cpu->zf_res = cpu->sf_res = cpu->pf_res = 0;
+        cpu->af_ops = 0;
+        cpu->zf = zf;
+        cpu->cf = cf;
+        cpu->sf = cpu->pf = cpu->af = cpu->of = 0;
+        collapse_flags(cpu);
+        return INT_NONE;
+    }
+
+    return INT_UNDEFINED;
+}
+
 // Legacy-map (0F) instructions.
 static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     struct cpu_state *cpu = c->cpu;
@@ -4389,6 +4533,12 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     unsigned vlen = c->vlen;
     struct amd64_modrm modrm;
     uint8_t a[64], b[64], out[64];
+
+    // Opmask (k register) instructions share this map but are not vector ops.
+    if (!c->vex.is_evex &&
+        ((op >= 0x90 && op <= 0x93) || (op >= 0x41 && op <= 0x47) ||
+         op == 0x4a || op == 0x4b || op == 0x98 || op == 0x99))
+        return amd64_vex_kreg(c, op);
 
     // VZEROUPPER (L=0) / VZEROALL (L=1) take no operands at all.
     if (op == 0x77 && c->vex.pp == 0) {
@@ -4449,8 +4599,10 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
     bool is_load = op == 0x10 || op == 0x28 || op == 0x6f;
     bool is_store = op == 0x11 || op == 0x29 || op == 0x7f;
     if (is_load || is_store) {
+        // 6F/7F: 66 = MOVDQA32/64, F3 = MOVDQU32/64, and under EVEX F2 adds
+        // MOVDQU8/16 (the byte/word-granular masked moves).
         bool prefix_ok = (op == 0x6f || op == 0x7f)
-            ? (c->vex.pp == 1 || c->vex.pp == 2)
+            ? (c->vex.pp == 1 || c->vex.pp == 2 || (c->vex.pp == 3 && c->vex.is_evex))
             : (c->vex.pp == 0 || c->vex.pp == 1);
         if (!prefix_ok)
             return INT_UNDEFINED;
@@ -4458,14 +4610,25 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
             return INT_GPF;
         if (modrm.reg >= AMD64_AVX_MAX_REG)
             return INT_UNDEFINED;
+        // Masking granularity for 6F/7F comes from the prefix and W bit:
+        // F2 selects the byte/word forms (VMOVDQU8/16), 66 and F3 the
+        // dword/qword ones (VMOVDQA32/64, VMOVDQU32/64).
+        unsigned elem = (op == 0x6f || op == 0x7f)
+            ? (c->vex.pp == 3 ? (c->vex.w ? 2 : 1) : (c->vex.w ? 8 : 4))
+            : (c->vex.pp == 1 ? 8 : 4);
         if (is_load) {
             if (!amd64_vec_read_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, out))
                 return INT_PF;
-            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            amd64_vec_write_masked(c, modrm.reg, vlen, out, elem);
         } else {
             amd64_vec_reg_read(cpu, modrm.reg, vlen, out);
-            if (!amd64_vec_write_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, out))
+            if (modrm.is_reg) {
+                // A masked register-to-register store still merges, so it
+                // cannot take the plain write path.
+                amd64_vec_write_masked(c, modrm.rm, vlen, out, elem);
+            } else if (!amd64_vec_write_rm(cpu, tlb, &modrm, c->fs_prefix, vlen, out)) {
                 return INT_PF;
+            }
         }
         return INT_NONE;
     }
@@ -4531,7 +4694,12 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
                 return INT_PF;
             amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
             avx_binop(kind, lb, vlen, a, b, out);
-            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            // The bitwise ops are byte-wise here but mask per dword/qword by W
+            // (VPANDD vs VPANDQ); the arithmetic ops mask at their lane width.
+            amd64_vec_write_masked(c, modrm.reg, vlen, out,
+                                   (op == 0x54 || op == 0x55 || op == 0x56 || op == 0x57 ||
+                                    op == 0xef || op == 0xeb || op == 0xdb || op == 0xdf)
+                                   ? (c->vex.w ? 8 : 4) : lb);
             return INT_NONE;
         }
     }
@@ -5599,6 +5767,22 @@ static int amd64_vex_step(struct cpu_state *cpu, struct tlb *tlb,
         .fs_prefix = fs_prefix,
         .vlen = vex.vlen,
     };
+
+    // Refuse a predicate on any instruction whose handler does not apply one:
+    // silently ignoring it would write elements the guest asked to preserve.
+    if (vex.is_evex && vex.mask != 0) {
+        bool maskable = vex.map == 1 &&
+            (op == 0x6f || op == 0x7f || op == 0x10 || op == 0x11 ||
+             op == 0x28 || op == 0x29 ||
+             op == 0x54 || op == 0x55 || op == 0x56 || op == 0x57 ||
+             op == 0xef || op == 0xeb || op == 0xdb || op == 0xdf ||
+             op == 0xfc || op == 0xfd || op == 0xfe || op == 0xd4 ||
+             op == 0xf8 || op == 0xf9 || op == 0xfa || op == 0xfb ||
+             op == 0x74 || op == 0x75 || op == 0x76 ||
+             op == 0x64 || op == 0x65 || op == 0x66);
+        if (!maskable)
+            return INT_UNDEFINED;
+    }
 
     int result;
     switch (vex.map) {
