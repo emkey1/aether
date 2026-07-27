@@ -1373,6 +1373,7 @@ restart:
                     case 0xd972: TRACE("fsqrt"); FSQRT(); break;
                     case 0xd974: TRACE("frndint"); FRNDINT(); break;
                     case 0xd975: TRACE("fscale"); FSCALE(); break;
+                    case 0xd973: TRACE("fsincos"); FSINCOS(); break;
                     case 0xd976: TRACE("fsin"); FSIN(); break;
                     case 0xd977: TRACE("fcos"); FCOS(); break;
                     case 0xdb42: TRACE("fnclex"); FCLEX(); break;

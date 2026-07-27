@@ -113,6 +113,7 @@ void fpu_divrm64(struct cpu_state *cpu, double *f);
 void fpu_patan(struct cpu_state *cpu);
 void fpu_sin(struct cpu_state *cpu);
 void fpu_cos(struct cpu_state *cpu);
+void fpu_sincos(struct cpu_state *cpu);
 void fpu_xam(struct cpu_state *cpu);
 void fpu_xtract(struct cpu_state *cpu);
 

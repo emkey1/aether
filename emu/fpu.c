@@ -317,11 +317,42 @@ void fpu_patan(struct cpu_state *cpu) {
     fpu_pop(cpu);
 }
 
+// fsin/fcos/fsincos report an operand the hardware can't range-reduce
+// (|arg| >= 2^63) by setting C2 and leaving the stack untouched, and clear C2
+// otherwise. We were doing neither: C2 was left at whatever a previous op set,
+// and an out-of-range operand got sin()/cos() of a huge double, which is
+// meaningless -- fsin(1e30) returned 0.00933 where hardware leaves 1e30 in
+// place for the caller to reduce itself.
+static bool fpu_trig_out_of_range(struct cpu_state *cpu, double arg) {
+    if (fabs(arg) >= 9223372036854775808.0) { // 2^63
+        cpu->c2 = 1;
+        return true;
+    }
+    cpu->c2 = 0;
+    return false;
+}
+
 void fpu_sin(struct cpu_state *cpu) {
-    ST(0) = f80_from_double(sin(f80_to_double(ST(0))));
+    double arg = f80_to_double(ST(0));
+    if (fpu_trig_out_of_range(cpu, arg))
+        return;
+    ST(0) = f80_from_double(sin(arg));
 }
 void fpu_cos(struct cpu_state *cpu) {
-    ST(0) = f80_from_double(cos(f80_to_double(ST(0))));
+    double arg = f80_to_double(ST(0));
+    if (fpu_trig_out_of_range(cpu, arg))
+        return;
+    ST(0) = f80_from_double(cos(arg));
+}
+void fpu_sincos(struct cpu_state *cpu) {
+    // ST(0) is replaced by sin, then cos is pushed, so on exit ST(0) is cos
+    // and ST(1) is sin. Like fsin/fcos this goes through double rather than
+    // computing at 80-bit precision.
+    double arg = f80_to_double(ST(0));
+    if (fpu_trig_out_of_range(cpu, arg))
+        return;
+    ST(0) = f80_from_double(sin(arg));
+    fpush(f80_from_double(cos(arg)));
 }
 
 void fpu_xtract(struct cpu_state *cpu) {

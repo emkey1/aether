@@ -10379,6 +10379,7 @@ void helper_rdtsc(struct cpu_state *cpu);
 #define FPATAN() h(fpu_patan)
 #define FSIN() h(fpu_sin)
 #define FCOS() h(fpu_cos)
+#define FSINCOS() h(fpu_sincos)
 #define FXTRACT() h(fpu_xtract)
 #define FCMOVB(src) hh(fpu_cmovb, src)
 #define FCMOVE(src) hh(fpu_cmove, src)
