@@ -4970,6 +4970,71 @@ static int amd64_vex_map_0f(struct amd64_vex_ctx *c, byte_t op) {
         amd64_vec_reg_write(cpu, modrm.reg, widen ? vlen : vlen / 2, out);
         return INT_NONE;
     }
+    case 0xc4: { // VPINSRW xmm, r32/m16, imm8
+        if (c->vex.pp != 1 || vlen != 128)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        qword_t value;
+        if (!amd64_read_rm(cpu, tlb, &modrm, c->fs_prefix, modrm.is_reg ? 32 : 16, &value))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, 128, out);
+        avx_lane_put(out + (imm & 7) * 2, 2, value & 0xffff);
+        amd64_vec_reg_write(cpu, modrm.reg, 128, out);
+        return INT_NONE;
+    }
+    case 0x13: case 0x17: { // VMOVLPS/VMOVLPD (13), VMOVHPS/VMOVHPD (17) store
+        if (c->vex.pp > 1 || vlen != 128)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm) || modrm.is_reg)
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        amd64_vec_reg_read(cpu, modrm.reg, 128, a);
+        qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+        // 13 stores the LOW qword, 17 the high one.
+        if (!amd64_mem_write(cpu, tlb, addr, a + (op == 0x17 ? 8 : 0), 8))
+            return INT_PF;
+        return INT_NONE;
+    }
+    case 0xe6: { // VCVTTPD2DQ (66), VCVTDQ2PD (F3), VCVTPD2DQ (F2)
+        if (c->vex.pp == 0)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (c->vex.pp == 2) { // VCVTDQ2PD: dwords widen to doubles
+            if (!amd64_vex_read_rm(c, &modrm, vlen / 2, a))
+                return INT_PF;
+            unsigned n = (vlen / 8) / 8;
+            for (unsigned i = 0; i < n; i++) {
+                double d = (double) (int32_t) avx_lane_get(a + i * 4, 4);
+                memcpy(out + i * 8, &d, 8);
+            }
+            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+            return INT_NONE;
+        }
+        // Doubles narrow to dwords, so the result is half the source width.
+        if (!amd64_vex_read_rm(c, &modrm, vlen, a))
+            return INT_PF;
+        unsigned n = (vlen / 8) / 8;
+        memset(out, 0, sizeof(out));
+        for (unsigned i = 0; i < n; i++) {
+            double d;
+            memcpy(&d, a + i * 8, 8);
+            // 66 truncates toward zero, F2 rounds to nearest.
+            double r = c->vex.pp == 1 ? (d < 0 ? ceil(d) : floor(d)) : nearbyint(d);
+            avx_lane_put(out + i * 4, 4, (uint32_t) (int32_t) r);
+        }
+        amd64_vec_reg_write(cpu, modrm.reg, vlen == 512 ? 256 : 128, out);
+        return INT_NONE;
+    }
     case 0x2e: case 0x2f: { // VUCOMISS/VUCOMISD (2E), VCOMISS/VCOMISD (2F)
         // Scalar compare that writes EFLAGS rather than a register. The two
         // differ only in which NaNs raise the invalid-operation exception,
@@ -5603,6 +5668,31 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
 
+    if (op == 0x26 || op == 0x27) { // VPTESTM{B,W,D,Q} / VPTESTNM* -> mask
+        if (!c->vex.is_evex)
+            return INT_UNDEFINED;
+        bool negated = c->vex.pp == 2; // F3 selects the NM (not-mask) forms
+        unsigned lb = op == 0x26 ? (c->vex.w ? 2 : 1) : (c->vex.w ? 8 : 4);
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        unsigned n = (vlen / 8) / lb;
+        uint64_t result = 0;
+        for (unsigned i = 0; i < n; i++) {
+            bool nz = (avx_lane_get(a + i * lb, lb) & avx_lane_get(b + i * lb, lb)) != 0;
+            if (nz != negated)
+                result |= UINT64_C(1) << i;
+        }
+        if (c->vex.mask != 0)
+            result &= cpu->avx512_k[c->vex.mask];
+        cpu->avx512_k[modrm.reg & 7] = result;
+        return INT_NONE;
+    }
+
     if (c->vex.pp != 1)
         return INT_UNDEFINED;
 
@@ -5757,6 +5847,86 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         return INT_NONE;
     }
 
+    if (op == 0x0b) { // VPMULHRSW -- rounded high word of a signed product
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        for (unsigned i = 0; i < vlen / 8; i += 2) {
+            int32_t x = (int16_t) avx_lane_get(a + i, 2);
+            int32_t y = (int16_t) avx_lane_get(b + i, 2);
+            avx_lane_put(out + i, 2, (uint16_t) ((((x * y) >> 14) + 1) >> 1));
+        }
+        amd64_vec_write_masked(c, modrm.reg, vlen, out, 2);
+        return INT_NONE;
+    }
+
+    if (op == 0x28 && c->vex.pp == 1) { // VPMULDQ -- signed 32x32 -> 64 per lane
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        for (unsigned i = 0; i < vlen / 8; i += 8) {
+            // Like VPMULUDQ this reads only the LOW dword of each qword lane.
+            int64_t x = (int32_t) avx_lane_get(a + i, 4);
+            int64_t y = (int32_t) avx_lane_get(b + i, 4);
+            avx_lane_put(out + i, 8, (uint64_t) (x * y));
+        }
+        amd64_vec_write_masked(c, modrm.reg, vlen, out, 8);
+        return INT_NONE;
+    }
+
+    if (op == 0x8c || op == 0x8e) { // VPMASKMOVD/Q -- masked load (8c) / store (8e)
+        unsigned lb = c->vex.w ? 8 : 4;
+        if (!amd64_vex_decode_modrm(c, &modrm) || modrm.is_reg)
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a); // per-element sign-bit mask
+        qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+        unsigned n = (vlen / 8) / lb;
+        if (op == 0x8c) {
+            memset(out, 0, sizeof(out));
+            for (unsigned i = 0; i < n; i++)
+                if (a[i * lb + lb - 1] & 0x80) {
+                    // Only the selected elements are read, so an unselected
+                    // element must not fault on an unmapped page.
+                    if (!amd64_mem_read(cpu, tlb, addr + i * lb, out + i * lb, lb))
+                        return INT_PF;
+                }
+            amd64_vec_reg_write(cpu, modrm.reg, vlen, out);
+        } else {
+            amd64_vec_reg_read(cpu, modrm.reg, vlen, b);
+            for (unsigned i = 0; i < n; i++)
+                if (a[i * lb + lb - 1] & 0x80)
+                    if (!amd64_mem_write(cpu, tlb, addr + i * lb, b + i * lb, lb))
+                        return INT_PF;
+        }
+        return INT_NONE;
+    }
+
+    if (op == 0x54 || op == 0x55) { // VPOPCNT{B,W} / VPOPCNT{D,Q}
+        if (!c->vex.is_evex)
+            return INT_UNDEFINED;
+        unsigned lb = op == 0x54 ? (c->vex.w ? 2 : 1) : (c->vex.w ? 8 : 4);
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, a))
+            return INT_PF;
+        for (unsigned i = 0; i < vlen / 8; i += lb)
+            avx_lane_put(out + i, lb, (uint64_t) __builtin_popcountll(avx_lane_get(a + i, lb)));
+        amd64_vec_write_masked(c, modrm.reg, vlen, out, lb);
+        return INT_NONE;
+    }
+
     if (op == 0x2b) { // VPACKUSDW -- dwords to unsigned-saturated words
         if (!amd64_vex_decode_modrm(c, &modrm))
             return INT_GPF;
@@ -5767,31 +5937,6 @@ static int amd64_vex_map_0f38(struct amd64_vex_ctx *c, byte_t op) {
         amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
         avx_pack(false, 4, vlen, a, b, out);
         amd64_vec_write_masked(c, modrm.reg, vlen, out, 2);
-        return INT_NONE;
-    }
-
-    if (op == 0x26 || op == 0x27) { // VPTESTM{B,W,D,Q} / VPTESTNM* -> mask
-        if (!c->vex.is_evex)
-            return INT_UNDEFINED;
-        bool negated = c->vex.pp == 2; // F3 selects the NM (not-mask) forms
-        unsigned lb = op == 0x26 ? (c->vex.w ? 2 : 1) : (c->vex.w ? 8 : 4);
-        if (!amd64_vex_decode_modrm(c, &modrm))
-            return INT_GPF;
-        if (c->vex.vvvv >= AMD64_AVX_MAX_REG)
-            return INT_UNDEFINED;
-        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
-            return INT_PF;
-        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
-        unsigned n = (vlen / 8) / lb;
-        uint64_t result = 0;
-        for (unsigned i = 0; i < n; i++) {
-            bool nz = (avx_lane_get(a + i * lb, lb) & avx_lane_get(b + i * lb, lb)) != 0;
-            if (nz != negated)
-                result |= UINT64_C(1) << i;
-        }
-        if (c->vex.mask != 0)
-            result &= cpu->avx512_k[c->vex.mask];
-        cpu->avx512_k[modrm.reg & 7] = result;
         return INT_NONE;
     }
 
@@ -6293,6 +6438,105 @@ static int amd64_vex_map_0f3a(struct amd64_vex_ctx *c, byte_t op) {
         if (c->vex.mask != 0)
             result &= cpu->avx512_k[c->vex.mask];
         cpu->avx512_k[modrm.reg & 7] = result;
+        return INT_NONE;
+    }
+
+    if (op >= 0x68 && op <= 0x6f) { // FMA4: VFMADD/VFMSUB {PS,PD,SS,SD}
+        // AMD's 4-operand encoding. W selects whether the third source is the
+        // r/m operand or the register named by the is4 byte's high nibble.
+        bool is_scalar = (op & 1) != 0 ? (op == 0x6b || op == 0x6f) : (op == 0x6a || op == 0x6e);
+        bool is_double = (op & 1) != 0;
+        bool subtract = op >= 0x6c;
+        unsigned width = is_scalar ? 128 : vlen;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        byte_t is4;
+        if (!amd64_fetch_u8(cpu, tlb, &is4))
+            return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, width, b))
+            return INT_PF;
+        unsigned is4_reg = (is4 >> 4) & 0xf;
+        if (is4_reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        uint8_t third[64];
+        amd64_vec_reg_read(cpu, is4_reg, width, third);
+        amd64_vec_reg_read(cpu, c->vex.vvvv, width, a);
+        const uint8_t *src2 = c->vex.w ? b : third;
+        const uint8_t *src3 = c->vex.w ? third : b;
+        memcpy(out, a, sizeof(out));
+        unsigned span = is_scalar ? (is_double ? 64 : 32) : width;
+        // form 213 with (dst_in = src2) gives src1*src2 (+/-) src3.
+        avx_fma(213, is_double, false, subtract, span, src2, a, src3, out);
+        amd64_vec_reg_write(cpu, modrm.reg, width, out);
+        return INT_NONE;
+    }
+
+    if (op == 0x17) { // VEXTRACTPS -- one dword out to a GPR or memory
+        if (vlen != 128)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        amd64_vec_reg_read(cpu, modrm.reg, 128, a);
+        if (!amd64_write_rm(cpu, tlb, &modrm, c->fs_prefix, 32,
+                            avx_lane_get(a + (imm & 3) * 4, 4)))
+            return INT_PF;
+        return INT_NONE;
+    }
+
+    if (op == 0x70 || op == 0x71) { // VPSHLD{W,D,Q} -- funnel shift left by imm8
+        if (!c->vex.is_evex)
+            return INT_UNDEFINED;
+        unsigned lb = op == 0x70 ? 2 : (c->vex.w ? 8 : 4);
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG || c->vex.vvvv >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        if (!amd64_vex_read_rm(c, &modrm, vlen, b))
+            return INT_PF;
+        amd64_vec_reg_read(cpu, c->vex.vvvv, vlen, a);
+        unsigned bits = lb * 8;
+        unsigned n = imm & (bits - 1);
+        for (unsigned i = 0; i < vlen / 8; i += lb) {
+            // Concatenate src1:src2 and take the top `bits` after shifting left.
+            uint64_t hi = avx_lane_get(a + i, lb), lo = avx_lane_get(b + i, lb);
+            uint64_t r = n == 0 ? hi : ((hi << n) | (lo >> (bits - n)));
+            avx_lane_put(out + i, lb, r & avx_lane_mask(lb));
+        }
+        amd64_vec_write_masked(c, modrm.reg, vlen, out, lb);
+        return INT_NONE;
+    }
+
+    if (op == 0x19) { // VEXTRACTF128 / VEXTRACTF32X4 -- same shape as 0x39
+        if (vlen < 256)
+            return INT_UNDEFINED;
+        if (!amd64_vex_decode_modrm(c, &modrm))
+            return INT_GPF;
+        if (modrm.reg >= AMD64_AVX_MAX_REG)
+            return INT_UNDEFINED;
+        byte_t imm;
+        if (!amd64_fetch_u8(cpu, tlb, &imm))
+            return INT_GPF;
+        amd64_vec_reg_read(cpu, modrm.reg, 256, a);
+        memcpy(out, a + ((imm & 1) ? 16 : 0), 16);
+        if (modrm.is_reg) {
+            if (modrm.rm >= AMD64_AVX_MAX_REG)
+                return INT_UNDEFINED;
+            amd64_vec_reg_write(cpu, modrm.rm, 128, out);
+        } else {
+            qword_t addr = amd64_effective_addr(cpu, &modrm, c->fs_prefix);
+            if (!amd64_mem_write(cpu, tlb, addr, out, 16))
+                return INT_PF;
+        }
         return INT_NONE;
     }
 

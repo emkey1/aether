@@ -1611,6 +1611,85 @@ static void test_round_blend_convert(void) {
     }
 }
 
+/* ---- the long tail ----
+   VPMULDQ is signed where VPMULUDQ is unsigned, and both read only the LOW
+   dword of each qword lane. VPMASKMOVD must not fault on elements the mask
+   excludes, which is the whole point of the instruction. */
+__attribute__((target("avx512f,avx512bw,avx512dq,avx512vl,avx512vpopcntdq")))
+static void test_long_tail(void) {
+    uint32_t r[8] __attribute__((aligned(32)));
+    static const uint32_t s[4] __attribute__((aligned(16))) =
+        {0x11112222, 0x33334444, 0x55556666, 0x77778888};
+
+    {
+        uint32_t v = 0;
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpinsrw $2,%2,%%xmm1,%%xmm2\n\t"
+                         "vpextrw $2,%%xmm2,%0"
+                         : "=r"(v) : "r"(s), "r"(0xbeefu) : "xmm1", "xmm2");
+        check64("vpinsrw.roundtrip", v, 0xbeef);
+    }
+    {
+        uint32_t v = 0;
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvextractps $2,%%xmm1,%0"
+                         : "=r"(v) : "r"(s) : "xmm1");
+        check64("vextractps", v, 0x55556666);
+    }
+    {
+        static const uint32_t v8[8] __attribute__((aligned(32))) = {0,1,2,3,4,5,6,7};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvextractf128 $1,%%ymm1,%%xmm2\n\t"
+                         "vmovdqu %%ymm2,(%0)\n\tvzeroupper"
+                         : : "r"(r), "r"(v8) : "memory", "ymm1", "ymm2");
+        static const uint32_t w[8] = {4, 5, 6, 7, 0, 0, 0, 0};
+        check8("vextractf128", r, w);
+    }
+    { /* signed: -1 * -1 == 1. VPMULUDQ on the same input gives a huge value. */
+        static const uint32_t x[4] __attribute__((aligned(16))) =
+            {0xffffffff, 0, 0xffffffff, 0};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpmuldq %%xmm1,%%xmm1,%%xmm2\n\t"
+                         "vmovdqu %%xmm2,(%0)"
+                         : : "r"(r), "r"(x) : "memory", "xmm1", "xmm2");
+        if (r[0] != 1 || r[1] != 0) { printf("FAIL vpmuldq.signed\n"); failures_total++; }
+        else { test_logf("PASS vpmuldq.signed\n"); }
+    }
+    {
+        static const double d[2] __attribute__((aligned(16))) = {3.9, -3.9};
+        __asm__ volatile("vmovupd (%1),%%xmm1\n\tvcvttpd2dq %%xmm1,%%xmm2\n\t"
+                         "vmovdqu %%xmm2,(%0)"
+                         : : "r"(r), "r"(d) : "memory", "xmm1", "xmm2");
+        if (r[0] != 3 || r[1] != (uint32_t) -3) {
+            printf("FAIL vcvttpd2dq\n"); failures_total++;
+        } else { test_logf("PASS vcvttpd2dq\n"); }
+    }
+    {
+        static const uint32_t x[4] __attribute__((aligned(16))) = {0xffffffff, 0, 0xf, 0};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpopcntq %%xmm1,%%xmm2\n\t"
+                         "vmovdqu %%xmm2,(%0)"
+                         : : "r"(r), "r"(x) : "memory", "xmm1", "xmm2");
+        if (r[0] != 32 || r[2] != 4) { printf("FAIL vpopcntq\n"); failures_total++; }
+        else { test_logf("PASS vpopcntq\n"); }
+    }
+    { /* VPTESTNM is the inverse of VPTESTM: bits set where (a & b) == 0 */
+        static const uint32_t x[4] __attribute__((aligned(16))) = {1, 0, 3, 0};
+        static const uint32_t m[4] __attribute__((aligned(16))) = {1, 1, 0, 0};
+        uint32_t k = 0;
+        __asm__ volatile("vmovdqu32 (%1),%%xmm1\n\tvmovdqu32 (%2),%%xmm2\n\t"
+                         "vptestnmd %%xmm2,%%xmm1,%%k1\n\tkmovw %%k1,%0"
+                         : "=r"(k) : "r"(x), "r"(m) : "xmm1", "xmm2", "k1");
+        check64("vptestnmd", k & 0xf, 0xe);
+    }
+    { /* only the mask-selected elements are read */
+        static const uint32_t data[4] __attribute__((aligned(16))) = {11, 22, 33, 44};
+        static const uint32_t m[4] __attribute__((aligned(16))) =
+            {0x80000000, 0, 0x80000000, 0};
+        __asm__ volatile("vmovdqu (%2),%%xmm1\n\tvpmaskmovd (%1),%%xmm1,%%xmm2\n\t"
+                         "vmovdqu %%xmm2,(%0)"
+                         : : "r"(r), "r"(data), "r"(m) : "memory", "xmm1", "xmm2");
+        if (r[0] != 11 || r[1] != 0 || r[2] != 33 || r[3] != 0) {
+            printf("FAIL vpmaskmovd.load\n"); failures_total++;
+        } else { test_logf("PASS vpmaskmovd.load\n"); }
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -1643,6 +1722,7 @@ int main(int argc, char **argv) {
     test_avx512_compare_and_permute();
     test_avx512_compress_and_align();
     test_round_blend_convert();
+    test_long_tail();
 
     return finish_suite("avx_regress");
 }
