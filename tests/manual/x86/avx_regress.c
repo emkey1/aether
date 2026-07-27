@@ -313,6 +313,516 @@ static void test_aligned_and_unaligned_moves(void) {
     check8("vmovups.roundtrip", out, PAT_A);
 }
 
+
+/* ---- coverage for the second implementation tier ---- */
+
+/* Saturating arithmetic must clamp, not wrap. */
+static void test_saturating(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    /* bytes: 0x7f + 0x7f saturates to 0x7f signed; 0xff + 0xff to 0xff unsigned */
+    static const uint32_t x[8] __attribute__((aligned(32))) = {
+        0x7f7f7f7f, 0x80808080, 0xffffffff, 0x01010101,
+        0x7f7f7f7f, 0x80808080, 0xffffffff, 0x01010101};
+    static const uint32_t y[8] __attribute__((aligned(32))) = {
+        0x7f7f7f7f, 0x80808080, 0xffffffff, 0x01010101,
+        0x7f7f7f7f, 0x80808080, 0xffffffff, 0x01010101};
+
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpaddsb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {   /* 0x7f+0x7f->0x7f, 0x80+0x80->0x80, 0xff+0xff = -1 + -1 = -2 = 0xfe, 1+1=2 */
+        static const uint32_t want[8] = {
+            0x7f7f7f7f, 0x80808080, 0xfefefefe, 0x02020202,
+            0x7f7f7f7f, 0x80808080, 0xfefefefe, 0x02020202};
+        check8("vpaddsb.clamp", out, want);
+    }
+
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpaddusb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {   /* unsigned: 0x7f+0x7f=0xfe, 0x80+0x80=0x100->0xff, 0xff+0xff->0xff, 1+1=2 */
+        static const uint32_t want[8] = {
+            0xfefefefe, 0xffffffff, 0xffffffff, 0x02020202,
+            0xfefefefe, 0xffffffff, 0xffffffff, 0x02020202};
+        check8("vpaddusb.clamp", out, want);
+    }
+
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpsubusb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {   /* equal operands -> 0 everywhere, no borrow below zero */
+        static const uint32_t want[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        check8("vpsubusb.floor", out, want);
+    }
+}
+
+/* Shifts: by immediate, by xmm count, and per-lane variable. */
+static void test_shifts(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t v[8] __attribute__((aligned(32))) = {
+        0x00000001, 0x80000000, 0xffffffff, 0x00ff00ff,
+        0x00000001, 0x80000000, 0xffffffff, 0x00ff00ff};
+
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpslld $4,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(v) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            0x00000010, 0x00000000, 0xfffffff0, 0x0ff00ff0,
+            0x00000010, 0x00000000, 0xfffffff0, 0x0ff00ff0};
+        check8("vpslld.imm", out, want);
+    }
+
+    /* Arithmetic vs logical right shift differ on the sign bit. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpsrad $4,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(v) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            0x00000000, 0xf8000000, 0xffffffff, 0x000ff00f,
+            0x00000000, 0xf8000000, 0xffffffff, 0x000ff00f};
+        check8("vpsrad.imm.sign", out, want);
+    }
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpsrld $4,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(v) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            0x00000000, 0x08000000, 0x0fffffff, 0x000ff00f,
+            0x00000000, 0x08000000, 0x0fffffff, 0x000ff00f};
+        check8("vpsrld.imm.zero", out, want);
+    }
+
+    /* An over-wide count yields 0 (or all sign bits), not C's UB. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpslld $32,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(v) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {0, 0, 0, 0, 0, 0, 0, 0};
+        check8("vpslld.overshift", out, want);
+    }
+
+    /* Count taken from the low 64 bits of an xmm operand. */
+    {
+        static const uint32_t cnt[4] __attribute__((aligned(16))) = {8, 0, 0, 0};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%xmm2\n\t"
+                         "vpslld %%xmm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(v), "r"(cnt) : "memory", "ymm1", "ymm2", "ymm3");
+        static const uint32_t want[8] = {
+            0x00000100, 0x00000000, 0xffffff00, 0xff00ff00,
+            0x00000100, 0x00000000, 0xffffff00, 0xff00ff00};
+        check8("vpslld.xmmcount", out, want);
+    }
+
+    /* Per-lane variable shift: each lane uses its own count. */
+    {
+        static const uint32_t base[8] __attribute__((aligned(32))) = {1, 1, 1, 1, 1, 1, 1, 1};
+        static const uint32_t counts[8] __attribute__((aligned(32))) = {0, 1, 2, 3, 4, 5, 6, 7};
+        static const uint32_t want[8] = {1, 2, 4, 8, 16, 32, 64, 128};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpsllvd %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(base), "r"(counts) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpsllvd.perlane", out, want);
+    }
+
+    /* VPSLLDQ is a BYTE shift within each 128-bit lane, not a bit shift and
+       not across the lane boundary. */
+    {
+        static const uint32_t seq[8] __attribute__((aligned(32))) = {
+            0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+            0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c};
+        static const uint32_t want[8] = {
+            0x02010000, 0x06050403, 0x0a090807, 0x0e0d0c0b,
+            0x12111000, 0x16151413, 0x1a191817, 0x1e1d1c1b};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpslldq $1,%%ymm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(seq) : "memory", "ymm1", "ymm3");
+        check8("vpslldq.lane_local", out, want);
+    }
+}
+
+/* VPSHUFB is lane-local and its index bit 7 zeroes the output byte. */
+static void test_pshufb(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t data[8] __attribute__((aligned(32))) = {
+        0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+        0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c};
+    /* select byte 0 everywhere in lane 0; 0x80 -> zero in lane 1 */
+    static const uint32_t idx[8] __attribute__((aligned(32))) = {
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x80808080, 0x80808080, 0x80808080, 0x80808080};
+    static const uint32_t want[8] = {
+        0x00000000, 0x00000000, 0x00000000, 0x00000000,
+        0x00000000, 0x00000000, 0x00000000, 0x00000000};
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpshufb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(data), "r"(idx) : "memory", "ymm1", "ymm2", "ymm3");
+    check8("vpshufb.zero_and_lane0", out, want);
+
+    /* Index 15 in the high lane must select byte 15 OF THAT LANE (0x1f), not
+       byte 15 of the whole register -- the classic cross-lane mistake. */
+    {
+        static const uint32_t idx2[8] __attribute__((aligned(32))) = {
+            0x0f0f0f0f, 0x0f0f0f0f, 0x0f0f0f0f, 0x0f0f0f0f,
+            0x0f0f0f0f, 0x0f0f0f0f, 0x0f0f0f0f, 0x0f0f0f0f};
+        static const uint32_t want2[8] = {
+            0x0f0f0f0f, 0x0f0f0f0f, 0x0f0f0f0f, 0x0f0f0f0f,
+            0x1f1f1f1f, 0x1f1f1f1f, 0x1f1f1f1f, 0x1f1f1f1f};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpshufb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(data), "r"(idx2) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpshufb.lane_local", out, want2);
+    }
+}
+
+static void test_unpack_and_pack(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t x[8] __attribute__((aligned(32))) = {
+        0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+        0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c};
+    static const uint32_t y[8] __attribute__((aligned(32))) = {
+        0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c,
+        0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c};
+
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpunpcklbw %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            0x11011000, 0x13031202, 0x15051404, 0x17071606,
+            0x11011000, 0x13031202, 0x15051404, 0x17071606};
+        check8("vpunpcklbw", out, want);
+    }
+
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpunpckhdq %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            0x0b0a0908, 0x1b1a1918, 0x0f0e0d0c, 0x1f1e1d1c,
+            0x0b0a0908, 0x1b1a1918, 0x0f0e0d0c, 0x1f1e1d1c};
+        check8("vpunpckhdq", out, want);
+    }
+
+    /* packuswb clamps signed words into unsigned bytes: negative -> 0. */
+    {
+        static const uint32_t w1[8] __attribute__((aligned(32))) = {
+            0x00ff0001, 0xffff0100, 0x00010002, 0x00030004,
+            0x00ff0001, 0xffff0100, 0x00010002, 0x00030004};
+        static const uint32_t w2[8] __attribute__((aligned(32))) = {
+            0x00000000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x00000000};
+        /* words of w1 lane0: 0001,00ff,0100,ffff,0002,0001,0004,0003
+           -> bytes:          01,  ff,  ff,  00,  02,  01,  04,  03   */
+        static const uint32_t want[8] = {
+            0x00ffff01, 0x03040102, 0x00000000, 0x00000000,
+            0x00ffff01, 0x03040102, 0x00000000, 0x00000000};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpackuswb %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(w1), "r"(w2) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpackuswb.clamp", out, want);
+    }
+}
+
+static void test_broadcast_and_widen(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+
+    {
+        static const uint32_t src[4] __attribute__((aligned(16))) = {0xdeadbeef, 0, 0, 0};
+        static const uint32_t want[8] = {
+            0xdeadbeef, 0xdeadbeef, 0xdeadbeef, 0xdeadbeef,
+            0xdeadbeef, 0xdeadbeef, 0xdeadbeef, 0xdeadbeef};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpbroadcastd %%xmm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(src) : "memory", "ymm1", "ymm3");
+        check8("vpbroadcastd", out, want);
+    }
+    {
+        static const uint32_t src[4] __attribute__((aligned(16))) = {0x000000ab, 0, 0, 0};
+        static const uint32_t want[8] = {
+            0xabababab, 0xabababab, 0xabababab, 0xabababab,
+            0xabababab, 0xabababab, 0xabababab, 0xabababab};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpbroadcastb %%xmm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(src) : "memory", "ymm1", "ymm3");
+        check8("vpbroadcastb", out, want);
+    }
+    /* Sign- vs zero-extension of the same negative bytes. */
+    {
+        static const uint32_t src[4] __attribute__((aligned(16))) = {
+            0xff01ff01, 0xff01ff01, 0, 0};
+        /* 0xff01ff01 stored little-endian is bytes 01,ff,01,ff -- the FIRST
+           widened lane comes from byte 0 (0x01), not from the high byte. */
+        static const uint32_t want_z[8] = {
+            0x00000001, 0x000000ff, 0x00000001, 0x000000ff,
+            0x00000001, 0x000000ff, 0x00000001, 0x000000ff};
+        static const uint32_t want_s[8] = {
+            0x00000001, 0xffffffff, 0x00000001, 0xffffffff,
+            0x00000001, 0xffffffff, 0x00000001, 0xffffffff};
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpmovzxbd %%xmm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(src) : "memory", "ymm1", "ymm3");
+        check8("vpmovzxbd", out, want_z);
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\tvpmovsxbd %%xmm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(src) : "memory", "ymm1", "ymm3");
+        check8("vpmovsxbd", out, want_s);
+    }
+}
+
+/* Cross-lane operations -- the ones a lane-local implementation gets wrong. */
+static void test_cross_lane(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t seq[8] __attribute__((aligned(32))) = {0, 1, 2, 3, 4, 5, 6, 7};
+
+    /* vextracti128 $1 pulls the HIGH 128 bits down into an xmm. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvextracti128 $1,%%ymm1,%%xmm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(seq) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {4, 5, 6, 7, 0, 0, 0, 0};
+        check8("vextracti128.high", out, want);
+    }
+
+    /* vinserti128 $1 replaces the high half, keeping the low half of vvvv. */
+    {
+        static const uint32_t ins[4] __attribute__((aligned(16))) = {
+            0xaaaaaaaa, 0xbbbbbbbb, 0xcccccccc, 0xdddddddd};
+        static const uint32_t want[8] = {
+            0, 1, 2, 3, 0xaaaaaaaa, 0xbbbbbbbb, 0xcccccccc, 0xdddddddd};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%xmm2\n\t"
+                         "vinserti128 $1,%%xmm2,%%ymm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(seq), "r"(ins) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vinserti128.high", out, want);
+    }
+
+    /* vpermq crosses lanes: reverse the four qwords. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpermq $0x1b,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(seq) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {6, 7, 4, 5, 2, 3, 0, 1};
+        check8("vpermq.reverse", out, want);
+    }
+
+    /* vperm2i128: imm 0x01 -> low=src1.hi, high=src1.lo (a 128-bit swap). */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\t"
+                     "vperm2i128 $0x01,%%ymm1,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(seq) : "memory", "ymm1", "ymm3");
+    {
+        static const uint32_t want[8] = {4, 5, 6, 7, 0, 1, 2, 3};
+        check8("vperm2i128.swap", out, want);
+    }
+
+    /* imm bit 3 of a selector forces that whole 128-bit half to zero. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\t"
+                     "vperm2i128 $0x81,%%ymm1,%%ymm1,%%ymm3\n\t"
+                     "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(seq) : "memory", "ymm1", "ymm3");
+    {
+        /* Each 4-bit selector's bit 3 forces its half to zero, independently
+           of the 2-bit source choice: low selector 0x1 -> src1.hi = {4,5,6,7};
+           high selector 0x8 -> zeroed. */
+        static const uint32_t want[8] = {4, 5, 6, 7, 0, 0, 0, 0};
+        check8("vperm2i128.zero_half", out, want);
+    }
+
+    /* vpermd: fully general cross-lane dword gather (indices in vvvv). */
+    {
+        static const uint32_t idx[8] __attribute__((aligned(32))) = {7, 6, 5, 4, 3, 2, 1, 0};
+        static const uint32_t want[8] = {7, 6, 5, 4, 3, 2, 1, 0};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpermd %%ymm1,%%ymm2,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(seq), "r"(idx) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpermd.reverse", out, want);
+    }
+}
+
+/* vpalignr concatenates per 128-bit lane and slides a 16-byte window. */
+static void test_palignr(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t hi[8] __attribute__((aligned(32))) = {
+        0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c,
+        0x13121110, 0x17161514, 0x1b1a1918, 0x1f1e1d1c};
+    static const uint32_t lo[8] __attribute__((aligned(32))) = {
+        0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c,
+        0x03020100, 0x07060504, 0x0b0a0908, 0x0f0e0d0c};
+    /* imm=4: window starts 4 bytes into the low source */
+    static const uint32_t want[8] = {
+        0x07060504, 0x0b0a0908, 0x0f0e0d0c, 0x13121110,
+        0x07060504, 0x0b0a0908, 0x0f0e0d0c, 0x13121110};
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpalignr $4,%%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(hi), "r"(lo) : "memory", "ymm1", "ymm2", "ymm3");
+    check8("vpalignr.imm4", out, want);
+}
+
+static void test_pmovmskb_and_madd(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+
+    /* vpmovmskb: one bit per byte MSB, 32 bits for a ymm source. */
+    {
+        static const uint32_t src[8] __attribute__((aligned(32))) = {
+            0x80008000, 0x00000000, 0x00000000, 0x00000000,
+            0x00000000, 0x00000000, 0x00000000, 0x80000000};
+        uint32_t mask = 0;
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvpmovmskb %%ymm1,%0\n\tvzeroupper"
+                         : "=r"(mask) : "r"(src) : "ymm1");
+        /* bytes 1 and 3 set in dword 0; byte 31 set */
+        uint32_t want = (1u << 1) | (1u << 3) | (1u << 31);
+        if (mask != want) {
+            printf("FAIL vpmovmskb got=%08x want=%08x\n", mask, want);
+            failures_total++;
+        } else {
+            test_logf("PASS vpmovmskb\n");
+        }
+    }
+
+    /* vpmaddwd: signed word pairs multiplied and summed into dwords. */
+    {
+        static const uint32_t x[8] __attribute__((aligned(32))) = {
+            0x00020001, 0xffffffff, 0x00010001, 0x00010001,
+            0x00020001, 0xffffffff, 0x00010001, 0x00010001};
+        static const uint32_t y[8] __attribute__((aligned(32))) = {
+            0x00040003, 0x00020002, 0x00010001, 0x00010001,
+            0x00040003, 0x00020002, 0x00010001, 0x00010001};
+        /* dword0: 1*3 + 2*4 = 11; dword1: (-1)*2 + (-1)*2 = -4 */
+        static const uint32_t want[8] = {
+            11, (uint32_t) -4, 2, 2,
+            11, (uint32_t) -4, 2, 2};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpmaddwd %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpmaddwd.signed", out, want);
+    }
+
+    /* vpsadbw: sum of absolute byte differences per 64-bit lane. */
+    {
+        static const uint32_t x[8] __attribute__((aligned(32))) = {
+            0x01010101, 0x01010101, 0, 0, 0, 0, 0, 0};
+        static const uint32_t y[8] __attribute__((aligned(32))) = {
+            0x03030303, 0x03030303, 0, 0, 0, 0, 0, 0};
+        /* |1-3| = 2, eight bytes -> 16 in the first 64-bit lane */
+        static const uint32_t want[8] = {16, 0, 0, 0, 0, 0, 0, 0};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpsadbw %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpsadbw", out, want);
+    }
+}
+
+static void test_minmax_and_mul(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t x[8] __attribute__((aligned(32))) = {
+        0x00000005, 0xfffffffb, 0x00000100, 0x7fffffff,
+        0x00000005, 0xfffffffb, 0x00000100, 0x7fffffff};
+    static const uint32_t y[8] __attribute__((aligned(32))) = {
+        0x00000003, 0x00000003, 0x00000200, 0x80000000,
+        0x00000003, 0x00000003, 0x00000200, 0x80000000};
+
+    /* signed min: -5 < 3, and 0x7fffffff > 0x80000000 (= -2^31) */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpminsd %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            3, 0xfffffffb, 0x100, 0x80000000,
+            3, 0xfffffffb, 0x100, 0x80000000};
+        check8("vpminsd.signed", out, want);
+    }
+    /* unsigned min on the same data picks differently -- catches a
+       signed/unsigned mixup that a positive-only test would miss. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpminud %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {
+        static const uint32_t want[8] = {
+            3, 3, 0x100, 0x7fffffff,
+            3, 3, 0x100, 0x7fffffff};
+        check8("vpminud.unsigned", out, want);
+    }
+
+    /* vpmuludq: low 32 bits of each 64-bit lane -> full 64-bit product. */
+    {
+        static const uint32_t a2[8] __attribute__((aligned(32))) = {
+            0xffffffff, 0xdeadbeef, 2, 0, 0xffffffff, 0, 2, 0};
+        static const uint32_t b2[8] __attribute__((aligned(32))) = {
+            0xffffffff, 0xcafebabe, 3, 0, 0xffffffff, 0, 3, 0};
+        /* 0xffffffff * 0xffffffff = 0xfffffffe00000001; upper dwords ignored */
+        static const uint32_t want[8] = {
+            0x00000001, 0xfffffffe, 6, 0,
+            0x00000001, 0xfffffffe, 6, 0};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpmuludq %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(a2), "r"(b2) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpmuludq.ignores_high", out, want);
+    }
+
+    /* vpmulld keeps only the low 32 bits of each product. */
+    {
+        static const uint32_t a2[8] __attribute__((aligned(32))) = {
+            0x00010001, 2, 3, 4, 0x00010001, 2, 3, 4};
+        static const uint32_t b2[8] __attribute__((aligned(32))) = {
+            0x00010001, 2, 3, 4, 0x00010001, 2, 3, 4};
+        static const uint32_t want[8] = {
+            0x00020001, 4, 9, 16, 0x00020001, 4, 9, 16};
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vpmulld %%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(a2), "r"(b2) : "memory", "ymm1", "ymm2", "ymm3");
+        check8("vpmulld.low32", out, want);
+    }
+}
+
+static void test_blend_and_insert(void) {
+    uint32_t out[8] __attribute__((aligned(32)));
+    static const uint32_t x[8] __attribute__((aligned(32))) = {0, 1, 2, 3, 4, 5, 6, 7};
+    static const uint32_t y[8] __attribute__((aligned(32))) = {
+        0xa0, 0xa1, 0xa2, 0xa3, 0xa4, 0xa5, 0xa6, 0xa7};
+
+    /* vpblendd imm bit i selects src2 for dword i. */
+    __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                     "vpblendd $0xa5,%%ymm2,%%ymm1,%%ymm3\n\tvmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                     : : "r"(out), "r"(x), "r"(y) : "memory", "ymm1", "ymm2", "ymm3");
+    {   /* 0xa5 = 1010 0101 -> dwords 0,2,5,7 from src2 */
+        static const uint32_t want[8] = {0xa0, 1, 0xa2, 3, 4, 0xa5, 6, 0xa7};
+        check8("vpblendd.imm", out, want);
+    }
+
+    /* vpblendvb selects per BYTE using the mask register's high bits. */
+    {
+        static const uint32_t mask[8] __attribute__((aligned(32))) = {
+            0x80000080, 0, 0, 0, 0, 0, 0, 0};
+        static const uint32_t want[8] = {0xa0, 1, 2, 3, 4, 5, 6, 7};
+        /* bytes 0 and 3 of dword 0 come from src2; src2 dword0 is 0xa0 and
+           src1 dword0 is 0 -> byte0 = 0xa0, byte3 = 0 either way */
+        __asm__ volatile("vmovdqu (%1),%%ymm1\n\tvmovdqu (%2),%%ymm2\n\t"
+                         "vmovdqu (%3),%%ymm4\n\t"
+                         "vpblendvb %%ymm4,%%ymm2,%%ymm1,%%ymm3\n\t"
+                         "vmovdqu %%ymm3,(%0)\n\tvzeroupper"
+                         : : "r"(out), "r"(x), "r"(y), "r"(mask)
+                         : "memory", "ymm1", "ymm2", "ymm3", "ymm4");
+        check8("vpblendvb.bytemask", out, want);
+    }
+
+    /* vpinsrd / vpextrd round trip through lane 2. */
+    {
+        uint32_t got = 0;
+        __asm__ volatile("vmovdqu (%1),%%xmm1\n\t"
+                         "vpinsrd $2,%2,%%xmm1,%%xmm3\n\t"
+                         "vpextrd $2,%%xmm3,%0"
+                         : "=r"(got) : "r"(x), "r"(0xfeedfaceu) : "xmm1", "xmm3");
+        if (got != 0xfeedfaceu) {
+            printf("FAIL vpinsrd.roundtrip got=%08x want=feedface\n", got);
+            failures_total++;
+        } else {
+            test_logf("PASS vpinsrd.roundtrip\n");
+        }
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
 
@@ -324,6 +834,16 @@ int main(int argc, char **argv) {
     test_upper_bits_semantics();
     test_three_byte_vex_high_regs();
     test_movd_movq();
+    test_saturating();
+    test_shifts();
+    test_pshufb();
+    test_unpack_and_pack();
+    test_broadcast_and_widen();
+    test_cross_lane();
+    test_palignr();
+    test_pmovmskb_and_madd();
+    test_minmax_and_mul();
+    test_blend_and_insert();
 
     return finish_suite("avx_regress");
 }
