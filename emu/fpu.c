@@ -127,14 +127,21 @@ void fpu_stm80(struct cpu_state *cpu, float80 *f) {
         if (cond) \
             ST(0) = ST(i); \
     }
-FCMOVcc(b, cpu->cf)
-FCMOVcc(e, cpu->zf)
-FCMOVcc(be, cpu->cf | cpu->zf)
-FCMOVcc(u, cpu->pf)
-FCMOVcc(nb, !cpu->cf)
-FCMOVcc(ne, !cpu->zf)
-FCMOVcc(nbe, !(cpu->cf | cpu->zf))
-FCMOVcc(nu, !cpu->pf)
+// Read the conditions through the ZF/PF/CF macros, not cpu->zf and friends
+// directly: ZF and PF are lazy, and while the flag-producing instruction's
+// result is still sitting in cpu->res the raw fields hold whatever was last
+// materialized. glibc's i386 sin()/cos() apply their sign with
+// "and $0x2,%ecx; fchs; fcmove %st(1),%st" -- an fcmove on a ZF that was only
+// just set -- so a stale read silently negated the result: exactly the right
+// magnitude, wrong sign.
+FCMOVcc(b, CF)
+FCMOVcc(e, ZF)
+FCMOVcc(be, CF | ZF)
+FCMOVcc(u, PF)
+FCMOVcc(nb, !CF)
+FCMOVcc(ne, !ZF)
+FCMOVcc(nbe, !(CF | ZF))
+FCMOVcc(nu, !PF)
 
 // math
 
