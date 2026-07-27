@@ -32,6 +32,7 @@
 
 #include "aether/diagnostics.h"
 #include "aether/parser.h"
+#include "aether/semantic.h"   /* aetherSemanticGetSourcePath, for arity diagnostics */
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
@@ -2536,6 +2537,50 @@ static int isToonScalarDefaultHelper(const char *nameStart, size_t nameLen) {
            (nameLen == 16 && strncmp(nameStart, "toon_get_bool_or", nameLen) == 0);
 }
 
+/* `toon_get_int(node, key)` and friends are TEXT rewrites: this pass turns them
+ * into YyjsonGetInt(YyjsonGetKey(node, key)). When the argument count does not
+ * match, the rewrite simply declines and the original name survives to the
+ * parser, which then reports "[SCOPE-001] identifier 'toon_get_int' not in
+ * scope." That is actively misleading -- the builtin exists, only the arity is
+ * wrong -- and it is worse than a plain wrong message because it sends a repair
+ * pass looking for a different NAME. Across the cs-aug20 large-suite board this
+ * one diagnostic produced toon_get_int x12, toon_get_int_or x6 and
+ * toon_get_text_or x6 "unknown identifier" failures that repair could never fix
+ * (docs/aether_specialization_findings.md, cs-aug20). Say what is actually
+ * wrong instead. */
+static void reportToonScalarArity(const char *nameStart,
+                                  size_t nameLen,
+                                  int defaultHelper,
+                                  int given) {
+    char name[64];
+    char detail[256];
+    char hint[256];
+    size_t n = nameLen < sizeof(name) - 1 ? nameLen : sizeof(name) - 1;
+
+    memcpy(name, nameStart, n);
+    name[n] = '\0';
+
+    if (defaultHelper) {
+        snprintf(detail, sizeof(detail),
+                 "'%s' takes 3 arguments (node, key, fallback), but %d %s given.",
+                 name, given, given == 1 ? "was" : "were");
+        snprintf(hint, sizeof(hint),
+                 "drop the fallback and use the 2-argument form without the `_or` suffix, "
+                 "or supply all three.");
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "'%s' takes 2 arguments (node, key), but %d %s given.",
+                 name, given, given == 1 ? "was" : "were");
+        snprintf(hint, sizeof(hint),
+                 "for a fallback value use '%s_or(node, key, fallback)'.", name);
+    }
+    reportAetherRewriteError(aetherSemanticGetSourcePath(),
+                             g_aetherPrepassAliasLine,
+                             "builtin",
+                             detail,
+                             hint);
+}
+
 static const char *toonTypePredicateExpected(const char *nameStart, size_t nameLen) {
     if (nameLen == 12 && strncmp(nameStart, "toon_is_text", nameLen) == 0) {
         return "string";
@@ -2677,6 +2722,11 @@ static int appendToonScalarAlias(Buffer *out,
         } else if (*cursor == ')' || *cursor == ']' || *cursor == '}') {
             if (depth == 0) {
                 if (!arg1End || !arg2Start) {
+                    /* Closing paren reached with no top-level comma: a single
+                     * argument (or none). Same misleading-SCOPE-001 path as the
+                     * other arity declines below. */
+                    reportToonScalarArity(nameStart, nameLen, defaultHelper,
+                                          cursor > arg1Start ? 1 : 0);
                     return 0;
                 }
                 if (arg3Start) {
@@ -2697,12 +2747,18 @@ static int appendToonScalarAlias(Buffer *out,
         cursor++;
     }
     if (!arg1End || !arg2Start || !arg2End) {
+        /* Fewer than two arguments: 1 if a single comma-free span was present,
+         * 0 if the parens were empty. */
+        reportToonScalarArity(nameStart, nameLen, defaultHelper,
+                              arg1End ? 1 : (cursor > arg1Start ? 1 : 0));
         return 0;
     }
     if (defaultHelper && (!arg3Start || !arg3End)) {
+        reportToonScalarArity(nameStart, nameLen, defaultHelper, 2);
         return 0;
     }
     if (!defaultHelper && arg3Start) {
+        reportToonScalarArity(nameStart, nameLen, defaultHelper, 3);
         return 0;
     }
     jsonState->needed = 1;
