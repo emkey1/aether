@@ -320,13 +320,21 @@
         sub x8, x8, 1
         str x8, [_cpu, (CPU_amd64_regs + 8)]   /* write decremented count back */
         cbz x8, 1f                              /* count==0 -> fall through */
+        /* ZF via do_jump, not a bare CPU_eflags bit test: ZF is lazy in
+         * general (deferred in CPU_res with ZF_RES set), and while the amd64
+         * frontend happens to materialize it everywhere today -- its native
+         * flag gadgets clear ZF_RES, and the interp bridge calls
+         * collapse_flags -- nothing states that as an invariant. A bare read
+         * would silently take the wrong arm the day a deferring amd64 gadget
+         * is added. Same reasoning as the i386 loopz/loopnz gadgets. Label 5
+         * because do_jump/check_res_or_flag use 2-3 and this gadget uses 1. */
         .ifc \ztest,e
-            ldr w9, [_cpu, CPU_eflags]
-            tbz w9, 6, 1f                        /* LOOPE: ZF==0 -> fall through */
+            do_jump z, 5f                        /* LOOPE: ZF==1 -> taken */
+            b 1f
+        5:
         .endif
         .ifc \ztest,ne
-            ldr w9, [_cpu, CPU_eflags]
-            tbnz w9, 6, 1f                       /* LOOPNE: ZF==1 -> fall through */
+            do_jump z, 1f                        /* LOOPNE: ZF==1 -> fall through */
         .endif
         ldr x10, [_ip]                           /* taken target */
         str x10, [_cpu, CPU_amd64_rip]
