@@ -8147,31 +8147,6 @@ restart_prefix:
         }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
-        if (op2 == 0x01) {
-            // 0F 01 is a group whose register forms are mostly ring-0. The one
-            // a user-mode guest legitimately reaches is XGETBV (0F 01 D0),
-            // and it is not optional: we advertise OSXSAVE, and glibc's
-            // feature detection runs XGETBV immediately after seeing that bit
-            // to decide whether the OS has enabled the YMM/ZMM state. SIGILL
-            // here would take out every glibc process at startup.
-            byte_t modrm;
-            if (!amd64_fetch_u8(cpu, tlb, &modrm)) {
-                cpu->amd64_rip = saved_rip;
-                cpu->segfault_addr = saved_rip;
-                return INT_GPF;
-            }
-            if (modrm == 0xd0) {
-                // ECX selects the register. Only XCR0 exists here; anything
-                // else is #GP, exactly as on hardware.
-                if ((dword_t) cpu->amd64_regs[amd64_rcx] != 0)
-                    return INT_GPF;
-                qword_t xcr0 = xcr0_value();
-                amd64_reg_set(cpu, amd64_rax, 32, (dword_t) xcr0);
-                amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (xcr0 >> 32));
-                break;
-            }
-            return INT_UNDEFINED;
-        }
         if (op2 == 0x31) {
             qword_t tsc = amd64_rdtsc_value();
             amd64_reg_set(cpu, amd64_rax, 32, (dword_t) tsc);
@@ -12532,6 +12507,36 @@ int amd64_jit_rdtsc(struct cpu_state *cpu, struct tlb *tlb,
     tsc = amd64_rdtsc_value();
     amd64_reg_set(cpu, amd64_rax, 32, (dword_t) tsc);
     amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (tsc >> 32));
+    cpu->amd64_rip = (qword_t) next_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_NONE;
+}
+
+// XGETBV (0f 01 d0). Not optional once CPUID advertises OSXSAVE: glibc runs
+// this immediately after seeing that bit to decide whether the OS enabled the
+// YMM/ZMM state, so SIGILL here would kill every glibc process at startup.
+//
+// JIT-side only, deliberately: the amd64 interpreter is being retired, so a
+// parallel copy there would be work with a known expiry date, and worse, it
+// would let this instruction appear to work today via the interpreter fallback
+// and then vanish when the fallback goes.
+int amd64_jit_xgetbv(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long next_ip) {
+    guest_addr_t checked_next_ip;
+    qword_t xcr0;
+    (void) tlb;
+    if (!amd64_guest_addr_ok((qword_t) next_ip, 1, &checked_next_ip))
+        return INT_GPF;
+    // ECX selects the register. XCR0 is the only one that exists; hardware
+    // raises #GP for anything else.
+    if ((dword_t) cpu->amd64_regs[amd64_rcx] != 0) {
+        cpu->amd64_rip = (qword_t) next_ip;
+        amd64_sync_legacy_regs(cpu);
+        return INT_GPF;
+    }
+    xcr0 = xcr0_value();
+    amd64_reg_set(cpu, amd64_rax, 32, (dword_t) xcr0);
+    amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (xcr0 >> 32));
     cpu->amd64_rip = (qword_t) next_ip;
     amd64_sync_legacy_regs(cpu);
     return INT_NONE;

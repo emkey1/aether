@@ -6078,6 +6078,32 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    // XGETBV (0f 01 d0). 0f 01's other register forms are ring-0, so only this
+    // exact ModRM is accepted and everything else falls through to the normal
+    // undefined-opcode path. Handled here rather than in the interpreter
+    // because the interpreter is being retired: implementing it there would
+    // make the instruction work today only via the interpreter fallback and
+    // then disappear with it.
+    if (amd64_jit_plain_prefixes(&insn) && insn.two_byte_opcode && insn.op2 == 0x01) {
+        byte_t modrm;
+        if (!tlb_read(tlb, state->amd64_ip, &modrm, sizeof(modrm))) {
+            state->amd64_ip = state->amd64_orig_ip;
+            state->amd64_fallback_to_interp = true;
+            return false;
+        }
+        if (modrm == 0xd0) {
+            next_ip = state->amd64_ip + sizeof(modrm);
+            state->amd64_ip = next_ip;
+            amd64_jit_debug("xgetbv ip=%llx next=%llx",
+                    (unsigned long long) insn.start_ip,
+                    (unsigned long long) next_ip);
+            gen_amd64_helper_tlb_1_retint(state, amd64_jit_xgetbv,
+                    (unsigned long) next_ip);
+            gen_exit(state);
+            return false;
+        }
+    }
+
     if (!insn.address_size_prefix && !insn.fs_prefix && !insn.lock_prefix &&
             insn.rep_mode == amd64_jit_repz && insn.two_byte_opcode &&
             insn.op2 == 0x1e) {
