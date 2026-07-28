@@ -1,6 +1,6 @@
 # Release Notes Since `builds/iSH-AOK_544`
 
-Forty-one commits, and the centre of gravity is the x86 CPU itself. The bulk of
+Forty-seven commits, and the centre of gravity is the x86 CPU itself. The bulk of
 the cycle goes to closing the AVX gap reported as GH #525 -- VEX and EVEX
 decoding, AVX2, AVX-512 opmasks and predication, BMI1/BMI2, AES/CLMUL/GFNI/VNNI
 and FMA on the amd64 guest, plus VEX for the 32-bit guest, which is JIT-only and
@@ -62,6 +62,19 @@ NULL dereference finally faults instead of silently reading zero.
   This is a large correctness win, and it has a visible consequence: latent NULL
   dereferences in guest software that used to limp along now produce a proper
   SIGSEGV. See Known Issues.
+- **A deadlock that wedged the entire emulator.** `pidfd_poll()` takes
+  `pids_lock`, and `poll_scan_ready_locked()` calls it while holding
+  `poll->lock`; meanwhile `do_exit()` held `pids_lock` and called
+  `poll_wakeup()`, which wants `poll->lock`. Opposite orders on the same pair,
+  so an ordinary sequence -- a process exiting while a sibling sits in
+  `epoll_wait` on a pidfd for it -- could stop the whole guest (`0b738e76`).
+  This is what `fs/poll.h` forbids in as many words, and the same bug the
+  signalfd path had with `sighand->lock`; `poll_wakeup_trylock()` already
+  existed for it and pidfd simply was not using it. Found only because the
+  device seized during the release sweep: around thirty threads were stacked on
+  `pids_lock` -- systemd, dbus-broker, labwc, sshd, the app's own UI thread --
+  and it had to be read out of an lldb backtrace, because nothing can report a
+  test result once scheduling stops.
 - **The filesystem enforces permissions.** Neither `generic_setattrat` nor
   `generic_fsetattr` checked anything, so any process could chmod, chown or
   truncate a file it did not own (`4f4b0f01`, upstream ish-app/ish#2197).
@@ -75,6 +88,12 @@ NULL dereference finally faults instead of silently reading zero.
 
 - AVX, AVX2, AVX-512, BMI1/BMI2, AES, CLMUL, GFNI, VNNI and FMA on the amd64
   guest; AVX/VEX on the i386 guest.
+- CPUID leaf 7 and leaf 0x0D (XSAVE state enumeration), and XGETBV on both x86
+  guests (`5d49de54`, `84d5633c`). This is groundwork for making the vector
+  work reachable by feature detection and is deliberately **inert** in this
+  release -- see Known Issues. JIT-side only: the amd64 interpreter is being
+  retired, and implementing it there would have made XGETBV work today solely
+  through the interpreter fallback and then vanish with it.
 - x87: `fsincos`, `fnstsw` to memory, precision control, correct `FCMOVcc`
   condition evaluation, `fsin`/`fcos` C2 semantics, PE and C1 reporting.
 - i386: `LOOP`, `LOOPE`/`LOOPZ`, `LOOPNE`/`LOOPNZ`, and the six BCD adjusts.
@@ -100,6 +119,9 @@ NULL dereference finally faults instead of silently reading zero.
   (`fe4705c3`).
 - `fs/sock` warns when a wildcard privileged-port bind silently downgrades to
   loopback-only (`f955e990`).
+- **`pidfd_notify_exit` no longer takes `poll->lock` under `pids_lock`**
+  (`0b738e76`), the whole-emulator deadlock above, with a deliberate repro in
+  `pidfd_epoll_deadlock.c` (`db68d942`).
 
 ### App
 
@@ -109,6 +131,11 @@ NULL dereference finally faults instead of silently reading zero.
 - The app no longer aborts when the roots directory is unavailable (`bf495e0e`).
 - The amd64 JIT Settings toggle is retired (`21180ab9`).
 - `ptraceomatic` reports why a ptrace request failed (`0d8b4704`).
+- `setup-wayland.sh` installs the pixman development headers the accelerator
+  shim needs (`47703fce`). It checked for a compiler but not for `pixman.h`, so
+  on a fresh rootfs the shim build died after the one check it made had already
+  passed -- and the no-compiler message sent you straight into that second
+  error. Reported from a Devuan arm64 install.
 
 ## Validation
 
@@ -162,6 +189,18 @@ Known Issues.
 
 ### Bugs found and fixed during the sweep
 
+- **A whole-emulator deadlock, found on device** (`0b738e76`). The pidfd/epoll
+  lock inversion described above. It is worth being precise about how this was
+  caught, because it is the argument for running the device leg at all: the CLI
+  suite was green on all four architectures and would have shipped it. The
+  device wedged mid-run instead -- unresponsive to ssh and in the UI -- and the
+  cycle was read out of an lldb thread backtrace. A/B afterwards was
+  unambiguous: `tests/manual/pidfd_epoll_deadlock.c` hangs to its watchdog
+  (`rc=142`, SIGALRM) on the unfixed build and passes on the fixed one, and the
+  device gave an accidental A/B of its own -- the build from before the fix
+  seized part-way through the suite, the build from after it completed all 101
+  tests under the same load.
+
 - **`ftruncate` returned EACCES through a writable descriptor** (`f7d16937`).
   The permission enforcement added this cycle ran the *inode* check on the
   fd-based `ftruncate`, where Linux checks only that the file was opened for
@@ -196,9 +235,14 @@ Known Issues.
 
 ## Known Issues
 
-- **CPUID advertises none of the new vector support.** `cpuid_basic_max_leaf()`
-  is still 1, so leaf 7 -- where the AVX2, BMI and AVX-512 bits live -- does not
-  exist, and leaf 1 reports AVX, XSAVE and OSXSAVE all clear. Measured in-guest
+- **CPUID advertises none of the new vector support**, still. The enumeration
+  itself now exists -- leaf 7, leaf 0x0D and XGETBV all landed this cycle
+  (`5d49de54`, `84d5633c`) -- but the advertisement is held behind
+  `CPUID_ADVERTISE_VECTOR_STATE`, which is 0. Leaf 1 ECX is byte-identical to
+  544 (`0x00980201`) and leaf 7 reads zero, so nothing a guest can observe
+  through feature detection has changed. That is deliberate, for the reason
+  below. Before this cycle there was no leaf 7 at all and leaf 1 reported AVX,
+  XSAVE and OSXSAVE clear. Measured in-guest
   against real Intel, which reports `avx=1 xsave=1 osxsave=1` and a populated
   leaf 7. This is defensible rather than an oversight: `XSAVE`/`XGETBV`/`XCR0`
   are not implemented at all (only legacy `FXSAVE` is), and glibc gates its AVX
@@ -304,6 +348,12 @@ Known Issues.
 `builds/iSH-AOK_544..builds/iSH-AOK_545`
 
 ```
+db68d942 tests: cover the pidfd/epoll AB-BA deadlock
+0b738e76 kernel/pidfd: don't take poll->lock while holding pids_lock
+84d5633c emu/amd64: move XGETBV off the interpreter and into the JIT
+47703fce tools/setup-wayland: install the pixman headers the shim needs
+5d49de54 emu: implement the CPUID and XGETBV half of AVX feature reporting
+0219dfe5 docs: add iSH-AOK 545 release notes
 fe4705c3 tty: a fresh pty must not inherit packet mode from a recycled struct
 f88c116f build: bump project version to 545
 f7d16937 fs: ftruncate takes its permission from the fd, not the inode
