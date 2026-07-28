@@ -22,6 +22,27 @@
     restore_c
     gret
 
+.gadget xgetbv
+    # same frame as cpuid: ecx in, eax/edx out
+    save_c
+    sub sp, sp, 0x10
+    str eax, [sp, 0xc]
+    str ebx, [sp, 0x8]
+    str ecx, [sp, 0x4]
+    str edx, [sp, 0x0]
+    add x0, sp, 0xc
+    add x1, sp, 0x8
+    add x2, sp, 0x4
+    mov x3, sp
+    bl NAME(helper_xgetbv)
+    ldr eax, [sp, 0xc]
+    ldr ebx, [sp, 0x8]
+    ldr ecx, [sp, 0x4]
+    ldr edx, [sp, 0x0]
+    add sp, sp, 0x10
+    restore_c
+    gret
+
 .extern helper_trace_unaligned_atomic
 
 .macro do_cmpxchg size, s

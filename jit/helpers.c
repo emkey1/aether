@@ -9,6 +9,24 @@ void helper_cpuid(dword_t *a, dword_t *b, dword_t *c, dword_t *d) {
     do_cpuid(a, b, c, d);
 }
 
+// XGETBV for the i386 guest. Takes the same four-register frame as
+// helper_cpuid so it can reuse that gadget's shape exactly: ecx selects the
+// register on the way in, eax/edx take the value on the way out, ebx is
+// untouched.
+//
+// Deviation: hardware raises #GP for any index other than 0, and we return
+// zero instead. A gadget cannot raise an interrupt without going through the
+// interrupt gadget, which is a lot of machinery for a case no real caller
+// reaches -- XCR0 is the only register defined here, and glibc, gcc's ifunc
+// resolvers and OpenSSL all pass 0. The amd64 interpreter, where raising it
+// costs nothing, does return #GP.
+void helper_xgetbv(dword_t *a, dword_t *b, dword_t *c, dword_t *d) {
+    (void) b;
+    qword_t value = *c == 0 ? xcr0_value() : 0;
+    *a = (dword_t) value;
+    *d = (dword_t) (value >> 32);
+}
+
 void helper_rdtsc(struct cpu_state *cpu) {
     struct timespec now;
     clock_gettime(CLOCK_MONOTONIC, &now);

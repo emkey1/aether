@@ -10331,6 +10331,7 @@ void helper_aad(struct cpu_state *cpu, uint32_t base);
 void helper_rdtsc(struct cpu_state *cpu);
 #define RDTSC h(helper_rdtsc)
 #define CPUID() g(cpuid)
+#define XGETBV() g(xgetbv)
 
 // atomic
 #define atomic_op(type, src, dst,z) load(src, z); op(atomic_##type, dst, z)

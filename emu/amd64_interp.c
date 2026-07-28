@@ -8147,6 +8147,31 @@ restart_prefix:
         }
         if (op2 == 0x05)
             return INT_AMD64_SYSCALL;
+        if (op2 == 0x01) {
+            // 0F 01 is a group whose register forms are mostly ring-0. The one
+            // a user-mode guest legitimately reaches is XGETBV (0F 01 D0),
+            // and it is not optional: we advertise OSXSAVE, and glibc's
+            // feature detection runs XGETBV immediately after seeing that bit
+            // to decide whether the OS has enabled the YMM/ZMM state. SIGILL
+            // here would take out every glibc process at startup.
+            byte_t modrm;
+            if (!amd64_fetch_u8(cpu, tlb, &modrm)) {
+                cpu->amd64_rip = saved_rip;
+                cpu->segfault_addr = saved_rip;
+                return INT_GPF;
+            }
+            if (modrm == 0xd0) {
+                // ECX selects the register. Only XCR0 exists here; anything
+                // else is #GP, exactly as on hardware.
+                if ((dword_t) cpu->amd64_regs[amd64_rcx] != 0)
+                    return INT_GPF;
+                qword_t xcr0 = xcr0_value();
+                amd64_reg_set(cpu, amd64_rax, 32, (dword_t) xcr0);
+                amd64_reg_set(cpu, amd64_rdx, 32, (dword_t) (xcr0 >> 32));
+                break;
+            }
+            return INT_UNDEFINED;
+        }
         if (op2 == 0x31) {
             qword_t tsc = amd64_rdtsc_value();
             amd64_reg_set(cpu, amd64_rax, 32, (dword_t) tsc);

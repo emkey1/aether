@@ -182,6 +182,18 @@ restart:
                 case 0x9f: TRACEI("setnle\t");
                            READMODRM; SETN(LE, modrm_val); break;
 
+                // 0f 01 is a group whose register forms are almost all ring-0.
+                // The one a user-mode guest reaches is XGETBV (0f 01 d0), and
+                // it is mandatory rather than nice-to-have: CPUID advertises
+                // OSXSAVE, and glibc runs XGETBV right after seeing that bit to
+                // decide whether the OS enabled the YMM/ZMM state. Raising
+                // SIGILL here would kill every glibc process at startup.
+                case 0x01: TRACEI("xgetbv");
+                           READMODRM;
+                           if (modrm.type != modrm_reg || modrm.opcode != 2 || modrm.base != reg_eax)
+                               UNDEFINED;
+                           XGETBV(); break;
+
                 case 0xa2: TRACEI("cpuid"); CPUID(); break;
 
                 case 0xa3: TRACEI("bt reg, modrm");
