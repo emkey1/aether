@@ -44,6 +44,78 @@
  * rewrites are not recorded. Set/cleared by aetherAstPrepassBuiltins. */
 static int g_aetherPrepassAliasLine = 0;
 
+/* Names the source declares with `fn NAME(`. The builtin alias pre-passes are
+ * pure text rewrites, so without this they rewrite a user's own declaration:
+ * `fn has_toon() -> Bool` became `fn hasextbuiltin("yyjson", "YyjsonRead") ->
+ * Bool`, and the parser reported "[SYN-001] expected parameter name" -- a
+ * message about a parameter list the user never wrote. Worse, suppressing the
+ * rewrite only on the declaration would leave call sites aliased, so the user's
+ * function would silently never be called. A declared name therefore shadows
+ * the builtin EVERYWHERE in the file, declaration and calls alike, which is
+ * what the parser already does for non-aliased builtins via
+ * aetherAstIsTopLevelUserFunction. Models reach for `fn has_toon()` constantly
+ * because the guide's own examples call has_toon(); this cost 27 of one model's
+ * large-suite failures on the cs-aug20 board. */
+#define AETHER_PREPASS_MAX_USER_FNS 512
+#define AETHER_PREPASS_MAX_FN_NAME 64
+static char g_aetherPrepassUserFns[AETHER_PREPASS_MAX_USER_FNS][AETHER_PREPASS_MAX_FN_NAME];
+static int g_aetherPrepassUserFnCount = 0;
+
+static void aetherPrepassCollectUserFns(const char *source) {
+    const char *c = source;
+    g_aetherPrepassUserFnCount = 0;
+    if (!source) {
+        return;
+    }
+    while (*c) {
+        /* match `fn` as a standalone keyword, then the identifier after it */
+        if (c[0] == 'f' && c[1] == 'n' &&
+            (c == source || !(isalnum((unsigned char)c[-1]) || c[-1] == '_')) &&
+            (c[2] == ' ' || c[2] == '\t')) {
+            const char *n = c + 2;
+            const char *e;
+            while (*n == ' ' || *n == '\t') n++;
+            e = n;
+            while (*e && (isalnum((unsigned char)*e) || *e == '_')) e++;
+            if (e > n && (size_t)(e - n) < AETHER_PREPASS_MAX_FN_NAME &&
+                g_aetherPrepassUserFnCount < AETHER_PREPASS_MAX_USER_FNS) {
+                size_t len = (size_t)(e - n);
+                int dup = 0;
+                int i;
+                for (i = 0; i < g_aetherPrepassUserFnCount; i++) {
+                    if (strlen(g_aetherPrepassUserFns[i]) == len &&
+                        strncmp(g_aetherPrepassUserFns[i], n, len) == 0) {
+                        dup = 1;
+                        break;
+                    }
+                }
+                if (!dup) {
+                    memcpy(g_aetherPrepassUserFns[g_aetherPrepassUserFnCount], n, len);
+                    g_aetherPrepassUserFns[g_aetherPrepassUserFnCount][len] = '\0';
+                    g_aetherPrepassUserFnCount++;
+                }
+            }
+            c = e;
+            continue;
+        }
+        c++;
+    }
+}
+
+static int aetherPrepassIsUserFn(const char *nameStart, size_t nameLen) {
+    int i;
+    if (!nameStart || nameLen == 0 || nameLen >= AETHER_PREPASS_MAX_FN_NAME) {
+        return 0;
+    }
+    for (i = 0; i < g_aetherPrepassUserFnCount; i++) {
+        if (strlen(g_aetherPrepassUserFns[i]) == nameLen &&
+            strncmp(g_aetherPrepassUserFns[i], nameStart, nameLen) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
 
 typedef struct Buffer {
     char *data;
@@ -848,6 +920,11 @@ static char *preprocessToonBlocks(const char *source, const char *path) {
 }
 
 char *aetherAstPrepassToonBlocks(const char *source, const char *path) {
+    /* This pass runs BEFORE aetherAstPrepassBuiltins and also reaches the alias
+     * rewrites, so the user-function registry has to be populated here too --
+     * otherwise a `fn has_toon()` declaration is rewritten before the guard in
+     * the later pass ever sees it. */
+    aetherPrepassCollectUserFns(source);
     return preprocessToonBlocks(source, path);
 }
 
@@ -3157,6 +3234,17 @@ static char *applyJsonAliasesToLine(const char *line,
                 nameEnd++;
             }
             afterName = skipSpaces(nameEnd);
+            /* A name the file declares itself shadows the builtin: emit it
+             * verbatim so both the declaration and every call reach the parser
+             * unrewritten. */
+            if (aetherPrepassIsUserFn(nameStart, (size_t)(nameEnd - nameStart))) {
+                if (!bufferAppendN(&out, nameStart, (size_t)(nameEnd - nameStart))) {
+                    free(out.data);
+                    return NULL;
+                }
+                cursor = nameEnd;
+                continue;
+            }
             if (*afterName == '(' &&
                 appendAetherCapabilityAlias(&out,
                                             nameStart,
@@ -3417,6 +3505,10 @@ static char *rewriteAetherBuiltinAliases(const char *start, const char *end) {
 
 char *aetherAstPrepassBuiltins(const char *source) {
     if (!source) return NULL;
+    /* Collect `fn NAME(` declarations before any aliasing so a user's own
+     * function shadows a same-named builtin instead of having its declaration
+     * rewritten into nonsense. */
+    aetherPrepassCollectUserFns(source);
     char *aliasNormalized = rewriteAetherBuiltinAliases(source, source + strlen(source));
     if (!aliasNormalized) return NULL;
 
