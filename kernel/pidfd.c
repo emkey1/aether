@@ -70,10 +70,28 @@ static struct fd_ops pidfd_ops = {
 // Called from do_exit (kernel/exit.c) with pids_lock already held, right
 // after a task becomes a zombie: wakes any poll()/epoll_wait() blocked on a
 // pidfd referencing it.
+//
+// Must be the TRYLOCK form, because pids_lock is held here. pidfd_poll()
+// takes pids_lock, and poll_scan_ready_locked() calls it holding poll->lock,
+// so the two paths acquire the same two locks in opposite orders:
+//
+//   epoll_wait scan:  poll->lock -> pids_lock   (poll_scan_ready_locked -> pidfd_poll)
+//   task exiting:     pids_lock  -> poll->lock  (do_exit -> here -> poll_wakeup)
+//
+// which is an AB-BA deadlock, and exactly what poll.h's contract forbids:
+// do not call poll_wakeup while holding a lock your poll operation acquires.
+// This is the same bug the signalfd path had with sighand->lock, and has the
+// same shape of fix.
+//
+// Best-effort is fine here for the same reason it was there: a pidfd's
+// readiness is derived state (task->zombie), so the next scan or timeout
+// recomputes it, and do_exit goes on to wake waiters through the ordinary
+// wait/exit paths regardless. Dropping a poke costs at most one extra poll
+// round; taking the lock costs the whole emulator.
 void pidfd_notify_exit(struct task *task) {
     struct pidfd_data *data;
     list_for_each_entry(&task->pidfds, data, pidfd_link)
-        poll_wakeup(data->fd, POLL_READ);
+        poll_wakeup_trylock(data->fd, POLL_READ);
 }
 
 #define PIDFD_NONBLOCK_ O_NONBLOCK_
