@@ -1355,8 +1355,9 @@ static void ProvisionGuestHostFiles(void) {
     // later sethostname simply re-sets the same value. The app-store
     // screenshot hostnameOverride (set before boot, in didFinishLaunching)
     // keeps precedence: only seed when nothing has set the override yet.
-    extern const char *uname_hostname_override;
-    if (uname_hostname_override == NULL) {
+    extern bool uts_boot_hostname_is_set(void);
+    extern void uts_set_boot_hostname(const char *hostname);
+    if (!uts_boot_hostname_is_set()) {
         struct fd *fd = generic_open("/etc/hostname", O_RDONLY_, 0);
         if (!IS_ERR(fd)) {
             char buf[256];
@@ -1366,7 +1367,7 @@ static void ProvisionGuestHostFiles(void) {
                 buf[n] = '\0';
                 buf[strcspn(buf, "\r\n")] = '\0';
                 if (buf[0] != '\0' && buf[0] != '#')
-                    uname_hostname_override = strdup(buf);
+                    uts_set_boot_hostname(buf);
             }
         }
     }
@@ -3336,15 +3337,14 @@ static UINavigationController *CreateAboutNavigationController(BOOL recoveryMode
     extern const char *proc_ish_version;
     proc_ish_version = strdup(ishVersion.UTF8String);
     // this defaults key is set when taking app store screenshots
-    extern const char *uname_hostname_override;
+    extern void uts_set_boot_hostname(const char *hostname);
     extern bool doEnableMulticore;
     extern bool doEnableExtraLocking;
     extern pthread_mutex_t multicore_lock;
     extern pthread_mutex_t extra_lock;
     NSString *hostnameOverride = [NSUserDefaults.standardUserDefaults stringForKey:@"hostnameOverride"];
     if (hostnameOverride) {
-        free((void *) uname_hostname_override);
-        uname_hostname_override = strdup(hostnameOverride.UTF8String);
+        uts_set_boot_hostname(hostnameOverride.UTF8String);
     }
 #endif
     

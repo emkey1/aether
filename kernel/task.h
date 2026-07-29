@@ -9,6 +9,7 @@
 #include "kernel/fs.h"
 #include "kernel/signal.h"
 #include "kernel/resource.h"
+#include "kernel/uts.h"
 #include "fs/sockrestart.h"
 #include "util/list.h"
 #include "util/timer.h"
@@ -125,6 +126,9 @@ struct task {
 
     struct fdtable *files;
     struct fs_info *fs;
+    // Shared with the parent unless CLONE_NEWUTS/unshare(CLONE_NEWUTS) asked
+    // for a private one. Never NULL on a live task.
+    struct uts_namespace *uts_ns;
 
     // locked by sighand->lock
     struct sighand *sighand;

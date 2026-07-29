@@ -1,22 +1,87 @@
 #include <sys/utsname.h>
 #include <string.h>
 #include "kernel/calls.h"
+#include "kernel/uts.h"
 #include "task.h"
 #include "platform/platform.h"
+
+static_assert(UTS_NAME_LENGTH == UNAME_LENGTH, "UTS name length must match struct uname");
 
 #if __linux__
 #include <sys/sysinfo.h>
 #endif
 
 const char *uname_version = "iSH-AOK";
-char *uname_hostname_override = NULL;
-char *uname_domainname_override = NULL;
+
+struct uts_namespace init_uts_ns = {
+    .lock = LOCK_INITIALIZER,
+    .refcount = 1,
+};
+
+struct uts_namespace *uts_ns_retain(struct uts_namespace *ns) {
+    lock(&ns->lock, 0);
+    ns->refcount++;
+    unlock(&ns->lock);
+    return ns;
+}
+
+void uts_ns_release(struct uts_namespace *ns) {
+    if (ns == NULL)
+        return;
+    lock(&ns->lock, 0);
+    bool dead = --ns->refcount == 0;
+    unlock(&ns->lock);
+    // init_uts_ns is static and holds a reference that is never dropped, so
+    // it can never reach zero here.
+    if (dead)
+        free(ns);
+}
+
+struct uts_namespace *uts_ns_copy(struct uts_namespace *ns) {
+    struct uts_namespace *new_ns = malloc(sizeof(struct uts_namespace));
+    if (new_ns == NULL)
+        return NULL;
+    *new_ns = (struct uts_namespace) {};
+    lock_init(&new_ns->lock, "uts_ns\0");
+    new_ns->refcount = 1;
+    lock(&ns->lock, 0);
+    memcpy(new_ns->hostname, ns->hostname, sizeof(new_ns->hostname));
+    memcpy(new_ns->domainname, ns->domainname, sizeof(new_ns->domainname));
+    unlock(&ns->lock);
+    return new_ns;
+}
+
+struct uts_namespace *uts_ns_current(void) {
+    if (current != NULL && current->uts_ns != NULL)
+        return current->uts_ns;
+    return &init_uts_ns;
+}
+
+void uts_set_boot_hostname(const char *hostname) {
+    lock(&init_uts_ns.lock, 0);
+    if (hostname == NULL)
+        init_uts_ns.hostname[0] = '\0';
+    else
+        snprintf(init_uts_ns.hostname, sizeof(init_uts_ns.hostname), "%s", hostname);
+    unlock(&init_uts_ns.lock);
+}
+
+bool uts_boot_hostname_is_set(void) {
+    lock(&init_uts_ns.lock, 0);
+    bool set = init_uts_ns.hostname[0] != '\0';
+    unlock(&init_uts_ns.lock);
+    return set;
+}
 
 void get_current_hostname(char *hostname, size_t size) {
-    if (uname_hostname_override != NULL && uname_hostname_override[0] != '\0') {
-        snprintf(hostname, size, "%s", uname_hostname_override);
+    struct uts_namespace *ns = uts_ns_current();
+    lock(&ns->lock, 0);
+    bool set = ns->hostname[0] != '\0';
+    if (set)
+        snprintf(hostname, size, "%s", ns->hostname);
+    unlock(&ns->lock);
+    if (set)
         return;
-    }
 
     struct utsname real_uname;
     if (uname(&real_uname) < 0) {
@@ -58,10 +123,13 @@ void do_uname(struct uname *uts) {
     if (current != NULL)
         machine = task_abi_desc(current).uname_machine;
     strncpy(uts->arch, machine, sizeof(uts->arch));
-    if (uname_domainname_override != NULL && uname_domainname_override[0] != '\0')
-        snprintf(uts->domain, sizeof(uts->domain), "%s", uname_domainname_override);
+    struct uts_namespace *ns = uts_ns_current();
+    lock(&ns->lock, 0);
+    if (ns->domainname[0] != '\0')
+        snprintf(uts->domain, sizeof(uts->domain), "%s", ns->domainname);
     else
         strncpy(uts->domain, "(none)", sizeof(uts->domain));
+    unlock(&ns->lock);
     strncpy(uts->release, "5.20.66-ish_aok", sizeof(uts->release));
     strncpy(uts->system, "Linux", sizeof(uts->system));
     snprintf(uts->hostname, sizeof(uts->hostname), "%s", hostname);
@@ -95,21 +163,15 @@ dword_t sys_sethostname_guest(guest_addr_t hostname_addr, dword_t hostname_len) 
         return _EINVAL;
     }
     
-    char *new_hostname = malloc(hostname_len + 1);
-    if (new_hostname == NULL) {
-        // Handle allocation failure
-        return _ENOMEM;
-    }
-    
-    int result = user_read(hostname_addr, new_hostname, hostname_len);
-    if (result != 0) {
-        free(new_hostname);
+    char new_hostname[sizeof(uts.hostname)];
+    if (user_read(hostname_addr, new_hostname, hostname_len))
         return _EFAULT;
-    }
     new_hostname[hostname_len] = '\0'; // Null-terminate the string
 
-    free(uname_hostname_override);
-    uname_hostname_override = new_hostname;
+    struct uts_namespace *ns = uts_ns_current();
+    lock(&ns->lock, 0);
+    memcpy(ns->hostname, new_hostname, hostname_len + 1);
+    unlock(&ns->lock);
 
     return 0;
 }
@@ -123,17 +185,15 @@ dword_t sys_setdomainname_guest(guest_addr_t domainname_addr, dword_t domainname
         return _EPERM;
     if (domainname_len >= UNAME_LENGTH)
         return _EINVAL;
-    char *new_domainname = malloc(domainname_len + 1);
-    if (new_domainname == NULL)
-        return _ENOMEM;
-    int result = user_read(domainname_addr, new_domainname, domainname_len);
-    if (result != 0) {
-        free(new_domainname);
+    char new_domainname[UNAME_LENGTH];
+    if (user_read(domainname_addr, new_domainname, domainname_len))
         return _EFAULT;
-    }
     new_domainname[domainname_len] = '\0';
-    free(uname_domainname_override);
-    uname_domainname_override = new_domainname;
+
+    struct uts_namespace *ns = uts_ns_current();
+    lock(&ns->lock, 0);
+    memcpy(ns->domainname, new_domainname, domainname_len + 1);
+    unlock(&ns->lock);
     return 0;
 }
 

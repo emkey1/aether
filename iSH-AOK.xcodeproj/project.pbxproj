@@ -626,6 +626,7 @@
 		497F6C91254E5C9800C82F46 /* errno.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = errno.c; sourceTree = "<group>"; };
 		497F6C92254E5C9800C82F46 /* personality.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = personality.h; sourceTree = "<group>"; };
 		497F6C93254E5C9800C82F46 /* uname.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = uname.c; sourceTree = "<group>"; };
+		497F6C93254E5C9900C82F47 /* uts.h */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.h; path = uts.h; sourceTree = "<group>"; };
 		497F6C94254E5C9800C82F46 /* poll.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = poll.c; sourceTree = "<group>"; };
 		497F6C95254E5C9800C82F46 /* eventfd.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = eventfd.c; sourceTree = "<group>"; };
 		497F6C96254E5C9800C82F46 /* fs_info.c */ = {isa = PBXFileReference; fileEncoding = 4; lastKnownFileType = sourcecode.c.c; path = fs_info.c; sourceTree = "<group>"; };
@@ -1373,6 +1374,7 @@
 				497F6C86254E5C9700C82F46 /* time.h */,
 				497F6C8E254E5C9700C82F46 /* tls.c */,
 				497F6C93254E5C9800C82F46 /* uname.c */,
+				497F6C93254E5C9900C82F47 /* uts.h */,
 				497F6C8B254E5C9700C82F46 /* user.c */,
 				497F6C79254E5C9700C82F46 /* vdso.c */,
 				497F6C84254E5C9700C82F46 /* vdso.h */,

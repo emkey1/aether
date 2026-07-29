@@ -311,6 +311,8 @@ noreturn void do_exit(struct task *task, int status) {
     }
     fs_info_release(task->fs);
     task->fs = NULL;
+    uts_ns_release(task->uts_ns);
+    task->uts_ns = NULL;
     // sighand must be released below so it can be protected by pids_lock
     // since it can be accessed by other threads
 

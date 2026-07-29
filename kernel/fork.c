@@ -40,15 +40,15 @@
 // stress-ng's clone stressor outright, not just noisy logging.
 #define IMPLEMENTED_FLAGS (CLONE_VM_|CLONE_FILES_|CLONE_FS_|CLONE_SIGHAND_|CLONE_SYSVSEM_|CLONE_VFORK_|CLONE_THREAD_|\
         CLONE_SETTLS_|CLONE_CHILD_SETTID_|CLONE_PARENT_SETTID_|CLONE_CHILD_CLEARTID_|CLONE_DETACHED_|CLONE_PARENT_|\
-        CLONE_PIDFD_|CLONE_IO_)
-// Namespace flags are recognized but never implemented (no mount/user/pid/
-// uts/ipc/cgroup/net namespaces). Handled separately from IMPLEMENTED_FLAGS
-// below so they get the errno real Linux gives an unprivileged caller
-// (EPERM: creating a new namespace needs CAP_SYS_ADMIN/CAP_SYS_USER_NS)
-// instead of the generic "unrecognized flag" EINVAL -- callers that already
-// fall back when they lack namespace privilege need to see that, not a
-// malformed-argument error.
-#define CLONE_NEW_FLAGS_ (CLONE_NEWNS_|CLONE_NEWCGROUP_|CLONE_NEWUTS_|CLONE_NEWIPC_|CLONE_NEWUSER_|CLONE_NEWPID_|CLONE_NEWNET_)
+        CLONE_PIDFD_|CLONE_IO_|CLONE_NEWUTS_)
+// The remaining namespace flags are recognized but never implemented (no
+// mount/user/pid/ipc/cgroup/net namespaces; UTS is real, see kernel/uts.h).
+// Handled separately from IMPLEMENTED_FLAGS below so they get the errno real
+// Linux gives an unprivileged caller (EPERM: creating a new namespace needs
+// CAP_SYS_ADMIN/CAP_SYS_USER_NS) instead of the generic "unrecognized flag"
+// EINVAL -- callers that already fall back when they lack namespace privilege
+// need to see that, not a malformed-argument error.
+#define CLONE_NEW_FLAGS_ (CLONE_NEWNS_|CLONE_NEWCGROUP_|CLONE_NEWIPC_|CLONE_NEWUSER_|CLONE_NEWPID_|CLONE_NEWNET_)
 
 static struct tgroup *tgroup_copy(struct tgroup *old_group) {
     struct tgroup *group = malloc(sizeof(struct tgroup));
@@ -133,12 +133,20 @@ static int copy_task(struct task *task, dword_t flags, guest_addr_t stack, guest
             goto fail_free_files;
     }
 
+    if (flags & CLONE_NEWUTS_) {
+        task->uts_ns = uts_ns_copy(task->uts_ns);
+        if (task->uts_ns == NULL)
+            goto fail_free_fs;
+    } else {
+        uts_ns_retain(task->uts_ns);
+    }
+
     if (flags & CLONE_SIGHAND_) {
         task->sighand->refcount++;
     } else {
         task->sighand = sighand_copy(task->sighand);
         if (task->sighand == NULL)
-            goto fail_free_fs;
+            goto fail_free_uts;
     }
 
     struct tgroup *old_group = task->group;
@@ -267,6 +275,12 @@ fail_free_sighand:
     task->sighand = NULL;
     unlock(&pids_lock);
     sighand_release(dead_sighand);
+fail_free_uts:
+    lock(&task->general_lock, 0);
+    struct uts_namespace *dead_uts = task->uts_ns;
+    task->uts_ns = NULL;
+    unlock(&task->general_lock);
+    uts_ns_release(dead_uts);
 fail_free_fs:
     lock(&task->general_lock, 0);
     struct fs_info *dead_fs = task->fs;
@@ -322,6 +336,8 @@ void task_never_ran_destroy(struct task *task) {
     lock(&task->general_lock, 0);
     struct fs_info *dead_fs = task->fs;
     task->fs = NULL;
+    struct uts_namespace *dead_uts = task->uts_ns;
+    task->uts_ns = NULL;
     struct fdtable *dead_files = task->files;
     task->files = NULL;
     struct mm *dead_mm = task->mm;
@@ -331,6 +347,7 @@ void task_never_ran_destroy(struct task *task) {
     unlock(&task->general_lock);
     sighand_release(dead_sighand);
     fs_info_release(dead_fs);
+    uts_ns_release(dead_uts);
     fdtable_release(dead_files);
     mm_release(dead_mm);
     task_destroy_unlinked(task, 3);
@@ -375,6 +392,9 @@ static dword_t sys_clone_common(dword_t flags, guest_addr_t stack, guest_addr_t 
         guest_addr_t tls, guest_addr_t ctid) {
     STRACE("clone(0x%x, 0x%x, 0x%x, 0x%x, 0x%x)", flags, stack, ptid, tls, ctid);
     if (flags & CLONE_NEW_FLAGS_)
+        return _EPERM;
+    // Creating any namespace needs CAP_SYS_ADMIN in real Linux.
+    if ((flags & CLONE_NEWUTS_) && !superuser())
         return _EPERM;
     // The low byte of flags (or clone3's separate exit_signal field, folded in
     // by sys_clone3_guest) becomes task->exit_signal and is later handed to
@@ -610,9 +630,9 @@ dword_t sys_clone3(addr_t uargs_addr, dword_t size) {
 dword_t sys_unshare(dword_t flags) {
     STRACE("unshare(%#x)", flags);
 
-    const dword_t supported = CLONE_FILES_ | CLONE_FS_ | CLONE_SYSVSEM_;
+    const dword_t supported = CLONE_FILES_ | CLONE_FS_ | CLONE_SYSVSEM_ | CLONE_NEWUTS_;
     const dword_t known_unsupported = CLONE_VM_ | CLONE_SIGHAND_ | CLONE_THREAD_ |
-        CLONE_NEWNS_ | CLONE_NEWCGROUP_ | CLONE_NEWUTS_ | CLONE_NEWIPC_ |
+        CLONE_NEWNS_ | CLONE_NEWCGROUP_ | CLONE_NEWIPC_ |
         CLONE_NEWUSER_ | CLONE_NEWPID_ | CLONE_NEWNET_ | CLONE_IO_;
     const dword_t known = supported | known_unsupported;
 
@@ -620,6 +640,17 @@ dword_t sys_unshare(dword_t flags) {
         return _EINVAL;
     if (flags & known_unsupported)
         return _ENOSYS;
+    if ((flags & CLONE_NEWUTS_) && !superuser())
+        return _EPERM;
+
+    if (flags & CLONE_NEWUTS_) {
+        struct uts_namespace *new_uts = uts_ns_copy(current->uts_ns);
+        if (new_uts == NULL)
+            return _ENOMEM;
+        struct uts_namespace *old_uts = current->uts_ns;
+        current->uts_ns = new_uts;
+        uts_ns_release(old_uts);
+    }
 
     if (flags & CLONE_FILES_) {
         int err = fdtable_unshare_current();

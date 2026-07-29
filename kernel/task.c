@@ -367,8 +367,9 @@ struct task *task_create_(struct task *parent) {
 
     *task = (struct task) {};
     if (parent != NULL)
-        *task = *parent;
+        *task = *parent; // uts_ns is only aliased here; copy_task retains or copies it
     else {
+        task->uts_ns = uts_ns_retain(&init_uts_ns);
         // Treat init/root as starting with the full Linux capability set so
         // guest helpers such as setpriv can drop or reshuffle capabilities
         // without tripping over uninitialized state.
