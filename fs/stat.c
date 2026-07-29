@@ -343,6 +343,8 @@ int generic_statat_full(struct fd *at, const char *path_raw, struct statbuf *sta
             int procfd_err;
             if (procfd_statat(at, resolve_path, stat, &procfd_err))
                 return procfd_err;
+            if (procns_statat(at, resolve_path, stat, &procfd_err))
+                return procfd_err;
         }
         err = path_normalize(at, resolve_path, path, follow_links ? N_SYMLINK_FOLLOW : N_SYMLINK_NOFOLLOW);
         if (err < 0)

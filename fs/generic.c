@@ -312,12 +312,7 @@ ssize_t opath_link_readlink(struct fd *fd, char *buf, size_t bufsize) {
 // is an identity token, not a path). Linux opens them into a namespace fd;
 // letting normal resolution follow the link text as a path yields ENOENT,
 // which nix >= 2.30 treats as fatal ("saving parent mount namespace").
-static struct fd *procns_openat(struct fd *at, const char *path_raw, int flags) {
-    // O_NOFOLLOW must fail the open with ELOOP and O_PATH|O_NOFOLLOW must
-    // open the magic symlink itself; both are the link's own semantics, so
-    // leave them to normal path resolution (same rule as procfd_openat).
-    if (flags & (O_NOFOLLOW_ | O_PATH_))
-        return NULL;
+static struct fd *procns_open_path(struct fd *at, const char *path_raw) {
     char path[MAX_PATH];
     int err = path_normalize(at, path_raw, path, N_SYMLINK_NOFOLLOW);
     if (err < 0)
@@ -338,6 +333,40 @@ static struct fd *procns_openat(struct fd *at, const char *path_raw, int flags) 
     }
     mount_release(mount);
     return proc_ns_open(pid, name);
+}
+
+static struct fd *procns_openat(struct fd *at, const char *path_raw, int flags) {
+    // O_NOFOLLOW must fail the open with ELOOP and O_PATH|O_NOFOLLOW must
+    // open the magic symlink itself; both are the link's own semantics, so
+    // leave them to normal path resolution (same rule as procfd_openat).
+    if (flags & (O_NOFOLLOW_ | O_PATH_))
+        return NULL;
+    return procns_open_path(at, path_raw);
+}
+
+// stat(2)/access(2) following the final component of a /proc/PID/ns/* magic
+// link, for the same reason procfd_statat exists: the readlink text is an
+// identity token, not a path, so the generic symlink chase re-resolves
+// "uts:[4026531838]" as a path and always fails ENOENT. Linux answers from
+// the nsfs inode instead, which is what the matching open() already returns
+// here -- so borrow it.
+//
+// systemd probes support for a namespace type with exactly
+// access("/proc/self/ns/<type>", F_OK) (namespace_type_supported()). Failing
+// it made systemd skip unshare(CLONE_NEWUTS) altogether and log that the
+// kernel has no UTS namespaces, which kept our UTS support invisible to the
+// one consumer that motivated it (GH #527).
+bool procns_statat(struct fd *at, const char *path_raw, struct statbuf *stat, int *err_out) {
+    struct fd *fd = procns_open_path(at, path_raw);
+    if (fd == NULL)
+        return false; // not a /proc/PID/ns/* path -- fall through to normal resolution
+    if (IS_ERR(fd)) {
+        *err_out = (int) PTR_ERR(fd);
+        return true;
+    }
+    *err_out = generic_fstat(fd, stat);
+    fd_close(fd);
+    return true;
 }
 
 static struct fd *generic_openat_norm(struct fd *at, const char *path_raw, int flags, int mode, int extra_norm) {
@@ -644,6 +673,13 @@ int generic_getpath(struct fd *fd, char *buf) {
 }
 
 int generic_accessat(struct fd *dirfd, const char *path_raw, int mode) {
+    // access() follows the final symlink, so the procfs magic links need the
+    // same bypass stat() gets -- see procns_statat.
+    struct statbuf ns_stat;
+    int ns_err;
+    if (procns_statat(dirfd, path_raw, &ns_stat, &ns_err))
+        return ns_err < 0 ? ns_err : access_check(&ns_stat, mode);
+
     char path[MAX_PATH];
     int err = path_normalize(dirfd, path_raw, path, N_SYMLINK_FOLLOW);
     if (err < 0)

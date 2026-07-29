@@ -88,6 +88,10 @@ int generic_fstat(struct fd *fd, struct statbuf *stat);
 // descriptive (non-path) readlink target. False if path isn't such an
 // entry (result untouched, caller falls through to normal resolution).
 bool procfd_statat(struct fd *at, const char *path, struct statbuf *stat, int *err_out);
+// Same, for a /proc/PID/ns/* nsfs magic link. systemd's namespace-support
+// probe is access() on one of these, so a miss here disables namespace setup
+// for the whole unit.
+bool procns_statat(struct fd *at, const char *path, struct statbuf *stat, int *err_out);
 int generic_setattrat(struct fd *at, const char *path, struct attr attr, bool follow_links);
 int generic_utime(struct fd *at, const char *path, struct timespec atime, struct timespec mtime, bool follow_links);
 ssize_t generic_readlinkat(struct fd *at, const char *path, char *buf, size_t bufsize);

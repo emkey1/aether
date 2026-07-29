@@ -15,6 +15,7 @@
 #include <signal.h>
 #include <string.h>
 #include <unistd.h>
+#include <sys/stat.h>
 #include <sys/syscall.h>
 #include <sys/wait.h>
 #include "test_common.h"
@@ -104,25 +105,61 @@ static int child_shared_ns_writes_through(void) {
     return 0;
 }
 
+// systemd never calls unshare(CLONE_NEWUTS) unless this probe passes first:
+// namespace_type_supported() is literally access("/proc/self/ns/<type>", F_OK).
+// These are nsfs magic links whose readlink text ("uts:[4026531838]") is an
+// identity token, not a path, so chasing it as one gives ENOENT -- which is
+// how UTS support stayed invisible to systemd even once it worked, with
+// every ProtectHostname= unit logging that the kernel has no UTS namespaces.
+static void check_ns_probe(void) {
+    static const char *types[] = {"uts", "mnt", "pid", "net", "ipc", "user", "cgroup", "time"};
+    for (size_t i = 0; i < sizeof(types) / sizeof(types[0]); i++) {
+        char path[64];
+        snprintf(path, sizeof(path), "/proc/self/ns/%s", types[i]);
+        if (access(path, F_OK) < 0) {
+            printf("FAIL: access(%s, F_OK): %s\n", path, strerror(errno));
+            failures_total++;
+            continue;
+        }
+        // stat() follows the magic link and must report the nsfs inode, the
+        // same one open()+fstat() gives; lstat() still sees the symlink.
+        struct stat st, lst;
+        if (stat(path, &st) < 0) {
+            printf("FAIL: stat(%s): %s\n", path, strerror(errno));
+            failures_total++;
+            continue;
+        }
+        if (lstat(path, &lst) == 0 && !S_ISLNK(lst.st_mode)) {
+            printf("FAIL: lstat(%s) is not a symlink\n", path);
+            failures_total++;
+        }
+        test_logf("%s -> inode %llu\n", path, (unsigned long long) st.st_ino);
+    }
+}
+
 int main(int argc, char **argv) {
     test_init(argc, argv);
     alarm(test_watchdog_secs(10));
 
+    check_ns_probe();
+
+    // The namespace-containment cases below need root; the procfs probe above
+    // does not, so report its result either way rather than skipping outright.
     if (geteuid() != 0) {
-        printf("uts_namespace: SKIP (needs root)\n");
-        return 0;
+        printf("uts_namespace: SKIP containment cases (needs root)\n");
+        return finish_suite("uts_namespace");
     }
 
     char saved[256];
     if (gethostname(saved, sizeof(saved)) < 0) {
-        printf("uts_namespace: SKIP (gethostname: %s)\n", strerror(errno));
-        return 0;
+        printf("uts_namespace: SKIP containment cases (gethostname: %s)\n", strerror(errno));
+        return finish_suite("uts_namespace");
     }
     saved[sizeof(saved) - 1] = '\0';
 
     if (sethostname("uts-outer", strlen("uts-outer")) < 0) {
-        printf("uts_namespace: SKIP (sethostname unsupported: %s)\n", strerror(errno));
-        return 0;
+        printf("uts_namespace: SKIP containment cases (sethostname unsupported: %s)\n", strerror(errno));
+        return finish_suite("uts_namespace");
     }
 
     int rc = run_child(child_unshare_is_contained);
