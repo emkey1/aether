@@ -22,6 +22,12 @@
 //    switch to 53-bit and depend on each step rounding there, so their results
 //    came out wrong in the low digits and tan() was wrong everywhere.
 //
+//  * fninit (DB E3) was missing from both decoders while its neighbour fnclex
+//    (DB E2) was present, so it raised SIGILL. It resets the control word to
+//    0x037f and clears the status word -- which also resets TOP, since TOP is a
+//    field of fsw -- and because the control word changes, the live rounding
+//    and precision state has to follow it the way fldcw does.
+//
 //  * FCMOVcc tested cpu->zf/cpu->pf directly instead of the ZF/PF macros. Those
 //    flags are lazy: while the producing instruction's result is still in
 //    cpu->res the raw fields hold whatever was last materialized. glibc applies
@@ -341,6 +347,24 @@ static void test_pe_c1(void) {
     }
 }
 
+// ---------------------------------------------------------------- fninit
+
+static void test_fninit(void) {
+    unsigned short cw = 0, sw = 0;
+    // Dirty the FPU first so a no-op would be visible: a different control word
+    // and a non-empty stack.
+    unsigned short odd = 0x0f7f;
+    __asm__ volatile("fldcw %0\n\tfld1\n\tfld1\n\tfld1" :: "m"(odd) : "memory");
+    __asm__ volatile("fninit");
+    __asm__ volatile("fnstcw %0\n\tfnstsw %1" : "=m"(cw), "=m"(sw) :: "memory");
+    check("fninit resets the control word to 0x037f", cw, 0x037f);
+    check("fninit clears the status word, TOP included", sw, 0);
+    // And the FPU is usable afterwards, i.e. TOP really was reset.
+    double out = 0, in = 2.5;
+    __asm__ volatile("fldl %1\n\tfstpl %0" : "=m"(out) : "m"(in) : "memory");
+    check_d("FPU usable after fninit", out, 2.5);
+}
+
 // -------------------------------------------------------------- fabs/fchs
 
 static void test_abs_chs(void) {
@@ -371,6 +395,7 @@ int main(int argc, char **argv) {
     test_fcomi();
     test_fcmov();
     test_pe_c1();
+    test_fninit();
     test_abs_chs();
 
     if (failures_total != 0) {

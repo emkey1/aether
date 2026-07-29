@@ -499,6 +499,19 @@ void fpu_restore32(struct cpu_state *cpu, struct fpu_state32 *state) {
         memcpy(&ST(i), state->regs[i], 10);
 }
 
+// FNINIT: control word back to 0x037f (all exceptions masked, round to
+// nearest, extended precision), status word cleared -- which also resets TOP,
+// since it is a field of fsw -- and every register marked empty. We do not
+// model the tag word, so there is nothing to write for that. The control word
+// changing means the live rounding and precision state has to follow it, the
+// same way fldcw and frstor do.
+void fpu_init(struct cpu_state *cpu) {
+    cpu->fcw = 0x037f;
+    cpu->fsw = 0;
+    f80_rounding_mode = cpu->rc;
+    f80_precision = f80_precision_from_pc(cpu->pc);
+}
+
 void fpu_clex(struct cpu_state *cpu) {
     cpu->pe = cpu->ue = cpu->oe = cpu->ze = cpu->de = cpu->ie = cpu->es = cpu->sf = cpu->b = 0;
 }

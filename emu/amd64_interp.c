@@ -7787,6 +7787,9 @@ static inline int amd64_handle_x87(struct cpu_state *cpu, struct tlb *tlb,
     case 0xd977:
         fpu_cos(cpu);
         return INT_NONE;
+    case 0xdb43:
+        fpu_init(cpu);
+        return INT_NONE;
     case 0xdb42:
         fpu_clex(cpu);
         return INT_NONE;
