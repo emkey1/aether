@@ -161,6 +161,14 @@ struct data {
     struct fd *fd;
     size_t file_offset;
     const char *name;
+
+    // jit/hle.c memoizes here whether this mapping is a libc it can attach
+    // to, and which parsed module it is. Resolving that costs a path lookup
+    // (a SQLite round trip on a fakefs root) plus an ELF parse, and block
+    // translation asks the question on every fingerprint-table miss -- i.e.
+    // for essentially every block of every process. 0 = not resolved yet;
+    // see hle_mapping_module() for the encoding.
+    atomic_uint hle_memo;
 #if LEAK_DEBUG
     int pid;
     guest_addr_t dest;

@@ -54,7 +54,12 @@ libraries (libc, libpython, GTK/GLib/Pango/cairo) are re-translated for every
 process and every launch, byte-identical each time.
 
 HLE was measured to NOT help this (symtab attach actually cost +15–30% on cold
-start; fingerprint-only was neutral). The durable fix is to stop re-translating
+start; fingerprint-only was neutral). That symtab overhead was a bug, fixed
+2026-07-30: the "is this mapping a libc?" test ran per translated block
+instead of per mapping, so every block paid a path resolution (SQLite on a
+fakefs root) plus a pread. It is now memoized on `struct data` and symtab
+attach is at parity with fingerprint-only. HLE still doesn't help cold start
+— it just no longer hurts. The durable fix is to stop re-translating
 unchanged file-backed code: persist translated blocks keyed by file content +
 offset, reload them in any process that maps the same file.
 

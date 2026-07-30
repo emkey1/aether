@@ -500,6 +500,67 @@ static struct hle_module *hle_module_get(struct fd *fd, enum guest_abi abi) {
     return m;
 }
 
+// data->hle_memo encoding. 0 means "not resolved yet"; any other value is a
+// resolved answer for the abi recorded in it:
+//   bit 0     always 1, so a resolved answer is never confusable with 0
+//   bits 1-3  the guest abi the answer was resolved under
+//   bits 4+   hle_modules slot + 1, or 0 for "this mapping is not a libc"
+// Module slots stay valid forever: hle_modules entries are never freed/moved.
+#define HLE_MEMO_ABI_SHIFT 1
+#define HLE_MEMO_ABI_MASK 0x7u
+#define HLE_MEMO_SLOT_SHIFT 4
+
+static unsigned hle_memo_pack(enum guest_abi abi, int slot) {
+    return 1u | (((unsigned) abi & HLE_MEMO_ABI_MASK) << HLE_MEMO_ABI_SHIFT)
+        | ((unsigned) (slot + 1) << HLE_MEMO_SLOT_SHIFT);
+}
+static enum guest_abi hle_memo_abi(unsigned memo) {
+    return (enum guest_abi) ((memo >> HLE_MEMO_ABI_SHIFT) & HLE_MEMO_ABI_MASK);
+}
+static struct hle_module *hle_memo_module(unsigned memo) {
+    unsigned slot = memo >> HLE_MEMO_SLOT_SHIFT;
+    return slot == 0 ? NULL : &hle_modules[slot - 1];
+}
+
+// The parsed libc module this mapping belongs to, or NULL if it isn't one.
+//
+// Memoized on the mapping because everything below is expensive and the
+// answer can't change for a given `struct data`: the name comes from the
+// retained fd, which the mapping holds for its whole life. Block translation
+// calls this on every fingerprint-table miss, so without the memo every
+// translated block paid a full path resolution -- on a fakefs root that is
+// fakefs_getpath, i.e. SQLite queries -- plus a pread of the ELF header.
+// The negative answer is the one that matters most: non-libc mappings are
+// the common case and were paying the whole path resolution only to be
+// rejected by hle_libc_name() right after.
+static struct hle_module *hle_mapping_module(struct data *data,
+        enum guest_abi abi) {
+    unsigned memo = atomic_load_explicit(&data->hle_memo, memory_order_acquire);
+    if (memo != 0 && hle_memo_abi(memo) == abi)
+        return hle_memo_module(memo);
+
+    // Mapping name: exec-loader/mmap mappings usually leave data->name NULL
+    // and /proc/maps derives the path from the retained fd; do the same. A
+    // path that won't resolve memoizes as "not a libc" rather than retrying
+    // the failing lookup on every subsequent block.
+    const char *name = data->name;
+    char pathbuf[MAX_PATH];
+    if (name == NULL) {
+        extern int generic_getpath(struct fd *fd, char *buf);
+        if (generic_getpath(data->fd, pathbuf) == 0)
+            name = pathbuf;
+    }
+    struct hle_module *m = NULL;
+    if (name != NULL && hle_libc_name(name))
+        m = hle_module_get(data->fd, abi);
+    // Release so a reader that takes the memo fast path (and therefore never
+    // takes hle_modules_lock) sees the module hle_module_get finished parsing.
+    atomic_store_explicit(&data->hle_memo,
+            hle_memo_pack(abi, m == NULL ? -1 : (int) (m - hle_modules)),
+            memory_order_release);
+    return m;
+}
+
 // Resolve ip to its libc module and load bias, or return false. The bias is
 // recomputed from the live page tables on every call, so a remap of the
 // library can never act on stale addresses.
@@ -513,19 +574,7 @@ static bool hle_module_and_bias(guest_addr_t ip, enum guest_abi abi,
     struct data *data = pt->data;
     if (data->fd == NULL)
         return false;
-    // Mapping name: exec-loader/mmap mappings usually leave data->name NULL
-    // and /proc/maps derives the path from the retained fd; do the same.
-    const char *name = data->name;
-    char pathbuf[MAX_PATH];
-    if (name == NULL) {
-        extern int generic_getpath(struct fd *fd, char *buf);
-        if (generic_getpath(data->fd, pathbuf) != 0)
-            return false;
-        name = pathbuf;
-    }
-    if (!hle_libc_name(name))
-        return false;
-    struct hle_module *m = hle_module_get(data->fd, abi);
+    struct hle_module *m = hle_mapping_module(data, abi);
     if (m == NULL)
         return false;
     // Bias from the live mapping: this page's guest address minus the vaddr
