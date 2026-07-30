@@ -50,7 +50,191 @@ benchmark correctly — no fine-tuning, no worked examples beyond the document i
 
 ---
 
-## cs-aug4-matched guided board (current)
+## guide-size board: full vs medium (current)
+
+*The first board to score the [medium-context guide](aether_for_llms_medium_contexts.md)
+at all — it had existed since `091e4f0` but `DOC_VARIANTS` in the harness only
+knew `full`/`small`/`none`, so it had never been benchmarked.*
+
+**Corpus/suite:** No corpus (in-context, untrained). 17 cloud models — the
+7-model Gemini roster (`gemini-3.5-flash`, `3.1-pro-preview`, `3.1-flash-lite`,
+`3-flash-preview`, `2.5-pro`, `2.5-flash`, `2.5-flash-lite`) and the 10-model
+OpenAI roster (`gpt-5.6-luna`/`-sol`/`-terra`, `gpt-5.5`, `gpt-5.4`,
+`gpt-5.4-mini`, `gpt-5.2`, `gpt-5.1`, `o4-mini`, `o3`). Four suites, 73 tasks
+total: `tasks_v2_pos.json` v`2026-07-15-1` (simple **35**), `tasks_hard_v2.json`
+v`2026-07-28-1` (large **14**), `tasks_cs.json` v`2026-06-23-1` (cs **19**), and
+`tasks_hard_nontoon.json` v`2026-07-27-1` (non-TOON hard **5**, disjoint from
+`large`). Guides `2026-07-26-5` ([full](aether_for_llms_and_others.md), ~20,437
+prompt tokens) and `2026-07-26-6`
+([medium](aether_for_llms_medium_contexts.md), ~12,003), `aether`
+`2026-07-26-9`, `--docs full,medium --repair-attempts 2`. Cell format is
+`Compiled/Correct/Retried/Fixed`.
+
+**Not seed-pinned.** Every row here is a cloud endpoint at non-zero
+temperature; neither provider offers the deterministic seeding the local
+vLLM/llama.cpp destinations have (see [[harness-no-seed-pinning]]). Read a
+1-task delta as noise, not signal.
+
+### The headline
+
+| guide | exact-match | rate | prompt tokens |
+|---|---|---|---|
+| full | 1216/1241 | 97.99% | 33,803,998 |
+| medium | 1211/1241 | **97.58%** | **20,690,926** |
+
+**The medium guide costs 0.4 percentage points — 5 tasks in 1,241 — for 38.8%
+fewer prompt tokens.** Eleven of seventeen models tie or come out ahead on
+medium. On this evidence the medium guide is the better default for routine
+work, and the full guide earns its extra ~8,400 tokens only where the missing
+capability surface actually bites.
+
+### What the 5-task gap actually is
+
+Two causes, neither diffuse:
+
+- **A real content gap, since fixed.** `gpt-5.6-luna`, `-sol` and `-terra` each
+  lose exactly one task, and it is the same task: `mstream_roundtrip`. The
+  medium guide documented `mstreamcreate` / `mstreambuffer` / `mstreamfree` but
+  not **`mstreamfromstring(text)`**, leaving no documented way to get text
+  *into* a stream; all three models filled the gap by inventing `mstreamwrite`
+  and failing `SCOPE-001`. 15 of 17 full-guide solutions used
+  `mstreamfromstring`. Fixed in guide `2026-07-30-1` — **these rows predate that
+  fix**.
+- **One preview model, not the guide.** `gemini-3-flash-preview` accounts for
+  −5 on its own, and its remaining failures are `unexpected token '`'` — it
+  emits Markdown-formatted reasoning instead of raw source, more often under
+  the medium guide. The prompt's "return raw source only" instruction is
+  byte-identical across variants (OUT-001 is in both guides), so this is
+  output-format non-compliance from a preview model. `gemini-2.5-pro`'s −3 is
+  the same shape.
+
+### Two contamination classes were removed before these numbers
+
+Worth recording, because the first pass at this board was badly wrong and both
+failure modes score identically to a wrong answer:
+
+1. **Credit exhaustion.** Both accounts ran dry mid-board — OpenAI
+   `insufficient_quota`, Gemini `RESOURCE_EXHAUSTED` ("prepayment credits are
+   depleted"). 310 cases died. Because the harness runs `full` to completion
+   *then* `medium` for each suite, the full guide banked its results and the
+   medium guide hit the empty tank — a **systematic** bias against whichever
+   variant runs second, not random noise. Uncorrected, this read as
+   `gemini-2.5-pro` −15, `o3` −28, `gpt-5.1` −10. After top-up and re-run, 93%
+   of those cases passed; `o3` went 28/73 → 72/73.
+2. **Truncated replies.** 18 further cases had the provider cut the response
+   off mid-statement (`println("op ", i, ": deposit ", amount, " -> ",` — ends
+   mid-argument-list) at only ~320 completion tokens against an 8,000 ceiling,
+   so not an output-limit problem. These carry `generated_ok: true` with source
+   that cannot parse, so a `generated_ok` filter cannot see them; the signature
+   is a compiler diagnostic about an *unclosed* construct. All Gemini, none
+   OpenAI, hitting both variants (`3-flash-preview`: 6 medium, 3 full).
+
+`Tests/aether_doc_bench/rerun_nogen_cases.py` re-runs both classes and patches
+them back, recomputing summaries through the harness's own `summarize*`
+functions. Re-running only failed cases rather than whole models was an 82%
+saving (310 requests vs 1,752).
+
+### Cache accounting on prior boards was wrong
+
+The harness read only the Responses-API `input_tokens_details`, never the
+chat-completions `prompt_tokens_details`, so **every `openai_chat_completions`
+destination reported 0 cached tokens regardless of what the provider served
+from cache**. Any cache figure on an earlier board that used that adapter is
+understated. Fixed in `d8b778044`; measured rates on this board were 55–59%
+overall, and up to 97.6% on OpenAI where the guide prefix stays warm across a
+model's suites.
+
+### Simple (35 tasks)
+
+| model | full guide | medium guide |
+|---|---|---|
+| `gpt-5.1` | 35/**35**/0/0 | 35/**35**/0/0 |
+| `gpt-5.5` | 35/**35**/0/0 | 35/**35**/1/1 |
+| `gpt-5.4-mini` | 35/**35**/2/2 | 35/**35**/1/1 |
+| `o4-mini` | 35/**35**/0/0 | 35/**35**/0/0 |
+| `gpt-5.4` | 35/**35**/0/0 | 35/**35**/1/1 |
+| `o3` | 35/**35**/0/0 | 35/**35**/0/0 |
+| `gpt-5.2` | 35/**35**/0/0 | 35/**35**/2/2 |
+| `gemini-3.5-flash` | 35/**35**/0/0 | 35/**35**/1/1 |
+| `gemini-2.5-flash` | 35/**35**/3/3 | 35/**35**/1/1 |
+| `gpt-5.6-terra` | 35/**35**/0/0 | 34/34/1/0 |
+| `gpt-5.6-sol` | 35/**35**/0/0 | 34/34/2/1 |
+| `gpt-5.6-luna` | 35/**35**/0/0 | 34/34/2/1 |
+| `gemini-3.1-flash-lite` | 34/34/2/1 | 35/**35**/3/3 |
+| `gemini-3.1-pro-preview` | 35/**35**/0/0 | 34/34/1/0 |
+| `gemini-3-flash-preview` | 35/**35**/0/0 | 34/34/1/0 |
+| `gemini-2.5-pro` | 35/**35**/0/0 | 34/34/0/0 |
+| `gemini-2.5-flash-lite` | 34/33/3/1 | 33/33/4/2 |
+
+### Large (14 tasks)
+
+| model | full guide | medium guide |
+|---|---|---|
+| `gpt-5.6-terra` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.1` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.5` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.4-mini` | 14/**14**/0/0 | 14/**14**/1/1 |
+| `o4-mini` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.6-sol` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.4` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.6-luna` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `o3` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gpt-5.2` | 14/**14**/1/1 | 14/**14**/0/0 |
+| `gemini-3.1-pro-preview` | 14/**14**/0/0 | 14/**14**/3/3 |
+| `gemini-3.5-flash` | 14/**14**/0/0 | 14/**14**/0/0 |
+| `gemini-2.5-flash` | 14/**14**/0/0 | 14/**14**/1/1 |
+| `gemini-3.1-flash-lite` | 13/13/6/5 | 14/**14**/8/8 |
+| `gemini-2.5-pro` | 14/**14**/0/0 | 13/13/1/0 |
+| `gemini-2.5-flash-lite` | 12/11/11/8 | 14/13/9/8 |
+| `gemini-3-flash-preview` | 13/13/7/6 | 9/9/9/4 |
+
+### CS-classics (19 tasks)
+
+| model | full guide | medium guide |
+|---|---|---|
+| `gpt-5.6-terra` | 19/**19**/2/2 | 19/**19**/1/1 |
+| `gpt-5.1` | 19/**19**/1/1 | 19/**19**/1/1 |
+| `gpt-5.5` | 19/**19**/0/0 | 19/**19**/1/1 |
+| `gpt-5.4-mini` | 19/**19**/1/1 | 19/**19**/1/1 |
+| `o4-mini` | 19/**19**/1/1 | 19/**19**/1/1 |
+| `gpt-5.6-sol` | 19/**19**/1/1 | 19/**19**/0/0 |
+| `gpt-5.4` | 19/**19**/0/0 | 19/**19**/0/0 |
+| `gpt-5.6-luna` | 19/**19**/1/1 | 19/**19**/1/1 |
+| `o3` | 19/**19**/2/2 | 19/**19**/2/2 |
+| `gpt-5.2` | 19/**19**/1/1 | 19/**19**/1/1 |
+| `gemini-3.1-pro-preview` | 19/**19**/0/0 | 19/**19**/0/0 |
+| `gemini-3-flash-preview` | 19/**19**/1/1 | 19/**19**/5/5 |
+| `gemini-2.5-pro` | 19/**19**/0/0 | 19/**19**/2/2 |
+| `gemini-3.5-flash` | 19/**19**/0/0 | 19/**19**/0/0 |
+| `gemini-2.5-flash` | 18/18/5/4 | 19/**19**/0/0 |
+| `gemini-3.1-flash-lite` | 18/18/1/0 | 18/18/1/0 |
+| `gemini-2.5-flash-lite` | 16/15/7/3 | 15/14/8/3 |
+
+### Non-TOON hard (5 tasks)
+
+| model | full guide | medium guide |
+|---|---|---|
+| `gpt-5.6-terra` | 5/**5**/1/1 | 5/**5**/2/2 |
+| `gpt-5.5` | 5/**5**/1/1 | 5/**5**/0/0 |
+| `gpt-5.4-mini` | 5/**5**/1/1 | 5/**5**/0/0 |
+| `gpt-5.6-sol` | 5/**5**/0/0 | 5/**5**/0/0 |
+| `gpt-5.4` | 5/**5**/1/1 | 5/**5**/1/1 |
+| `gpt-5.6-luna` | 5/**5**/0/0 | 5/**5**/1/1 |
+| `gpt-5.2` | 5/**5**/0/0 | 5/**5**/2/2 |
+| `gemini-3.1-flash-lite` | 5/**5**/3/3 | 5/**5**/2/2 |
+| `gemini-2.5-flash` | 5/**5**/1/1 | 5/**5**/2/2 |
+| `gpt-5.1` | 4/4/2/1 | 5/**5**/1/1 |
+| `o4-mini` | 4/4/0/0 | 5/**5**/1/1 |
+| `o3` | 4/4/1/0 | 5/**5**/1/1 |
+| `gemini-3.1-pro-preview` | 4/4/1/0 | 5/**5**/2/2 |
+| `gemini-2.5-pro` | 5/**5**/2/2 | 4/4/0/0 |
+| `gemini-3.5-flash` | 4/4/1/0 | 4/4/2/1 |
+| `gemini-3-flash-preview` | 2/2/3/0 | 2/2/3/0 |
+| `gemini-2.5-flash-lite` | 2/2/5/2 | 2/1/4/0 |
+
+---
+
+## cs-aug4-matched guided board (local cohort)
 
 **Corpus/suite:** No corpus (in-context, untrained) — same 8-model cohort as
 [the `cs-aug4` fine-tuned board](aether_specialization_findings.md#cs-aug4-current-primary-board):
@@ -513,6 +697,21 @@ stdout byte-for-byte. Task sets:
 (cs).
 
 ## Status
+
+**Guide version note (2026-07-30):** the medium guide moved
+`2026-07-26-6` → `2026-07-30-1` to document `mstreamfromstring(text)`, a gap the
+full-vs-medium board found (see that board's "What the 5-task gap actually is").
+The board's medium column was scored against `2026-07-26-6`, i.e. **before** the
+fix, so the three `gpt-5.6` rows that lose `mstream_roundtrip` should improve on
+a re-run; they have not been re-scored. The full and small guides are unchanged
+at `2026-07-26-5` / `2026-07-26-4`. Per-revision rationale for all three guides
+now lives in [`aether_guide_changelog.md`](aether_guide_changelog.md).
+
+**Harness note (2026-07-30):** cache-token accounting was broken for every
+`openai_chat_completions` destination — the parser read only the Responses-API
+`input_tokens_details`, so chat-completions providers always reported zero
+cached tokens. Any cached-token figure on a board predating `d8b778044` is
+understated. Scores are unaffected; this only ever touched usage reporting.
 
 This is the finalized-guide / repair-on cohort, regenerated from the per-model
 result JSONs. The two cloud **GLM** models (`glm-5-turbo`, `glm-5.2`) are served via

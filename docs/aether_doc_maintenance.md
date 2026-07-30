@@ -11,6 +11,12 @@ reference documents.
 | `aether_for_llms_medium_contexts.md` | ~11K tokens, hard ceiling 13K | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
+Each guide carries its own `YYYY-MM-DD-N` stamp in its front matter; bump it
+with `tools/bump_guide_version.py` and record what changed in
+[`aether_guide_changelog.md`](aether_guide_changelog.md). That stamp is what
+`aether_guided_benchmark.md` records per row, so a bump with no changelog entry
+leaves a score nothing can be attributed to.
+
 The medium guide targets **about a third of a 32K window**, leaving room for the
 prompt, a reasoning trace, the emitted program, and one repair round. If it grows
 past ~13K tokens it stops being the thing it exists to be — cut, do not creep.
