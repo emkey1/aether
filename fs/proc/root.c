@@ -777,10 +777,6 @@ void proc_root_init(void) {
 enum sysfs_node_kind {
     sysfs_root,
     sysfs_devices,
-    sysfs_fs,
-    sysfs_cgroup,
-    sysfs_cgroup_unified,
-    sysfs_cgroup_elogind,
     sysfs_system,
     sysfs_cpu,
     sysfs_online,
@@ -788,22 +784,137 @@ enum sysfs_node_kind {
     sysfs_present,
     sysfs_kernel_max,
     sysfs_offline,
+    sysfs_isolated,
+    sysfs_nohz_full,
+    sysfs_smt,
+    sysfs_smt_active,
+    sysfs_smt_control,
     sysfs_cpu_dir,
+    sysfs_cpu_online,
+    sysfs_cpu_uevent,
+    sysfs_cpu_topology,
+    sysfs_topo_physical_package_id,
+    sysfs_topo_core_id,
+    sysfs_topo_cluster_id,
+    sysfs_topo_core_siblings,
+    sysfs_topo_core_siblings_list,
+    sysfs_topo_package_cpus,
+    sysfs_topo_package_cpus_list,
+    sysfs_topo_cluster_cpus,
+    sysfs_topo_cluster_cpus_list,
+    sysfs_topo_thread_siblings,
+    sysfs_topo_thread_siblings_list,
+    sysfs_cpu_cache,
+    sysfs_cache_index,
+    sysfs_cache_level,
+    sysfs_cache_type,
+    sysfs_cache_size,
+    sysfs_cache_line_size,
+    sysfs_cache_shared_map,
+    sysfs_cache_shared_list,
+    sysfs_fs,
+    sysfs_cgroup,
+    sysfs_cgroup_unified,
+    sysfs_cgroup_elogind,
     sysfs_block,
     sysfs_block_disk1,
     sysfs_block_disk1_dev,
     sysfs_block_disk1_stat,
 };
 
+// A node is identified by (kind, cpu, index). cpu is -1 except under cpuN/,
+// index is -1 except under cache/indexM/.
 struct sysfs_node {
     enum sysfs_node_kind kind;
     int cpu;
+    int index;
 };
+
+// Everything the tree needs to know about a node except its contents: who its
+// parent is, what it is called, and what mode it carries. Two kinds have
+// generated names (cpuN and indexM) and are marked with a NULL name; their
+// multiplicity comes from sysfs_node_multiplicity(). Sibling order here is the
+// order readdir reports, and the parent links drive lookup and getpath, so a
+// new attribute only has to be added here and in sysfs_file_data().
+struct sysfs_node_desc {
+    enum sysfs_node_kind kind;
+    enum sysfs_node_kind parent;
+    const char *name;
+    mode_t_ mode;
+};
+
+#define SYSFS_DIR (S_IFDIR | 0555)
+#define SYSFS_REG (S_IFREG | 0444)
+
+static const struct sysfs_node_desc sysfs_node_descs[] = {
+    {sysfs_root, sysfs_root, "", SYSFS_DIR},
+
+    {sysfs_devices, sysfs_root, "devices", SYSFS_DIR},
+    {sysfs_fs, sysfs_root, "fs", SYSFS_DIR},
+    {sysfs_block, sysfs_root, "block", SYSFS_DIR},
+
+    {sysfs_system, sysfs_devices, "system", SYSFS_DIR},
+    {sysfs_cpu, sysfs_system, "cpu", SYSFS_DIR},
+
+    {sysfs_online, sysfs_cpu, "online", SYSFS_REG},
+    {sysfs_possible, sysfs_cpu, "possible", SYSFS_REG},
+    {sysfs_present, sysfs_cpu, "present", SYSFS_REG},
+    {sysfs_kernel_max, sysfs_cpu, "kernel_max", SYSFS_REG},
+    {sysfs_offline, sysfs_cpu, "offline", SYSFS_REG},
+    {sysfs_isolated, sysfs_cpu, "isolated", SYSFS_REG},
+    {sysfs_nohz_full, sysfs_cpu, "nohz_full", SYSFS_REG},
+    {sysfs_smt, sysfs_cpu, "smt", SYSFS_DIR},
+    {sysfs_cpu_dir, sysfs_cpu, NULL, SYSFS_DIR},
+
+    {sysfs_smt_active, sysfs_smt, "active", SYSFS_REG},
+    {sysfs_smt_control, sysfs_smt, "control", SYSFS_REG},
+
+    {sysfs_cpu_online, sysfs_cpu_dir, "online", SYSFS_REG},
+    {sysfs_cpu_uevent, sysfs_cpu_dir, "uevent", SYSFS_REG},
+    {sysfs_cpu_topology, sysfs_cpu_dir, "topology", SYSFS_DIR},
+    {sysfs_cpu_cache, sysfs_cpu_dir, "cache", SYSFS_DIR},
+
+    {sysfs_topo_physical_package_id, sysfs_cpu_topology, "physical_package_id", SYSFS_REG},
+    {sysfs_topo_core_id, sysfs_cpu_topology, "core_id", SYSFS_REG},
+    {sysfs_topo_cluster_id, sysfs_cpu_topology, "cluster_id", SYSFS_REG},
+    {sysfs_topo_core_siblings, sysfs_cpu_topology, "core_siblings", SYSFS_REG},
+    {sysfs_topo_core_siblings_list, sysfs_cpu_topology, "core_siblings_list", SYSFS_REG},
+    {sysfs_topo_package_cpus, sysfs_cpu_topology, "package_cpus", SYSFS_REG},
+    {sysfs_topo_package_cpus_list, sysfs_cpu_topology, "package_cpus_list", SYSFS_REG},
+    {sysfs_topo_cluster_cpus, sysfs_cpu_topology, "cluster_cpus", SYSFS_REG},
+    {sysfs_topo_cluster_cpus_list, sysfs_cpu_topology, "cluster_cpus_list", SYSFS_REG},
+    {sysfs_topo_thread_siblings, sysfs_cpu_topology, "thread_siblings", SYSFS_REG},
+    {sysfs_topo_thread_siblings_list, sysfs_cpu_topology, "thread_siblings_list", SYSFS_REG},
+
+    {sysfs_cache_index, sysfs_cpu_cache, NULL, SYSFS_DIR},
+
+    {sysfs_cache_level, sysfs_cache_index, "level", SYSFS_REG},
+    {sysfs_cache_type, sysfs_cache_index, "type", SYSFS_REG},
+    {sysfs_cache_size, sysfs_cache_index, "size", SYSFS_REG},
+    {sysfs_cache_line_size, sysfs_cache_index, "coherency_line_size", SYSFS_REG},
+    {sysfs_cache_shared_map, sysfs_cache_index, "shared_cpu_map", SYSFS_REG},
+    {sysfs_cache_shared_list, sysfs_cache_index, "shared_cpu_list", SYSFS_REG},
+
+    {sysfs_cgroup, sysfs_fs, "cgroup", SYSFS_DIR},
+    {sysfs_cgroup_unified, sysfs_cgroup, "unified", SYSFS_DIR},
+    {sysfs_cgroup_elogind, sysfs_cgroup, "elogind", SYSFS_DIR},
+
+    {sysfs_block_disk1, sysfs_block, "disk1", SYSFS_DIR},
+    {sysfs_block_disk1_dev, sysfs_block_disk1, "dev", SYSFS_REG},
+    {sysfs_block_disk1_stat, sysfs_block_disk1, "stat", SYSFS_REG},
+};
+
+#undef SYSFS_DIR
+#undef SYSFS_REG
 
 static const struct fd_ops sysfs_fdops;
 
+// 12 bits of cpu, 4 of cache index, the rest kind. Deliberately kept inside 32
+// bits so the packing does not depend on a 64-bit uintptr_t.
 static inline void *sysfs_encode_node(struct sysfs_node node) {
-    uintptr_t value = ((uintptr_t) node.kind << 16) | (unsigned short) (node.cpu + 1);
+    uintptr_t value = ((uintptr_t) node.kind << 16)
+                    | ((uintptr_t) (node.index + 1) << 12)
+                    | (uintptr_t) (node.cpu + 1);
     return (void *) value;
 }
 
@@ -811,189 +922,193 @@ static inline struct sysfs_node sysfs_decode_node(void *value) {
     uintptr_t encoded = (uintptr_t) value;
     return (struct sysfs_node) {
         .kind = (enum sysfs_node_kind) (encoded >> 16),
-        .cpu = ((int) (encoded & 0xffff)) - 1,
+        .index = ((int) ((encoded >> 12) & 0xf)) - 1,
+        .cpu = ((int) (encoded & 0xfff)) - 1,
     };
 }
 
+static struct sysfs_node sysfs_node_make(enum sysfs_node_kind kind, int cpu, int index) {
+    return (struct sysfs_node) {.kind = kind, .cpu = cpu, .index = index};
+}
+
 static int sysfs_cpu_count(void) {
-    return MAX(get_cpu_count(), 1);
+    int count = MAX(get_cpu_count(), 1);
+    // The node encoding reserves 12 bits for the cpu number.
+    return MIN(count, 4094);
+}
+
+static const struct sysfs_node_desc *sysfs_desc(enum sysfs_node_kind kind) {
+    for (size_t i = 0; i < sizeof(sysfs_node_descs) / sizeof(sysfs_node_descs[0]); i++) {
+        if (sysfs_node_descs[i].kind == kind)
+            return &sysfs_node_descs[i];
+    }
+    return NULL;
+}
+
+// One cache level as sysfs describes it. Sizes come from the host; a level the
+// host will not report is simply not published.
+struct sysfs_cache_desc {
+    int level;
+    const char *type;
+    uint64_t size;
+    bool shared_all;
+};
+
+static int sysfs_cache_descs(struct sysfs_cache_desc descs[3]) {
+    static bool loaded = false;
+    static struct host_cache_geometry geometry;
+    if (!loaded) {
+        // Benign race: every writer stores the same host-derived values.
+        hostCacheGeometry(&geometry);
+        loaded = true;
+    }
+
+    // Without a coherency line size there is no honest way to fill in an index
+    // directory, so publish none rather than invent one.
+    if (geometry.line_size == 0)
+        return 0;
+
+    int count = 0;
+    if (geometry.l1d_size != 0)
+        descs[count++] = (struct sysfs_cache_desc) {1, "Data", geometry.l1d_size, false};
+    if (geometry.l1i_size != 0)
+        descs[count++] = (struct sysfs_cache_desc) {1, "Instruction", geometry.l1i_size, false};
+    if (geometry.l2_size != 0)
+        descs[count++] = (struct sysfs_cache_desc) {2, "Unified", geometry.l2_size, true};
+    return count;
+}
+
+static uint64_t sysfs_cache_line_bytes(void) {
+    struct host_cache_geometry geometry;
+    hostCacheGeometry(&geometry);
+    return geometry.line_size;
+}
+
+// How many instances of this kind exist under one parent.
+static int sysfs_node_multiplicity(enum sysfs_node_kind kind) {
+    if (kind == sysfs_cpu_dir)
+        return sysfs_cpu_count();
+    if (kind == sysfs_cache_index) {
+        struct sysfs_cache_desc descs[3];
+        return sysfs_cache_descs(descs);
+    }
+    return 1;
 }
 
 static bool sysfs_node_name(struct sysfs_node node, char *buf, size_t bufsize) {
-    switch (node.kind) {
-        case sysfs_root:
-            return snprintf(buf, bufsize, "") >= 0;
-        case sysfs_devices:
-            return snprintf(buf, bufsize, "devices") >= 0;
-        case sysfs_fs:
-            return snprintf(buf, bufsize, "fs") >= 0;
-        case sysfs_cgroup:
-            return snprintf(buf, bufsize, "cgroup") >= 0;
-        case sysfs_cgroup_unified:
-            return snprintf(buf, bufsize, "unified") >= 0;
-        case sysfs_cgroup_elogind:
-            return snprintf(buf, bufsize, "elogind") >= 0;
-        case sysfs_system:
-            return snprintf(buf, bufsize, "system") >= 0;
-        case sysfs_cpu:
-            return snprintf(buf, bufsize, "cpu") >= 0;
-        case sysfs_online:
-            return snprintf(buf, bufsize, "online") >= 0;
-        case sysfs_possible:
-            return snprintf(buf, bufsize, "possible") >= 0;
-        case sysfs_present:
-            return snprintf(buf, bufsize, "present") >= 0;
-        case sysfs_kernel_max:
-            return snprintf(buf, bufsize, "kernel_max") >= 0;
-        case sysfs_offline:
-            return snprintf(buf, bufsize, "offline") >= 0;
-        case sysfs_cpu_dir:
-            return snprintf(buf, bufsize, "cpu%d", node.cpu) >= 0;
-        case sysfs_block:
-            return snprintf(buf, bufsize, "block") >= 0;
-        case sysfs_block_disk1:
-            return snprintf(buf, bufsize, "disk1") >= 0;
-        case sysfs_block_disk1_dev:
-            return snprintf(buf, bufsize, "dev") >= 0;
-        case sysfs_block_disk1_stat:
-            return snprintf(buf, bufsize, "stat") >= 0;
-    }
-    return false;
+    if (node.kind == sysfs_cpu_dir)
+        return snprintf(buf, bufsize, "cpu%d", node.cpu) >= 0;
+    if (node.kind == sysfs_cache_index)
+        return snprintf(buf, bufsize, "index%d", node.index) >= 0;
+    const struct sysfs_node_desc *desc = sysfs_desc(node.kind);
+    if (desc == NULL || desc->name == NULL)
+        return false;
+    return snprintf(buf, bufsize, "%s", desc->name) >= 0;
 }
 
 static mode_t_ sysfs_node_mode(struct sysfs_node node) {
-    switch (node.kind) {
-        case sysfs_root:
-        case sysfs_devices:
-        case sysfs_fs:
-        case sysfs_cgroup:
-        case sysfs_cgroup_unified:
-        case sysfs_cgroup_elogind:
-        case sysfs_system:
-        case sysfs_cpu:
-        case sysfs_cpu_dir:
-        case sysfs_block:
-        case sysfs_block_disk1:
-            return S_IFDIR | 0555;
-        case sysfs_online:
-        case sysfs_possible:
-        case sysfs_present:
-        case sysfs_kernel_max:
-        case sysfs_offline:
-        case sysfs_block_disk1_dev:
-        case sysfs_block_disk1_stat:
-            return S_IFREG | 0444;
-    }
-    return S_IFREG | 0444;
+    const struct sysfs_node_desc *desc = sysfs_desc(node.kind);
+    return desc != NULL ? desc->mode : (S_IFREG | 0444);
 }
 
 static ino_t sysfs_node_inode(struct sysfs_node node) {
-    switch (node.kind) {
-        case sysfs_root: return 1;
-        case sysfs_devices: return 2;
-        case sysfs_fs: return 3;
-        case sysfs_cgroup: return 4;
-        case sysfs_cgroup_unified: return 5;
-        case sysfs_cgroup_elogind: return 6;
-        case sysfs_system: return 7;
-        case sysfs_cpu: return 8;
-        case sysfs_online: return 9;
-        case sysfs_possible: return 10;
-        case sysfs_present: return 11;
-        case sysfs_kernel_max: return 12;
-        case sysfs_offline: return 13;
-        case sysfs_cpu_dir: return 100 + node.cpu;
-        case sysfs_block: return 14;
-        case sysfs_block_disk1: return 15;
-        case sysfs_block_disk1_dev: return 16;
-        case sysfs_block_disk1_stat: return 17;
+    return (ino_t) ((uint64_t) (node.kind + 1) * 1000000
+                    + (uint64_t) (node.cpu + 1) * 100
+                    + (uint64_t) (node.index + 1));
+}
+
+// Resolve one path component against the children of `parent`, inheriting the
+// parent's cpu/index coordinates.
+static bool sysfs_lookup_child(struct sysfs_node parent, const char *name, size_t namelen,
+                               struct sysfs_node *child_out) {
+    for (size_t i = 0; i < sizeof(sysfs_node_descs) / sizeof(sysfs_node_descs[0]); i++) {
+        const struct sysfs_node_desc *desc = &sysfs_node_descs[i];
+        if (desc->kind == sysfs_root || desc->parent != parent.kind)
+            continue;
+
+        if (desc->name != NULL) {
+            if (strlen(desc->name) != namelen || strncmp(desc->name, name, namelen) != 0)
+                continue;
+            *child_out = sysfs_node_make(desc->kind, parent.cpu, parent.index);
+            return true;
+        }
+
+        // Generated name: cpuN or indexN.
+        char scratch[32];
+        if (namelen >= sizeof(scratch))
+            continue;
+        memcpy(scratch, name, namelen);
+        scratch[namelen] = '\0';
+
+        int n = -1;
+        int consumed = 0;
+        const char *prefix = desc->kind == sysfs_cpu_dir ? "cpu%d%n" : "index%d%n";
+        if (sscanf(scratch, prefix, &n, &consumed) != 1 || consumed != (int) namelen)
+            continue;
+        if (n < 0 || n >= sysfs_node_multiplicity(desc->kind))
+            continue;
+        if (desc->kind == sysfs_cpu_dir)
+            *child_out = sysfs_node_make(desc->kind, n, parent.index);
+        else
+            *child_out = sysfs_node_make(desc->kind, parent.cpu, n);
+        return true;
     }
-    return 0;
+    return false;
 }
 
 static bool sysfs_lookup_node(const char *path, struct sysfs_node *node_out) {
-    if (path[0] == '/')
-        path++;
-    if (strcmp(path, "") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_root, .cpu = -1};
-        return true;
+    struct sysfs_node node = sysfs_node_make(sysfs_root, -1, -1);
+    const char *p = path;
+    while (*p != '\0') {
+        while (*p == '/')
+            p++;
+        if (*p == '\0')
+            break;
+        const char *end = strchr(p, '/');
+        size_t len = end != NULL ? (size_t) (end - p) : strlen(p);
+        struct sysfs_node child;
+        if (!sysfs_lookup_child(node, p, len, &child))
+            return false;
+        node = child;
+        p += len;
     }
-    if (strcmp(path, "devices") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "fs") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_fs, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "fs/cgroup") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_cgroup, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "fs/cgroup/unified") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_cgroup_unified, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "fs/cgroup/elogind") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_cgroup_elogind, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_system, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system/cpu") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_cpu, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system/cpu/online") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_online, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system/cpu/possible") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_possible, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system/cpu/present") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_present, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system/cpu/kernel_max") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_kernel_max, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "devices/system/cpu/offline") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_offline, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "block") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_block, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "block/disk1") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_block_disk1, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "block/disk1/dev") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_block_disk1_dev, .cpu = -1};
-        return true;
-    }
-    if (strcmp(path, "block/disk1/stat") == 0) {
-        *node_out = (struct sysfs_node) {.kind = sysfs_block_disk1_stat, .cpu = -1};
-        return true;
-    }
+    *node_out = node;
+    return true;
+}
 
-    int cpu;
-    if (sscanf(path, "devices/system/cpu/cpu%d", &cpu) == 1 && cpu >= 0 && cpu < sysfs_cpu_count()) {
-        char exact[32];
-        snprintf(exact, sizeof(exact), "devices/system/cpu/cpu%d", cpu);
-        if (strcmp(path, exact) == 0) {
-            *node_out = (struct sysfs_node) {.kind = sysfs_cpu_dir, .cpu = cpu};
-            return true;
+// Hex cpumask in Linux's format: 32-bit groups, most significant first,
+// comma-separated, with every group but the leading one zero-padded.
+static size_t sysfs_format_cpumask(char *buf, size_t bufsize, int first, int last) {
+    int ncpus = sysfs_cpu_count();
+    int groups = (ncpus + 31) / 32;
+    size_t total = 0;
+    for (int g = groups - 1; g >= 0; g--) {
+        uint32_t word = 0;
+        for (int bit = 0; bit < 32; bit++) {
+            int cpu = g * 32 + bit;
+            if (cpu < ncpus && cpu >= first && cpu <= last)
+                word |= (uint32_t) 1 << bit;
         }
+        size_t written;
+        size_t room = total < bufsize ? bufsize - total : 0;
+        char *at = buf != NULL ? buf + total : NULL;
+        if (g == groups - 1)
+            written = snprintf(at, room, "%x", word);
+        else
+            written = snprintf(at, room, ",%08x", word);
+        total += written;
     }
+    size_t room = total < bufsize ? bufsize - total : 0;
+    total += snprintf(buf != NULL ? buf + total : NULL, room, "\n");
+    return total;
+}
 
-    return false;
+static size_t sysfs_format_cpulist(char *buf, size_t bufsize, int first, int last) {
+    if (first > last)
+        return snprintf(buf, bufsize, "\n");
+    if (first == last)
+        return snprintf(buf, bufsize, "%d\n", first);
+    return snprintf(buf, bufsize, "%d-%d\n", first, last);
 }
 
 // Real Linux keeps this at /sys/block/<dev>/stat: the same 11 diskstats
@@ -1008,41 +1123,95 @@ static size_t sysfs_disk1_stat_format(char *buf, size_t bufsize) {
                      read_ops, read_sectors, write_ops, write_sectors);
 }
 
-static size_t sysfs_file_size(struct sysfs_node node) {
-    int last_cpu = sysfs_cpu_count() - 1;
-    switch (node.kind) {
-        case sysfs_online:
-        case sysfs_possible:
-        case sysfs_present:
-            if (last_cpu == 0)
-                return strlen("0\n");
-            return strlen("0-\n") + 10;
-        case sysfs_kernel_max:
-            return 12;
-        case sysfs_offline:
-            return strlen("\n");
-        case sysfs_block_disk1_dev:
-            return strlen("8:0\n");
-        case sysfs_block_disk1_stat:
-            return sysfs_disk1_stat_format(NULL, 0);
-        default:
-            return 0;
-    }
-}
-
+// Contents of a leaf. snprintf semantics throughout: called with (NULL, 0) it
+// returns the length without writing, which is how sysfs_file_size() stays in
+// lockstep with what read() actually produces.
+//
+// Topology is deliberately FLAT: one package, one cluster, every CPU its own
+// core, no SMT. iSH's CPUs are host pthreads that the host scheduler migrates
+// across performance and efficiency clusters at will, and sched_setaffinity is
+// a no-op here (kernel/resource.c), so publishing the host's P/E split as
+// sysfs clusters would invite hwloc and libgomp to make placement decisions
+// that cannot take effect. The real host split is reported where it is a fact
+// about the machine rather than a scheduling contract: the "host cores" line
+// in /proc/cpuinfo.
 static size_t sysfs_file_data(struct sysfs_node node, char *buf, size_t bufsize) {
-    int last_cpu = sysfs_cpu_count() - 1;
+    int ncpus = sysfs_cpu_count();
+    int last_cpu = ncpus - 1;
+
+    struct sysfs_cache_desc caches[3];
+    int cache_count = 0;
+    if (node.index >= 0)
+        cache_count = sysfs_cache_descs(caches);
+
     switch (node.kind) {
         case sysfs_online:
         case sysfs_possible:
         case sysfs_present:
-            if (last_cpu == 0)
-                return snprintf(buf, bufsize, "0\n");
-            return snprintf(buf, bufsize, "0-%d\n", last_cpu);
+            return sysfs_format_cpulist(buf, bufsize, 0, last_cpu);
         case sysfs_kernel_max:
             return snprintf(buf, bufsize, "%d\n", last_cpu);
         case sysfs_offline:
+        case sysfs_isolated:
+        case sysfs_nohz_full:
             return snprintf(buf, bufsize, "\n");
+        case sysfs_smt_active:
+            return snprintf(buf, bufsize, "0\n");
+        case sysfs_smt_control:
+            return snprintf(buf, bufsize, "notimplemented\n");
+
+        case sysfs_cpu_online:
+            return snprintf(buf, bufsize, "1\n");
+        case sysfs_cpu_uevent:
+            return snprintf(buf, bufsize, "DRIVER=processor\n");
+
+        case sysfs_topo_physical_package_id:
+        case sysfs_topo_cluster_id:
+            return snprintf(buf, bufsize, "0\n");
+        case sysfs_topo_core_id:
+            return snprintf(buf, bufsize, "%d\n", node.cpu);
+        case sysfs_topo_core_siblings:
+        case sysfs_topo_package_cpus:
+        case sysfs_topo_cluster_cpus:
+            return sysfs_format_cpumask(buf, bufsize, 0, last_cpu);
+        case sysfs_topo_core_siblings_list:
+        case sysfs_topo_package_cpus_list:
+        case sysfs_topo_cluster_cpus_list:
+            return sysfs_format_cpulist(buf, bufsize, 0, last_cpu);
+        case sysfs_topo_thread_siblings:
+            return sysfs_format_cpumask(buf, bufsize, node.cpu, node.cpu);
+        case sysfs_topo_thread_siblings_list:
+            return sysfs_format_cpulist(buf, bufsize, node.cpu, node.cpu);
+
+        case sysfs_cache_level:
+            if (node.index >= cache_count)
+                return 0;
+            return snprintf(buf, bufsize, "%d\n", caches[node.index].level);
+        case sysfs_cache_type:
+            if (node.index >= cache_count)
+                return 0;
+            return snprintf(buf, bufsize, "%s\n", caches[node.index].type);
+        case sysfs_cache_size:
+            if (node.index >= cache_count)
+                return 0;
+            return snprintf(buf, bufsize, "%lluK\n",
+                            (unsigned long long) (caches[node.index].size / 1024));
+        case sysfs_cache_line_size:
+            return snprintf(buf, bufsize, "%llu\n",
+                            (unsigned long long) sysfs_cache_line_bytes());
+        case sysfs_cache_shared_map:
+            if (node.index >= cache_count)
+                return 0;
+            if (caches[node.index].shared_all)
+                return sysfs_format_cpumask(buf, bufsize, 0, last_cpu);
+            return sysfs_format_cpumask(buf, bufsize, node.cpu, node.cpu);
+        case sysfs_cache_shared_list:
+            if (node.index >= cache_count)
+                return 0;
+            if (caches[node.index].shared_all)
+                return sysfs_format_cpulist(buf, bufsize, 0, last_cpu);
+            return sysfs_format_cpulist(buf, bufsize, node.cpu, node.cpu);
+
         case sysfs_block_disk1_dev:
             return snprintf(buf, bufsize, "8:0\n");
         case sysfs_block_disk1_stat:
@@ -1050,6 +1219,12 @@ static size_t sysfs_file_data(struct sysfs_node node, char *buf, size_t bufsize)
         default:
             return 0;
     }
+}
+
+static size_t sysfs_file_size(struct sysfs_node node) {
+    if (S_ISDIR(sysfs_node_mode(node)))
+        return 0;
+    return sysfs_file_data(node, NULL, 0);
 }
 
 static struct fd *sysfs_open(struct mount *mount, const char *path, int UNUSED(flags), int UNUSED(mode)) {
@@ -1088,62 +1263,31 @@ static int sysfs_fstat(struct fd *fd, struct statbuf *stat) {
 
 static int sysfs_getpath(struct fd *fd, char *buf) {
     struct sysfs_node node = sysfs_decode_node(fd->fs_data);
-    switch (node.kind) {
-        case sysfs_root:
-            strcpy(buf, "");
-            break;
-        case sysfs_devices:
-            strcpy(buf, "/devices");
-            break;
-        case sysfs_fs:
-            strcpy(buf, "/fs");
-            break;
-        case sysfs_cgroup:
-            strcpy(buf, "/fs/cgroup");
-            break;
-        case sysfs_cgroup_unified:
-            strcpy(buf, "/fs/cgroup/unified");
-            break;
-        case sysfs_cgroup_elogind:
-            strcpy(buf, "/fs/cgroup/elogind");
-            break;
-        case sysfs_system:
-            strcpy(buf, "/devices/system");
-            break;
-        case sysfs_cpu:
-            strcpy(buf, "/devices/system/cpu");
-            break;
-        case sysfs_online:
-            strcpy(buf, "/devices/system/cpu/online");
-            break;
-        case sysfs_possible:
-            strcpy(buf, "/devices/system/cpu/possible");
-            break;
-        case sysfs_present:
-            strcpy(buf, "/devices/system/cpu/present");
-            break;
-        case sysfs_kernel_max:
-            strcpy(buf, "/devices/system/cpu/kernel_max");
-            break;
-        case sysfs_offline:
-            strcpy(buf, "/devices/system/cpu/offline");
-            break;
-        case sysfs_cpu_dir:
-            snprintf(buf, MAX_PATH, "/devices/system/cpu/cpu%d", node.cpu);
-            break;
-        case sysfs_block:
-            strcpy(buf, "/block");
-            break;
-        case sysfs_block_disk1:
-            strcpy(buf, "/block/disk1");
-            break;
-        case sysfs_block_disk1_dev:
-            strcpy(buf, "/block/disk1/dev");
-            break;
-        case sysfs_block_disk1_stat:
-            strcpy(buf, "/block/disk1/stat");
-            break;
+
+    // Walk up to the root collecting names, then emit them in order.
+    char names[8][32];
+    int depth = 0;
+    while (node.kind != sysfs_root && depth < (int) (sizeof(names) / sizeof(names[0]))) {
+        if (!sysfs_node_name(node, names[depth], sizeof(names[depth])))
+            return _EINVAL;
+        depth++;
+        const struct sysfs_node_desc *desc = sysfs_desc(node.kind);
+        if (desc == NULL)
+            return _EINVAL;
+        // Leaving a cpuN or indexM directory drops that coordinate.
+        int cpu = node.kind == sysfs_cpu_dir ? -1 : node.cpu;
+        int index = node.kind == sysfs_cache_index ? -1 : node.index;
+        node = sysfs_node_make(desc->parent, cpu, index);
     }
+
+    size_t pos = 0;
+    for (int i = depth - 1; i >= 0; i--) {
+        int written = snprintf(buf + pos, MAX_PATH - pos, "/%s", names[i]);
+        if (written < 0 || (size_t) written >= MAX_PATH - pos)
+            return _ENAMETOOLONG;
+        pos += written;
+    }
+    buf[pos] = '\0';
     return 0;
 }
 
@@ -1152,9 +1296,12 @@ static ssize_t sysfs_pread(struct fd *fd, void *buf, size_t bufsize, off_t off) 
     if (S_ISDIR(sysfs_node_mode(node)))
         return _EISDIR;
 
-    char data[128];
+    char data[256];
     size_t size = sysfs_file_data(node, data, sizeof(data));
-    if ((size_t) off > size)
+    // snprintf reports what it WOULD have written; never read past the buffer.
+    if (size >= sizeof(data))
+        size = sizeof(data) - 1;
+    if (off < 0 || (size_t) off > size)
         return 0;
     size_t remaining = size - off;
     if (bufsize > remaining)
@@ -1183,86 +1330,60 @@ static off_t_ sysfs_lseek(struct fd *fd, off_t_ off, int whence) {
 
 static int sysfs_readdir(struct fd *fd, struct dir_entry *entry) {
     struct sysfs_node node = sysfs_decode_node(fd->fs_data);
-    unsigned long index = fd->offset++;
-    struct sysfs_node child;
+    if (!S_ISDIR(sysfs_node_mode(node)))
+        return _ENOTDIR;
 
-    switch (node.kind) {
-        case sysfs_root:
-            switch (index) {
-                case 0: child = (struct sysfs_node) {.kind = sysfs_devices, .cpu = -1}; break;
-                case 1: child = (struct sysfs_node) {.kind = sysfs_fs, .cpu = -1}; break;
-                case 2: child = (struct sysfs_node) {.kind = sysfs_block, .cpu = -1}; break;
-                default: return 0;
-            }
-            break;
-        case sysfs_devices:
-            if (index != 0)
-                return 0;
-            child = (struct sysfs_node) {.kind = sysfs_system, .cpu = -1};
-            break;
-        case sysfs_fs:
-            if (index != 0)
-                return 0;
-            child = (struct sysfs_node) {.kind = sysfs_cgroup, .cpu = -1};
-            break;
-        case sysfs_cgroup:
-            if (index == 0) {
-                child = (struct sysfs_node) {.kind = sysfs_cgroup_unified, .cpu = -1};
-                break;
-            }
-            if (index != 1)
-                return 0;
-            child = (struct sysfs_node) {.kind = sysfs_cgroup_elogind, .cpu = -1};
-            break;
-        case sysfs_cgroup_unified:
-        case sysfs_cgroup_elogind:
-            return 0;
-        case sysfs_system:
-            if (index != 0)
-                return 0;
-            child = (struct sysfs_node) {.kind = sysfs_cpu, .cpu = -1};
-            break;
-        case sysfs_cpu: {
-            int ncpus = sysfs_cpu_count();
-            switch (index) {
-                case 0: child = (struct sysfs_node) {.kind = sysfs_online, .cpu = -1}; break;
-                case 1: child = (struct sysfs_node) {.kind = sysfs_possible, .cpu = -1}; break;
-                case 2: child = (struct sysfs_node) {.kind = sysfs_present, .cpu = -1}; break;
-                case 3: child = (struct sysfs_node) {.kind = sysfs_kernel_max, .cpu = -1}; break;
-                case 4: child = (struct sysfs_node) {.kind = sysfs_offline, .cpu = -1}; break;
-                default:
-                    if ((int) index - 5 >= ncpus)
-                        return 0;
-                    child = (struct sysfs_node) {.kind = sysfs_cpu_dir, .cpu = (int) index - 5};
-                    break;
-            }
-            break;
+    unsigned long index = fd->offset++;
+
+    // "." and ".." come first, as on any real filesystem. Their absence used
+    // to make `ls -a /sys/...` skip them entirely and left getdents with a
+    // tiny buffer reporting EOF instead of EINVAL.
+    if (index == 0) {
+        strcpy(entry->name, ".");
+        entry->inode = sysfs_node_inode(node);
+        entry->type = dir_entry_type_for_mode(sysfs_node_mode(node));
+        return 1;
+    }
+    if (index == 1) {
+        const struct sysfs_node_desc *desc = sysfs_desc(node.kind);
+        struct sysfs_node parent = node;
+        if (desc != NULL && node.kind != sysfs_root) {
+            int cpu = node.kind == sysfs_cpu_dir ? -1 : node.cpu;
+            int idx = node.kind == sysfs_cache_index ? -1 : node.index;
+            parent = sysfs_node_make(desc->parent, cpu, idx);
         }
-        case sysfs_cpu_dir:
-            return 0;
-        case sysfs_block:
-            if (index != 0)
-                return 0;
-            child = (struct sysfs_node) {.kind = sysfs_block_disk1, .cpu = -1};
-            break;
-        case sysfs_block_disk1:
-            switch (index) {
-                case 0: child = (struct sysfs_node) {.kind = sysfs_block_disk1_dev, .cpu = -1}; break;
-                case 1: child = (struct sysfs_node) {.kind = sysfs_block_disk1_stat, .cpu = -1}; break;
-                default: return 0;
-            }
-            break;
-        case sysfs_block_disk1_dev:
-        case sysfs_block_disk1_stat:
-            return 0;
-        default:
-            return _ENOTDIR;
+        strcpy(entry->name, "..");
+        entry->inode = sysfs_node_inode(parent);
+        entry->type = dir_entry_type_for_mode(sysfs_node_mode(parent));
+        return 1;
     }
 
-    sysfs_node_name(child, entry->name, sizeof(entry->name));
-    entry->inode = sysfs_node_inode(child);
-    entry->type = dir_entry_type_for_mode(sysfs_node_mode(child));
-    return 1;
+    unsigned long remaining = index - 2;
+    for (size_t i = 0; i < sizeof(sysfs_node_descs) / sizeof(sysfs_node_descs[0]); i++) {
+        const struct sysfs_node_desc *desc = &sysfs_node_descs[i];
+        if (desc->kind == sysfs_root || desc->parent != node.kind)
+            continue;
+
+        unsigned long count = (unsigned long) sysfs_node_multiplicity(desc->kind);
+        if (remaining >= count) {
+            remaining -= count;
+            continue;
+        }
+
+        struct sysfs_node child;
+        if (desc->kind == sysfs_cpu_dir)
+            child = sysfs_node_make(desc->kind, (int) remaining, node.index);
+        else if (desc->kind == sysfs_cache_index)
+            child = sysfs_node_make(desc->kind, node.cpu, (int) remaining);
+        else
+            child = sysfs_node_make(desc->kind, node.cpu, node.index);
+
+        sysfs_node_name(child, entry->name, sizeof(entry->name));
+        entry->inode = sysfs_node_inode(child);
+        entry->type = dir_entry_type_for_mode(sysfs_node_mode(child));
+        return 1;
+    }
+    return 0;
 }
 
 static int sysfs_close(struct fd *UNUSED(fd)) {

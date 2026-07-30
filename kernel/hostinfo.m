@@ -461,23 +461,16 @@ static BOOL readSysctlUnsigned(const char *name, unsigned *value) {
     return sysctlbyname(name, value, &size, NULL, 0) == 0;
 }
 
-static NSString *readSysctlString(const char *name) {
-    size_t size = 0;
-    if (sysctlbyname(name, NULL, &size, NULL, 0) != 0 || size == 0)
-        return nil;
-
-    char *buffer = malloc(size);
-    if (buffer == NULL)
-        return nil;
-
-    if (sysctlbyname(name, buffer, &size, NULL, 0) != 0) {
-        free(buffer);
-        return nil;
-    }
-
-    NSString *result = [NSString stringWithCString:buffer encoding:NSUTF8StringEncoding];
-    free(buffer);
-    return result;
+static BOOL readSysctlUnsigned64(const char *name, uint64_t *value) {
+    size_t size = sizeof(*value);
+    if (sysctlbyname(name, value, &size, NULL, 0) == 0 && size == sizeof(*value))
+        return YES;
+    // Several of these are published as 32-bit on some hosts.
+    unsigned narrow = 0;
+    if (!readSysctlUnsigned(name, &narrow))
+        return NO;
+    *value = narrow;
+    return YES;
 }
 
 static NSDictionary<NSString *, NSNumber *> *hostRuntimeCoreTopology(void) {
@@ -500,21 +493,27 @@ static NSDictionary<NSString *, NSNumber *> *hostRuntimeCoreTopology(void) {
                 continue;
         }
 
-        char levelNameKey[64];
-        snprintf(levelNameKey, sizeof(levelNameKey), "hw.perflevel%u.name", i);
-        NSString *levelName = [[readSysctlString(levelNameKey) lowercaseString] copy];
-
-        if ([levelName containsString:@"perf"]) {
-            performance += coreCount;
-        } else if ([levelName containsString:@"eff"]) {
-            efficiency += coreCount;
-        } else if (perfLevelCount == 1) {
+        // Tier strictly by perf-level INDEX: hw.perflevel0 is by Apple's
+        // definition the highest-performance level, so index order is the
+        // authoritative signal and hw.perflevel<N>.name is just a label.
+        //
+        // This used to substring-match the name ("perf" -> performance, "eff"
+        // -> efficiency) and only fall back to index order, which the M5
+        // generation breaks outright: an M5 Max reports perflevel0.name
+        // "Super" (the FAST cluster) and perflevel1.name "Performance" (the
+        // slow one), so the name match tagged the slower tier as performance
+        // and the faster tier fell through to the same bucket -- 18 cores
+        // reported as performance=18 efficiency=0. A name check that runs
+        // before the index check can only ever override good information with
+        // a guess, so it is gone.
+        if (perfLevelCount == 1) {
             homogeneous += coreCount;
         } else if (i == 0) {
             performance += coreCount;
         } else if (i == perfLevelCount - 1) {
             efficiency += coreCount;
         } else {
+            // A hypothetical 3+-level part: only the extremes are named tiers.
             homogeneous += coreCount;
         }
     }
@@ -675,4 +674,25 @@ char *copyHostCoreTopology(void) {
         summary = [NSString stringWithFormat:@"homogeneous=%ld", (long) homogeneous];
     }
     return strdup([summary UTF8String]);
+}
+
+void hostCacheGeometry(struct host_cache_geometry *out) {
+    if (out == NULL)
+        return;
+    *out = (struct host_cache_geometry) {0};
+
+    // Apple Silicon publishes per-tier geometry under hw.perflevel<N>.* and a
+    // plain hw.l1*/hw.l2cachesize pair. The plain names report the SMALLER
+    // tier (on an M5 Max, hw.l1dcachesize is perflevel1's 64K, not
+    // perflevel0's 128K), which is exactly what we want: /sys presents one
+    // homogeneous machine, and a library that blocks or tiles on cache size
+    // must use the conservative number or it will thrash on the small cores.
+    // Fall back to the fast tier only if the plain names are missing.
+    if (!readSysctlUnsigned64("hw.l1icachesize", &out->l1i_size))
+        readSysctlUnsigned64("hw.perflevel0.l1icachesize", &out->l1i_size);
+    if (!readSysctlUnsigned64("hw.l1dcachesize", &out->l1d_size))
+        readSysctlUnsigned64("hw.perflevel0.l1dcachesize", &out->l1d_size);
+    if (!readSysctlUnsigned64("hw.l2cachesize", &out->l2_size))
+        readSysctlUnsigned64("hw.perflevel0.l2cachesize", &out->l2_size);
+    readSysctlUnsigned64("hw.cachelinesize", &out->line_size);
 }

@@ -6,10 +6,15 @@
 #include <unistd.h>
 #include <sys/utsname.h>
 
+#ifdef __APPLE__
+#include <sys/sysctl.h>
+#endif
+
 #include "fs/dev.h"
 #include "fs/proc/ish.h"
 #include "jit/jit.h"
 #include "kernel/errno.h"
+#include "kernel/hostinfo.h"
 
 void ISHDiagnosticsRecordGuestFatalSync(const char *kind, const char *summary, const char *detail) {
     if (getenv("ISH_TRACE_GUEST_FATAL") == NULL)
@@ -63,6 +68,31 @@ char *copyHostCoreTopology(void) {
         cpus = 1;
     snprintf(buf, sizeof(buf), "%ld", cpus);
     return strdup(buf);
+}
+
+void hostCacheGeometry(struct host_cache_geometry *out) {
+    if (out == NULL)
+        return;
+    *out = (struct host_cache_geometry) {0};
+#ifdef __APPLE__
+    // Same conservative choice as the app build (kernel/hostinfo.m): the plain
+    // hw.l1*/hw.l2cachesize names report the smaller tier on Apple Silicon.
+    size_t size;
+    size = sizeof(out->l1i_size);
+    if (sysctlbyname("hw.l1icachesize", &out->l1i_size, &size, NULL, 0) != 0)
+        out->l1i_size = 0;
+    size = sizeof(out->l1d_size);
+    if (sysctlbyname("hw.l1dcachesize", &out->l1d_size, &size, NULL, 0) != 0)
+        out->l1d_size = 0;
+    size = sizeof(out->l2_size);
+    if (sysctlbyname("hw.l2cachesize", &out->l2_size, &size, NULL, 0) != 0)
+        out->l2_size = 0;
+    size = sizeof(out->line_size);
+    if (sysctlbyname("hw.cachelinesize", &out->line_size, &size, NULL, 0) != 0)
+        out->line_size = 0;
+#endif
+    // Non-Darwin CLI hosts leave every field 0; sysfs then omits the cache
+    // attributes entirely rather than publishing made-up geometry.
 }
 
 char *printHostInfo(void) {
