@@ -363,19 +363,29 @@ static void test_vfork_exec_true(void) {
 }
 
 // Covers two clone-flag fixes (issue #423 Tier 1b):
-//  1. CLONE_NEWUTS (and the other CLONE_NEW* namespace flags) must return
-//     EPERM for an unprivileged caller, not the generic "flag not recognized"
-//     EINVAL -- so callers that already fall back when they lack namespace
-//     privilege see that, instead of treating it as malformed input.
-static void test_clone_newuts_eperm(void) {
+//  1. CLONE_NEWUTS is implemented (issue #527, see uts_namespace.c), so it
+//     must SUCCEED for a privileged caller and give the child its own UTS
+//     namespace. Unprivileged, it must still be EPERM -- "you lack
+//     CAP_SYS_ADMIN", the errno a caller that falls back on missing namespace
+//     privilege expects -- and never the generic "flag not recognized" EINVAL
+//     that this originally regressed against. The other CLONE_NEW* flags stay
+//     unimplemented and keep returning EPERM to everyone.
+static void test_clone_newuts(void) {
+    bool privileged = geteuid() == 0;
     char *stack = malloc(65536);
     pid_t pid = clone((int (*)(void *)) getpid, stack + 65536, CLONE_NEWUTS | SIGCHLD, NULL);
     int err = errno;
     free(stack);
     if (pid != -1) {
         waitpid(pid, NULL, 0);
-        failf("clone CLONE_NEWUTS -> EPERM (clone unexpectedly succeeded)",
-              (uint64_t) pid, 0, 0, (uint64_t) -1, 0, 0);
+        if (!privileged)
+            failf("clone CLONE_NEWUTS unprivileged -> EPERM (unexpectedly succeeded)",
+                  (uint64_t) pid, 0, 0, (uint64_t) -1, 0, 0);
+        return;
+    }
+    if (privileged) {
+        test_logf("clone CLONE_NEWUTS as root: errno=%d (%s)\n", err, strerror(err));
+        failf("clone CLONE_NEWUTS as root -> success", (uint64_t) err, 0, 0, 0, 0, 0);
         return;
     }
     test_log_if(err != EPERM, "clone CLONE_NEWUTS: errno=%d (%s)\n", err, strerror(err));
@@ -437,7 +447,7 @@ int main(int argc, char **argv) {
     test_exec_sigmask_persists(argv);
     test_exec_env_argv(argv);
     test_vfork_exec_true();
-    test_clone_newuts_eperm();
+    test_clone_newuts();
     test_clone_parent_reparents();
     return finish_suite("process_lifecycle");
 }
