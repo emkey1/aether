@@ -12545,6 +12545,33 @@ int amd64_jit_xgetbv(struct cpu_state *cpu, struct tlb *tlb,
     return INT_NONE;
 }
 
+// Port I/O: IN/OUT (e4/e5 imm8, e6/e7 imm8, ec/ed dx, ee/ef dx). These are
+// ring-0 instructions -- a user-mode process needs IOPL(3) or an ioperm bitmap
+// bit, neither of which iSH grants -- so the only correct outcome is the same
+// one real hardware gives: #GP(0), which Linux turns into SIGSEGV/SI_KERNEL.
+//
+// This matters because probing for a hypervisor by faulting is a real,
+// deliberate userspace idiom, not a bug in the guest. util-linux's lscpu
+// detects VMware with the "VMXh"/port-0x5658 backdoor: it arms a SIGSEGV
+// handler, runs `in eax, dx`, and siglongjmps out of the fault to conclude
+// "not VMware". Falling through to the generic unrecognized-opcode path gave
+// SIGILL instead, which lscpu does not catch, so `lscpu` died outright on the
+// amd64 guest rather than printing a single line of output.
+//
+// rip stays AT the faulting instruction (not past it): a fault, unlike a trap,
+// reports the instruction that caused it, and the interpreter's own INT_PRIV
+// path rewinds to amd64_current_insn_rip for exactly this reason.
+//
+// JIT-side only, deliberately -- see amd64_jit_xgetbv above for why the
+// interpreter is not the place for this.
+int amd64_jit_port_io(struct cpu_state *cpu, struct tlb *tlb,
+        unsigned long insn_ip) {
+    (void) tlb;
+    cpu->amd64_rip = (qword_t) insn_ip;
+    amd64_sync_legacy_regs(cpu);
+    return INT_PRIV;
+}
+
 int amd64_jit_cpuid(struct cpu_state *cpu, struct tlb *tlb,
         unsigned long next_ip) {
     guest_addr_t checked_next_ip;

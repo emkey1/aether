@@ -6052,6 +6052,27 @@ static int gen_step64(struct gen_state *state, struct tlb *tlb) {
         return false;
     }
 
+    // IN/OUT (e4-e7 imm8-port, ec-ef dx-port). Ring-0 only from user mode, so
+    // every form raises #GP -- SIGSEGV, not the SIGILL the unhandled-opcode
+    // fallback was producing. lscpu's VMware backdoor probe catches SIGSEGV
+    // and siglongjmps out of it; SIGILL killed the process instead. Operand
+    // size makes no difference to the fault, so a 66 prefix is fine here; a
+    // LOCK prefix is genuinely #UD on hardware, so leave that to the fallback.
+    if (!insn.two_byte_opcode && !insn.lock_prefix &&
+            ((insn.opcode >= 0xe4 && insn.opcode <= 0xe7) ||
+             (insn.opcode >= 0xec && insn.opcode <= 0xef))) {
+        amd64_jit_debug("port-io-gpf ip=%llx opcode=%02x",
+                (unsigned long long) insn.start_ip,
+                (unsigned) insn.opcode);
+        // The imm8 of the e4-e7 forms is deliberately not consumed: the fault
+        // reports the instruction's own address, so nothing after the opcode
+        // is ever needed.
+        gen_amd64_helper_tlb_1_retint(state, amd64_jit_port_io,
+                (unsigned long) insn.start_ip);
+        gen_exit(state);
+        return false;
+    }
+
     if (amd64_jit_plain_prefixes(&insn) && insn.two_byte_opcode &&
             insn.op2 == 0x05) {
         next_ip = insn.end_ip;
@@ -10267,6 +10288,21 @@ void helper_aad(struct cpu_state *cpu, uint32_t base);
 } while (0)
 #define RET_NEAR(imm) ggg(ret, state->orig_ip, 4 + imm); end_block = true
 #define INT(code) gggg(interrupt, (uint8_t) code, state->ip, 0); end_block = true
+
+// in/out (decode.h's 0xe4-0xe7, 0xec-0xef). Port I/O is ring-0, so from user
+// mode the only correct outcome is #GP(0) -- SIGSEGV -- rather than the SIGILL
+// the unhandled-opcode path used to give. That mattered because faulting on a
+// port access is a deliberate hypervisor-probe idiom: util-linux's lscpu arms
+// a SIGSEGV handler, runs the "VMXh"/port-0x5658 VMware backdoor, and
+// siglongjmps out of the fault. It does not handle SIGILL, so lscpu died at
+// startup on the x86 guests instead of printing anything.
+//
+// state->orig_ip, not state->ip: a fault reports the instruction that caused
+// it, unlike INT above, whose traps report the instruction after. The
+// segfault_addr slot is 0 -- this is not a memory fault, and the kernel's
+// i386 GPF fixups only decode load/store opcodes, so they decline it and it
+// reaches the SIGSEGV/SI_KERNEL delivery the same way INT_PRIV does.
+#define PORT_IO() gggg(interrupt, INT_GPF, state->orig_ip, 0); end_block = true
 
 #define SET(cc, dst) ga(set, cond_##cc); store(dst, 8)
 #define SETN(cc, dst) ga(setn, cond_##cc); store(dst, 8)

@@ -1477,6 +1477,25 @@ restart:
         case 0xe3: TRACEI("jcxz rel8\t");
                    READIMM8; JCXZ_REL(imm); break;
 
+        // in/out. Ring-0 from user mode -- no IOPL(3), no ioperm bitmap -- so
+        // every form is #GP(0), which Linux delivers as SIGSEGV. Missing here
+        // entirely, so they used to fall through to UNDEFINED and raise SIGILL
+        // instead; see PORT_IO in jit/gen.c for what that broke. The imm8 of
+        // the e4-e7 forms is read and discarded so the instruction length is
+        // still correct for anything that walks the stream.
+        case 0xe4: TRACEI("in al, imm8\t");
+                   READIMM8; (void) imm; PORT_IO(); break;
+        case 0xe5: TRACEI("in eax, imm8\t");
+                   READIMM8; (void) imm; PORT_IO(); break;
+        case 0xe6: TRACEI("out imm8, al\t");
+                   READIMM8; (void) imm; PORT_IO(); break;
+        case 0xe7: TRACEI("out imm8, eax\t");
+                   READIMM8; (void) imm; PORT_IO(); break;
+        case 0xec: TRACEI("in al, dx"); PORT_IO(); break;
+        case 0xed: TRACEI("in eax, dx"); PORT_IO(); break;
+        case 0xee: TRACEI("out dx, al"); PORT_IO(); break;
+        case 0xef: TRACEI("out dx, eax"); PORT_IO(); break;
+
         case 0xe8: TRACEI("call near\t");
                    READIMM; CALL_REL(imm); break;
 
