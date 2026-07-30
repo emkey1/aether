@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-07-26-6*
+*Guide version: 2026-07-30-1*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -94,8 +94,11 @@ wrong shape is what stops you writing it.
     does not rename, so an export called `classifySupport` is called
     `classifySupport`, never a guessed `classify`.
 24. **MS-001.** `MStream` is the memory-stream handle type. `mstreamcreate()`
-    returns `MStream`, never `Int` or `Text`; read contents with
-    `mstreambuffer(ms) -> Text`.
+    and `mstreamfromstring(text)` return `MStream`, never `Int` or `Text`; read
+    contents with `mstreambuffer(ms) -> Text`. To build a stream that already
+    holds text, call `mstreamfromstring(text)` — there is no stream-write
+    builtin, so `mstreamcreate()` followed by a guessed `mstreamwrite(...)` is
+    wrong.
 25. **FMT-001.** If the prompt specifies exact output, match it exactly —
     spacing, casing, line order, decimal precision. Print `avg0=0`, not
     `avg0 = 0`.
@@ -1264,8 +1267,9 @@ in an `MStream` out-buffer.
 - `httprequest(session, method, url, body, out) -> Int` — returns the HTTP
   status; `body` is the request payload (`""` for GET); `out` is an initialized
   `MStream`
-- `mstreamcreate() -> MStream`, `mstreambuffer(ms) -> Text`, `mstreamfree(ms)` —
-  all pure
+- `mstreamcreate() -> MStream`, `mstreamfromstring(text) -> MStream`,
+  `mstreambuffer(ms) -> Text`, `mstreamfree(ms)` — all pure. There is no
+  stream-write builtin: to get text into a stream use `mstreamfromstring`.
 
 ```aether
 fn fetch(url: Text) -> Void {
