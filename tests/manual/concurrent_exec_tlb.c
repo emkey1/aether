@@ -19,6 +19,7 @@
 // child exiting normally.
 #define _GNU_SOURCE
 #include <errno.h>
+#include <fcntl.h>
 #include <string.h>
 #include <unistd.h>
 #include <sys/wait.h>
@@ -40,6 +41,28 @@ static int is_true(const char *label, int cond) {
 // cc1 exits 1 on the bogus flag; that's fine — only a signal death (or the
 // emulator dying entirely, which kills this test with it) is a failure.
 static char target[512] = "/bin/sh";
+
+// cc1 diagnoses the bogus flag but then falls through to compiling stdin, so it
+// only exits promptly if stdin is at EOF. Whatever stdin the suite inherited
+// (a terminal, a pipe held open by the launcher, ...) must not leak into the
+// exec'd child or every round blocks forever in read() and the parent wedges in
+// wait4(). Point fd 0 at /dev/null in the child; close it if that fails so the
+// read fails with EBADF rather than hanging. fd 1/2 go to /dev/null as well —
+// with stdin at EOF cc1 compiles the empty translation unit and prints a time
+// report per exec, which would bury the suite's own output; only the child's
+// wait status matters here.
+static void child_stdio_to_devnull(void) {
+    int fd = open("/dev/null", O_RDWR);
+    if (fd < 0) {
+        close(STDIN_FILENO);
+        return;
+    }
+    dup2(fd, STDIN_FILENO);
+    dup2(fd, STDOUT_FILENO);
+    dup2(fd, STDERR_FILENO);
+    if (fd > STDERR_FILENO)
+        close(fd);
+}
 
 static void find_cc1(void) {
     FILE *p = popen("cc -print-prog-name=cc1 2>/dev/null", "r");
@@ -77,6 +100,7 @@ int main(int argc, char **argv) {
                 // `sh -c exec` keeps the old-side counter in the same small
                 // band the original repro hit (a suite-built dynamic binary
                 // carries a large constant offset and never collides).
+                child_stdio_to_devnull();
                 execl("/bin/sh", "/bin/sh", "-c", cmd, (char *) NULL);
                 _exit(127);
             }
