@@ -23,7 +23,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
-| `2026-07-31-1` | 2026-07-31 | `PENDING` | fix: appendix no longer contradicts the prose for 68 documented builtins |
+| `2026-07-31-1` | 2026-07-31 | `e47d4d6` | fix: appendix no longer contradicts the prose for 68 documented builtins |
 | `2026-07-26-5` | 2026-07-26 | `36308d4` | docs: complete builtin inventory appendix, and gate all three guides |
 | `2026-07-26-4` | 2026-07-26 | `58e5d2e` | feat: PREC-001 for bitwise-vs-comparison, has_builtin sees core builtins |
 | `2026-07-26-3` | 2026-07-26 | `f2fa697` | corpus: text/tuple/bitwise examples, FIELD-003 wording, clock docs |
