@@ -116,6 +116,27 @@ types on the phone; output renders on the big screen.
 - Scene lifecycle: the external scene can connect before *or* after the
   terminal scene, and can disconnect while the app is backgrounded.
 
+## Implementation notes
+
+Implemented as designed (`ExternalDisplaySceneDelegate`, `TerminalView`'s
+external-host mode, the plist entry, the device-side placeholder). Two things
+turned out differently from the plan:
+
+- **Sizing needed no new code.** hterm re-lays out when the webView's frame
+  changes and reports the new geometry through `onTerminalResize`, which
+  `Terminal syncWindowSize` already pushes to the winsize. Re-parenting the
+  webView is enough; `stty size` follows the external display and comes back
+  when it is unplugged.
+- **The external container must be constrained, not autoresized.** Sizing it
+  from `rootViewController.view.bounds` before the window adopts the controller
+  bakes in a placeholder size, which showed up as the terminal rendering into a
+  720x480 corner of a 1080p display.
+
+Also worth knowing: iOS can stand up a replacement external scene *before*
+tearing the old one down when the display renegotiates its mode, so the restore
+path is keyed on the host view (`restoreContentFromView:`) rather than
+unconditionally pulling the terminal back to the device.
+
 ## Out of scope
 
 - Interactive external displays (the non-interactive role is what iOS gives
