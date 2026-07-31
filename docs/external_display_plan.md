@@ -137,6 +137,31 @@ tearing the old one down when the display renegotiates its mode, so the restore
 path is keyed on the host view (`restoreContentFromView:`) rather than
 unconditionally pulling the terminal back to the device.
 
+## Workspace, and the idle display
+
+Declaring the external-display scene is app-wide: iOS stops mirroring the
+device whether or not the app has anything to put over there. So every mode
+needs an answer, not just the full-screen terminal.
+
+- **Workspace** hands over the frontmost desktop terminal window. Its terminals
+  are children of contained window views rather than a scene's root view
+  controller, so `WorkspaceViewController` exposes
+  `frontmostHostedTerminalViewController` for the lookup to find.
+- The lookup asks **what is frontmost first** (`ISHActivePresentationViewController`)
+  and only then falls back to `currentTerminalViewController`. Workspace is
+  usually *presented over* a terminal scene, so consulting the global first
+  handed the display a terminal that was covered up while the Workspace
+  terminal stayed in its postage-stamp window.
+- When there is nothing to hand over -- a Workspace desktop with no terminal
+  window, or the standalone Wayland Display -- the display shows an idle
+  message rather than an unexplained blank field. It comes back on its own when
+  the content leaves, and the display re-attaches to another terminal if one is
+  open.
+- Text on both the idle message and the device-side placeholder is coloured
+  from the **palette foreground**, not a system label colour: these sit on the
+  terminal's own background, and a dark theme under a light system appearance
+  (or the reverse) rendered them nearly invisible.
+
 ## Out of scope
 
 - Interactive external displays (the non-interactive role is what iOS gives

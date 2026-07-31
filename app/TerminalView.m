@@ -267,19 +267,35 @@ static void ISHRecordTerminalViewEvent(NSString *event, Terminal *terminal, NSDi
     label.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     label.textAlignment = NSTextAlignmentCenter;
     label.numberOfLines = 0;
-    label.textColor = UIColor.secondaryLabelColor;
     label.font = [UIFont preferredFontForTextStyle:UIFontTextStyleBody];
     label.text = @"Showing on external display.\nKeep typing here.";
+    [self _updatePlaceholderColor];
     // Below the scrollbar view, which stays on top so its scroll gestures keep
     // driving the terminal that is now rendering elsewhere.
     [self insertSubview:label atIndex:0];
     self.externalDisplayPlaceholder = label;
 }
 
+// Sits on the terminal's own background, so it has to be coloured from the
+// palette rather than a system label colour -- a dark theme under a light
+// system appearance (or the reverse) rendered it nearly invisible.
+- (void)_updatePlaceholderColor {
+    if (self.externalDisplayPlaceholder == nil)
+        return;
+    UserPreferences *prefs = UserPreferences.shared;
+    Palette *palette = prefs.palette;
+    if (self.overrideAppearance != OverrideAppearanceNone) {
+        palette = self.overrideAppearance == OverrideAppearanceLight ? prefs.theme.lightPalette : prefs.theme.darkPalette;
+    }
+    UIColor *foreground = [[UIColor alloc] ish_initWithHexString:palette.foregroundColor];
+    self.externalDisplayPlaceholder.textColor = [foreground ?: UIColor.grayColor colorWithAlphaComponent:0.65];
+}
+
 #pragma mark Styling
 
 - (void)_updateStyle {
     NSAssert(NSThread.isMainThread, @"This method needs to be called on the main thread");
+    [self _updatePlaceholderColor]; // tracks the theme even while the terminal is away
     if (!self.terminal.loaded)
         return;
     UserPreferences *prefs = [UserPreferences shared];
