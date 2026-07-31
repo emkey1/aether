@@ -25,7 +25,10 @@ import sys
 import re
 import datetime
 
-STAMP = re.compile(r"^\*Guide version:\s*(\d{4}-\d{2}-\d{2})-(\d+)\*\s*$", re.M)
+# `[ \t]*` rather than `\s*`: under re.M a trailing `\s*$` is greedy across the
+# newline and eats the blank line below the stamp, welding it onto the next
+# paragraph a little more on every bump.
+STAMP = re.compile(r"^\*Guide version:\s*(\d{4}-\d{2}-\d{2})-(\d+)\*[ \t]*$", re.M)
 
 
 def bump(path: str) -> str:

@@ -60,6 +60,7 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/clamp_minmax
 ./build/bin/aether examples/base/recursion
 ./build/bin/aether examples/base/text_var_builtins
+./build/bin/aether examples/base/barnsley_fern
 ```
 
 These examples stay within the currently supported Aether Core subset:

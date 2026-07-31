@@ -1,0 +1,123 @@
+// Barnsley fern: an iterated function system rendered as shaded ASCII.
+// Demonstrates a record with methods (self is implicit), effectful random()
+// inside fx, an Int[] density buffer with indexed read/write, and building
+// each output row with the shade ramp rather than string surgery.
+//
+// No randomize() call, so the point sequence — and this program's output —
+// is reproducible on every run.
+
+type Fern {
+    width: Int;
+    height: Int;
+    scaleX: Real;
+    scaleY: Real;
+    iterations: Int;
+
+    // One IFS step. The four maps are the standard Barnsley coefficients;
+    // r selects among them with probabilities 1% / 85% / 7% / 7%.
+    fn stepX(x: Real, y: Real, r: Real) -> Real {
+        if r < 0.01 {
+            ret 0.0;
+        } else if r < 0.86 {
+            ret 0.85 * x + 0.04 * y;
+        } else if r < 0.93 {
+            ret 0.20 * x - 0.26 * y;
+        }
+        ret -0.15 * x + 0.28 * y;
+    }
+
+    fn stepY(x: Real, y: Real, r: Real) -> Real {
+        if r < 0.01 {
+            ret 0.16 * y;
+        } else if r < 0.86 {
+            ret -0.04 * x + 0.85 * y + 1.60;
+        } else if r < 0.93 {
+            ret 0.23 * x + 0.22 * y + 1.60;
+        }
+        ret 0.26 * x + 0.24 * y + 0.44;
+    }
+
+    // Accumulate visit counts into a flat width*height buffer.
+    fn density() -> Int[] {
+        let counts: Int[] = [];
+        loop i in 0..(self.width * self.height) {
+            counts = counts + [0];
+        }
+
+        let x: Real = 0.0;
+        let y: Real = 0.0;
+
+        loop i in 0..self.iterations {
+            let r: Real;
+            fx {
+                r = random();
+            }
+            let nx: Real = self.stepX(x, y, r);
+            let ny: Real = self.stepY(x, y, r);
+            x = nx;
+            y = ny;
+
+            let sx: Int = int(self.width / 2.0 + x * self.scaleX);
+            // y grows upward in the IFS, downward in the grid: flip it.
+            let sy: Int = self.height - 1 - int(y * self.scaleY);
+
+            if sx >= 0 && sx < self.width && sy >= 0 && sy < self.height {
+                let at: Int = sy * self.width + sx;
+                counts[at] = counts[at] + 1;
+            }
+        }
+        ret counts;
+    }
+
+    fn render() -> Text[] {
+        let counts: Int[] = self.density();
+
+        let peak: Int = 1;
+        loop i in 0..length(counts) {
+            if counts[i] > peak {
+                peak = counts[i];
+            }
+        }
+
+        let ramp: Text = ".:-=+*#%@";
+        let rows: Text[] = [];
+        loop sy in 0..self.height {
+            let row: Text = "";
+            loop sx in 0..self.width {
+                let c: Int = counts[sy * self.width + sx];
+                if c == 0 {
+                    row = row + " ";
+                } else {
+                    // sqrt spreads the ramp over the sparse fronds; a linear
+                    // scale buries them under the very dense stem.
+                    let shade: Int = int(sqrt(c / peak) * 8.0);
+                    row = row + ramp[shade..shade + 1];
+                }
+            }
+            rows = rows + [row];
+        }
+        ret rows;
+    }
+}
+
+fn main() -> Void {
+    let fern: Fern = new Fern {
+        // A terminal cell is about twice as tall as it is wide, so scaleX is
+        // roughly 2 * scaleY to keep the fern in its true proportions.
+        width: 46,
+        height: 44,
+        scaleX: 8.6,
+        scaleY: 4.3,
+        iterations: 200000
+    };
+
+    let picture: Text[] = fern.render();
+
+    fx {
+        println("Barnsley fern — ", fern.iterations, " points");
+        loop i in 0..length(picture) {
+            println(picture[i]);
+        }
+    }
+    ret;
+}
