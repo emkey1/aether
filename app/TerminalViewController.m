@@ -442,7 +442,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
         [self.escapeKey setImage:[UIImage systemImageNamed:@"escape"] forState:UIControlStateNormal];
     }
     self.infoButton.accessibilityLabel = @"Settings";
-    self.infoButton.accessibilityHint = @"Opens the application settings. Touch and hold to switch terminals.";
+    self.infoButton.accessibilityHint = @"Opens the application settings.";
     self.pasteButton.accessibilityLabel = @"Paste";
     self.pasteButton.accessibilityHint = @"Pastes text from the clipboard.";
     self.hideKeyboardButton.accessibilityLabel = @"Hide Keyboard";
@@ -503,7 +503,7 @@ static const NSInteger kMaximumTerminalFontSize = 72;
     button.translatesAutoresizingMaskIntoConstraints = NO;
     button.hidden = YES;
     button.accessibilityLabel = @"Settings";
-    button.accessibilityHint = @"Opens the application settings. Touch and hold to switch terminals.";
+    button.accessibilityHint = @"Opens the application settings.";
     button.backgroundColor = [UIColor colorWithWhite:0 alpha:0.35];
     button.layer.cornerRadius = 22;
     button.layer.masksToBounds = NO;
@@ -788,6 +788,16 @@ static const NSInteger kMaximumTerminalFontSize = 72;
                                                       action:@selector(showTerminalSwitcher:)];
     recognizer.minimumPressDuration = 0.5;
     [view addGestureRecognizer:recognizer];
+
+    // Advertise the gesture on the view that actually has it, rather than
+    // hardcoding the clause at each call site -- infoButton carried it for
+    // years without ever being handed the recognizer.
+    NSString *hint = @"Touch and hold to switch terminals.";
+    NSString *existing = view.accessibilityHint;
+    if (existing.length == 0)
+        view.accessibilityHint = hint;
+    else if (![existing containsString:hint])
+        view.accessibilityHint = [NSString stringWithFormat:@"%@ %@", existing, hint];
 }
 
 - (void)_installTerminalStartupOverlay {
