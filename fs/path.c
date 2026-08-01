@@ -218,10 +218,8 @@ int path_normalize(struct fd *at, const char *path, char *out, int flags) {
             // correctly without our help, so just let it through here.
             return 0;
         }
-        size_t last_slash = 0;
-        for (size_t i = 0; i < len; i++)
-            if (out[i] == '/')
-                last_slash = i;
+        const char *slash = strrchr(out, '/');
+        size_t last_slash = slash != NULL ? (size_t) (slash - out) : 0;
         if (last_slash == 0) {
             // parent is the filesystem root, e.g. creating "/foo". The
             // mount-relative representation of the root used throughout this
