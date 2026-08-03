@@ -96,7 +96,8 @@ struct termios2_ {
 #define CSIZE_ 0000060
 #define CS8_ 0000060
 #define CREAD_ 0000200
-#define HUPCL_ 0000400
+#define PARENB_ 0000400
+#define HUPCL_ 0002000
 
 #define TCGETS_ 0x5401
 #define TCSETS_ 0x5402

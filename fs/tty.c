@@ -46,7 +46,14 @@ struct tty *tty_alloc(struct tty_driver *driver, int type, int num) {
 
     tty->termios.iflags = ICRNL_ | IXON_;
     tty->termios.oflags = OPOST_ | ONLCR_;
-    tty->termios.cflags = B38400_ | CS8_ | CREAD_ | HUPCL_;
+    // Linux keeps this per driver rather than using one value everywhere:
+    // drivers/tty/vt/vt.c takes tty_std_termios as-is for the console, which
+    // includes HUPCL, while drivers/tty/pty.c overrides c_cflag to
+    // B38400|CS8|CREAD for both the master and the slave. Nothing in iSH acts
+    // on HUPCL, but guests read the field back, so follow the same split.
+    tty->termios.cflags = B38400_ | CS8_ | CREAD_;
+    if (driver != &pty_master && driver != &pty_slave)
+        tty->termios.cflags |= HUPCL_;
     tty->termios.lflags = ISIG_ | ICANON_ | ECHO_ | ECHOE_ | ECHOK_ | ECHOCTL_ | ECHOKE_ | IEXTEN_;
     // from include/asm-generic/termios.h
     memcpy(tty->termios.cc, "\003\034\177\025\004\0\1\0\021\023\032\0\022\017\027\026\0\0\0", 19);
