@@ -81,6 +81,10 @@ extern NSString *const kThemeBackgroundColor;
 @property NSInteger llmToolTimeoutSeconds;
 @property NSInteger llmToolOutputLimitKB;
 @property NSInteger llmToolMaxRounds;
+// When YES (the default), a reasoning model's <think>...</think> chain-of-thought is
+// collapsed in the transcript behind a "Thinking" disclosure instead of being shown
+// inline. The raw text is still stored and can be expanded and copied.
+@property BOOL llmHideThinking;
 @property (null_resettable) NSString *fontFamily;
 @property (readonly) NSString *fontFamilyUserFacingName;
 @property (readonly) UIFont *approximateFont;

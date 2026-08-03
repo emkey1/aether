@@ -532,6 +532,152 @@ static NSString *ISHLLMStreamingAssistantContent(NSString *content) {
     return start > 0 ? [content substringFromIndex:start] : content;
 }
 
+static BOOL ISHLLMHideThinkingEnabled(void) {
+    return UserPreferences.shared.llmHideThinking;
+}
+
+// Ranges of `content` that are literal code -- fenced blocks and inline
+// backtick spans. Tags inside them are being *talked about* (ask a model how
+// this very feature works and it will happily print a <think> tag in an
+// example), so they must not be mistaken for the model thinking. An unclosed
+// fence runs to the end of the text, which is also right mid-stream.
+static NSArray<NSValue *> *ISHLLMCodeSpanRanges(NSString *content) {
+    static NSRegularExpression *fenceMarker;
+    static NSRegularExpression *inlineSpan;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        fenceMarker = [NSRegularExpression regularExpressionWithPattern:@"^[ \\t]*```" options:NSRegularExpressionAnchorsMatchLines error:NULL];
+        inlineSpan = [NSRegularExpression regularExpressionWithPattern:@"`[^`\\n]*`" options:0 error:NULL];
+    });
+    NSMutableArray<NSValue *> *ranges = [NSMutableArray array];
+    if (fenceMarker == nil || inlineSpan == nil)
+        return ranges;
+    NSRange whole = NSMakeRange(0, content.length);
+    NSArray<NSTextCheckingResult *> *fences = [fenceMarker matchesInString:content options:0 range:whole];
+    for (NSUInteger i = 0; i < fences.count; i += 2) {
+        NSUInteger start = fences[i].range.location;
+        NSUInteger end = i + 1 < fences.count ? NSMaxRange(fences[i + 1].range) : content.length;
+        [ranges addObject:[NSValue valueWithRange:NSMakeRange(start, end - start)]];
+    }
+    NSUInteger fencedCount = ranges.count;
+    for (NSTextCheckingResult *match in [inlineSpan matchesInString:content options:0 range:whole]) {
+        BOOL insideFence = NO;
+        for (NSUInteger i = 0; i < fencedCount && !insideFence; i++)
+            insideFence = NSLocationInRange(match.range.location, ranges[i].rangeValue);
+        if (!insideFence)
+            [ranges addObject:[NSValue valueWithRange:match.range]];
+    }
+    return ranges;
+}
+
+static NSTextCheckingResult *ISHLLMFirstTagOutsideCode(NSRegularExpression *regex,
+                                                       NSString *content,
+                                                       NSRange range,
+                                                       NSArray<NSValue *> *codeRanges) {
+    __block NSTextCheckingResult *found = nil;
+    [regex enumerateMatchesInString:content options:0 range:range usingBlock:^(NSTextCheckingResult *match, __unused NSMatchingFlags flags, BOOL *stop) {
+        if (match == nil)
+            return;
+        for (NSValue *value in codeRanges) {
+            NSRange code = value.rangeValue;
+            if (match.range.location >= code.location && NSMaxRange(match.range) <= NSMaxRange(code))
+                return;
+        }
+        found = match;
+        *stop = YES;
+    }];
+    return found;
+}
+
+// Splits an assistant message into the part meant for the reader and the
+// model's chain-of-thought. Reasoning models (DeepSeek-R1, Qwen3, gpt-oss,
+// magistral, ...) emit the latter inline, wrapped in <think>...</think>; some
+// spell the tag <thinking>, <thought> or <reasoning>. Returns the visible text
+// with the blocks removed; each thought is appended to `thoughts` in order, and
+// `*openOut` is YES when the text ends inside an unterminated block -- i.e. the
+// model is thinking right now, mid-stream.
+//
+// Two shapes matter beyond the obvious one:
+//   - Only a closing tag. Several servers apply a chat template that already
+//     opens <think> for the model, so the reply starts mid-thought and the
+//     first tag seen is </think>. Treated as an implicit open, but only while
+//     nothing visible has been emitted yet, so a stray </think> further down a
+//     normal answer stays literal text rather than eating the whole reply.
+//   - No trailing trim. This runs on the accumulating buffer after every
+//     streamed delta, so trimming the tail would eat token-boundary spaces
+//     (see ISHLLMStreamingAssistantContent); only the leading edge is trimmed.
+static NSString *ISHLLMSplitThinkingFromContent(NSString *content,
+                                                NSMutableArray<NSString *> *thoughts,
+                                                BOOL *openOut) {
+    if (openOut != NULL)
+        *openOut = NO;
+    if (content.length == 0)
+        return content ?: @"";
+    static NSRegularExpression *openTag;
+    static NSRegularExpression *closeTag;
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        NSRegularExpressionOptions options = NSRegularExpressionCaseInsensitive;
+        openTag = [NSRegularExpression regularExpressionWithPattern:@"<(think|thinking|thought|reasoning)>" options:options error:NULL];
+        closeTag = [NSRegularExpression regularExpressionWithPattern:@"</(think|thinking|thought|reasoning)>" options:options error:NULL];
+    });
+    if (openTag == nil || closeTag == nil)
+        return content;
+
+    NSArray<NSValue *> *codeRanges = ISHLLMCodeSpanRanges(content);
+    NSMutableString *visible = [NSMutableString string];
+    NSUInteger cursor = 0;
+    while (cursor < content.length) {
+        NSRange remaining = NSMakeRange(cursor, content.length - cursor);
+        NSTextCheckingResult *open = ISHLLMFirstTagOutsideCode(openTag, content, remaining, codeRanges);
+        NSTextCheckingResult *close = ISHLLMFirstTagOutsideCode(closeTag, content, remaining, codeRanges);
+        if (open == nil && close == nil) {
+            [visible appendString:[content substringFromIndex:cursor]];
+            break;
+        }
+        // Implicit open (see above): a close tag ahead of any open tag, with
+        // nothing shown yet, means the whole prefix was the model thinking.
+        if (open == nil || (close != nil && close.range.location < open.range.location)) {
+            if (visible.length > 0) {
+                // Mid-answer stray close tag: leave it alone as literal text.
+                [visible appendString:[content substringWithRange:NSMakeRange(cursor, NSMaxRange(close.range) - cursor)]];
+                cursor = NSMaxRange(close.range);
+                continue;
+            }
+            NSString *thought = [content substringWithRange:NSMakeRange(cursor, close.range.location - cursor)];
+            thought = [thought stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+            if (thought.length > 0)
+                [thoughts addObject:thought];
+            cursor = NSMaxRange(close.range);
+            continue;
+        }
+        [visible appendString:[content substringWithRange:NSMakeRange(cursor, open.range.location - cursor)]];
+        NSUInteger bodyStart = NSMaxRange(open.range);
+        NSRange afterOpen = NSMakeRange(bodyStart, content.length - bodyStart);
+        NSTextCheckingResult *end = ISHLLMFirstTagOutsideCode(closeTag, content, afterOpen, codeRanges);
+        NSString *thought = end != nil
+            ? [content substringWithRange:NSMakeRange(bodyStart, end.range.location - bodyStart)]
+            : [content substringFromIndex:bodyStart];
+        thought = [thought stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        if (thought.length > 0)
+            [thoughts addObject:thought];
+        if (end == nil) {
+            if (openOut != NULL)
+                *openOut = YES;
+            break;
+        }
+        cursor = NSMaxRange(end.range);
+    }
+
+    // Leading-only trim: idempotent once real text arrives (the blank line a
+    // model leaves after </think> would otherwise open every reply).
+    NSCharacterSet *whitespace = NSCharacterSet.whitespaceAndNewlineCharacterSet;
+    NSUInteger start = 0;
+    while (start < visible.length && [whitespace characterIsMember:[visible characterAtIndex:start]])
+        start++;
+    return start > 0 ? [visible substringFromIndex:start] : visible;
+}
+
 static NSData *ISHLLMDirectHTTPPost(NSURL *url, NSData *body, NSString *apiKey, NSInteger *statusCodeOut, NSError **errorOut) {
     NSString *host = url.host;
     if (host.length == 0) {
@@ -1242,6 +1388,19 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 // horizontally scrolling monospace views (each with its own Copy button)
 // for fenced code, since code just doesn't read right line-wrapped.
 @interface ISHLLMChatMessageCell : UITableViewCell
+// Called when the "Thinking" disclosure is tapped; the controller flips its
+// stored expansion state for the message and reloads the row.
+@property (nonatomic, copy, nullable) void (^thinkingToggleHandler)(void);
+// Must be called BEFORE -configureWithBlocks: -- the thought disclosure is
+// appended to the same stack, so ordering it first is what puts it above the
+// answer (and what stops -configureWithBlocks: adding its empty-bubble
+// placeholder to a message that is nothing but a thought so far).
+- (void)configureThinkingWithText:(nullable NSString *)text
+                       inProgress:(BOOL)inProgress
+                         expanded:(BOOL)expanded
+                         baseFont:(UIFont *)baseFont
+                            color:(UIColor *)color
+                          bgColor:(UIColor *)bgColor;
 - (void)configureWithBlocks:(NSArray<ISHMarkdownBlock *> *)blocks
                  isAssistant:(BOOL)isAssistant
                      caption:(nullable NSString *)caption
@@ -1309,10 +1468,96 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
 
 - (void)prepareForReuse {
     [super prepareForReuse];
+    self.thinkingToggleHandler = nil;
     for (UIView *view in _blocksStack.arrangedSubviews) {
         [_blocksStack removeArrangedSubview:view];
         [view removeFromSuperview];
     }
+}
+
+// The collapsed/expanded chain-of-thought disclosure. Collapsed it is a single
+// quiet line ("Thinking…" with a spinner while the model is still inside the
+// block, "Thinking" once it has closed); expanded it also shows the thought
+// text in a selectable view with its own Copy button, the same treatment
+// fenced code gets.
+- (void)configureThinkingWithText:(NSString *)text
+                       inProgress:(BOOL)inProgress
+                         expanded:(BOOL)expanded
+                         baseFont:(UIFont *)baseFont
+                            color:(UIColor *)color
+                          bgColor:(UIColor *)bgColor {
+    if (text.length == 0 && !inProgress)
+        return;
+    BOOL canExpand = text.length > 0;
+    expanded = expanded && canExpand;
+
+    UIFont *labelFont = [baseFont fontWithSize:MAX(11.0, baseFont.pointSize - 2.0)];
+    UIButton *toggle = [UIButton buttonWithType:UIButtonTypeSystem];
+    toggle.translatesAutoresizingMaskIntoConstraints = NO;
+    NSString *disclosure = canExpand ? (expanded ? @"▾ " : @"▸ ") : @"";
+    [toggle setTitle:[disclosure stringByAppendingString:(inProgress ? @"Thinking…" : @"Thinking")] forState:UIControlStateNormal];
+    [toggle setTitleColor:color forState:UIControlStateNormal];
+    toggle.titleLabel.font = ISHMarkdownFontWithTraits(labelFont, UIFontDescriptorTraitItalic);
+    toggle.enabled = canExpand;
+    toggle.accessibilityLabel = expanded ? @"Hide the model's thinking" : @"Show the model's thinking";
+    [toggle addTarget:self action:@selector(thinkingToggleTapped:) forControlEvents:UIControlEventTouchUpInside];
+    [toggle setContentHuggingPriority:UILayoutPriorityDefaultHigh forAxis:UILayoutConstraintAxisHorizontal];
+
+    UIStackView *header = [UIStackView new];
+    header.axis = UILayoutConstraintAxisHorizontal;
+    header.alignment = UIStackViewAlignmentCenter;
+    header.spacing = 6.0;
+    [header addArrangedSubview:toggle];
+    if (inProgress) {
+        UIActivityIndicatorView *spinner = [[UIActivityIndicatorView alloc] initWithActivityIndicatorStyle:UIActivityIndicatorViewStyleMedium];
+        spinner.transform = CGAffineTransformMakeScale(0.7, 0.7);
+        [spinner startAnimating];
+        [header addArrangedSubview:spinner];
+    }
+    // Absorbs the leftover width so the toggle's tap target hugs its text
+    // instead of spanning the bubble.
+    [header addArrangedSubview:[UIView new]];
+    [_blocksStack addArrangedSubview:header];
+
+    if (!expanded)
+        return;
+
+    UIView *container = [UIView new];
+    container.translatesAutoresizingMaskIntoConstraints = NO;
+    container.backgroundColor = bgColor;
+    container.layer.cornerRadius = 8.0;
+    container.layer.masksToBounds = YES;
+
+    NSMutableParagraphStyle *paragraph = [NSMutableParagraphStyle new];
+    paragraph.paragraphSpacing = 4.0;
+    UITextView *thoughtView = [self selectableTextViewWithAttributedText:
+        [[NSAttributedString alloc] initWithString:text attributes:@{
+            NSFontAttributeName: labelFont,
+            NSForegroundColorAttributeName: color,
+            NSParagraphStyleAttributeName: paragraph,
+        }]];
+    [container addSubview:thoughtView];
+
+    ISHLLMCopyButton *copyButton = [self copyButtonWithPayload:text];
+    [container addSubview:copyButton];
+
+    CGFloat headerHeight = 30.0;
+    [NSLayoutConstraint activateConstraints:@[
+        [copyButton.centerYAnchor constraintEqualToAnchor:container.topAnchor constant:headerHeight / 2.0],
+        [copyButton.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-6.0],
+
+        [thoughtView.topAnchor constraintEqualToAnchor:container.topAnchor constant:headerHeight],
+        [thoughtView.bottomAnchor constraintEqualToAnchor:container.bottomAnchor constant:-8.0],
+        [thoughtView.leadingAnchor constraintEqualToAnchor:container.leadingAnchor constant:10.0],
+        [thoughtView.trailingAnchor constraintEqualToAnchor:container.trailingAnchor constant:-10.0],
+    ]];
+    [_blocksStack addArrangedSubview:container];
+}
+
+- (void)thinkingToggleTapped:(id)sender {
+    (void) sender;
+    if (self.thinkingToggleHandler != nil)
+        self.thinkingToggleHandler();
 }
 
 - (void)configureWithBlocks:(NSArray<ISHMarkdownBlock *> *)blocks
@@ -1402,16 +1647,7 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     label.text = block.code;
     [scroll addSubview:label];
 
-    ISHLLMCopyButton *copyButton = [ISHLLMCopyButton buttonWithType:UIButtonTypeSystem];
-    copyButton.translatesAutoresizingMaskIntoConstraints = NO;
-    copyButton.payload = block.code ?: @"";
-    [copyButton setTitle:@"Copy" forState:UIControlStateNormal];
-    copyButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
-    copyButton.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.18];
-    copyButton.layer.cornerRadius = 5.0;
-    copyButton.layer.masksToBounds = YES;
-    copyButton.contentEdgeInsets = UIEdgeInsetsMake(2.0, 6.0, 2.0, 6.0);
-    [copyButton addTarget:self action:@selector(codeCopyButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    ISHLLMCopyButton *copyButton = [self copyButtonWithPayload:block.code ?: @""];
     [container addSubview:copyButton];
 
     // Always reserve a header band for the Copy button, whether or not there's
@@ -1450,6 +1686,25 @@ static UIFont *ISHLLMMonospaceFont(CGFloat size) {
     }
     [NSLayoutConstraint activateConstraints:constraints];
     return container;
+}
+
+// The small Copy chip pinned to the top-right of a code block or an expanded
+// thought -- one recipe so the two always look and behave alike.
+- (ISHLLMCopyButton *)copyButtonWithPayload:(NSString *)payload {
+    ISHLLMCopyButton *copyButton = [ISHLLMCopyButton buttonWithType:UIButtonTypeSystem];
+    copyButton.translatesAutoresizingMaskIntoConstraints = NO;
+    copyButton.payload = payload;
+    [copyButton setTitle:@"Copy" forState:UIControlStateNormal];
+    copyButton.titleLabel.font = [UIFont preferredFontForTextStyle:UIFontTextStyleCaption2];
+    copyButton.backgroundColor = [UIColor colorWithWhite:0.5 alpha:0.18];
+    copyButton.layer.cornerRadius = 5.0;
+    copyButton.layer.masksToBounds = YES;
+    // Deliberately the pre-UIButtonConfiguration API: -codeCopyButtonTapped:
+    // swaps the title to "Copied" with -setTitle:forState:, which a configured
+    // button ignores.
+    copyButton.contentEdgeInsets = UIEdgeInsetsMake(2.0, 6.0, 2.0, 6.0);
+    [copyButton addTarget:self action:@selector(codeCopyButtonTapped:) forControlEvents:UIControlEventTouchUpInside];
+    return copyButton;
 }
 
 - (void)codeCopyButtonTapped:(ISHLLMCopyButton *)sender {
@@ -1525,6 +1780,8 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     NSString *_guestEnvironmentNote; // cached distro/tool probe for the tool system prompt
     UILabel *_statusLabel;
     UIActivityIndicatorView *_activityIndicator;
+    NSMutableSet<NSNumber *> *_expandedThinkingIndices; // indices into _messages whose <think> block the user expanded
+    BOOL _streamingThinkingOpen; // the in-flight reply is currently inside an unterminated <think>, drives the status line
     NSInteger _knownContextWindowTokens; // 0 = unknown; best-effort from /models, see probeContextWindowIfNeeded
     NSString *_knownContextWindowProbeKey; // "model|endpoint" the value above was probed for; re-probes when it changes
     BOOL _contextWindowProbeInFlight;
@@ -1541,6 +1798,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 
     _messages = [NSMutableArray array];
     _commandDecisionsThisReply = [NSMutableDictionary dictionary];
+    _expandedThinkingIndices = [NSMutableSet set];
     NSArray *storedMessages = [NSArray arrayWithContentsOfURL:ISHLLMTranscriptURL()];
     if ([storedMessages isKindOfClass:NSArray.class]) {
         for (id message in storedMessages) {
@@ -1721,6 +1979,16 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 #endif
 }
 
+// LLM Settings is pushed from here, and several of its switches change how the
+// existing transcript renders (Hide Thinking) or what the status line says
+// (model, provider), so re-render on the way back instead of only at load.
+- (void)viewWillAppear:(BOOL)animated {
+    [super viewWillAppear:animated];
+    [self refreshTranscript];
+    if (!_activityIndicator.isAnimating)
+        [self setStatus:[self idleStatusText] busy:NO];
+}
+
 - (void)showLLMSettings:(id)sender {
     (void) sender;
     UIViewController *settingsViewController = ISHCreateLLMSettingsViewController();
@@ -1755,6 +2023,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     _cancelled = NO;
     [self setSending:NO];
     [_messages removeAllObjects];
+    [_expandedThinkingIndices removeAllObjects]; // indices are into _messages, which just emptied
     _autoRunCommandsThisChat = NO; // a fresh chat re-arms per-command confirmation
     _autoRunCommandsThisReply = NO;
     [_commandDecisionsThisReply removeAllObjects];
@@ -2099,17 +2368,39 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     UIColor *userBubbleColor = UIColor.systemBlueColor;
     UIColor *userTextColor = UIColor.whiteColor;
 
+    // A reasoning model's <think> block is pulled out of the rendered text and
+    // shown as a collapsed disclosure above the answer (unless the user turned
+    // that off in Settings). The message keeps its raw content either way, so
+    // the thought stays expandable, copyable and in the saved transcript.
+    NSMutableArray<NSString *> *thoughts = [NSMutableArray array];
+    BOOL thinkingOpen = NO;
+    NSString *displayContent = content;
+    if (isAssistant && ISHLLMHideThinkingEnabled())
+        displayContent = ISHLLMSplitThinkingFromContent(content, thoughts, &thinkingOpen);
+    NSString *thinkingText = [thoughts componentsJoinedByString:@"\n\n"];
+
     // Assistant replies are rendered as Markdown, with fenced code split into
     // its own scrollable blocks; the user's own prompt is shown verbatim in a
     // single block so their literal text is never reinterpreted.
     NSArray<ISHMarkdownBlock *> *blocks = isAssistant
-        ? ISHMarkdownBlocksFromMarkdown(content, baseFont, textColor, secondaryColor, linkColor)
-        : @[ISHMarkdownPlainTextBlock(content, baseFont, userTextColor)];
+        ? ISHMarkdownBlocksFromMarkdown(displayContent, baseFont, textColor, secondaryColor, linkColor)
+        : @[ISHMarkdownPlainTextBlock(displayContent, baseFont, userTextColor)];
 
     NSUInteger commandCount = [self commandCountForMessage:message];
     NSString *caption = commandCount > 0
         ? [NSString stringWithFormat:@"(ran %lu shell command%@)", (unsigned long) commandCount, commandCount == 1 ? @"" : @"s"]
         : nil;
+
+    __weak __typeof(self) weakSelf = self;
+    cell.thinkingToggleHandler = ^{
+        [weakSelf toggleThinkingExpandedForMessageIndex:messageIndex];
+    };
+    [cell configureThinkingWithText:thinkingText
+                         inProgress:thinkingOpen
+                           expanded:[_expandedThinkingIndices containsObject:@(messageIndex)]
+                           baseFont:baseFont
+                              color:secondaryColor
+                            bgColor:codeBubbleColor];
 
     [cell configureWithBlocks:blocks
                    isAssistant:isAssistant
@@ -2122,6 +2413,42 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
                codeBubbleColor:codeBubbleColor];
 }
 
+// Expansion is keyed by index into _messages, which only ever grows by
+// appending (a clear empties both), so an index stays pointed at the message
+// the user expanded.
+- (void)toggleThinkingExpandedForMessageIndex:(NSUInteger)messageIndex {
+    NSNumber *key = @(messageIndex);
+    if ([_expandedThinkingIndices containsObject:key])
+        [_expandedThinkingIndices removeObject:key];
+    else
+        [_expandedThinkingIndices addObject:key];
+    NSUInteger row = [_visibleMessageIndices indexOfObject:key];
+    if (row == NSNotFound) {
+        [_transcriptTable reloadData];
+        return;
+    }
+    [UIView performWithoutAnimation:^{
+        [self->_transcriptTable reloadRowsAtIndexPaths:@[[NSIndexPath indexPathForRow:(NSInteger) row inSection:0]]
+                                       withRowAnimation:UITableViewRowAnimationNone];
+    }];
+}
+
+// Names the phase in the status row while a reply streams in: "Thinking…"
+// whenever the model is inside an unterminated <think> block, "Working…"
+// (setSending's default) otherwise. Only meaningful when the blocks are being
+// hidden -- with them shown inline the reasoning is already on screen.
+- (void)updateStreamingThinkingStatusForContent:(NSString *)content {
+    if (!ISHLLMHideThinkingEnabled())
+        return;
+    BOOL open = NO;
+    NSMutableArray<NSString *> *thoughts = [NSMutableArray array];
+    (void) ISHLLMSplitThinkingFromContent(content ?: @"", thoughts, &open);
+    if (open == _streamingThinkingOpen)
+        return;
+    _streamingThinkingOpen = open;
+    [self setStatus:(open ? @"Thinking…" : @"Working…") busy:YES];
+}
+
 - (void)setSending:(BOOL)sending {
     _sendButton.enabled = YES; // stays tappable while sending -- it becomes Stop
     _promptField.editable = !sending;
@@ -2129,6 +2456,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     _sendButton.accessibilityLabel = sending ? @"Stop generating" : @"Send";
     [_sendButton removeTarget:self action:NULL forControlEvents:UIControlEventTouchUpInside];
     [_sendButton addTarget:self action:(sending ? @selector(stopGenerating:) : @selector(sendPrompt:)) forControlEvents:UIControlEventTouchUpInside];
+    _streamingThinkingOpen = NO; // each reply starts outside a <think> block
     if (sending)
         [self setStatus:@"Working…" busy:YES];
     else
@@ -2267,6 +2595,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     NSMutableDictionary<NSString *, NSString *> *message = [_messages[index] mutableCopy];
     message[@"content"] = content ?: @"";
     _messages[index] = message;
+    [self updateStreamingThinkingStatusForContent:message[@"content"]];
     [self reloadLastRowAndScroll:YES];
 }
 
@@ -2277,6 +2606,7 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     NSString *content = ISHLLMStreamingAssistantContent([message[@"content"] ?: @"" stringByAppendingString:chunk]);
     message[@"content"] = content;
     _messages[index] = message;
+    [self updateStreamingThinkingStatusForContent:content];
     [self reloadLastRowAndScroll:YES];
 }
 
@@ -3220,16 +3550,17 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     (void) tableView;
     if (section == 0)
         return 1;
-    return 11;
+    return 12;
 }
 
 - (NSString *)tableView:(UITableView *)tableView titleForFooterInSection:(NSInteger)section {
     (void) tableView;
     if (section == 0)
         return nil;
+    NSString *thinkingNote = @"Hide Thinking collapses a reasoning model's <think> blocks behind a “Thinking” line in the transcript; tap it to expand or copy the reasoning. The full text is always kept in the saved history.";
     if (ISHLLMUsesAppleFoundationModels())
-        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command; the command timeout, output limit, and tool call round cap are adjustable above. Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage()];
-    return @"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini. The command timeout, output limit, and tool call round cap are adjustable above.\nChat history is saved in /AOK/persist/llm-chat.json.";
+        return [NSString stringWithFormat:@"Apple Foundation Models is an iOS/iPadOS 26+ on-device backend; no server URL or API key needed. %@ Shell Tools lets it run commands in the iSH shell, confirmed per command; the command timeout, output limit, and tool call round cap are adjustable above. %@ Chat history is saved in /AOK/persist/llm-chat.json.", ISHLLMAppleFoundationModelsUnavailableMessage(), thinkingNote];
+    return [NSString stringWithFormat:@"Use a /v1 OpenAI-compatible server, or the Gemini preset. Hosted providers require API keys.\nShell Tools lets an OpenAI-compatible model run commands in the iSH shell (web search via curl, etc.), confirmed per command; not available for Gemini. The command timeout, output limit, and tool call round cap are adjustable above.\n%@\nChat history is saved in /AOK/persist/llm-chat.json.", thinkingNote];
 }
 
 - (UITableViewCell *)tableView:(UITableView *)tableView cellForRowAtIndexPath:(NSIndexPath *)indexPath {
@@ -3279,9 +3610,13 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     } else if (indexPath.row == 9) {
         cell.textLabel.text = @"Output Limit";
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld KB", (long) ISHLLMToolOutputLimitKB()];
-    } else {
+    } else if (indexPath.row == 10) {
         cell.textLabel.text = @"Tool Call Rounds";
         cell.detailTextLabel.text = [NSString stringWithFormat:@"%ld", (long) ISHLLMToolMaxRounds()];
+    } else {
+        cell.textLabel.text = @"Hide Thinking";
+        cell.detailTextLabel.text = UserPreferences.shared.llmHideThinking ? @"On" : @"Off";
+        cell.accessoryType = UserPreferences.shared.llmHideThinking ? UITableViewCellAccessoryCheckmark : UITableViewCellAccessoryNone;
     }
     return cell;
 }
@@ -3322,6 +3657,11 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     }
     if (indexPath.row == 10) {
         [self pickToolMaxRoundsFromView:[tableView cellForRowAtIndexPath:indexPath]];
+        return;
+    }
+    if (indexPath.row == 11) {
+        UserPreferences.shared.llmHideThinking = !UserPreferences.shared.llmHideThinking;
+        [tableView reloadData];
         return;
     }
     NSString *title = indexPath.row == 1 ? @"Server URL" : (indexPath.row == 2 ? @"Model" : @"API Key");
