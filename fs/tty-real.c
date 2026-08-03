@@ -58,7 +58,13 @@ static void *real_tty_read_thread(void *_tty) {
 }
 
 static struct termios_ termios_from_real(struct termios real) {
-    struct termios_ fake = {};
+    // The host's c_cflag is not translated: iSH models no baud rate or
+    // character size, and BSD keeps the speed in a separate c_ospeed field
+    // rather than in the CBAUD bits of c_cflag. Seed the same nominal default
+    // tty_alloc uses, because leaving it zero reads back as B0 -- "hang up the
+    // line" -- which ssh(1) then forwards to the far end. Without this the
+    // console tty is re-zeroed here right after tty_alloc got it right.
+    struct termios_ fake = { .cflags = B38400_ | CS8_ | CREAD_ | HUPCL_ };
 #define FLAG(t, x) \
     if (real.c_##t##flag & x) \
         fake.t##flags |= x##_
