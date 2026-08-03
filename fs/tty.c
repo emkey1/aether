@@ -46,7 +46,7 @@ struct tty *tty_alloc(struct tty_driver *driver, int type, int num) {
 
     tty->termios.iflags = ICRNL_ | IXON_;
     tty->termios.oflags = OPOST_ | ONLCR_;
-    tty->termios.cflags = 0;
+    tty->termios.cflags = B38400_ | CS8_ | CREAD_ | HUPCL_;
     tty->termios.lflags = ISIG_ | ICANON_ | ECHO_ | ECHOE_ | ECHOK_ | ECHOCTL_ | ECHOKE_ | IEXTEN_;
     // from include/asm-generic/termios.h
     memcpy(tty->termios.cc, "\003\034\177\025\004\0\1\0\021\023\032\0\022\017\027\026\0\0\0", 19);
@@ -922,9 +922,10 @@ static int tty_mode_ioctl(struct tty *in_tty, int cmd, void *arg) {
 
         // termios2 variants: same fields as termios_ above, plus explicit
         // ispeed/ospeed. iSH's virtual ttys have no real baud rate, so
-        // TCGETS2 just reports a fixed nominal speed and the SETS2 variants
-        // ignore the incoming speed fields entirely -- matching how the
-        // legacy termios_ path never modeled speed either.
+        // TCGETS2 just reports the nominal speed the CBAUD bits of cflags are
+        // initialized to and the SETS2 variants ignore the incoming speed
+        // fields entirely -- musl and glibc both read cfget*speed() out of
+        // cflags anyway, so that is the field that has to stay sane.
         case TCGETS2_: {
             struct termios2_ *termios2 = arg;
             termios2->iflags = tty->termios.iflags;

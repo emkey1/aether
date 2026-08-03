@@ -83,6 +83,21 @@ struct termios2_ {
 #define ONOCR_ (1 << 4)
 #define ONLRET_ (1 << 5)
 
+// c_cflag bits, from Linux's asm-generic/termbits.h. iSH's ttys have no real
+// line discipline hardware, so nothing here changes how a tty behaves -- but
+// guests do read these bits back, and the baud rate in particular is not
+// cosmetic: musl's and glibc's cfgetospeed() return c_cflag & CBAUD, and B0
+// means "hang up the line". A tty reporting B0 makes ssh(1) send ospeed 0 in
+// its pty-req, and a BSD sshd honours that by SIGHUPing the session leader --
+// so the remote shell died the instant it started (exit status 129).
+#define CBAUD_ 0010017
+#define B0_ 0000000
+#define B38400_ 0000017
+#define CSIZE_ 0000060
+#define CS8_ 0000060
+#define CREAD_ 0000200
+#define HUPCL_ 0000400
+
 #define TCGETS_ 0x5401
 #define TCSETS_ 0x5402
 #define TCSETSW_ 0x5403

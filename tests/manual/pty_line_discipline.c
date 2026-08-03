@@ -1,4 +1,5 @@
-// Covers three related pty/tty line-discipline gaps (issue #423 Tier 3):
+// Covers a set of related pty/tty line-discipline gaps (the first three from
+// issue #423 Tier 3):
 //  1. ECHOKE vs plain ECHOK on VKILL -- and the fact that ECHOKE_ was
 //     previously defined at the wrong termios c_lflag bit (1<<6, which is
 //     actually ECHONL's position) so it never matched what any real program
@@ -11,6 +12,8 @@
 //     packet mode on (TIOCPKT) handed the new pty a stale "on": every master
 //     read then carried a leading TIOCPKT_DATA status byte (0x00) that the
 //     opener never asked for and does not expect.
+//  4. A fresh tty's c_cflag was 0, which decodes as B0/CS5/no-CREAD -- see
+//     test_default_cflag() below for how that broke ssh to a BSD server.
 #define _GNU_SOURCE
 #include <errno.h>
 #include <fcntl.h>
@@ -73,6 +76,53 @@ static void test_kill_echo(const char *name, int echoke_on, const char *expected
     test_logf("%s: got=\"%s\"\n", name, got);
     if (strcmp(got, expected) != 0) {
         printf("FAIL %s: got=\"%s\" expected=\"%s\"\n", name, got, expected);
+        failures_total++;
+    }
+    close(master);
+    close(slave);
+}
+
+// A fresh tty must come up with the same c_cflag Linux's tty_std_termios uses
+// (B38400|CS8|CREAD|HUPCL), not zero. Zero decodes as B0 -- "hang up the
+// line" -- and cfgetospeed() reads straight out of CBAUD in c_cflag, so a
+// zeroed cflag made ssh(1) advertise "ospeed 0" in its pty-req. A BSD sshd
+// honours that literally: OpenBSD's TIOCSETA path SIGHUPs the tty's session
+// leader whenever c_ospeed is 0, so the remote login shell was killed the
+// moment it configured its own tty for line editing -- login appeared to
+// succeed, printed the motd, then dropped with exit status 129 (128+SIGHUP).
+// Zero also decodes as CS5 and clears CREAD, which ssh forwards as well.
+static void test_default_cflag(void) {
+    int master, slave;
+    if (openpty(&master, &slave, NULL, NULL, NULL) != 0) {
+        printf("FAIL default_cflag: openpty failed\n");
+        failures_total++;
+        return;
+    }
+    struct termios t;
+    if (tcgetattr(slave, &t) != 0) {
+        printf("FAIL default_cflag: tcgetattr: %s\n", strerror(errno));
+        failures_total++;
+        close(master); close(slave);
+        return;
+    }
+    speed_t ospeed = cfgetospeed(&t);
+    int csize = t.c_cflag & CSIZE;
+    int cread = (t.c_cflag & CREAD) != 0;
+    test_logf("default_cflag: c_cflag=0%o ospeed=0%o csize=0%o cread=%d\n",
+              (unsigned) t.c_cflag, (unsigned) ospeed, (unsigned) csize, cread);
+
+    if (ospeed == B0) {
+        printf("FAIL default_cflag: cfgetospeed()==B0, want a real baud rate "
+               "(c_cflag=0%o)\n", (unsigned) t.c_cflag);
+        failures_total++;
+    }
+    if (csize != CS8) {
+        printf("FAIL default_cflag: CSIZE=0%o, want CS8=0%o\n",
+               (unsigned) csize, (unsigned) CS8);
+        failures_total++;
+    }
+    if (!cread) {
+        printf("FAIL default_cflag: CREAD clear, want set\n");
         failures_total++;
     }
     close(master);
@@ -211,6 +261,7 @@ int main(int argc, char **argv) {
     test_init(argc, argv);
     test_kill_echo("kill_with_echoke", 1, "abc^H ^H^H ^H^H ^H");
     test_kill_echo("kill_without_echoke", 0, "abc^U\\r\\n");
+    test_default_cflag();
     test_pty_pollout_backpressure();
     test_fresh_pty_packet_mode();
     return finish_suite("pty_line_discipline");
