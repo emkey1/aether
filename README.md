@@ -35,7 +35,7 @@ benchmark, not opinion, is the instrument: see the
 Fine-tuning is the research frontier, but it isn't the cost of entry. The
 concise guide
 ([`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md),
-~500 lines) pasted into the prompt gets a frontier model that has *never seen
+~930 lines) pasted into the prompt gets a frontier model that has *never seen
 Aether* writing valid, correct programs a surprising fraction of the time — the
 grammar is small and regular enough to pick up in-context.
 
