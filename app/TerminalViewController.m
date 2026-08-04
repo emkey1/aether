@@ -1582,19 +1582,13 @@ static const NSInteger kMaxConsecutiveQuickSessionExits = 3;
                                                               options:nil
                                                          errorHandler:^(__unused NSError *error) {
             dispatch_async(dispatch_get_main_queue(), ^{
-                UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
-                UIWindow *window = self.view.window;
-                window.rootViewController = navigationController;
-                [window makeKeyAndVisible];
+                ISHWindowShowWorkspace(self.view.window);
             });
         }];
         return;
     }
 
-    UINavigationController *navigationController = ISHCreateWorkspaceNavigationController();
-    UIWindow *window = self.view.window;
-    window.rootViewController = navigationController;
-    [window makeKeyAndVisible];
+    ISHWindowShowWorkspace(self.view.window);
 }
 
 - (NSString *)terminalDisplayName:(Terminal *)terminal {

@@ -27,6 +27,15 @@ extern NSString *const ISHSceneWorkspaceToolUserInfoKey;
 // process has no window scene at all. Must be called on the main thread.
 UIViewController * _Nullable ISHActivePresentationViewController(void);
 
+// Switching a window between the Session Shell and the Workspace (GH #546).
+// Both modes are roots of the same window, and each switch used to build a
+// brand-new one, so leaving the Workspace threw away every open tool window and
+// its layout. These keep whichever mode you left alive on the window and put it
+// back as it was, so the two are freely interchangeable. Main thread only.
+BOOL ISHWindowIsShowingWorkspace(UIWindow * _Nullable window);
+void ISHWindowShowWorkspace(UIWindow * _Nullable window);
+void ISHWindowShowSessionShell(UIWindow * _Nullable window);
+
 API_AVAILABLE(ios(13))
 @interface SceneDelegate : UIResponder <UIWindowSceneDelegate>
 

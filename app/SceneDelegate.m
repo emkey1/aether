@@ -5,6 +5,7 @@
 //  Created by Theodore Dubois on 10/26/19.
 //
 
+#import <objc/runtime.h>
 #import "SceneDelegate.h"
 #import "AboutViewController.h"
 #import "AppDelegate.h"
@@ -61,6 +62,99 @@ static UIViewController *CreateStandaloneDisplayViewController(void) {
 static TerminalViewController *CreateTerminalViewController(void) {
     UIViewController *viewController = [[UIStoryboard storyboardWithName:@"Terminal" bundle:nil] instantiateInitialViewController];
     return [viewController isKindOfClass:TerminalViewController.class] ? (TerminalViewController *) viewController : nil;
+}
+
+#pragma mark - Session Shell <-> Workspace switching (GH #546)
+
+// Each mode's root view controller is kept alive on the window it was shown in,
+// so switching modes is a swap between two live controllers rather than a
+// rebuild. That is the whole point: a rebuilt Workspace comes back empty, with
+// every tool window closed and the desktop layout reset, and a rebuilt terminal
+// would start a second session on top of the one already running.
+static const void *kISHWindowWorkspaceRootKey = &kISHWindowWorkspaceRootKey;
+static const void *kISHWindowTerminalRootKey = &kISHWindowTerminalRootKey;
+
+// The Workspace root is a UINavigationController wrapping the WorkspaceViewController
+// (see ISHCreateWorkspaceNavigationControllerForTool), so test the wrapper's root too.
+static BOOL ISHViewControllerIsWorkspaceRoot(UIViewController *viewController) {
+    if (viewController == nil)
+        return NO;
+    if ([viewController isKindOfClass:WorkspaceViewController.class])
+        return YES;
+    if ([viewController isKindOfClass:UINavigationController.class]) {
+        UIViewController *root = ((UINavigationController *) viewController).viewControllers.firstObject;
+        return [root isKindOfClass:WorkspaceViewController.class];
+    }
+    return NO;
+}
+
+BOOL ISHWindowIsShowingWorkspace(UIWindow *window) {
+    return ISHViewControllerIsWorkspaceRoot(window.rootViewController);
+}
+
+// Only the two switchable modes are remembered. Any other root (the filesystem
+// picker, the standalone Wayland display, Settings owning its own scene) is
+// transient and must not come back as "the" shell or workspace later.
+static void ISHWindowRememberRoot(UIWindow *window, UIViewController *root) {
+    if (root == nil)
+        return;
+    if (ISHViewControllerIsWorkspaceRoot(root))
+        objc_setAssociatedObject(window, kISHWindowWorkspaceRootKey, root, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    else if ([root isKindOfClass:TerminalViewController.class])
+        objc_setAssociatedObject(window, kISHWindowTerminalRootKey, root, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+}
+
+static void ISHWindowTransitionToRoot(UIWindow *window, UIViewController *newRoot) {
+    ISHWindowRememberRoot(window, window.rootViewController);
+    [UIView transitionWithView:window
+                      duration:0.3
+                       options:UIViewAnimationOptionTransitionCrossDissolve
+                    animations:^{
+        // Cross-dissolve the swap itself, but don't let the incoming controller
+        // animate its own initial layout inside that transition.
+        BOOL wereAnimationsEnabled = UIView.areAnimationsEnabled;
+        [UIView setAnimationsEnabled:NO];
+        window.rootViewController = newRoot;
+        [UIView setAnimationsEnabled:wereAnimationsEnabled];
+    }
+                    completion:nil];
+    [window makeKeyAndVisible];
+    // Mirror -sceneDidBecomeActive:'s bookkeeping; the root changed without one.
+    currentTerminalViewController = [newRoot isKindOfClass:TerminalViewController.class]
+        ? (TerminalViewController *) newRoot
+        : NULL;
+}
+
+void ISHWindowShowWorkspace(UIWindow *window) {
+    if (window == nil || ISHWindowIsShowingWorkspace(window))
+        return;
+    UIViewController *workspace = objc_getAssociatedObject(window, kISHWindowWorkspaceRootKey);
+    BOOL restored = workspace != nil;
+    if (!restored)
+        workspace = ISHCreateWorkspaceNavigationControllerForTool(nil);
+    [ISHDiagnosticsStore recordBreadcrumb:@"scene.mode.workspace"
+                                  details:@{@"restored": @(restored)}];
+    ISHWindowTransitionToRoot(window, workspace);
+}
+
+void ISHWindowShowSessionShell(UIWindow *window) {
+    if (window == nil || [window.rootViewController isKindOfClass:TerminalViewController.class])
+        return;
+    TerminalViewController *terminal = objc_getAssociatedObject(window, kISHWindowTerminalRootKey);
+    // A window that launched straight into the Workspace has no shell to go back
+    // to yet, so the first switch builds one and starts its session, exactly as
+    // the launch path does. A restored one already has a live session; starting
+    // another would strand the first.
+    BOOL needsSession = terminal == nil;
+    if (needsSession)
+        terminal = CreateTerminalViewController();
+    if (terminal == nil)
+        return;
+    [ISHDiagnosticsStore recordBreadcrumb:@"scene.mode.sessionShell"
+                                  details:@{@"restored": @(!needsSession)}];
+    ISHWindowTransitionToRoot(window, terminal);
+    if (needsSession)
+        [terminal startNewSession];
 }
 
 static NSUserActivity *SceneRequestedActivity(UISceneSession *session, UISceneConnectionOptions *connectionOptions) API_AVAILABLE(ios(13.0));

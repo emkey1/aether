@@ -3957,15 +3957,20 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 @implementation AboutViewController
 {
     BOOL _didPresentInitialDiagnostics;
+    __weak UIBarButtonItem *_modeButton;
 }
 
 - (void)viewDidLoad {
     [super viewDidLoad];
     [self _updateUI];
+    // Title and destination depend on which mode the window is currently in, and
+    // the window isn't known until the view is in the hierarchy, so the title is
+    // filled in by -_updateModeButton from -viewWillAppear: (GH #546).
     UIBarButtonItem *workspaceButton = [[UIBarButtonItem alloc] initWithTitle:@"Workspace"
                                                                         style:UIBarButtonItemStylePlain
                                                                        target:self
-                                                                       action:@selector(showWorkspace:)];
+                                                                       action:@selector(toggleWorkspaceMode:)];
+    _modeButton = workspaceButton;
     if (self.recoveryMode) {
         self.navigationItem.title = @"Recovery Mode";
         self.navigationItem.leftBarButtonItem = workspaceButton;
@@ -3992,10 +3997,32 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
 - (void)viewWillAppear:(BOOL)animated {
     [super viewWillAppear:animated];
     [self _updateUI];
+    [self _updateModeButton];
+}
+
+// The button switches to whichever mode you are NOT in, so it is labelled with
+// its destination: "Workspace" from the shell, "Shell" from the Workspace. It
+// used to always say "Workspace" and only ever go one way, which left no way
+// back to the shell short of force-quitting the app (GH #546).
+- (void)_updateModeButton {
+    UIBarButtonItem *modeButton = _modeButton;
+    if (modeButton == nil)
+        return;
+    // -viewWillAppear: can run before the view has a window (both when Settings
+    // is presented modally and when the Workspace embeds it as a tool window),
+    // and a nil window reads as "not the Workspace" -- which is why this is
+    // refreshed again from -viewDidAppear:, where the window is attached. Fall
+    // back to the app's own window so an early call still resolves the mode
+    // rather than silently guessing "shell".
+    UIWindow *window = self.view.window ?: ISHActivePresentationViewController().view.window;
+    modeButton.title = ISHWindowIsShowingWorkspace(window) ? @"Shell" : @"Workspace";
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     [super viewDidAppear:animated];
+    // The window is guaranteed attached by now; -viewWillAppear:'s attempt may
+    // have had none to read.
+    [self _updateModeButton];
     if (self.startInDiagnostics && !_didPresentInitialDiagnostics) {
         _didPresentInitialDiagnostics = YES;
         [self showDiagnostics:self.diagnosticsCell ?: self];
@@ -4016,29 +4043,27 @@ static const CGFloat kISHLLMPromptFieldMaxHeight = 120.0;
     [self.navigationController pushViewController:viewController animated:YES];
 }
 
-- (void)showWorkspace:(id)sender {
+- (void)toggleWorkspaceMode:(id)sender {
     (void) sender;
-    // Open the Workspace full screen in the current scene, the same way launch-at-startup does
-    // (SceneDelegate sets window.rootViewController to the workspace). The previous approach
-    // asked iPadOS to activate a *separate* scene, which opened split screen on some iPads and
-    // failed outright on others (Stage Manager / M4). Swapping the root sidesteps all of that,
-    // and the scene's state restoration still reports a workspace scene because its root is one.
-    UINavigationController *navigationController = ISHCreateWorkspaceNavigationControllerForTool(nil);
+    // Switch the current scene's root between the two modes, the same way
+    // launch-at-startup picks one (SceneDelegate sets window.rootViewController).
+    // Asking iPadOS to activate a *separate* scene instead opened split screen on
+    // some iPads and failed outright on others (Stage Manager / M4). Swapping the
+    // root sidesteps all of that, and the scene's state restoration still reports
+    // a workspace scene because its root is one.
     UIWindow *window = self.view.window;
     if (window == nil) {
-        [self presentViewController:navigationController animated:YES completion:nil];
+        // No window to swap the root of (Settings presented detached). Only the
+        // forward direction has a sensible fallback here.
+        if (!ISHWindowIsShowingWorkspace(window))
+            [self presentViewController:ISHCreateWorkspaceNavigationControllerForTool(nil) animated:YES completion:nil];
         return;
     }
-    [UIView transitionWithView:window
-                      duration:0.3
-                       options:UIViewAnimationOptionTransitionCrossDissolve
-                    animations:^{
-        BOOL wereAnimationsEnabled = UIView.areAnimationsEnabled;
-        [UIView setAnimationsEnabled:NO];
-        window.rootViewController = navigationController;
-        [UIView setAnimationsEnabled:wereAnimationsEnabled];
-    }
-                    completion:nil];
+    if (ISHWindowIsShowingWorkspace(window))
+        ISHWindowShowSessionShell(window);
+    else
+        ISHWindowShowWorkspace(window);
+    [self _updateModeButton];
 }
 
 - (void)_updateUI:(NSNotification *)notification {
