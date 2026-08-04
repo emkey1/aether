@@ -500,15 +500,29 @@ static void NotifyTerminalRegistryChanged(void) {
             return;
         int cols = dimensions[0].intValue;
         int rows = dimensions[1].intValue;
-        if (self.tty == NULL)
+        // Snapshot the back-pointer once. ios_tty_cleanup clears it from the
+        // emulator thread, so re-reading self.tty for each use means the NULL
+        // check guards nothing: the pointer could still be live here and NULL
+        // by the time it is passed to tty_set_winsize, which then dereferences
+        // it at offsetof(struct tty, winsize).
+        //
+        // Snapshot rather than holding @synchronized(self) across tty->lock:
+        // tty_release calls ops->cleanup (-> setTty: -> @synchronized(self))
+        // with tty->lock already held, so taking those two in the other order
+        // here would be an AB-BA deadlock.
+        tty_t tty;
+        @synchronized (self) {
+            tty = self->_tty;
+        }
+        if (tty == NULL)
             return;
 #if !ISH_LINUX
-        lock(&self.tty->lock, 0);
-        tty_set_winsize(self.tty, (struct winsize_) {.col = cols, .row = rows});
-        unlock(&self.tty->lock);
+        lock(&tty->lock, 0);
+        tty_set_winsize(tty, (struct winsize_) {.col = cols, .row = rows});
+        unlock(&tty->lock);
 #else
         async_do_in_workqueue(^{
-            self->_tty->ops->resize(self->_tty, cols, rows);
+            tty->ops->resize(tty, cols, rows);
         });
 #endif
     }];
