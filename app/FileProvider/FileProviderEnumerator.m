@@ -107,6 +107,23 @@ static NSNumber *ISHFileProviderEnumeratorDurationMilliseconds(NSTimeInterval st
         return;
     }
     DIR *dir = fdopendir(fd);
+    if (dir == NULL) {
+        // fdopendir can fail (ENOMEM, or the directory raced out from under us
+        // between openNewFDWithError: and here). readdir(NULL) is undefined
+        // behavior and in practice faults inside the DIR's own mutex, and the
+        // fd is a real leak with no DIR* to closedir() it through. Same guard
+        // as -[FileProviderItem childItemCount].
+        NSError *dirError = [NSError errorWithDomain:NSPOSIXErrorDomain code:errno userInfo:nil];
+        close(fd);
+        ISHAppGroupReleaseLock(rootLockFd);
+        ISHFileProviderRecordBreadcrumb(@"fileprovider.enumerate.failed",
+                                        @{@"container": containerIdentifier,
+                                          @"domain": domainIdentifier,
+                                          @"duration_ms": ISHFileProviderEnumeratorDurationMilliseconds(start),
+                                          @"error": dirError.localizedDescription ?: @"fdopendir failed"});
+        [observer finishEnumeratingWithError:dirError];
+        return;
+    }
     NSMutableArray<FileProviderItem *> *items = [NSMutableArray new];
     struct dirent *dirent;
     errno = 0;
