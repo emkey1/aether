@@ -23,6 +23,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-08-06-1` | 2026-08-06 | `e2e5582` | docs: add **Writing what the surface does not give you** (7 recipes, ported from the medium guide, where it had been the only copy); document that `parse_*` cannot report failure; state that there is no map/dict type |
 | `2026-07-31-1` | 2026-07-31 | `e47d4d6` | fix: appendix no longer contradicts the prose for 68 documented builtins |
 | `2026-07-26-5` | 2026-07-26 | `36308d4` | docs: complete builtin inventory appendix, and gate all three guides |
 | `2026-07-26-4` | 2026-07-26 | `58e5d2e` | feat: PREC-001 for bitwise-vs-comparison, has_builtin sees core builtins |
@@ -53,6 +54,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-08-06-1` | 2026-08-06 | `e2e5582` | docs: document that `parse_*` cannot report failure, and add a validate-before-parse recipe |
 | `2026-07-30-1` | 2026-07-30 | `b1748f1` | docs: medium guide documents mstreamfromstring (MS-001) |
 | `2026-07-26-6` | 2026-07-26 | `58e5d2e` | feat: PREC-001 for bitwise-vs-comparison, has_builtin sees core builtins |
 | `2026-07-26-5` | 2026-07-26 | `f2fa697` | corpus: text/tuple/bitwise examples, FIELD-003 wording, clock docs |
@@ -64,6 +66,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-08-06-1` | 2026-08-06 | `e2e5582` | docs: document that `parse_*` cannot report failure, and state that there is no map/dict type |
 | `2026-07-26-4` | 2026-07-26 | `58e5d2e` | feat: PREC-001 for bitwise-vs-comparison, has_builtin sees core builtins |
 | `2026-07-26-3` | 2026-07-26 | `f2fa697` | corpus: text/tuple/bitwise examples, FIELD-003 wording, clock docs |
 | `2026-07-26-2` | 2026-07-26 | `d81f4af` | feat: ARR-002 for a 1-D array indexed two-dimensionally |
