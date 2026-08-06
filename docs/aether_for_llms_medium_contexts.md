@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-07-30-1*
+*Guide version: 2026-08-06-1*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -192,6 +192,15 @@ let t: Int = int(3.7);                     // Real/Bool -> Int, truncating
 
 `int(x)` casts `Real`/`Bool` only. Handed a `Text` it silently returns `0` — use
 `parse_int` for numeric strings and `ord` for character codes.
+
+**The `parse_*` family cannot fail, and that is the trap.** Every input yields a
+value: `parse_int("abc")` is `0`, `parse_int("12x")` is `12` (leading digits
+only, the rest discarded), `parse_float("zz")` is `0.0`, and `parse_bool` is
+`false` for anything but `true`/`1`/`yes`/`t`. So `parse_int(raw) == 0` is true
+for `"0"`, `"abc"`, and `""` alike — never treat the result as its own validity
+check. There is no `try_parse`. If a field must be entirely numeric, scan it
+with `ord` before parsing (see **Writing what the surface does not give you**),
+or state it as `@pre` on the helper that consumes it.
 
 **Arity traps.** These are caught at compile time as `BUILT-002`, but write them
 right the first time:
@@ -805,6 +814,25 @@ fn evensDoubled(xs: Int[]) -> Int[] {
         }
     }
     ret out;
+}
+```
+
+**Validating before a parse.** The `parse_*` family cannot report failure, so
+when a field must be entirely numeric, check it first:
+
+```aether
+@pure
+fn isAllDigits(s: Text) -> Bool {
+    if string_len(s) == 0 {
+        ret false;
+    }
+    loop i in 0..string_len(s) {
+        let c: Int = ord(s[i]);
+        if c < 48 || c > 57 {
+            ret false;
+        }
+    }
+    ret true;
 }
 ```
 

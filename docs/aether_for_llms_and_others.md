@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-07-31-1*
+*Guide version: 2026-08-06-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -141,6 +141,11 @@ when unsure about a type, add it explicitly.
 - anonymous functions, inline `fn(...) -> T { ... }` literals, lambdas, or
   passing a function as a value; `task_spawn` / `task_queue` take a builtin
   *name* as `Text`, and there is no `map` / `filter` / `reduce` (FUNC-001)
+- a map, dict, or set type, or helpers over one (`map_get`, `keys`, `Map[K,V]`).
+  There is no keyed container: use two parallel arrays and a linear scan, or a
+  `type` with an array field — see **Writing what the surface does not give
+  you**. For keys coming from a parsed payload, the TOON node is already keyed
+  (BUILT-001)
 - names that were never declared, or locals reused outside their scope
   (SCOPE-001)
 - arithmetic on `ToonDoc` or `ToonNode`, or assigning one where the other is
@@ -813,7 +818,64 @@ Additional verified `Text` builtins (all pure, no `fx` needed):
 Beyond these, do not invent string helpers: there is no `replace`, and no
 whole-string `to_upper`/`to_lower` (`upcase`/`toupper` change a single character
 only). If the prompt depends on more, use `builtin_info(...)` or prompt-supplied
-signatures and call the exact discovered names.
+signatures and call the exact discovered names. For hand-rolled `replace`,
+`contains`, `startsWith`, and case conversion, copy the verified loops in
+**Writing what the surface does not give you**.
+
+### Parsing text into scalars — failure is silent
+
+`parse_int(t)`, `parse_float(t)`, and `parse_bool(t)` are the canonical
+`Text` → scalar conversions. **None of them can report failure.** They are total
+functions: every input produces a value, including inputs that are not numbers
+at all.
+
+| Call | Result | Why |
+|---|---|---|
+| `parse_int("42")` | `42` | ordinary success |
+| `parse_int("abc")` | `0` | no leading digits — indistinguishable from parsing `"0"` |
+| `parse_int("12x")` | `12` | **leading digits only**; the rest is discarded silently |
+| `parse_int("")` | `0` | same as `"abc"` |
+| `parse_float("zz")` | `0.0` | same rule, as a `Real` |
+| `parse_bool("maybe")` | `false` | anything not `true`/`1`/`yes`/`t` is `false` |
+
+Two consequences worth internalizing:
+
+- **A `0` does not mean the input was numeric.** `parse_int(raw) == 0` is true
+  for the string `"0"`, for `"abc"`, and for `""` alike. Never use the result
+  as its own validity check.
+- **A partial parse is not an error.** `"12x"`, `"3.5kg"`, and `"7 items"` all
+  parse to their numeric prefix. If a field must be *entirely* numeric, the
+  parse will not tell you it was not.
+
+There is no `try_parse` and no `parse_int_or`. When the distinction matters,
+validate before parsing — a digit scan is a few lines and is `@pure`, so it can
+also serve as a `@pre` on the helper that consumes the field:
+
+```aether
+@pure
+fn isAllDigits(s: Text) -> Bool {
+    if string_len(s) == 0 {
+        ret false;
+    }
+    loop i in 0..string_len(s) {
+        let c: Int = ord(s[i]);
+        if c < 48 || c > 57 {
+            ret false;
+        }
+    }
+    ret true;
+}
+
+@pre isAllDigits(raw)
+@pure
+fn scoreOf(raw: Text) -> Int {
+    ret parse_int(raw);
+}
+```
+
+Guard at the call site with `if isAllDigits(raw) { ... }`, or let the contract
+carry the requirement as above. Note the predicate rejects a leading `-`; widen
+it if negative fields are in scope.
 
 ## Files and environment
 
@@ -1125,6 +1187,177 @@ and never returns that array, gets a compile-time `[ARR-001]` warning (the
 build still succeeds -- it's a warning, not an error -- but the diagnostic is
 almost always pointing at a real bug: the mutation the code appears to
 intend can never be observed by the caller).
+
+## Writing what the surface does not give you
+
+`BUILT-001` forbids inventing helpers, so when a task needs one that does not
+exist, write the loop. These are the canonical shapes for the helpers models most
+often reach for. Copy them rather than guessing a name.
+
+A missing helper is not a missing capability. Every recipe below is ordinary
+first-order Aether — no closures, no generics, no container types beyond arrays
+and records. If you are tempted to conclude the language cannot do something,
+check this section first; the absence of `map` is a deliberate consequence of
+FUNC-001, not a gap.
+
+**Sum, mean, and extremes over an `Int[]`.** There is no `sum` or `mean`.
+
+```aether
+@pure
+fn total(xs: Int[]) -> Int {
+    let acc: Int = 0;
+    loop i in 0..length(xs) {
+        acc = acc + xs[i];
+    }
+    ret acc;
+}
+
+@pure
+fn mean(xs: Int[]) -> Real {
+    if length(xs) == 0 {
+        ret 0.0;
+    }
+    ret total(xs) * 1.0 / length(xs);
+}
+```
+
+For the extremes, seed from element `0` and fold with `min` / `max`, which do
+exist:
+
+```aether
+@pre length(xs) > 0
+@pure
+fn largest(xs: Int[]) -> Int {
+    let best: Int = xs[0];
+    loop i in 1..length(xs) {
+        best = max(best, xs[i]);
+    }
+    ret best;
+}
+```
+
+**Sort.** There is no `sort` and no comparator, because functions are not values
+(FUNC-001). Write an insertion sort over a copy:
+
+```aether
+@pure
+fn sorted(xs: Int[]) -> Int[] {
+    let out: Int[] = xs;               // arrays copy by value, so this is a clone
+    loop i in 1..length(out) {
+        let v: Int = out[i];
+        let j: Int = i - 1;
+        loop j >= 0 {
+            if out[j] <= v {
+                break;
+            }
+            out[j + 1] = out[j];
+            j = j - 1;
+        }
+        out[j + 1] = v;
+    }
+    ret out;                           // must return it -- see Dynamic arrays
+}
+```
+
+**Join.** There is no `join`; build the `Text` with a separator guard:
+
+```aether
+@pure
+fn joinText(parts: Text[], sep: Text) -> Text {
+    let out: Text = "";
+    loop i in 0..length(parts) {
+        if i > 0 {
+            out = out + sep;
+        }
+        out = out + parts[i];
+    }
+    ret out;
+}
+```
+
+**Case conversion.** There is no `to_upper`. Map code points with `ord` / `chr`:
+
+```aether
+@pure
+fn upper(s: Text) -> Text {
+    let out: Text = "";
+    loop i in 0..string_len(s) {
+        let c: Int = ord(s[i]);
+        if c >= 97 && c <= 122 {
+            out = out + chr(c - 32);
+        } else {
+            out = out + s[i];
+        }
+    }
+    ret out;
+}
+```
+
+**Contains, starts-with, replace.** `pos` gives you the first two directly;
+remember it returns `-1` when absent, so compare against `>= 0`.
+
+```aether
+@pure
+fn contains(haystack: Text, needle: Text) -> Bool {
+    ret pos(needle, haystack) >= 0;
+}
+
+@pure
+fn startsWith(s: Text, prefix: Text) -> Bool {
+    if string_len(prefix) > string_len(s) {
+        ret false;
+    }
+    ret s[0..string_len(prefix)] == prefix;
+}
+
+@pure
+fn replaceFirst(s: Text, from: Text, to: Text) -> Text {
+    let at: Int = pos(from, s);
+    if at < 0 {
+        ret s;
+    }
+    ret s[0..at] + to + s[at + string_len(from)..string_len(s)];
+}
+```
+
+**Filter and map.** No `filter`, no `map` — build a new array in a loop:
+
+```aether
+@pure
+fn evensDoubled(xs: Int[]) -> Int[] {
+    let out: Int[] = [];
+    loop i in 0..length(xs) {
+        if xs[i] % 2 == 0 {
+            out = out + [xs[i] * 2];
+        }
+    }
+    ret out;
+}
+```
+
+**Lookup tables.** There is no map or dictionary type. Use two parallel arrays
+and a linear scan, or a `type` with an array field:
+
+```aether
+@pure
+fn lookup(keys: Text[], values: Int[], key: Text) -> Int {
+    loop i in 0..length(keys) {
+        if keys[i] == key {
+            ret values[i];
+        }
+    }
+    ret -1;
+}
+```
+
+For keys that arrive from a parsed payload rather than from your own code,
+prefer the TOON accessors (`toon_get_int_or`, `toon_has_key`) over copying the
+payload into parallel arrays — the node is already a keyed structure.
+
+If you can run the compiler, `builtin_info(name)` settles whether a helper you
+are about to hand-roll already exists under a different name. If you cannot,
+write the loop: a hand-rolled helper always compiles, and an invented one never
+does.
 
 ## Structured data: TOON
 

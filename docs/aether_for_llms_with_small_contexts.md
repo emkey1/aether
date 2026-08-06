@@ -1,6 +1,7 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-07-26-4*
+*Guide version: 2026-08-06-1*
+
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
@@ -301,6 +302,15 @@ or two arguments — never borrow the width slot from the `println` form:
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
 code point of `Text`; passing it a `Text` silently returns `0`. Use
 `parse_int` for numeric strings and `ord` for character codes.
+
+The `parse_*` family never reports failure: `parse_int("abc")` is `0`,
+`parse_int("12x")` is `12` (leading digits only, rest discarded), and
+`parse_float("zz")` is `0.0`. A `0` therefore does not mean the text was
+numeric. If that distinction matters, validate the text before parsing it.
+
+There is no map, dict, or set type: use two parallel arrays and a linear scan,
+or a `type` with an array field. For keys from a parsed payload, use the TOON
+accessors — the node is already keyed.
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
 the first character, `s[length(s) - 1]` the last, and `s[a..b]` is the

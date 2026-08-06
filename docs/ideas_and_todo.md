@@ -670,6 +670,42 @@ read/write asymmetry and is a natural fit for the "parse → transform → emit"
 domain. (Surfaced repeatedly when models reach for a TOON builder that doesn't
 exist, 2026-06-27.)
 
+**Design constraint — the writer must be read-back-able, not emit-only.**
+`toon_set_int(node, key, v)` followed by `toon_get_int_or(node, key, 0)` on that
+same node must round-trip. An emit-only builder (accumulate, serialize, discard)
+would close the output asymmetry but nothing else; a read-back-able one is also
+the mutable keyed container Aether otherwise lacks, which is the documented
+escape hatch for runtime-keyed accumulation should that need ever appear
+(see **decided: no map / dictionary type** below). One surface, two gaps —
+worth constraining the design now, while it is still on paper. (2026-08-06.)
+
+### `replace` / whole-string case conversion — *investigated 2026-08-06, no action yet*
+Raised again by an external review. What the evidence available on this laptop
+actually shows:
+
+- **Models do reach for them.** `substring`, `to_upper`, and `replace` appear in
+  the wrong-guess table under *Complete builtin inventory in the full guide*
+  above, drawn from that week's transcripts. The reach is real, not theoretical.
+- **But the local benchmark results show none.** Across
+  `Tests/aether_doc_bench/results/ornith/*.json` there is not one attempt to call
+  `to_upper` or `replace`. The only `substring` occurrences are the task name
+  `cs_substring` ("Naive substring search") — which models solved by hand, exit
+  0, correct output. Asked to do the work, they write the loop.
+- **The remedy already shipped twice**: the builtin appendix makes the guess
+  falsifiable by looking, and **Writing what the surface does not give you**
+  gives verified hand-rolled `replaceFirst` / `upper` / `contains`. Until
+  2026-08-06 that section existed **only in the medium guide** — so a frontier
+  model reading the full guide was told "there is no `replace`" with no
+  alternative offered. That gap is now closed; the section is in all three.
+
+**Still open, and it needs the miner data on m5t** (`Tests/aether_doc_bench/out/`
+is gitignored, so it exists nowhere else): *frequency*. A reach recorded in one
+week's transcripts is not the same bar as the TOON builder's *surfaced
+repeatedly*. If the miner shows models reaching for `replace`/`to_upper`
+persistently **after** having the recipes in front of them, that is the argument
+for real builtins. If they reach only when the recipes are absent, the fix
+already landed and nothing further is owed.
+
 ### Higher-order via named dispatch (capture-free) — *idea, only on demand*
 Aether deliberately has no closures or first-class functions (see **decided:
 no closures** below). If collection-transform ergonomics ever justify it, the
@@ -819,6 +855,37 @@ the language:
   joins; results flow through pointer-backed records. (`task_spawn` is a
   builtin-only handle API, not a way to run user code.)
 - **If HOFs are ever needed:** the named-dispatch idea above, not lambdas.
+
+### No map / dictionary type — *decided 2026-08-06*
+There is no `Map`, `Dict`, or set type, and none is planned. Use two parallel
+arrays and a linear scan, or a `type` with an array field — the idiom already
+documented in the medium guide under **Lookup tables**. Rationale, in the order
+it weighs:
+
+- **No evidence.** The bar here is "a capable model consistently reaches for
+  it." Across the whole findings and benchmark corpus there is not one record of
+  a model reaching for a map or dict. Contrast the TOON writer idea above, which
+  is marked *surfaced repeatedly* — that is what earning a slot looks like. This
+  was raised by an outside review reasoning from what other languages have, not
+  from a trace.
+- **Without generics it is worse than nothing.** Aether has no generics (also
+  off-thesis), so a map type forces a `map_get_int` / `map_get_text` /
+  `map_get_real` family — the `toon_get_*` family rebuilt under a second,
+  competing name set. Two partial ways to do keyed lookup is the *contradictory
+  guidance produces paralysis* failure mode already recorded in the findings.
+- **The domain does not pay for it.** Small-to-medium automation over payloads
+  of hundreds of keys: a linear scan is fine. The case for a map here is
+  ergonomic, never performance, and a duplicate name set damages exactly the
+  ergonomics it would claim to improve.
+
+**What would reopen this:** not lookup, but runtime-keyed *accumulation* —
+word frequency, group-by — where parallel arrays need a fiddly
+scan-then-append-or-update idiom. If the miner shows models tripping there, the
+fix is still not a container type: it is making the TOON writer above
+read-back-able, so one surface closes the emit asymmetry *and* serves as the
+map. (Raised 2026-08-06 in an external review of the language; the review's
+other nine points were either factually wrong about the current surface or
+already decided. Position recorded so the question stops recurring.)
 
 ---
 

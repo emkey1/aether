@@ -7,8 +7,8 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ~9K tokens | 8–16K context models |
-| `aether_for_llms_medium_contexts.md` | ~11K tokens, hard ceiling 13K | ~32K context models |
+| `aether_for_llms_with_small_contexts.md` | ~9K tokens *(stated; measures 11.4K — see below)* | 8–16K context models |
+| `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
 Each guide carries its own `YYYY-MM-DD-N` stamp in its front matter; bump it
@@ -17,9 +17,39 @@ with `tools/bump_guide_version.py` and record what changed in
 `aether_guided_benchmark.md` records per row, so a bump with no changelog entry
 leaves a score nothing can be attributed to.
 
-The medium guide targets **about a third of a 32K window**, leaving room for the
-prompt, a reasoning trace, the emitted program, and one repair round. If it grows
-past ~13K tokens it stops being the thing it exists to be — cut, do not creep.
+The medium guide must leave a ~32K window room for the prompt, a reasoning trace,
+the emitted program, and one repair round. **Hard ceiling: 15K tokens**, measured
+— roughly half the window, leaving ~17K for everything else. If it grows past
+15K it stops being the thing it exists to be — cut, do not creep.
+
+**Measure the budget, do not estimate it.** A `chars / 4` estimate undercounts
+these guides by roughly 16% — they are dense with code fences, tables, and
+backticked identifiers, all of which tokenize badly. Measured 2026-08-06 with
+`o200k_base` (`cl100k_base` is within 0.5%):
+
+| Guide | ceiling | measured 2026-08-06 | headroom |
+|---|---|---|---|
+| small | ~9K *(stated, not re-baselined)* | 11,369 | −2,369 |
+| medium | 15K | 14,350 | 650 |
+| full | none | 25,646 | n/a |
+
+Both constrained guides had silently drifted over their old budgets, because the
+`chars / 4` estimate was flattering. The medium ceiling was **re-baselined from
+13K to 15K on 2026-08-06** against real counts rather than trimming the guide;
+14,350 now sits inside it with ~650 tokens of headroom, which is not much — treat
+the next medium-guide addition as needing a paired cut.
+
+The small guide's ~9K is **still the old estimate-derived number** and it
+measures 11,369. It has not been re-baselined and has not been trimmed; the
+figure in the table above is aspirational, not a measured budget. Resolve it the
+same way — pick a real ceiling or cut to the stated one — before relying on it.
+
+To reproduce these counts:
+
+```sh
+python3 -c 'import tiktoken,sys;e=tiktoken.get_encoding("o200k_base");[print(f"{p}: {len(e.encode(open(p).read())):,}") for p in sys.argv[1:]]' \
+    docs/aether_for_llms_*.md
+```
 
 Because the medium guide now covers the 32K tier, **the full guide is free to
 grow**. It no longer has to be the document that fits everywhere, so prefer
