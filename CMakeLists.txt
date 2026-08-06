@@ -36,8 +36,12 @@ option(AETHER_ENABLE_SDL "Build aether with the pscal-core SDL backend" OFF)
 if(AETHER_ENABLE_SDL)
     set(PSCAL_SDL ON CACHE BOOL "Enable SDL in pscal-core (forced by aether)" FORCE)
 endif()
-# Optional libcurl networking: aether opts pscal-core into its HTTP/socket builtins.
-option(AETHER_ENABLE_CURL "Build aether with the pscal-core libcurl networking backend" OFF)
+# libcurl networking: aether opts pscal-core into its HTTP/socket builtins.
+# ON by default -- `http*`/`socket*` are documented language surface in all three
+# guides, and tests/run.sh exercises them, so a build without them is neither what
+# the docs describe nor able to pass the suite. Configure with
+# -DAETHER_ENABLE_CURL=OFF to build a network-less binary.
+option(AETHER_ENABLE_CURL "Build aether with the pscal-core libcurl networking backend" ON)
 if(AETHER_ENABLE_CURL)
     set(PSCAL_CURL ON CACHE BOOL "Enable libcurl networking in pscal-core (forced by aether)" FORCE)
 endif()

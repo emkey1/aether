@@ -79,6 +79,12 @@ cmake --build build -j
 Already cloned without `--recurse-submodules`? Run `git submodule update --init
 --recursive` once, then build.
 
+Networking (`http*`, `socket*`) is on by default and needs **libcurl** headers
+present at configure time — `brew install curl` on macOS, `libcurl4-openssl-dev`
+or equivalent on Linux. It is documented language surface and `tests/run.sh`
+exercises it, so the default build is the one the docs describe. To build a
+network-less binary instead, configure with `-DAETHER_ENABLE_CURL=OFF`.
+
 ## Install
 
 ```sh
