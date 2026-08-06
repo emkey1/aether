@@ -2193,7 +2193,7 @@ if ! grep -q '\[AETH-RUNTIME-TOON-GET-INDEX-ARRAY\]' /tmp/aether_toon_object_roo
     cat /tmp/aether_toon_object_root_iter_fail.out >&2
     exit 1
 fi
-if ! grep -q 'YyjsonGetIndex requires an array value handle, got object\.' /tmp/aether_toon_object_root_iter_fail.out; then
+if ! grep -q 'toon_at expects an array ToonNode, but got object\.' /tmp/aether_toon_object_root_iter_fail.out; then
     echo "missing object-root iteration type-aware runtime error" >&2
     cat /tmp/aether_toon_object_root_iter_fail.out >&2
     exit 1
