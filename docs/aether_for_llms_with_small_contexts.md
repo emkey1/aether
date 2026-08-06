@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-06-1*
+*Guide version: 2026-08-06-2*
 
 ## Highest-Value Rules
 
@@ -306,7 +306,10 @@ code point of `Text`; passing it a `Text` silently returns `0`. Use
 The `parse_*` family never reports failure: `parse_int("abc")` is `0`,
 `parse_int("12x")` is `12` (leading digits only, rest discarded), and
 `parse_float("zz")` is `0.0`. A `0` therefore does not mean the text was
-numeric. If that distinction matters, validate the text before parsing it.
+numeric. When that distinction matters use `val(t, n, code)` (or
+`valreal(t, r, code)`): declare `n` and `code` first, and `code` is `0` only if
+the whole string parsed. It leaves `n` unmodified on failure, so test `code`
+first.
 
 There is no map, dict, or set type: use two parallel arrays and a linear scan,
 or a `type` with an array field. For keys from a parsed payload, use the TOON

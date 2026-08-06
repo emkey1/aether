@@ -343,11 +343,24 @@ many output lines out, all mapped to that input line — is line-map-correct by
 construction, reusing the same machinery contract-annotation expansion already
 relies on.
 
-**Remaining one-liner gap:** a one-liner *type* declaration
-(`type Point { x: Int; y: Int; }`) still doesn't register its fields
-(`FIELD-002`). `type` is intentionally excluded from the expander (it's a
-declaration, not a control-flow body); declare types multi-line. Repair drills
-for the one-liner *guard* shape can now be dropped from the family overlays.
+**The one-liner `type` gap is closed too** (verified on `2026-07-26-9`). It used
+to be real: `type` was deliberately excluded from the expander — a declaration,
+not a control-flow body — so a one-liner `type Point { x: Int; y: Int; }` never
+registered its fields. That was a property of the line-oriented rewriter, and it
+went away with it: the AST parser has no one-construct-per-line assumption to
+opt a declaration out of. Both forms now compile and both register fields, so
+`FIELD-002` still fires on an unknown field either way:
+
+```aether
+type Point { x: Int; y: Int; }               // compiles; p.x and p.y resolve
+type Boxed { n: Int = 0; label: Text = ""; } // defaults on one line are fine too
+```
+
+Repair drills for the one-liner *guard* and one-liner *type* shapes can both be
+dropped from the family overlays. Nothing in the LLM-facing guides told models to
+declare types multi-line, so no guide change was owed — but this section said so
+for longer than it was true, which is the failure mode §6 exists to prevent. A
+wart list is only useful if entries leave it when they are fixed.
 
 ### 6.2 The bootstrap is the wart-factory
 

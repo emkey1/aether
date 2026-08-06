@@ -54,7 +54,13 @@ END = "<!-- END GENERATED BUILTIN INVENTORY -->"
 # Host-registered demo/graphics surfaces. Real in some builds, but not part of
 # the language a model should be writing against -- listing them would suggest
 # `bouncingballs3dstepultraadvanced` is Aether.
-SKIP_CATEGORIES = {"3d", "user"}
+#
+# `graphics` joined this set once a build started registering it as its own
+# category: the same SDL/OpenGL/sound names had been arriving under `core` and
+# leaking ~70 entries (`glvertex3f`, `playsound`, `rendercopyex`) into the
+# guide's name-only Core list. Skipping the category is what the older builds
+# should have been doing all along, not a new exclusion.
+SKIP_CATEGORIES = {"3d", "user", "graphics"}
 
 # Friendlier headings than the raw category strings.
 CATEGORY_TITLES = {

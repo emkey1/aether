@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-08-06-1*
+*Guide version: 2026-08-06-2*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -198,9 +198,25 @@ value: `parse_int("abc")` is `0`, `parse_int("12x")` is `12` (leading digits
 only, the rest discarded), `parse_float("zz")` is `0.0`, and `parse_bool` is
 `false` for anything but `true`/`1`/`yes`/`t`. So `parse_int(raw) == 0` is true
 for `"0"`, `"abc"`, and `""` alike — never treat the result as its own validity
-check. There is no `try_parse`. If a field must be entirely numeric, scan it
-with `ord` before parsing (see **Writing what the surface does not give you**),
-or state it as `@pre` on the helper that consumes it.
+check.
+
+**`val` is the checked parse.** There is no `try_parse`, but `val(t, n, code)`
+reports failure: `code` is `0` only when the *whole* string parsed, otherwise the
+1-based position of the first bad character. `valreal(t, r, code)` is the `Real`
+form. Both are pure — no `fx` needed, legal in a `@pure` function — and both
+leave the destination **unmodified** on failure, so check `code` before reading
+it. Note `val("12x", n, code)` fails where `parse_int("12x")` returns `12`; that
+strictness is the point. Use `val` for any field from a file, an argument, an
+environment variable, or a model. Declare both destinations first:
+
+```aether
+let n: Int = 0;
+let code: Int = 0;
+val(raw, n, code);
+if code != 0 {
+    n = -1;
+}
+```
 
 **Arity traps.** These are caught at compile time as `BUILT-002`, but write them
 right the first time:

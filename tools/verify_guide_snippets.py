@@ -44,6 +44,7 @@ fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           j: Int, id: Text, pct: Real, s: Text, url: Text, n: Int,
           rows: Int, cols: Int, path: Text, value: Int, answer: Int,
           successful: Int, amount: Int, name: Text, status: Text, ok: Int,
+          raw: Text, code: Int,
           a: Tally, b: Tally,
           xs: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc,
           tx: Tx) -> Void {

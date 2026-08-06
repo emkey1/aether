@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-06-1*
+*Guide version: 2026-08-06-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -181,6 +181,8 @@ Generate the canonical form unless preserving existing code.
 | Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
+| Text → Int, untrusted input | `val(t, n, code)`, then require `code == 0` | `parse_int(t)` behind an explicit digit scan | `parse_int(t)` alone — it cannot report failure |
+| Text → Real, untrusted input | `valreal(t, r, code)`, then require `code == 0` | — | `parse_float(t)` alone — same reason |
 | Int → Text | `int_to_text(n)` | `itoa(n)` | inventing `n.toString()` |
 | Real → Text | `formatfloat(r, prec)` — exactly 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (no width arg — runtime error); `r:0:prec` as a value (it is `println`-only) |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (silently returns `0` for `Text`; it casts `Real`/`Bool`, not `Text`) |
@@ -822,12 +824,13 @@ signatures and call the exact discovered names. For hand-rolled `replace`,
 `contains`, `startsWith`, and case conversion, copy the verified loops in
 **Writing what the surface does not give you**.
 
-### Parsing text into scalars — failure is silent
+### Parsing text into scalars — `parse_*` fails silently, `val` does not
 
 `parse_int(t)`, `parse_float(t)`, and `parse_bool(t)` are the canonical
 `Text` → scalar conversions. **None of them can report failure.** They are total
 functions: every input produces a value, including inputs that are not numbers
-at all.
+at all. When the input is untrusted, use `val`/`valreal` instead — see
+**Checked parsing** below.
 
 | Call | Result | Why |
 |---|---|---|
@@ -847,9 +850,69 @@ Two consequences worth internalizing:
   parse to their numeric prefix. If a field must be *entirely* numeric, the
   parse will not tell you it was not.
 
-There is no `try_parse` and no `parse_int_or`. When the distinction matters,
-validate before parsing — a digit scan is a few lines and is `@pure`, so it can
-also serve as a `@pre` on the helper that consumes the field:
+### Checked parsing — `val` and `valreal`
+
+There is no `try_parse` and no `parse_int_or`, but there **is** a checked parse.
+`val` and `valreal` are the only builtins that report a bad parse, and they are
+the right tool for any field arriving from a file, an argument, an environment
+variable, or a model:
+
+| Builtin | Signature | Effect |
+|---|---|---|
+| `val(text, out, code)` | `(Text, Int, Int) -> Void` | pure |
+| `valreal(text, out, code)` | `(Text, Real, Int) -> Void` | pure |
+
+Both write into pre-declared variables. Aether has no general by-ref, but these
+take their destinations the same way `readln` and `gettime` do, so declare
+`out` and `code` first and pass them by name.
+
+`code` is `0` when the **whole** string parsed, and otherwise the 1-based
+position of the first offending character:
+
+| Call | `out` | `code` |
+|---|---|---|
+| `val("42", n, code)` | `42` | `0` — clean parse |
+| `val("-12", n, code)` | `-12` | `0` — a leading `-` and leading spaces are fine |
+| `val("12x", n, code)` | *unchanged* | `3` — first bad character is `x` |
+| `val("7 items", n, code)` | *unchanged* | `2` — a partial parse is a failure here |
+| `val("", n, code)` | *unchanged* | `1` — empty is a failure, not `0` |
+| `valreal("3.5", r, code)` | `3.5` | `0` |
+
+Two rules follow from that table:
+
+- **Check `code` before reading `out`.** On failure `out` is left *unmodified*,
+  not zeroed — it still holds whatever it held before the call, which on a
+  reused variable is the previous iteration's value.
+- **`val` is stricter than `parse_int`, not just louder.** `"12x"` is a
+  successful `parse_int` returning `12` and a *failed* `val`. That is the point:
+  `val` is what tells you a field was not entirely numeric.
+
+Both are pure, so they need no `fx` block and are legal inside a `@pure`
+function. That makes a checked wrapper easy to write:
+
+```aether
+@pure
+fn parseChecked(raw: Text) -> Int {
+    let n: Int = 0;
+    let code: Int = 0;
+    val(raw, n, code);
+    if code != 0 {
+        ret -1;
+    }
+    ret n;
+}
+```
+
+That yields `42` for `"42"` and `-1` for both `"12x"` and `"abc"` — the
+distinction `parse_int` cannot make. Choose a sentinel outside the field's real
+range, or return `(Int, Bool)` and destructure it if `-1` is a legal value.
+
+### Validating before parsing
+
+`val` is a statement with out-parameters, not an expression, so it cannot appear
+in a `@pre`. When you want the requirement carried by a contract instead, a
+digit scan is a few lines and is `@pure`, so it can serve as a `@pre` on the
+helper that consumes the field:
 
 ```aether
 @pure
@@ -874,8 +937,11 @@ fn scoreOf(raw: Text) -> Int {
 ```
 
 Guard at the call site with `if isAllDigits(raw) { ... }`, or let the contract
-carry the requirement as above. Note the predicate rejects a leading `-`; widen
-it if negative fields are in scope.
+carry the requirement as above. Note the predicate rejects a leading `-`, which
+`val` accepts; widen it if negative fields are in scope. Prefer `val` unless you
+specifically need the requirement expressed as a contract — it is one call, it
+already handles signs and surrounding whitespace, and it cannot drift out of
+sync with the parse it guards.
 
 ## Files and environment
 
@@ -1972,7 +2038,7 @@ Before submitting Aether code, verify:
 
 *Generated by `tools/gen_builtin_appendix.py`. Do not edit by hand.*
 
-Every builtin this compiler exposes: **110** with a signature below, **68** whose signatures are in the tables earlier in this document, and **234** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
+Every builtin this compiler exposes: **110** with a signature below, **70** whose signatures are in the tables earlier in this document, and **162** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
 
 `fx` marks a builtin as effectful: it must be called inside an `fx { ... }` block and may not be called from a `@pure` function (FX-001).
 
@@ -2164,7 +2230,7 @@ Safe to call exactly as written.
 
 Real, and their signatures **are** documented — in the conversion, arity, math, and helper tables above, not in the table below. They are listed here only so that "absent from the appendix" still means "does not exist". Scroll up for the signature; do not treat these as unknown and do not hand-roll a replacement.
 
-**Core** — `abs`, `append`, `arccos`, `arcsin`, `arctan`, `assign`, `atan2`, `ceil`, `chr`, `clamp`, `close`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `eof` *fx*, `erase` *fx*, `exp`, `floor`, `getdate` *fx*, `gettime` *fx*, `int`, `ln`, `log10`, `max`, `min`, `mstreamappendbyte`, `mstreambuffer`, `mstreamcreate`, `mstreamfree`, `mstreamfromstring`, `odd`, `ord`, `pow`, `power`, `readln` *fx*, `rename` *fx*, `reset`, `rewrite`, `round`, `sin`, `sinh`, `socketaccept`, `socketbind`, `socketbindaddr`, `socketclose`, `socketconnect`, `socketcreate`, `socketlasterror`, `socketlisten`, `socketpeeraddr`, `socketpoll`, `socketreceive`, `socketsend`, `socketsetblocking`, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`
+**Core** — `abs`, `append`, `arccos`, `arcsin`, `arctan`, `assign`, `atan2`, `ceil`, `chr`, `clamp`, `close`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `eof` *fx*, `erase` *fx*, `exp`, `floor`, `getdate` *fx*, `gettime` *fx*, `int`, `ln`, `log10`, `max`, `min`, `mstreamappendbyte`, `mstreambuffer`, `mstreamcreate`, `mstreamfree`, `mstreamfromstring`, `odd`, `ord`, `pow`, `power`, `readln` *fx*, `rename` *fx*, `reset`, `rewrite`, `round`, `sin`, `sinh`, `socketaccept`, `socketbind`, `socketbindaddr`, `socketclose`, `socketconnect`, `socketcreate`, `socketlasterror`, `socketlisten`, `socketpeeraddr`, `socketpoll`, `socketreceive`, `socketsend`, `socketsetblocking`, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `val`, `valreal`
 
 **math** — `factorial`, `fibonacci`
 
@@ -2176,7 +2242,7 @@ Real, and their signatures **are** documented — in the conversion, arity, math
 
 These names exist, but their signatures are not documented here. That is deliberate and it is still useful: it confirms a name is real **without** licensing a guess at its arguments. Calling one with an invented argument list is how `BUILT-002` and uncoded runtime errors happen. If you need one of these and cannot verify its signature by running the compiler, restructure to use a documented helper above.
 
-**Core** — `apiReceive` *fx*, `apiSend` *fx*, `assignfile` *fx*, `beep` *fx*, `biblinktext`, `biboldtext`, `biclrscr`, `bilowvideo`, `binormvideo`, `biunderlinetext`, `biwherex`, `biwherey`, `blinktext`, `blockread` *fx*, `blockwrite` *fx*, `boldtext`, `bool`, `byte`, `bytecodeversion`, `channelclose`, `channelcreate`, `channelisclosed`, `channelreceive`, `channelsend`, `channeltryreceive`, `channeltrysend`, `char`, `cleardevice`, `closefile` *fx*, `closegraph`, `closegraph3d`, `clreol`, `clrscr`, `createtargettexture`, `createtexture`, `cursoroff`, `cursoron`, `dec`, `deline`, `destroytexture`, `dispose`, `dosExec` *fx*, `dosFindfirst` *fx*, `dosFindnext` *fx*, `dosGetdate` *fx*, `dosGetenv` *fx*, `dosGetfattr` *fx*, `dosGettime` *fx*, `dosMkdir` *fx*, `dosRmdir` *fx*, `double`, `drawcircle`, `drawline`, `drawpolygon`, `drawrect`, `exec` *fx*, `exit` *fx*, `extbuiltincategorycount`, `extbuiltincategoryname`, `extbuiltinfunctioncount`, `extbuiltinfunctionname`, `extbuiltingroupcount`, `extbuiltingroupfunctioncount`, `extbuiltingroupfunctionname`, `extbuiltingroupname`, `fclose` *fx*, `fflush` *fx*, `filesize` *fx*, `fillcircle`, `fillrect`, `findfirst` *fx*, `findnext` *fx*, `float`, `flush` *fx*, `fopen` *fx*, `format`, `fprintf` *fx*, `freesound`, `getfattr` *fx*, `getmaxx`, `getmaxy`, `getmousestate`, `getpixelcolor`, `getscreensize`, `gettextsize`, `getticks`, `glbegin`, `glclear`, `glclearcolor`, `glcleardepth`, `glcolor3f`, `glcullface`, `gldepthfunc`, `gldepthmask`, `gldepthtest`, `glend`, `glfrustum`, `gllinewidth`, `glloadidentity`, `glmatrixmode`, `glperspective`, `glpopmatrix`, `glpushmatrix`, `glrotatef`, `glscalef`, `glsetswapinterval`, `glswapwindow`, `gltranslatef`, `glvertex3f`, `glviewport`, `gotoxy`, `graphloop`, `halt` *fx*, `hidecursor`, `high`, `highvideo`, `inc`, `initgraph`, `initgraph3d`, `initsoundsystem`, `inittextsystem`, `insline`, `inttostr`, `invertcolors`, `ioresult` *fx*, `iskeydown`, `issoundplaying`, `jsonget`, `keypressed` *fx*, `landscapesetlightingpreset`, `landscapesetpalettepreset`, `loadimagetotexture`, `loadsound`, `low`, `lowvideo`, `new`, `newobj`, `normalcolors`, `normvideo`, `outtextxy`, `playsound`, `pollkey`, `pollkeyany`, `popscreen`, `printf` *fx*, `pushscreen`, `putpixel`, `quitrequested`, `quitsoundsystem`, `quittextsystem`, `read` *fx*, `readkey` *fx*, `real`, `rendercopy`, `rendercopyex`, `rendercopyrect`, `rendertexttotexture`, `restorecursor`, `savecursor`, `screencols`, `screenrows`, `setalphablend`, `setcolor`, `setlength`, `setrendertarget`, `setrgbcolor`, `showcursor`, `sizeof`, `stopallsounds`, `str`, `succ`, `taskawait` *fx*, `taskcancel` *fx*, `taskdone` *fx*, `taskspawn` *fx*, `textbackground`, `textbackgrounde`, `textcolor`, `textcolore`, `thread_cancel` *fx*, `thread_pause` *fx*, `thread_resume` *fx*, `thread_set_name` *fx*, `threadcancel`, `threadgetresult`, `threadgetstatus`, `threadlookup`, `threadpause`, `threadpoolsubmit`, `threadresume`, `threadsetname`, `threadspawnbuiltin` *fx*, `threadstats`, `threadstatsjson`, `tobool`, `tobyte`, `tochar`, `todouble`, `tofloat`, `toint`, `toupper`, `underlinetext`, `upcase`, `updatescreen`, `updatetexture`, `val`, `valreal`, `vmversion`, `waitforthread` *fx*, `waitkeyevent`, `wherex`, `wherey`, `window`
+**Core** — `apiReceive` *fx*, `apiSend` *fx*, `assignfile` *fx*, `beep` *fx*, `biblinktext`, `biboldtext`, `biclrscr`, `bilowvideo`, `binormvideo`, `biunderlinetext`, `biwherex`, `biwherey`, `blinktext`, `blockread` *fx*, `blockwrite` *fx*, `boldtext`, `bool`, `byte`, `bytecodeversion`, `channelclose`, `channelcreate`, `channelisclosed`, `channelreceive`, `channelsend`, `channeltryreceive`, `channeltrysend`, `char`, `closefile` *fx*, `clreol`, `clrscr`, `cursoroff`, `cursoron`, `dec`, `deline`, `dispose`, `dosExec` *fx*, `dosFindfirst` *fx*, `dosFindnext` *fx*, `dosGetdate` *fx*, `dosGetenv` *fx*, `dosGetfattr` *fx*, `dosGettime` *fx*, `dosMkdir` *fx*, `dosRmdir` *fx*, `double`, `exec` *fx*, `exit` *fx*, `extbuiltincategorycount`, `extbuiltincategoryname`, `extbuiltinfunctioncount`, `extbuiltinfunctionname`, `extbuiltingroupcount`, `extbuiltingroupfunctioncount`, `extbuiltingroupfunctionname`, `extbuiltingroupname`, `fclose` *fx*, `fflush` *fx*, `filesize` *fx*, `findfirst` *fx*, `findnext` *fx*, `float`, `flush` *fx*, `fopen` *fx*, `format`, `fprintf` *fx*, `getfattr` *fx*, `gotoxy`, `halt` *fx*, `hidecursor`, `high`, `highvideo`, `inc`, `insline`, `inttostr`, `invertcolors`, `ioresult` *fx*, `jsonget`, `keypressed` *fx*, `landscapedrawcloudlayer` *fx*, `landscapedrawskydome` *fx*, `landscapesetlightingpreset`, `landscapesetpalettepreset`, `low`, `lowvideo`, `new`, `newobj`, `normalcolors`, `normvideo`, `popscreen`, `printf` *fx*, `pushscreen`, `quitrequested`, `read` *fx*, `readkey` *fx*, `real`, `restorecursor`, `savecursor`, `screencols`, `screenrows`, `setlength`, `showcursor`, `sizeof`, `str`, `succ`, `taskawait` *fx*, `taskcancel` *fx*, `taskdone` *fx*, `taskspawn` *fx*, `textbackground`, `textbackgrounde`, `textcolor`, `textcolore`, `thread_cancel` *fx*, `thread_pause` *fx*, `thread_resume` *fx*, `thread_set_name` *fx*, `threadcancel`, `threadgetresult`, `threadgetstatus`, `threadlookup`, `threadpause`, `threadpoolsubmit`, `threadresume`, `threadsetname`, `threadspawnbuiltin` *fx*, `threadstats`, `threadstatsjson`, `tobool`, `tobyte`, `tochar`, `todouble`, `tofloat`, `toint`, `toupper`, `underlinetext`, `upcase`, `vmversion`, `waitforthread` *fx*, `wherex`, `wherey`, `window`
 
 **math** — `chudnovsky`, `mandelbrotrow`
 
