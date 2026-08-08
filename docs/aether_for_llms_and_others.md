@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-06-2*
+*Guide version: 2026-08-08-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1974,6 +1974,29 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   `table = table + [row];`), and bound inner loops with `length(table[r])` since
   rows may be jagged. Or keep one dimension and index with a computed offset,
   `table[r * width + c]`.
+- **[ARR-003]** *(runtime)* an index outside the array's valid range. The message
+  gives the offending index, which dimension it was in, and the valid range, and
+  the `[Error Location]` line that follows gives the source line. Read the range
+  first: `valid indices are 0..0` means the array holds exactly one element, so
+  the bug is usually that the row you are indexing **has not been appended yet**.
+  Building a table row by row is the classic case — inside the loop, the current
+  row is still the local `row`, not `table[i]`:
+
+  ```aether
+  loop i in 0..rows {
+      let row: Int[] = [];
+      loop j in 0..cols {
+          // ✗ table[i][j - 1] -- row i is not in `table` until after this loop
+          // ✓ row[j - 1]      -- the row being built right now
+          row = row + [j];
+      }
+      table = table + [row];   // only now does table[i] exist
+  }
+  ```
+
+  Previously-appended rows *are* readable as `table[i - 1][j]`. If the index is
+  genuinely meant to be in range, the loop bound is what to fix — remember
+  `loop i in 0..n` is half-open, so the last valid index is `n - 1`.
 - **[FLOW-001]** a fallthrough path with no return value → add an explicit final
   `ret ...` on every reachable top-level path in the non-`Void` helper.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function (a `ret` with no value)

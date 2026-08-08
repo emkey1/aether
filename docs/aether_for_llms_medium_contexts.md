@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-08-06-2*
+*Guide version: 2026-08-08-1*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -1227,6 +1227,12 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
   build rows as arrays, or index once with a computed offset
   (`grid[r * width + c]`).
+- **[ARR-003]** (runtime) index outside the array's range; the message gives the
+  index, the dimension and the valid range, and the `[Error Location]` line gives
+  the source line. `valid indices are 0..0` means one element exists, so the row
+  is usually **not appended yet**: while building a table row by row, the current
+  row is the local `row`, not `table[i]` — `table[i]` only exists after
+  `table = table + [row];`. Earlier rows read fine as `table[i - 1][j]`.
 - **[PREC-001]** (warning) `flags & mask != 0` → `&`, `|` and `^` bind looser
   than the comparisons, so this groups as `flags & (mask != 0)` and yields an
   **Int**, not a Bool. Parenthesize: `(flags & mask) != 0`.
