@@ -23,6 +23,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-08-08-1` | 2026-08-08 | `fcae527` | docs: document **[ARR-003]**, the runtime out-of-bounds error, now that it carries a code and a source line (pscal-core `ab86a7d`). Adds the build-a-table-row-by-row worked case — `table[i]` does not exist until after `table = table + [row];`, so the row being built is the local `row` — plus the half-open reminder that `loop i in 0..n` ends at `n - 1` |
 | `2026-08-06-2` | 2026-08-06 | `07daaf4` | docs: document `val`/`valreal` as the checked parse — the previous revision's "there is no `try_parse`" read as "failure cannot be detected"; adds a **Checked parsing** section with the `code` table, canonical-vs-accepted rows for untrusted `Text` → `Int`/`Real`, and a prefer-`val` note on the contract recipe. Appendix regenerated: `val`/`valreal` move to the documented tier, and ~70 SDL/OpenGL/sound names leave Core with `graphics` added to `SKIP_CATEGORIES` |
 | `2026-08-06-1` | 2026-08-06 | `e2e5582` | docs: add **Writing what the surface does not give you** (7 recipes, ported from the medium guide, where it had been the only copy); document that `parse_*` cannot report failure; state that there is no map/dict type |
 | `2026-07-31-1` | 2026-07-31 | `e47d4d6` | fix: appendix no longer contradicts the prose for 68 documented builtins |
@@ -55,6 +56,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-08-08-1` | 2026-08-08 | `fcae527` | docs: add **[ARR-003]** to the repair rules — index, dimension and valid range in the message, source line in `[Error Location]`, and the row-not-appended-yet reading of `valid indices are 0..0` |
 | `2026-08-06-2` | 2026-08-06 | `07daaf4` | docs: `val` is the checked parse — a paragraph and one gated snippet replacing the bare "there is no `try_parse`", covering the `code` convention and that the destination is left unmodified on failure |
 | `2026-08-06-1` | 2026-08-06 | `e2e5582` | docs: document that `parse_*` cannot report failure, and add a validate-before-parse recipe |
 | `2026-07-30-1` | 2026-07-30 | `b1748f1` | docs: medium guide documents mstreamfromstring (MS-001) |
