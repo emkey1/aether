@@ -2711,7 +2711,7 @@ fi
 # mid-chain, two concats on one line (their temps used to collide by name), the
 # `ret` position, and value semantics.
 "$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_chain_pass.aether" >/tmp/aether_array_concat_chain_pass.out
-printf 'mixed: 1 2 7 8 3\nfive len=5\nwithEmpty len=2\ncalls len=6\nfromRet len=5\nx[0] after mutating mixed =1\n' >/tmp/aether_array_concat_chain_expected.out
+printf 'mixed: 1 2 7 8 3\nfive len=5\nwithEmpty len=2\ncalls len=6\nfromRet len=5\nx[0] after mutating mixed =1\nprepend: 0 1 2\naround : 0 1 2 3\nselfdup: 1 2 1 2\n' >/tmp/aether_array_concat_chain_expected.out
 if ! cmp -s /tmp/aether_array_concat_chain_expected.out /tmp/aether_array_concat_chain_pass.out; then
     echo "unexpected chained-array-concat output (regression: a + b + c reaching the VM?)" >&2
     cat /tmp/aether_array_concat_chain_pass.out >&2

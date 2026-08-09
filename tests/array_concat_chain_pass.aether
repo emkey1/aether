@@ -54,4 +54,22 @@ fn main() -> Void {
     // Value semantics: the chain result must not alias its base.
     mixed[0] = 99;
     fx { println("x[0] after mutating mixed =", x[0]); }
+
+    // Assignment position, and the destination appearing on the RIGHT.
+    // `ys = [0] + ys` used to lower to `ys = [0]` followed by steps that copied
+    // the ALREADY-CLOBBERED ys back in, yielding "0 0" silently -- no error, just
+    // wrong data. The mirror shape `xs = xs + [v]` was always safe because its
+    // copy `xs = xs` is a no-op, which is why the documented append idiom worked
+    // and this one did not.
+    let pre: Int[] = [1, 2];
+    pre = [0] + pre;
+    fx { print("prepend:"); loop i in 0..length(pre) { print(" ", pre[i]); } println(""); }
+
+    let both: Int[] = [1, 2];
+    both = [0] + both + [3];
+    fx { print("around :"); loop i in 0..length(both) { print(" ", both[i]); } println(""); }
+
+    let dup: Int[] = [1, 2];
+    dup = dup + dup;
+    fx { print("selfdup:"); loop i in 0..length(dup) { print(" ", dup[i]); } println(""); }
 }

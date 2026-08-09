@@ -4201,6 +4201,36 @@ static bool aetherLValueEqual(const AST *a, const AST *b) {
     }
 }
 
+/* Does `expr` read the lvalue `target` anywhere inside it?
+ *
+ * Matters for self-referencing concat where the destination is on the RIGHT:
+ * `ys = [0] + ys;`. That lowers to `ys = [0];` followed by steps that copy
+ * `ys` in -- but the copy has already clobbered it, so the result was `0 0`
+ * instead of `0 1 2`. Silently wrong data, no diagnostic. (`xs = xs + [v];`,
+ * the documented append idiom, is safe only because its copy `xs = xs` is a
+ * no-op.) Callers use this to hoist `other` into a temp BEFORE the copy.
+ *
+ * Conservative on purpose: a false positive costs one redundant temp, a false
+ * negative silently corrupts data. */
+static bool aetherExprReadsLValue(const AST *expr, const AST *target) {
+    if (!expr || !target) return false;
+    if (aetherLValueEqual(expr, target)) return true;
+    /* A bare-name match anywhere is enough for the shapes that reach here;
+     * comparing whole lvalue chains would miss `ys[i]` reading `ys`. */
+    if (expr->type == AST_VARIABLE && target->type == AST_VARIABLE &&
+        expr->token && target->token && expr->token->value && target->token->value &&
+        strcmp(expr->token->value, target->token->value) == 0) {
+        return true;
+    }
+    if (aetherExprReadsLValue(expr->left, target)) return true;
+    if (aetherExprReadsLValue(expr->right, target)) return true;
+    if (aetherExprReadsLValue(expr->extra, target)) return true;
+    for (int i = 0; i < expr->child_count; i++) {
+        if (aetherExprReadsLValue(expr->children[i], target)) return true;
+    }
+    return false;
+}
+
 /* Build `length(<target-copy>)` as an AST_PROCEDURE_CALL (INTEGER), the call the
  * rewriter emits inside its setlength/index-assign append expansion. */
 static AST *buildLengthCall(const AST *target, int line) {
@@ -4826,6 +4856,37 @@ static AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *oth
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
+
+    /* `ys = [0] + ys;` -- the destination appears in the RIGHT operand. The copy
+     * below (`ys = [0]`) clobbers it before buildArrayConcatSteps hoists it into
+     * its own temp, so the steps then copy in the already-overwritten value:
+     * `0 0` instead of `0 1 2`, silently, with no diagnostic. Hoist `other`
+     * ahead of the copy so it is captured intact.
+     *
+     * The mirror shape `xs = xs + [v]` (destination on the LEFT) never had this
+     * problem, because there `src` IS `target` and no copy is emitted at all --
+     * which is why the documented append idiom always worked and this one did
+     * not. */
+    if (copyStmt && aetherExprReadsLValue(other, target)) {
+        VarType preVt = TYPE_UNKNOWN;
+        AST *preTypeNode = buildTypeNodeFromName(otherTypeName, strlen(otherTypeName),
+                                                 line, &preVt);
+        if (preTypeNode) {
+            static int preSerial = 0;
+            char preName[64];
+            snprintf(preName, sizeof(preName), "__aether_concat_pre_%d_%d", line, ++preSerial);
+            AST *preDecl = newASTNode(AST_VAR_DECL, NULL);
+            addChild(preDecl, buildVarRef(preName, preVt, line));
+            setLeft(preDecl, other);
+            setRight(preDecl, preTypeNode);
+            setTypeAST(preDecl, preVt);
+            addChild(outer, preDecl);
+            other = buildVarRef(preName, preVt, line);
+        }
+        /* If the type node could not be built we fall through unhoisted rather
+         * than fail the parse: the pre-existing behavior, not a regression. */
+    }
+
     if (copyStmt) addChild(outer, copyStmt);
     if (!buildArrayConcatSteps(p, outer, target, other, otherTypeName, line)) {
         freeAST(assign);
@@ -4863,6 +4924,27 @@ static AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *oth
  * the consumed `+` nodes and owned by the caller, which must either hand them to
  * aetherEmitConcatOperand (which consumes them) or release them with
  * aetherFreeConcatOperands. The emptied `+` shells are freed here. */
+/* How many array-`+` operands hang off this expression's left spine, WITHOUT
+ * consuming it. aetherCollectConcatChain destroys the `+` shells as it peels,
+ * so callers that must fall through to another lowering on a short chain need
+ * to know the length before committing. */
+static int aetherConcatChainLength(AetherParser *p, const AST *expr) {
+    int n = 0;
+    const AST *cur = expr;
+    while (cur && cur->type == AST_BINARY_OP && cur->token &&
+           cur->token->type == TOKEN_PLUS && cur->left && cur->right) {
+        if (cur->right->type != AST_ARRAY_LITERAL) {
+            char *tn = inferLetTypeName((AetherParser *)p, (AST *)cur->right);
+            bool isArr = tn && aetherTypeNameIsArray(tn);
+            free(tn);
+            if (!isArr) break;
+        }
+        n++;
+        cur = cur->left;
+    }
+    return n;
+}
+
 static bool aetherCollectConcatChain(AetherParser *p, AST **initInOut,
                                      AetherConcatOperand **outOps, int *outCount) {
     *outOps = NULL;
@@ -6237,6 +6319,85 @@ static AST *parseStatementInner(AetherParser *p) {
          * lvalue chain; `src` can be any expression of the right array type. */
         AST *target = expr->left;
         AST *rhs = expr->right;
+
+        /* Chained concat in assignment position: `d = [0] + d + [3];`. The two
+         * single-operand branches below each peel exactly one operand, so a
+         * chain left a raw array `+` for the VM ("Got ARRAY and ARRAY") -- the
+         * same defect the declaration and `ret` paths had. Handled here only
+         * when there are 2+ operands; a single operand falls through to the
+         * original, well-tested branches. */
+        if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
+            rhs->token->type == TOKEN_PLUS && aetherIsLValueChain(target) &&
+            aetherConcatChainLength(p, rhs) >= 2) {
+            AST *probe = rhs;
+            AetherConcatOperand *ops = NULL;
+            int opCount = 0;
+            if (aetherCollectConcatChain(p, &probe, &ops, &opCount) && opCount >= 2) {
+                int line = expr->token ? expr->token->line : p->current.line;
+                AST *outer = newASTNode(AST_COMPOUND, NULL);
+                outer->i_val = 1;
+
+                /* Any operand that READS the destination must be captured before
+                 * the copy below overwrites it -- see aetherExprReadsLValue. The
+                 * base is safe: `target = base` reads it before assigning. */
+                for (int i = 0; i < opCount; i++) {
+                    if (!ops[i].other || !aetherExprReadsLValue(ops[i].other, target)) continue;
+                    VarType preVt = TYPE_UNKNOWN;
+                    AST *preTypeNode = buildTypeNodeFromName(ops[i].otherTypeName,
+                                                             strlen(ops[i].otherTypeName),
+                                                             line, &preVt);
+                    if (!preTypeNode) continue;
+                    static int chainPreSerial = 0;
+                    char preName[64];
+                    snprintf(preName, sizeof(preName), "__aether_concat_cpre_%d_%d",
+                             line, ++chainPreSerial);
+                    AST *preDecl = newASTNode(AST_VAR_DECL, NULL);
+                    addChild(preDecl, buildVarRef(preName, preVt, line));
+                    setLeft(preDecl, ops[i].other);
+                    setRight(preDecl, preTypeNode);
+                    setTypeAST(preDecl, preVt);
+                    addChild(outer, preDecl);
+                    ops[i].other = buildVarRef(preName, preVt, line);
+                }
+
+                if (!aetherLValueEqual(target, probe)) {
+                    Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+                    AST *copyAssign = newASTNode(AST_ASSIGN, aTok);
+                    setLeft(copyAssign, copyAST(target));
+                    setRight(copyAssign, probe);
+                    setTypeAST(copyAssign, target->var_type);
+                    AST *copyStmt = newASTNode(AST_EXPR_STMT, copyAssign->token);
+                    setLeft(copyStmt, copyAssign);
+                    addChild(outer, copyStmt);
+                } else {
+                    freeAST(probe);
+                }
+
+                bool ok = true;
+                for (int i = 0; i < opCount && ok; i++) {
+                    ok = aetherEmitConcatOperand(p, outer, target, &ops[i]);
+                }
+                if (!ok) {
+                    aetherFreeConcatOperands(ops, opCount, true);
+                    freeAST(outer);
+                    freeAST(expr);
+                    return NULL;
+                }
+                aetherFreeConcatOperands(ops, opCount, false);
+                expr->right = NULL;
+                freeAST(expr); /* target was copied; the `+` shells are gone */
+                return outer;
+            }
+            /* Guarded by aetherConcatChainLength >= 2 above, so this is only
+             * reached on an allocation failure inside the collector. */
+            aetherFreeConcatOperands(ops, opCount, true);
+            freeAST(probe);
+            expr->right = NULL;
+            freeAST(expr);
+            p->hadError = true;
+            return NULL;
+        }
+
         if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
             rhs->token->type == TOKEN_PLUS &&
             rhs->right && rhs->right->type == AST_ARRAY_LITERAL &&
