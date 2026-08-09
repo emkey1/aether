@@ -2702,6 +2702,22 @@ if ! cmp -s /tmp/aether_array_concat_return_expected.out /tmp/aether_array_conca
     exit 1
 fi
 
+# Chained array `+`: `a + b + c` and longer, in both declaration and `ret`
+# position. Both lowerings used to peel exactly ONE operand and leave the rest
+# as the initializer, so two terms worked and three or more left a raw array `+`
+# for the VM ("Got ARRAY and ARRAY") -- which made the textbook
+# `quicksort(less) + [pivot] + quicksort(greater)` impossible to write. Covers
+# mixed literal/call operands, element ORDER, five terms, an empty literal
+# mid-chain, two concats on one line (their temps used to collide by name), the
+# `ret` position, and value semantics.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_chain_pass.aether" >/tmp/aether_array_concat_chain_pass.out
+printf 'mixed: 1 2 7 8 3\nfive len=5\nwithEmpty len=2\ncalls len=6\nfromRet len=5\nx[0] after mutating mixed =1\n' >/tmp/aether_array_concat_chain_expected.out
+if ! cmp -s /tmp/aether_array_concat_chain_expected.out /tmp/aether_array_concat_chain_pass.out; then
+    echo "unexpected chained-array-concat output (regression: a + b + c reaching the VM?)" >&2
+    cat /tmp/aether_array_concat_chain_pass.out >&2
+    exit 1
+fi
+
 # A slice as a direct operand of array `+`. The slice hoists statements and the
 # concat expands the declaration into a splice group; parseBlock only splices
 # one level, so the concat group used to survive as a nested block and scope the

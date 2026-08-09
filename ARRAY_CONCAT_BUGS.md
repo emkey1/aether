@@ -37,10 +37,26 @@
 > in the corpus was touched by this commit — the fixes only *widen* what
 > compiles, so no corpus pass / dataset rebuild / retrain was required.
 >
-> **Known pre-existing, NOT fixed here:** chained concat `a + b + c` fails in
-> *both* the decl and `ret` paths ("Got ARRAY and ARRAY") — the lowering does
-> not recurse into a left operand that is itself an array `+`. Separate bug,
-> separate fix.
+> **~~Known pre-existing, NOT fixed here:~~ ✅ FIXED 2026-08-09.** Chained concat
+> `a + b + c` failed in *both* the decl and `ret` paths ("Got ARRAY and ARRAY")
+> — the lowering peeled exactly one operand and left whatever remained as the
+> initializer, which for three or more terms was still an array `+`.
+>
+> Fix: `aetherCollectConcatChain()` peels the whole left spine into an operand
+> list in apply order; both paths then initialize from the innermost operand and
+> emit one step group per remaining operand, appending in place. Works for any
+> length. `buildArrayConcatSteps`'s temps also gained a serial — they were named
+> per *line*, so `mk() + mk() + mk()` emitted two
+> `__aether_concat_other_<line>` decls and failed with "duplicate variable".
+>
+> Regression fixture: `tests/array_concat_chain_pass.aether`, wired into
+> `tests/run.sh` — covers mixed literal/call operands, element order, five terms,
+> an empty literal mid-chain, two concats on one line, the `ret` position, and
+> value semantics.
+>
+> Found by the doc benchmark: GLM-4.7-Flash wrote the textbook
+> `ret quicksort(less) + [pivot] + quicksort(greater);` on `cs_quick_sort`,
+> which was unwritable before this.
 >
 > Delete this note once the 0-based `Text` batch below is also done.
 

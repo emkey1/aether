@@ -1,0 +1,57 @@
+// Chained array concat: `a + b + c` and longer, in both the declaration and
+// `ret` positions.
+//
+// Array `+` is not a VM operation -- the front end lowers it to setlength + an
+// indexed copy loop, which are statements. Both lowerings used to peel exactly
+// ONE operand and leave the rest as the initializer, so two-term concat worked
+// while three-or-more left a raw array `+` that reached the VM and died with
+// "Operands must be numbers for arithmetic operation '+' ... Got ARRAY and
+// ARRAY". That made the textbook `quicksort(less) + [pivot] + quicksort(gt)`
+// impossible to write.
+//
+// Covers: literal and array-valued operands, calls in any position, an empty
+// literal mid-chain, five terms, and element ORDER (a chain that produced the
+// right length in the wrong order would still be wrong).
+
+fn mk() -> Int[] {
+    let a: Int[] = [7, 8];
+    ret a;
+}
+
+// `ret` position, three terms with calls at both ends.
+fn retChain() -> Int[] {
+    let x: Int[] = [1];
+    ret mk() + x + mk();
+}
+
+fn main() -> Void {
+    let x: Int[] = [1];
+
+    // Declaration position: mixed literal / call operands, order-checked.
+    let mixed: Int[] = x + [2] + mk() + [3];
+    fx {
+        print("mixed:");
+        loop i in 0..length(mixed) { print(" ", mixed[i]); }
+        println("");
+    }
+
+    // Five terms.
+    let five: Int[] = x + [2] + [3] + [4] + [5];
+    fx { println("five len=", length(five)); }
+
+    // Empty literal mid-chain is a no-op, and must not alias `x`.
+    let withEmpty: Int[] = x + [] + [9];
+    fx { println("withEmpty len=", length(withEmpty)); }
+
+    // Two concat operands on one line: the lowering's temps must not collide
+    // (they were named per-line, so this was a "duplicate variable" error).
+    let calls: Int[] = mk() + mk() + mk();
+    fx { println("calls len=", length(calls)); }
+
+    let fromRet: Int[] = retChain();
+    fx { println("fromRet len=", length(fromRet)); }
+
+    // Value semantics: the chain result must not alias its base.
+    mixed[0] = 99;
+    fx { println("x[0] after mutating mixed =", x[0]); }
+}

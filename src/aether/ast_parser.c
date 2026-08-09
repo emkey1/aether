@@ -1792,6 +1792,23 @@ static AST *parseAdd(AetherParser *p);
 static AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
 static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *other,
                                   char *otherTypeName, int line);
+
+/* One right-hand operand of a left-nested array-`+` chain, in APPLY order.
+ * Exactly one of the two shapes is populated: `items` for an array literal
+ * (`+ [1, 2]`), `other` for an array-valued expression (`+ ys`, `+ f()`). */
+typedef struct AetherConcatOperand {
+    AST **items;          /* append shape: literal elements, owned */
+    int itemCount;
+    AST *other;           /* concat shape: array-valued expression, owned */
+    char *otherTypeName;  /* concat shape: inferred type name, owned */
+    int line;
+} AetherConcatOperand;
+
+static bool aetherCollectConcatChain(AetherParser *p, AST **initInOut,
+                                     AetherConcatOperand **outOps, int *outCount);
+static void aetherFreeConcatOperands(AetherConcatOperand *ops, int count, bool freeOwned);
+static bool aetherEmitConcatOperand(AetherParser *p, AST *dest, AST *var,
+                                    AetherConcatOperand *op);
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
                              bool inMethodContract);
 static AST *buildContractGuard(AetherParser *p, const char *exprText,
@@ -3958,64 +3975,26 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
      * ever worked was the single-element self-reassignment statement `xs = xs
      * + [v];`, handled separately below in parseStmt (and, before this
      * generalization, only for exactly one element there too). */
-    AST **appendItems = NULL;
-    int appendItemCount = 0;
-    int appendLine = 0;
-    bool hasArrayAppendInit = false;
-    if (init && init->type == AST_BINARY_OP && init->token &&
-        init->token->type == TOKEN_PLUS &&
-        init->right && init->right->type == AST_ARRAY_LITERAL) {
-        hasArrayAppendInit = true;
-        appendLine = init->token->line;
-        AST *src = init->left;
-        appendItemCount = init->right->child_count;
-        if (appendItemCount > 0) {
-            appendItems = (AST **)malloc(sizeof(AST *) * (size_t)appendItemCount);
-            for (int i = 0; i < appendItemCount; i++) {
-                appendItems[i] = init->right->children[i];
-                init->right->children[i] = NULL;
-                if (appendItems[i]) appendItems[i]->parent = NULL;
-            }
-            init->right->child_count = 0;
-        }
-        init->left = NULL;
-        freeAST(init); /* frees the now-empty `+`/array-literal shell only */
-        init = src;
-        if (init) init->parent = NULL;
+    /* Both shapes above, for a chain of ANY length: `let x = a + [1] + ys + f();`.
+     * The collector peels the whole left spine, leaving `init` as the innermost
+     * operand (a plain array expression the ordinary declaration path handles)
+     * and returning the rest in apply order. Ordinary Text/Int/Real `+` is left
+     * alone -- the walk stops at the first right operand that is not manifestly
+     * array-valued.
+     *
+     * Previously these were two single-shot blocks that peeled exactly ONE
+     * operand each, so `a + b` worked and `a + b + c` left an array `+` as the
+     * initializer, which reached the VM as "Operands must be numbers for
+     * arithmetic operation '+' ... Got ARRAY and ARRAY". */
+    AetherConcatOperand *chainOps = NULL;
+    int chainOpCount = 0;
+    if (!aetherCollectConcatChain(p, &init, &chainOps, &chainOpCount)) {
+        freeAST(init);
+        free(declaredTypeName);
+        p->hadError = true;
+        return NULL;
     }
-
-    /* Array-concatenation initializer: `let x: T[] = src + other;` / `let x =
-     * src + other;` where `other` is an array-*valued expression*, not a
-     * literal (the shape just above). Mirrors the statement-level lowering in
-     * parseStmt (buildArrayConcat): rewrite `init` to just `src` and remember
-     * `other`/its inferred type name/line so buildArrayConcatSteps can splice
-     * the concatenation in after the declaration. Only fires when `other`'s
-     * inferred type is manifestly an array ("[]"-suffixed) so ordinary
-     * Text/Int/Real `+` (string concat, arithmetic) is untouched. */
-    AST *concatOther = NULL;
-    char *concatOtherTypeName = NULL;
-    int concatLine = 0;
-    bool hasArrayConcatInit = false;
-    if (init && init->type == AST_BINARY_OP && init->token &&
-        init->token->type == TOKEN_PLUS &&
-        init->right && init->right->type != AST_ARRAY_LITERAL) {
-        char *otherTypeName = inferLetTypeName(p, init->right);
-        if (otherTypeName && aetherTypeNameIsArray(otherTypeName)) {
-            hasArrayConcatInit = true;
-            concatLine = init->token->line;
-            concatOtherTypeName = otherTypeName;
-            AST *src = init->left;
-            concatOther = init->right;
-            init->left = NULL;
-            init->right = NULL;
-            if (concatOther) concatOther->parent = NULL;
-            freeAST(init); /* frees the now-empty `+` shell only */
-            init = src;
-            if (init) init->parent = NULL;
-        } else {
-            free(otherTypeName);
-        }
-    }
+    int appendLine = chainOpCount > 0 ? chainOps[0].line : 0;
 
     /* Binding a tuple-return call to a single name (`let v = pair();`) used to
      * be rejected outright here, forcing `let (a, b) = pair();` destructuring
@@ -4130,41 +4109,35 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     if (explicitType) {
         aetherAstRegisterExplicitTypedDecl(decl);
     }
-    if (hasArrayAppendInit) {
-        /* `let x: T[] = src + [items...];` -- `decl` above now declares `x` as
-         * a copy of `src` (init was rewritten to `src` further up); splice in
-         * a setlength+indexed-assign pair per item right after it, in order.
-         * `appendItemCount == 0` (an empty literal, `src + []`) is a no-op:
-         * `decl` alone is spliced back in, unchanged. */
+    if (chainOpCount > 0) {
+        /* `let x: T[] = a + b + ...;` -- `decl` above declares `x` as a copy of
+         * the chain's innermost operand (init was rewritten further up); splice
+         * one operand's worth of steps after it, in order, appending to `x` in
+         * place. Works for any chain length. */
         AST *outer = newASTNode(AST_COMPOUND, NULL);
         outer->i_val = 1; /* splice into the surrounding block, like buildArrayAppend's */
         addChild(outer, decl);
-        if (appendItemCount == 0 && aetherArrayInitMayAlias(init)) {
-            /* `let x = src + [];` -- no append step follows, so nothing
-             * un-aliases the plain `x = src` copy; splice the un-alias step
-             * the non-empty case gets for free from its first setlength. */
+
+        /* Every step past the first setlength un-aliases `x` from its source for
+         * free. A chain made only of empty literals (`src + []`) emits none, so
+         * it still needs the explicit un-alias the single-operand path used to
+         * add -- otherwise `x[0] = 9` would silently mutate `src`. */
+        bool emitsAnyStep = false;
+        for (int i = 0; i < chainOpCount; i++) {
+            if (chainOps[i].other || chainOps[i].itemCount > 0) { emitsAnyStep = true; break; }
+        }
+        if (!emitsAnyStep && aetherArrayInitMayAlias(init)) {
             addChild(outer, buildArrayUnaliasStmt(var, appendLine));
         }
-        for (int i = 0; i < appendItemCount; i++) {
-            AST *setlenStmt = NULL, *idxAssign = NULL;
-            buildArrayAppendSteps(var, appendItems[i], appendLine, &setlenStmt, &idxAssign);
-            addChild(outer, setlenStmt);
-            addChild(outer, idxAssign);
+
+        for (int i = 0; i < chainOpCount; i++) {
+            if (!aetherEmitConcatOperand(p, outer, var, &chainOps[i])) {
+                aetherFreeConcatOperands(chainOps, chainOpCount, true);
+                freeAST(outer);
+                return NULL;
+            }
         }
-        free(appendItems);
-        return outer;
-    }
-    if (hasArrayConcatInit) {
-        /* `let x: T[] = src + other;` -- `decl` above now declares `x` as a
-         * copy of `src`; splice in the concatenation steps (setlength +
-         * indexed-copy loop over `other`) right after it. */
-        AST *outer = newASTNode(AST_COMPOUND, NULL);
-        outer->i_val = 1; /* splice into the surrounding block, like buildArrayAppend's */
-        addChild(outer, decl);
-        if (!buildArrayConcatSteps(p, outer, var, concatOther, concatOtherTypeName, concatLine)) {
-            freeAST(outer);
-            return NULL;
-        }
+        aetherFreeConcatOperands(chainOps, chainOpCount, false);
         return outer;
     }
     if (declIsArrayType && aetherArrayInitMayAlias(init)) {
@@ -4751,10 +4724,18 @@ static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *
         return false;
     }
 
+    /* Temp names carry a monotonic serial as well as the line. The line alone
+     * was unique while only ONE concat could be lowered per statement, but a
+     * chain puts several on the same line -- `mk() + mk() + mk()` emitted two
+     * `__aether_concat_other_<line>` declarations and failed with "duplicate
+     * variable ... in this scope". The line is kept in the name because it is
+     * what makes these readable in a disassembly or a scope dump. */
+    static int concatSerial = 0;
+    int serial = ++concatSerial;
     char otherName[64], baseName[64], idxName[64];
-    snprintf(otherName, sizeof(otherName), "__aether_concat_other_%d", line);
-    snprintf(baseName, sizeof(baseName), "__aether_concat_base_%d", line);
-    snprintf(idxName, sizeof(idxName), "__aether_concat_i_%d", line);
+    snprintf(otherName, sizeof(otherName), "__aether_concat_other_%d_%d", line, serial);
+    snprintf(baseName, sizeof(baseName), "__aether_concat_base_%d_%d", line, serial);
+    snprintf(idxName, sizeof(idxName), "__aether_concat_i_%d_%d", line, serial);
 
     /* let __aether_concat_other_<line>: <OtherType> = other; */
     AST *otherDecl = newASTNode(AST_VAR_DECL, NULL);
@@ -4857,6 +4838,139 @@ static AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *oth
      * empty `+` shell). */
     freeAST(assign);
     return outer;
+}
+
+/* Peel a left-nested chain of array `+` into its operand list.
+ *
+ * `a + b + c` parses as `((a + b) + c)`, so the chain hangs off the LEFT spine.
+ * Every lowering here rewrites `x = <chain>` into "initialize x from the chain's
+ * innermost left operand, then apply one setlength+copy step per remaining
+ * operand" -- which is correct for any length, because each step appends to `x`
+ * in place. Before this, the decl and `ret` paths peeled exactly ONE operand and
+ * left whatever remained as the initializer; for a two-term chain that remainder
+ * is a plain array and everything worked, but for three or more it was still an
+ * array `+`, which reached the VM and died as "Operands must be numbers for
+ * arithmetic operation '+' ... Got ARRAY and ARRAY". That made `a + b + c` fail
+ * while `a + b` succeeded -- and it bit the textbook shape
+ * `quicksort(less) + [pivot] + quicksort(greater)`.
+ *
+ * On success `*initInOut` is replaced by the innermost left operand (the
+ * initializer) and `*outOps` receives `*outCount` operands already in APPLY
+ * order. A chain of length 1 (no array `+` at all) yields count 0 and leaves
+ * `*initInOut` untouched, so callers can treat "not a chain" uniformly.
+ *
+ * Ownership: each operand's `items`/`other`/`otherTypeName` are detached from
+ * the consumed `+` nodes and owned by the caller, which must either hand them to
+ * aetherEmitConcatOperand (which consumes them) or release them with
+ * aetherFreeConcatOperands. The emptied `+` shells are freed here. */
+static bool aetherCollectConcatChain(AetherParser *p, AST **initInOut,
+                                     AetherConcatOperand **outOps, int *outCount) {
+    *outOps = NULL;
+    *outCount = 0;
+    AST *init = initInOut ? *initInOut : NULL;
+
+    AetherConcatOperand *rev = NULL; /* collected right-to-left */
+    int count = 0, cap = 0;
+
+    while (init && init->type == AST_BINARY_OP && init->token &&
+           init->token->type == TOKEN_PLUS && init->left && init->right) {
+        bool isAppend = (init->right->type == AST_ARRAY_LITERAL);
+        char *otherTypeName = NULL;
+        if (!isAppend) {
+            /* Only an array-*valued* right operand is a concat; this is what
+             * keeps ordinary Text/Int/Real `+` out of the rewrite entirely. */
+            otherTypeName = inferLetTypeName(p, init->right);
+            if (!otherTypeName || !aetherTypeNameIsArray(otherTypeName)) {
+                free(otherTypeName);
+                break;
+            }
+        }
+        if (count == cap) {
+            int ncap = cap ? cap * 2 : 4;
+            AetherConcatOperand *grown =
+                (AetherConcatOperand *)realloc(rev, sizeof(AetherConcatOperand) * (size_t)ncap);
+            if (!grown) { free(otherTypeName); aetherFreeConcatOperands(rev, count, true); return false; }
+            rev = grown;
+            cap = ncap;
+        }
+
+        AetherConcatOperand *op = &rev[count++];
+        memset(op, 0, sizeof(*op));
+        op->line = init->token->line;
+        if (isAppend) {
+            op->itemCount = init->right->child_count;
+            if (op->itemCount > 0) {
+                op->items = (AST **)malloc(sizeof(AST *) * (size_t)op->itemCount);
+                if (!op->items) { aetherFreeConcatOperands(rev, count, true); return false; }
+                for (int i = 0; i < op->itemCount; i++) {
+                    op->items[i] = init->right->children[i];
+                    init->right->children[i] = NULL;
+                    if (op->items[i]) op->items[i]->parent = NULL;
+                }
+                init->right->child_count = 0;
+            }
+        } else {
+            op->other = init->right;
+            op->otherTypeName = otherTypeName;
+            init->right = NULL;
+            if (op->other) op->other->parent = NULL;
+        }
+
+        AST *left = init->left;
+        init->left = NULL;
+        freeAST(init); /* the emptied `+` shell (and, for appends, the literal) */
+        init = left;
+        if (init) init->parent = NULL;
+    }
+
+    if (count > 0) {
+        /* Reverse into apply order: peeled c,b -> apply b,c. */
+        for (int i = 0, j = count - 1; i < j; i++, j--) {
+            AetherConcatOperand tmp = rev[i];
+            rev[i] = rev[j];
+            rev[j] = tmp;
+        }
+        *initInOut = init;
+    }
+    *outOps = rev;
+    *outCount = count;
+    return true;
+}
+
+static void aetherFreeConcatOperands(AetherConcatOperand *ops, int count, bool freeOwned) {
+    if (!ops) return;
+    if (freeOwned) {
+        for (int i = 0; i < count; i++) {
+            for (int k = 0; k < ops[i].itemCount; k++) freeAST(ops[i].items[k]);
+            free(ops[i].items);
+            freeAST(ops[i].other);
+            free(ops[i].otherTypeName);
+        }
+    }
+    free(ops);
+}
+
+/* Emit one operand's statements into `dest`, appending to `var`. Consumes the
+ * operand's owned nodes either way. */
+static bool aetherEmitConcatOperand(AetherParser *p, AST *dest, AST *var,
+                                    AetherConcatOperand *op) {
+    if (op->other) {
+        bool ok = buildArrayConcatSteps(p, dest, var, op->other, op->otherTypeName, op->line);
+        op->other = NULL;          /* consumed by buildArrayConcatSteps */
+        op->otherTypeName = NULL;  /* likewise (it takes ownership) */
+        return ok;
+    }
+    for (int i = 0; i < op->itemCount; i++) {
+        AST *setlenStmt = NULL, *idxAssign = NULL;
+        buildArrayAppendSteps(var, op->items[i], op->line, &setlenStmt, &idxAssign);
+        addChild(dest, setlenStmt);
+        addChild(dest, idxAssign);
+        op->items[i] = NULL; /* consumed */
+    }
+    free(op->items);
+    op->items = NULL;
+    op->itemCount = 0;
+    return true;
 }
 
 /* Build an assignment `<name> = <value>;` AST (AST_ASSIGN of an AST_VARIABLE). */
@@ -5290,20 +5404,34 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
 static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
                                    const char *stageResultName) {
     int concatLine = value->token->line;
-    bool isAppend = (value->right->type == AST_ARRAY_LITERAL);
 
-    /* `other`'s inferred type name -- only the concat shape needs it, and
-     * buildArrayConcatSteps takes ownership of it. */
-    char *otherTypeName = isAppend ? NULL : inferLetTypeName(p, value->right);
+    /* Peel the whole chain, not just one operand: `ret a + b + c;` is as valid
+     * a shape as `ret a + b;`, and `quicksort(less) + [pivot] + quicksort(gt)`
+     * is the textbook one. `base` becomes the temp's initializer and each
+     * remaining operand appends to the temp in place. Previously this peeled a
+     * single operand and left the rest as the initializer, so a three-term
+     * chain declared the temp from a raw array `+` that reached the VM as
+     * "Operands must be numbers ... Got ARRAY and ARRAY". */
+    AST *base = value;
+    AetherConcatOperand *ops = NULL;
+    int opCount = 0;
+    if (!aetherCollectConcatChain(p, &base, &ops, &opCount) || opCount == 0) {
+        aetherFreeConcatOperands(ops, opCount, true);
+        p->hadError = true;
+        freeAST(base);
+        return NULL;
+    }
 
-    /* The temp's declared type. Prefer `src`'s own type; fall back to `other`'s
-     * (array-typed by construction in the concat shape -- the caller checked).
-     * The append shape has only `src` to go on, since a bare array literal
-     * infers no element type. */
-    char *tmpTypeName = inferLetTypeName(p, value->left);
+    /* The temp's declared type. Prefer the base's own type; fall back to the
+     * first array-valued operand, since an append operand is a bare literal
+     * that infers no element type of its own. */
+    char *tmpTypeName = inferLetTypeName(p, base);
     if (!tmpTypeName || !aetherTypeNameIsArray(tmpTypeName)) {
         free(tmpTypeName);
-        tmpTypeName = otherTypeName ? strdup(otherTypeName) : NULL;
+        tmpTypeName = NULL;
+        for (int i = 0; i < opCount && !tmpTypeName; i++) {
+            if (ops[i].otherTypeName) tmpTypeName = strdup(ops[i].otherTypeName);
+        }
     }
     if (!tmpTypeName) {
         /* Wording deliberately starts with "cannot infer the type of" so the
@@ -5313,8 +5441,8 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
                 "cannot infer the type of this array concatenation.",
                 "bind it first: `let c: T[] = a + b; ret c;`.");
         p->hadError = true;
-        free(otherTypeName);
-        freeAST(value);
+        aetherFreeConcatOperands(ops, opCount, true);
+        freeAST(base);
         return NULL;
     }
 
@@ -5324,8 +5452,8 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     if (!tmpTypeNode) {
         p->hadError = true;
         free(tmpTypeName);
-        free(otherTypeName);
-        freeAST(value);
+        aetherFreeConcatOperands(ops, opCount, true);
+        freeAST(base);
         return NULL;
     }
 
@@ -5334,74 +5462,39 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     bindingTableSet(p->bindings, tmpName, tmpTypeName);
     free(tmpTypeName);
 
-    /* Detach the operands and drop the now-empty `+` shell (and, for the append
-     * shape, the emptied array-literal shell with it). */
-    AST *src = value->left;
-    AST *other = NULL;
-    AST **appendItems = NULL;
-    int appendItemCount = 0;
-    if (isAppend) {
-        appendItemCount = value->right->child_count;
-        if (appendItemCount > 0) {
-            appendItems = (AST **)malloc(sizeof(AST *) * (size_t)appendItemCount);
-            if (!appendItems) {
-                p->hadError = true;
-                free(otherTypeName);
-                freeAST(tmpTypeNode);
-                freeAST(value);
-                return NULL;
-            }
-            for (int i = 0; i < appendItemCount; i++) {
-                appendItems[i] = value->right->children[i];
-                value->right->children[i] = NULL;
-                if (appendItems[i]) appendItems[i]->parent = NULL;
-            }
-            value->right->child_count = 0;
-        }
-    } else {
-        other = value->right;
-        value->right = NULL;
-        if (other) other->parent = NULL;
-    }
-    value->left = NULL;
-    if (src) src->parent = NULL;
-    freeAST(value);
-
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
 
-    /* let __aether_ret_concat_<line>: T[] = src; */
+    /* let __aether_ret_concat_<line>: T[] = <chain base>; */
     AST *tmpVar = buildVarRef(tmpName, tmpVt, concatLine);
     AST *decl = newASTNode(AST_VAR_DECL, NULL);
     addChild(decl, tmpVar);
-    setLeft(decl, src);
+    setLeft(decl, base);
     setRight(decl, tmpTypeNode);
     setTypeAST(decl, tmpVt);
     addChild(outer, decl);
 
-    if (isAppend) {
-        /* `tmpVar` is only read (copied) by buildArrayAppendSteps, exactly as in
-         * the parseLet append branch; ownership of each item transfers in. */
-        if (appendItemCount == 0 && aetherArrayInitMayAlias(src)) {
-            /* `ret src + [];` -- no append step follows, so nothing un-aliases
-             * the plain `tmp = src` copy; splice in the un-alias step the
-             * non-empty case gets for free from its first setlength. */
-            addChild(outer, buildArrayUnaliasStmt(tmpVar, concatLine));
-        }
-        for (int i = 0; i < appendItemCount; i++) {
-            AST *setlenStmt = NULL, *idxAssign = NULL;
-            buildArrayAppendSteps(tmpVar, appendItems[i], concatLine,
-                                  &setlenStmt, &idxAssign);
-            addChild(outer, setlenStmt);
-            addChild(outer, idxAssign);
-        }
-        free(appendItems);
-    } else if (!buildArrayConcatSteps(p, outer, tmpVar, other, otherTypeName,
-                                      concatLine)) {
-        /* Takes ownership of `other`/`otherTypeName` and frees them itself. */
-        freeAST(outer);
-        return NULL;
+    /* Any step past the first setlength un-aliases the temp from its source for
+     * free; a chain of nothing but empty literals (`ret src + [];`) emits none,
+     * so it still needs the explicit un-alias. */
+    bool emitsAnyStep = false;
+    for (int i = 0; i < opCount; i++) {
+        if (ops[i].other || ops[i].itemCount > 0) { emitsAnyStep = true; break; }
     }
+    if (!emitsAnyStep && aetherArrayInitMayAlias(base)) {
+        addChild(outer, buildArrayUnaliasStmt(tmpVar, concatLine));
+    }
+
+    /* `tmpVar` is only read (copied) by the step builders, exactly as in the
+     * parseLet branch; ownership of each operand's nodes transfers in. */
+    for (int i = 0; i < opCount; i++) {
+        if (!aetherEmitConcatOperand(p, outer, tmpVar, &ops[i])) {
+            aetherFreeConcatOperands(ops, opCount, true);
+            freeAST(outer);
+            return NULL;
+        }
+    }
+    aetherFreeConcatOperands(ops, opCount, false);
 
     if (stageResultName) {
         /* result = __aether_ret_concat_<line>;  (caller appends guard + return) */
