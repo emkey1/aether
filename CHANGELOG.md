@@ -12,6 +12,65 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-08-09-1
+
+**Array `+` works for chains of any length, in any position, and no longer
+corrupts data when the destination is on the right. Bounds errors gain
+`ARR-003` and a source line.**
+
+Array `+` is not a VM operation: the front end lowers it to `setlength` plus an
+indexed copy loop, which are *statements*, so each lowering has to provide a
+statement position to splice into. Three of them do — the `let` initializer, the
+`ret` temp, and assignment — and all three were incomplete.
+
+**Chains.** Every lowering peeled exactly ONE operand and left the rest as the
+initializer. With two terms that remainder is a plain array and everything
+worked; with three or more it was still an array `+`, which reached the VM:
+
+```aether
+let r: Int[] = a + b;          // worked
+let r: Int[] = a + b + c;      // Runtime Error: ... Got ARRAY and ARRAY
+ret quicksort(less) + [pivot] + quicksort(greater);   // unwritable
+```
+
+Now a shared collector peels the whole left spine into an operand list and each
+lowering initializes from the innermost operand, then appends one step group per
+remaining operand — correct for any length, because every step mutates the
+destination in place. Ordinary `Text`/`Int`/`Real` `+` is untouched: the walk
+stops at the first right operand that is not manifestly array-valued.
+
+**Self-reference.** When the destination appeared in the RIGHT operand, the copy
+clobbered it before the steps read it — producing wrong data with no diagnostic
+at all:
+
+```aether
+ys = [0] + ys;    // "0 0", should be "0 1 2"
+xs = xs + [v];    // always correct -- its copy `xs = xs` is a no-op
+```
+
+Operands that read the destination are now hoisted into a temp before the copy.
+The documented append idiom was only ever safe by that accident.
+
+**`ARR-003`.** An out-of-range index was reported by `computeFlatOffset()`,
+which has no VM pointer and so could only print a bare line and exit:
+
+```
+Runtime error: Index 1 out of bounds [0..0] in dimension 1.
+```
+
+No file, no line, no code — and it exited before the VM's own check could
+produce a located error. Bounds are now checked where the VM is in scope, so the
+failure carries a code, the offending index, the valid range and a source line.
+
+Also: concat temps are named with a serial as well as a line, since a chain puts
+several on one line and they collided (`duplicate variable
+'__aether_concat_other_<line>'`).
+
+Regression fixture: `tests/array_concat_chain_pass.aether` — mixed literal/call
+operands, element order, five terms, an empty literal mid-chain, two concats on
+one line, the `ret` position, assignment position, destination on the right,
+both sides at once, self-duplication, and value semantics.
+
 ## 2026-07-26-9
 
 **`PREC-001`, and `has_builtin` can now see core builtins.**
