@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-08-1*
+*Guide version: 2026-08-10-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1837,6 +1837,35 @@ fn main() -> Void {
     toon_close(doc);
     ret;
 }
+```
+
+The `if toon_has_key(...)` guard above is correct, but it costs a nesting level
+for every segment of the path, and a three-segment path such as
+`spec.mem.gb` turns one field read into a dozen lines.
+
+`toon_key_or(node, key, toon_null())` collapses it. On a missing key it returns a
+null node, and a null node absorbs the remainder of the walk: `toon_len` is 0 and
+every `_or` getter yields its fallback. Chains of any depth are therefore total,
+with no guard and no mutable accumulator:
+
+```aether
+let spec: ToonNode = toon_key_or(row, "spec", toon_null());
+let mem: ToonNode = toon_key_or(spec, "mem", toon_null());
+let gb: Int = toon_get_int_or(mem, "gb", 0);   // 0 if spec OR mem is absent
+```
+
+Prefer this for anything deeper than one level. Reach for `toon_has_key` when you
+need to *distinguish* an absent key from a present one holding a falsy value —
+the null-absorbing chain deliberately conflates the two.
+
+One exception to the absorption rule: `toon_has_at(node, i)` raises on a null
+node rather than returning false. Take the length instead — `toon_len` is 0 on a
+null node, so `i < toon_len(node)` is the safe index test.
+
+What is never safe is a bare `toon_key` on a key that may be absent:
+
+```aether
+let gb: Int = toon_get_int_or(toon_key(row, "spec"), "cores", 0);   // unguarded
 ```
 
 ### Large report recipe

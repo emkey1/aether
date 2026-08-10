@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-08-08-1*
+*Guide version: 2026-08-10-1*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -873,7 +873,9 @@ Complete helper surface:
 
 - lifecycle: `has_toon()`, `toon_parse(text)`, `toon_parse_file(path)`,
   `toon_root(doc)`, `toon_close(doc)`, `toon_free(node)`
-- navigation: `toon_key(node, key)`, `toon_at(node, i)`, `toon_len(node)`
+- navigation: `toon_key(node, key)`, `toon_key_or(node, key, fallback)`,
+  `toon_at(node, i)`, `toon_len(node)`, `toon_null()` (a null node, the usual
+  `toon_key_or` fallback)
 - field getters: `toon_get_text(node, key)`, `toon_get_int(node, key)`,
   `toon_get_real(node, key)`, `toon_get_bool(node, key)`
 - defaulted getters: `toon_get_text_or(node, key, fallback)`, and the matching
@@ -933,18 +935,22 @@ let port: Int = toon_get_int_or(server, "port", 0);
 ```
 
 **Nested lookup safety (NEST-001).** A `_or` fallback protects only the final
-lookup, not the path to it. Guard the intermediates:
+lookup, not the path to it. Make the path itself total with
+`toon_key_or(node, key, toon_null())`: on a missing key it yields a null node,
+and a null node absorbs the rest of the walk — `toon_len` is 0 and every `_or`
+getter returns its fallback — so a chain of any depth is safe with no `if`.
 
 ```aether
-let code: Text = "EMPTY";
-if toon_has_key(row, "meta") {
-    let meta: ToonNode = toon_key(row, "meta");
-    code = toon_get_text_or(meta, "code", "EMPTY");
-}
+let spec: ToonNode = toon_key_or(row, "spec", toon_null());
+let mem: ToonNode = toon_key_or(spec, "mem", toon_null());
+let gb: Int = toon_get_int_or(mem, "gb", 0);   // 0 if spec or mem is absent
 ```
 
-Never `toon_get_text_or(toon_key(row, "meta"), "code", "EMPTY")` unless the shape
-is guaranteed.
+Prefer this to a stack of `if toon_has_key(...)` guards, which is correct but
+costs a nesting level per segment. What is never safe is bare `toon_key` on a key
+that may be absent — `toon_get_int_or(toon_key(row, "spec"), "cores", 0)` is the
+unguarded case. (`toon_has_at` is the one accessor that does not absorb a null
+node: it raises rather than returning false.)
 
 ## Concurrency: `par`
 

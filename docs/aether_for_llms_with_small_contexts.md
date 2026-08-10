@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-06-2*
+*Guide version: 2026-08-10-1*
 
 ## Highest-Value Rules
 
@@ -648,15 +648,17 @@ let port: Int = toon_get_int_or(server, "port", 0);
 ```
 
 Nested lookups (NEST-001): `_or` protects only the final lookup, not the path.
-Guard intermediates:
+Make the path total with `toon_key_or(node, key, toon_null())` — a missing key
+gives a null node, `toon_len` on it is 0 and every `_or` getter returns its
+fallback, so the chain is safe at any depth:
 
 ```aether
-let code: Text = "EMPTY";
-if toon_has_key(row, "meta") {
-let meta: ToonNode = toon_key(row, "meta");
-    code = toon_get_text_or(meta, "code", "EMPTY");
-}
+let spec: ToonNode = toon_key_or(row, "spec", toon_null());
+let gb: Int = toon_get_int_or(toon_key_or(spec, "mem", toon_null()), "gb", 0);
 ```
+
+An `if toon_has_key(row, "meta") { ... }` guard is also correct, just one nesting
+level per segment. (`toon_has_at` raises on a null node; test `i < toon_len(n)`.)
 
 Never: `toon_get_text_or(toon_key(toon_at(root, i), "meta"), "code", "EMPTY");`
 
