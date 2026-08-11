@@ -1390,6 +1390,34 @@ static bool mapAetherType(const char *name, size_t len,
     return false;
 }
 
+/* Release a node returned by lookupType, iff it is ours to release.
+ *
+ * lookupType is `rea_lookupType` here (FRONTEND_REA aliases it via
+ * common/frontend_symbol_aliases.h), and that function has SPLIT OWNERSHIP:
+ *   - a type-table hit returns the registry's own AST -- BORROWED. Freeing it
+ *     would leave `TypeEntry.typeAST` dangling for every later lookup and for
+ *     the table's teardown.
+ *   - a miss on a builtin rea type name (int64, char, str, word, ... matched
+ *     case-insensitively) fabricates a transient token-less AST_VARIABLE --
+ *     OWNED by us, and leaked if we do not free it.
+ *
+ * The discriminator must therefore test BOTH the absent token and the node
+ * type. "No token" alone is not sufficient in Aether: rea builds its record
+ * entries as newASTNode(AST_RECORD_TYPE, classNameTok) specifically so its
+ * table entries are token-bearing (see rea parser.c parseClassDecl), but
+ * Aether registers its record types token-less -- both the user `type` path
+ * and the synthetic tuple records. A `!token`-only check therefore matches
+ * exactly Aether's own class/tuple entries and tries to free the live table
+ * node. Today `freeAST` happens to bail out on isNodeInTypeTable() before any
+ * memory is released, so that misfire is inert, but it depends on a defensive
+ * guard in another repo and it poisons the node's `freed` flag. Mirrors the
+ * idiom in rea's parseVarDecl / reaRefResolvesToClass. */
+static void releaseTransientTypeNode(AST *resolved) {
+    if (resolved && !resolved->token && resolved->type == AST_VARIABLE) {
+        freeAST(resolved);
+    }
+}
+
 /* Build the type node for a value-bearing type (non-Void), mirroring how rea's
  * parseVarDecl builds the type node:
  *   - builtin keyword type -> AST_TYPE_IDENTIFIER with the mapped VarType.
@@ -1422,7 +1450,7 @@ static AST *buildTypeNode(const char *name, size_t len, int line, VarType *outTy
             resolved->var_type == TYPE_POINTER) {
             treatAsPointer = true;
         }
-        if (!resolved->token) freeAST(resolved);
+        releaseTransientTypeNode(resolved);
     }
 
     Token *tok = newToken(TOKEN_IDENTIFIER, lex, line, 0);
@@ -2274,7 +2302,7 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                     AST *rtyNode = lookupType(rty);
                     if (rtyNode) {
                         recvIsUserRecord = true;
-                        if (!rtyNode->token) freeAST(rtyNode);
+                        releaseTransientTypeNode(rtyNode);
                     }
                 }
             }
@@ -3779,7 +3807,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             bool isBuiltinTy = probeName && mapAetherType(probeName, strlen(probeName), &prn, &pvt);
             AST *resolvedTy = (probeName && !isBuiltinTy) ? lookupType(probeName) : NULL;
             bool isUserType = (resolvedTy != NULL);
-            if (resolvedTy && !resolvedTy->token) freeAST(resolvedTy);
+            releaseTransientTypeNode(resolvedTy);
             if (isUserType) {
                 ReaToken save = p->current;
                 int savedHead = p->queueHead, savedCount = p->queueCount;
@@ -8352,6 +8380,11 @@ static int aetherCheckMemberCalls(AST *node, AST *decls) {
                     aetherReportGuideHelp("SCOPE-001");
                     errs++;
                 }
+                /* A builtin type name here fabricates a transient node (it
+                 * fails the AST_RECORD_TYPE test above, so it never produces a
+                 * false SCOPE-001) -- release it rather than leaking it once
+                 * per `Type.member` call site. */
+                releaseTransientTypeNode(rec);
             }
         }
     }
