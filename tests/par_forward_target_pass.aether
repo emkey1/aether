@@ -1,0 +1,28 @@
+/* A par branch whose target is defined BELOW the function containing the par
+ * block. Both branches were silently skipped before 2026-08-11: the parser's
+ * forward-declaration pre-pass registers a body-less prototype for every
+ * top-level fn, which the compiler emitted as an empty JUMP/RETURN stub and
+ * marked is_defined, so spawn codegen baked in the stub's address instead of
+ * taking the resolve-by-name path. The spawned threads returned immediately --
+ * no output, no diagnostic, exit 0. */
+fn main() -> Void {
+    par {
+        workerA();
+        workerB();
+    }
+    ret;
+}
+
+fn workerA() -> Void {
+    fx {
+        writeln("worker A");
+    }
+    ret;
+}
+
+fn workerB() -> Void {
+    fx {
+        writeln("worker B");
+    }
+    ret;
+}

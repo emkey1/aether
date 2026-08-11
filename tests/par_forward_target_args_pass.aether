@@ -1,0 +1,25 @@
+/* The second spawn codegen path. A zero-arg branch emits THREAD_CREATE with an
+ * inline address; a branch WITH arguments emits the address as a constant plus
+ * CALL_HOST. Both read the same stale prototype address, so both were broken --
+ * this fixture covers the one the other three fixtures miss. */
+fn main() -> Void {
+    par {
+        workerA(1);
+        workerB(2);
+    }
+    ret;
+}
+
+fn workerA(n: Int) -> Void {
+    fx {
+        writeln("worker A ", n);
+    }
+    ret;
+}
+
+fn workerB(n: Int) -> Void {
+    fx {
+        writeln("worker B ", n);
+    }
+    ret;
+}

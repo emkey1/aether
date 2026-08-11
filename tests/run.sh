@@ -95,6 +95,10 @@ PAR_PASS_FIXTURE="$TESTS_DIR/par_pass.aether"
 PAR_FAIL_NON_CALL_FIXTURE="$TESTS_DIR/par_fail_non_call.aether"
 PAR_SHARED_RECORD_FAIL_FIXTURE="$TESTS_DIR/par_shared_record_fail.aether"
 PAR_SHARED_TUPLE_CALL_PASS_FIXTURE="$TESTS_DIR/par_shared_tuple_call_pass.aether"
+PAR_FORWARD_TARGET_PASS_FIXTURE="$TESTS_DIR/par_forward_target_pass.aether"
+PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE="$TESTS_DIR/par_forward_target_mixed_pass.aether"
+PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE="$TESTS_DIR/par_forward_target_nested_pass.aether"
+PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE="$TESTS_DIR/par_forward_target_args_pass.aether"
 SOCKET_ECHO_PASS_FIXTURE="$TESTS_DIR/socket_echo_pass.aether"
 METHOD_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/method_undefined_fail.aether"
 UNKNOWN_CONSTRUCT_FAIL_FIXTURE="$TESTS_DIR/unknown_construct_fail.aether"
@@ -285,6 +289,10 @@ for fixture in \
     "$PAR_FAIL_NON_CALL_FIXTURE" \
     "$PAR_SHARED_RECORD_FAIL_FIXTURE" \
     "$PAR_SHARED_TUPLE_CALL_PASS_FIXTURE" \
+    "$PAR_FORWARD_TARGET_PASS_FIXTURE" \
+    "$PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE" \
+    "$PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE" \
+    "$PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE" \
     "$METHOD_UNDEFINED_FAIL_FIXTURE" \
     "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" \
     "$UNCLOSED_BLOCK_FAIL_FIXTURE" \
@@ -821,7 +829,18 @@ if ! grep -qx "3" /tmp/aether_contract_collection_length_pass.out; then
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$PURE_PASS_FIXTURE" >/dev/null
-"$AETHER_BIN" --no-cache --no-run "$PAR_PASS_FIXTURE" >/dev/null
+# par_pass was a --no-run compile check for years, which is exactly why the
+# forward-target silent skip (fixed 2026-08-11) survived: a dropped branch still
+# exits 0, so only inspecting OUTPUT catches it. Run it and assert both branches
+# actually printed. See expect_par_branches below for the ordering caveat.
+"$AETHER_BIN" --no-cache "$PAR_PASS_FIXTURE" >/tmp/aether_par_pass.out
+for line in "worker A" "worker B"; do
+    if ! grep -qx "$line" /tmp/aether_par_pass.out; then
+        echo "par branch did not run: missing '$line'" >&2
+        cat /tmp/aether_par_pass.out >&2
+        exit 1
+    fi
+done
 "$AETHER_BIN" --no-cache "$FOR_RANGE_PASS_FIXTURE" >/tmp/aether_for_range_pass.out
 if ! grep -qx "10" /tmp/aether_for_range_pass.out; then
     echo "unexpected for-range output" >&2
@@ -2069,6 +2088,45 @@ if ! "$AETHER_BIN" --no-cache "$PAR_SHARED_TUPLE_CALL_PASS_FIXTURE" >/tmp/aether
     cat /tmp/aether_par_shared_tuple_call_pass.out >&2
     exit 1
 fi
+
+# A par branch whose target is defined below the ENCLOSING function used to be
+# silently dropped: the forward-declaration pre-pass marks every top-level fn
+# defined, so spawn codegen trusted a prototype's placeholder address and spawned
+# an empty stub. Nothing printed, nothing was diagnosed, exit 0 -- so these must
+# assert on output. Branches run concurrently and finish in either order, so check
+# each expected line independently; never diff against a fixed line order.
+expect_par_branches() {
+    local label="$1" fixture="$2" out="$3"
+    shift 3
+    if ! "$AETHER_BIN" --no-cache "$fixture" >"$out" 2>&1; then
+        echo "expected $label to compile and run successfully" >&2
+        cat "$out" >&2
+        exit 1
+    fi
+    local expected
+    for expected in "$@"; do
+        if ! grep -qx "$expected" "$out"; then
+            echo "$label: par branch did not run (missing '$expected')" >&2
+            cat "$out" >&2
+            exit 1
+        fi
+    done
+}
+
+# Both targets below main.
+expect_par_branches "par-forward-target" "$PAR_FORWARD_TARGET_PASS_FIXTURE" \
+    /tmp/aether_par_forward_target_pass.out "worker A" "worker B"
+# One target above main, one below: resolution is per branch, not per block.
+expect_par_branches "par-forward-target-mixed" "$PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE" \
+    /tmp/aether_par_forward_target_mixed_pass.out "worker A" "worker B"
+# par inside a helper, targets below that helper but above main: the boundary is
+# the routine being compiled, not main.
+expect_par_branches "par-forward-target-nested" "$PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE" \
+    /tmp/aether_par_forward_target_nested_pass.out "worker A" "worker B"
+# Branches WITH arguments take the other spawn codegen path (address as a constant
+# + CALL_HOST rather than an inline THREAD_CREATE operand); it was broken too.
+expect_par_branches "par-forward-target-args" "$PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE" \
+    /tmp/aether_par_forward_target_args_pass.out "worker A 1" "worker B 2"
 
 # SCOPE-001: calling a method that is not defined on a record must fail at compile
 # time (parser lowers recv.method() to a Type.method global; aetherCheckMemberCalls

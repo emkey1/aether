@@ -1,0 +1,30 @@
+/* The boundary is the function ENCLOSING the par block, not main. Both workers
+ * sit above main but below runBoth, and both were dropped before the fix --
+ * "defined before main" is not the property that matters, "defined before the
+ * routine whose body is being compiled" is. */
+fn runBoth() -> Void {
+    par {
+        workerA();
+        workerB();
+    }
+    ret;
+}
+
+fn workerA() -> Void {
+    fx {
+        writeln("worker A");
+    }
+    ret;
+}
+
+fn workerB() -> Void {
+    fx {
+        writeln("worker B");
+    }
+    ret;
+}
+
+fn main() -> Void {
+    runBoth();
+    ret;
+}

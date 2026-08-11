@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-08-11-3*
+*Guide version: 2026-08-11-4*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -52,59 +52,56 @@ wrong shape is what stops you writing it.
 8. **ANN-001.** `@pre`, `@post`, `@pure`, `@cost` go directly above the function
    — never inside the body, never bare with no expression.
 9. **MUT-001.** A plain `let` is already mutable. ✗ `let mut x: Int = 0;`
-10. **ORDER-001.** Top-level order is free; locals still need `let` first.
-    Exception: a `par` branch target must sit above the function holding the
-    `par`, or it is silently skipped.
-11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
+10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays. Crossing them is a `TYPE-001`.
-12. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas, no
+11. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas, no
     closures, never pass a function as an argument, and there is no
     `map`/`filter`/`reduce` — write a `loop`. To run your own code concurrently
     use `par { f(); g(); }`.
-13. **PAR-001.** Each `par` branch must own the record it writes. The same record
+12. **PAR-001.** Each `par` branch must own the record it writes. The same record
     passed to two branches races and is rejected. Give each branch its own and
     combine after the block.
-14. **SCOPE-001.** A name must be declared before use and still be in scope at
+13. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. No guessed globals, no expired loop locals, no helper-local
     names borrowed from another function.
-15. **METH-001.** Methods do not capture outer locals. If a method needs a loop
+14. **METH-001.** Methods do not capture outer locals. If a method needs a loop
     index or a caller's label, pass it as a parameter.
-16. **FIELD-001.** Inside a method a local may reuse a field name. Bare `valid`
+15. **FIELD-001.** Inside a method a local may reuse a field name. Bare `valid`
     is the local; `self.valid` is the field.
-17. **FIELD-002.** Field names must exist exactly as declared. Do not invent
+16. **FIELD-002.** Field names must exist exactly as declared. Do not invent
     fields.
-18. **FIELD-003.** A field default must be a **literal** — `count: Int = 0`,
+17. **FIELD-003.** A field default must be a **literal** — `count: Int = 0`,
     `on: Bool = true`, `name: Text = ""`, `xs: Int[] = []`. Not an expression,
     not another field, not `self`, not a call — and **not a named `const`
     either**: `limit: Int = MAX_SCORE;` is rejected just like
     `limit: Int = MAX_SCORE + 1;`. For anything else, set it at construction:
     `new T { limit: MAX_SCORE + 1 }`.
-19. **ARR-002.** A one-dimensional array indexed twice is a compile-time error.
+18. **ARR-002.** A one-dimensional array indexed twice is a compile-time error.
     Aether has real nested arrays — declare the rank you actually want.
     ✗ `let dp: Int[] = []; dp[i][j] = 1;`
     ✓ `let dp: Int[][] = [];` with rows that are themselves `Int[]`
-20. **FLOW-001.** Every non-`Void` function must return a value on every
+19. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path. **FLOW-002.** A bare `ret;` in a non-`Void`
     function is an error — give it a value or declare `-> Void`.
-21. **NAME-001.** Do not redeclare a local in the same scope.
-22. **TUP-001.** Tuples are narrow. `let (a, b) = pair();` works on a direct
+20. **NAME-001.** Do not redeclare a local in the same scope.
+21. **TUP-001.** Tuples are narrow. `let (a, b) = pair();` works on a direct
     top-level helper call. To read one field, bind first: `let t = pair(); t.0;`
     — never `pair().0` chained onto the call. If the producer is a method or an
     expression, return a record and read its fields instead.
-23. **IMP-001 / MOD-001 / MOD-002.** Canonical import is `use "module_name";`.
+22. **IMP-001 / MOD-001 / MOD-002.** Canonical import is `use "module_name";`.
     Never invent an import. Imported names match exported names *exactly* — `use`
     does not rename, so an export called `classifySupport` is called
     `classifySupport`, never a guessed `classify`.
-24. **MS-001.** `MStream` is the memory-stream handle type. `mstreamcreate()`
+23. **MS-001.** `MStream` is the memory-stream handle type. `mstreamcreate()`
     and `mstreamfromstring(text)` return `MStream`, never `Int` or `Text`; read
     contents with `mstreambuffer(ms) -> Text`. To build a stream that already
     holds text, call `mstreamfromstring(text)` — there is no stream-write
     builtin, so `mstreamcreate()` followed by a guessed `mstreamwrite(...)` is
     wrong.
-25. **FMT-001.** If the prompt specifies exact output, match it exactly —
+24. **FMT-001.** If the prompt specifies exact output, match it exactly —
     spacing, casing, line order, decimal precision. Print `avg0=0`, not
     `avg0 = 0`.
-26. **OUT-001.** Return raw Aether source only. No Markdown fences.
+25. **OUT-001.** Return raw Aether source only. No Markdown fences.
 
 Default stance: single-file programs; variadic `println("label = ", v)` rather
 than `+` concatenation; explicit types on TOON values and non-trivial results;
@@ -989,9 +986,6 @@ fn main() -> Void {
 
 Read-only handles (a `ToonNode`, an `Int`) may be shared across branches freely;
 it is the written-to record that must be private.
-
-A branch naming a function defined further down the file is silently skipped —
-no error, no output (ORDER-001).
 
 ## Contracts
 

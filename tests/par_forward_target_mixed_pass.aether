@@ -1,0 +1,25 @@
+/* Per-branch resolution: workerA is defined above main, workerB below it. Before
+ * the fix only "worker A" printed -- the backward branch kept its real address
+ * while the forward one spawned a stub. Guards against a fix that repairs the
+ * whole block only when EVERY target is forward. */
+fn workerA() -> Void {
+    fx {
+        writeln("worker A");
+    }
+    ret;
+}
+
+fn main() -> Void {
+    par {
+        workerA();
+        workerB();
+    }
+    ret;
+}
+
+fn workerB() -> Void {
+    fx {
+        writeln("worker B");
+    }
+    ret;
+}

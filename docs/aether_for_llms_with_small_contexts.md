@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-11-6*
+*Guide version: 2026-08-11-7*
 
 ## Highest-Value Rules
 
@@ -31,13 +31,9 @@
 8. **ANN-001.** `@pre`, `@post`, `@pure`, `@cost` go directly above the
    function, never inside it, never bare (`@pre` with no expression).
 9. **MUT-001.** Plain `let` is already mutable. Never generate `let mut`.
-10. **ORDER-001.** Top-level order is free: a type or `fn` may be used above its
-    definition (locals still need `let` first, SCOPE-001). The exception is a
-    `par` branch target — define it above the function holding the `par`, or it
-    is silently skipped.
-11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
+10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays.
-12. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
+11. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
     top-level helper call only. To read one field instead, bind it first --
     `let t = pair(); t.0;` (zero-based) -- never `pair().0` directly on the
     call. If the producer is a method, undefined, or an expression, return a
@@ -48,41 +44,41 @@
     `par`-branch calls to the same tuple-returning function are fully
     supported (tuple returns lower to a record returned by value, reentrant
     per call).
-13. **OUT-001.** Return raw Aether source only. No Markdown fences.
-14. **ROOT-001.** If the JSON starts with `{`, extract the named array with
+12. **OUT-001.** Return raw Aether source only. No Markdown fences.
+13. **ROOT-001.** If the JSON starts with `{`, extract the named array with
     `toon_key(root, "...")` before iterating. Only iterate `root` directly
     when the JSON starts with `[`.
-15. **SCOPE-001.** A name must be declared before use and still be in scope at
+14. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. Do not rely on guessed globals or out-of-scope loop locals.
-16. **METH-001.** Methods do not capture outer locals. If a method needs `i`,
+15. **METH-001.** Methods do not capture outer locals. If a method needs `i`,
     `name`, or another caller value, pass it as a parameter.
-17. **FIELD-001.** Inside a method, a local may reuse a field name. Bare
+16. **FIELD-001.** Inside a method, a local may reuse a field name. Bare
     `valid` means the local; `self.valid` means the field.
-18. **FIELD-002.** Record and type field names must exist exactly as declared.
+17. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields.
-19. **FIELD-003.** A field default must be a **literal**: `count: Int = 0`,
+18. **FIELD-003.** A field default must be a **literal**: `count: Int = 0`,
     `on: Bool = true`, `xs: Int[] = []`. Not an expression, not another field,
     not `self`, not a call, and **not a named `const`** — `n: Int = MAX;` is
     rejected as surely as `n: Int = MAX + 1;`. Set anything else at
     construction: `new T { field: value }`.
-20. **FLOW-001.** Every non-`Void` helper must return a value on every
+19. **FLOW-001.** Every non-`Void` helper must return a value on every
     reachable top-level path.
-21. **FMT-001.** If the prompt specifies exact output, match it exactly:
+20. **FMT-001.** If the prompt specifies exact output, match it exactly:
     spacing, casing, line order, and decimal precision.
-22. **NAME-001.** Do not redeclare a local name in the same scope. Pick fresh
+21. **NAME-001.** Do not redeclare a local name in the same scope. Pick fresh
     names such as `values`, `count`, `sum`, `maxValue`.
-23. **MOD-002.** Canonical import form is `use "module_name";`. After import,
+22. **MOD-002.** Canonical import form is `use "module_name";`. After import,
     call exported names directly. Never guess `export { ... }` syntax or the
     foreign object/JSON APIs listed under **TOON rules**.
-24. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
+23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
     no lambdas, no closures, never pass a function as an argument.
     `task_spawn`/`task_queue` take a builtin name as `Text`, not a function. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
     use `par { f(); g(); }`, not `task_spawn`.
-25. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
-26. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
+25. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
     response bodies). `mstreamcreate()`/`mstreamfromstring(text)` return
     `MStream` — never `Int`, never `Text`. Body text comes from
     `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`.
@@ -683,9 +679,6 @@ par {
 }
 fx { println("a=", a.count, " b=", b.count); }
 ```
-
-A branch naming a function defined further down the file is silently skipped,
-with no error and no output (ORDER-001).
 
 ## Tasks and AI
 

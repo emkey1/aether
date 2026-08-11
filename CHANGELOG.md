@@ -12,6 +12,46 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-08-11-3
+
+**A `par` branch whose target is defined further down the file now runs. It used
+to be skipped silently — no diagnostic, no output, exit 0.**
+
+Declaration order was free everywhere in Aether except here, and the exception
+failed in the worst way: the program looked like it succeeded. `par { workerA();
+workerB(); }` in a `main` written above both workers produced nothing at all.
+The boundary was the function *containing* the `par`, not `main`, so a `par`
+inside a helper dropped any target defined below that helper. Branches with
+arguments were affected identically.
+
+The cause sits at the seam between Aether's parser and the shared backend.
+Aether resolves forward references by running a pre-pass that appends a
+body-less prototype for every top-level `fn` ahead of the real declarations
+(`aetherRunForwardScan`). The backend compiles each prototype as a routine like
+any other — an empty `JUMP`/`RETURN` stub — and in doing so sets the symbol's
+`is_defined` flag and a `bytecode_address` pointing at that stub. The real body
+compiles later and overwrites the address.
+
+Ordinary calls never noticed, because `CALL_USER_PROC` names its callee and is
+resolved late. `spawn` bakes the address in at compile time, and its guard
+against exactly this case tested `is_defined` — which the prototype had already
+set. So a branch whose body had not been compiled yet spawned a thread onto the
+stub, which returned immediately. Rea, which has no prototype pre-pass, took the
+guard's other path and worked in both directions all along; that difference is
+what made this look like a `par` defect rather than an ordering one.
+
+`is_defined` is documented as "the body has been compiled" but is set for
+prototypes too, so a separate `is_body_compiled` now carries that meaning and
+the spawn guard tests it. Forward targets take the existing resolve-by-name path
+(`vmHostCreateThreadAddr` looks the routine up in the procedure table at spawn
+time, when every address is final); targets already compiled still get the
+direct address, so bytecode for code that worked before is unchanged.
+
+`ORDER-001` is retired from the three LLM guides along with the silent-skip
+warnings in their concurrency sections: top-level declaration order is now free
+without exception. The locals constraint those rules also carried is already
+stated by `SCOPE-001`.
+
 ## 2026-08-11-2
 
 **An unknown type name in an annotation is now a compile error (SCOPE-001) in

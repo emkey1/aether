@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-11-8*
+*Guide version: 2026-08-11-9*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -36,24 +36,18 @@ If you only read one part of this document, read **Highest-Value Rules** and
    integers or records. Never mix them or do arithmetic on them.
 7. **IMP-001.** Use verified modules only. Never invent imports such as
    `use "helpers";`.
-8. **ORDER-001.** Top-level order is free: a type, helper, or module may be
-   used above the line that defines it, and mutual recursion is fine. Locals
-   are not — a name still needs its `let` before first use (SCOPE-001). The one
-   exception at top level is `par`: a function called from a `par` branch must
-   be defined before the function containing the `par` block, or that branch is
-   silently skipped with no diagnostic.
-9. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
+8. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
    dynamic arrays.
-10. **TUP-001.** Tuples are narrow: destructure direct top-level helper
-    returns (`let (a, b) = pair();`), or bind to one variable and read a
-    single field with `.0`/`.1`/`.2` (`let t = pair(); t.0;`) -- but not
-    `pair().0` directly. Assume nothing else. Recursive tuple-returning
-    functions (direct or indirect) and concurrent `par`-branch calls to the
-    same tuple-returning function are fully supported (tuple returns lower
-    to a record returned by value, reentrant per call).
-11. **OUT-001.** When asked to generate code, return raw Aether source only.
+9. **TUP-001.** Tuples are narrow: destructure direct top-level helper
+   returns (`let (a, b) = pair();`), or bind to one variable and read a
+   single field with `.0`/`.1`/`.2` (`let t = pair(); t.0;`) -- but not
+   `pair().0` directly. Assume nothing else. Recursive tuple-returning
+   functions (direct or indirect) and concurrent `par`-branch calls to the
+   same tuple-returning function are fully supported (tuple returns lower
+   to a record returned by value, reentrant per call).
+10. **OUT-001.** When asked to generate code, return raw Aether source only.
     No Markdown fences.
-12. **BUILT-001.** The builtins listed here are the supported, recommended
+11. **BUILT-001.** The builtins listed here are the supported, recommended
     surface. Do not invent helpers (`substring`, `to_upper`, `replace`, ...) and
     do not guess names. **The complete inventory is in the appendix at the end
     of this document** — every builtin this compiler exposes, so "if it is not
@@ -61,45 +55,45 @@ If you only read one part of this document, read **Highest-Value Rules** and
     faith. `builtins_json()` / `builtin_info(...)` also exist, but those are
     *runtime* builtins: if you are generating a source file in one shot you
     cannot call them, and the appendix is there precisely so you do not need to.
-13. **BUILT-002.** Call a listed builtin with the argument count shown in its
+12. **BUILT-002.** Call a listed builtin with the argument count shown in its
     signature. Getting the name right and the arity wrong is a distinct error
     (`[BUILT-002] 'formatfloat' takes 1 to 2 arguments, but 3 were given.`) and
     is now caught at compile time for the fixed-arity conversion and math
     helpers. The classic case is splicing the width slot out of the
     `println`-only `r:0:prec` form into `formatfloat`, which takes
     `(value, precision)` and nothing more.
-14. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
+13. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
     object-shaped, extract the named array with `toon_key(...)` before
     iterating; never iterate an object root as if it were the array.
-15. **SCOPE-001.** A name must be declared before use and still be in scope at
+14. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. Do not rely on guessed globals, expired loop locals, or
     helper-local names from another function.
-16. **METH-001.** Methods do not capture outer locals. If a method needs a loop
+15. **METH-001.** Methods do not capture outer locals. If a method needs a loop
     index, label, or other caller context, pass it as a parameter.
-17. **FIELD-001.** Method locals may reuse field names. Bare `name` means the
+16. **FIELD-001.** Method locals may reuse field names. Bare `name` means the
     local; `self.name` means the field.
-18. **FIELD-002.** Record and type field names must exist exactly as declared.
+17. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields on a type.
-19. **FIELD-003.** A record/type field default must be a **literal**:
+18. **FIELD-003.** A record/type field default must be a **literal**:
     `count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`.
     Not an expression, not another field, not `self`, not a call — and **not a
     named `const` either**. `limit: Int = MAX_SCORE;` is rejected exactly like
     `limit: Int = MAX_SCORE + 1;`, so a sentinel built from a constant must be
     set at construction instead: `new T { limit: MAX_SCORE + 1 }`.
-20. **FLOW-001.** Every non-`Void` function must return a value on every
+19. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path.
-21. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
+20. **FUNC-001.** Functions are not values. Aether has no anonymous functions,
     no inline `fn(...) -> T { ... }` literals, no lambdas, and no closures.
     Never pass a function as an argument. `task_spawn` / `task_queue` take a
     builtin *name* as `Text` (`task_spawn("delay", "worker", 5)`), not a
     function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
     To run your own code concurrently, call your functions inside a
     `par { ... }` block (see **Concurrency**), not `task_spawn`.
-22. **PAR-001.** Each `par` branch must own the record it writes. Passing the
+21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block.
-23. **MS-001.** `MStream` is the opaque memory-stream handle type.
+22. **MS-001.** `MStream` is the opaque memory-stream handle type.
     `mstreamcreate()` / `mstreamfromstring(text)` return `MStream` — never
     declare the binding `Int` or `Text`. Extract contents with
     `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`. HTTP responses
@@ -1612,12 +1606,8 @@ fn main() -> Void {
 }
 ```
 
-Define every branch target above the function that holds the `par` block
-(ORDER-001). Unlike an ordinary call, a `par` branch naming a function defined
-further down the file is **silently skipped** — no error, no output, exit 0 —
-so the omission shows up only as a missing result. This is about position
-within the file only: an imported export called from a branch is fine, and so
-is a local wrapper around one, provided the wrapper itself sits above.
+A branch target may be defined anywhere in the file, above or below the function
+holding the `par` block, exactly like an ordinary call.
 
 This is the capture-free alternative to spawning closures (FUNC-001): you
 parallelize ordinary calls and collect results through records, with no
