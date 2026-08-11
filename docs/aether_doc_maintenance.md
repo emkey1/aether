@@ -27,11 +27,11 @@ these guides by roughly 16% — they are dense with code fences, tables, and
 backticked identifiers, all of which tokenize badly. Measured with `o200k_base`
 (`cl100k_base` is within 0.5%):
 
-| Guide | ceiling | 2026-08-06 | 2026-08-11 (`-2`) | 2026-08-11 (`-3`) | headroom |
+| Guide | ceiling | 2026-08-06 | 2026-08-11 (SCOPE-001) | 2026-08-11 (ORDER-001) | headroom |
 |---|---|---|---|---|---|
-| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,601 | −2,601 |
-| medium | 15K | 14,350 | 14,922 | 14,921 | 79 |
-| full | none | 25,646 | 26,960 | 27,072 | n/a |
+| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,631 | −2,631 |
+| medium | 15K | 14,350 | 14,922 | 14,922 | 78 |
+| full | none | 25,646 | 26,960 | 27,099 | n/a |
 
 Both constrained guides had silently drifted over their old budgets, because the
 `chars / 4` estimate was flattering. The medium ceiling was **re-baselined from
@@ -44,16 +44,21 @@ addition on 2026-08-11 was planned against a number that had already been spent.
 It fit, with 78 tokens to spare. **The next medium-guide addition of any size
 needs a paired cut** — this is now a hard constraint, not a caution.
 
-The `2026-08-11-3` ORDER-001 revision was the first edit made under that
-constraint, and it held: both constrained guides landed at or below their
-pre-edit size (medium −1, small −12). In both cases the paired cut was the
-same passage — the "capture-free way to parallelize user code" tail of the
+The ORDER-001 revision was the first edit made under that constraint, and it
+held for medium: 14,922 in and 14,922 out, across two rounds of edits. The
+paired cut was the "capture-free way to parallelize user code" tail of the
 `par` section, whose actual steer was already carried verbatim by the
-FUNC-001 entry in each guide's rule list. Duplication between a rule and the
-section that elaborates it is the cheapest place to look for a cut.
+FUNC-001 entry in the rule list. **Duplication between a rule and the section
+that elaborates it is the cheapest place to look for a cut** — it is the one
+kind of deletion that costs no information.
+
+Note the small guide grew (+18) in the same revision. It has no enforced
+ceiling to pair against, only the aspirational ~9K below, so cuts there are
+opportunistic rather than mandatory. That asymmetry is deliberate but it is
+also why the small guide keeps drifting; see below.
 
 The small guide's ~9K is **still the old estimate-derived number** and it
-measures 11,613. It has not been re-baselined and has not been trimmed; the
+measures 11,631. It has not been re-baselined and has not been trimmed; the
 figure in the table above is aspirational, not a measured budget. Resolve it the
 same way — pick a real ceiling or cut to the stated one — before relying on it.
 
