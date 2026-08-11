@@ -27,11 +27,11 @@ these guides by roughly 16% — they are dense with code fences, tables, and
 backticked identifiers, all of which tokenize badly. Measured with `o200k_base`
 (`cl100k_base` is within 0.5%):
 
-| Guide | ceiling | measured 2026-08-06 | measured 2026-08-11 | headroom |
-|---|---|---|---|---|
-| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | −2,613 |
-| medium | 15K | 14,350 | 14,922 | 78 |
-| full | none | 25,646 | 26,960 | n/a |
+| Guide | ceiling | 2026-08-06 | 2026-08-11 (`-2`) | 2026-08-11 (`-3`) | headroom |
+|---|---|---|---|---|---|
+| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,601 | −2,601 |
+| medium | 15K | 14,350 | 14,922 | 14,921 | 79 |
+| full | none | 25,646 | 26,960 | 27,072 | n/a |
 
 Both constrained guides had silently drifted over their old budgets, because the
 `chars / 4` estimate was flattering. The medium ceiling was **re-baselined from
@@ -43,6 +43,14 @@ edits while this table still advertised 650 tokens of headroom, so the SCOPE-001
 addition on 2026-08-11 was planned against a number that had already been spent.
 It fit, with 78 tokens to spare. **The next medium-guide addition of any size
 needs a paired cut** — this is now a hard constraint, not a caution.
+
+The `2026-08-11-3` ORDER-001 revision was the first edit made under that
+constraint, and it held: both constrained guides landed at or below their
+pre-edit size (medium −1, small −12). In both cases the paired cut was the
+same passage — the "capture-free way to parallelize user code" tail of the
+`par` section, whose actual steer was already carried verbatim by the
+FUNC-001 entry in each guide's rule list. Duplication between a rule and the
+section that elaborates it is the cheapest place to look for a cut.
 
 The small guide's ~9K is **still the old estimate-derived number** and it
 measures 11,613. It has not been re-baselined and has not been trimmed; the
@@ -144,6 +152,16 @@ fragment that fails is retried inside an `fx { }` block, since a snippet quoted
 from prose may be a bare `println(...)` whose surrounding text already
 established it is inside one. Exit status is nonzero on any unexpected result,
 so it can gate.
+
+**It compiles; it does not run.** Because the sweep is `--no-run`, a snippet
+that compiles clean and then aborts at runtime passes the gate. That is not
+hypothetical: the medium guide's `par` example shipped for months naming its
+type `Tally` and its function `tally`, which is a case-insensitive collision
+that aborts with a VM slot-window error the moment it executes. Every snippet
+check was green the whole time. When you add or edit a **complete program**
+(one with its own `main`, as opposed to a prose fragment), run it once by hand
+and look at the output before committing. Note also that `CONTEXT` itself
+carries a `type Tally` / `fn tally` pair, so it is not a safe model to copy.
 
 Blocks that *must* fail are allowlisted by a distinctive substring in
 `EXPECT_FAIL`, and the count of them is asserted — so a deliberate negative
