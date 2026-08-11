@@ -71,6 +71,7 @@ INLINE_OBJECT_METHOD_INFERENCE_PASS_FIXTURE="$TESTS_DIR/inline_object_method_inf
 INLINE_OBJECT_METHOD_INFERENCE_COMMENT_PASS_FIXTURE="$TESTS_DIR/inline_object_method_inference_comment_pass.aether"
 TUPLE_DESTRUCTURE_PASS_FIXTURE="$TESTS_DIR/tuple_destructure_pass.aether"
 TUPLE_DESTRUCTURE_FORWARD_PASS_FIXTURE="$TESTS_DIR/tuple_destructure_forward_pass.aether"
+TUPLE_ARRAY_ITEM_PASS_FIXTURE="$TESTS_DIR/tuple_array_item_pass.aether"
 TUPLE_POST_PASS_FIXTURE="$TESTS_DIR/tuple_post_pass.aether"
 ARRAY_APPEND_PASS_FIXTURE="$TESTS_DIR/dynamic_array_append_pass.aether"
 ARRAY_FIELD_INDEX_PASS_FIXTURE="$TESTS_DIR/array_field_index_pass.aether"
@@ -261,6 +262,7 @@ for fixture in \
     "$INLINE_OBJECT_METHOD_INFERENCE_COMMENT_PASS_FIXTURE" \
     "$TUPLE_DESTRUCTURE_PASS_FIXTURE" \
     "$TUPLE_DESTRUCTURE_FORWARD_PASS_FIXTURE" \
+    "$TUPLE_ARRAY_ITEM_PASS_FIXTURE" \
     "$TUPLE_POST_PASS_FIXTURE" \
     "$ARRAY_APPEND_PASS_FIXTURE" \
     "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" \
@@ -641,6 +643,17 @@ printf 'answer 42\n' >/tmp/aether_tuple_destructure_forward_expected.out
 if ! cmp -s /tmp/aether_tuple_destructure_forward_expected.out /tmp/aether_tuple_destructure_forward_pass.out; then
     echo "unexpected forward tuple destructure output" >&2
     cat /tmp/aether_tuple_destructure_forward_pass.out >&2
+    exit 1
+fi
+# Folds stderr into the comparison on purpose: the array-item regression also
+# leaked an internal "makeValueForType ... unhandled type" warning from the
+# synthesized tuple record, on runs that otherwise exited 0. Any stray stderr
+# byte must fail this test, not just a wrong stdout.
+"$AETHER_BIN" --no-cache "$TUPLE_ARRAY_ITEM_PASS_FIXTURE" >/tmp/aether_tuple_array_item_pass.out 2>&1
+printf '3 3\n4 2\n1 8\n' >/tmp/aether_tuple_array_item_expected.out
+if ! cmp -s /tmp/aether_tuple_array_item_expected.out /tmp/aether_tuple_array_item_pass.out; then
+    echo "unexpected tuple array-item output" >&2
+    cat /tmp/aether_tuple_array_item_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$TUPLE_POST_PASS_FIXTURE" >/tmp/aether_tuple_post_pass.out

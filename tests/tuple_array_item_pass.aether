@@ -1,0 +1,35 @@
+/* Tuple item types that are arrays: `(Int, Int[])`, array in first position,
+ * and a nested `Int[][]`. Regression for tuple item types being built with
+ * buildTypeNode rather than buildTypeNodeFromName, which dropped the `[]`
+ * suffix convention and broke both halves of the lowering: the per-binding
+ * local ("identifier 'Int[]' not in scope") and the synthesized record field
+ * (an unhandled-type warning on stderr, even when compilation succeeded).
+ * Covers the explicit-annotation and inferred destructuring paths. */
+
+fn split() -> (Int, Int[]) {
+    let xs: Int[] = [1, 2, 3];
+    ret (3, xs);
+}
+
+fn headFirst() -> (Int[], Int) {
+    let xs: Int[] = [4, 5];
+    ret (xs, 2);
+}
+
+fn grid() -> (Int, Int[][]) {
+    let g: Int[][] = [];
+    g = g + [[7, 8]];
+    ret (1, g);
+}
+
+fn main() -> Void {
+    let (n, xs): (Int, Int[]) = split();
+    let (ys, m) = headFirst();
+    let (rows, g): (Int, Int[][]) = grid();
+    fx {
+        println(n, " ", xs[2]);
+        println(ys[0], " ", m);
+        println(rows, " ", g[0][1]);
+    }
+    ret;
+}

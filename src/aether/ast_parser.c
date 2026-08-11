@@ -5383,7 +5383,10 @@ static AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         char fieldName[32];
         snprintf(fieldName, sizeof(fieldName), "item%zu", i);
         VarType vt = TYPE_UNKNOWN;
-        AST *typeNode = buildTypeNode(sig->itemTypes[i], strlen(sig->itemTypes[i]), kwLine, &vt);
+        /* FromName, not buildTypeNode: itemTypes carry the `[]` suffix
+         * convention (an `(Int, Int[])` signature stores "Int[]"), and
+         * buildTypeNode would lookupType("Int[]") and fail. */
+        AST *typeNode = buildTypeNodeFromName(sig->itemTypes[i], strlen(sig->itemTypes[i]), kwLine, &vt);
 
         Token *recvTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
         AST *recv = newASTNode(AST_VARIABLE, recvTok);
@@ -8070,7 +8073,11 @@ static AST *buildSyntheticTupleRecordType(int typeId, char **itemTypes, size_t i
         char fieldName[32];
         snprintf(fieldName, sizeof(fieldName), "item%zu", i);
         VarType vt = TYPE_UNKNOWN;
-        AST *typeNode = buildTypeNode(itemTypes[i], strlen(itemTypes[i]), line, &vt);
+        /* FromName, not buildTypeNode: an item type may carry the `[]` suffix
+         * (see the tuple signature table), which buildTypeNode cannot resolve.
+         * The open AST_ARRAY_TYPE this yields is the same shape parseTypeDecl
+         * gives a user-written `field: Int[]`, so the field initializes. */
+        AST *typeNode = buildTypeNodeFromName(itemTypes[i], strlen(itemTypes[i]), line, &vt);
         if (!typeNode) { freeAST(recordAst); return NULL; }
         Token *fTok = newToken(TOKEN_IDENTIFIER, fieldName, line, 0);
         AST *fVar = newASTNode(AST_VARIABLE, fTok);

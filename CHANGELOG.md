@@ -12,6 +12,50 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-08-11-1
+
+**A tuple whose items include an array type, such as `(Int, Int[])`, now
+compiles. It previously failed to destructure and leaked an internal warning
+to stderr.**
+
+An Aether type name carrying the `[]` array suffix is a string convention:
+`(Int, Int[])` stores the item type literally as `"Int[]"`. Turning such a
+name back into a type node is what `buildTypeNodeFromName` is for. It strips
+one `[]` at a time and wraps each level in an `AST_ARRAY_TYPE`, matching the
+shape the token-stream path builds for an explicit `: Int[]` annotation.
+Both tuple sites called plain `buildTypeNode` instead, which has no notion of
+the suffix and did a literal `lookupType("Int[]")`.
+
+That single miss broke the two halves of the tuple lowering in different and
+individually confusing ways:
+
+* The **per-binding local** failed to resolve, and the failure surfaced as
+  `identifier 'Int[]' not in scope`, blaming an absent variable for what was
+  a perfectly valid type.
+* The **synthesized record field** silently became `TYPE_UNKNOWN`, so
+  instantiating it reached pscal-core's `makeValueForType` canary and printed
+  `Warning: makeValueForType called with unhandled type 0 (UNKNOWN_VAR_TYPE)`.
+  This half fired even when compilation *succeeded*: binding a tuple-returning
+  call to a single name (`let t = pair();`) exited 0 while spraying one such
+  warning per instantiation.
+
+```aether
+fn split() -> (Int, Int[]) {
+    let xs: Int[] = [1, 2, 3];
+    ret (3, xs);
+}
+
+let (n, xs): (Int, Int[]) = split();   // was: identifier 'Int[]' not in scope
+```
+
+Both the explicitly annotated and the inferred destructuring forms were
+affected, in any item position, and at any array rank (`Int[][]` included).
+No new diagnostic code was added, because there was never an unsupported type
+here to report: `Int[]` has always been the correct spelling, and the fix is
+that it is now accepted. Covered by `tests/tuple_array_item_pass.aether`,
+which folds stderr into its expected-output comparison so a returning warning
+fails the suite rather than passing quietly.
+
 ## 2026-08-09-1
 
 **Array `+` works for chains of any length, in any position, and no longer
