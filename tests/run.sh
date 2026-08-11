@@ -65,6 +65,7 @@ UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_fail.ae
 UNKNOWN_MODULE_TYPE_FAIL_FIXTURE="$TESTS_DIR/unknown_module_type_fail.aether"
 OBJECT_INFERENCE_PASS_FIXTURE="$TESTS_DIR/object_inference_pass.aether"
 OBJECT_DEFAULT_INIT_PASS_FIXTURE="$TESTS_DIR/object_default_init_pass.aether"
+TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE="$TESTS_DIR/type_function_name_collision_pass.aether"
 STRING_LEN_INFERENCE_PASS_FIXTURE="$TESTS_DIR/string_len_inference_pass.aether"
 LEN_PROPERTY_PASS_FIXTURE="$TESTS_DIR/len_property_pass.aether"
 NUMERIC_EXPR_INFERENCE_PASS_FIXTURE="$TESTS_DIR/numeric_expr_inference_pass.aether"
@@ -262,6 +263,7 @@ for fixture in \
     "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" \
     "$OBJECT_INFERENCE_PASS_FIXTURE" \
     "$OBJECT_DEFAULT_INIT_PASS_FIXTURE" \
+    "$TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE" \
     "$STRING_LEN_INFERENCE_PASS_FIXTURE" \
     "$LEN_PROPERTY_PASS_FIXTURE" \
     "$NUMERIC_EXPR_INFERENCE_PASS_FIXTURE" \
@@ -607,6 +609,18 @@ printf '1\n2\n' >/tmp/aether_object_default_init_expected.out
 if ! cmp -s /tmp/aether_object_default_init_expected.out /tmp/aether_object_default_init_pass.out; then
     echo "unexpected object default init output" >&2
     cat /tmp/aether_object_default_init_pass.out >&2
+    exit 1
+fi
+# A function whose name case-insensitively matches a type's must not be taken for
+# that type's constructor. `new Widget()` used to call the free function `widget`
+# with the raw object as its first argument -- a VM abort when the arities
+# disagreed, and a silent extra "hijacked" line when they agreed. Exact-output
+# compare, so a reappearing hijack fails the case rather than passing on a substring.
+"$AETHER_BIN" --no-cache "$TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE" >/tmp/aether_type_function_name_collision_pass.out
+printf '9\n1\n' >/tmp/aether_type_function_name_collision_expected.out
+if ! cmp -s /tmp/aether_type_function_name_collision_expected.out /tmp/aether_type_function_name_collision_pass.out; then
+    echo "unexpected type/function name collision output" >&2
+    cat /tmp/aether_type_function_name_collision_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$STRING_LEN_INFERENCE_PASS_FIXTURE" >/tmp/aether_string_len_inference_pass.out

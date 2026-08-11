@@ -36,8 +36,13 @@ type Tx { id: Text = ""; amount: Int = 0; }
 
 fn workerA() -> Void { ret; }
 fn workerB() -> Void { ret; }
-type Tally { count: Int = 0; }
-fn tally(t: Tally, upTo: Int) -> Void { ret; }
+// The record type is deliberately NOT named after the function that takes it.
+// Aether identifiers are case-insensitive, so a `type Tally` beside a `fn tally`
+// is the exact name collision that used to make `new Tally()` dispatch to the
+// function; this prelude should not model a shape the guides steer writers away
+// from, even though the compiler now resolves it correctly.
+type TallyRec { count: Int = 0; }
+fn tally(t: TallyRec, upTo: Int) -> Void { ret; }
 fn doubleAll(arr: Int[]) -> Int[] { ret arr; }
 
 fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
@@ -45,7 +50,7 @@ fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           rows: Int, cols: Int, path: Text, value: Int, answer: Int,
           successful: Int, amount: Int, name: Text, status: Text, ok: Int,
           raw: Text, code: Int, table: Int[][],
-          a: Tally, b: Tally,
+          a: TallyRec, b: TallyRec,
           xs: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc,
           tx: Tx) -> Void {
 """

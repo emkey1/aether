@@ -12,6 +12,34 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-08-11-4
+
+**A function may now share a type's name. `new T()` used to dispatch to a
+same-named function instead of constructing: an abort when the arities
+disagreed, and silent execution of that function when they agreed.**
+
+Aether identifiers are case-insensitive (PSCAL heritage), so `fn widget` and
+`type Widget` are one name. A class publishes its constructor under its own bare
+name, and codegen accepted whatever occupied that name as the constructor, so
+`new Widget()` called the free function with the freshly allocated object as its
+first argument. With `fn widget(t: Widget, v: Int)` the frame came up a slot
+short and the VM aborted with `Local slot index 1 out of range (declared
+window=1, live window=1)`, reported against the function's line rather than the
+`new` that mis-dispatched. With `fn widget(v: Int)` the arities matched and the
+call simply went through: the function ran during construction, printing and
+mutating whatever it liked, and the program exited 0.
+
+Aether has no user-defined constructors (`new T()` is the only one), so any hit
+on that bare name was a collision, never a real constructor. Constructor
+resolution now requires the `Class.Class` method shape that Rea's constructors
+actually carry, and defining a free function no longer overwrites a same-named
+class's constructor. Both halves live in pscal-core's shared codegen, so Rea gets
+the same correction: a class constructor and a same-named free function are now
+independent in either declaration order.
+
+The collision is legal, not diagnosed. Naming a function after a type is still
+worth avoiding for readability, and the guides steer away from it.
+
 ## 2026-08-11-3
 
 **A `par` branch whose target is defined further down the file now runs. It used

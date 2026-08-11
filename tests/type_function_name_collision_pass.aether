@@ -1,0 +1,35 @@
+// A function whose name case-insensitively equals a type's name must not be
+// mistaken for that type's constructor. Aether identifiers are case-insensitive
+// (PSCAL heritage), so `fn widget` occupies the very name `type Widget`'s
+// constructor would be published under. `new Widget()` used to dispatch to the
+// free function with the freshly allocated object as its first argument: when the
+// arities disagreed that aborted in the VM ("Local slot index 1 out of range"),
+// and when they happened to agree it silently ran unrelated user code.
+
+type Widget { count: Int = 0; }
+
+// Arity mismatch against the bogus constructor call: used to abort.
+fn widget(t: Widget, v: Int) -> Void {
+    t.count = v;
+    ret;
+}
+
+type Gadget { tag: Int = 1; }
+
+// Arity match against the bogus constructor call: used to run during `new`,
+// printing "hijacked" that no line of this program ever asks for.
+fn gadget(v: Int) -> Int {
+    fx { println("hijacked"); }
+    ret v;
+}
+
+fn main() -> Void {
+    let a: Widget = new Widget();
+    widget(a, 9);
+    let b: Gadget = new Gadget();
+    fx {
+        println(a.count);
+        println(b.tag);
+    }
+    ret;
+}
