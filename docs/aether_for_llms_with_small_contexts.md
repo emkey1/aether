@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-10-1*
+*Guide version: 2026-08-11-2*
 
 ## Highest-Value Rules
 
@@ -873,6 +873,10 @@ The compiler prints a stable code in brackets, and on newer builds a
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (methods do not capture; METH-001)
+  - an **unknown type name in an annotation** — any position (binding, parameter,
+    return type, record field, tuple item) and any array depth, so `let v: Bogus[]`
+    and `fn f(p: Bogus)` fail exactly as `let v: Bogus = 1` does → fix the spelling,
+    or declare `type Bogus { ... }` (order does not matter)
   - a genuinely undeclared / out-of-scope name → declare it earlier or pass it in (SCOPE-001)
 - **[NAME-001]** a local redeclared in the same scope (`'...' is already
   declared in this scope`) → pick a fresh name.

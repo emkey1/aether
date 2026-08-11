@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-08-10-1*
+*Guide version: 2026-08-11-1*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -1202,6 +1202,10 @@ The compiler prints a stable code in brackets, and on newer builds a
   - a type or helper used before it is defined → define it earlier
   - a method reaching an outer local → pass it in as a parameter
   - `method '<m>' is not defined on type '<T>'` → define it inside the `type`
+  - an **unknown type name in an annotation** — any position (binding, parameter,
+    return type, record field, tuple item) and any array depth, so `let v: Bogus[]`
+    and `fn f(p: Bogus)` fail exactly as `let v: Bogus = 1` does → fix the spelling,
+    or declare `type Bogus { ... }` (order does not matter)
   - a genuinely undeclared name → declare it earlier or pass it in
 - **[BUILT-002]** right builtin, wrong argument count → check the arity table.
 - **[NAME-001]** a local redeclared in the same scope → pick a fresh name.

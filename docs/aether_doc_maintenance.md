@@ -24,23 +24,28 @@ the emitted program, and one repair round. **Hard ceiling: 15K tokens**, measure
 
 **Measure the budget, do not estimate it.** A `chars / 4` estimate undercounts
 these guides by roughly 16% — they are dense with code fences, tables, and
-backticked identifiers, all of which tokenize badly. Measured 2026-08-06 with
-`o200k_base` (`cl100k_base` is within 0.5%):
+backticked identifiers, all of which tokenize badly. Measured with `o200k_base`
+(`cl100k_base` is within 0.5%):
 
-| Guide | ceiling | measured 2026-08-06 | headroom |
-|---|---|---|---|
-| small | ~9K *(stated, not re-baselined)* | 11,369 | −2,369 |
-| medium | 15K | 14,350 | 650 |
-| full | none | 25,646 | n/a |
+| Guide | ceiling | measured 2026-08-06 | measured 2026-08-11 | headroom |
+|---|---|---|---|---|
+| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | −2,613 |
+| medium | 15K | 14,350 | 14,922 | 78 |
+| full | none | 25,646 | 26,960 | n/a |
 
 Both constrained guides had silently drifted over their old budgets, because the
 `chars / 4` estimate was flattering. The medium ceiling was **re-baselined from
-13K to 15K on 2026-08-06** against real counts rather than trimming the guide;
-14,350 now sits inside it with ~650 tokens of headroom, which is not much — treat
-the next medium-guide addition as needing a paired cut.
+13K to 15K on 2026-08-06** against real counts rather than trimming the guide.
+
+**Re-measure before every medium-guide edit, not just after.** Between
+2026-08-06 and 2026-08-11 the medium guide grew 572 tokens across several
+edits while this table still advertised 650 tokens of headroom, so the SCOPE-001
+addition on 2026-08-11 was planned against a number that had already been spent.
+It fit, with 78 tokens to spare. **The next medium-guide addition of any size
+needs a paired cut** — this is now a hard constraint, not a caution.
 
 The small guide's ~9K is **still the old estimate-derived number** and it
-measures 11,369. It has not been re-baselined and has not been trimmed; the
+measures 11,613. It has not been re-baselined and has not been trimmed; the
 figure in the table above is aspirational, not a measured budget. Resolve it the
 same way — pick a real ceiling or cut to the stated one — before relying on it.
 
