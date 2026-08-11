@@ -45,11 +45,11 @@ these guides by roughly 16% — they are dense with code fences, tables, and
 backticked identifiers, all of which tokenize badly. Measured with `o200k_base`
 (`cl100k_base` is within 0.5%):
 
-| Guide | ceiling | 2026-08-06 | 2026-08-11 (SCOPE-001) | 2026-08-11 (ORDER-001) | headroom |
-|---|---|---|---|---|---|
-| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,631 | −2,631 |
-| medium | 15K | 14,350 | 14,922 | 14,922 | 78 |
-| full | none | 25,646 | 26,960 | 27,099 | n/a |
+| Guide | ceiling | 2026-08-06 | 2026-08-11 (SCOPE-001) | 2026-08-11 (ORDER-001) | 2026-08-11 (ORDER-001 retired) | headroom |
+|---|---|---|---|---|---|---|
+| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,631 | 11,534 | −2,534 |
+| medium | 15K | 14,350 | 14,922 | 14,922 | 14,849 | 151 |
+| full | none | 25,646 | 26,960 | 27,099 | 26,950 | n/a |
 
 Both constrained guides had silently drifted over their old budgets, because the
 `chars / 4` estimate was flattering. The medium ceiling was **re-baselined from
@@ -69,6 +69,17 @@ paired cut was the "capture-free way to parallelize user code" tail of the
 FUNC-001 entry in the rule list. **Duplication between a rule and the section
 that elaborates it is the cheapest place to look for a cut** — it is the one
 kind of deletion that costs no information.
+
+ORDER-001 was then **retired outright** the same day, once the compiler bug that
+justified it was fixed (language `2026-08-11-3`): a `par` branch now resolves its
+target like any other call, so top-level order is free with no exception, and a
+rule stating a non-constraint does not earn a slot in a scarce list. Its one
+still-true clause (locals need `let` before use) was already carried by
+SCOPE-001 in all three guides, so the deletion cost nothing. Medium gave back 73
+tokens (14,922 → 14,849), taking headroom from 78 to 151. **A rule that exists
+to warn about a compiler defect should be deleted when the defect is fixed, not
+softened** — and the paired-cut constraint above still binds the next addition;
+this repayment does not license a spend.
 
 Note the small guide grew (+18) in the same revision. It has no enforced
 ceiling to pair against, only the aspirational ~9K below, so cuts there are
