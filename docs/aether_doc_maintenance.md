@@ -17,6 +17,24 @@ with `tools/bump_guide_version.py` and record what changed in
 `aether_guided_benchmark.md` records per row, so a bump with no changelog entry
 leaves a score nothing can be attributed to.
 
+**Do not run the bump tool by hand on the full or small guide.** With
+`core.hooksPath` pointed at `tools/hooks` (the intended setup), the `pre-commit`
+hook already bumps those two whenever they are staged. Running the tool first
+and then committing bumps them **twice**, and the second bump happens inside the
+commit — so the stamp you read before committing is not the stamp that lands,
+and any changelog row written from it is wrong on arrival. Write the row after
+committing, from `sed -n '3p' docs/aether_for_llms_<guide>.md`, never from what
+you expected. The **medium guide is deliberately absent from the hook's regex**,
+so it is the one guide that still needs the manual bump. Check with:
+
+```sh
+git config core.hooksPath        # blank = hook inactive, bump all three by hand
+```
+
+Beware `grep -h -m1 'Guide version' <three files>`, which can report the three
+stamps in an order that does not match the argument order. Read them one file at
+a time.
+
 The medium guide must leave a ~32K window room for the prompt, a reasoning trace,
 the emitted program, and one repair round. **Hard ceiling: 15K tokens**, measured
 — roughly half the window, leaving ~17K for everything else. If it grows past
