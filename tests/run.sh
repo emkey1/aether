@@ -60,7 +60,9 @@ FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE="$TESTS_DIR/function_missing_return_ty
 FUNCTION_FORWARD_DECL_PASS_FIXTURE="$TESTS_DIR/function_forward_decl_pass.aether"
 FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE="$TESTS_DIR/function_missing_value_return_fail.aether"
 FUNCTION_EMPTY_RETURN_FAIL_FIXTURE="$TESTS_DIR/function_empty_return_fail.aether"
-BACKEND_UNKNOWN_FIELD_CODED_FAIL_FIXTURE="$TESTS_DIR/backend_unknown_field_coded_fail.aether"
+UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_json_fail.aether"
+UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_fail.aether"
+UNKNOWN_MODULE_TYPE_FAIL_FIXTURE="$TESTS_DIR/unknown_module_type_fail.aether"
 OBJECT_INFERENCE_PASS_FIXTURE="$TESTS_DIR/object_inference_pass.aether"
 OBJECT_DEFAULT_INIT_PASS_FIXTURE="$TESTS_DIR/object_default_init_pass.aether"
 STRING_LEN_INFERENCE_PASS_FIXTURE="$TESTS_DIR/string_len_inference_pass.aether"
@@ -251,7 +253,9 @@ for fixture in \
     "$FUNCTION_FORWARD_DECL_PASS_FIXTURE" \
     "$FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE" \
     "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" \
-    "$BACKEND_UNKNOWN_FIELD_CODED_FAIL_FIXTURE" \
+    "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" \
+    "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" \
+    "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" \
     "$OBJECT_INFERENCE_PASS_FIXTURE" \
     "$OBJECT_DEFAULT_INIT_PASS_FIXTURE" \
     "$STRING_LEN_INFERENCE_PASS_FIXTURE" \
@@ -1978,18 +1982,64 @@ if ! grep -q '"code":"PAR-002"' /tmp/aether_par_fail_non_call_json.out; then
     cat /tmp/aether_par_fail_non_call_json.out >&2
     exit 1
 fi
-# FIELD-002 backstop: a method call on a receiver of an unresolved type lowers to a
-# backend field lookup that emits the raw, uncoded "Compiler error: Unknown field
-# 'T.m'." at codegen -- past rea's semantic FIELD-002 check. The --diagnostics-json
-# collector must backfill the code via frontend inference so the repair loop sees
-# FIELD-002 rather than code:null.
-if "$AETHER_BIN" --diagnostics-json --no-cache "$BACKEND_UNKNOWN_FIELD_CODED_FAIL_FIXTURE" >/tmp/aether_backend_unknown_field_json.out 2>&1; then
-    echo "expected backend unknown-field diagnostics-json failure but program succeeded" >&2
+# SCOPE-001 through --diagnostics-json. This fixture (`let s: Nope = new Nope();`
+# then `s.go()`) previously asserted FIELD-002: an unresolved receiver type used
+# to survive semantic analysis, so the method call reached codegen and emitted the
+# raw, uncoded "Compiler error: Unknown field 'Nope.go'.", which the collector
+# backfilled to FIELD-002 via frontend inference. The semantic type-annotation
+# check now rejects `Nope` outright, so that route to an uncoded backend message
+# is closed and the program fails earlier, with a code emitted at the site.
+# Coverage note: this was the only end-to-end test of the collector's *backfill*
+# path (every other "code":"..." assertion here is on a message emitted with an
+# explicit [CODE] prefix), and no reachable Aether program is known to produce an
+# uncoded backend message today -- a missing `use` target, the other inference
+# entry that looked like a candidate (IMP-001), is silently accepted rather than
+# reported. The inference table in diagnostics.c is kept as defense-in-depth for
+# uncoded messages from the shared backend; it is simply no longer reachable from
+# here. What this fixture still proves is that the new diagnostic reaches
+# --diagnostics-json with its code intact, which the repair loop depends on.
+if "$AETHER_BIN" --diagnostics-json --no-cache "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" >/tmp/aether_unknown_type_annotation_json.out 2>&1; then
+    echo "expected unknown-type diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"FIELD-002"' /tmp/aether_backend_unknown_field_json.out; then
-    echo "missing backend unknown-field diagnostics-json code FIELD-002 (collector backstop regressed?)" >&2
-    cat /tmp/aether_backend_unknown_field_json.out >&2
+if ! grep -q '"code":"SCOPE-001"' /tmp/aether_unknown_type_annotation_json.out; then
+    echo "missing unknown-type diagnostics-json code SCOPE-001" >&2
+    cat /tmp/aether_unknown_type_annotation_json.out >&2
+    exit 1
+fi
+
+# An unknown type name must be rejected in EVERY annotation position, not just
+# the `let v: T = ...` shape that pscal-core's var-decl path caught (it resolves a
+# type specifier only when it is a bare AST_TYPE_REFERENCE directly under the
+# decl). The array cases are the original report: the `[]` suffix wrapped the
+# reference in an AST_ARRAY_TYPE, so the base name went unvalidated and a typo'd
+# element type compiled clean. Each name appears once in the fixture, so each must
+# produce exactly one SCOPE-001 -- a count guards against the forward-declaration
+# pre-pass's duplicate copy of every signature leaking back in.
+if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" >/tmp/aether_unknown_type_annotation.out 2>&1; then
+    echo "expected SCOPE-001 for unknown type annotations but program succeeded" >&2
+    exit 1
+fi
+for missing in MissingField MissingParam MissingReturn MissingTupleItem MissingLet MissingScalar; do
+    count=$(grep -c "\[SCOPE-001\].*identifier '$missing' not in scope\." /tmp/aether_unknown_type_annotation.out || true)
+    if [ "$count" != "1" ]; then
+        echo "expected exactly 1 SCOPE-001 for '$missing', got $count" >&2
+        cat /tmp/aether_unknown_type_annotation.out >&2
+        exit 1
+    fi
+done
+
+# The same check must reach imported modules, which are separate ASTs the
+# main-program walk never visits, and must attribute the diagnostic to the module
+# file rather than the importer. Matched on basename: the reported path is
+# cwd-relative for a module resolved beside its importer.
+if "$AETHER_BIN" --no-cache "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" >/tmp/aether_unknown_module_type.out 2>&1; then
+    echo "expected SCOPE-001 for an unknown type inside an imported module but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "unknown_module_type_mod:6: \[SCOPE-001\].*identifier 'MissingInModule' not in scope\." /tmp/aether_unknown_module_type.out; then
+    echo "missing module-attributed SCOPE-001 for an unknown type inside an imported module" >&2
+    cat /tmp/aether_unknown_module_type.out >&2
     exit 1
 fi
 

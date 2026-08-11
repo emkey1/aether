@@ -7,6 +7,7 @@
 #include <strings.h>
 
 #include "core/globals.h"
+#include "core/type_registry.h"
 #include "backend_ast/builtin.h"
 #include "aether/diagnostics.h"
 #include "aether/parser.h"
@@ -3082,6 +3083,150 @@ static void aetherValidateArrayParamMutation(const AST *root) {
     aetherWalkArrayParamMutation(root);
 }
 
+/* --------------------------------------------------------------------------
+ * SCOPE-001: an unknown type *name* in an annotation.
+ *
+ * Aether had no type-name validation of its own: it leaned on pscal-core's
+ * compiler.c var-decl path, which resolves a type specifier only when that
+ * specifier is a bare AST_TYPE_REFERENCE sitting directly under the decl. That
+ * caught exactly one shape -- `let v: Bogus = ...` -- and silently accepted a
+ * typo'd name everywhere else, because every other annotation site either wraps
+ * the reference (`Bogus[]` -> AST_ARRAY_TYPE, right = the reference) or is not a
+ * var decl at all (parameters, return types, record fields, tuple items). So
+ * `let v: Bogus[] = []` compiled clean, and so did `fn f(p: Bogus)`.
+ *
+ * Checking every AST_TYPE_REFERENCE reached by the walk covers all of those at
+ * once, wrappers included, with no per-site enumeration: buildTypeNode emits
+ * this node type *only* for a type annotation whose name it could not map, so
+ * reaching one is already proof we are looking at a type position. Known
+ * builtins never appear here (mapAetherType turns them into
+ * AST_TYPE_IDENTIFIER), and a name that is merely declared later in the file
+ * resolves fine -- this runs post-parse, once every `type` is registered, which
+ * is why the check cannot live in buildTypeNode itself.
+ *
+ * Wording is the backend's verbatim, so a typo lands on SCOPE-001 (inferred in
+ * diagnostics.c) no matter which position it was written in.
+ * -------------------------------------------------------------------------- */
+
+/* Reported (name, line) pairs, so one written annotation yields one diagnostic.
+ * Needed because the parser's forward-declaration pre-pass (ast_parser.c ~8196)
+ * emits a body-less prototype for every top-level function, leaving each
+ * parameter and return type node in the AST twice; without this, every unknown
+ * type in a signature would be reported twice while `let` and field annotations
+ * -- which have no prototype copy -- reported once. Keyed on the line as well as
+ * the name so the same typo on different lines still reports at each site. */
+typedef struct AetherReportedType {
+    char *name;
+    int line;
+} AetherReportedType;
+
+static AetherReportedType *g_aether_reported_types = NULL;
+static size_t g_aether_reported_type_count = 0;
+static size_t g_aether_reported_type_cap = 0;
+
+static void aetherFreeReportedTypes(void) {
+    size_t i;
+    for (i = 0; i < g_aether_reported_type_count; i++) {
+        free(g_aether_reported_types[i].name);
+    }
+    free(g_aether_reported_types);
+    g_aether_reported_types = NULL;
+    g_aether_reported_type_count = 0;
+    g_aether_reported_type_cap = 0;
+}
+
+/* True when (name, line) was already reported; otherwise records it and returns
+ * false. On allocation failure returns false without recording, so the
+ * diagnostic is still emitted (a duplicate beats a dropped error). */
+static bool aetherMarkTypeReported(const char *name, int line) {
+    size_t i;
+    for (i = 0; i < g_aether_reported_type_count; i++) {
+        if (g_aether_reported_types[i].line == line &&
+            strcmp(g_aether_reported_types[i].name, name) == 0) {
+            return true;
+        }
+    }
+    if (g_aether_reported_type_count == g_aether_reported_type_cap) {
+        size_t newCap = g_aether_reported_type_cap ? g_aether_reported_type_cap * 2 : 8;
+        AetherReportedType *grown = (AetherReportedType *)realloc(
+                g_aether_reported_types, newCap * sizeof(*grown));
+        if (!grown) return false;
+        g_aether_reported_types = grown;
+        g_aether_reported_type_cap = newCap;
+    }
+    g_aether_reported_types[g_aether_reported_type_count].name = strdup(name);
+    if (!g_aether_reported_types[g_aether_reported_type_count].name) return false;
+    g_aether_reported_types[g_aether_reported_type_count].line = line;
+    g_aether_reported_type_count++;
+    return false;
+}
+
+static void aetherCheckTypeReference(const AST *node) {
+    char detail[256];
+    const char *name;
+    if (!node->token || !node->token->value || !node->token->value[0]) {
+        return;
+    }
+    name = node->token->value;
+    if (lookupType(name)) {
+        return;
+    }
+    if (aetherMarkTypeReported(name, node->token->line)) {
+        return;
+    }
+    snprintf(detail, sizeof(detail), "identifier '%s' not in scope.", name);
+    reportAetherErrorCoded("SCOPE-001", "type", node->token->line, detail);
+}
+
+static void aetherWalkTypeAnnotations(const AST *node) {
+    int i;
+    if (!node) {
+        return;
+    }
+    if (node->type == AST_TYPE_REFERENCE) {
+        aetherCheckTypeReference(node);
+        /* A type reference is a leaf name; nothing below it is an annotation. */
+        return;
+    }
+    aetherWalkTypeAnnotations(node->left);
+    aetherWalkTypeAnnotations(node->right);
+    aetherWalkTypeAnnotations(node->extra);
+    for (i = 0; i < node->child_count; i++) {
+        aetherWalkTypeAnnotations(node->children[i]);
+    }
+}
+
+/* Walk one file's AST, attributing diagnostics to `path`. The reported-pair set
+ * is per file: it exists to collapse the forward-declaration prototype's copy of
+ * a signature, which is always same-file, so clearing between files keeps the
+ * same (name, line) in two different files from masking one another. */
+static void aetherWalkTypeAnnotationsInFile(const AST *node, const char *path) {
+    const char *savedPath = g_aether_source_path;
+    if (path) {
+        g_aether_source_path = path;
+    }
+    aetherWalkTypeAnnotations(node);
+    g_aether_source_path = savedPath;
+    aetherFreeReportedTypes();
+}
+
+static void aetherValidateTypeAnnotations(const AST *root) {
+    int moduleCount;
+    int i;
+    aetherWalkTypeAnnotationsInFile(root, g_aether_source_path);
+    /* An imported module is a separate AST that the main walk never reaches, so
+     * a typo'd annotation inside `mod M { export type T { x: Bogus[]; } }` would
+     * otherwise stay silent -- the same hole this check exists to close, one
+     * file over. Reachable here only because this pass now runs after
+     * reaPerformSemanticAnalysis, which is what loads them. Each is attributed
+     * to its own path so the diagnostic points at the module file, not the
+     * importer. The count covers transitive imports (loadModuleRecursive). */
+    moduleCount = aetherGetLoadedModuleCount();
+    for (i = 0; i < moduleCount; i++) {
+        aetherWalkTypeAnnotationsInFile(aetherGetModuleAST(i), aetherGetModulePath(i));
+    }
+}
+
 void aetherPerformSemanticAnalysis(AST *root) {
     const char *source = aetherGetLastSource();
     int errorCountBefore = pascal_semantic_error_count;
@@ -3139,6 +3284,16 @@ void aetherPerformSemanticAnalysis(AST *root) {
      * gate above (there's nothing to gate: it never increments the counter). */
     aetherValidateArrayParamMutation(root);
     reaPerformSemanticAnalysis(root);
+    /* Unknown type names in annotations. Must run AFTER reaPerformSemanticAnalysis:
+     * that is the pass which resolves `use` imports (loadModuleRecursive) and
+     * registers the imported modules' types, so running earlier saw every
+     * imported type as unknown -- `let s: Stack = StackMod.make()` in
+     * imported_type_methods_pass became a false SCOPE-001. Still ahead of
+     * codegen, so this stays the diagnostic the user sees: it preempts both the
+     * backend's var-decl-only "not in scope" (the one shape that was already
+     * caught) and, for every other shape, the far less useful runtime
+     * "makeValueForType called with unhandled type 0". */
+    aetherValidateTypeAnnotations(root);
     /* NARROW-001 is likewise a warning and never touches the error counter.
      * It must run AFTER reaPerformSemanticAnalysis: a bare AST_VARIABLE
      * reference and a call to a user function both still carry TYPE_UNKNOWN

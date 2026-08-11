@@ -12,6 +12,43 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-08-11-2
+
+**An unknown type name in an annotation is now a compile error (SCOPE-001) in
+every position. A typo'd element type such as `let v: Bogus[] = []` previously
+compiled clean; so did `fn f(p: Bogus)`, a `Bogus` return type, and a `Bogus`
+record field.**
+
+Aether had no type-name validation of its own. It leaned on pscal-core's
+var-decl path in `compiler.c`, which resolves a type specifier only when that
+specifier is a bare `AST_TYPE_REFERENCE` sitting directly under the declaration.
+That caught exactly one shape, `let v: Bogus = 1`, and nothing else: an array
+annotation wraps the reference in an `AST_ARRAY_TYPE` (so `Bogus[]` slipped
+past), and parameters, return types, record fields and tuple items are not var
+decls at all. The unresolved annotation then reached the backend as
+`TYPE_UNKNOWN`, where the only symptom was a runtime `makeValueForType called
+with unhandled type 0` warning, or nothing whatsoever.
+
+Validation now lives in Aether's own semantic pass, which checks every
+`AST_TYPE_REFERENCE` the walk reaches. That covers all positions and any depth
+of `[]` nesting without enumerating call sites, because the parser emits this
+node type *only* for an annotation whose name it could not map. Known builtins
+never appear (they become `AST_TYPE_IDENTIFIER`), and a type declared later in
+the file still resolves, which is why the check cannot live in the parser.
+
+The pass runs after `reaPerformSemanticAnalysis`, which is what resolves `use`
+imports, so types exported by an imported module are registered before they are
+checked. Imported modules are separate ASTs, so they are walked too, with each
+diagnostic attributed to the module's own file rather than the importer's.
+
+Diagnostics are deduplicated per file by (name, line): the parser's
+forward-declaration pre-pass leaves every top-level signature in the AST twice,
+which would otherwise double-report each unknown type in a parameter list or
+return type.
+
+Verified against the 282-program corpus in `Tests/aether_specialization` and
+`examples/`: no previously-compiling program is newly rejected.
+
 ## 2026-08-11-1
 
 **A tuple whose items include an array type, such as `(Int, Int[])`, now

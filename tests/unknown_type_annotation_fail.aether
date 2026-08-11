@@ -1,0 +1,28 @@
+// Every annotation position must reject an unknown type name, not just the one
+// shape (`let v: Bogus = ...`) that pscal-core's var-decl path happened to
+// catch. Each Missing* name below is written exactly once, on its own line, so
+// the suite can assert one SCOPE-001 per position -- see run.sh.
+//
+// The array cases are the original report: stripping the `[]` suffix left the
+// base name unvalidated, so a typo'd element type compiled clean.
+type Holder {
+    items: MissingField[];
+}
+
+fn takes(p: MissingParam[]) -> Void {
+    ret;
+}
+
+fn gives() -> MissingReturn[] {
+    ret [];
+}
+
+fn pair() -> (Int, MissingTupleItem[]) {
+    ret (1, []);
+}
+
+fn main() -> Void {
+    let v: MissingLet[] = [];
+    let s: MissingScalar = 1;
+    ret;
+}

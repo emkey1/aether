@@ -1,0 +1,8 @@
+// The importing file is clean; the unknown element type lives in the imported
+// module. The diagnostic must point at the module file, not at this one.
+use "unknown_module_type_mod";
+
+fn main() -> Void {
+    let c: Crate = BadTypeMod.make();
+    ret;
+}

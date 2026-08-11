@@ -1,0 +1,12 @@
+mod BadTypeMod {
+    export type Crate {
+        // An imported module is a separate AST the main-program walk never
+        // reaches, so this typo'd element type used to compile clean even after
+        // the same mistake was caught in the importing file.
+        items: MissingInModule[] = [];
+    }
+
+    export fn make() -> Crate {
+        ret new Crate();
+    }
+}

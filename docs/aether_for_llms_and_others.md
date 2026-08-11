@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-10-1*
+*Guide version: 2026-08-11-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1970,6 +1970,11 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (METH-001)
+  - an **unknown type name in an annotation** — any position (binding, parameter,
+    return type, record field, tuple item) and any array depth, so `let v: Bogus[]`
+    and `fn f(p: Bogus)` fail exactly as `let v: Bogus = 1` does → fix the
+    spelling, or declare `type Bogus { ... }` (order does not matter; a type
+    defined later in the file resolves fine)
   - a genuinely undeclared / out-of-scope name → declare it earlier, pass it in,
     or rename the local you actually meant (SCOPE-001)
 - **[NAME-001]** a local redeclared in the same scope (`'...' is already
