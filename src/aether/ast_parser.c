@@ -1408,10 +1408,16 @@ static bool mapAetherType(const char *name, size_t len,
  * Aether registers its record types token-less -- both the user `type` path
  * and the synthetic tuple records. A `!token`-only check therefore matches
  * exactly Aether's own class/tuple entries and tries to free the live table
- * node. Today `freeAST` happens to bail out on isNodeInTypeTable() before any
- * memory is released, so that misfire is inert, but it depends on a defensive
- * guard in another repo and it poisons the node's `freed` flag. Mirrors the
- * idiom in rea's parseVarDecl / reaRefResolvesToClass. */
+ * node.
+ *
+ * This discriminator is load-bearing, not merely tidy. It used to be that a
+ * misfire here was inert: `freeAST` bailed out on isNodeInTypeTable() before
+ * releasing anything, so the worst case was a poisoned `freed` flag. That is no
+ * longer true. pscal-core's freeTypeTableASTNodes() now unlinks each entry
+ * before freeing it, so type-table nodes are genuinely released at teardown --
+ * which means a stray free of a live table entry is a real double-free/UAF, not
+ * a no-op. Keep the type check. Mirrors the idiom in rea's parseVarDecl /
+ * reaRefResolvesToClass. */
 static void releaseTransientTypeNode(AST *resolved) {
     if (resolved && !resolved->token && resolved->type == AST_VARIABLE) {
         freeAST(resolved);
