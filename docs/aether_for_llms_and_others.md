@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-11-6*
+*Guide version: 2026-08-11-8*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1615,7 +1615,9 @@ fn main() -> Void {
 Define every branch target above the function that holds the `par` block
 (ORDER-001). Unlike an ordinary call, a `par` branch naming a function defined
 further down the file is **silently skipped** — no error, no output, exit 0 —
-so the omission shows up only as a missing result.
+so the omission shows up only as a missing result. This is about position
+within the file only: an imported export called from a branch is fine, and so
+is a local wrapper around one, provided the wrapper itself sits above.
 
 This is the capture-free alternative to spawning closures (FUNC-001): you
 parallelize ordinary calls and collect results through records, with no
