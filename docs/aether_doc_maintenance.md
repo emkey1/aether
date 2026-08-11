@@ -160,10 +160,13 @@ so it can gate.
 
 **It compiles; it does not run.** Because the sweep is `--no-run`, a snippet
 that compiles clean and then aborts at runtime passes the gate. That is not
-hypothetical: the medium guide's `par` example shipped for months naming its
-type `Tally` and its function `tally`, which is a case-insensitive collision
-that aborts with a VM slot-window error the moment it executes. Every snippet
-check was green the whole time. When you add or edit a **complete program**
+hypothetical: from `091e4f0` (2026-07-26) to `652fd4c` (2026-08-11) the medium
+guide's `par` example named its type `Tally` and its function `tally`, and on
+the 2026-08-11 compiler that case-insensitive collision aborts with a VM
+slot-window error the moment it executes. Sixteen days of green snippet checks
+across every edit in between, because none of them ran it. (How much of that
+window the compiler was actually broken for is unmeasured — the collision bug
+was found by this route, not bisected.) When you add or edit a **complete program**
 (one with its own `main`, as opposed to a prose fragment), run it once by hand
 and look at the output before committing. Note also that `CONTEXT` itself
 carries a `type Tally` / `fn tally` pair, so it is not a safe model to copy.
