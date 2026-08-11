@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-08-11-1*
+*Guide version: 2026-08-11-2*
 
 Everything needed to write correct Aether in one shot. Sized for a ~32K context:
 it should occupy about a third of your window, leaving room to reason, emit the
@@ -52,7 +52,9 @@ wrong shape is what stops you writing it.
 8. **ANN-001.** `@pre`, `@post`, `@pure`, `@cost` go directly above the function
    — never inside the body, never bare with no expression.
 9. **MUT-001.** A plain `let` is already mutable. ✗ `let mut x: Int = 0;`
-10. **ORDER-001.** Define types, helpers, and modules before `main` uses them.
+10. **ORDER-001.** Definition order is free, except in `par`: a branch target
+    must be defined before the function holding the `par`, or it is silently
+    skipped.
 11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays. Crossing them is a `TYPE-001`.
 12. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas, no
@@ -394,8 +396,7 @@ accepted.
 
 ## Functions and tuple returns
 
-Every parameter is typed and every function declares a return type. A function
-must be defined before the function that calls it (ORDER-001).
+Every parameter is typed and every function declares a return type.
 
 ```aether
 @pure
@@ -967,7 +968,7 @@ type Tally {
     count: Int = 0;
 }
 
-fn tally(t: Tally, upTo: Int) -> Void {
+fn bump(t: Tally, upTo: Int) -> Void {
     loop i in 0..upTo {
         t.count = t.count + 1;
     }
@@ -978,8 +979,8 @@ fn main() -> Void {
     let a: Tally = new Tally();
     let b: Tally = new Tally();
     par {
-        tally(a, 100);
-        tally(b, 200);
+        bump(a, 100);
+        bump(b, 200);
     }
     fx { println("a=", a.count, " b=", b.count); }
     ret;
@@ -989,8 +990,8 @@ fn main() -> Void {
 Read-only handles (a `ToonNode`, an `Int`) may be shared across branches freely;
 it is the written-to record that must be private.
 
-This is the capture-free way to parallelize user code. The task helpers in the
-appendix are a lower-level API over runtime builtins, not user functions.
+A `par` branch naming a function defined further down the file is silently
+skipped, with no error and no output (ORDER-001).
 
 ## Contracts
 

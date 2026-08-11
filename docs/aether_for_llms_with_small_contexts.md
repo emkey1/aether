@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-11-2*
+*Guide version: 2026-08-11-4*
 
 ## Highest-Value Rules
 
@@ -31,7 +31,9 @@
 8. **ANN-001.** `@pre`, `@post`, `@pure`, `@cost` go directly above the
    function, never inside it, never bare (`@pre` with no expression).
 9. **MUT-001.** Plain `let` is already mutable. Never generate `let mut`.
-10. **ORDER-001.** Define types, helpers, and modules before `main` uses them.
+10. **ORDER-001.** Definition order is free, except in `par`: a branch target
+    must be defined before the function holding the `par`, or it is silently
+    skipped.
 11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays.
 12. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
@@ -681,9 +683,8 @@ par {
 fx { println("a=", a.count, " b=", b.count); }
 ```
 
-This is the capture-free way to parallelize user code (FUNC-001). The task
-helpers below are a lower-level handle API over runtime builtins, not user
-functions.
+A branch naming a function defined further down the file is silently skipped,
+with no error and no output (ORDER-001).
 
 ## Tasks and AI
 
@@ -869,7 +870,6 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
-  - a type or helper used before it is defined → define it earlier (ORDER-001)
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (methods do not capture; METH-001)

@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-11-2*
+*Guide version: 2026-08-11-4*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -36,7 +36,11 @@ If you only read one part of this document, read **Highest-Value Rules** and
    integers or records. Never mix them or do arithmetic on them.
 7. **IMP-001.** Use verified modules only. Never invent imports such as
    `use "helpers";`.
-8. **ORDER-001.** Define types and helper functions before `main` uses them.
+8. **ORDER-001.** Definition order is free: a type, helper, or module may be
+   used above the line that defines it, and mutual recursion is fine. The one
+   exception is `par` — a function called from a `par` branch must be defined
+   before the function containing the `par` block, or that branch is silently
+   skipped with no diagnostic.
 9. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
    dynamic arrays.
 10. **TUP-001.** Tuples are narrow: destructure direct top-level helper
@@ -1607,6 +1611,11 @@ fn main() -> Void {
 }
 ```
 
+Define every branch target above the function that holds the `par` block
+(ORDER-001). Unlike an ordinary call, a `par` branch naming a function defined
+further down the file is **silently skipped** — no error, no output, exit 0 —
+so the omission shows up only as a missing result.
+
 This is the capture-free alternative to spawning closures (FUNC-001): you
 parallelize ordinary calls and collect results through records, with no
 function values. `par` is the mechanism for user code; the task helpers below
@@ -1966,7 +1975,6 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
-  - a type or helper used before it is defined → define it earlier (ORDER-001)
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (METH-001)
