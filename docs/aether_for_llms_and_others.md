@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-11-4*
+*Guide version: 2026-08-11-6*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -36,11 +36,12 @@ If you only read one part of this document, read **Highest-Value Rules** and
    integers or records. Never mix them or do arithmetic on them.
 7. **IMP-001.** Use verified modules only. Never invent imports such as
    `use "helpers";`.
-8. **ORDER-001.** Definition order is free: a type, helper, or module may be
-   used above the line that defines it, and mutual recursion is fine. The one
-   exception is `par` — a function called from a `par` branch must be defined
-   before the function containing the `par` block, or that branch is silently
-   skipped with no diagnostic.
+8. **ORDER-001.** Top-level order is free: a type, helper, or module may be
+   used above the line that defines it, and mutual recursion is fine. Locals
+   are not — a name still needs its `let` before first use (SCOPE-001). The one
+   exception at top level is `par`: a function called from a `par` branch must
+   be defined before the function containing the `par` block, or that branch is
+   silently skipped with no diagnostic.
 9. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
    dynamic arrays.
 10. **TUP-001.** Tuples are narrow: destructure direct top-level helper

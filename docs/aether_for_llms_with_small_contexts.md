@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-11-4*
+*Guide version: 2026-08-11-6*
 
 ## Highest-Value Rules
 
@@ -31,9 +31,10 @@
 8. **ANN-001.** `@pre`, `@post`, `@pure`, `@cost` go directly above the
    function, never inside it, never bare (`@pre` with no expression).
 9. **MUT-001.** Plain `let` is already mutable. Never generate `let mut`.
-10. **ORDER-001.** Definition order is free, except in `par`: a branch target
-    must be defined before the function holding the `par`, or it is silently
-    skipped.
+10. **ORDER-001.** Top-level order is free: a type or `fn` may be used above its
+    definition (locals still need `let` first, SCOPE-001). The exception is a
+    `par` branch target — define it above the function holding the `par`, or it
+    is silently skipped.
 11. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays.
 12. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
