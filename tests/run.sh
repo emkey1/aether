@@ -63,6 +63,20 @@ FUNCTION_EMPTY_RETURN_FAIL_FIXTURE="$TESTS_DIR/function_empty_return_fail.aether
 UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_json_fail.aether"
 UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_fail.aether"
 UNKNOWN_MODULE_TYPE_FAIL_FIXTURE="$TESTS_DIR/unknown_module_type_fail.aether"
+FIELD_UNKNOWN_CODED_FAIL_FIXTURE="$TESTS_DIR/field_unknown_coded_fail.aether"
+UNKNOWN_TYPE_NAME_FAIL_FIXTURE="$TESTS_DIR/unknown_type_name_fail.aether"
+UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE="$TESTS_DIR/unknown_type_scalar_fail.aether"
+LOOP_FOREACH_PASS_FIXTURE="$TESTS_DIR/loop_foreach_pass.aether"
+LOOP_FOREACH_SCALAR_FAIL_FIXTURE="$TESTS_DIR/loop_foreach_scalar_fail.aether"
+LOOP_STEP_PASS_FIXTURE="$TESTS_DIR/loop_step_pass.aether"
+LOOP_STEP_ZERO_FAIL_FIXTURE="$TESTS_DIR/loop_step_zero_fail.aether"
+WORD_OPERATORS_PASS_FIXTURE="$TESTS_DIR/word_operators_pass.aether"
+ARRAY_EQUALITY_PASS_FIXTURE="$TESTS_DIR/array_equality_pass.aether"
+IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE="$TESTS_DIR/identifier_foreign_keywords_pass.aether"
+FOREIGN_KEYWORD_RETURN_FAIL_FIXTURE="$TESTS_DIR/foreign_keyword_return_fail.aether"
+FOREIGN_KEYWORD_MATCH_FAIL_FIXTURE="$TESTS_DIR/foreign_keyword_match_fail.aether"
+TOON_DOTTED_PATH_PASS_FIXTURE="$TESTS_DIR/toon_dotted_path_pass.aether"
+TYPE_ALIAS_STRING_FLOAT_PASS_FIXTURE="$TESTS_DIR/type_alias_string_float_pass.aether"
 OBJECT_INFERENCE_PASS_FIXTURE="$TESTS_DIR/object_inference_pass.aether"
 OBJECT_DEFAULT_INIT_PASS_FIXTURE="$TESTS_DIR/object_default_init_pass.aether"
 TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE="$TESTS_DIR/type_function_name_collision_pass.aether"
@@ -261,6 +275,20 @@ for fixture in \
     "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" \
     "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" \
     "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" \
+    "$FIELD_UNKNOWN_CODED_FAIL_FIXTURE" \
+    "$UNKNOWN_TYPE_NAME_FAIL_FIXTURE" \
+    "$UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE" \
+    "$TYPE_ALIAS_STRING_FLOAT_PASS_FIXTURE" \
+    "$LOOP_FOREACH_PASS_FIXTURE" \
+    "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" \
+    "$LOOP_STEP_PASS_FIXTURE" \
+    "$LOOP_STEP_ZERO_FAIL_FIXTURE" \
+    "$WORD_OPERATORS_PASS_FIXTURE" \
+    "$ARRAY_EQUALITY_PASS_FIXTURE" \
+    "$IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE" \
+    "$FOREIGN_KEYWORD_RETURN_FAIL_FIXTURE" \
+    "$FOREIGN_KEYWORD_MATCH_FAIL_FIXTURE" \
+    "$TOON_DOTTED_PATH_PASS_FIXTURE" \
     "$OBJECT_INFERENCE_PASS_FIXTURE" \
     "$OBJECT_DEFAULT_INIT_PASS_FIXTURE" \
     "$TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE" \
@@ -1826,13 +1854,16 @@ if ! grep -q '"code":"TYPE-001"' /tmp/aether_type_field_default_type_mismatch_js
     exit 1
 fi
 # Reserved-word collisions (broadest generative-testing gap): a field or method
-# named after a reserved word/type name/operator word must name the collision,
-# not the bare "unexpected token in type body" / "expected function name" errors.
+# named after an Aether keyword or operator word must name the collision, not the
+# bare "unexpected token in type body" / "expected function name" errors. The
+# Rea lexer's type-name words (word/text/int/...) and its foreign keywords
+# (join/match/class/...) are ordinary identifiers since 2026-09-05-1 -- see
+# IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE -- so the fixtures use `for` and `div`.
 if "$AETHER_BIN" --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_field.out 2>&1; then
     echo "expected reserved field-name failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'word' is a reserved type name and cannot be used as a field name." /tmp/aether_reserved_field.out; then
+if ! grep -q "'for' is a reserved keyword and cannot be used as a field name." /tmp/aether_reserved_field.out; then
     echo "missing reserved field-name collision message" >&2
     cat /tmp/aether_reserved_field.out >&2
     exit 1
@@ -1855,7 +1886,7 @@ if "$AETHER_BIN" --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >/tmp/aether_re
     echo "expected reserved method-name failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'mul' is a reserved operator word and cannot be used as a method name." /tmp/aether_reserved_method.out; then
+if ! grep -q "'div' is a reserved operator word and cannot be used as a method name." /tmp/aether_reserved_method.out; then
     echo "missing reserved method-name collision message" >&2
     cat /tmp/aether_reserved_method.out >&2
     exit 1
@@ -2015,29 +2046,37 @@ if ! grep -q '"code":"PAR-002"' /tmp/aether_par_fail_non_call_json.out; then
     cat /tmp/aether_par_fail_non_call_json.out >&2
     exit 1
 fi
-# SCOPE-001 through --diagnostics-json. This fixture (`let s: Nope = new Nope();`
-# then `s.go()`) previously asserted FIELD-002: an unresolved receiver type used
-# to survive semantic analysis, so the method call reached codegen and emitted the
+# TYPE-002 through --diagnostics-json. This fixture (`let s: Nope = new Nope();`
+# then `s.go()`) once asserted FIELD-002: an unresolved receiver type used to
+# survive semantic analysis, so the method call reached codegen and emitted the
 # raw, uncoded "Compiler error: Unknown field 'Nope.go'.", which the collector
-# backfilled to FIELD-002 via frontend inference. The semantic type-annotation
-# check now rejects `Nope` outright, so that route to an uncoded backend message
-# is closed and the program fails earlier, with a code emitted at the site.
-# Coverage note: this was the only end-to-end test of the collector's *backfill*
-# path (every other "code":"..." assertion here is on a message emitted with an
-# explicit [CODE] prefix), and no reachable Aether program is known to produce an
-# uncoded backend message today -- a missing `use` target, the other inference
-# entry that looked like a candidate (IMP-001), is silently accepted rather than
-# reported. The inference table in diagnostics.c is kept as defense-in-depth for
-# uncoded messages from the shared backend; it is simply no longer reachable from
-# here. What this fixture still proves is that the new diagnostic reaches
-# --diagnostics-json with its code intact, which the repair loop depends on.
+# backfilled to FIELD-002 via frontend inference. The unknown type name is now
+# rejected outright as TYPE-002 (it was briefly SCOPE-001, 2026-08-11-2), so that
+# route to an uncoded backend message is closed and the program fails earlier,
+# with a code emitted at the site. What this fixture proves is that the coded
+# diagnostic reaches --diagnostics-json with its code intact, which the repair
+# loop depends on; the FIELD-002 JSON path is covered separately below.
 if "$AETHER_BIN" --diagnostics-json --no-cache "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" >/tmp/aether_unknown_type_annotation_json.out 2>&1; then
     echo "expected unknown-type diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"SCOPE-001"' /tmp/aether_unknown_type_annotation_json.out; then
-    echo "missing unknown-type diagnostics-json code SCOPE-001" >&2
+if ! grep -q '"code":"TYPE-002"' /tmp/aether_unknown_type_annotation_json.out; then
+    echo "missing unknown-type diagnostics-json code TYPE-002" >&2
     cat /tmp/aether_unknown_type_annotation_json.out >&2
+    exit 1
+fi
+# FIELD-002 must reach --diagnostics-json carrying its code too, so the repair
+# loop sees FIELD-002 rather than code:null. The live path is rea's semantic
+# check on a declared `type` (a receiver of an unknown type never gets that far
+# any more); the uncoded-message inference rule stays in diagnostics.c as a
+# backstop for any other raw codegen path that still emits one.
+if "$AETHER_BIN" --diagnostics-json --no-cache "$FIELD_UNKNOWN_CODED_FAIL_FIXTURE" >/tmp/aether_field_unknown_json.out 2>&1; then
+    echo "expected unknown-field diagnostics-json failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q '"code":"FIELD-002"' /tmp/aether_field_unknown_json.out; then
+    echo "missing unknown-field diagnostics-json code FIELD-002" >&2
+    cat /tmp/aether_field_unknown_json.out >&2
     exit 1
 fi
 
@@ -2047,16 +2086,16 @@ fi
 # decl). The array cases are the original report: the `[]` suffix wrapped the
 # reference in an AST_ARRAY_TYPE, so the base name went unvalidated and a typo'd
 # element type compiled clean. Each name appears once in the fixture, so each must
-# produce exactly one SCOPE-001 -- a count guards against the forward-declaration
+# produce exactly one TYPE-002 -- a count guards against the forward-declaration
 # pre-pass's duplicate copy of every signature leaking back in.
 if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" >/tmp/aether_unknown_type_annotation.out 2>&1; then
-    echo "expected SCOPE-001 for unknown type annotations but program succeeded" >&2
+    echo "expected TYPE-002 for unknown type annotations but program succeeded" >&2
     exit 1
 fi
 for missing in MissingField MissingParam MissingReturn MissingTupleItem MissingLet MissingScalar; do
-    count=$(grep -c "\[SCOPE-001\].*identifier '$missing' not in scope\." /tmp/aether_unknown_type_annotation.out || true)
+    count=$(grep -c "\[TYPE-002\].*unknown type '$missing'" /tmp/aether_unknown_type_annotation.out || true)
     if [ "$count" != "1" ]; then
-        echo "expected exactly 1 SCOPE-001 for '$missing', got $count" >&2
+        echo "expected exactly 1 TYPE-002 for '$missing', got $count" >&2
         cat /tmp/aether_unknown_type_annotation.out >&2
         exit 1
     fi
@@ -2067,12 +2106,70 @@ done
 # file rather than the importer. Matched on basename: the reported path is
 # cwd-relative for a module resolved beside its importer.
 if "$AETHER_BIN" --no-cache "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" >/tmp/aether_unknown_module_type.out 2>&1; then
-    echo "expected SCOPE-001 for an unknown type inside an imported module but program succeeded" >&2
+    echo "expected TYPE-002 for an unknown type inside an imported module but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "unknown_module_type_mod:6: \[SCOPE-001\].*identifier 'MissingInModule' not in scope\." /tmp/aether_unknown_module_type.out; then
-    echo "missing module-attributed SCOPE-001 for an unknown type inside an imported module" >&2
+if ! grep -q "unknown_module_type_mod:6: \[TYPE-002\].*unknown type 'MissingInModule'" /tmp/aether_unknown_module_type.out; then
+    echo "missing module-attributed TYPE-002 for an unknown type inside an imported module" >&2
     cat /tmp/aether_unknown_module_type.out >&2
+    exit 1
+fi
+
+# TYPE-002: a type name that never resolves to a builtin or a declared `type`.
+# Before this check the annotation simply lowered to an untyped slot that
+# accepted any value, so a foreign or misspelled type name compiled, ran, and
+# produced no diagnostic at all. Each spelling must be rejected, and the ones
+# with a canonical Aether equivalent must name it -- the code alone does not
+# tell a reader that `Double` is spelled `Real`.
+if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_NAME_FAIL_FIXTURE" >/tmp/aether_unknown_type_name_fail.out 2>&1; then
+    echo "expected unknown type name failure but program succeeded (TYPE-002 regressed?)" >&2
+    exit 1
+fi
+for expected in \
+    "unknown type 'Double' in parameter 'x' of 'scale'; did you mean 'Real'?" \
+    "unknown type 'Integer' in the return type of 'scale'; did you mean 'Int'?" \
+    "unknown type 'Boolean' in parameter 'flag' of 'label'; did you mean 'Bool'?" \
+    "unknown type 'Zorblatt' in the return type of 'label'" \
+    "unknown type 'List' in the declaration of 'items' in 'main'" \
+    "unknown type 'Map' in the declaration of 'lookup' in 'main'"
+do
+    if ! grep -qF "$expected" /tmp/aether_unknown_type_name_fail.out; then
+        echo "missing TYPE-002 diagnostic: $expected" >&2
+        cat /tmp/aether_unknown_type_name_fail.out >&2
+        exit 1
+    fi
+done
+if ! grep -q "\[TYPE-002\]" /tmp/aether_unknown_type_name_fail.out; then
+    echo "unknown type name diagnostic is missing its TYPE-002 code" >&2
+    cat /tmp/aether_unknown_type_name_fail.out >&2
+    exit 1
+fi
+# Each function declaration reaches the checker twice (the parser emits a
+# bodiless prototype beside the definition); one mistake must still be one
+# diagnostic. Six bad names in the fixture, so six TYPE-002 lines exactly.
+if [ "$(grep -c "\[TYPE-002\]" /tmp/aether_unknown_type_name_fail.out)" -ne 6 ]; then
+    echo "expected exactly 6 TYPE-002 diagnostics (duplicate suppression regressed?)" >&2
+    cat /tmp/aether_unknown_type_name_fail.out >&2
+    exit 1
+fi
+# Rejecting the name at semantic time also keeps the backend's internal
+# "makeValueForType called with unhandled type 0 (UNKNOWN_VAR_TYPE)" note --
+# which carries no code and names nothing a reader can act on -- from ever
+# reaching the user on this path.
+if grep -q "makeValueForType" /tmp/aether_unknown_type_name_fail.out; then
+    echo "internal makeValueForType warning leaked to the user for an unknown type" >&2
+    cat /tmp/aether_unknown_type_name_fail.out >&2
+    exit 1
+fi
+
+# `String` and `Float` are accepted alternate spellings of `Text` and `Real`;
+# a program written entirely in them must run identically to the canonical one,
+# and must interoperate with it (a Float value binds to a Real, and back).
+"$AETHER_BIN" --no-cache "$TYPE_ALIAS_STRING_FLOAT_PASS_FIXTURE" >/tmp/aether_type_alias_string_float_pass.out
+printf '3.00\naether!\n7\n' >/tmp/aether_type_alias_string_float_expected.out
+if ! cmp -s /tmp/aether_type_alias_string_float_expected.out /tmp/aether_type_alias_string_float_pass.out; then
+    echo "unexpected String/Float alias output" >&2
+    cat /tmp/aether_type_alias_string_float_pass.out >&2
     exit 1
 fi
 
@@ -3145,6 +3242,134 @@ random_seeded_differs() {
 if ! random_seeded_differs && ! random_seeded_differs; then
     echo "randomize() produced the same sequence twice (sub-second entropy regressed?)" >&2
     cat /tmp/aether_random_seeded_a.out >&2
+    exit 1
+fi
+
+# TYPE-002, first stage: rea's scalar keywords (Char/Byte/Word/Str/...) and
+# lowercase spellings of Aether's own types used as type names. rea's resolver
+# accepts these case-insensitively, so before 2026-09-05-1 they slipped past
+# the check and surfaced as an uncoded "identifier 'Char' not in scope" or, in
+# parameter position, an internal makeValueForType warning. They are decided
+# before module loading, so the coded diagnostic is the only output.
+if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE" >/tmp/aether_unknown_type_scalar_fail.out 2>&1; then
+    echo "expected scalar type-name failure but program succeeded (TYPE-002 stage 1 regressed?)" >&2
+    exit 1
+fi
+for expected in \
+    "unknown type 'Char' in parameter 'c' of 'f'; did you mean 'Text'?" \
+    "unknown type 'Byte' in parameter 'b' of 'f'; did you mean 'Int'?" \
+    "unknown type 'Word' in the return type of 'f'; did you mean 'Int'?" \
+    "unknown type 'Str' in the declaration of 's' in 'main'; did you mean 'Text'?" \
+    "unknown type 'int' in the declaration of 'i' in 'main'; did you mean 'Int'?" \
+    "unknown type 'string' in the declaration of 't' in 'main'; did you mean 'Text'?"
+do
+    if ! grep -qF "$expected" /tmp/aether_unknown_type_scalar_fail.out; then
+        echo "missing TYPE-002 (stage 1) diagnostic: $expected" >&2
+        cat /tmp/aether_unknown_type_scalar_fail.out >&2
+        exit 1
+    fi
+done
+if [ "$(grep -c "\[TYPE-002\]" /tmp/aether_unknown_type_scalar_fail.out)" -ne 6 ]; then
+    echo "expected exactly 6 TYPE-002 diagnostics for the scalar fixture" >&2
+    cat /tmp/aether_unknown_type_scalar_fail.out >&2
+    exit 1
+fi
+if grep -qE "makeValueForType|not in scope" /tmp/aether_unknown_type_scalar_fail.out; then
+    echo "an uncoded backend message leaked past TYPE-002 stage 1" >&2
+    cat /tmp/aether_unknown_type_scalar_fail.out >&2
+    exit 1
+fi
+
+# `loop NAME in COLLECTION { }` over arrays, Text, nested arrays, TOON nodes,
+# call-valued collections and slices, with `continue` and the `for` spelling.
+"$AETHER_BIN" --no-cache "$LOOP_FOREACH_PASS_FIXTURE" >/tmp/aether_loop_foreach_pass.out
+printf 'total=6 joined=ba qty=8 odds=2\nrev=cba cells=15 table00=1\nacc=27 ksum=6\n' >/tmp/aether_loop_foreach_expected.out
+if ! cmp -s /tmp/aether_loop_foreach_expected.out /tmp/aether_loop_foreach_pass.out; then
+    echo "unexpected foreach loop output" >&2
+    cat /tmp/aether_loop_foreach_pass.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" >/tmp/aether_loop_foreach_scalar_fail.out 2>&1; then
+    echo "expected foreach-over-scalar failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "cannot iterate over a value of type Int" /tmp/aether_loop_foreach_scalar_fail.out; then
+    echo "missing foreach-over-scalar diagnostic" >&2
+    cat /tmp/aether_loop_foreach_scalar_fail.out >&2
+    exit 1
+fi
+# `loop i in a..b step n`: literal, negative, run-time signed, with continue.
+"$AETHER_BIN" --no-cache "$LOOP_STEP_PASS_FIXTURE" >/tmp/aether_loop_step_pass.out
+printf '0 3 6 9 \n10 6 2 \n0 3 6 9 \n9 3 \n1 3 5 7 \n' >/tmp/aether_loop_step_expected.out
+if ! cmp -s /tmp/aether_loop_step_expected.out /tmp/aether_loop_step_pass.out; then
+    echo "unexpected stepped loop output" >&2
+    cat /tmp/aether_loop_step_pass.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$LOOP_STEP_ZERO_FAIL_FIXTURE" >/tmp/aether_loop_step_zero_fail.out 2>&1; then
+    echo "expected step-zero failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "loop step must not be zero" /tmp/aether_loop_step_zero_fail.out; then
+    echo "missing step-zero diagnostic" >&2
+    cat /tmp/aether_loop_step_zero_fail.out >&2
+    exit 1
+fi
+
+# `and` / `or` / `not` are the word spellings of `&&` / `||` / `!`.
+"$AETHER_BIN" --no-cache "$WORD_OPERATORS_PASS_FIXTURE" >/tmp/aether_word_operators_pass.out
+printf 'false true true false true\nin range\nfive\n' >/tmp/aether_word_operators_expected.out
+if ! cmp -s /tmp/aether_word_operators_expected.out /tmp/aether_word_operators_pass.out; then
+    echo "unexpected word-operator output" >&2
+    cat /tmp/aether_word_operators_pass.out >&2
+    exit 1
+fi
+
+# `==` / `!=` on arrays is structural (pscal-core vm.c pscalArraysDeepEqual);
+# it used to be the uncoded runtime error "Operands not comparable".
+"$AETHER_BIN" --no-cache "$ARRAY_EQUALITY_PASS_FIXTURE" >/tmp/aether_array_equality_pass.out
+if ! grep -qx "true false false true true true true false" /tmp/aether_array_equality_pass.out; then
+    echo "unexpected array equality output" >&2
+    cat /tmp/aether_array_equality_pass.out >&2
+    exit 1
+fi
+
+# The shared lexer's foreign keywords and type-name words are ordinary Aether
+# identifiers (fields, functions, locals); the foreign *statement* keywords are
+# still rejected, by text, with a hint naming the Aether form.
+"$AETHER_BIN" --no-cache "$IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE" >/tmp/aether_identifier_foreign_keywords_pass.out
+if ! grep -qx "wt3truec ab 6 15 zm" /tmp/aether_identifier_foreign_keywords_pass.out; then
+    echo "unexpected output for foreign keywords used as identifiers" >&2
+    cat /tmp/aether_identifier_foreign_keywords_pass.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$FOREIGN_KEYWORD_RETURN_FAIL_FIXTURE" >/tmp/aether_foreign_keyword_return_fail.out 2>&1; then
+    echo "expected 'return' failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "'return' is not Aether syntax" /tmp/aether_foreign_keyword_return_fail.out || \
+   ! grep -q "Aether returns with \`ret\`" /tmp/aether_foreign_keyword_return_fail.out; then
+    echo "missing 'return' diagnostic or hint" >&2
+    cat /tmp/aether_foreign_keyword_return_fail.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$FOREIGN_KEYWORD_MATCH_FAIL_FIXTURE" >/tmp/aether_foreign_keyword_match_fail.out 2>&1; then
+    echo "expected 'match' failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "'match' is not Aether syntax" /tmp/aether_foreign_keyword_match_fail.out; then
+    echo "missing 'match' diagnostic" >&2
+    cat /tmp/aether_foreign_keyword_match_fail.out >&2
+    exit 1
+fi
+
+# Dotted TOON paths walk nested objects in toon_key / toon_has_key / toon_get_*;
+# a missing segment degrades; array indexes are not path segments.
+"$AETHER_BIN" --no-cache "$TOON_DOTTED_PATH_PASS_FIXTURE" >/tmp/aether_toon_dotted_path_pass.out
+printf 'alpha 8080 MISSING []\ntrue false false\nalpha 2 -1\n' >/tmp/aether_toon_dotted_path_expected.out
+if ! cmp -s /tmp/aether_toon_dotted_path_expected.out /tmp/aether_toon_dotted_path_pass.out; then
+    echo "unexpected dotted TOON path output" >&2
+    cat /tmp/aether_toon_dotted_path_pass.out >&2
     exit 1
 fi
 

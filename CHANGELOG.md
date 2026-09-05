@@ -12,6 +12,145 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-09-05-1
+
+**Loops iterate collections and step; the word operators exist; the shared
+lexer no longer reserves other languages' words; arrays compare structurally;
+TYPE-002 catches Pascal's scalar names.** Six language changes, each a construct
+a model reached for and the language rejected (`docs/ideas_and_todo.md` carries
+the traces):
+
+- **`loop NAME in COLLECTION { }`** (also spelled `for`) iterates an array
+  (`T[]`), a `Text` (one character at a time) or a TOON array node
+  (`ToonNode`). The element is bound at the top of every iteration with the
+  collection's element type, so `item.field` and `let x = item;` infer inside
+  the body; a row of a nested array binds by value (the same un-alias step
+  `let row: Int[] = table[i]` gets); `continue` advances; a call-valued or
+  sliced collection is evaluated once. A non-collection is a coded `SYN-001`
+  ("cannot iterate over a value of type Int"); an un-inferable one is
+  `TYPE-001`. Lowering: `parseForeach` in `src/aether/ast_parser.c`, the same
+  index-loop shape the range form emits.
+- **`loop i in a..b step n`.** A literal step is inlined and its sign picks the
+  comparison (`step -1` counts down with `i > b`); any other step is evaluated
+  once before the loop and tested at run time in both directions; a literal
+  `step 0` is rejected. `continue` still applies the step. The range variable
+  is now registered in the parser's inference table as an `Int`, so
+  `let s = i;` inside a range loop infers (it used to be a TYPE-001).
+- **`and`, `or`, `not`** are exact synonyms of `&&`, `||`, `!` at the same
+  precedence. They used to surface as `[SCOPE-001] identifier 'and' not in
+  scope`.
+- **The shared-lexer leak is closed.** rea's lexer reserves about 48 words and
+  Aether used fewer than half. The rest -- `join`, `spawn`, `match`, `class`,
+  `case`, `default`, `switch`, `try`, `catch`, `throw`, `super`, `extends`,
+  `alias`, `module`, `import`, `do`, `return`, `my`, the operator word `mul`,
+  and the lowercase type names `int`, `text`, `word`, `byte`, `char`, `str`,
+  `bool`, `float`, `void`, `mstream` -- are demoted to ordinary identifiers at
+  the token boundary (`aetherDemoteForeignKeyword`), so `let join: Int`, a
+  field named `word` or `text`, and a method named `match` all work. The
+  reserved set is now exactly Aether's own: its keywords and the operator
+  words `div mod xor and or not`. Foreign *statement* keywords are still
+  rejected, by text, at statement start, and now with a hint naming the
+  Aether form (`'return' is not Aether syntax` / `Aether returns with ret`):
+  `return`, `var`, `def`, `func`, `class`, `struct`, `import`, `elif`,
+  `foreach` always; `match`, `switch`, `case`, `try`, `catch`, `throw`, `do`
+  only when the next token cannot continue an expression statement, so
+  `match = true;` stays a plain assignment. The `reserved_*` fixtures use
+  `for` and `div` where they used `word` and `mul`.
+- **`xs == ys` / `xs != ys` on arrays** compare structurally -- same rank and
+  bounds, elements pairwise equal, nested arrays recursing, records by
+  identity -- instead of dying with the uncoded "Operands not comparable"
+  (pscal-core `src/vm/vm.c`, `pscalArraysDeepEqual`; ordering operators on
+  arrays stay an error). This is a shared-VM change and benefits every front
+  end; rea's own suite passes against it.
+- **TYPE-002 completed.** `Char`, `Byte`, `Word`, `Str` and lowercase
+  spellings such as `int` or `string` slipped past the 2026-08-17-1 check:
+  rea's type resolver accepts Pascal's scalar keywords case-insensitively and
+  hands back a transient stub that the guard mistook for a resolved type, so
+  they surfaced later as an uncoded `identifier 'Char' not in scope` or, in
+  parameter position, an internal `makeValueForType` warning. The check now
+  judges a name by Aether's own type table plus registered `type`s
+  (`aetherAstIsBuiltinTypeName`), in two stages: the names decidable before
+  module loading (rea's scalars, case variants of Aether's types) are reported
+  first and gate rea's pass, so the coded diagnostic is the only output;
+  everything else is checked after imports load, as before. The suggestion
+  table grew to match (`Char` -> `Text`, `Byte`/`Word` -> `Int`, `int` ->
+  `Int`, `string` -> `Text`, ...).
+
+Documentation only, same release: dotted TOON paths (`"server.port"` in
+`toon_key`, `toon_has_key` and every getter -- objects only, never an array
+index) were always supported but forbidden by KEY-001 in all three guides; the
+rule now teaches them, and NEST-001 says what is true, that a missing
+intermediate degrades rather than crashes. `setlength`, the numeric-cast
+spellings `Int(x)` / `real(n)` / `bool(n)`, `toon_key_or` / `toon_null`,
+`s[i] = "x"` and arrays of records inside records are documented.
+
+New fixtures: `loop_foreach_pass`, `loop_foreach_scalar_fail`,
+`loop_step_pass`, `loop_step_zero_fail`, `word_operators_pass`,
+`array_equality_pass`, `identifier_foreign_keywords_pass`,
+`foreign_keyword_return_fail`, `foreign_keyword_match_fail`,
+`unknown_type_scalar_fail`, `toon_dotted_path_pass`; new example
+`examples/base/loop_forms_foreach`.
+
+### The TYPE-002 base work, drafted on 2026-08-17 and unshipped until now
+
+Written against the 2026-08-06 tree, before the upstream `2026-08-11-2` change
+that gave the same mistake the `SCOPE-001` spelling. It lands here, so `TYPE-002`
+supersedes that spelling: every position and array depth `2026-08-11-2` covered
+is still rejected, imported modules are still walked with each diagnostic
+attributed to the module's own file, and the three `unknown_type_*` fixtures now
+assert `TYPE-002`. What the code adds is the distinct code, the "did you mean"
+suggestion, and the stage that runs before rea's pass (above).
+
+
+**`TYPE-002`: a type name that does not resolve is now an error, and `Float` /
+`String` are accepted aliases.**
+
+A type name that was neither a builtin nor a declared `type` used to compile
+silently. `buildTypeNode` emits a bare `AST_TYPE_REFERENCE` at `TYPE_UNKNOWN`
+for any name it cannot resolve at parse time — which it must, because a
+signature may legitimately name a record declared further down the file or
+exported by a module that has not been loaded yet — and nothing ever went back
+to ask whether the name eventually resolved.
+
+That was not a cosmetic gap. An unresolved annotation lowers to a slot built by
+`makeValueForType(TYPE_UNKNOWN)`, which accepts whatever value it is handed, so
+the declared type did no checking at all:
+
+```aether
+fn asText(n: Int) -> Zorblatt { ret "text!"; }
+fn asInt(n: Int)  -> Zorblatt { ret 40 + n; }
+fn asReal(n: Int) -> Zorblatt { ret 1.5; }
+```
+
+All three compiled and ran — one undefined name behaving as `Text`, `Int` and
+`Real` in a single program. A plain typo (`-> Txet`) did the same, with no
+diagnostic anywhere. The observed case was a model writing `-> String`
+throughout a program: it produced correct output, so nothing ever told the
+author the annotation was inert.
+
+`TYPE-002` now rejects such a name, naming the Aether spelling where one exists
+(`Double` → `Real`, `Integer` → `Int`, `Boolean` → `Bool`) and the right shape
+where it does not (`List` → `T[]`; `Map`/`Set` → no such type, use parallel
+arrays or a `type` with array fields). It runs after module loading, so a name
+still unresolved at that point is unresolvable rather than merely early —
+forward references to a later `type` and to imported types both keep working.
+
+Two knock-on fixes:
+
+- The backend's internal `Warning: makeValueForType called with unhandled type 0
+  (UNKNOWN_VAR_TYPE)` no longer reaches the user on this path. It carried no
+  code and named nothing actionable; the program is now rejected before codegen.
+- `let v: Nope = ...` used to produce an uncoded `identifier 'Nope' not in
+  scope`, which pointed at the scope rules rather than the type name. It is
+  `TYPE-002` too.
+
+**`Float` and `String` are now documented, accepted spellings of `Real` and
+`Text`.** `Float` was already a real alias in the type table but appeared in
+none of the guides; `String` was not an alias at all and only "worked" via the
+hole above. Both now lower identically to their canonical spellings and are
+documented as accepted. They are the only two foreign type names accepted —
+everything else is a `TYPE-002` naming what to write instead.
+
 ## 2026-08-11-4
 
 **A function may now share a type's name. `new T()` used to dispatch to a

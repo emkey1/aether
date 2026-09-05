@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-08-11-9*
+*Guide version: 2026-09-05-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -114,9 +114,10 @@ when unsure about a type, add it explicitly.
 - `for`/`while` as your first choice of loop keyword — they compile (Pascal
   heritage; **Accepted**, see the quick-reference table below), but `loop` is
   canonical and covers every form (condition, range, infinite) they do
-- a field or method named after a reserved word — a type (`word`, `text`,
-  `int`), a keyword (`new`, `for`, `match`), or an operator word (`mul`, `div`,
-  `mod`, `xor`); rename the member (SYN-001)
+- a field or method named after an Aether keyword (`new`, `for`, `if`, `loop`,
+  `ret`, `type`) or an operator word (`div`, `mod`, `xor`, `and`, `or`, `not`);
+  rename the member (SYN-001). Other languages' words — `word`, `text`, `int`,
+  `match`, `class`, `join`, `mul` — are ordinary names
 - `fn new()` / `fn __init__` as a constructor method; Aether has none —
   construct with `new T { field: value }` (partial sets ok; unset fields keep
   their declared defaults), or `new T()` then assign fields, or a top-level
@@ -172,7 +173,8 @@ Generate the canonical form unless preserving existing code.
 | Topic | Canonical | Accepted | Avoid |
 |---|---|---|---|
 | Mutable binding | `let x: Int = 0;` | `let mut x: Int = 0;` | treating `let` as immutable |
-| Loop keyword | `loop` (condition/range/infinite) | `while cond { }`, `for x in a..b { }` (Pascal heritage) | inventing other loop syntax |
+| Loop keyword | `loop` (condition / range / foreach / infinite) | `while cond { }`, `for x in a..b { }`, `for x in xs { }` | inventing other loop syntax |
+| Logical operators | `&&`, `\|\|`, `!` | `and`, `or`, `not` (exact synonyms) | — |
 | Return | `ret value;` (`ret;` for Void) | — | `return value;` |
 | Output | variadic `println(a, b)` in `fx` | text-only `+` concatenation | `Text + Int` guessing |
 | Text equality | `a == b` | `string_eq(a, b)` | inventing `.equals(...)` |
@@ -182,8 +184,11 @@ Generate the canonical form unless preserving existing code.
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Text → Int, untrusted input | `val(t, n, code)`, then require `code == 0` | `parse_int(t)` behind an explicit digit scan | `parse_int(t)` alone — it cannot report failure |
 | Text → Real, untrusted input | `valreal(t, r, code)`, then require `code == 0` | — | `parse_float(t)` alone — same reason |
-| Int → Text | `int_to_text(n)` | `itoa(n)` | inventing `n.toString()` |
+| Int → Text | `int_to_text(n)` | `itoa(n)`, `inttostr(n)` | inventing `n.toString()` |
+| Real type name | `Real` | `Float` | `Double`, `Number` (TYPE-002) |
+| Text type name | `Text` | `String` | `Str`, `Char` (TYPE-002) |
 | Real → Text | `formatfloat(r, prec)` — exactly 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (no width arg — runtime error); `r:0:prec` as a value (it is `println`-only) |
+| Numeric cast | `int(x)` (`Real` → `Int`, truncating) | `Int(x)`, `real(n)` / `Real(n)`, `bool(n)` / `Bool(n)` | `int(text)` (silently `0`; use `parse_int`) |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (silently returns `0` for `Text`; it casts `Real`/`Bool`, not `Text`) |
 | Int code → Char | `chr(code)` | — | inventing a lookup table |
 | Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |
@@ -244,12 +249,22 @@ fn main() -> Void {
 | Type | Literals | Notes |
 |---|---|---|
 | `Int` | `42`, `-1` | integer arithmetic |
-| `Real` | `3.5` | use a `Real` operand to force real division |
-| `Text` | `"hi"` | string type |
+| `Real` | `3.5` | use a `Real` operand to force real division; `Float` is an accepted alias |
+| `Text` | `"hi"` | string type; `String` is an accepted alias |
 | `Bool` | `true`, `false` | `println(flag)` prints `true` or `false` |
 | `Void` | — | return type for procedures |
 | `ToonDoc`, `ToonNode` | — | opaque handles (TOON-001) |
 | `MStream` | — | opaque memory-stream handle (MS-001) |
+
+`Float` and `String` lower identically to `Real` and `Text`, so they are correct
+if you write them; the canonical spellings are still `Real` and `Text`. Those two
+are the *only* foreign type names accepted. Every other one — `Double`,
+`Integer`, `Long`, `Boolean`, `List`, `Map`, `Set`, Pascal's `Char`, `Byte`,
+`Word` and `Str`, and lowercase spellings such as `int` or `string` — is a
+`TYPE-002` error naming the Aether spelling or shape you wanted. A type name is checked
+against the builtins above plus the `type` declarations in your program and its
+imports, and nothing else: an unrecognised name is always an error, never an
+untyped value that quietly accepts anything.
 
 For mixed output, prefer variadic `println(...)` / `print(...)` rather than
 guessing conversion helpers or `Text + Int` coercions.
@@ -261,16 +276,17 @@ guessing conversion helpers or `Text + Int` coercions.
 | Arithmetic | `+ - * /` on `Int`/`Real`; `Int / Int` is integer-style division |
 | Modulo | `%` (example: `7 % 3` = `1`) |
 | Comparison | `== != < <= > >=` |
-| Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit) |
+| Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
 | Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`) |
 | Text | `+` concatenation (text-compatible operands only); `==` equality |
-| Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions |
+| Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
 
 `&`/`|`/`^` are bitwise, not logical -- use `&&`/`||` for Bool conjunction/
 disjunction. `xor` may be spelled as the word `xor` or the symbol `^`
 (both lex to the same operator); there is no word form for `&`/`|`.
 Precedence (loosest to tightest): `|| , && , | , ^ , & , == != , < <= > >= ,
-<< >> , + - , * / %`.
+<< >> , + - , * / %`. The word forms `or`, `and`, `not` sit exactly where their
+symbols do.
 
 Unary minus on numeric literals and expressions is supported.
 
@@ -452,16 +468,19 @@ type JobSummary {
   `self.name` means the field
 - field names must exist exactly as declared on the type; do not invent
   `self.blockers` if the type has no `blockers` field
-- **field and method names must not be reserved words.** A member named after a
-  type keyword (`word`, `text`, `int`, `byte`, `bool`, `void`), a language
-  keyword (`new`, `for`, `if`, `match`, `type`), or an operator word (`mul`,
-  `div`, `mod`, `xor`) is rejected at parse time — `'<name>' is a reserved … and
-  cannot be used as a field/method name` (SYN-001). Rename the member: `word` →
-  `wordText`/`token`, `mul` → `multiply`/`scale` (plain names like `count`,
-  `value`, `add`, `push` are fine). There is **no constructor method**: do not
-  write `fn new()` (nor `fn __init__` / `Type.new()`); allocate with `new T()`
-  and assign fields, or add a top-level factory `fn makeT(...) -> T` with a
-  non-reserved name.
+- a field may hold an array of records (`items: Item[] = [];`), grown with the
+  usual append (`order.items = order.items + [new Item { qty: 3 }];`) and read
+  back as `order.items[i].qty`
+- **field and method names must not be Aether keywords.** A member named after
+  a keyword (`new`, `for`, `if`, `loop`, `ret`, `type`) or an operator word
+  (`div`, `mod`, `xor`, `and`, `or`, `not`) is rejected at parse time —
+  `'<name>' is a reserved … and cannot be used as a field/method name`
+  (SYN-001); rename it (`loop` → `loopCount`). Words that *other* languages
+  reserve are ordinary names here: `word`, `text`, `int`, `byte`, `match`,
+  `class`, `join`, `mul` all work as fields, methods and locals. There is **no
+  constructor method**: do not write `fn new()` (nor `fn __init__` /
+  `Type.new()`); allocate with `new T()` and assign fields, or add a top-level
+  factory `fn makeT(...) -> T` with a non-reserved name.
 
 A record method goes **inside** the `type` with an implicit `self`, and its
 contract may then reference `self`. A free-standing `fn` with an explicit `self`
@@ -574,13 +593,25 @@ let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 
 ## Loops
 
+Prefer the range and foreach forms. Both **declare their own loop variable** —
+there is no separate `let` for `i` or `item`, and writing one is a
+redeclaration. Only the condition form needs a counter declared ahead of it.
+
 ```aether
-loop index < total {        // condition loop
-    index = index + 1;
+loop i in 0..count {        // half-open range; i is Int, declared by the loop
+    fx { println(i); }
 }
 
-loop i in 0..count {        // half-open range; i is Int
+loop i in 0..10 step 3 {    // stepped range: 0 3 6 9; `step -1` counts down
     fx { println(i); }
+}
+
+loop item in items {        // foreach: item takes the collection's element type
+    total = total + item;
+}
+
+loop index < total {        // condition loop; `index` declared before this
+    index = index + 1;
 }
 
 loop {                      // infinite
@@ -588,7 +619,17 @@ loop {                      // infinite
 }
 ```
 
-`break` exits the nearest loop. `continue` is supported.
+`loop item in items` iterates an array (`T[]`, giving each `T`), a `Text` (one
+character at a time, as a one-character `Text`), or a TOON array node
+(`ToonNode`, giving each element node). The collection may be a variable, a
+field, a call with a declared return type, or a slice; a row of a nested array
+is bound by value, so writing to `item` never changes the collection. `step n`
+takes any `Int` expression: a literal step is inlined and a negative one counts
+down (`i > high`), any other step is evaluated once before the loop and its
+sign checked at run time, and a literal `step 0` is rejected. `break` exits the
+nearest loop; `continue` moves to the next element, advancing the counter or
+applying the step. The loop variable is scoped to its loop, so reusing the name
+in a later loop in the same function is fine.
 
 ## Effects: `fx` (FX-001)
 
@@ -691,6 +732,11 @@ reproducible.
 
 `abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
 `round`/`trunc`/`floor`/`ceil` always return `Int`.
+
+Numeric casts: `int(x)` truncates a `Real` (or `Bool`) to `Int`, `real(n)`
+widens an `Int` to `Real`, `bool(n)` is `n != 0`; the capitalized spellings
+`Int(x)`, `Real(n)`, `Bool(n)` are accepted too. `int(text)` returns `0` — parse
+text with `parse_int`.
 
 ```aether
 let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);  // full Real precision
@@ -811,6 +857,8 @@ Additional verified `Text` builtins (all pure, no `fx` needed):
 |---|---|
 | `s[i]` | the character at `i`; **0-based**, like arrays (`s[0]` is the first) |
 | `s[a..b]` | substring from `a` up to but not including `b`, like `arr[a..b]` |
+| `s[i] = "x"` | replace the character at `i` with a one-character `Text` |
+| `loop ch in s { ... }` | each character in turn, as a one-character `Text` |
 | `copy(s, start, count)` | substring; `start` is 0-based, `count` is a length |
 | `pos(needle, s)` | 0-based index of `needle` in `s`, **`-1` if absent** |
 | `trim(s)` | strip leading/trailing whitespace |
@@ -1224,6 +1272,12 @@ let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like lo
   indexing brackets, not a first-class Range value -- `a..b` has no meaning
   outside `[...]`
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
+- `setlength(xs, n)` resizes in place: new slots take the element type's zero,
+  surplus slots are dropped. Presize with it before an index loop instead of
+  appending one element at a time
+- `xs == ys` / `xs != ys` compare structurally: equal when both have the same
+  length and every element compares equal (nested arrays recurse; record
+  elements compare by identity)
 - never `toon_len(xs)` on a dynamic array (LEN-001)
 - `println`/`print` do not stringify arrays. `println("data: ", xs)` compiles
   and runs, but silently prints the array's internal representation
@@ -1449,6 +1503,7 @@ Golden shape rules:
 | parse text / file | `toon_parse(text)`, `toon_parse_file(path)` |
 | root / close | `toon_root(doc)`, `toon_close(doc)` |
 | object field / array element | `toon_key(node, key)`, `toon_at(node, i)` |
+| defaulted field node | `toon_key_or(node, key, fallback)` — pair it with `toon_null()`, an always-null node (`toon_is_null` is true) |
 | TOON array length | `toon_len(node)` |
 | typed field get | `toon_get_text(node, key)`, `toon_get_int(node, key)`, `toon_get_real(node, key)`, `toon_get_bool(node, key)` |
 | typed field get w/ fallback | `toon_get_text_or(node, key, fb)`, `toon_get_int_or(node, key, fb)`, `toon_get_real_or(node, key, fb)`, `toon_get_bool_or(node, key, fb)` |
@@ -1514,10 +1569,29 @@ Copy JSON keys exactly; never normalize (`"name"` under `"app"` is
 `toon_get_text_or(app, "name", "")`, not `toon_get_text_or(root, "appName",
 "")`). One-character keys like `"v"` are valid.
 
+A key may be a **dotted path** through nested objects: `toon_key`,
+`toon_has_key` and every `toon_get_*` getter accept `"server.port"` and walk
+one object per segment, so `toon_get_int_or(root, "server.port", 0)` reads the
+nested field in one call. A missing or non-object segment degrades exactly like
+a missing key — the `_or` fallback, `false` from `toon_has_key`, the zero value
+from a plain getter. Segments are object keys only; an array index is not a
+segment (`"rows.0.k"` is simply absent), so index arrays with `toon_at`.
+
 ### Nested lookup safety (NEST-001)
 
-`_or` helpers protect only the final keyed lookup on a valid object node —
-not the path to it. Guard intermediates:
+A missing intermediate never crashes: `toon_key` on an absent key yields an
+absent node, and every accessor on an absent node degrades — `_or` getters
+return their fallback, `toon_has_key` is `false`, plain getters return the zero
+value. So both one-call forms are safe:
+
+```aether
+let code: Text = toon_get_text_or(row, "meta.code", "EMPTY");
+let same: Text = toon_get_text_or(toon_key(row, "meta"), "code", "EMPTY");
+```
+
+What the fallback cannot tell you is *which* segment was missing. When the
+output must distinguish "no meta" from "meta without a code", guard the
+intermediate and bind it:
 
 ```aether
 let code: Text = "EMPTY";
@@ -1525,16 +1599,6 @@ if toon_has_key(row, "meta") {
     let meta: ToonNode = toon_key(row, "meta");
     code = toon_get_text_or(meta, "code", "EMPTY");
 }
-```
-
-Avoid `toon_get_text_or(toon_key(row, "meta"), "code", "EMPTY")` unless
-`"meta"` is guaranteed present. Nested calls are fine when the shape is known,
-but intermediate bindings are easier to read and debug.
-
-Wrong:
-
-```aether
-let code: Text = toon_get_text_or(toon_key(row, "meta"), "code", "EMPTY");
 ```
 
 ### Worked example
@@ -1956,15 +2020,19 @@ Larger examples: `Examples/aether/showcase/agent_report`,
 The compiler tags every rejection with a stable code in brackets, and on newer
 builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
-SCOPE-001, TOON-001, TYPE-001, TUP-001, FLOW-001, FLOW-002, MUT-001, FIELD-002,
-FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto them.
+SCOPE-001, TOON-001, MS-001, TYPE-001, TYPE-002, TUP-001, FLOW-001, FLOW-002,
+MUT-001, FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-001, BUILT-002,
+ARR-001, ARR-002, NARROW-001, and PREC-001; the finer rule names below map onto
+them. A code you receive that is not on this list does not exist — re-read the
+message rather than inventing a rule for it.
 
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` (with Aether field
-  syntax) not `class`; drop `var`, `def`, `=>`. Also a
-  **field or method named after a reserved word** (`word`, `mul`, `new`, `for`,
-  ...) → rename the member (see Records: `type`).
+  syntax) not `class`; drop `var`, `def`, `=>`. The message names the word and
+  the Aether form (`'return' is not Aether syntax` … `write ret value;`). Also a
+  **field or method named after an Aether keyword or operator word** (`new`,
+  `for`, `loop`, `div`, `and`, ...) → rename the member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
@@ -1985,6 +2053,15 @@ FIELD-003, PAR-001, PAR-002, and NAME-001; the finer rule names below map onto t
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
   array literal such as `let xs: Int[] = [1, 2, 3];`). Also covers
   `toon_len(node)` for TOON arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **[TYPE-002]** a type *name* that does not exist — it is neither a builtin nor
+  a `type` you declared or imported. Distinct from TYPE-001, where the type is
+  real and used wrongly: here the fix is the spelling. Use `Int`, `Real`, `Text`,
+  `Bool`, `Void`, `T[]`, or one of your own `type` names. The message names the
+  Aether spelling whenever one exists (`Double` → `Real`, `Integer` → `Int`,
+  `Boolean` → `Bool`, `Char` → `Text`, `Byte` / `Word` → `Int`, lowercase `int` →
+  `Int`), and for `List` / `Map` / `Set` it names the shape instead:
+  an array is `T[]`, and there is no map type at all. `Float` and `String` are
+  the two foreign spellings that are *accepted*, as aliases of `Real` and `Text`.
 - **`expects type POINTER but got VOID`** on a method call (no bracketed code) →
   the receiver is an inferred `new` binding; annotate it: `let c: C = new C();`.
 - **[TOON-001]** a `ToonDoc` / `ToonNode` handle misuse → check handle types; do
@@ -2055,7 +2132,7 @@ result is wrong, no code is printed — these are authoring rules: integer resul
 where decimals are expected → introduce a `Real` operand (`100.0`); unstable
 decimal output → `value:0:precision`; wrong receiver spelling → `self`, never
 `Self`; iterating an object root → extract the array with `toon_key` first
-(ROOT-001); a fallback that didn't save a nested lookup → guard the intermediate
+(ROOT-001); a fallback that hid which level was missing → guard the intermediate
 node (NEST-001); exact-output mismatch → match spacing, casing, and precision
 (FMT-001); Markdown fences in the answer → return raw Aether source only
 (OUT-001); flattened or renamed JSON keys → copy them exactly (KEY-001).
@@ -2072,14 +2149,14 @@ Before submitting Aether code, verify:
   `new` instances and array literals carry an explicit type (`let c: C = new
   C();`, `let xs: Int[] = [1, 2, 3];`) (TYPE-001)
 - `ret` not `return`; `type` not `class` (SYN-001)
-- no field or method named after a reserved word (`word`, `mul`, `new`, `for`);
-  no `fn new()` constructor method (SYN-001)
+- no field or method named after an Aether keyword or operator word (`new`,
+  `for`, `loop`, `div`, `and`); no `fn new()`/`__init__` constructor method (SYN-001)
 - no `let mut` in new code (MUT-001)
 - no arithmetic on or cross-assignment of `ToonDoc` / `ToonNode`; every parsed
   doc is closed with `toon_close(doc)` (TOON-001)
 - object-shaped payloads: named array extracted before iteration (ROOT-001);
-  JSON keys copied exactly (KEY-001); intermediate nodes guarded before `_or`
-  lookups (NEST-001)
+  JSON keys copied exactly, dotted paths only through objects (KEY-001); a
+  missing intermediate handled deliberately (NEST-001)
 - `toon_len` for TOON arrays, `length` for dynamic arrays (LEN-001)
 - real arithmetic has a `Real` operand where decimals matter; stable decimal
   output uses `value:width:precision`
@@ -2096,7 +2173,7 @@ Before submitting Aether code, verify:
 
 *Generated by `tools/gen_builtin_appendix.py`. Do not edit by hand.*
 
-Every builtin this compiler exposes: **110** with a signature below, **70** whose signatures are in the tables earlier in this document, and **162** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
+Every builtin this compiler exposes: **110** with a signature below, **74** whose signatures are in the tables earlier in this document, and **228** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
 
 `fx` marks a builtin as effectful: it must be called inside an `fx { ... }` block and may not be called from a `@pure` function (FX-001).
 
@@ -2288,7 +2365,7 @@ Safe to call exactly as written.
 
 Real, and their signatures **are** documented — in the conversion, arity, math, and helper tables above, not in the table below. They are listed here only so that "absent from the appendix" still means "does not exist". Scroll up for the signature; do not treat these as unknown and do not hand-roll a replacement.
 
-**Core** — `abs`, `append`, `arccos`, `arcsin`, `arctan`, `assign`, `atan2`, `ceil`, `chr`, `clamp`, `close`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `eof` *fx*, `erase` *fx*, `exp`, `floor`, `getdate` *fx*, `gettime` *fx*, `int`, `ln`, `log10`, `max`, `min`, `mstreamappendbyte`, `mstreambuffer`, `mstreamcreate`, `mstreamfree`, `mstreamfromstring`, `odd`, `ord`, `pow`, `power`, `readln` *fx*, `rename` *fx*, `reset`, `rewrite`, `round`, `sin`, `sinh`, `socketaccept`, `socketbind`, `socketbindaddr`, `socketclose`, `socketconnect`, `socketcreate`, `socketlasterror`, `socketlisten`, `socketpeeraddr`, `socketpoll`, `socketreceive`, `socketsend`, `socketsetblocking`, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `val`, `valreal`
+**Core** — `abs`, `append`, `arccos`, `arcsin`, `arctan`, `assign`, `atan2`, `bool`, `ceil`, `chr`, `clamp`, `close`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `eof` *fx*, `erase` *fx*, `exp`, `floor`, `getdate` *fx*, `gettime` *fx*, `int`, `inttostr`, `ln`, `log10`, `max`, `min`, `mstreamappendbyte`, `mstreambuffer`, `mstreamcreate`, `mstreamfree`, `mstreamfromstring`, `odd`, `ord`, `pow`, `power`, `readln` *fx*, `real`, `rename` *fx*, `reset`, `rewrite`, `round`, `setlength`, `sin`, `sinh`, `socketaccept`, `socketbind`, `socketbindaddr`, `socketclose`, `socketconnect`, `socketcreate`, `socketlasterror`, `socketlisten`, `socketpeeraddr`, `socketpoll`, `socketreceive`, `socketsend`, `socketsetblocking`, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `val`, `valreal`
 
 **math** — `factorial`, `fibonacci`
 
@@ -2300,7 +2377,7 @@ Real, and their signatures **are** documented — in the conversion, arity, math
 
 These names exist, but their signatures are not documented here. That is deliberate and it is still useful: it confirms a name is real **without** licensing a guess at its arguments. Calling one with an invented argument list is how `BUILT-002` and uncoded runtime errors happen. If you need one of these and cannot verify its signature by running the compiler, restructure to use a documented helper above.
 
-**Core** — `apiReceive` *fx*, `apiSend` *fx*, `assignfile` *fx*, `beep` *fx*, `biblinktext`, `biboldtext`, `biclrscr`, `bilowvideo`, `binormvideo`, `biunderlinetext`, `biwherex`, `biwherey`, `blinktext`, `blockread` *fx*, `blockwrite` *fx*, `boldtext`, `bool`, `byte`, `bytecodeversion`, `channelclose`, `channelcreate`, `channelisclosed`, `channelreceive`, `channelsend`, `channeltryreceive`, `channeltrysend`, `char`, `closefile` *fx*, `clreol`, `clrscr`, `cursoroff`, `cursoron`, `dec`, `deline`, `dispose`, `dosExec` *fx*, `dosFindfirst` *fx*, `dosFindnext` *fx*, `dosGetdate` *fx*, `dosGetenv` *fx*, `dosGetfattr` *fx*, `dosGettime` *fx*, `dosMkdir` *fx*, `dosRmdir` *fx*, `double`, `exec` *fx*, `exit` *fx*, `extbuiltincategorycount`, `extbuiltincategoryname`, `extbuiltinfunctioncount`, `extbuiltinfunctionname`, `extbuiltingroupcount`, `extbuiltingroupfunctioncount`, `extbuiltingroupfunctionname`, `extbuiltingroupname`, `fclose` *fx*, `fflush` *fx*, `filesize` *fx*, `findfirst` *fx*, `findnext` *fx*, `float`, `flush` *fx*, `fopen` *fx*, `format`, `fprintf` *fx*, `getfattr` *fx*, `gotoxy`, `halt` *fx*, `hidecursor`, `high`, `highvideo`, `inc`, `insline`, `inttostr`, `invertcolors`, `ioresult` *fx*, `jsonget`, `keypressed` *fx*, `landscapedrawcloudlayer` *fx*, `landscapedrawskydome` *fx*, `landscapesetlightingpreset`, `landscapesetpalettepreset`, `low`, `lowvideo`, `new`, `newobj`, `normalcolors`, `normvideo`, `popscreen`, `printf` *fx*, `pushscreen`, `quitrequested`, `read` *fx*, `readkey` *fx*, `real`, `restorecursor`, `savecursor`, `screencols`, `screenrows`, `setlength`, `showcursor`, `sizeof`, `str`, `succ`, `taskawait` *fx*, `taskcancel` *fx*, `taskdone` *fx*, `taskspawn` *fx*, `textbackground`, `textbackgrounde`, `textcolor`, `textcolore`, `thread_cancel` *fx*, `thread_pause` *fx*, `thread_resume` *fx*, `thread_set_name` *fx*, `threadcancel`, `threadgetresult`, `threadgetstatus`, `threadlookup`, `threadpause`, `threadpoolsubmit`, `threadresume`, `threadsetname`, `threadspawnbuiltin` *fx*, `threadstats`, `threadstatsjson`, `tobool`, `tobyte`, `tochar`, `todouble`, `tofloat`, `toint`, `toupper`, `underlinetext`, `upcase`, `vmversion`, `waitforthread` *fx*, `wherex`, `wherey`, `window`
+**Core** — `apiReceive` *fx*, `apiSend` *fx*, `assignfile` *fx*, `beep` *fx*, `biblinktext`, `biboldtext`, `biclrscr`, `bilowvideo`, `binormvideo`, `biunderlinetext`, `biwherex`, `biwherey`, `blinktext`, `blockread` *fx*, `blockwrite` *fx*, `boldtext`, `byte`, `bytecodeversion`, `channelclose`, `channelcreate`, `channelisclosed`, `channelreceive`, `channelsend`, `channeltryreceive`, `channeltrysend`, `char`, `cleardevice`, `closefile` *fx*, `closegraph`, `closegraph3d`, `clreol`, `clrscr`, `createtargettexture`, `createtexture`, `cursoroff`, `cursoron`, `dec`, `deline`, `destroytexture`, `dispose`, `dosExec` *fx*, `dosFindfirst` *fx*, `dosFindnext` *fx*, `dosGetdate` *fx*, `dosGetenv` *fx*, `dosGetfattr` *fx*, `dosGettime` *fx*, `dosMkdir` *fx*, `dosRmdir` *fx*, `double`, `drawcircle`, `drawline`, `drawpolygon`, `drawrect`, `exec` *fx*, `exit` *fx*, `extbuiltincategorycount`, `extbuiltincategoryname`, `extbuiltinfunctioncount`, `extbuiltinfunctionname`, `extbuiltingroupcount`, `extbuiltingroupfunctioncount`, `extbuiltingroupfunctionname`, `extbuiltingroupname`, `fclose` *fx*, `fflush` *fx*, `filesize` *fx*, `fillcircle`, `fillrect`, `findfirst` *fx*, `findnext` *fx*, `float`, `flush` *fx*, `fopen` *fx*, `format`, `fprintf` *fx*, `freesound`, `getfattr` *fx*, `getmaxx`, `getmaxy`, `getmousestate`, `getpixelcolor`, `getscreensize`, `gettextsize`, `getticks`, `glbegin`, `glclear`, `glclearcolor`, `glcleardepth`, `glcolor3f`, `glcullface`, `gldepthfunc`, `gldepthmask`, `gldepthtest`, `glend`, `glfrustum`, `gllinewidth`, `glloadidentity`, `glmatrixmode`, `glperspective`, `glpopmatrix`, `glpushmatrix`, `glrotatef`, `glscalef`, `glsetswapinterval`, `glswapwindow`, `gltranslatef`, `glvertex3f`, `glviewport`, `gotoxy`, `graphloop`, `halt` *fx*, `hidecursor`, `high`, `highvideo`, `inc`, `initgraph`, `initgraph3d`, `initsoundsystem`, `inittextsystem`, `insline`, `invertcolors`, `ioresult` *fx*, `iskeydown`, `issoundplaying`, `jsonget`, `keypressed` *fx*, `landscapesetlightingpreset`, `landscapesetpalettepreset`, `loadimagetotexture`, `loadsound`, `low`, `lowvideo`, `new`, `newobj`, `normalcolors`, `normvideo`, `outtextxy`, `playsound`, `pollkey`, `pollkeyany`, `popscreen`, `printf` *fx*, `pushscreen`, `putpixel`, `quitrequested`, `quitsoundsystem`, `quittextsystem`, `read` *fx*, `readkey` *fx*, `rendercopy`, `rendercopyex`, `rendercopyrect`, `rendertexttotexture`, `restorecursor`, `savecursor`, `screencols`, `screenrows`, `setalphablend`, `setcolor`, `setrendertarget`, `setrgbcolor`, `showcursor`, `sizeof`, `stopallsounds`, `str`, `succ`, `taskawait` *fx*, `taskcancel` *fx*, `taskdone` *fx*, `taskspawn` *fx*, `textbackground`, `textbackgrounde`, `textcolor`, `textcolore`, `thread_cancel` *fx*, `thread_pause` *fx*, `thread_resume` *fx*, `thread_set_name` *fx*, `threadcancel`, `threadgetresult`, `threadgetstatus`, `threadlookup`, `threadpause`, `threadpoolsubmit`, `threadresume`, `threadsetname`, `threadspawnbuiltin` *fx*, `threadstats`, `threadstatsjson`, `tobool`, `tobyte`, `tochar`, `todouble`, `tofloat`, `toint`, `toupper`, `underlinetext`, `upcase`, `updatescreen`, `updatetexture`, `vmversion`, `waitforthread` *fx*, `waitkeyevent`, `wherex`, `wherey`, `window`
 
 **math** — `chudnovsky`, `mandelbrotrow`
 

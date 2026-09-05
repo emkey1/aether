@@ -75,4 +75,10 @@ const char *aetherAstAliasSurfaceAtLine(int line, const char *canonical);
 
 void aetherAstClearSemanticRegistries(void);
 
+/* True if `name` is one of Aether's own builtin type spellings (Int, Real,
+ * Text, Bool, Void, the accepted Float/String aliases, the opaque handles).
+ * Case-sensitive, exactly like a declaration. semantic.c's TYPE-002 check
+ * uses it so a name is judged by Aether's type table, not rea's resolver. */
+int aetherAstIsBuiltinTypeName(const char *name);
+
 #endif

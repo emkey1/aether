@@ -1,0 +1,20 @@
+// `==` / `!=` on arrays compare structurally: same length, equal elements,
+// nested arrays recurse, record elements compare by identity.
+type P { x: Int = 0; }
+fn main() -> Void {
+    let a: Int[] = [1, 2, 3];
+    let b: Int[] = [1, 2, 3];
+    let c: Int[] = [1, 2];
+    let t: Text[] = ["x", "y"];
+    let u: Text[] = ["x", "y"];
+    let n1: Int[][] = [[1], [2, 3]];
+    let n2: Int[][] = [[1], [2, 3]];
+    let r: Real[] = [1.5];
+    let p: P = new P();
+    let ps: P[] = [p];
+    let qs: P[] = [p];
+    fx {
+        println(a == b, " ", a != b, " ", a == c, " ", t == u, " ", n1 == n2, " ", r == r, " ", ps == qs, " ", [] == c);
+    }
+    ret;
+}

@@ -51,7 +51,7 @@ fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           successful: Int, amount: Int, name: Text, status: Text, ok: Int,
           raw: Text, code: Int, table: Int[][],
           a: TallyRec, b: TallyRec,
-          xs: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc,
+          xs: Int[], items: Int[], ys: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc,
           tx: Tx) -> Void {
 """
 

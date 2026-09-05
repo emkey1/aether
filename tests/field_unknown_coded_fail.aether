@@ -1,0 +1,9 @@
+type Widget {
+    value: Int;
+}
+
+fn main() -> Void {
+    let w: Widget = new Widget();
+    fx { println(w.missing); }
+    ret;
+}

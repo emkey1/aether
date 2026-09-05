@@ -1,5 +1,5 @@
 type WordCount {
-    word: Text;
+    for: Text;
     count: Int;
 }
 

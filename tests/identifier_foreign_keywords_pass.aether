@@ -1,0 +1,19 @@
+// Words the shared lexer reserves for Rea (`join`, `spawn`, `match`, `class`,
+// `case`, `default`, `switch`, `module`, `my`, `mul`) and its lowercase type
+// names (`word`, `text`, `int`, `byte`, `char`) are ordinary Aether names.
+type Token { word: Text = ""; text: Text = ""; int: Int = 0; match: Bool = false; class: Text = ""; }
+fn join(a: Text, b: Text) -> Text { ret a + b; }
+fn spawn(n: Int) -> Int { ret n * 2; }
+fn main() -> Void {
+    let t: Token = new Token { word: "w", text: "t", int: 3, match: true, class: "c" };
+    let case: Int = 1;
+    let default: Int = 2;
+    let switch: Int = case + default;
+    let my: Int = 4;
+    let mul: Int = 5;
+    let module: Text = "m";
+    let byte: Int = 6;
+    let char: Text = "z";
+    fx { println(t.word, t.text, t.int, t.match, t.class, " ", join("a", "b"), " ", spawn(switch), " ", my + mul + byte, " ", char, module); }
+    ret;
+}

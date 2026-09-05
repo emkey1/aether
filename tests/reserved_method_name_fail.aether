@@ -1,6 +1,6 @@
 type Vec {
     x: Int;
-    fn mul() -> Void {
+    fn div() -> Void {
         self.x = self.x * 2;
     }
 }

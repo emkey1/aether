@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-08-11-7*
+*Guide version: 2026-09-05-1*
 
 ## Highest-Value Rules
 
@@ -99,10 +99,14 @@ flags the authoring-only ones.
 - Comments: prefer `// line comment`. Block comments are accepted, but models
   should still generate `//`. Text literals are double-quoted; escape `\"`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true`/`false`), `Void`, plus opaque
-  `ToonDoc`/`ToonNode`/`MStream`. `println(boolValue)` prints `true` or `false`. For mixed
+  `ToonDoc`/`ToonNode`/`MStream`. `Float` and `String` are accepted spellings of
+  `Real` and `Text`; every other foreign spelling (`Double`, `Integer`,
+  `Boolean`, `Char`, `List`, `Map`, lowercase `int`) is a `TYPE-002` error.
+  `println(boolValue)` prints `true` or `false`. For mixed
   output use variadic `println` (never `+`); to build a `Text`, use the
   conversion helpers (`itoa`, `formatfloat`, `realtostr`, `parse_int/float/bool`).
-- Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit).
+- Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit;
+  `not` / `and` / `or` are exact synonyms). Arrays compare with `==` / `!=`.
 - Bitwise/shift (Int only): `& | ^`/`xor` (`^` and `xor` are the same operator), `<< >>`.
   Example: `6 & 3` = `2`, `6 << 1` = `12`. Not logical -- use `&&`/`||` for Bool.
   They bind **looser than the comparisons**: `flags & mask != 0` is
@@ -147,15 +151,16 @@ println("status: ", if ready { "ready" } else { "blocked" });
 let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 ```
 
-Loops (`break` exits; range is half-open):
+Loops (`break` exits, `continue` is supported). Prefer the range and foreach
+forms: they **declare their own loop variable**, so they need no `let`.
 
 ```aether
-loop index < total { index = index + 1; }
-loop i in 0..count { fx { println(i); } }
+loop i in 0..count { fx { println(i); } }   // half-open: runs 0..count-1
+loop i in 0..count step 2 { fx { println(i); } } // stepped; `step -1` counts down
+loop item in items { total = total + item; } // foreach: an array, a Text, or a ToonNode array
+loop index < total { index = index + 1; }   // condition form: declare `index` first
 loop { break; }
 ```
-
-`continue` is supported.
 
 ## Records: `type`
 
@@ -188,11 +193,11 @@ type Counter {
 - a top-level `fn bump(self: Counter) -> Int` is an extension method, called as
   `counter.bump()` — but it cannot carry a `@pre`/`@post` that names `self` (put
   the method and its contract inside the `type`)
-- **field & method names must not be reserved words** — a member named after a
-  type (`word`, `text`, `int`, `byte`, `bool`), a keyword (`new`, `for`, `if`,
-  `match`), or an operator word (`mul`, `div`, `mod`, `xor`) fails SYN-001
-  (`'<name>' is a reserved … and cannot be used as a field/method name`); rename
-  it (`wordCount`, `multiply`). `new` in particular is reserved — there is no
+- **field & method names must not be Aether keywords** (`new`, `for`, `if`,
+  `loop`, `ret`) **or operator words** (`div`, `mod`, `xor`, `and`, `or`, `not`);
+  that fails SYN-001 (`'<name>' is a reserved … and cannot be used as a
+  field/method name`). Other languages' words (`word`, `text`, `int`, `match`,
+  `class`) are ordinary names. `new` in particular is reserved — there is no
   constructor method (see **Constructing records and typing bindings**).
 
 ## Constructing records and typing bindings
@@ -299,8 +304,9 @@ inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes one
 or two arguments — never borrow the width slot from the `println` form:
 `formatfloat(r, 0, 2)` is a compile-time `[BUILT-002]`. `int(x)` is a numeric
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
-code point of `Text`; passing it a `Text` silently returns `0`. Use
-`parse_int` for numeric strings and `ord` for character codes.
+code point of `Text`; passing it a `Text` silently returns `0` (`Int(x)`,
+`real(n)`, `bool(n)` are accepted cast spellings). Use `parse_int` for numeric
+strings and `ord` for character codes.
 
 The `parse_*` family never reports failure: `parse_int("abc")` is `0`,
 `parse_int("12x")` is `12` (leading digits only, rest discarded), and
@@ -316,7 +322,8 @@ accessors — the node is already keyed.
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
 the first character, `s[length(s) - 1]` the last, and `s[a..b]` is the
-substring from `a` up to but not including `b`. So one idiom covers both:
+substring from `a` up to but not including `b`; `s[i] = "x"` replaces one
+character and `loop ch in s { }` visits each. So one idiom covers both:
 
 ```aether
 loop i in 0..length(s) { print(s[i]); }   // every character, exactly once
@@ -504,7 +511,9 @@ let mid: Int[] = ys[0..2];  // slice: half-open range, elements 0 and 1 (a copy,
 the inner loop with `length(table[r])` (rows may be jagged). Declaring `Int[]`
 and indexing twice is `ARR-002`.
 
-Never `toon_len(xs)` on a dynamic array. Indexed reads/writes and
+Never `toon_len(xs)` on a dynamic array. `setlength(xs, n)` resizes in place
+(new slots take the type zero); `xs == ys` compares element by element.
+Indexed reads/writes and
 multi-element literals are supported. `xs = xs + [a, b, ...]` appends every
 element of a literal of any length. `xs = xs + ys` / `let zs: T[] = xs + ys`
 (`+` between two array-valued expressions, not necessarily literals)
@@ -550,7 +559,8 @@ println("");
 
 Helpers (complete surface): `has_toon()`, `toon_parse(text)`,
 `toon_parse_file(path)`, `toon_root(doc)`, `toon_close(doc)`,
-`toon_key(node, key)`, `toon_at(node, i)`, `toon_len(node)`,
+`toon_key(node, key)`, `toon_key_or(node, key, toon_null())`,
+`toon_at(node, i)`, `toon_len(node)`,
 `toon_get_text(node, key)`, `toon_get_int(node, key)`,
 `toon_get_real(node, key)`, `toon_get_bool(node, key)`, plus the
 `toon_get_*_or(node, key, fallback)` variants
@@ -638,28 +648,28 @@ toon_free(jobs);
 toon_close(doc);
 ```
 
-Key fidelity (KEY-001): copy JSON keys exactly. Never flatten nested objects
-into guessed keys (`"appName"`, `"logLevel"`) or dotted keys (`"server.port"`):
+Key fidelity (KEY-001): copy JSON keys exactly; never flatten nested objects
+into guessed keys (`"appName"`, `"logLevel"`). A dotted key walks nested
+*objects* (never an array index) in `toon_key`, `toon_has_key` and every getter:
 
 ```aether
-let server: ToonNode = toon_key(root, "server");
-let port: Int = toon_get_int_or(server, "port", 0);
+let port: Int = toon_get_int_or(root, "server.port", 0);
 ```
 
-Nested lookups (NEST-001): `_or` protects only the final lookup, not the path.
-Make the path total with `toon_key_or(node, key, toon_null())` — a missing key
-gives a null node, `toon_len` on it is 0 and every `_or` getter returns its
-fallback, so the chain is safe at any depth:
+Nested lookups (NEST-001): a missing intermediate degrades (fallback, `false`,
+zero value, `toon_len` 0), never crashes, so a dotted key or
+`toon_key_or(node, key, toon_null())` makes a path of any depth total with no
+`if`:
 
 ```aether
+let gb: Int = toon_get_int_or(row, "spec.mem.gb", 0);
 let spec: ToonNode = toon_key_or(row, "spec", toon_null());
-let gb: Int = toon_get_int_or(toon_key_or(spec, "mem", toon_null()), "gb", 0);
+let gbAgain: Int = toon_get_int_or(toon_key_or(spec, "mem", toon_null()), "gb", 0);
 ```
 
-An `if toon_has_key(row, "meta") { ... }` guard is also correct, just one nesting
-level per segment. (`toon_has_at` raises on a null node; test `i < toon_len(n)`.)
-
-Never: `toon_get_text_or(toon_key(toon_at(root, i), "meta"), "code", "EMPTY");`
+An `if toon_has_key(row, "meta") { ... }` guard is also correct, one nesting
+level per segment; use it when the output must say which level was missing.
+(`toon_has_at` raises on a null node; test `i < toon_len(n)`.)
 
 Never generate foreign JSON/object APIs such as `JsonDoc`, `JsonNode`,
 `json.parseFile(...)`, `root.get(...)`, `Int.MIN`, or `value.toString()`.
@@ -858,9 +868,9 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[FX-001]** an output, task, or `ai_chat` call outside an effect block → wrap
   it in `fx { ... }`.
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`;
-  drop `var`, `def`, `=>`. Also a **field or method
-  named after a reserved word** (`word`, `mul`, `new`, `for`, ...) → rename the
-  member (see Records: `type`).
+  drop `var`, `def`, `=>` (the message names the Aether form). Also a **field
+  or method named after an Aether keyword or operator word** (`new`, `for`,
+  `loop`, `div`, ...) → rename the member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
@@ -879,6 +889,10 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
   array literal, `let xs: Int[] = [...]`). Also covers `toon_len(node)` for TOON
   arrays vs `length(xs)` for dynamic arrays (LEN-001).
+- **[TYPE-002]** a type name that does not exist → use `Int`, `Real`, `Text`,
+  `Bool`, `Void`, `T[]`, or a `type` you declared. The message names the Aether
+  spelling when there is one (`Double` → `Real`, `Integer` → `Int`, `Char` →
+  `Text`, `int` → `Int`).
 - **`expects type POINTER but got VOID`** on a method call (no code) → the
   receiver is an inferred `new` binding; annotate it (`let c: C = new C();`).
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
@@ -918,7 +932,7 @@ The compiler prints a stable code in brackets, and on newer builds a
 
 If the program *compiles* but the output is wrong — extra headings, wrong
 spacing or precision (an integer where decimals are expected → add a `Real`
-operand such as `100.0`), wrong JSON keys, an unguarded nested lookup, or
+operand such as `100.0`), wrong JSON keys, a fallback that hid a missing level, or
 iterating an object root — no code is printed: these are authoring rules the
 compiler cannot check (FMT-001, OUT-001, KEY-001, NEST-001, ROOT-001,
 FIELD-001). Re-read the prompt and match it exactly.
@@ -931,12 +945,12 @@ FIELD-001). Re-read the prompt and match it exactly.
 - all parameters typed; uncertain types annotated; `new` instances and array
   literals typed (`let c: C = new C();`, `let xs: Int[] = [...]`) (TYPE-001)
 - `ret` not `return`; `type` not `class`; no `let mut` (SYN-001, MUT-001)
-- field & method names are not reserved words (`word`/`mul`/`new`/`for`); no
-  `fn new()`/`__init__` constructor method (SYN-001)
+- field & method names are not Aether keywords or operator words (`new`/`for`/
+  `loop`/`div`); no `fn new()`/`__init__` constructor method (SYN-001)
 - no arithmetic on / cross-assignment of TOON handles; docs closed (TOON-001)
 - stream bindings declared `MStream`; bodies read via `mstreambuffer` (MS-001)
 - object roots: named array extracted (ROOT-001); keys copied exactly
-  (KEY-001); intermediates guarded before `_or` (NEST-001)
+  (KEY-001); a missing intermediate handled deliberately (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)
 - `Real` operand where decimals matter; `value:width:precision` for stable output
 - tuples destructured directly, or bound and read with `.0`/`.1`/`.2`, never

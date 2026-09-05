@@ -1,0 +1,19 @@
+// `loop i in a..b step n`: literal, negative literal, run-time step (either
+// sign), `continue` under a step, and the `for` spelling.
+fn main() -> Void {
+    let n: Int = 3;
+    let down: Int = 0 - n;
+    fx {
+        loop i in 0..10 step 3 { print(i, " "); }
+        println("");
+        loop i in 10..0 step -4 { print(i, " "); }
+        println("");
+        loop i in 0..10 step n { print(i, " "); }
+        println("");
+        loop i in 9..0 step down { if i == 6 { continue; } print(i, " "); }
+        println("");
+        for j in 1..8 step 2 { print(j, " "); }
+        println("");
+    }
+    ret;
+}

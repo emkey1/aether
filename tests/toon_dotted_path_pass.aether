@@ -1,0 +1,23 @@
+// Dotted keys walk nested objects in toon_key / toon_has_key / every
+// toon_get_* getter. A missing segment degrades like a missing key: the `_or`
+// fallback, `false`, or the zero value. Array indexes are not path segments.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"server\":{\"name\":\"alpha\",\"port\":8080,\"tags\":[\"a\",\"b\"]},\"rows\":[{\"k\":1}]}");
+    let root: ToonNode = toon_root(doc);
+    let name: Text = toon_get_text_or(root, "server.name", "MISSING");
+    let port: Int = toon_get_int_or(root, "server.port", -1);
+    let missing: Text = toon_get_text_or(root, "server.nope", "MISSING");
+    let deep: Text = toon_get_text(root, "server.nope");
+    let node: ToonNode = toon_key(root, "server.name");
+    let tags: ToonNode = toon_key(root, "server.tags");
+    let hasName: Bool = toon_has_key(root, "server.name");
+    let hasNope: Bool = toon_has_key(root, "server.nope");
+    let hasIndexed: Bool = toon_has_key(root, "rows.0.k");
+    fx {
+        println(name, " ", port, " ", missing, " [", deep, "]");
+        println(hasName, " ", hasNope, " ", hasIndexed);
+        println(toon_text_value(node), " ", toon_len(tags), " ", toon_get_int_or(root, "rows.0.k", -1));
+    }
+    toon_close(doc);
+    ret;
+}

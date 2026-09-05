@@ -981,10 +981,55 @@ typedef struct {
     int pendingObjLitCount;
     int pendingObjLitCapacity;
     int nextObjLitId;          /* monotonic counter for unique temp names */
+    int nextLoopId;            /* monotonic counter for foreach / step temp names */
 } AetherParser;
 
 /* Raw next token straight from the rea lexer (no `..` synthesis), honoring the
  * small FIFO buffer used to queue synthesized/look-ahead tokens. */
+/* The shared Rea lexer reserves about 48 words. Aether uses fewer than half
+ * of them; the rest -- Rea's class, exception, module and thread syntax, and
+ * its lowercase type-name words -- have no meaning in Aether, yet leaked in as
+ * keyword tokens: `let join: Int` failed with a bare "expected name", a field
+ * named `word` or `text` was rejected, and the operator word `mul` silently
+ * meant `*`. Demote every word Aether has no use for to an ordinary
+ * identifier at the token boundary, so the parser only ever sees Aether's own
+ * reserved set. The foreign statement keywords (`return`, `class`, `import`,
+ * ...) are still caught -- by text, at statement start
+ * (aetherForeignStatementKeyword) -- so the guide's SYN-001 hints survive. */
+static void aetherDemoteForeignKeyword(ReaToken *t) {
+    switch (t->type) {
+        case REA_TOKEN_ALIAS: case REA_TOKEN_CASE: case REA_TOKEN_CATCH:
+        case REA_TOKEN_CLASS: case REA_TOKEN_DEFAULT: case REA_TOKEN_DO:
+        case REA_TOKEN_EXTENDS: case REA_TOKEN_IMPORT: case REA_TOKEN_JOIN:
+        case REA_TOKEN_MATCH: case REA_TOKEN_MODULE: case REA_TOKEN_RETURN:
+        case REA_TOKEN_SPAWN: case REA_TOKEN_SUPER: case REA_TOKEN_SWITCH:
+        case REA_TOKEN_THROW: case REA_TOKEN_TRY:
+        /* Lowercase type-name words: Aether spells its types capitalized
+         * (Int/Real/Text/Bool), so these are plain names in Aether source. */
+        case REA_TOKEN_INT: case REA_TOKEN_INT64: case REA_TOKEN_INT32:
+        case REA_TOKEN_INT16: case REA_TOKEN_INT8:
+        case REA_TOKEN_UINT64: case REA_TOKEN_UINT32: case REA_TOKEN_UINT16:
+        case REA_TOKEN_UINT8:
+        case REA_TOKEN_FLOAT: case REA_TOKEN_FLOAT32: case REA_TOKEN_LONG_DOUBLE:
+        case REA_TOKEN_CHAR: case REA_TOKEN_BYTE: case REA_TOKEN_WORD:
+        case REA_TOKEN_STR: case REA_TOKEN_TEXT: case REA_TOKEN_MSTREAM:
+        case REA_TOKEN_VOID: case REA_TOKEN_BOOL:
+            t->type = REA_TOKEN_IDENTIFIER;
+            break;
+        case REA_TOKEN_STAR:
+            /* `mul` lexes as `*`; Aether's multiplication is only ever `*`. */
+            if (t->length == 3 && strncmp(t->start, "mul", 3) == 0) t->type = REA_TOKEN_IDENTIFIER;
+            break;
+        case REA_TOKEN_MYSELF:
+            /* `my` is Rea's short receiver; Aether's is `self`. Keep `myself`,
+             * which the lowering itself emits. */
+            if (t->length == 2) t->type = REA_TOKEN_IDENTIFIER;
+            break;
+        default:
+            break;
+    }
+}
+
 static ReaToken aetherRawNext(AetherParser *p) {
     if (p->queueCount > 0) {
         ReaToken t = p->queue[p->queueHead];
@@ -992,7 +1037,9 @@ static ReaToken aetherRawNext(AetherParser *p) {
         p->queueCount--;
         return t;
     }
-    return reaNextToken(&p->lexer);
+    ReaToken t = reaNextToken(&p->lexer);
+    aetherDemoteForeignKeyword(&t);
+    return t;
 }
 
 /* Append a token to the tail of the FIFO so it is returned (in order) before the
@@ -1135,6 +1182,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->pendingObjLitCount = 0;
     p->pendingObjLitCapacity = 0;
     p->nextObjLitId = 0;
+    p->nextLoopId = 0;
 }
 
 /* Queue a hoisted object-literal declaration (an i_val==1 AST_COMPOUND from
@@ -1166,84 +1214,50 @@ static bool isAetherKeyword(const ReaToken *t, const char *kw) {
     return t->type == REA_TOKEN_IDENTIFIER && tokTextIs(t, kw);
 }
 
-/* The Rea lexer reserves lowercase type-name words (`int`, `text`, `str`,
- * `bool`, `char`, `void`, ...) as dedicated keyword tokens. Aether spells its
- * own types capitalized (`Int`, `Text`, `Bool`), so in Aether source those
- * lowercase spellings are ordinary identifiers -- the text rewriter accepts
- * them as such because it never lexes them. The AST path must do the same:
- * wherever an Aether *identifier* is expected (a binding/param/field name, or a
- * bare variable / call reference), one of these type-keyword tokens is just as
- * valid as REA_TOKEN_IDENTIFIER. This predicate gates exactly those positions;
- * it deliberately excludes value/structure keywords (true/false/nil, if/for/
- * while, new/match, ...) so they keep their reserved meaning. */
+/* Aether's name positions accept exactly REA_TOKEN_IDENTIFIER. The shared Rea
+ * lexer's foreign keywords (`join`, `match`, `class`, ...) and its lowercase
+ * type-name words (`int`, `text`, `word`, ...) are demoted to plain
+ * identifiers before the parser sees them (aetherDemoteForeignKeyword), so a
+ * field named `word`, a local named `match` or a parameter named `text` is
+ * just a name. Kept as a predicate so every name position reads the same. */
 static bool aetherTokenIsIdentifierLike(const ReaToken *t) {
-    if (!t) return false;
-    switch (t->type) {
-        case REA_TOKEN_IDENTIFIER:
-        /* Lowercase type-name keywords usable as Aether identifiers. */
-        case REA_TOKEN_INT:
-        case REA_TOKEN_INT64:
-        case REA_TOKEN_INT32:
-        case REA_TOKEN_INT16:
-        case REA_TOKEN_INT8:
-        case REA_TOKEN_UINT64:
-        case REA_TOKEN_UINT32:
-        case REA_TOKEN_UINT16:
-        case REA_TOKEN_UINT8:
-        case REA_TOKEN_FLOAT:
-        case REA_TOKEN_FLOAT32:
-        case REA_TOKEN_LONG_DOUBLE:
-        case REA_TOKEN_CHAR:
-        case REA_TOKEN_BYTE:
-        case REA_TOKEN_WORD:
-        case REA_TOKEN_STR:
-        case REA_TOKEN_TEXT:
-        case REA_TOKEN_MSTREAM:
-        case REA_TOKEN_VOID:
-        case REA_TOKEN_BOOL:
-            return true;
-        /* `match` is a Rea keyword, but Aether has no match-expression, so models
-         * freely use it as an ordinary identifier (e.g. `let match: Bool`). Accept
-         * it as a name; copyNameToken/currentAsIdentifier use the token's actual
-         * text, so the real spelling is preserved. */
-        case REA_TOKEN_MATCH:
-            return true;
-        default:
-            return false;
+    return t && t->type == REA_TOKEN_IDENTIFIER;
+}
+
+/* Aether keywords that reach the parser as identifiers (the Rea lexer does not
+ * know them). A member or function named after one would parse, then shadow
+ * the statement keyword inside every method body, so member-name positions
+ * reject them with a reserved-word diagnostic. `in` and `step` are keywords
+ * only inside a loop header and stay usable as ordinary names. */
+static bool aetherIsAetherTextKeyword(const ReaToken *t) {
+    static const char *const kws[] = {
+        "fn", "let", "ret", "loop", "fx", "par", "self", "use", "and", "or", "not"
+    };
+    if (!t || t->type != REA_TOKEN_IDENTIFIER) return false;
+    for (size_t i = 0; i < sizeof(kws) / sizeof(kws[0]); i++) {
+        if (tokTextIs(t, kws[i])) return true;
     }
+    return false;
 }
 
 /* Classify a token that turned up where an Aether *member name* (a `type` field
- * or a `fn` name) was expected, but which Rea's lexer had reserved as a keyword
- * or operator word -- so the diagnostic can name the collision instead of a bare
- * "unexpected token" / "expected function name". Returns a short human category,
- * or NULL when the token is not a word-shaped reserved token (punctuation, a
- * literal, EOF, or an ordinary identifier) and the caller should keep its generic
- * message. Note on reachability: aetherTokenIsIdentifierLike already accepts the
- * lowercase type-name keywords (int/word/text/...) at the `fn`/param positions, so
- * at the `fn` site only operator words / value-structure keywords reach here; the
- * "reserved type name" branch fires at the field site, whose acceptance test is
- * REA_TOKEN_IDENTIFIER exactly. */
+ * or a `fn` name) was expected but is a reserved word -- so the diagnostic can
+ * name the collision instead of a bare "unexpected token" / "expected function
+ * name". Returns a short human category, or NULL when the token is an ordinary
+ * identifier (or punctuation / a literal / EOF) and the caller should keep its
+ * generic message. Since the foreign-keyword demotion, the only reserved words
+ * left are Aether's own: the keyword tokens the lexer shares with Aether
+ * (new/for/if/while/...), Aether's text-level keywords (fn/let/ret/loop/...)
+ * and the operator words div/mod/xor. */
 static const char *aetherReservedWordCategory(const ReaToken *t) {
     if (!t || t->length == 0 || !t->start) return NULL;
     unsigned char c0 = (unsigned char)t->start[0];
     if (!(isalpha(c0) || c0 == '_')) return NULL; /* only word-shaped lexemes collide */
     switch (t->type) {
         case REA_TOKEN_IDENTIFIER:
-            return NULL; /* an ordinary identifier is a perfectly good name */
-        /* lowercase type-name keywords: int/word/text/bool/char/byte/void/... */
-        case REA_TOKEN_INT: case REA_TOKEN_INT64: case REA_TOKEN_INT32:
-        case REA_TOKEN_INT16: case REA_TOKEN_INT8:
-        case REA_TOKEN_UINT64: case REA_TOKEN_UINT32: case REA_TOKEN_UINT16:
-        case REA_TOKEN_UINT8:
-        case REA_TOKEN_FLOAT: case REA_TOKEN_FLOAT32: case REA_TOKEN_LONG_DOUBLE:
-        case REA_TOKEN_CHAR: case REA_TOKEN_BYTE: case REA_TOKEN_WORD:
-        case REA_TOKEN_STR: case REA_TOKEN_TEXT: case REA_TOKEN_MSTREAM:
-        case REA_TOKEN_VOID: case REA_TOKEN_BOOL:
-            return "reserved type name";
-        /* word forms of arithmetic operators: mul(*), div, mod(%), xor */
-        case REA_TOKEN_STAR: case REA_TOKEN_INT_DIV:
-        case REA_TOKEN_PERCENT: case REA_TOKEN_XOR:
+            return aetherIsAetherTextKeyword(t) ? "reserved keyword" : NULL;
+        /* word forms of arithmetic operators: div, mod(%), xor */
+        case REA_TOKEN_INT_DIV: case REA_TOKEN_PERCENT: case REA_TOKEN_XOR:
             return "reserved operator word";
         default:
             return "reserved keyword";
@@ -1280,9 +1294,9 @@ static bool reportReservedMemberName(const ReaToken *t, const char *member) {
         snprintf(detail, sizeof(detail),
                  "'%s' is a %s and cannot be used as a %s name.", name, cat, member);
         snprintf(hint, sizeof(hint),
-                 "rename it (e.g. `%sValue`); reserved type names (Int/Word/Text/...), "
-                 "keywords (new/for/if/...) and operator words (mul/div/mod/xor) are not "
-                 "valid field or method names.", name);
+                 "rename it (e.g. `%sValue`); Aether keywords (new/for/if/loop/ret/...) "
+                 "and operator words (div/mod/xor/and/or/not) are not valid field or "
+                 "method names.", name);
     }
     reportAetherAstError(aetherSemanticGetSourcePath(), t->line, "declaration", detail, hint);
     return true;
@@ -1353,9 +1367,19 @@ static bool mapAetherType(const char *name, size_t len,
     struct { const char *aether; const char *rea; VarType vt; } table[] = {
         { "Int",     "int",   TYPE_INT64 },
         { "Real",    "float", TYPE_DOUBLE },
-        { "Float",   "float", TYPE_DOUBLE },
         { "Text",    "str",   TYPE_UNICODE_STRING },
         { "Bool",    "bool",  TYPE_BOOLEAN },
+        /* Accepted alternate spellings for the two scalars whose canonical
+         * Aether name differs from what most languages call them. A model
+         * writing without the guide in its prompt reaches for `Float` and
+         * `String` constantly; both lower identically to Real/Text, so the
+         * choice is between accepting them and spending a repair round on a
+         * name that costs nothing to support. Kept adjacent to the canonical
+         * rows so the two never drift apart. TYPE-002 catches the spellings
+         * that are NOT accepted (`Double`, `Integer`, `Boolean`, ...) and
+         * names the canonical type in the diagnostic. */
+        { "Float",   "float", TYPE_DOUBLE },
+        { "String",  "str",   TYPE_UNICODE_STRING },
         { "Void",    "void",  TYPE_VOID },
         /* TOON surface types lower exactly as translate.c mapTypeName: the TOON
          * literal is a string; doc/node handles are opaque integer handles. The
@@ -1422,6 +1446,15 @@ static void releaseTransientTypeNode(AST *resolved) {
     if (resolved && !resolved->token && resolved->type == AST_VARIABLE) {
         freeAST(resolved);
     }
+}
+
+/* For semantic.c's TYPE-002 check: is `name` one of Aether's own builtin type
+ * spellings (Int/Real/Text/Bool/Void, the accepted Float/String aliases, the
+ * opaque handle types)? Case-sensitive, exactly like a declaration. */
+int aetherAstIsBuiltinTypeName(const char *name) {
+    const char *reaName = NULL;
+    VarType vt = TYPE_VOID;
+    return name && mapAetherType(name, strlen(name), &reaName, &vt);
 }
 
 /* Build the type node for a value-bearing type (non-Void), mirroring how rea's
@@ -2539,8 +2572,9 @@ static AST *parsePrimary(AetherParser *p) {
         setTypeAST(node, right->var_type);
         return node;
     }
-    /* Unary not */
-    if (p->current.type == REA_TOKEN_BANG) {
+    /* Unary not: `!`, or the word `not` (same precedence; `and`/`or` are the
+     * word forms of `&&`/`||`, see parseLogicalAnd/parseLogicalOr). */
+    if (p->current.type == REA_TOKEN_BANG || isAetherKeyword(&p->current, "not")) {
         ReaToken op = p->current;
         aetherAdvance(p);
         AST *right = parsePrimary(p);
@@ -3177,7 +3211,7 @@ static AST *parseBitwiseOr(AetherParser *p) {
 static AST *parseLogicalAnd(AetherParser *p) {
     AST *node = parseBitwiseOr(p);
     if (!node) return NULL;
-    while (p->current.type == REA_TOKEN_AND_AND) {
+    while (p->current.type == REA_TOKEN_AND_AND || isAetherKeyword(&p->current, "and")) {
         ReaToken op = p->current;
         aetherAdvance(p);
         AST *right = parseBitwiseOr(p);
@@ -3195,7 +3229,7 @@ static AST *parseLogicalAnd(AetherParser *p) {
 static AST *parseLogicalOr(AetherParser *p) {
     AST *node = parseLogicalAnd(p);
     if (!node) return NULL;
-    while (p->current.type == REA_TOKEN_OR_OR) {
+    while (p->current.type == REA_TOKEN_OR_OR || isAetherKeyword(&p->current, "or")) {
         ReaToken op = p->current;
         aetherAdvance(p);
         AST *right = parseLogicalAnd(p);
@@ -5855,6 +5889,241 @@ static AST *aetherRewriteContinueWithPost(AST *node, AST *postStmt) {
  * tokenizer reconstructs it despite the shared Rea lexer folding the dots), so
  * both bounds are parsed straight from the token stream as expressions -- no
  * raw-source-span workaround. Handles numeric and identifier bounds uniformly. */
+/* Compile-time integer literal test: `3`, or `-3` as unary minus over a
+ * literal. Used to pick the `step` comparison direction statically. */
+static bool aetherConstIntValue(const AST *node, long *out) {
+    if (!node) return false;
+    if (node->type == AST_NUMBER && node->token && node->token->value &&
+        !isRealType(node->var_type)) {
+        char *end = NULL;
+        long v = strtol(node->token->value, &end, 0);
+        if (end && end != node->token->value && *end == '\0') { *out = v; return true; }
+        return false;
+    }
+    if (node->type == AST_UNARY_OP && node->token && node->token->type == TOKEN_MINUS && node->left) {
+        long inner;
+        if (aetherConstIntValue(node->left, &inner)) { *out = -inner; return true; }
+    }
+    return false;
+}
+
+static AST *buildBinOp(TokenType tt, const char *lex, AST *l, AST *r, VarType vt, int line) {
+    Token *tok = newToken(tt, lex, line, 0);
+    AST *bin = newASTNode(AST_BINARY_OP, tok);
+    setLeft(bin, l);
+    setRight(bin, r);
+    setTypeAST(bin, vt);
+    return bin;
+}
+
+/* `int NAME = init;` -- the loop counter shape rea parseFor emits. */
+static AST *buildIntCounterDecl(const char *name, AST *init, int line) {
+    AST *initVar = buildVarRef(name, TYPE_INT64, line);
+    Token *intTypeTok = newToken(TOKEN_IDENTIFIER, "int", line, 0);
+    AST *intTypeNode = newASTNode(AST_TYPE_IDENTIFIER, intTypeTok);
+    setTypeAST(intTypeNode, TYPE_INT64);
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, initVar);
+    setLeft(decl, init);
+    setRight(decl, intTypeNode);
+    setTypeAST(decl, TYPE_INT64);
+    return decl;
+}
+
+/* `NAME = NAME + delta;` as an expression statement; `delta` ownership transfers. */
+static AST *buildCounterPost(const char *name, AST *delta, int line) {
+    AST *addExpr = buildBinOp(TOKEN_PLUS, "+", buildVarRef(name, TYPE_UNKNOWN, line), delta,
+                              promoteIntegralBinaryType(TYPE_UNKNOWN, TYPE_INT64), line);
+    Token *assignTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+    AST *postAssign = newASTNode(AST_ASSIGN, assignTok);
+    setLeft(postAssign, buildVarRef(name, TYPE_UNKNOWN, line));
+    setRight(postAssign, addExpr);
+    setTypeAST(postAssign, TYPE_UNKNOWN);
+    AST *postStmt = newASTNode(AST_EXPR_STMT, postAssign->token);
+    setLeft(postStmt, postAssign);
+    return postStmt;
+}
+
+/* Typed `let NAME: TypeName = init;` (the explicitly typed binding shape
+ * parseLetDeclAfterKeyword emits). `init` ownership transfers. */
+static AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init, int line) {
+    VarType vt = TYPE_UNKNOWN;
+    AST *typeNode = buildTypeNodeFromName(typeName, strlen(typeName), line, &vt);
+    if (!typeNode) { if (init) freeAST(init); return NULL; }
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, buildVarRef(name, vt, line));
+    setLeft(decl, init);
+    setRight(decl, typeNode);
+    setTypeAST(decl, vt);
+    aetherAstRegisterExplicitTypedDecl(decl);
+    return decl;
+}
+
+/* `loop NAME in COLLECTION { BODY }` -- iterate an array (`T[]`), a `Text`
+ * (one character at a time) or a TOON array node (`ToonNode`). Lowers to the
+ * same index-loop shape the range form uses, with the element bound at the
+ * top of every iteration:
+ *
+ *     [let __aether_seq_N: T[] = COLLECTION;]   -- only when COLLECTION is not
+ *                                                  a plain variable/field/index
+ *     int __aether_i_N = 0;
+ *     while (__aether_i_N < length(seq)) {       -- toon_len for a ToonNode
+ *         let NAME: T = seq[__aether_i_N];       -- toon_at for a ToonNode
+ *         BODY
+ *         __aether_i_N = __aether_i_N + 1;
+ *     }
+ *
+ * The element type comes from the collection's inferred Aether type, which is
+ * why the collection must be something the parser can type: a typed binding,
+ * a field, a call with a declared return type, or a literal. `continue` still
+ * advances the index (the post-statement is spliced ahead of it, as in the
+ * range loop). A row of a nested array binds through the same un-alias step a
+ * `let row: Int[] = table[i];` gets, so writing to the loop variable never
+ * writes through to the collection. The variable's type is registered before
+ * the body is parsed so `NAME.field` and `let x = NAME;` infer inside it. */
+static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line) {
+    char *collType = inferLetTypeName(p, coll);
+    char elemBuf[128];
+    const char *elemType = NULL;
+    bool isToon = false;
+    if (collType) {
+        size_t n = strlen(collType);
+        if (aetherTypeNameIsArray(collType)) {
+            if (n > 2 && n - 2 < sizeof(elemBuf)) {
+                memcpy(elemBuf, collType, n - 2);
+                elemBuf[n - 2] = '\0';
+                elemType = elemBuf;
+            }
+        } else if (strcmp(collType, "Text") == 0 || strcmp(collType, "String") == 0) {
+            elemType = "Text";
+        } else if (strcmp(collType, "ToonNode") == 0) {
+            elemType = "ToonNode";
+            isToon = true;
+        }
+    }
+    if (!elemType) {
+        char detail[256];
+        if (collType) {
+            snprintf(detail, sizeof(detail),
+                     "cannot iterate over a value of type %s with `loop %s in ...`; the "
+                     "collection must be an array (`T[]`), a `Text`, or a `ToonNode` array.",
+                     collType, name);
+            reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser", detail, NULL);
+        } else {
+            snprintf(detail, sizeof(detail),
+                     "cannot infer the type of the collection in `loop %s in ...`.", name);
+            reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration", detail,
+                                 "bind it to a typed `let` first, for example "
+                                 "`let items: Int[] = ...;`, then loop over `items`.");
+        }
+        p->hadError = true;
+        free(collType);
+        freeAST(coll);
+        return NULL;
+    }
+
+    int id = p->nextLoopId++;
+    char idxName[48], seqName[48];
+    snprintf(idxName, sizeof(idxName), "__aether_i_%d", id);
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    AST *seqProto;                 /* the collection reference, copied at each use */
+    bool hoisted = !aetherIsLValueChain(coll);
+    if (hoisted) {
+        snprintf(seqName, sizeof(seqName), "__aether_seq_%d", id);
+        AST *seqDecl = buildTypedLetDecl(seqName, collType, coll, line);
+        if (!seqDecl) { p->hadError = true; free(collType); freeAST(outer); return NULL; }
+        addChild(outer, seqDecl);
+        if (p->bindings) bindingTableSet(p->bindings, seqName, collType);
+        seqProto = buildVarRef(seqName, TYPE_UNKNOWN, line);
+    } else {
+        seqProto = coll;
+    }
+    if (p->bindings) bindingTableSet(p->bindings, name, elemType);
+
+    AST *body = parseBlock(p);
+    if (!body) {
+        if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser",
+                                 "expected '{' to open loop body.", NULL);
+        }
+        p->hadError = true;
+        free(collType);
+        freeAST(outer);
+        freeAST(seqProto);
+        return NULL;
+    }
+
+    AST *lenCall;
+    AST *elem;
+    if (isToon) {
+        Token *lenTok = newToken(TOKEN_IDENTIFIER, "YyjsonGetLength", line, 0);
+        lenCall = newASTNode(AST_PROCEDURE_CALL, lenTok);
+        addChild(lenCall, copyAST(seqProto));
+        setTypeAST(lenCall, TYPE_INTEGER);
+        aetherAstRegisterCallSurfaceName(lenCall, "toon_len");
+        Token *atTok = newToken(TOKEN_IDENTIFIER, "YyjsonGetIndex", line, 0);
+        elem = newASTNode(AST_PROCEDURE_CALL, atTok);
+        addChild(elem, copyAST(seqProto));
+        addChild(elem, buildVarRef(idxName, TYPE_UNKNOWN, line));
+        setTypeAST(elem, TYPE_INT64);
+        aetherAstRegisterCallSurfaceName(elem, "toon_at");
+    } else {
+        lenCall = buildLengthCall(seqProto, line);
+        elem = newASTNode(AST_ARRAY_ACCESS, NULL);
+        setLeft(elem, copyAST(seqProto));
+        addChild(elem, buildVarRef(idxName, TYPE_UNKNOWN, line));
+        setTypeAST(elem, TYPE_UNKNOWN);
+    }
+    AST *elemDecl = buildTypedLetDecl(name, elemType, elem, line);
+    if (!elemDecl) {
+        p->hadError = true;
+        free(collType);
+        freeAST(outer);
+        freeAST(seqProto);
+        freeAST(lenCall);
+        freeAST(body);
+        return NULL;
+    }
+
+    AST *innerBody = newASTNode(AST_COMPOUND, NULL);
+    addChild(innerBody, elemDecl);
+    if (aetherTypeNameIsArray(elemType)) {
+        AST *elemRef = buildVarRef(name, TYPE_UNKNOWN, line);
+        addChild(innerBody, buildArrayUnaliasStmt(elemRef, line));
+        freeAST(elemRef);
+    }
+    addChild(innerBody, body);
+
+    AST *postStmt = buildCounterPost(idxName, buildIntLiteral(1, line), line);
+    innerBody = aetherRewriteContinueWithPost(innerBody, postStmt);
+    AST *whileBody = newASTNode(AST_COMPOUND, NULL);
+    addChild(whileBody, innerBody);
+    addChild(whileBody, postStmt);
+    AST *cond = buildBinOp(TOKEN_LESS, "<", buildVarRef(idxName, TYPE_UNKNOWN, line), lenCall,
+                           TYPE_BOOLEAN, line);
+    AST *whileNode = newASTNode(AST_WHILE, NULL);
+    setLeft(whileNode, cond);
+    setRight(whileNode, whileBody);
+    addChild(outer, buildIntCounterDecl(idxName, buildIntLiteral(0, line), line));
+    addChild(outer, whileNode);
+
+    freeAST(seqProto); /* every use above was a copy */
+    free(collType);
+    return outer;
+}
+
+/* `loop NAME in LOW..HIGH [step DELTA] { BODY }` (also spelled `for`), or the
+ * foreach form `loop NAME in COLLECTION { BODY }` (parseForeach). The range
+ * lowers to the C-for shape rea parseFor emits:
+ *
+ *     int NAME = LOW;
+ *     [int __aether_step_N = DELTA;]   -- a non-literal step is evaluated once
+ *     while (NAME < HIGH) { BODY; NAME = NAME + DELTA; }
+ *
+ * A negative literal step flips the comparison to `NAME > HIGH`; a step whose
+ * sign is only known at run time tests both directions
+ * (`(s > 0 && NAME < HIGH) || (s < 0 && NAME > HIGH)`), so the loop never
+ * runs away in the wrong direction. A literal `step 0` is rejected. */
 static AST *parseLoopRange(AetherParser *p) {
     if (!aetherTokenIsIdentifierLike(&p->current)) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
@@ -5890,11 +6159,24 @@ static AST *parseLoopRange(AetherParser *p) {
      * parens, if-expressions), just not the operators that indicate the
      * author meant something other than a number. */
     AST *low = parseAdd(p);
-    if (!low || p->current.type != AE_TOKEN_DOTDOT) {
+    if (!low) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
+                "expected '<low>..<high>' or a collection after 'in' in the loop header.", NULL);
+        p->hadError = true;
+        free(nameBuf);
+        return NULL;
+    }
+    /* `loop NAME in COLLECTION {` -- no range operator, straight into the body. */
+    if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+        AST *loop = parseForeach(p, nameBuf, low, idLine);
+        free(nameBuf);
+        return loop;
+    }
+    if (p->current.type != AE_TOKEN_DOTDOT) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "expected '<low>..<high>' in loop range.", NULL);
         p->hadError = true;
-        if (low) freeAST(low);
+        freeAST(low);
         free(nameBuf);
         return NULL;
     }
@@ -5930,6 +6212,45 @@ static AST *parseLoopRange(AetherParser *p) {
         return NULL;
     }
 
+    /* Optional `step DELTA`. */
+    AST *step = NULL;
+    long stepLit = 1;
+    int stepSign = 1;   /* +1 / -1 for a literal step, 0 when only known at run time */
+    if (isAetherKeyword(&p->current, "step")) {
+        int stepLine = p->current.line;
+        aetherAdvance(p); /* consume 'step' */
+        step = parseAdd(p);
+        if (!step || step->var_type == TYPE_BOOLEAN) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), stepLine, "parser",
+                    "expected an Int step after 'step' (for example `step 2` or `step -1`).", NULL);
+            p->hadError = true;
+            if (step) freeAST(step);
+            freeAST(low);
+            freeAST(high);
+            free(nameBuf);
+            return NULL;
+        }
+        if (aetherConstIntValue(step, &stepLit)) {
+            if (stepLit == 0) {
+                reportAetherAstError(aetherSemanticGetSourcePath(), stepLine, "parser",
+                        "loop step must not be zero.", NULL);
+                p->hadError = true;
+                freeAST(step);
+                freeAST(low);
+                freeAST(high);
+                free(nameBuf);
+                return NULL;
+            }
+            stepSign = stepLit > 0 ? 1 : -1;
+        } else {
+            stepSign = 0;
+        }
+    }
+
+    /* The loop variable is an Int for the rest of the function (the inference
+     * table is flat per function, like `let`), so `let s = i;` infers. */
+    if (p->bindings) bindingTableSet(p->bindings, nameBuf, "Int");
+
     AST *body = NULL;
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         body = parseBlock(p);
@@ -5937,61 +6258,60 @@ static AST *parseLoopRange(AetherParser *p) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "expected '{' to open loop body.", NULL);
         p->hadError = true;
+        if (step) freeAST(step);
         freeAST(low);
         freeAST(high);
         free(nameBuf);
         return NULL;
     }
 
-    /* Build: int i = LOW;  (AST_VAR_DECL, matching rea parseFor init). */
-    Token *initNameTok = newToken(TOKEN_IDENTIFIER, nameBuf, idLine, 0);
-    AST *initVar = newASTNode(AST_VARIABLE, initNameTok);
-    setTypeAST(initVar, TYPE_INT64);
-    Token *intTypeTok = newToken(TOKEN_IDENTIFIER, "int", idLine, 0);
-    AST *intTypeNode = newASTNode(AST_TYPE_IDENTIFIER, intTypeTok);
-    setTypeAST(intTypeNode, TYPE_INT64);
-    AST *initDecl = newASTNode(AST_VAR_DECL, NULL);
-    addChild(initDecl, initVar);
-    setLeft(initDecl, low);
-    setRight(initDecl, intTypeNode);
-    setTypeAST(initDecl, TYPE_INT64);
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    addChild(outer, buildIntCounterDecl(nameBuf, low, idLine));
 
-    /* Condition: i < HIGH  (AST_BINARY_OP, BOOLEAN). */
-    Token *condVarTok = newToken(TOKEN_IDENTIFIER, nameBuf, idLine, 0);
-    AST *condVar = newASTNode(AST_VARIABLE, condVarTok);
-    setTypeAST(condVar, TYPE_UNKNOWN);
-    Token *ltTok = newToken(TOKEN_LESS, "<", idLine, 0);
-    AST *cond = newASTNode(AST_BINARY_OP, ltTok);
-    setLeft(cond, condVar);
-    setRight(cond, high);
-    setTypeAST(cond, TYPE_BOOLEAN);
+    /* A literal step is inlined; any other step expression is evaluated once,
+     * before the loop, into a hidden counter. */
+    char stepName[48];
+    bool stepHoisted = false;
+    if (step && stepSign == 0) {
+        snprintf(stepName, sizeof(stepName), "__aether_step_%d", p->nextLoopId++);
+        addChild(outer, buildIntCounterDecl(stepName, step, idLine));
+        stepHoisted = true;
+    } else if (step) {
+        freeAST(step); /* the literal value is carried in stepLit */
+    }
+    step = NULL;
+#define AETHER_STEP_REF() (stepHoisted ? buildVarRef(stepName, TYPE_UNKNOWN, idLine) \
+                                       : buildIntLiteral(stepLit, idLine))
 
-    /* Post: i = i + 1  (AST_ASSIGN of an AST_BINARY_OP). */
-    Token *postLhsTok = newToken(TOKEN_IDENTIFIER, nameBuf, idLine, 0);
-    AST *postLhs = newASTNode(AST_VARIABLE, postLhsTok);
-    setTypeAST(postLhs, TYPE_UNKNOWN);
-    Token *addLhsTok = newToken(TOKEN_IDENTIFIER, nameBuf, idLine, 0);
-    AST *addLhs = newASTNode(AST_VARIABLE, addLhsTok);
-    setTypeAST(addLhs, TYPE_UNKNOWN);
-    Token *oneTok = newToken(TOKEN_INTEGER_CONST, "1", idLine, 0);
-    AST *oneNode = newASTNode(AST_NUMBER, oneTok);
-    setTypeAST(oneNode, TYPE_INT64);
-    Token *plusTok = newToken(TOKEN_PLUS, "+", idLine, 0);
-    AST *addExpr = newASTNode(AST_BINARY_OP, plusTok);
-    setLeft(addExpr, addLhs);
-    setRight(addExpr, oneNode);
-    setTypeAST(addExpr, promoteIntegralBinaryType(TYPE_UNKNOWN, TYPE_INT64));
-    Token *assignTok = newToken(TOKEN_ASSIGN, "=", idLine, 0);
-    AST *postAssign = newASTNode(AST_ASSIGN, assignTok);
-    setLeft(postAssign, postLhs);
-    setRight(postAssign, addExpr);
-    setTypeAST(postAssign, TYPE_UNKNOWN);
-    AST *postStmt = newASTNode(AST_EXPR_STMT, postAssign->token);
-    setLeft(postStmt, postAssign);
+    AST *cond;
+    if (stepSign > 0) {
+        cond = buildBinOp(TOKEN_LESS, "<", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine), high,
+                          TYPE_BOOLEAN, idLine);
+    } else if (stepSign < 0) {
+        cond = buildBinOp(TOKEN_GREATER, ">", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine), high,
+                          TYPE_BOOLEAN, idLine);
+    } else {
+        AST *up = buildBinOp(TOKEN_AND, "&&",
+                buildBinOp(TOKEN_GREATER, ">", AETHER_STEP_REF(), buildIntLiteral(0, idLine),
+                           TYPE_BOOLEAN, idLine),
+                buildBinOp(TOKEN_LESS, "<", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine), high,
+                           TYPE_BOOLEAN, idLine),
+                TYPE_BOOLEAN, idLine);
+        AST *down = buildBinOp(TOKEN_AND, "&&",
+                buildBinOp(TOKEN_LESS, "<", AETHER_STEP_REF(), buildIntLiteral(0, idLine),
+                           TYPE_BOOLEAN, idLine),
+                buildBinOp(TOKEN_GREATER, ">", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine),
+                           copyAST(high), TYPE_BOOLEAN, idLine),
+                TYPE_BOOLEAN, idLine);
+        cond = buildBinOp(TOKEN_OR, "||", up, down, TYPE_BOOLEAN, idLine);
+    }
 
-    /* Rewrite `continue` in the body to run postStmt first (rea parseFor does this
-     * via rewriteContinueWithPost) -- otherwise `continue` jumps to the condition,
-     * skips the increment, and the loop spins forever. */
+    /* Post: NAME = NAME + DELTA. Rewrite `continue` in the body to run it first
+     * (rea parseFor does this via rewriteContinueWithPost) -- otherwise
+     * `continue` jumps to the condition, skips the increment, and the loop
+     * spins forever. */
+    AST *postStmt = buildCounterPost(nameBuf, AETHER_STEP_REF(), idLine);
+#undef AETHER_STEP_REF
     body = aetherRewriteContinueWithPost(body, postStmt);
 
     /* while body = COMPOUND[ body, postStmt ]  (rea parseFor with post). */
@@ -6001,10 +6321,6 @@ static AST *parseLoopRange(AetherParser *p) {
     AST *whileNode = newASTNode(AST_WHILE, NULL);
     setLeft(whileNode, cond);
     setRight(whileNode, whileBody);
-
-    /* outer = COMPOUND[ initDecl, whileNode ]. */
-    AST *outer = newASTNode(AST_COMPOUND, NULL);
-    addChild(outer, initDecl);
     addChild(outer, whileNode);
 
     free(nameBuf);
@@ -6263,6 +6579,88 @@ static AST *parseParBlock(AetherParser *p) {
     return block;
 }
 
+/* Peek the token after `current` without consuming it (the same save/restore
+ * the range-loop and object-literal detectors use). */
+static ReaTokenType aetherPeekNextTokenType(AetherParser *p) {
+    ReaToken save = p->current;
+    int savedHead = p->queueHead, savedCount = p->queueCount;
+    ReaToken q0 = p->queue[0], q1 = p->queue[1], q2 = p->queue[2];
+    ReaLexer savedLexer = p->lexer;
+    aetherAdvance(p);
+    ReaTokenType next = p->current.type;
+    p->lexer = savedLexer;
+    p->queueHead = savedHead; p->queueCount = savedCount;
+    p->queue[0] = q0; p->queue[1] = q1; p->queue[2] = q2;
+    p->current = save;
+    return next;
+}
+
+/* Keywords from other languages at statement start. They lex as ordinary
+ * identifiers (aetherDemoteForeignKeyword), so without this check
+ * `return n * n;` would parse as two expression statements and fail late with
+ * a misleading SCOPE-001 on `return`. Name the Aether form instead. Words
+ * that are plausible variable names (`match`, `case`, `do`, ...) count as
+ * foreign syntax only when the next token cannot continue an expression
+ * statement -- `match = true;` and `case(x)` stay ordinary. */
+typedef struct {
+    const char *word;
+    const char *hint;
+    bool always;
+} AetherForeignKeyword;
+
+static const AetherForeignKeyword *aetherForeignStatementKeyword(const ReaToken *t) {
+    static const AetherForeignKeyword table[] = {
+        { "return",    "Aether returns with `ret`: write `ret value;`, or bare `ret;` in a Void function.", true },
+        { "var",       "declare bindings with `let name: Type = value;` -- a `let` is already mutable.", true },
+        { "def",       "declare functions with `fn name(arg: Type) -> ReturnType { ... }`.", true },
+        { "func",      "declare functions with `fn name(arg: Type) -> ReturnType { ... }`.", true },
+        { "function",  "declare functions with `fn name(arg: Type) -> ReturnType { ... }`.", true },
+        { "class",     "records are `type Name { field: Type; fn method() -> T { ... } }`; there is no class keyword.", true },
+        { "struct",    "records are `type Name { field: Type; }`; there is no struct keyword.", true },
+        { "interface", "there are no interfaces or traits; use a `type` with methods.", true },
+        { "trait",     "there are no interfaces or traits; use a `type` with methods.", true },
+        { "enum",      "there is no enum type; use `const` values or a `Text` label.", true },
+        { "import",    "imports are written `use \"module_name\";`.", true },
+        { "include",   "imports are written `use \"module_name\";`.", true },
+        { "require",   "imports are written `use \"module_name\";`.", true },
+        { "elif",      "spell it `else if`.", true },
+        { "foreach",   "iterate with `loop item in items { ... }`.", true },
+        { "match",     "there is no match or switch statement; use an `if ... else if ... else` chain.", false },
+        { "switch",    "there is no match or switch statement; use an `if ... else if ... else` chain.", false },
+        { "case",      "there is no match or switch statement; use an `if ... else if ... else` chain.", false },
+        { "try",       "Aether has no exceptions; return a status value and check it at the call site.", false },
+        { "catch",     "Aether has no exceptions; return a status value and check it at the call site.", false },
+        { "throw",     "Aether has no exceptions; return a status value and check it at the call site.", false },
+        { "raise",     "Aether has no exceptions; return a status value and check it at the call site.", false },
+        { "until",     "loops are `loop cond { }`, `loop i in a..b { }`, `loop item in items { }` or `loop { ... break; }`.", false },
+        { "repeat",    "loops are `loop cond { }`, `loop i in a..b { }`, `loop item in items { }` or `loop { ... break; }`.", false },
+        { "do",        "loops are `loop cond { }`, `loop i in a..b { }`, `loop item in items { }` or `loop { ... break; }`.", false },
+    };
+    if (!t || t->type != REA_TOKEN_IDENTIFIER) return NULL;
+    for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+        if (tokTextIs(t, table[i].word)) return &table[i];
+    }
+    return NULL;
+}
+
+/* True when `next` can continue an expression statement that starts with an
+ * identifier: `name = ...`, `name(...)`, `name.field`, `name[i]`, `name;` and
+ * the compound assignments. Anything else after a foreign keyword means the
+ * word was meant as syntax. */
+static bool aetherNextContinuesIdentifierStatement(ReaTokenType next) {
+    switch (next) {
+        case REA_TOKEN_EQUAL: case REA_TOKEN_LEFT_PAREN: case REA_TOKEN_DOT:
+        case REA_TOKEN_LEFT_BRACKET: case REA_TOKEN_SEMICOLON:
+        case REA_TOKEN_PLUS_EQUAL: case REA_TOKEN_MINUS_EQUAL:
+        case REA_TOKEN_STAR_EQUAL: case REA_TOKEN_SLASH_EQUAL:
+        case REA_TOKEN_PERCENT_EQUAL: case REA_TOKEN_PLUS_PLUS:
+        case REA_TOKEN_MINUS_MINUS:
+            return true;
+        default:
+            return false;
+    }
+}
+
 static AST *parseStatementInner(AetherParser *p) {
     /* Empty statement `;` -- consume it and return a no-op block. Without this, a
      * stray/trailing `;` (e.g. `fx {…};`, or a bare `;`) would fall to the
@@ -6336,6 +6734,19 @@ static AST *parseStatementInner(AetherParser *p) {
     }
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         return parseBlock(p);
+    }
+    /* Foreign-language statement keywords: name the Aether form (SYN-001). */
+    if (p->current.type == REA_TOKEN_IDENTIFIER) {
+        const AetherForeignKeyword *fk = aetherForeignStatementKeyword(&p->current);
+        if (fk && (fk->always ||
+                   !aetherNextContinuesIdentifierStatement(aetherPeekNextTokenType(p)))) {
+            char detail[128];
+            snprintf(detail, sizeof(detail), "'%s' is not Aether syntax.", fk->word);
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                                 detail, fk->hint);
+            p->hadError = true;
+            return NULL;
+        }
     }
     /* Expression statement or assignment. */
     AST *expr = parseExpr(p);
@@ -6857,9 +7268,9 @@ static AST *parseFnDecl(AetherParser *p) {
     int fnLine = p->current.line; /* line of the `fn` keyword, for diagnostics */
     aetherAdvance(p); /* consume 'fn' */
 
-    if (!aetherTokenIsIdentifierLike(&p->current)) {
-        /* A reserved word/operator where the name should be (e.g. `fn mul()`,
-         * `fn new()`): name the collision instead of the bare parse error. */
+    if (!aetherTokenIsIdentifierLike(&p->current) || aetherIsAetherTextKeyword(&p->current)) {
+        /* A reserved word/operator where the name should be (e.g. `fn div()`,
+         * `fn new()`, `fn loop()`): name the collision instead of the bare parse error. */
         if (!reportReservedMemberName(&p->current,
                                       p->currentClassName ? "method" : "function")) {
             reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
@@ -7693,7 +8104,8 @@ static AST *parseTypeDecl(AetherParser *p) {
                     p->hadError = true;
                     break;
                 }
-            } else if (p->current.type == REA_TOKEN_IDENTIFIER) {
+            } else if (p->current.type == REA_TOKEN_IDENTIFIER &&
+                       !aetherIsAetherTextKeyword(&p->current)) {
                 /* A data field: NAME : Type ; */
                 Token *fieldTok = currentAsIdentifier(p);
                 if (!fieldTok) { p->hadError = true; break; }

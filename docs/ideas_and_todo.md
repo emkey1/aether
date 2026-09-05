@@ -716,7 +716,7 @@ lexical capture, statically checkable — preserves the METH-001 / FUNC-001
 invariant. Add only if real demand appears; first-order `loop` covers the domain
 today.
 
-### Fully support type-keyword names as record members — *idea / parser-roadmap*
+### Fully support type-keyword names as record members — *fixed 2026-09-05-1: the shared lexer's type-name words and foreign keywords are demoted to identifiers at the token boundary*
 Follow-up to *Reserved words collide with member names* (now diagnosed, not
 supported). The AST parser's member-**access** path already accepts type-keyword
 tokens after `.` (`ast_parser.c` ~1281 uses `aetherTokenIsIdentifierLike`), and
@@ -1232,14 +1232,14 @@ fallback's `extractAnnotationExpr` (`translate.c`) got the symmetric fix, so bot
 frontends agree. Regression: `tests/contract_annotation_comment_pass.aether`.
 (Companion to the still-open "malformed `@cost` is silently dropped" gap below.)
 
-### Models reach for `loop x in collection` (foreach) — *idea / decision needed*
+### Models reach for `loop x in collection` (foreach) — *fixed 2026-09-05-1: `loop x in xs { }` iterates arrays, Text and ToonNode arrays*
 `loop v in values { ... }` → `expected '<low>..<high>' in loop range`; only
 `loop i in 0..n` exists. Hit by `qwen3-32b`. **Action:** either add a foreach
 sugar over arrays, or make the index-only loop (and the array-indexing idiom)
 unmissable in the guide. (Related to the no-closures / first-order-`loop`
 stance already recorded under *Decided*.)
 
-### Models reach for `Int(...)` / `Real(...)` casts — *idea*
+### Models reach for `Int(...)` / `Real(...)` casts — *resolved 2026-09-05 (docs-only): they already worked via the case-insensitive `int`/`real`/`bool` builtins and are now documented as accepted*
 `let limit: Int = Int(sqrt(Real(n)));` → `[SCOPE-001] identifier 'Int' not in
 scope`. Aether has no type-name cast functions. Hit by `exaone3.5-32b`.
 **Action:** document the real conversion surface (`trunc`/`round`/`floor`/`ceil`
@@ -1280,7 +1280,7 @@ so no benchmark-corpus false positives; scalar contracts and `length(result) > 0
 Regression: `contract_collection_result_fail.aether` + `contract_collection_length_pass.aether`.
 *(reported 2026-06-29, sweep 2.)*
 
-### `loop ... step N` (stepped range) is unsupported — *gap (verified)*
+### `loop ... step N` (stepped range) is unsupported — *fixed 2026-09-05-1: `loop i in a..b step n`, negative and run-time steps included*
 Models reach for a stepped loop; only unit-step `loop i in a..b` exists:
 ```
 loop i in 0..10 step 2 { ... }   -> [compile] expected '{' to open loop body   (parser stops at `step`)
@@ -1416,7 +1416,7 @@ correctly (`FX-001`, `NAME-001`, `PAR-001`, `SCOPE-001`), i.e. no regressions fr
 one dominant failure cluster — a3b's 0/5 — was **record field defaults** (`value: Int = 0`), already queued
 as its own piece of work; the remaining genuinely-new, verified findings are below.
 
-### Ranged `loop` accepts no `step` clause — *idea (verified)*
+### Ranged `loop` accepts no `step` clause — *fixed 2026-09-05-1 (see the entry above)*
 `mistralai/devstral` writing a prime sieve reached for a strided range in the inner loop:
 `loop j in i*i..n step i { ... }` → `L?: expected '{' to open loop body`. The `..` range itself parses
 fine inside a loop (`loop j in 0..10 { }` compiles and prints `0..9`); the parser gets *past* the range
@@ -1425,7 +1425,7 @@ and chokes on `step`. This is the idiomatic strided range (Python `range(a, b, s
 the existing loop with the given increment. Bounded — it stays inside the `loop`, where ranges already
 live, and needs no first-class range/`Range` value type.
 
-### Word-operators `not` / `and` / `or` misreport as undefined identifiers — *idea (verified)*
+### Word-operators `not` / `and` / `or` misreport as undefined identifiers — *fixed 2026-09-05-1: they are exact synonyms of `!` / `&&` / `||`*
 Models reach for Pascal/Python-style boolean word-operators: `allenai/olmo-3-32b-think` wrote
 `if not toon_is_int(node)` three times, and `a and b` / `a or b` fail the same way. Each yields a
 *misleading* `[SCOPE-001] identifier 'not' not in scope` — the lexer treats the keyword as an undefined

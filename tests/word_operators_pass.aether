@@ -1,0 +1,12 @@
+// `and`, `or`, `not` are the word spellings of `&&`, `||`, `!`.
+fn main() -> Void {
+    let a: Bool = true;
+    let b: Bool = false;
+    let n: Int = 5;
+    fx {
+        println(a and b, " ", a or b, " ", not b, " ", not a and b, " ", a and not b);
+        if n > 3 and n < 10 or false { println("in range"); }
+        if not (n == 5) { println("bad"); } else { println("five"); }
+    }
+    ret;
+}

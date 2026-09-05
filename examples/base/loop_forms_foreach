@@ -1,0 +1,51 @@
+// The loop forms side by side: range, stepped range, foreach over an array,
+// a Text, a nested array and a TOON array node, plus the word operators.
+type Item {
+    name: Text = "";
+    qty: Int = 0;
+}
+
+fn main() -> Void {
+    let items: Item[] = [new Item { name: "bolt", qty: 3 }, new Item { name: "nut", qty: 5 }];
+    let table: Int[][] = [[1, 2], [3, 4, 5]];
+    let word: Text = "aether";
+    let doc: ToonDoc = toon_parse("{\"rows\":[{\"k\":1},{\"k\":2},{\"k\":3}]}");
+    let rows: ToonNode = toon_key(toon_root(doc), "rows");
+
+    fx {
+        print("evens: ");
+        loop i in 0..10 step 2 { print(i, " "); }
+        println("");
+
+        print("countdown: ");
+        loop i in 5..0 step -1 { print(i, " "); }
+        println("");
+
+        let total: Int = 0;
+        loop it in items {
+            if it.qty < 4 and it.name != "washer" { println("small order: ", it.name); }
+            total = total + it.qty;
+        }
+        println("total qty: ", total);
+
+        let cells: Int = 0;
+        loop row in table {
+            loop c in row { cells = cells + c; }
+        }
+        println("cell sum: ", cells);
+
+        let reversed: Text = "";
+        loop ch in word { reversed = ch + reversed; }
+        println("reversed: ", reversed);
+
+        let ksum: Int = 0;
+        loop r in rows { ksum = ksum + toon_get_int_or(r, "k", 0); }
+        println("k sum: ", ksum);
+
+        let a: Int[] = [1, 2, 3];
+        let b: Int[] = [1, 2, 3];
+        if a == b or not (cells > 0) { println("arrays equal"); }
+    }
+    toon_close(doc);
+    ret;
+}

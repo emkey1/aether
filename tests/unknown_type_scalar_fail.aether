@@ -1,0 +1,11 @@
+fn f(c: Char, b: Byte) -> Word {
+    ret 1;
+}
+
+fn main() -> Void {
+    let s: Str = "a";
+    let i: int = 1;
+    let t: string = "b";
+    fx { println(f("a", 1), s, i, t); }
+    ret;
+}

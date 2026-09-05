@@ -45,11 +45,26 @@ these guides by roughly 16% — they are dense with code fences, tables, and
 backticked identifiers, all of which tokenize badly. Measured with `o200k_base`
 (`cl100k_base` is within 0.5%):
 
-| Guide | ceiling | 2026-08-06 | 2026-08-11 (SCOPE-001) | 2026-08-11 (ORDER-001) | 2026-08-11 (ORDER-001 retired) | headroom |
-|---|---|---|---|---|---|---|
-| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,631 | 11,534 | −2,534 |
-| medium | 15K | 14,350 | 14,922 | 14,922 | 14,849 | 151 |
-| full | none | 25,646 | 26,960 | 27,099 | 26,950 | n/a |
+| Guide | ceiling | 2026-08-06 | 2026-08-11 (SCOPE-001) | 2026-08-11 (ORDER-001) | 2026-08-11 (ORDER-001 retired) | 2026-09-05 | headroom |
+|---|---|---|---|---|---|---|---|
+| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,631 | 11,534 | 11,898 | −2,898 |
+| medium | 15K | 14,350 | 14,922 | 14,922 | 14,849 | 14,985 | 15 |
+| full | none | 25,646 | 26,960 | 27,099 | 26,950 | 28,892 | n/a |
+
+The 2026-09-05 additions (foreach and `step` loops, the word operators, array
+`==`, the rewritten reserved-word and KEY-001/NEST-001 rules, TYPE-002 with the
+`Float`/`String` aliases, `setlength`, the cast spellings, `toon_key_or` /
+`toon_null`) landed against the paired-cut constraint. The cuts: the KEY-001 and NEST-001
+examples are one or two lines, the cast spellings sit in the existing `int(x)`
+sentence instead of a table row, the reserved-word bullet shrank because fewer
+words are reserved, the precedence paragraph is a sentence, the array-printing
+and getter-on-a-`ToonDoc` examples are one-liners (the former now shows the
+foreach form), the `shout` iteration example is a sentence, and the "a `type`
+may be declared after another `type`" bullet went (ORDER-001's retirement made
+it a statement about an ordering that no longer exists), the duplicated
+single-`println` block under Effects went, and the inference paragraph lost its
+examples list. The
+medium guide measures 14,985, under the 15,000 ceiling by 15 tokens.
 
 Both constrained guides had silently drifted over their old budgets, because the
 `chars / 4` estimate was flattering. The medium ceiling was **re-baselined from

@@ -1,0 +1,7 @@
+fn main() -> Void {
+    let n: Int = 1;
+    match n {
+        1 { ret; }
+    }
+    ret;
+}

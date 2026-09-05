@@ -3084,147 +3084,392 @@ static void aetherValidateArrayParamMutation(const AST *root) {
 }
 
 /* --------------------------------------------------------------------------
- * SCOPE-001: an unknown type *name* in an annotation.
+ * TYPE-002: a type name in a declaration that never resolved.
  *
- * Aether had no type-name validation of its own: it leaned on pscal-core's
- * compiler.c var-decl path, which resolves a type specifier only when that
- * specifier is a bare AST_TYPE_REFERENCE sitting directly under the decl. That
- * caught exactly one shape -- `let v: Bogus = ...` -- and silently accepted a
- * typo'd name everywhere else, because every other annotation site either wraps
- * the reference (`Bogus[]` -> AST_ARRAY_TYPE, right = the reference) or is not a
- * var decl at all (parameters, return types, record fields, tuple items). So
- * `let v: Bogus[] = []` compiled clean, and so did `fn f(p: Bogus)`.
+ * buildTypeNode() emits a bare AST_TYPE_REFERENCE at TYPE_UNKNOWN for any type
+ * name that is neither a builtin nor an already-registered `type`. That
+ * fallback is load bearing: a signature may legitimately name a record
+ * declared further down the file, or one exported by a module that has not
+ * been loaded yet. What was missing is anything that later went back and asked
+ * whether the name ever did resolve.
  *
- * Checking every AST_TYPE_REFERENCE reached by the walk covers all of those at
- * once, wrappers included, with no per-site enumeration: buildTypeNode emits
- * this node type *only* for a type annotation whose name it could not map, so
- * reaching one is already proof we are looking at a type position. Known
- * builtins never appear here (mapAetherType turns them into
- * AST_TYPE_IDENTIFIER), and a name that is merely declared later in the file
- * resolves fine -- this runs post-parse, once every `type` is registered, which
- * is why the check cannot live in buildTypeNode itself.
+ * An unresolved annotation is not inert. It lowers to a slot built by
+ * makeValueForType(TYPE_UNKNOWN), which accepts whatever value it is handed,
+ * so the declared type does no checking at all -- `fn f() -> Strng { ret 1; }`
+ * compiles, runs, and returns an Int. A misspelled or foreign type name
+ * therefore produced a working program and not one diagnostic, which is the
+ * one failure shape the coded-error loop cannot help a reader recover from.
  *
- * Wording is the backend's verbatim, so a typo lands on SCOPE-001 (inferred in
- * diagnostics.c) no matter which position it was written in.
+ * Runs after reaPerformSemanticAnalysis so every imported module's types are
+ * registered: a name still unresolved at this point is unresolvable, not
+ * merely early. It still runs before the bytecode compiler -- main() re-checks
+ * the error count in between -- which is also what stops the backend's
+ * "makeValueForType called with unhandled type 0" note from reaching the user
+ * on this path, since the program no longer gets that far.
  * -------------------------------------------------------------------------- */
 
-/* Reported (name, line) pairs, so one written annotation yields one diagnostic.
- * Needed because the parser's forward-declaration pre-pass (ast_parser.c ~8196)
- * emits a body-less prototype for every top-level function, leaving each
- * parameter and return type node in the AST twice; without this, every unknown
- * type in a signature would be reported twice while `let` and field annotations
- * -- which have no prototype copy -- reported once. Keyed on the line as well as
- * the name so the same typo on different lines still reports at each site. */
-typedef struct AetherReportedType {
-    char *name;
-    int line;
-} AetherReportedType;
-
-static AetherReportedType *g_aether_reported_types = NULL;
-static size_t g_aether_reported_type_count = 0;
-static size_t g_aether_reported_type_cap = 0;
-
-static void aetherFreeReportedTypes(void) {
+/* The Aether spelling to suggest for a type name imported wholesale from
+ * another language. NULL when there is no single obvious replacement. */
+static const char *aetherSuggestedTypeName(const char *name) {
+    static const struct { const char *wrong; const char *right; } table[] = {
+        { "Str",       "Text" },
+        { "Character", "Text" },
+        { "Char",      "Text" },
+        { "Double",    "Real" },
+        { "Float64",   "Real" },
+        { "Number",    "Real" },
+        { "Num",       "Real" },
+        { "Single",    "Real" },
+        { "Integer",   "Int" },
+        { "Int32",     "Int" },
+        { "Int64",     "Int" },
+        { "Long",      "Int" },
+        { "Boolean",   "Bool" },
+        { "Unit",      "Void" },
+        { "None",      "Void" },
+        { "Nothing",   "Void" },
+        /* Rea/Pascal scalar keywords. rea's own type resolver accepts these
+         * case-insensitively, which is exactly why they need naming here:
+         * without a TYPE-002 they used to slip through to codegen. */
+        { "Word",      "Int" },
+        { "Byte",      "Int" },
+        { "Short",     "Int" },
+        { "Int8",      "Int" },
+        { "Int16",     "Int" },
+        { "UInt8",     "Int" },
+        { "UInt16",    "Int" },
+        { "UInt32",    "Int" },
+        { "UInt64",    "Int" },
+        { "Float32",   "Real" },
+        /* Lowercase spellings of Aether's own names (the canonical, capitalized
+         * spelling never reaches this table). */
+        { "int",       "Int" },
+        { "real",      "Real" },
+        { "float",     "Real" },
+        { "text",      "Text" },
+        { "string",    "Text" },
+        { "bool",      "Bool" },
+        { "void",      "Void" },
+        { "mstream",   "MStream" },
+        { "file",      "File" },
+        { "toondoc",   "ToonDoc" },
+        { "toonnode",  "ToonNode" },
+    };
     size_t i;
-    for (i = 0; i < g_aether_reported_type_count; i++) {
-        free(g_aether_reported_types[i].name);
-    }
-    free(g_aether_reported_types);
-    g_aether_reported_types = NULL;
-    g_aether_reported_type_count = 0;
-    g_aether_reported_type_cap = 0;
-}
-
-/* True when (name, line) was already reported; otherwise records it and returns
- * false. On allocation failure returns false without recording, so the
- * diagnostic is still emitted (a duplicate beats a dropped error). */
-static bool aetherMarkTypeReported(const char *name, int line) {
-    size_t i;
-    for (i = 0; i < g_aether_reported_type_count; i++) {
-        if (g_aether_reported_types[i].line == line &&
-            strcmp(g_aether_reported_types[i].name, name) == 0) {
-            return true;
+    for (i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
+        if (strcasecmp(name, table[i].wrong) == 0) {
+            return table[i].right;
         }
     }
-    if (g_aether_reported_type_count == g_aether_reported_type_cap) {
-        size_t newCap = g_aether_reported_type_cap ? g_aether_reported_type_cap * 2 : 8;
-        AetherReportedType *grown = (AetherReportedType *)realloc(
-                g_aether_reported_types, newCap * sizeof(*grown));
-        if (!grown) return false;
-        g_aether_reported_types = grown;
-        g_aether_reported_type_cap = newCap;
-    }
-    g_aether_reported_types[g_aether_reported_type_count].name = strdup(name);
-    if (!g_aether_reported_types[g_aether_reported_type_count].name) return false;
-    g_aether_reported_types[g_aether_reported_type_count].line = line;
-    g_aether_reported_type_count++;
-    return false;
+    return NULL;
 }
 
-static void aetherCheckTypeReference(const AST *node) {
-    char detail[256];
-    const char *name;
-    if (!node->token || !node->token->value || !node->token->value[0]) {
-        return;
+/* Container type names have no one-word replacement: an array is spelled `T[]`
+ * and there is no map/dict/set type at all, so the fix is a different shape
+ * rather than a different word. NULL when the name is not a container. */
+static const char *aetherCollectionTypeAdvice(const char *name) {
+    static const char *arrayNames[] = { "List", "Array", "Vec", "Vector", "Seq", "Slice" };
+    static const char *mapNames[]   = { "Map", "Dict", "Dictionary", "HashMap", "Set" };
+    size_t i;
+    for (i = 0; i < sizeof(arrayNames) / sizeof(arrayNames[0]); i++) {
+        if (strcasecmp(name, arrayNames[i]) == 0) {
+            return "an array is spelled with the element type, e.g. `Int[]` or `Text[]`.";
+        }
     }
-    name = node->token->value;
-    if (lookupType(name)) {
-        return;
+    for (i = 0; i < sizeof(mapNames) / sizeof(mapNames[0]); i++) {
+        if (strcasecmp(name, mapNames[i]) == 0) {
+            return "there is no map, dict, or set type -- use two parallel arrays "
+                   "and a linear scan, or a `type` with array fields.";
+        }
     }
-    if (aetherMarkTypeReported(name, node->token->line)) {
-        return;
-    }
-    snprintf(detail, sizeof(detail), "identifier '%s' not in scope.", name);
-    reportAetherErrorCoded("SCOPE-001", "type", node->token->line, detail);
+    return NULL;
 }
 
-static void aetherWalkTypeAnnotations(const AST *node) {
+/* Every function declaration reaches this pass twice -- the parser emits a
+ * bodiless prototype alongside the definition, and both carry the same
+ * signature nodes -- so a bad parameter or return type would otherwise be
+ * reported twice for one mistake. Keyed on line + name + context rather than
+ * on the AST node so the two copies collapse while genuinely distinct sites
+ * survive: two parameters of the same bad type differ by context, and a
+ * hand-written forward declaration differs by line and is worth flagging
+ * separately, since both spellings do need fixing. */
+typedef struct AetherReportedTypeTable {
+    char **keys;
+    size_t count;
+    size_t cap;
+} AetherReportedTypeTable;
+
+static AetherReportedTypeTable g_aether_reported_types = {0};
+
+static int aetherMarkTypeReported(const char *key) {
+    size_t i;
+    char *copy;
+    for (i = 0; i < g_aether_reported_types.count; i++) {
+        if (strcmp(g_aether_reported_types.keys[i], key) == 0) {
+            return 0;
+        }
+    }
+    if (g_aether_reported_types.count == g_aether_reported_types.cap) {
+        size_t cap = g_aether_reported_types.cap ? g_aether_reported_types.cap * 2 : 8;
+        char **grown = realloc(g_aether_reported_types.keys, cap * sizeof(char *));
+        if (!grown) {
+            return 1;  /* out of memory: report rather than swallow the error */
+        }
+        g_aether_reported_types.keys = grown;
+        g_aether_reported_types.cap = cap;
+    }
+    copy = strdup(key);
+    if (!copy) {
+        return 1;
+    }
+    g_aether_reported_types.keys[g_aether_reported_types.count++] = copy;
+    return 1;
+}
+
+static void aetherFreeReportedTypeTable(void) {
+    size_t i;
+    for (i = 0; i < g_aether_reported_types.count; i++) {
+        free(g_aether_reported_types.keys[i]);
+    }
+    free(g_aether_reported_types.keys);
+    g_aether_reported_types.keys = NULL;
+    g_aether_reported_types.count = 0;
+    g_aether_reported_types.cap = 0;
+}
+
+static void aetherReportUnknownType(const AST *node, const char *ctx) {
+    const char *name = (node && node->token) ? node->token->value : NULL;
+    const char *suggestion;
+    const char *advice;
+    char detail[384];
+    char key[448];
+    if (!name) {
+        return;
+    }
+    snprintf(key, sizeof(key), "%d|%s|%s", aetherAstNodeLine(node), name, ctx ? ctx : "");
+    if (!aetherMarkTypeReported(key)) {
+        return;
+    }
+    suggestion = aetherSuggestedTypeName(name);
+    advice = suggestion ? NULL : aetherCollectionTypeAdvice(name);
+    if (suggestion) {
+        snprintf(detail, sizeof(detail),
+                 "unknown type '%s' in %s; did you mean '%s'?", name, ctx, suggestion);
+    } else if (advice) {
+        snprintf(detail, sizeof(detail),
+                 "unknown type '%s' in %s; %s", name, ctx, advice);
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "unknown type '%s' in %s; it is neither a builtin type (Int, Real, "
+                 "Text, Bool, Void) nor a `type` declared in this program or an "
+                 "imported module.", name, ctx);
+    }
+    reportAetherErrorCoded("TYPE-002", "unknown-type", aetherAstNodeLine(node), detail);
+}
+
+/* Descends one declaration's type slot -- through the AST_ARRAY_TYPE and
+ * AST_POINTER_TYPE wrappers that `T[]` and record types build -- reporting
+ * every name in it that never resolved. Deliberately refuses to walk anything
+ * that is not itself a type node, so an array type's bounds expression cannot
+ * drag the scan into ordinary code. */
+/* How a declaration's type name resolves:
+ *   0 -- unknown: not an Aether builtin, and nothing registered under it (yet)
+ *   1 -- a real type: an Aether builtin spelling, or a `type` registered by this
+ *        program or an imported module
+ *   2 -- one of rea's scalar keywords (`char`, `byte`, `word`, `str`, ...): the
+ *        shared resolver accepts these case-insensitively by handing back a
+ *        transient stub instead of NULL, which is how `Char` used to slip past
+ *        this check and reach codegen as an untyped slot. Never a valid Aether
+ *        type name, and decidable before module loading.
+ * lookupType is rea's resolver here; its stub is a token-less AST_VARIABLE
+ * allocated for the caller, so it is freed on the spot. A registered type is
+ * table-owned and must not be. */
+static int aetherTypeNameKind(const char *name) {
+    AST *resolved;
+    if (aetherAstIsBuiltinTypeName(name)) {
+        return 1;
+    }
+    resolved = lookupType(name);
+    if (!resolved) {
+        return 0;
+    }
+    if (resolved->type == AST_VARIABLE && !resolved->token) {
+        freeAST(resolved);
+        return 2;
+    }
+    return 1;
+}
+
+/* When set, aetherCheckTypeSlot reports only what is decidable before module
+ * loading: the rea-scalar stubs (kind 2) and case variants of Aether's own
+ * type names (`string`, `INT`, `text`, ...), which no module could sensibly
+ * export. Any other unknown name may still be an import that has not been
+ * registered yet and waits for the second stage. */
+static int g_aether_type_check_stubs_only = 0;
+
+static int aetherIsCaseVariantOfBuiltinType(const char *name) {
+    static const char *const builtins[] = {
+        "Int", "Real", "Text", "Bool", "Void", "Float", "String", "TOON",
+        "ToonDoc", "ToonNode", "MStream", "File"
+    };
+    size_t i;
+    for (i = 0; i < sizeof(builtins) / sizeof(builtins[0]); i++) {
+        if (strcasecmp(name, builtins[i]) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+static void aetherCheckTypeSlot(const AST *node, const char *ctx) {
     int i;
     if (!node) {
         return;
     }
     if (node->type == AST_TYPE_REFERENCE) {
-        aetherCheckTypeReference(node);
-        /* A type reference is a leaf name; nothing below it is an annotation. */
+        if (node->token && node->token->value) {
+            int kind = aetherTypeNameKind(node->token->value);
+            if (kind == 2 ||
+                (kind == 0 && (!g_aether_type_check_stubs_only ||
+                               aetherIsCaseVariantOfBuiltinType(node->token->value)))) {
+                aetherReportUnknownType(node, ctx);
+            }
+        }
         return;
     }
-    aetherWalkTypeAnnotations(node->left);
-    aetherWalkTypeAnnotations(node->right);
-    aetherWalkTypeAnnotations(node->extra);
+    if (node->type != AST_ARRAY_TYPE && node->type != AST_POINTER_TYPE) {
+        return;
+    }
+    aetherCheckTypeSlot(node->left, ctx);
+    aetherCheckTypeSlot(node->right, ctx);
+    aetherCheckTypeSlot(node->extra, ctx);
     for (i = 0; i < node->child_count; i++) {
-        aetherWalkTypeAnnotations(node->children[i]);
+        aetherCheckTypeSlot(node->children[i], ctx);
     }
 }
 
-/* Walk one file's AST, attributing diagnostics to `path`. The reported-pair set
- * is per file: it exists to collapse the forward-declaration prototype's copy of
- * a signature, which is always same-file, so clearing between files keeps the
- * same (name, line) in two different files from masking one another. */
-static void aetherWalkTypeAnnotationsInFile(const AST *node, const char *path) {
-    const char *savedPath = g_aether_source_path;
-    if (path) {
-        g_aether_source_path = path;
+#define AETHER_TYPE002_CTX_MAX 192
+
+/* `fnName` is the enclosing function, carried down purely so a bad type on a
+ * local binding can say which function it is in. */
+static void aetherWalkUnknownTypes(const AST *node, const char *fnName) {
+    char ctx[AETHER_TYPE002_CTX_MAX];
+    int i;
+    if (!node) {
+        return;
     }
-    aetherWalkTypeAnnotations(node);
-    g_aether_source_path = savedPath;
-    aetherFreeReportedTypes();
+
+    if (node->type == AST_FUNCTION_DECL || node->type == AST_PROCEDURE_DECL) {
+        /* Signature slots differ by kind: a value-returning function keeps its
+         * return type on `right` and its body on `extra`, a Void one has no
+         * return type and puts the body on `right`. Parameters are AST_VAR_DECL
+         * children in both, each with the parameter name as children[0] and its
+         * type on `right`. */
+        const char *name = (node->token && node->token->value) ? node->token->value : NULL;
+        for (i = 0; i < node->child_count; i++) {
+            const AST *param = node->children[i];
+            const char *pname = NULL;
+            if (!param || param->type != AST_VAR_DECL) {
+                continue;
+            }
+            if (param->child_count > 0 && param->children[0] && param->children[0]->token) {
+                pname = param->children[0]->token->value;
+            }
+            if (pname && name) {
+                snprintf(ctx, sizeof(ctx), "parameter '%s' of '%s'", pname, name);
+            } else if (pname) {
+                snprintf(ctx, sizeof(ctx), "parameter '%s'", pname);
+            } else {
+                snprintf(ctx, sizeof(ctx), "a parameter");
+            }
+            aetherCheckTypeSlot(param->right, ctx);
+        }
+        if (node->type == AST_FUNCTION_DECL) {
+            if (name) {
+                snprintf(ctx, sizeof(ctx), "the return type of '%s'", name);
+            } else {
+                snprintf(ctx, sizeof(ctx), "a return type");
+            }
+            aetherCheckTypeSlot(node->right, ctx);
+            aetherWalkUnknownTypes(node->extra, name);
+        } else {
+            aetherWalkUnknownTypes(node->right, name);
+        }
+        aetherWalkUnknownTypes(node->left, name);
+        return;
+    }
+
+    if (node->type == AST_VAR_DECL || node->type == AST_CONST_DECL) {
+        /* A `let`/`const` binding or a record field. AST_CONST_DECL carries its
+         * type on `left`; everything else on `right`. */
+        const AST *typeSlot = (node->type == AST_CONST_DECL) ? node->left : node->right;
+        const char *vname = NULL;
+        if (node->child_count > 0 && node->children[0] && node->children[0]->token) {
+            vname = node->children[0]->token->value;
+        } else if (node->token) {
+            vname = node->token->value;
+        }
+        if (vname && fnName) {
+            snprintf(ctx, sizeof(ctx), "the declaration of '%s' in '%s'", vname, fnName);
+        } else if (vname) {
+            snprintf(ctx, sizeof(ctx), "the declaration of '%s'", vname);
+        } else {
+            snprintf(ctx, sizeof(ctx), "a declaration");
+        }
+        aetherCheckTypeSlot(typeSlot, ctx);
+        /* Falls through to the generic recursion below for the initializer;
+         * re-reaching the type slot there is harmless, since only
+         * aetherCheckTypeSlot reports. */
+    }
+
+    aetherWalkUnknownTypes(node->left, fnName);
+    aetherWalkUnknownTypes(node->right, fnName);
+    aetherWalkUnknownTypes(node->extra, fnName);
+    for (i = 0; i < node->child_count; i++) {
+        aetherWalkUnknownTypes(node->children[i], fnName);
+    }
 }
 
-static void aetherValidateTypeAnnotations(const AST *root) {
+static void aetherValidateTypeNames(const AST *root) {
     int moduleCount;
     int i;
-    aetherWalkTypeAnnotationsInFile(root, g_aether_source_path);
-    /* An imported module is a separate AST that the main walk never reaches, so
-     * a typo'd annotation inside `mod M { export type T { x: Bogus[]; } }` would
+    aetherWalkUnknownTypes(root, NULL);
+    aetherFreeReportedTypeTable();
+    /* An imported module is a separate AST the main walk never reaches, so a
+     * typo'd annotation inside `mod M { export type T { x: Bogus[]; } }` would
      * otherwise stay silent -- the same hole this check exists to close, one
-     * file over. Reachable here only because this pass now runs after
-     * reaPerformSemanticAnalysis, which is what loads them. Each is attributed
-     * to its own path so the diagnostic points at the module file, not the
-     * importer. The count covers transitive imports (loadModuleRecursive). */
+     * file over. Reachable here only because this stage runs after
+     * reaPerformSemanticAnalysis, which is what loads them. Each module is
+     * attributed to its own path so the diagnostic points at the module file,
+     * not the importer, and the duplicate table is per file so the same
+     * (line, name) in two files cannot mask one another. The count covers
+     * transitive imports (loadModuleRecursive). */
     moduleCount = aetherGetLoadedModuleCount();
     for (i = 0; i < moduleCount; i++) {
-        aetherWalkTypeAnnotationsInFile(aetherGetModuleAST(i), aetherGetModulePath(i));
+        const char *savedPath = g_aether_source_path;
+        const char *path = aetherGetModulePath(i);
+        if (path) {
+            g_aether_source_path = path;
+        }
+        aetherWalkUnknownTypes(aetherGetModuleAST(i), NULL);
+        g_aether_source_path = savedPath;
+        aetherFreeReportedTypeTable();
     }
+}
+
+/* TYPE-002, first stage: the names rea's resolver would otherwise accept as
+ * scalars (`Char`, `Byte`, `Word`, `Str`, `int`, ...). These are never valid
+ * Aether types, so they are reported BEFORE reaPerformSemanticAnalysis runs --
+ * that pass would emit its own uncoded "identifier 'Char' not in scope" (or,
+ * for a parameter, let the declaration reach codegen and print an internal
+ * makeValueForType warning), and the coded diagnostic must be the one the
+ * reader sees. Everything else waits for the second stage, after modules are
+ * loaded, where an unresolved name is known to be wrong rather than early. */
+static void aetherValidateReaScalarTypeNames(const AST *root) {
+    g_aether_type_check_stubs_only = 1;
+    aetherWalkUnknownTypes(root, NULL);
+    g_aether_type_check_stubs_only = 0;
+    aetherFreeReportedTypeTable();
 }
 
 void aetherPerformSemanticAnalysis(AST *root) {
@@ -3283,17 +3528,19 @@ void aetherPerformSemanticAnalysis(AST *root) {
     /* ARR-001 is a warning, not an error -- runs regardless of the error-count
      * gate above (there's nothing to gate: it never increments the counter). */
     aetherValidateArrayParamMutation(root);
+    /* TYPE-002, stage 1: rea's scalar keywords used as Aether type names. Must
+     * precede reaPerformSemanticAnalysis (see aetherValidateReaScalarTypeNames)
+     * and gates it, so the coded diagnostic is the only one printed. */
+    aetherValidateReaScalarTypeNames(root);
+    if (pascal_semantic_error_count > errorCountBefore) {
+        return;
+    }
     reaPerformSemanticAnalysis(root);
-    /* Unknown type names in annotations. Must run AFTER reaPerformSemanticAnalysis:
-     * that is the pass which resolves `use` imports (loadModuleRecursive) and
-     * registers the imported modules' types, so running earlier saw every
-     * imported type as unknown -- `let s: Stack = StackMod.make()` in
-     * imported_type_methods_pass became a false SCOPE-001. Still ahead of
-     * codegen, so this stays the diagnostic the user sees: it preempts both the
-     * backend's var-decl-only "not in scope" (the one shape that was already
-     * caught) and, for every other shape, the far less useful runtime
-     * "makeValueForType called with unhandled type 0". */
-    aetherValidateTypeAnnotations(root);
+    /* TYPE-002, stage 2, runs here and not with the source-text passes above:
+     * imported modules are loaded by the pass that just ran, so this is the
+     * first point at which any other unresolved type name is known to be wrong
+     * rather than early. */
+    aetherValidateTypeNames(root);
     /* NARROW-001 is likewise a warning and never touches the error counter.
      * It must run AFTER reaPerformSemanticAnalysis: a bare AST_VARIABLE
      * reference and a call to a user function both still carry TYPE_UNKNOWN

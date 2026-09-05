@@ -1,0 +1,14 @@
+fn scale(x: Double) -> Integer {
+    ret 1;
+}
+
+fn label(flag: Boolean) -> Zorblatt {
+    ret "on";
+}
+
+fn main() -> Void {
+    let items: List = [1, 2];
+    let lookup: Map = 0;
+    fx { println(scale(1.0), label(true), items, lookup); }
+    ret;
+}

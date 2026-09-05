@@ -1,0 +1,26 @@
+// `String` and `Float` are accepted alternate spellings of `Text` and `Real`.
+// They lower identically, so a program written entirely in the alternate
+// spellings must behave exactly like the canonical one.
+
+@pure
+fn scale(x: Float, by: Float) -> Float {
+    ret x * by;
+}
+
+@pure
+fn shout(word: String) -> String {
+    ret word + "!";
+}
+
+fn main() -> Void {
+    let ratio: Float = scale(1.5, 2.0);
+    let greeting: String = shout("aether");
+    let canonical: Real = ratio;
+    let plain: Text = greeting;
+    fx {
+        println(canonical:0:2);
+        println(plain);
+        println(string_len(greeting));
+    }
+    ret;
+}

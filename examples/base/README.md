@@ -20,6 +20,7 @@ For a larger multi-file example, see `examples/showcase`.
 ./build/bin/aether examples/base/object_inference
 ./build/bin/aether examples/base/for_range
 ./build/bin/aether examples/base/loop_forms
+./build/bin/aether examples/base/loop_forms_foreach
 ./build/bin/aether examples/base/module_demo
 ./build/bin/aether examples/base/module_consts_demo
 ./build/bin/aether examples/base/toon_blocks

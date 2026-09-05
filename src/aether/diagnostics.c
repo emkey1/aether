@@ -96,6 +96,17 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "precedence") == 0) {
             return "PREC-001";
         }
+        /* A type name in a declaration that never resolved -- neither a builtin
+         * type nor a `type` declared in this program or an imported module.
+         * Distinct from TYPE-001, which is a real type used wrongly: here the
+         * name itself does not exist, so the fix is the spelling and not the
+         * usage. It earns its own code because without it the mistake is
+         * completely silent -- an unresolved annotation lowers to an untyped
+         * slot that accepts any value, so `-> Strng` type-checks nothing and
+         * the program runs to completion. */
+        if (strcmp(kind, "unknown-type") == 0) {
+            return "TYPE-002";
+        }
     }
 
     if (!detail) {
