@@ -76,9 +76,18 @@ if(NOT AETHER_LANG_VERSION)
 endif()
 message(STATUS "Aether language version: ${AETHER_LANG_VERSION}")
 
+# Which published image this binary was built for, e.g.
+# pscal-rootfs-2026.09.19.1. Passed in by the rootfs build; a developer build
+# leaves it "untagged". Passed rather than discovered with `git describe` on
+# purpose: the rootfs build clones --depth 1, and a shallow clone carries no
+# tags to describe. The matching git tag is pushed to this repo after the image
+# is published, so the string names a commit you can actually check out.
+set(PSCAL_ROOTFS_TAG "untagged" CACHE STRING
+    "Name of the published rootfs build this binary belongs to")
+
 add_compile_definitions(
     PROGRAM_VERSION="${AETHER_LANG_VERSION}"
-    PSCAL_GIT_TAG="untagged"
+    PSCAL_GIT_TAG="${PSCAL_ROOTFS_TAG}"
     ENABLE_EXT_BUILTIN_MATH ENABLE_EXT_BUILTIN_STRINGS ENABLE_EXT_BUILTIN_SYSTEM
     ENABLE_EXT_BUILTIN_USER ENABLE_EXT_BUILTIN_YYJSON ENABLE_EXT_BUILTIN_3D
     ENABLE_EXT_BUILTIN_GRAPHICS
