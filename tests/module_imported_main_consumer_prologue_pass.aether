@@ -1,0 +1,8 @@
+use module_lib_with_main;
+
+let greeting: Text = "consumer: ";
+
+fn main() -> Void {
+    fx { println(greeting, libDouble(4)); }
+    ret;
+}

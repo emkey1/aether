@@ -12,6 +12,36 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-09-22-1
+
+**A `use`d file's own `main()` no longer runs, and no longer stops the
+importer's top level from running. An importer's globals used to read as
+undefined whenever the file it `use`d declared a `main`.**
+
+A file written to run on its own as well as to be `use`d declares a top-level
+`fn main` for its self-test. When `use`d, its `main` was already kept from
+becoming the program's entry point, but its call to `main` still ran as
+module initialisation: the implicit one the parser adds to a file with no
+top-level statements, or an explicit `main();`. That call bound to the
+importer's `main` by bare name. Codegen then compiled that body on the spot
+with no JUMP around it, so the program's top level ran into it and left
+through its `ret`. The importer's `main` ran once and the output could look
+right, but everything else in the importer's top level was skipped,
+including the prologue that defines its globals. A global read in `main`
+failed with `Undefined global variable`.
+
+A `use`d file's call to `main()` is now dropped: its `main` is for running the
+file on its own. Other top-level statements still run as module
+initialisation. Separately, the shared backend now jumps over a routine it
+compiles at a top-level call site, so no other call can make the top level run
+into a routine body. Rea's parser gets the same change, since `#import` had
+the same bug.
+
+The load-time verifier found this. It now follows control flow from each entry
+point across the whole chunk (pscal-core), and it rejected the cached bytecode
+of `tests/module_imported_main_not_entry_point_pass.aether` for a top-level
+JUMP into a routine body.
+
 ## 2026-09-05-1
 
 **Loops iterate collections and step; the word operators exist; the shared

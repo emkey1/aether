@@ -153,6 +153,7 @@ MODULE_HELPER_COLLISION_B_SUPPORT_FIXTURE="$TESTS_DIR/module_helper_collision_b"
 MODULE_PRIVATE_HELPER_COLLISION_PASS_FIXTURE="$TESTS_DIR/module_private_helper_collision_pass.aether"
 MODULE_LIB_WITH_MAIN_SUPPORT_FIXTURE="$TESTS_DIR/module_lib_with_main"
 MODULE_IMPORTED_MAIN_NOT_ENTRY_POINT_PASS_FIXTURE="$TESTS_DIR/module_imported_main_not_entry_point_pass.aether"
+MODULE_IMPORTED_MAIN_CONSUMER_PROLOGUE_PASS_FIXTURE="$TESTS_DIR/module_imported_main_consumer_prologue_pass.aether"
 IF_LEADING_PAREN_SUBEXPR_PASS_FIXTURE="$TESTS_DIR/if_leading_paren_subexpr_pass.aether"
 TOON_BLOCK_PASS_FIXTURE="$TESTS_DIR/toon_block_pass.aether"
 TYPE_BLOCK_PASS_FIXTURE="$TESTS_DIR/type_block_pass.aether"
@@ -999,6 +1000,18 @@ fi
 if ! grep -qx "consumer: 8" /tmp/aether_module_imported_main_not_entry_point_pass.out; then
     echo "unexpected imported-main entry-point output" >&2
     cat /tmp/aether_module_imported_main_not_entry_point_pass.out >&2
+    exit 1
+fi
+# Regression: the used file above has no top-level statements, so the parser
+# injected its implicit `main()` call into the file's module initialisation.
+# That call bound to the importer's main by bare name, which the compiler then
+# compiled inline, and the program's top level jumped into it: the importer's
+# prologue never ran, so its globals were undefined. A dependency file's entry
+# invocation is now dropped instead.
+"$AETHER_BIN" --no-cache "$MODULE_IMPORTED_MAIN_CONSUMER_PROLOGUE_PASS_FIXTURE" >/tmp/aether_module_imported_main_consumer_prologue_pass.out 2>&1
+if [ "$(cat /tmp/aether_module_imported_main_consumer_prologue_pass.out)" != "consumer: 8" ]; then
+    echo "imported main skipped the importer's prologue" >&2
+    cat /tmp/aether_module_imported_main_consumer_prologue_pass.out >&2
     exit 1
 fi
 # Regression: `if (expr) && more { }` used to fail to parse. parseIfStmt

@@ -8995,6 +8995,29 @@ AST *parseAetherAst(const char *rawSource) {
     tupleTableFree(&tuples);
     free(source);
 
+    /* A `use`d dependency file is not the program, so it has no entry point to
+     * invoke (see the registration guard in parseFnDecl: only the entry file's
+     * own main is ever the entry point). Its top-level statements still run as
+     * module initialisation, but a bare `main();` written for the file's
+     * standalone self-test is dropped, and none is injected below. Compiled
+     * into initialisation, that call binds to the importer's main by bare name
+     * and runs it before the program starts. Identical to rea parseRea's tail. */
+    if (reaFrontendIsParsingLibraryFile()) {
+        int kept = 0;
+        for (int i = 0; i < stmts->child_count; i++) {
+            AST *s = stmts->children[i];
+            AST *call = (s && s->type == AST_EXPR_STMT) ? s->left : s;
+            if (call && call->type == AST_PROCEDURE_CALL && call->child_count == 0 &&
+                call->token && call->token->value && strcasecmp(call->token->value, "main") == 0) {
+                freeAST(s);
+                continue;
+            }
+            stmts->children[kept++] = s;
+        }
+        stmts->child_count = kept;
+        return program;
+    }
+
     /* If a routine named 'main' exists and there are no top-level statements,
      * inject an implicit `main()` call so the VM runs user code on start --
      * identical to rea parseRea's tail. */
