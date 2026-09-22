@@ -1,0 +1,28 @@
+// Run twice through the bytecode cache: the second run loads the cached chunk
+// and must print the same. `[]` is a dimensionless array constant. The cache
+// reader used to expect one element for it that the writer never wrote, so
+// every later constant was read one value late and the file never loaded;
+// once it did load, `[]` came back one element long and `.len` counted a
+// phantom. The record loop reads fields through pointers built from the
+// cache, which crashed before record defaults moved to PUSH_TYPE_DEFAULT.
+type Item { name: Text = ""; qty: Int = 0; }
+
+fn evens(n: Int) -> Int[] {
+    let out: Int[] = [];
+    loop i in 0..n { if i % 2 == 0 { out = out + [i]; } }
+    ret out;
+}
+
+fn main() -> Void {
+    let items: Item[] = [new Item { name: "bolt", qty: 3 }, new Item { name: "nut", qty: 5 }];
+    let qty: Int = 0;
+    loop it in items { qty = qty + it.qty; }
+
+    let empty: Int[] = [];
+    let grid: Int[][] = [[1, 2], [3, 4, 5]];
+
+    fx {
+        println("qty=", qty, " evens=", evens(7).len, " empty=", empty.len, " grid=", grid[1][2]);
+    }
+    ret;
+}

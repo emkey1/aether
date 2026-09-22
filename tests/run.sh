@@ -67,6 +67,7 @@ FIELD_UNKNOWN_CODED_FAIL_FIXTURE="$TESTS_DIR/field_unknown_coded_fail.aether"
 UNKNOWN_TYPE_NAME_FAIL_FIXTURE="$TESTS_DIR/unknown_type_name_fail.aether"
 UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE="$TESTS_DIR/unknown_type_scalar_fail.aether"
 LOOP_FOREACH_PASS_FIXTURE="$TESTS_DIR/loop_foreach_pass.aether"
+CACHE_ROUNDTRIP_PASS_FIXTURE="$TESTS_DIR/cache_roundtrip_pass.aether"
 LOOP_FOREACH_SCALAR_FAIL_FIXTURE="$TESTS_DIR/loop_foreach_scalar_fail.aether"
 LOOP_STEP_PASS_FIXTURE="$TESTS_DIR/loop_step_pass.aether"
 LOOP_STEP_ZERO_FAIL_FIXTURE="$TESTS_DIR/loop_step_zero_fail.aether"
@@ -281,6 +282,7 @@ for fixture in \
     "$UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE" \
     "$TYPE_ALIAS_STRING_FLOAT_PASS_FIXTURE" \
     "$LOOP_FOREACH_PASS_FIXTURE" \
+    "$CACHE_ROUNDTRIP_PASS_FIXTURE" \
     "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" \
     "$LOOP_STEP_PASS_FIXTURE" \
     "$LOOP_STEP_ZERO_FAIL_FIXTURE" \
@@ -3383,6 +3385,30 @@ printf 'alpha 8080 MISSING []\ntrue false false\nalpha 2 -1\n' >/tmp/aether_toon
 if ! cmp -s /tmp/aether_toon_dotted_path_expected.out /tmp/aether_toon_dotted_path_pass.out; then
     echo "unexpected dotted TOON path output" >&2
     cat /tmp/aether_toon_dotted_path_pass.out >&2
+    exit 1
+fi
+
+# The bytecode cache round trip: the second run must load the chunk the first
+# run cached and print the same. The fixture's comment lists what used to
+# break it (an unreadable cache file, a crash, a phantom array element).
+CACHE_HOME="$(mktemp -d)"
+HOME="$CACHE_HOME" "$AETHER_BIN" --verbose "$CACHE_ROUNDTRIP_PASS_FIXTURE" >/tmp/aether_cache_roundtrip_1.out 2>/tmp/aether_cache_roundtrip_1.err
+HOME="$CACHE_HOME" "$AETHER_BIN" --verbose "$CACHE_ROUNDTRIP_PASS_FIXTURE" >/tmp/aether_cache_roundtrip_2.out 2>/tmp/aether_cache_roundtrip_2.err || true
+rm -rf "$CACHE_HOME"
+printf 'qty=8 evens=4 empty=0 grid=5\n' >/tmp/aether_cache_roundtrip_expected.out
+if ! cmp -s /tmp/aether_cache_roundtrip_expected.out /tmp/aether_cache_roundtrip_1.out; then
+    echo "unexpected cache round-trip output (compiled run)" >&2
+    cat /tmp/aether_cache_roundtrip_1.out /tmp/aether_cache_roundtrip_1.err >&2
+    exit 1
+fi
+if ! grep -q '^Loaded cached bytecode' /tmp/aether_cache_roundtrip_2.err; then
+    echo "second run did not load the cached bytecode" >&2
+    cat /tmp/aether_cache_roundtrip_2.err >&2
+    exit 1
+fi
+if ! cmp -s /tmp/aether_cache_roundtrip_expected.out /tmp/aether_cache_roundtrip_2.out; then
+    echo "unexpected cache round-trip output (cached run)" >&2
+    cat /tmp/aether_cache_roundtrip_2.out /tmp/aether_cache_roundtrip_2.err >&2
     exit 1
 fi
 
