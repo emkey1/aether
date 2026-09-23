@@ -8461,14 +8461,22 @@ static AST *parseModuleDecl(AetherParser *p) {
 
 /* Append a parsed top-level declaration to `decls`/`stmts`, flattening the
  * `AST_COMPOUND` bundle that a `type` (record/class + methods) produces -- the
- * exact rea parseRea top-level handling. */
+ * exact rea parseRea top-level handling.
+ *
+ * A `let` stays in `stmts`, unlike every other top-level form. It can sit
+ * between two statements, and what it binds depends on everything that ran
+ * before it, so hoisting it into `decls` would compile `let a = 1; a = 5;
+ * let b = a;` with `b` reading `a` as it stood before the assignment. Its slot
+ * is still defined ahead of the program (the compiler hoists that much -- see
+ * hoistStatementGlobalSlots in pscal-core), so the binding is visible
+ * everywhere regardless of where its initializer runs. */
 static void appendTopLevelDecl(AST *decls, AST *stmts, AST *node) {
     if (!node) return;
     if (node->type == AST_COMPOUND && node->is_global_scope) {
         for (int i = 0; i < node->child_count; i++) {
             AST *child = node->children[i];
             if (!child) continue;
-            if (child->type == AST_VAR_DECL || child->type == AST_FUNCTION_DECL ||
+            if (child->type == AST_FUNCTION_DECL ||
                 child->type == AST_PROCEDURE_DECL || child->type == AST_TYPE_DECL ||
                 child->type == AST_CONST_DECL) {
                 addChild(decls, child);
@@ -8480,7 +8488,7 @@ static void appendTopLevelDecl(AST *decls, AST *stmts, AST *node) {
         freeAST(node);
         return;
     }
-    if (node->type == AST_VAR_DECL || node->type == AST_FUNCTION_DECL ||
+    if (node->type == AST_FUNCTION_DECL ||
         node->type == AST_PROCEDURE_DECL || node->type == AST_TYPE_DECL ||
         node->type == AST_CONST_DECL || node->type == AST_MODULE ||
         node->type == AST_USES_CLAUSE || node->type == AST_IMPORT) {
@@ -9030,7 +9038,18 @@ AST *parseAetherAst(const char *rawSource) {
             has_main = true;
         }
     }
-    if (stmts->child_count == 0 && has_main) {
+    /* A top-level `let` sits in `stmts` to keep its position, but it is a
+     * declaration, not user code -- a file that is nothing but bindings and a
+     * `fn main` still needs the implicit call. */
+    bool has_executable_stmt = false;
+    for (int i = 0; i < stmts->child_count; i++) {
+        AST *s = stmts->children[i];
+        if (s && s->type != AST_VAR_DECL) {
+            has_executable_stmt = true;
+            break;
+        }
+    }
+    if (!has_executable_stmt && has_main) {
         Token *mainTok = newToken(TOKEN_IDENTIFIER, "main", 0, 0);
         AST *call = newASTNode(AST_PROCEDURE_CALL, mainTok);
         AST *stmt = newASTNode(AST_EXPR_STMT, call->token);

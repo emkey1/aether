@@ -12,6 +12,37 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-09-23-1
+
+**A top-level `let` initializes where it stands. Every top-level `let` used to
+run its initializer before the program's first statement, so a `let` read the
+globals above it as they were before any statement had assigned them.**
+
+The parser filed each top-level `let` with the declarations (functions, types,
+consts) rather than with the statements around it, and the backend emitted the
+declarations' initializers as one block ahead of the program body. In
+
+```
+let a: Int = 1;
+a = 5;
+let b: Int = a;
+```
+
+`b` came out 1, not 5. The same happened after a loop (`let captured = total;`
+read `total` before the loop ran) and with records (`let other: Node = head;`
+bound whatever `head` held before it was reassigned).
+
+A top-level `let` now stays among the statements, and its initializer runs in
+source order. Its binding is still hoisted: the backend defines every global's
+slot before any code runs, so a `fn` can read or assign a global declared
+below it, exactly as before. A file made of `let`s and a `fn main` still gets
+the implicit `main()` call; the `let`s are declarations, not top-level
+statements.
+
+Rea had the same bug and gets the same fix (rea `parseRea`, pscal-core
+`hoistStatementGlobalSlots`). Pascal (`var` sections precede `begin`) and CLike
+(no top-level statements) never interleave the two and are unaffected.
+
 ## 2026-09-22-1
 
 **A `use`d file's own `main()` no longer runs, and no longer stops the

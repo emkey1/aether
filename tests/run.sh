@@ -144,6 +144,7 @@ MODULE_CONST_IMPORT_PASS_FIXTURE="$TESTS_DIR/module_const_import_pass.aether"
 MODULE_SHAPES_SUPPORT_FIXTURE="$TESTS_DIR/module_shapes"
 MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE="$TESTS_DIR/module_type_field_access_pass.aether"
 MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE="$TESTS_DIR/module_type_global_let_pass.aether"
+GLOBAL_LET_SOURCE_ORDER_PASS_FIXTURE="$TESTS_DIR/global_let_source_order_pass.aether"
 MODULE_CALC_SUPPORT_FIXTURE="$TESTS_DIR/module_calc"
 MODULE_INTRAMODULE_CALL_PASS_FIXTURE="$TESTS_DIR/module_intramodule_call_pass.aether"
 MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE="$TESTS_DIR/module_self_qualified_call_pass.aether"
@@ -307,6 +308,7 @@ for fixture in \
     "$TUPLE_POST_PASS_FIXTURE" \
     "$ARRAY_APPEND_PASS_FIXTURE" \
     "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" \
+    "$GLOBAL_LET_SOURCE_ORDER_PASS_FIXTURE" \
     "$CONTINUE_LOOP_VAR_REUSE_PASS_FIXTURE" \
     "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" \
     "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" \
@@ -3385,6 +3387,18 @@ printf 'alpha 8080 MISSING []\ntrue false false\nalpha 2 -1\n' >/tmp/aether_toon
 if ! cmp -s /tmp/aether_toon_dotted_path_expected.out /tmp/aether_toon_dotted_path_pass.out; then
     echo "unexpected dotted TOON path output" >&2
     cat /tmp/aether_toon_dotted_path_pass.out >&2
+    exit 1
+fi
+
+# Regression: a top-level `let` initializes where it stands. The parser used to
+# hoist every top-level `let` into the declaration section, so all of their
+# initializers ran before the first statement and read globals as they stood
+# before any assignment above them.
+"$AETHER_BIN" --no-cache "$GLOBAL_LET_SOURCE_ORDER_PASS_FIXTURE" >/tmp/aether_global_let_source_order_pass.out
+printf '5\n7\n6\n' >/tmp/aether_global_let_source_order_expected.out
+if ! cmp -s /tmp/aether_global_let_source_order_expected.out /tmp/aether_global_let_source_order_pass.out; then
+    echo "unexpected global-let source-order output" >&2
+    cat /tmp/aether_global_let_source_order_pass.out >&2
     exit 1
 fi
 
