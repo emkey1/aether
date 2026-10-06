@@ -44,7 +44,7 @@ the 14B-35B roster (5 models, 4-bit). This supersedes `cs-aug4` as the
 full-roster board.
 
 **What changed vs cs-aug19:** the 0-based `Text` migration was finished in the
-corpus. `c710d4251` had rewritten `copy()` call sites but missed every
+corpus. `bc6b719b4` had rewritten `copy()` call sites but missed every
 hand-managed cursor, leaving `ok=679 drifted=3 run-failed=11`; the corpus is now
 `ok=729 drifted=0 run-failed=0`. Two seed repair pairs were also found inverted:
 `repair_string_zero_index` taught rewriting correct 0-based code *into* the

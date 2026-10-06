@@ -140,7 +140,7 @@ The harness read only the Responses-API `input_tokens_details`, never the
 chat-completions `prompt_tokens_details`, so **every `openai_chat_completions`
 destination reported 0 cached tokens regardless of what the provider served
 from cache**. Any cache figure on an earlier board that used that adapter is
-understated. Fixed in `d8b778044`; measured rates on this board were 55–59%
+understated. Fixed in `5a352592e`; measured rates on this board were 55–59%
 overall, and up to 97.6% on OpenAI where the guide prefix stays warm across a
 model's suites.
 
@@ -710,7 +710,7 @@ now lives in [`aether_guide_changelog.md`](aether_guide_changelog.md).
 **Harness note (2026-07-30):** cache-token accounting was broken for every
 `openai_chat_completions` destination — the parser read only the Responses-API
 `input_tokens_details`, so chat-completions providers always reported zero
-cached tokens. Any cached-token figure on a board predating `d8b778044` is
+cached tokens. Any cached-token figure on a board predating `5a352592e` is
 understated. Scores are unaffected; this only ever touched usage reporting.
 
 This is the finalized-guide / repair-on cohort, regenerated from the per-model
