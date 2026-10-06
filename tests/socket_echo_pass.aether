@@ -35,15 +35,33 @@ fn client(port: Int, out: Message) -> Void {
     ret;
 }
 
+// The listener takes the first free port from 23557 up rather than 23557
+// itself: two suites running at once on one machine (two agents, or a local
+// run beside CI) used to meet on the same port, and one of them hung or failed.
+// socketbind returns 0 on success and -1 when the port is taken.
 fn main() -> Void {
     let port: Int = 23557;
+    let lastPort: Int = 23757;
+    let bound: Bool = false;
     let listenSock: Int = 0;
     let serverMsg: Message = new Message();
     let clientMsg: Message = new Message();
     fx {
         listenSock = socketcreate(0);
-        socketbind(listenSock, port);
-        socketlisten(listenSock, 1);
+        loop !bound && port < lastPort {
+            if socketbind(listenSock, port) == 0 {
+                bound = true;
+            } else {
+                port = port + 1;
+            }
+        }
+        if bound {
+            socketlisten(listenSock, 1);
+        }
+    }
+    if !bound {
+        fx { println("no free port in 23557..23756"); }
+        ret;
     }
     par {
         server(listenSock, serverMsg);

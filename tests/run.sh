@@ -1,6 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Every file this run writes (program output, expected-output goldens,
+# generated fixtures) goes in a private scratch directory that is removed on
+# exit. With fixed names under /tmp, two runs on one machine (two agents, or a
+# local run beside claw) overwrote each other's files and failed spuriously,
+# and each run left a few hundred files behind. The paths below are written
+# unquoted ($OUT/...), so the directory must not contain whitespace.
+OUT="$(mktemp -d "${TMPDIR:-/tmp}/aether_tests.XXXXXX")"
+trap 'rm -rf "$OUT"' EXIT
+case "$OUT" in
+    *[[:space:]]*)
+        echo "scratch directory contains whitespace (check TMPDIR): $OUT" >&2
+        exit 1
+        ;;
+esac
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # This runner ships inside the aether repo at tests/; the .aether fixtures sit
 # beside it and the examples are one directory up. AETHER_BIN defaults to the
@@ -447,213 +462,221 @@ done
 # Compound lines: a type field + method, and a fn body, sharing one physical line
 # must parse (aetherNormalizeCompoundLines splits them). Regression for the two
 # SYN-001 mis-parses (dropped method / untranslated inline body).
-"$AETHER_BIN" --no-cache "$COMPOUND_LINES_PASS_FIXTURE" >/tmp/aether_compound_lines_pass.out
-if ! grep -qx "7 positive" /tmp/aether_compound_lines_pass.out; then
+"$AETHER_BIN" --no-cache "$COMPOUND_LINES_PASS_FIXTURE" >$OUT/aether_compound_lines_pass.out
+if ! printf '7 positive\n' | cmp -s - $OUT/aether_compound_lines_pass.out; then
     echo "unexpected compound-line output (regression: run-on type members / inline fn bodies)" >&2
-    cat /tmp/aether_compound_lines_pass.out >&2
+    cat $OUT/aether_compound_lines_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$CONTRACT_PASS_FIXTURE" >/dev/null
-"$AETHER_BIN" --no-cache "$CONTRACT_LAYOUT_PASS_FIXTURE" >/tmp/aether_contract_layout_pass.out
-if ! grep -qx "42" /tmp/aether_contract_layout_pass.out; then
+# @pre/@post on a passing call must leave the result alone: inc(3) prints 4.
+"$AETHER_BIN" --no-cache "$CONTRACT_PASS_FIXTURE" >$OUT/aether_contracts_pass.out
+if ! printf '4\n' | cmp -s - $OUT/aether_contracts_pass.out; then
+    echo "unexpected contracts_pass output" >&2
+    cat $OUT/aether_contracts_pass.out >&2
+    exit 1
+fi
+"$AETHER_BIN" --no-cache "$CONTRACT_LAYOUT_PASS_FIXTURE" >$OUT/aether_contract_layout_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_contract_layout_pass.out; then
     echo "unexpected contract layout output" >&2
-    cat /tmp/aether_contract_layout_pass.out >&2
+    cat $OUT/aether_contract_layout_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$CONTRACT_STRING_LEN_PASS_FIXTURE" >/tmp/aether_contract_string_len_pass.out
-if ! grep -qx "10" /tmp/aether_contract_string_len_pass.out; then
+"$AETHER_BIN" --no-cache "$CONTRACT_STRING_LEN_PASS_FIXTURE" >$OUT/aether_contract_string_len_pass.out
+if ! printf '10\n' | cmp -s - $OUT/aether_contract_string_len_pass.out; then
     echo "unexpected contract string_len output" >&2
-    cat /tmp/aether_contract_string_len_pass.out >&2
+    cat $OUT/aether_contract_string_len_pass.out >&2
     exit 1
 fi
 # A `//` line comment trailing a @pre/@post annotation must be stripped before
 # the contract expression is lowered to a guard (comment text is not code), and
 # a `//` inside a string literal in the expression must be preserved. A leak in
 # either direction turns this into a compile error instead of the 1/42 output.
-"$AETHER_BIN" --no-cache "$CONTRACT_COMMENT_PASS_FIXTURE" >/tmp/aether_contract_comment_pass.out
-printf '1\n42\n' >/tmp/aether_contract_comment_expected.out
-if ! cmp -s /tmp/aether_contract_comment_expected.out /tmp/aether_contract_comment_pass.out; then
+"$AETHER_BIN" --no-cache "$CONTRACT_COMMENT_PASS_FIXTURE" >$OUT/aether_contract_comment_pass.out
+printf '1\n42\n' >$OUT/aether_contract_comment_expected.out
+if ! cmp -s $OUT/aether_contract_comment_expected.out $OUT/aether_contract_comment_pass.out; then
     echo "unexpected contract annotation comment output (regression: // comment leaked into guard, or in-literal // stripped)" >&2
-    cat /tmp/aether_contract_comment_pass.out >&2
+    cat $OUT/aether_contract_comment_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$COST_PASS_FIXTURE" >/tmp/aether_cost_pass.out
-if ! grep -qx "42" /tmp/aether_cost_pass.out; then
+"$AETHER_BIN" --no-cache "$COST_PASS_FIXTURE" >$OUT/aether_cost_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_cost_pass.out; then
     echo "unexpected cost annotation output" >&2
-    cat /tmp/aether_cost_pass.out >&2
+    cat $OUT/aether_cost_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$PRINT_ALIAS_PASS_FIXTURE" >/tmp/aether_print_alias_pass.out
-printf 'Aether print aliases\n' >/tmp/aether_print_alias_expected.out
-if ! cmp -s /tmp/aether_print_alias_expected.out /tmp/aether_print_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$PRINT_ALIAS_PASS_FIXTURE" >$OUT/aether_print_alias_pass.out
+printf 'Aether print aliases\n' >$OUT/aether_print_alias_expected.out
+if ! cmp -s $OUT/aether_print_alias_expected.out $OUT/aether_print_alias_pass.out; then
     echo "unexpected print alias output" >&2
-    cat /tmp/aether_print_alias_pass.out >&2
+    cat $OUT/aether_print_alias_pass.out >&2
     exit 1
 fi
 "$AETHER_BIN" --no-cache --no-run "$ARRAY_RETURN_PASS_FIXTURE" >/dev/null
-"$AETHER_BIN" --no-cache "$INLINE_IF_EXPR_PASS_FIXTURE" >/tmp/aether_inline_if_expr_pass.out
-if ! grep -qx "42" /tmp/aether_inline_if_expr_pass.out; then
+"$AETHER_BIN" --no-cache "$INLINE_IF_EXPR_PASS_FIXTURE" >$OUT/aether_inline_if_expr_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_inline_if_expr_pass.out; then
     echo "unexpected inline if expression output" >&2
-    cat /tmp/aether_inline_if_expr_pass.out >&2
+    cat $OUT/aether_inline_if_expr_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$NEG_ARRAY_FIXTURE" >/tmp/aether_neg_array_pass.out
-if ! grep -qx "neg_array = -5,-2,-4" /tmp/aether_neg_array_pass.out; then
+"$AETHER_BIN" --no-cache "$NEG_ARRAY_FIXTURE" >$OUT/aether_neg_array_pass.out
+if ! printf 'neg_array = -5,-2,-4\n' | cmp -s - $OUT/aether_neg_array_pass.out; then
     echo "unexpected negative array literal output (regression: negative Int[] elements)" >&2
-    cat /tmp/aether_neg_array_pass.out >&2
+    cat $OUT/aether_neg_array_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$STRING_PARSE_PASS_FIXTURE" >/tmp/aether_string_parse_pass.out
-printf '19\ntrue\n99\n' >/tmp/aether_string_parse_expected.out
-if ! cmp -s /tmp/aether_string_parse_expected.out /tmp/aether_string_parse_pass.out; then
+"$AETHER_BIN" --no-cache "$STRING_PARSE_PASS_FIXTURE" >$OUT/aether_string_parse_pass.out
+printf '19\ntrue\n99\n' >$OUT/aether_string_parse_expected.out
+if ! cmp -s $OUT/aether_string_parse_expected.out $OUT/aether_string_parse_pass.out; then
     echo "unexpected string/parse stdlib output (split/parse_int/parse_bool/itoa)" >&2
-    cat /tmp/aether_string_parse_pass.out >&2
+    cat $OUT/aether_string_parse_pass.out >&2
     exit 1
 fi
 # TOON aliases must resolve and dispatch to the canonical toon_* API. Accept the
 # no-yyjson fallback too, since the point is that the alias names compile + run.
-"$AETHER_BIN" --no-cache "$TOON_ALIAS_PASS_FIXTURE" >/tmp/aether_toon_alias_pass.out
-if ! grep -qxE 'Aether 42|toon unavailable' /tmp/aether_toon_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_ALIAS_PASS_FIXTURE" >$OUT/aether_toon_alias_pass.out
+if ! printf 'Aether 42\n' | cmp -s - $OUT/aether_toon_alias_pass.out &&
+   ! printf 'toon unavailable\n' | cmp -s - $OUT/aether_toon_alias_pass.out; then
     echo "unexpected TOON alias output (parse_json/root_node/lookup_string/lookup_int/close_doc)" >&2
-    cat /tmp/aether_toon_alias_pass.out >&2
+    cat $OUT/aether_toon_alias_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$ALIAS_STRING_LITERAL_PASS_FIXTURE" >/tmp/aether_alias_string_literal_pass.out
-printf 'call sleep(5) now\nstring_eq(a,b) or len(x) or has_toon() inline\nlen=3 same=true\n' >/tmp/aether_alias_string_literal_expected.out
-if ! cmp -s /tmp/aether_alias_string_literal_expected.out /tmp/aether_alias_string_literal_pass.out; then
+"$AETHER_BIN" --no-cache "$ALIAS_STRING_LITERAL_PASS_FIXTURE" >$OUT/aether_alias_string_literal_pass.out
+printf 'call sleep(5) now\nstring_eq(a,b) or len(x) or has_toon() inline\nlen=3 same=true\n' >$OUT/aether_alias_string_literal_expected.out
+if ! cmp -s $OUT/aether_alias_string_literal_expected.out $OUT/aether_alias_string_literal_pass.out; then
     echo "alias lowering corrupted a string literal (or an alias outside a string broke)" >&2
-    cat /tmp/aether_alias_string_literal_pass.out >&2
+    cat $OUT/aether_alias_string_literal_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$INLINE_IF_CALL_ARGS_PASS_FIXTURE" >/tmp/aether_inline_if_call_args_pass.out
-printf 'status:ready\n' >/tmp/aether_inline_if_call_args_expected.out
-if ! cmp -s /tmp/aether_inline_if_call_args_expected.out /tmp/aether_inline_if_call_args_pass.out; then
+"$AETHER_BIN" --no-cache "$INLINE_IF_CALL_ARGS_PASS_FIXTURE" >$OUT/aether_inline_if_call_args_pass.out
+printf 'status:ready\n' >$OUT/aether_inline_if_call_args_expected.out
+if ! cmp -s $OUT/aether_inline_if_call_args_expected.out $OUT/aether_inline_if_call_args_pass.out; then
     echo "unexpected inline if call-arg output" >&2
-    cat /tmp/aether_inline_if_call_args_pass.out >&2
+    cat $OUT/aether_inline_if_call_args_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$MULTILINE_INLINE_IF_DECL_PASS_FIXTURE" >/tmp/aether_multiline_inline_if_decl_pass.out
-if ! grep -qx "ready" /tmp/aether_multiline_inline_if_decl_pass.out; then
+"$AETHER_BIN" --no-cache "$MULTILINE_INLINE_IF_DECL_PASS_FIXTURE" >$OUT/aether_multiline_inline_if_decl_pass.out
+if ! printf 'ready\n' | cmp -s - $OUT/aether_multiline_inline_if_decl_pass.out; then
     echo "unexpected multiline inline if decl output" >&2
-    cat /tmp/aether_multiline_inline_if_decl_pass.out >&2
+    cat $OUT/aether_multiline_inline_if_decl_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$RETURN_OBJECT_INIT_PASS_FIXTURE" >/tmp/aether_return_object_init_pass.out
-printf '7\nready\n' >/tmp/aether_return_object_init_expected.out
-if ! cmp -s /tmp/aether_return_object_init_expected.out /tmp/aether_return_object_init_pass.out; then
+"$AETHER_BIN" --no-cache "$RETURN_OBJECT_INIT_PASS_FIXTURE" >$OUT/aether_return_object_init_pass.out
+printf '7\nready\n' >$OUT/aether_return_object_init_expected.out
+if ! cmp -s $OUT/aether_return_object_init_expected.out $OUT/aether_return_object_init_pass.out; then
     echo "unexpected return object init output" >&2
-    cat /tmp/aether_return_object_init_pass.out >&2
+    cat $OUT/aether_return_object_init_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$STRING_EQ_ALIAS_PASS_FIXTURE" >/tmp/aether_string_eq_alias_pass.out
-if ! grep -qx "ok" /tmp/aether_string_eq_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$STRING_EQ_ALIAS_PASS_FIXTURE" >$OUT/aether_string_eq_alias_pass.out
+if ! printf 'ok\n' | cmp -s - $OUT/aether_string_eq_alias_pass.out; then
     echo "unexpected string_eq alias output" >&2
-    cat /tmp/aether_string_eq_alias_pass.out >&2
+    cat $OUT/aether_string_eq_alias_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TASK_HELPERS_PASS_FIXTURE" >/tmp/aether_task_helpers_pass.out
-if ! grep -q '^named_ok = true$' /tmp/aether_task_helpers_pass.out; then
+"$AETHER_BIN" --no-cache "$TASK_HELPERS_PASS_FIXTURE" >$OUT/aether_task_helpers_pass.out
+if ! grep -q '^named_ok = true$' $OUT/aether_task_helpers_pass.out; then
     echo "unexpected task helper named output" >&2
-    cat /tmp/aether_task_helpers_pass.out >&2
+    cat $OUT/aether_task_helpers_pass.out >&2
     exit 1
 fi
-if ! grep -q '^pooled_ok = true$' /tmp/aether_task_helpers_pass.out; then
+if ! grep -q '^pooled_ok = true$' $OUT/aether_task_helpers_pass.out; then
     echo "unexpected task helper pooled output" >&2
-    cat /tmp/aether_task_helpers_pass.out >&2
+    cat $OUT/aether_task_helpers_pass.out >&2
     exit 1
 fi
-if ! grep -q '^lookup_match = true$' /tmp/aether_task_helpers_pass.out; then
+if ! grep -q '^lookup_match = true$' $OUT/aether_task_helpers_pass.out; then
     echo "unexpected task helper lookup output" >&2
-    cat /tmp/aether_task_helpers_pass.out >&2
+    cat $OUT/aether_task_helpers_pass.out >&2
     exit 1
 fi
-if ! grep -Eq '^stats = [0-9]+$' /tmp/aether_task_helpers_pass.out; then
+if ! grep -Eq '^stats = [0-9]+$' $OUT/aether_task_helpers_pass.out; then
     echo "unexpected task helper stats output" >&2
-    cat /tmp/aether_task_helpers_pass.out >&2
+    cat $OUT/aether_task_helpers_pass.out >&2
     exit 1
 fi
-if ! grep -Eq '^has_ai = (true|false)$' /tmp/aether_task_helpers_pass.out; then
+if ! grep -Eq '^has_ai = (true|false)$' $OUT/aether_task_helpers_pass.out; then
     echo "unexpected task helper has_ai output" >&2
-    cat /tmp/aether_task_helpers_pass.out >&2
+    cat $OUT/aether_task_helpers_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$SLEEP_ALIAS_PASS_FIXTURE" >/tmp/aether_sleep_alias_pass.out
-printf 'before\nafter\n' >/tmp/aether_sleep_alias_expected.out
-if ! cmp -s /tmp/aether_sleep_alias_expected.out /tmp/aether_sleep_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$SLEEP_ALIAS_PASS_FIXTURE" >$OUT/aether_sleep_alias_pass.out
+printf 'before\nafter\n' >$OUT/aether_sleep_alias_expected.out
+if ! cmp -s $OUT/aether_sleep_alias_expected.out $OUT/aether_sleep_alias_pass.out; then
     echo "unexpected sleep alias output" >&2
-    cat /tmp/aether_sleep_alias_pass.out >&2
+    cat $OUT/aether_sleep_alias_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$HAS_BUILTIN_ALIAS_PASS_FIXTURE" >/tmp/aether_has_builtin_alias_pass.out
-if ! grep -Eq '^(true|false)$' /tmp/aether_has_builtin_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$HAS_BUILTIN_ALIAS_PASS_FIXTURE" >$OUT/aether_has_builtin_alias_pass.out
+if ! printf 'true\n' | cmp -s - $OUT/aether_has_builtin_alias_pass.out &&
+   ! printf 'false\n' | cmp -s - $OUT/aether_has_builtin_alias_pass.out; then
     echo "unexpected has_builtin alias output" >&2
-    cat /tmp/aether_has_builtin_alias_pass.out >&2
+    cat $OUT/aether_has_builtin_alias_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$BUILTIN_QUERY_PASS_FIXTURE" >/tmp/aether_builtin_query_pass.out
-printf 'true\ntrue\ntrue\ntrue\n' >/tmp/aether_builtin_query_expected.out
-if ! cmp -s /tmp/aether_builtin_query_expected.out /tmp/aether_builtin_query_pass.out; then
+"$AETHER_BIN" --no-cache "$BUILTIN_QUERY_PASS_FIXTURE" >$OUT/aether_builtin_query_pass.out
+printf 'true\ntrue\ntrue\ntrue\n' >$OUT/aether_builtin_query_expected.out
+if ! cmp -s $OUT/aether_builtin_query_expected.out $OUT/aether_builtin_query_pass.out; then
     echo "unexpected builtin query output" >&2
-    cat /tmp/aether_builtin_query_pass.out >&2
+    cat $OUT/aether_builtin_query_pass.out >&2
     exit 1
 fi
 if [ "$HAS_OPENAI" = 1 ]; then
-"$AETHER_BIN" --no-cache "$AI_HELPERS_PASS_FIXTURE" >/tmp/aether_ai_helpers_pass.out
-if ! grep -Eq '^has_ai = (true|false)$' /tmp/aether_ai_helpers_pass.out; then
+"$AETHER_BIN" --no-cache "$AI_HELPERS_PASS_FIXTURE" >$OUT/aether_ai_helpers_pass.out
+if ! grep -Eq '^has_ai = (true|false)$' $OUT/aether_ai_helpers_pass.out; then
     echo "unexpected ai helper capability output" >&2
-    cat /tmp/aether_ai_helpers_pass.out >&2
+    cat $OUT/aether_ai_helpers_pass.out >&2
     exit 1
 fi
-if ! grep -Eq '^has_openai = (true|false)$' /tmp/aether_ai_helpers_pass.out; then
+if ! grep -Eq '^has_openai = (true|false)$' $OUT/aether_ai_helpers_pass.out; then
     echo "unexpected ai helper builtin output" >&2
-    cat /tmp/aether_ai_helpers_pass.out >&2
+    cat $OUT/aether_ai_helpers_pass.out >&2
     exit 1
 fi
 else
     echo "[skip] ai_helpers_pass: OpenAI ext-builtin not present" >&2
 fi
-"$AETHER_BIN" --no-cache "$INFERRED_BINDINGS_PASS_FIXTURE" >/tmp/aether_inferred_bindings_pass.out
-if grep -qx "yyjson unavailable" /tmp/aether_inferred_bindings_pass.out; then
+"$AETHER_BIN" --no-cache "$INFERRED_BINDINGS_PASS_FIXTURE" >$OUT/aether_inferred_bindings_pass.out
+if grep -qx "yyjson unavailable" $OUT/aether_inferred_bindings_pass.out; then
     :
 else
-    printf 'Aether\n42\n3.500000\ntrue\n2\n' >/tmp/aether_inferred_bindings_expected.out
-    if ! cmp -s /tmp/aether_inferred_bindings_expected.out /tmp/aether_inferred_bindings_pass.out; then
+    printf 'Aether\n42\n3.500000\ntrue\n2\n' >$OUT/aether_inferred_bindings_expected.out
+    if ! cmp -s $OUT/aether_inferred_bindings_expected.out $OUT/aether_inferred_bindings_pass.out; then
         echo "unexpected inferred binding output" >&2
-        cat /tmp/aether_inferred_bindings_pass.out >&2
+        cat $OUT/aether_inferred_bindings_pass.out >&2
         exit 1
     fi
 fi
-"$AETHER_BIN" --no-cache "$INFERRED_CONST_PASS_FIXTURE" >/tmp/aether_inferred_const_pass.out
-if ! grep -qx "Aether" /tmp/aether_inferred_const_pass.out; then
+"$AETHER_BIN" --no-cache "$INFERRED_CONST_PASS_FIXTURE" >$OUT/aether_inferred_const_pass.out
+if ! printf 'Aether\n' | cmp -s - $OUT/aether_inferred_const_pass.out; then
     echo "unexpected inferred const output" >&2
-    cat /tmp/aether_inferred_const_pass.out >&2
+    cat $OUT/aether_inferred_const_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$FUNCTION_RETURN_INFERENCE_PASS_FIXTURE" >/tmp/aether_function_return_inference_pass.out
-printf 'Aether\n42\n' >/tmp/aether_function_return_inference_expected.out
-if ! cmp -s /tmp/aether_function_return_inference_expected.out /tmp/aether_function_return_inference_pass.out; then
+"$AETHER_BIN" --no-cache "$FUNCTION_RETURN_INFERENCE_PASS_FIXTURE" >$OUT/aether_function_return_inference_pass.out
+printf 'Aether\n42\n' >$OUT/aether_function_return_inference_expected.out
+if ! cmp -s $OUT/aether_function_return_inference_expected.out $OUT/aether_function_return_inference_pass.out; then
     echo "unexpected function return inference output" >&2
-    cat /tmp/aether_function_return_inference_pass.out >&2
+    cat $OUT/aether_function_return_inference_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$FUNCTION_FORWARD_DECL_PASS_FIXTURE" >/tmp/aether_function_forward_decl_pass.out
-if ! grep -qx "42" /tmp/aether_function_forward_decl_pass.out; then
+"$AETHER_BIN" --no-cache "$FUNCTION_FORWARD_DECL_PASS_FIXTURE" >$OUT/aether_function_forward_decl_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_function_forward_decl_pass.out; then
     echo "unexpected function forward declaration output" >&2
-    cat /tmp/aether_function_forward_decl_pass.out >&2
+    cat $OUT/aether_function_forward_decl_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$OBJECT_INFERENCE_PASS_FIXTURE" >/tmp/aether_object_inference_pass.out
-printf '42\ntrue\n' >/tmp/aether_object_inference_expected.out
-if ! cmp -s /tmp/aether_object_inference_expected.out /tmp/aether_object_inference_pass.out; then
+"$AETHER_BIN" --no-cache "$OBJECT_INFERENCE_PASS_FIXTURE" >$OUT/aether_object_inference_pass.out
+printf '42\ntrue\n' >$OUT/aether_object_inference_expected.out
+if ! cmp -s $OUT/aether_object_inference_expected.out $OUT/aether_object_inference_pass.out; then
     echo "unexpected object inference output" >&2
-    cat /tmp/aether_object_inference_pass.out >&2
+    cat $OUT/aether_object_inference_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$OBJECT_DEFAULT_INIT_PASS_FIXTURE" >/tmp/aether_object_default_init_pass.out
-printf '1\n2\n' >/tmp/aether_object_default_init_expected.out
-if ! cmp -s /tmp/aether_object_default_init_expected.out /tmp/aether_object_default_init_pass.out; then
+"$AETHER_BIN" --no-cache "$OBJECT_DEFAULT_INIT_PASS_FIXTURE" >$OUT/aether_object_default_init_pass.out
+printf '1\n2\n' >$OUT/aether_object_default_init_expected.out
+if ! cmp -s $OUT/aether_object_default_init_expected.out $OUT/aether_object_default_init_pass.out; then
     echo "unexpected object default init output" >&2
-    cat /tmp/aether_object_default_init_pass.out >&2
+    cat $OUT/aether_object_default_init_pass.out >&2
     exit 1
 fi
 # A function whose name case-insensitively matches a type's must not be taken for
@@ -661,91 +684,91 @@ fi
 # with the raw object as its first argument -- a VM abort when the arities
 # disagreed, and a silent extra "hijacked" line when they agreed. Exact-output
 # compare, so a reappearing hijack fails the case rather than passing on a substring.
-"$AETHER_BIN" --no-cache "$TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE" >/tmp/aether_type_function_name_collision_pass.out
-printf '9\n1\n' >/tmp/aether_type_function_name_collision_expected.out
-if ! cmp -s /tmp/aether_type_function_name_collision_expected.out /tmp/aether_type_function_name_collision_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_FUNCTION_NAME_COLLISION_PASS_FIXTURE" >$OUT/aether_type_function_name_collision_pass.out
+printf '9\n1\n' >$OUT/aether_type_function_name_collision_expected.out
+if ! cmp -s $OUT/aether_type_function_name_collision_expected.out $OUT/aether_type_function_name_collision_pass.out; then
     echo "unexpected type/function name collision output" >&2
-    cat /tmp/aether_type_function_name_collision_pass.out >&2
+    cat $OUT/aether_type_function_name_collision_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$STRING_LEN_INFERENCE_PASS_FIXTURE" >/tmp/aether_string_len_inference_pass.out
-printf 'true\nfalse\n' >/tmp/aether_string_len_inference_expected.out
-if ! cmp -s /tmp/aether_string_len_inference_expected.out /tmp/aether_string_len_inference_pass.out; then
+"$AETHER_BIN" --no-cache "$STRING_LEN_INFERENCE_PASS_FIXTURE" >$OUT/aether_string_len_inference_pass.out
+printf 'true\nfalse\n' >$OUT/aether_string_len_inference_expected.out
+if ! cmp -s $OUT/aether_string_len_inference_expected.out $OUT/aether_string_len_inference_pass.out; then
     echo "unexpected string_len inference output" >&2
-    cat /tmp/aether_string_len_inference_pass.out >&2
+    cat $OUT/aether_string_len_inference_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$LEN_PROPERTY_PASS_FIXTURE" >/tmp/aether_len_property_pass.out
-printf '6\n7\n2\n' >/tmp/aether_len_property_expected.out
-if ! cmp -s /tmp/aether_len_property_expected.out /tmp/aether_len_property_pass.out; then
+"$AETHER_BIN" --no-cache "$LEN_PROPERTY_PASS_FIXTURE" >$OUT/aether_len_property_pass.out
+printf '6\n7\n2\n' >$OUT/aether_len_property_expected.out
+if ! cmp -s $OUT/aether_len_property_expected.out $OUT/aether_len_property_pass.out; then
     echo "unexpected len property output" >&2
-    cat /tmp/aether_len_property_pass.out >&2
+    cat $OUT/aether_len_property_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$NUMERIC_EXPR_INFERENCE_PASS_FIXTURE" >/tmp/aether_numeric_expr_inference_pass.out
-printf '8.000000\n' >/tmp/aether_numeric_expr_inference_expected.out
-if ! cmp -s /tmp/aether_numeric_expr_inference_expected.out /tmp/aether_numeric_expr_inference_pass.out; then
+"$AETHER_BIN" --no-cache "$NUMERIC_EXPR_INFERENCE_PASS_FIXTURE" >$OUT/aether_numeric_expr_inference_pass.out
+printf '8.000000\n' >$OUT/aether_numeric_expr_inference_expected.out
+if ! cmp -s $OUT/aether_numeric_expr_inference_expected.out $OUT/aether_numeric_expr_inference_pass.out; then
     echo "unexpected numeric expression inference output" >&2
-    cat /tmp/aether_numeric_expr_inference_pass.out >&2
+    cat $OUT/aether_numeric_expr_inference_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$INLINE_OBJECT_METHOD_INFERENCE_PASS_FIXTURE" >/tmp/aether_inline_object_method_inference_pass.out
-printf 'true\n' >/tmp/aether_inline_object_method_inference_expected.out
-if ! cmp -s /tmp/aether_inline_object_method_inference_expected.out /tmp/aether_inline_object_method_inference_pass.out; then
+"$AETHER_BIN" --no-cache "$INLINE_OBJECT_METHOD_INFERENCE_PASS_FIXTURE" >$OUT/aether_inline_object_method_inference_pass.out
+printf 'true\n' >$OUT/aether_inline_object_method_inference_expected.out
+if ! cmp -s $OUT/aether_inline_object_method_inference_expected.out $OUT/aether_inline_object_method_inference_pass.out; then
     echo "unexpected inline object method inference output" >&2
-    cat /tmp/aether_inline_object_method_inference_pass.out >&2
+    cat $OUT/aether_inline_object_method_inference_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$INLINE_OBJECT_METHOD_INFERENCE_COMMENT_PASS_FIXTURE" >/tmp/aether_inline_object_method_inference_comment_pass.out
-if ! cmp -s /tmp/aether_inline_object_method_inference_expected.out /tmp/aether_inline_object_method_inference_comment_pass.out; then
+"$AETHER_BIN" --no-cache "$INLINE_OBJECT_METHOD_INFERENCE_COMMENT_PASS_FIXTURE" >$OUT/aether_inline_object_method_inference_comment_pass.out
+if ! cmp -s $OUT/aether_inline_object_method_inference_expected.out $OUT/aether_inline_object_method_inference_comment_pass.out; then
     echo "unexpected inline object method inference with comment output" >&2
-    cat /tmp/aether_inline_object_method_inference_comment_pass.out >&2
+    cat $OUT/aether_inline_object_method_inference_comment_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TUPLE_DESTRUCTURE_PASS_FIXTURE" >/tmp/aether_tuple_destructure_pass.out
-printf '1\n2\n' >/tmp/aether_tuple_destructure_expected.out
-if ! cmp -s /tmp/aether_tuple_destructure_expected.out /tmp/aether_tuple_destructure_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_DESTRUCTURE_PASS_FIXTURE" >$OUT/aether_tuple_destructure_pass.out
+printf '1\n2\n' >$OUT/aether_tuple_destructure_expected.out
+if ! cmp -s $OUT/aether_tuple_destructure_expected.out $OUT/aether_tuple_destructure_pass.out; then
     echo "unexpected tuple destructure output" >&2
-    cat /tmp/aether_tuple_destructure_pass.out >&2
+    cat $OUT/aether_tuple_destructure_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TUPLE_DESTRUCTURE_FORWARD_PASS_FIXTURE" >/tmp/aether_tuple_destructure_forward_pass.out
-printf 'answer 42\n' >/tmp/aether_tuple_destructure_forward_expected.out
-if ! cmp -s /tmp/aether_tuple_destructure_forward_expected.out /tmp/aether_tuple_destructure_forward_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_DESTRUCTURE_FORWARD_PASS_FIXTURE" >$OUT/aether_tuple_destructure_forward_pass.out
+printf 'answer 42\n' >$OUT/aether_tuple_destructure_forward_expected.out
+if ! cmp -s $OUT/aether_tuple_destructure_forward_expected.out $OUT/aether_tuple_destructure_forward_pass.out; then
     echo "unexpected forward tuple destructure output" >&2
-    cat /tmp/aether_tuple_destructure_forward_pass.out >&2
+    cat $OUT/aether_tuple_destructure_forward_pass.out >&2
     exit 1
 fi
 # Folds stderr into the comparison on purpose: the array-item regression also
 # leaked an internal "makeValueForType ... unhandled type" warning from the
 # synthesized tuple record, on runs that otherwise exited 0. Any stray stderr
 # byte must fail this test, not just a wrong stdout.
-"$AETHER_BIN" --no-cache "$TUPLE_ARRAY_ITEM_PASS_FIXTURE" >/tmp/aether_tuple_array_item_pass.out 2>&1
-printf '3 3\n4 2\n1 8\n' >/tmp/aether_tuple_array_item_expected.out
-if ! cmp -s /tmp/aether_tuple_array_item_expected.out /tmp/aether_tuple_array_item_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_ARRAY_ITEM_PASS_FIXTURE" >$OUT/aether_tuple_array_item_pass.out 2>&1
+printf '3 3\n4 2\n1 8\n' >$OUT/aether_tuple_array_item_expected.out
+if ! cmp -s $OUT/aether_tuple_array_item_expected.out $OUT/aether_tuple_array_item_pass.out; then
     echo "unexpected tuple array-item output" >&2
-    cat /tmp/aether_tuple_array_item_pass.out >&2
+    cat $OUT/aether_tuple_array_item_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TUPLE_POST_PASS_FIXTURE" >/tmp/aether_tuple_post_pass.out
-printf 'lo = 3\nhi = 8\n' >/tmp/aether_tuple_post_expected.out
-if ! cmp -s /tmp/aether_tuple_post_expected.out /tmp/aether_tuple_post_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_POST_PASS_FIXTURE" >$OUT/aether_tuple_post_pass.out
+printf 'lo = 3\nhi = 8\n' >$OUT/aether_tuple_post_expected.out
+if ! cmp -s $OUT/aether_tuple_post_expected.out $OUT/aether_tuple_post_pass.out; then
     echo "unexpected tuple post output" >&2
-    cat /tmp/aether_tuple_post_pass.out >&2
+    cat $OUT/aether_tuple_post_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$ARRAY_APPEND_PASS_FIXTURE" >/tmp/aether_array_append_pass.out
-printf '2\n7\n9\n' >/tmp/aether_array_append_expected.out
-if ! cmp -s /tmp/aether_array_append_expected.out /tmp/aether_array_append_pass.out; then
+"$AETHER_BIN" --no-cache "$ARRAY_APPEND_PASS_FIXTURE" >$OUT/aether_array_append_pass.out
+printf '2\n7\n9\n' >$OUT/aether_array_append_expected.out
+if ! cmp -s $OUT/aether_array_append_expected.out $OUT/aether_array_append_pass.out; then
     echo "unexpected dynamic array append output" >&2
-    cat /tmp/aether_array_append_pass.out >&2
+    cat $OUT/aether_array_append_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$ARRAY_FIELD_INDEX_PASS_FIXTURE" >/tmp/aether_array_field_index_pass.out
-printf '14\n' >/tmp/aether_array_field_index_expected.out
-if ! cmp -s /tmp/aether_array_field_index_expected.out /tmp/aether_array_field_index_pass.out; then
+"$AETHER_BIN" --no-cache "$ARRAY_FIELD_INDEX_PASS_FIXTURE" >$OUT/aether_array_field_index_pass.out
+printf '14\n' >$OUT/aether_array_field_index_expected.out
+if ! cmp -s $OUT/aether_array_field_index_expected.out $OUT/aether_array_field_index_pass.out; then
     echo "unexpected array field index output" >&2
-    cat /tmp/aether_array_field_index_pass.out >&2
+    cat $OUT/aether_array_field_index_pass.out >&2
     exit 1
 fi
 # Regression: an array literal with a variable (not constant) element, in a
@@ -755,11 +778,11 @@ fi
 # hidden "__array_literal_tmp" scratch local recycling a stack slot left over
 # from an intlike local in a prior sibling scope (e.g. the loop counter),
 # without resetting the slot's runtime type tag first.
-"$AETHER_BIN" --no-cache "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" >/tmp/aether_array_literal_after_loop_pass.out
-printf '1\n' >/tmp/aether_array_literal_after_loop_expected.out
-if ! cmp -s /tmp/aether_array_literal_after_loop_expected.out /tmp/aether_array_literal_after_loop_pass.out; then
+"$AETHER_BIN" --no-cache "$ARRAY_LITERAL_AFTER_LOOP_PASS_FIXTURE" >$OUT/aether_array_literal_after_loop_pass.out
+printf '1\n' >$OUT/aether_array_literal_after_loop_expected.out
+if ! cmp -s $OUT/aether_array_literal_after_loop_expected.out $OUT/aether_array_literal_after_loop_pass.out; then
     echo "unexpected array-literal-after-loop output" >&2
-    cat /tmp/aether_array_literal_after_loop_pass.out >&2
+    cat $OUT/aether_array_literal_after_loop_pass.out >&2
     exit 1
 fi
 # Regression: `continue` inside a `loop VAR in range` used to fail with a bogus
@@ -770,43 +793,43 @@ fi
 # compound into the body without setting the compound's parent link, so the
 # copied post-statement was orphaned from the scope chain and the loop
 # variable's decl was invisible to rea semantic's upward walk.
-"$AETHER_BIN" --no-cache "$CONTINUE_LOOP_VAR_REUSE_PASS_FIXTURE" >/tmp/aether_continue_loop_var_reuse_pass.out
-printf '15\n303\n' >/tmp/aether_continue_loop_var_reuse_expected.out
-if ! cmp -s /tmp/aether_continue_loop_var_reuse_expected.out /tmp/aether_continue_loop_var_reuse_pass.out; then
+"$AETHER_BIN" --no-cache "$CONTINUE_LOOP_VAR_REUSE_PASS_FIXTURE" >$OUT/aether_continue_loop_var_reuse_pass.out
+printf '15\n303\n' >$OUT/aether_continue_loop_var_reuse_expected.out
+if ! cmp -s $OUT/aether_continue_loop_var_reuse_expected.out $OUT/aether_continue_loop_var_reuse_pass.out; then
     echo "unexpected continue-loop-var-reuse output (bogus SCOPE-001 regression?)" >&2
-    cat /tmp/aether_continue_loop_var_reuse_pass.out >&2
+    cat $OUT/aether_continue_loop_var_reuse_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" >/tmp/aether_extension_call_alias_pass.out
-printf '5.000000\n4\n' >/tmp/aether_extension_call_alias_expected.out
-if ! cmp -s /tmp/aether_extension_call_alias_expected.out /tmp/aether_extension_call_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" >$OUT/aether_extension_call_alias_pass.out
+printf '5.000000\n4\n' >$OUT/aether_extension_call_alias_expected.out
+if ! cmp -s $OUT/aether_extension_call_alias_expected.out $OUT/aether_extension_call_alias_pass.out; then
     echo "unexpected extension call alias output" >&2
-    cat /tmp/aether_extension_call_alias_pass.out >&2
+    cat $OUT/aether_extension_call_alias_pass.out >&2
     exit 1
 fi
 # A dotted call to an extension method (recv.m()) is valid UFCS and must NOT be
 # a false [SCOPE-001] from the undefined-method check (the extension decl stays
 # un-mangled, so the check also accepts a plain `fn m(self: T)`).
-"$AETHER_BIN" --no-cache "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" >/tmp/aether_extension_method_dot_call_pass.out 2>&1
-if ! grep -qx "12" /tmp/aether_extension_method_dot_call_pass.out; then
+"$AETHER_BIN" --no-cache "$EXTENSION_METHOD_DOT_CALL_PASS_FIXTURE" >$OUT/aether_extension_method_dot_call_pass.out 2>&1
+if ! printf '12\n' | cmp -s - $OUT/aether_extension_method_dot_call_pass.out; then
     echo "unexpected extension-method dot-call output (false SCOPE-001 regression?)" >&2
-    cat /tmp/aether_extension_method_dot_call_pass.out >&2
+    cat $OUT/aether_extension_method_dot_call_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TUPLE_INDEX_ACCESS_PASS_FIXTURE" >/tmp/aether_tuple_index_access_pass.out
-printf '7\nhi\ntrue\n' >/tmp/aether_tuple_index_access_expected.out
-if ! cmp -s /tmp/aether_tuple_index_access_expected.out /tmp/aether_tuple_index_access_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_INDEX_ACCESS_PASS_FIXTURE" >$OUT/aether_tuple_index_access_pass.out
+printf '7\nhi\ntrue\n' >$OUT/aether_tuple_index_access_expected.out
+if ! cmp -s $OUT/aether_tuple_index_access_expected.out $OUT/aether_tuple_index_access_pass.out; then
     echo "unexpected tuple index access output" >&2
-    cat /tmp/aether_tuple_index_access_pass.out >&2
+    cat $OUT/aether_tuple_index_access_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TUPLE_INDEX_OUT_OF_RANGE_FAIL_FIXTURE" >/tmp/aether_tuple_index_oob_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TUPLE_INDEX_OUT_OF_RANGE_FAIL_FIXTURE" >$OUT/aether_tuple_index_oob_fail.out 2>&1; then
     echo "expected tuple index out-of-range failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "tuple index .2 is out of range" /tmp/aether_tuple_index_oob_fail.out; then
+if ! grep -q "tuple index .2 is out of range" $OUT/aether_tuple_index_oob_fail.out; then
     echo "missing tuple index out-of-range failure message" >&2
-    cat /tmp/aether_tuple_index_oob_fail.out >&2
+    cat $OUT/aether_tuple_index_oob_fail.out >&2
     exit 1
 fi
 # Binding a tuple-return call to a single name is legal now that .0/.1/.2
@@ -814,142 +837,148 @@ fi
 # index directly onto the call result is the part still unsupported (see the
 # parsePostfix comment on why -- it parses and type-checks but codegen has no
 # path from a call expression to its record type).
-if "$AETHER_BIN" --no-cache "$TUPLE_CHAINED_INDEX_FAIL_FIXTURE" >/tmp/aether_tuple_chained_index_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TUPLE_CHAINED_INDEX_FAIL_FIXTURE" >$OUT/aether_tuple_chained_index_fail.out 2>&1; then
     echo "expected tuple chained-index failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "tuple index .0 access is only supported on a variable" /tmp/aether_tuple_chained_index_fail.out; then
+if ! grep -q "tuple index .0 access is only supported on a variable" $OUT/aether_tuple_chained_index_fail.out; then
     echo "missing tuple chained-index failure message" >&2
-    cat /tmp/aether_tuple_chained_index_fail.out >&2
+    cat $OUT/aether_tuple_chained_index_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" >/tmp/aether_tuple_bad_destructure_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" >$OUT/aether_tuple_bad_destructure_fail.out 2>&1; then
     echo "expected tuple bad destructure failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "tuple destructuring target is not a known tuple-return function" /tmp/aether_tuple_bad_destructure_fail.out; then
+if ! grep -q "tuple destructuring target is not a known tuple-return function" $OUT/aether_tuple_bad_destructure_fail.out; then
     echo "missing tuple bad destructure failure message" >&2
-    cat /tmp/aether_tuple_bad_destructure_fail.out >&2
+    cat $OUT/aether_tuple_bad_destructure_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TUPLE_POST_INVALID_RESULT_FAIL_FIXTURE" >/tmp/aether_tuple_post_invalid_result_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TUPLE_POST_INVALID_RESULT_FAIL_FIXTURE" >$OUT/aether_tuple_post_invalid_result_fail.out 2>&1; then
     echo "expected tuple @post positional failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "tuple-return @post checks must reference slots explicitly" /tmp/aether_tuple_post_invalid_result_fail.out; then
+if ! grep -q "tuple-return @post checks must reference slots explicitly" $OUT/aether_tuple_post_invalid_result_fail.out; then
     echo "missing tuple @post positional failure message" >&2
-    cat /tmp/aether_tuple_post_invalid_result_fail.out >&2
+    cat $OUT/aether_tuple_post_invalid_result_fail.out >&2
     exit 1
 fi
 # The tuple destructuring diagnostic must carry the real TUP-001 code (not the
 # former placeholder `feature`) so --diagnostics-json feeds the code->guide map,
 # and must include an actionable hint pointing at the record alternative.
-if "$AETHER_BIN" --diagnostics-json --no-cache "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" >/tmp/aether_tuple_bad_destructure_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TUPLE_BAD_DESTRUCTURE_FAIL_FIXTURE" >$OUT/aether_tuple_bad_destructure_json.out 2>&1; then
     echo "expected tuple destructure diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"TUP-001"' /tmp/aether_tuple_bad_destructure_json.out; then
+if ! grep -q '"code":"TUP-001"' $OUT/aether_tuple_bad_destructure_json.out; then
     echo "missing tuple diagnostics-json code TUP-001 (regression: placeholder code?)" >&2
-    cat /tmp/aether_tuple_bad_destructure_json.out >&2
+    cat $OUT/aether_tuple_bad_destructure_json.out >&2
     exit 1
 fi
-if ! grep -q '"hint":"the callee must be a top-level tuple-return function' /tmp/aether_tuple_bad_destructure_json.out; then
+if ! grep -q '"hint":"the callee must be a top-level tuple-return function' $OUT/aether_tuple_bad_destructure_json.out; then
     echo "missing tuple diagnostics-json hint (record alternative)" >&2
-    cat /tmp/aether_tuple_bad_destructure_json.out >&2
+    cat $OUT/aether_tuple_bad_destructure_json.out >&2
     exit 1
 fi
 # A @post contract comparing a whole collection to a scalar (`result > 0` on a
 # `T[]` return) must be rejected at COMPILE time (ANN-001), not lowered to a
 # guard that crashes the VM with "Operands not comparable" at runtime.
-if "$AETHER_BIN" --no-cache "$CONTRACT_COLLECTION_RESULT_FAIL_FIXTURE" >/tmp/aether_contract_collection_result_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$CONTRACT_COLLECTION_RESULT_FAIL_FIXTURE" >$OUT/aether_contract_collection_result_fail.out 2>&1; then
     echo "expected collection-vs-scalar contract failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "arrays and scalars are not comparable" /tmp/aether_contract_collection_result_fail.out; then
+if ! grep -q "arrays and scalars are not comparable" $OUT/aether_contract_collection_result_fail.out; then
     echo "missing collection-vs-scalar contract failure message" >&2
-    cat /tmp/aether_contract_collection_result_fail.out >&2
+    cat $OUT/aether_contract_collection_result_fail.out >&2
     exit 1
 fi
-if ! grep -q "ANN-001" /tmp/aether_contract_collection_result_fail.out; then
+if ! grep -q "ANN-001" $OUT/aether_contract_collection_result_fail.out; then
     echo "collection contract diagnostic missing ANN-001 code" >&2
-    cat /tmp/aether_contract_collection_result_fail.out >&2
+    cat $OUT/aether_contract_collection_result_fail.out >&2
     exit 1
 fi
-if grep -q "Operands not comparable" /tmp/aether_contract_collection_result_fail.out; then
+if grep -q "Operands not comparable" $OUT/aether_contract_collection_result_fail.out; then
     echo "collection contract crashed at runtime instead of failing at compile time" >&2
-    cat /tmp/aether_contract_collection_result_fail.out >&2
+    cat $OUT/aether_contract_collection_result_fail.out >&2
     exit 1
 fi
 # The documented fix -- `length(result) > 0` -- must still compile and run.
-"$AETHER_BIN" --no-cache "$CONTRACT_COLLECTION_LENGTH_PASS_FIXTURE" >/tmp/aether_contract_collection_length_pass.out
-if ! grep -qx "3" /tmp/aether_contract_collection_length_pass.out; then
+"$AETHER_BIN" --no-cache "$CONTRACT_COLLECTION_LENGTH_PASS_FIXTURE" >$OUT/aether_contract_collection_length_pass.out
+if ! printf '3\n' | cmp -s - $OUT/aether_contract_collection_length_pass.out; then
     echo "unexpected collection length contract output" >&2
-    cat /tmp/aether_contract_collection_length_pass.out >&2
+    cat $OUT/aether_contract_collection_length_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$PURE_PASS_FIXTURE" >/dev/null
+# A @pure function calling another @pure function: twice(4) prints 6.
+"$AETHER_BIN" --no-cache "$PURE_PASS_FIXTURE" >$OUT/aether_pure_pass.out
+if ! printf '6\n' | cmp -s - $OUT/aether_pure_pass.out; then
+    echo "unexpected pure_pass output" >&2
+    cat $OUT/aether_pure_pass.out >&2
+    exit 1
+fi
 # par_pass was a --no-run compile check for years, which is exactly why the
 # forward-target silent skip (fixed 2026-08-11) survived: a dropped branch still
 # exits 0, so only inspecting OUTPUT catches it. Run it and assert both branches
 # actually printed. See expect_par_branches below for the ordering caveat.
-"$AETHER_BIN" --no-cache "$PAR_PASS_FIXTURE" >/tmp/aether_par_pass.out
+"$AETHER_BIN" --no-cache "$PAR_PASS_FIXTURE" >$OUT/aether_par_pass.out
 for line in "worker A" "worker B"; do
-    if ! grep -qx "$line" /tmp/aether_par_pass.out; then
+    if ! grep -qx "$line" $OUT/aether_par_pass.out; then
         echo "par branch did not run: missing '$line'" >&2
-        cat /tmp/aether_par_pass.out >&2
+        cat $OUT/aether_par_pass.out >&2
         exit 1
     fi
 done
-"$AETHER_BIN" --no-cache "$FOR_RANGE_PASS_FIXTURE" >/tmp/aether_for_range_pass.out
-if ! grep -qx "10" /tmp/aether_for_range_pass.out; then
+"$AETHER_BIN" --no-cache "$FOR_RANGE_PASS_FIXTURE" >$OUT/aether_for_range_pass.out
+if ! printf '10\n' | cmp -s - $OUT/aether_for_range_pass.out; then
     echo "unexpected for-range output" >&2
-    cat /tmp/aether_for_range_pass.out >&2
+    cat $OUT/aether_for_range_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$LOOP_FORMS_PASS_FIXTURE" >/tmp/aether_loop_forms_pass.out
-printf 'total = 9\nspins = 2\n' >/tmp/aether_loop_forms_expected.out
-if ! cmp -s /tmp/aether_loop_forms_expected.out /tmp/aether_loop_forms_pass.out; then
+"$AETHER_BIN" --no-cache "$LOOP_FORMS_PASS_FIXTURE" >$OUT/aether_loop_forms_pass.out
+printf 'total = 9\nspins = 2\n' >$OUT/aether_loop_forms_expected.out
+if ! cmp -s $OUT/aether_loop_forms_expected.out $OUT/aether_loop_forms_pass.out; then
     echo "unexpected loop forms output" >&2
-    cat /tmp/aether_loop_forms_pass.out >&2
+    cat $OUT/aether_loop_forms_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$MODULE_IMPORT_PASS_FIXTURE" >/tmp/aether_module_import_pass.out
-if ! grep -qx "42" /tmp/aether_module_import_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_IMPORT_PASS_FIXTURE" >$OUT/aether_module_import_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_module_import_pass.out; then
     echo "unexpected module import output" >&2
-    cat /tmp/aether_module_import_pass.out >&2
+    cat $OUT/aether_module_import_pass.out >&2
     exit 1
 fi
 # R1 regression: @pure above `export fn` must compile when the module FILE is
 # the direct compile target (not only when imported via use).
-if ! "$AETHER_BIN" --no-cache "$MODULE_PURE_EXPORT_DIRECT_PASS_FIXTURE" >/tmp/aether_module_pure_export_direct.out 2>&1; then
+if ! "$AETHER_BIN" --no-cache "$MODULE_PURE_EXPORT_DIRECT_PASS_FIXTURE" >$OUT/aether_module_pure_export_direct.out 2>&1; then
     echo "direct compile of a module with @pure export fn failed" >&2
-    cat /tmp/aether_module_pure_export_direct.out >&2
+    cat $OUT/aether_module_pure_export_direct.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$MODULE_CONST_IMPORT_PASS_FIXTURE" >/tmp/aether_module_const_import_pass.out
-printf 'Aether\n42\n' >/tmp/aether_module_const_import_expected.out
-if ! cmp -s /tmp/aether_module_const_import_expected.out /tmp/aether_module_const_import_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_CONST_IMPORT_PASS_FIXTURE" >$OUT/aether_module_const_import_pass.out
+printf 'Aether\n42\n' >$OUT/aether_module_const_import_expected.out
+if ! cmp -s $OUT/aether_module_const_import_expected.out $OUT/aether_module_const_import_pass.out; then
     echo "unexpected module const import output" >&2
-    cat /tmp/aether_module_const_import_pass.out >&2
+    cat $OUT/aether_module_const_import_pass.out >&2
     exit 1
 fi
 # Regression: a `type` block exported from a module must stay resolvable --
 # for var-decl typing and for field access -- while the importing program is
 # analyzed. See rea's rea_module_type_field_access_test for the underlying fix.
-"$AETHER_BIN" --no-cache "$MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE" >/tmp/aether_module_type_field_access_pass.out
-if ! grep -qx "7" /tmp/aether_module_type_field_access_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_TYPE_FIELD_ACCESS_PASS_FIXTURE" >$OUT/aether_module_type_field_access_pass.out
+if ! printf '7\n' | cmp -s - $OUT/aether_module_type_field_access_pass.out; then
     echo "unexpected module type field access output" >&2
-    cat /tmp/aether_module_type_field_access_pass.out >&2
+    cat $OUT/aether_module_type_field_access_pass.out >&2
     exit 1
 fi
 # Regression: a top-level (global-scope) `let` typed with a module-exported
 # type must resolve like a function-local one. Before rea's fix the global
 # path kept the parse-time TYPE_UNKNOWN ("Cannot assign POINTER to
 # UNKNOWN_VAR_TYPE"). See rea's rea_module_type_global_var_decl_test.
-"$AETHER_BIN" --no-cache "$MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE" >/tmp/aether_module_type_global_let_pass.out
-if ! grep -qx "7" /tmp/aether_module_type_global_let_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_TYPE_GLOBAL_LET_PASS_FIXTURE" >$OUT/aether_module_type_global_let_pass.out
+if ! printf '7\n' | cmp -s - $OUT/aether_module_type_global_let_pass.out; then
     echo "unexpected module type global let output" >&2
-    cat /tmp/aether_module_type_global_let_pass.out >&2
+    cat $OUT/aether_module_type_global_let_pass.out >&2
     exit 1
 fi
 # Regression: two functions declared in the same `mod { }` block must be able
@@ -959,10 +988,10 @@ fi
 # function under its bare name regardless of module context, so the call site
 # found that stale, arity-0 stub instead of ever reaching the correctly
 # module-qualified symbol rea's semantic analysis registers.
-"$AETHER_BIN" --no-cache "$MODULE_INTRAMODULE_CALL_PASS_FIXTURE" >/tmp/aether_module_intramodule_call_pass.out
-if ! grep -qx "12" /tmp/aether_module_intramodule_call_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_INTRAMODULE_CALL_PASS_FIXTURE" >$OUT/aether_module_intramodule_call_pass.out
+if ! printf '12\n' | cmp -s - $OUT/aether_module_intramodule_call_pass.out; then
     echo "unexpected intra-module call output" >&2
-    cat /tmp/aether_module_intramodule_call_pass.out >&2
+    cat $OUT/aether_module_intramodule_call_pass.out >&2
     exit 1
 fi
 # Regression: a module function calling a sibling export through the
@@ -971,10 +1000,10 @@ fi
 # used to fail with "identifier 'Calc' not in scope": the qualified-call
 # receiver is resolved against modules reached through `use`/`#import`, and
 # a module never imports itself. See rea's rea_module_self_qualified_call_test.
-"$AETHER_BIN" --no-cache "$MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE" >/tmp/aether_module_self_qualified_call_pass.out
-if ! grep -qx "12" /tmp/aether_module_self_qualified_call_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_SELF_QUALIFIED_CALL_PASS_FIXTURE" >$OUT/aether_module_self_qualified_call_pass.out
+if ! printf '12\n' | cmp -s - $OUT/aether_module_self_qualified_call_pass.out; then
     echo "unexpected self-qualified module call output" >&2
-    cat /tmp/aether_module_self_qualified_call_pass.out >&2
+    cat $OUT/aether_module_self_qualified_call_pass.out >&2
     exit 1
 fi
 # Regression: a Void-returning function taking a parameter typed with a
@@ -986,10 +1015,10 @@ fi
 # straight from procedure_table instead of the (correctly healed) live
 # tree. See rea's semantic.c resolveForwardClassRefsInProcedureTable and
 # https://github.com/emkey1/rea/issues/6.
-"$AETHER_BIN" --no-cache "$MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE" >/tmp/aether_module_type_param_void_bare_call_pass.out
-if ! grep -qx "42" /tmp/aether_module_type_param_void_bare_call_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_TYPE_PARAM_VOID_BARE_CALL_PASS_FIXTURE" >$OUT/aether_module_type_param_void_bare_call_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_module_type_param_void_bare_call_pass.out; then
     echo "unexpected void-param bare-call module output" >&2
-    cat /tmp/aether_module_type_param_void_bare_call_pass.out >&2
+    cat $OUT/aether_module_type_param_void_bare_call_pass.out >&2
     exit 1
 fi
 # Regression for https://github.com/emkey1/rea/issues/5 (finding #8): two
@@ -1000,10 +1029,10 @@ fi
 # ones -- so the second module's private helper silently reused (and never
 # updated) the first module's alias, making ModB.helper unreachable by its
 # own bare name and ModA.helper's implementation run in its place.
-"$AETHER_BIN" --no-cache "$MODULE_PRIVATE_HELPER_COLLISION_PASS_FIXTURE" >/tmp/aether_module_private_helper_collision_pass.out
-if [ "$(cat /tmp/aether_module_private_helper_collision_pass.out)" != "$(printf '2\n101')" ]; then
+"$AETHER_BIN" --no-cache "$MODULE_PRIVATE_HELPER_COLLISION_PASS_FIXTURE" >$OUT/aether_module_private_helper_collision_pass.out
+if [ "$(cat $OUT/aether_module_private_helper_collision_pass.out)" != "$(printf '2\n101')" ]; then
     echo "unexpected private-helper collision output" >&2
-    cat /tmp/aether_module_private_helper_collision_pass.out >&2
+    cat $OUT/aether_module_private_helper_collision_pass.out >&2
     exit 1
 fi
 # Regression for https://github.com/emkey1/rea/issues/5 (finding #8): a
@@ -1012,10 +1041,10 @@ fi
 # importer's own main() as the program's entry point. The bare "main"
 # symbol used to be reused-and-overwritten across independently-parsed
 # files just like the private-helper case above.
-"$AETHER_BIN" --no-cache "$MODULE_IMPORTED_MAIN_NOT_ENTRY_POINT_PASS_FIXTURE" >/tmp/aether_module_imported_main_not_entry_point_pass.out
-if ! grep -qx "consumer: 8" /tmp/aether_module_imported_main_not_entry_point_pass.out; then
+"$AETHER_BIN" --no-cache "$MODULE_IMPORTED_MAIN_NOT_ENTRY_POINT_PASS_FIXTURE" >$OUT/aether_module_imported_main_not_entry_point_pass.out
+if ! printf 'consumer: 8\n' | cmp -s - $OUT/aether_module_imported_main_not_entry_point_pass.out; then
     echo "unexpected imported-main entry-point output" >&2
-    cat /tmp/aether_module_imported_main_not_entry_point_pass.out >&2
+    cat $OUT/aether_module_imported_main_not_entry_point_pass.out >&2
     exit 1
 fi
 # Regression: the used file above has no top-level statements, so the parser
@@ -1024,10 +1053,10 @@ fi
 # compiled inline, and the program's top level jumped into it: the importer's
 # prologue never ran, so its globals were undefined. A dependency file's entry
 # invocation is now dropped instead.
-"$AETHER_BIN" --no-cache "$MODULE_IMPORTED_MAIN_CONSUMER_PROLOGUE_PASS_FIXTURE" >/tmp/aether_module_imported_main_consumer_prologue_pass.out 2>&1
-if [ "$(cat /tmp/aether_module_imported_main_consumer_prologue_pass.out)" != "consumer: 8" ]; then
+"$AETHER_BIN" --no-cache "$MODULE_IMPORTED_MAIN_CONSUMER_PROLOGUE_PASS_FIXTURE" >$OUT/aether_module_imported_main_consumer_prologue_pass.out 2>&1
+if [ "$(cat $OUT/aether_module_imported_main_consumer_prologue_pass.out)" != "consumer: 8" ]; then
     echo "imported main skipped the importer's prologue" >&2
-    cat /tmp/aether_module_imported_main_consumer_prologue_pass.out >&2
+    cat $OUT/aether_module_imported_main_consumer_prologue_pass.out >&2
     exit 1
 fi
 # Regression: `if (expr) && more { }` used to fail to parse. parseIfStmt
@@ -1039,662 +1068,663 @@ fi
 # case and handing the whole condition to parseExpr, exactly like parseLoop
 # already does, since the general expression grammar parses balanced
 # parens anywhere within it. See aether#7.
-"$AETHER_BIN" --no-cache "$IF_LEADING_PAREN_SUBEXPR_PASS_FIXTURE" >/tmp/aether_if_leading_paren_subexpr_pass.out
-if ! grep -qx "yes" /tmp/aether_if_leading_paren_subexpr_pass.out; then
+"$AETHER_BIN" --no-cache "$IF_LEADING_PAREN_SUBEXPR_PASS_FIXTURE" >$OUT/aether_if_leading_paren_subexpr_pass.out
+if ! printf 'yes\n' | cmp -s - $OUT/aether_if_leading_paren_subexpr_pass.out; then
     echo "unexpected if-leading-paren-subexpr output" >&2
-    cat /tmp/aether_if_leading_paren_subexpr_pass.out >&2
+    cat $OUT/aether_if_leading_paren_subexpr_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$SHOWCASE_EXAMPLE" >/tmp/aether_showcase_example.out
-if grep -qx "yyjson unavailable" /tmp/aether_showcase_example.out; then
+"$AETHER_BIN" --no-cache "$SHOWCASE_EXAMPLE" >$OUT/aether_showcase_example.out
+if grep -qx "yyjson unavailable" $OUT/aether_showcase_example.out; then
     :
 else
-    printf 'job 0: planner / ready / 95\njob 1: writer / review / 81\njob 2: tester / review / 72\njob 3: auditor / blocked / 55\ntotal = 4\nready = 1\nreview = 2\nblocked = 1\n' >/tmp/aether_showcase_example_expected.out
-    if ! cmp -s /tmp/aether_showcase_example_expected.out /tmp/aether_showcase_example.out; then
+    printf 'job 0: planner / ready / 95\njob 1: writer / review / 81\njob 2: tester / review / 72\njob 3: auditor / blocked / 55\ntotal = 4\nready = 1\nreview = 2\nblocked = 1\n' >$OUT/aether_showcase_example_expected.out
+    if ! cmp -s $OUT/aether_showcase_example_expected.out $OUT/aether_showcase_example.out; then
         echo "unexpected Aether showcase output" >&2
-        cat /tmp/aether_showcase_example.out >&2
+        cat $OUT/aether_showcase_example.out >&2
         exit 1
     fi
 fi
-"$AETHER_BIN" --no-cache "$TOON_BLOCK_PASS_FIXTURE" >/tmp/aether_toon_block_pass.out
-printf 'users[2]{id,name,role}:\n  1,Ada,admin\n  2,Bob,user\n' >/tmp/aether_toon_block_expected.out
-if ! cmp -s /tmp/aether_toon_block_expected.out /tmp/aether_toon_block_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_BLOCK_PASS_FIXTURE" >$OUT/aether_toon_block_pass.out
+printf 'users[2]{id,name,role}:\n  1,Ada,admin\n  2,Bob,user\n' >$OUT/aether_toon_block_expected.out
+if ! cmp -s $OUT/aether_toon_block_expected.out $OUT/aether_toon_block_pass.out; then
     echo "unexpected TOON block output" >&2
-    cat /tmp/aether_toon_block_pass.out >&2
+    cat $OUT/aether_toon_block_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TYPE_BLOCK_PASS_FIXTURE" >/tmp/aether_type_block_pass.out
-if ! grep -qx "42" /tmp/aether_type_block_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_BLOCK_PASS_FIXTURE" >$OUT/aether_type_block_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_type_block_pass.out; then
     echo "unexpected type block output" >&2
-    cat /tmp/aether_type_block_pass.out >&2
+    cat $OUT/aether_type_block_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TYPE_INIT_PASS_FIXTURE" >/tmp/aether_type_init_pass.out
-if ! grep -qx "42" /tmp/aether_type_init_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_INIT_PASS_FIXTURE" >$OUT/aether_type_init_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_type_init_pass.out; then
     echo "unexpected type init output" >&2
-    cat /tmp/aether_type_init_pass.out >&2
+    cat $OUT/aether_type_init_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TYPE_INIT_PAREN_PASS_FIXTURE" >/tmp/aether_type_init_paren_pass.out
-if ! grep -qx "7" /tmp/aether_type_init_paren_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_INIT_PAREN_PASS_FIXTURE" >$OUT/aether_type_init_paren_pass.out
+if ! printf '7\n' | cmp -s - $OUT/aether_type_init_paren_pass.out; then
     echo "unexpected paren type init output" >&2
-    cat /tmp/aether_type_init_paren_pass.out >&2
+    cat $OUT/aether_type_init_paren_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TYPE_METHOD_CONTRACTS_PASS_FIXTURE" >/tmp/aether_type_method_contracts_pass.out
-printf 'circle=78.539816\nrect=24.000000\n' >/tmp/aether_type_method_contracts_expected.out
-if ! cmp -s /tmp/aether_type_method_contracts_expected.out /tmp/aether_type_method_contracts_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_METHOD_CONTRACTS_PASS_FIXTURE" >$OUT/aether_type_method_contracts_pass.out
+printf 'circle=78.539816\nrect=24.000000\n' >$OUT/aether_type_method_contracts_expected.out
+if ! cmp -s $OUT/aether_type_method_contracts_expected.out $OUT/aether_type_method_contracts_pass.out; then
     echo "unexpected type method contract output" >&2
-    cat /tmp/aether_type_method_contracts_pass.out >&2
+    cat $OUT/aether_type_method_contracts_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$SELF_ALIAS_PASS_FIXTURE" >/tmp/aether_self_alias_pass.out
-printf '41\n42\n' >/tmp/aether_self_alias_expected.out
-if ! cmp -s /tmp/aether_self_alias_expected.out /tmp/aether_self_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$SELF_ALIAS_PASS_FIXTURE" >$OUT/aether_self_alias_pass.out
+printf '41\n42\n' >$OUT/aether_self_alias_expected.out
+if ! cmp -s $OUT/aether_self_alias_expected.out $OUT/aether_self_alias_pass.out; then
     echo "unexpected self alias output" >&2
-    cat /tmp/aether_self_alias_pass.out >&2
+    cat $OUT/aether_self_alias_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$SELF_MUTATION_PASS_FIXTURE" >/tmp/aether_self_mutation_pass.out
-if ! grep -qx "42" /tmp/aether_self_mutation_pass.out; then
+"$AETHER_BIN" --no-cache "$SELF_MUTATION_PASS_FIXTURE" >$OUT/aether_self_mutation_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_self_mutation_pass.out; then
     echo "unexpected self mutation output" >&2
-    cat /tmp/aether_self_mutation_pass.out >&2
+    cat $OUT/aether_self_mutation_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$METHOD_FIELD_INFERENCE_PASS_FIXTURE" >/tmp/aether_method_field_inference_pass.out
-if ! grep -qx "3" /tmp/aether_method_field_inference_pass.out; then
+"$AETHER_BIN" --no-cache "$METHOD_FIELD_INFERENCE_PASS_FIXTURE" >$OUT/aether_method_field_inference_pass.out
+if ! printf '3\n' | cmp -s - $OUT/aether_method_field_inference_pass.out; then
     echo "unexpected method field inference output" >&2
-    cat /tmp/aether_method_field_inference_pass.out >&2
+    cat $OUT/aether_method_field_inference_pass.out >&2
     exit 1
 fi
 # Inferred object binding + statement-level `-> Void` method call: `let c = new
 # Counter();` (no annotation) must resolve the pointer-backed receiver so `c.inc();`
 # type-checks, matching `let c: Counter = ...`. Regression for "argument 1 to
 # 'c.inc' expects type POINTER but got VOID" (inferred-let record type left UNKNOWN).
-"$AETHER_BIN" --no-cache "$INFERRED_OBJECT_MUTATION_PASS_FIXTURE" >/tmp/aether_inferred_object_mutation_pass.out
-if ! grep -qx "42" /tmp/aether_inferred_object_mutation_pass.out; then
+"$AETHER_BIN" --no-cache "$INFERRED_OBJECT_MUTATION_PASS_FIXTURE" >$OUT/aether_inferred_object_mutation_pass.out
+if ! printf '42\n' | cmp -s - $OUT/aether_inferred_object_mutation_pass.out; then
     echo "unexpected inferred object mutation output (regression: inferred receiver POINTER/VOID)" >&2
-    cat /tmp/aether_inferred_object_mutation_pass.out >&2
+    cat $OUT/aether_inferred_object_mutation_pass.out >&2
     exit 1
 fi
 # Bare object literal `T { f: v }` used as a general expression (array
 # element, call argument), not just directly after `let x: T =`. Regression
 # for "[SYN-001] Expected ']' to close array literal" on `[T{...}, T{...}]`.
-"$AETHER_BIN" --no-cache "$ARRAY_RECORD_LITERAL_PASS_FIXTURE" >/tmp/aether_array_record_literal_pass.out
-printf '3\n4\n9\n25\n2\n100\n' >/tmp/aether_array_record_literal_expected.out
-if ! cmp -s /tmp/aether_array_record_literal_expected.out /tmp/aether_array_record_literal_pass.out; then
+"$AETHER_BIN" --no-cache "$ARRAY_RECORD_LITERAL_PASS_FIXTURE" >$OUT/aether_array_record_literal_pass.out
+printf '3\n4\n9\n25\n2\n100\n' >$OUT/aether_array_record_literal_expected.out
+if ! cmp -s $OUT/aether_array_record_literal_expected.out $OUT/aether_array_record_literal_pass.out; then
     echo "unexpected array-record-literal output (regression: object literal as a non-let-position expression)" >&2
-    cat /tmp/aether_array_record_literal_pass.out >&2
+    cat $OUT/aether_array_record_literal_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$SELF_CONDITION_METHOD_PASS_FIXTURE" >/tmp/aether_self_condition_method_pass.out
-printf '35\nIN_STOCK\n' >/tmp/aether_self_condition_method_expected.out
-if ! cmp -s /tmp/aether_self_condition_method_expected.out /tmp/aether_self_condition_method_pass.out; then
+"$AETHER_BIN" --no-cache "$SELF_CONDITION_METHOD_PASS_FIXTURE" >$OUT/aether_self_condition_method_pass.out
+printf '35\nIN_STOCK\n' >$OUT/aether_self_condition_method_expected.out
+if ! cmp -s $OUT/aether_self_condition_method_expected.out $OUT/aether_self_condition_method_pass.out; then
     echo "unexpected self condition method output" >&2
-    cat /tmp/aether_self_condition_method_pass.out >&2
+    cat $OUT/aether_self_condition_method_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TEXT_FIELD_METHOD_PARAM_PASS_FIXTURE" >/tmp/aether_text_field_method_param_pass.out
-printf 'true\nAlice\n150\n' >/tmp/aether_text_field_method_param_expected.out
-if ! cmp -s /tmp/aether_text_field_method_param_expected.out /tmp/aether_text_field_method_param_pass.out; then
+"$AETHER_BIN" --no-cache "$TEXT_FIELD_METHOD_PARAM_PASS_FIXTURE" >$OUT/aether_text_field_method_param_pass.out
+printf 'true\nAlice\n150\n' >$OUT/aether_text_field_method_param_expected.out
+if ! cmp -s $OUT/aether_text_field_method_param_expected.out $OUT/aether_text_field_method_param_pass.out; then
     echo "unexpected text field method parameter output" >&2
-    cat /tmp/aether_text_field_method_param_pass.out >&2
+    cat $OUT/aether_text_field_method_param_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TOON_JSON_HELPERS_PASS_FIXTURE" >/tmp/aether_toon_json_helpers_pass.out
-if grep -qx "yyjson unavailable" /tmp/aether_toon_json_helpers_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_JSON_HELPERS_PASS_FIXTURE" >$OUT/aether_toon_json_helpers_pass.out
+if grep -qx "yyjson unavailable" $OUT/aether_toon_json_helpers_pass.out; then
     :
 else
-    printf 'Rea\n3\n1\n' >/tmp/aether_toon_json_helpers_expected.out
-    if ! cmp -s /tmp/aether_toon_json_helpers_expected.out /tmp/aether_toon_json_helpers_pass.out; then
+    printf 'Rea\n3\n1\n' >$OUT/aether_toon_json_helpers_expected.out
+    if ! cmp -s $OUT/aether_toon_json_helpers_expected.out $OUT/aether_toon_json_helpers_pass.out; then
         echo "unexpected TOON helper output" >&2
-        cat /tmp/aether_toon_json_helpers_pass.out >&2
+        cat $OUT/aether_toon_json_helpers_pass.out >&2
         exit 1
     fi
 fi
-"$AETHER_BIN" --no-cache "$TOON_HANDLE_HELPERS_PASS_FIXTURE" >/tmp/aether_toon_handle_helpers_pass.out
-if grep -qx "yyjson unavailable" /tmp/aether_toon_handle_helpers_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_HANDLE_HELPERS_PASS_FIXTURE" >$OUT/aether_toon_handle_helpers_pass.out
+if grep -qx "yyjson unavailable" $OUT/aether_toon_handle_helpers_pass.out; then
     :
 else
-    printf '2\nBob\n2\n' >/tmp/aether_toon_handle_helpers_expected.out
-    if ! cmp -s /tmp/aether_toon_handle_helpers_expected.out /tmp/aether_toon_handle_helpers_pass.out; then
+    printf '2\nBob\n2\n' >$OUT/aether_toon_handle_helpers_expected.out
+    if ! cmp -s $OUT/aether_toon_handle_helpers_expected.out $OUT/aether_toon_handle_helpers_pass.out; then
         echo "unexpected TOON handle helper output" >&2
-        cat /tmp/aether_toon_handle_helpers_pass.out >&2
+        cat $OUT/aether_toon_handle_helpers_pass.out >&2
         exit 1
     fi
 fi
-"$AETHER_BIN" --no-cache "$TOON_VARIABLE_PARSE_PASS_FIXTURE" >/tmp/aether_toon_variable_parse_pass.out
-if grep -qx "yyjson unavailable" /tmp/aether_toon_variable_parse_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_VARIABLE_PARSE_PASS_FIXTURE" >$OUT/aether_toon_variable_parse_pass.out
+if grep -qx "yyjson unavailable" $OUT/aether_toon_variable_parse_pass.out; then
     :
 else
-    printf 'Aether\n42\n' >/tmp/aether_toon_variable_parse_expected.out
-    if ! cmp -s /tmp/aether_toon_variable_parse_expected.out /tmp/aether_toon_variable_parse_pass.out; then
+    printf 'Aether\n42\n' >$OUT/aether_toon_variable_parse_expected.out
+    if ! cmp -s $OUT/aether_toon_variable_parse_expected.out $OUT/aether_toon_variable_parse_pass.out; then
         echo "unexpected TOON variable parse output" >&2
-        cat /tmp/aether_toon_variable_parse_pass.out >&2
+        cat $OUT/aether_toon_variable_parse_pass.out >&2
         exit 1
     fi
 fi
-"$AETHER_BIN" --no-cache "$HAS_TOON_ALIAS_PASS_FIXTURE" >/tmp/aether_has_toon_alias_pass.out
-if ! grep -Eq '^(toon-ready|toon-missing)$' /tmp/aether_has_toon_alias_pass.out; then
+"$AETHER_BIN" --no-cache "$HAS_TOON_ALIAS_PASS_FIXTURE" >$OUT/aether_has_toon_alias_pass.out
+if ! printf 'toon-ready\n' | cmp -s - $OUT/aether_has_toon_alias_pass.out &&
+   ! printf 'toon-missing\n' | cmp -s - $OUT/aether_has_toon_alias_pass.out; then
     echo "unexpected has_toon alias output" >&2
-    cat /tmp/aether_has_toon_alias_pass.out >&2
+    cat $OUT/aether_has_toon_alias_pass.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_ARITH_FAIL_FIXTURE" >/tmp/aether_toon_handle_arith_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_ARITH_FAIL_FIXTURE" >$OUT/aether_toon_handle_arith_fail.out 2>&1; then
     echo "expected TOON handle arithmetic failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "opaque TOON handle 'doc' cannot be used in arithmetic expressions" /tmp/aether_toon_handle_arith_fail.out; then
+if ! grep -q "opaque TOON handle 'doc' cannot be used in arithmetic expressions" $OUT/aether_toon_handle_arith_fail.out; then
     echo "missing TOON handle arithmetic failure message" >&2
-    cat /tmp/aether_toon_handle_arith_fail.out >&2
+    cat $OUT/aether_toon_handle_arith_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_CROSS_ASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_handle_cross_assign_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_CROSS_ASSIGN_FAIL_FIXTURE" >$OUT/aether_toon_handle_cross_assign_fail.out 2>&1; then
     echo "expected TOON handle cross-assignment failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "cannot assign ToonDoc handle 'doc' to ToonNode binding" /tmp/aether_toon_handle_cross_assign_fail.out; then
+if ! grep -q "cannot assign ToonDoc handle 'doc' to ToonNode binding" $OUT/aether_toon_handle_cross_assign_fail.out; then
     echo "missing TOON handle cross-assignment failure message" >&2
-    cat /tmp/aether_toon_handle_cross_assign_fail.out >&2
+    cat $OUT/aether_toon_handle_cross_assign_fail.out >&2
     exit 1
 fi
 # The opaque cross-assign must carry [TOON-001] so --diagnostics-json feeds the
 # code->guide repair loop (regression: this semantic family used to be uncoded).
-if "$AETHER_BIN" --diagnostics-json --no-cache "$TOON_HANDLE_CROSS_ASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_handle_cross_assign_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TOON_HANDLE_CROSS_ASSIGN_FAIL_FIXTURE" >$OUT/aether_toon_handle_cross_assign_json.out 2>&1; then
     echo "expected TOON handle cross-assignment diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"TOON-001"' /tmp/aether_toon_handle_cross_assign_json.out; then
+if ! grep -q '"code":"TOON-001"' $OUT/aether_toon_handle_cross_assign_json.out; then
     echo "missing TOON-001 code on TOON handle cross-assignment (regression: uncoded semantic diagnostic?)" >&2
-    cat /tmp/aether_toon_handle_cross_assign_json.out >&2
+    cat $OUT/aether_toon_handle_cross_assign_json.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_KIND_DOC_AS_NODE_FAIL_FIXTURE" >/tmp/aether_toon_handle_kind_doc_as_node_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_KIND_DOC_AS_NODE_FAIL_FIXTURE" >$OUT/aether_toon_handle_kind_doc_as_node_fail.out 2>&1; then
     echo "expected TOON doc-as-node failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_text_value' expects a ToonNode handle, but 'doc' is ToonDoc" /tmp/aether_toon_handle_kind_doc_as_node_fail.out; then
+if ! grep -q "call to 'toon_text_value' expects a ToonNode handle, but 'doc' is ToonDoc" $OUT/aether_toon_handle_kind_doc_as_node_fail.out; then
     echo "missing TOON doc-as-node failure message" >&2
-    cat /tmp/aether_toon_handle_kind_doc_as_node_fail.out >&2
+    cat $OUT/aether_toon_handle_kind_doc_as_node_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_KIND_NODE_AS_DOC_FAIL_FIXTURE" >/tmp/aether_toon_handle_kind_node_as_doc_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_KIND_NODE_AS_DOC_FAIL_FIXTURE" >$OUT/aether_toon_handle_kind_node_as_doc_fail.out 2>&1; then
     echo "expected TOON node-as-doc failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_close' expects a ToonDoc handle, but 'root' is ToonNode" /tmp/aether_toon_handle_kind_node_as_doc_fail.out; then
+if ! grep -q "call to 'toon_close' expects a ToonDoc handle, but 'root' is ToonNode" $OUT/aether_toon_handle_kind_node_as_doc_fail.out; then
     echo "missing TOON node-as-doc failure message" >&2
-    cat /tmp/aether_toon_handle_kind_node_as_doc_fail.out >&2
+    cat $OUT/aether_toon_handle_kind_node_as_doc_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_DECL_FAIL_DOC_TYPE_FIXTURE" >/tmp/aether_toon_handle_decl_fail_doc_type.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_DECL_FAIL_DOC_TYPE_FIXTURE" >$OUT/aether_toon_handle_decl_fail_doc_type.out 2>&1; then
     echo "expected TOON doc declaration type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'doc' must use ToonDoc when initialized from 'toon_parse'" /tmp/aether_toon_handle_decl_fail_doc_type.out; then
+if ! grep -q "binding for 'doc' must use ToonDoc when initialized from 'toon_parse'" $OUT/aether_toon_handle_decl_fail_doc_type.out; then
     echo "missing TOON doc declaration type failure message" >&2
-    cat /tmp/aether_toon_handle_decl_fail_doc_type.out >&2
+    cat $OUT/aether_toon_handle_decl_fail_doc_type.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_DECL_FAIL_NODE_TYPE_FIXTURE" >/tmp/aether_toon_handle_decl_fail_node_type.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_DECL_FAIL_NODE_TYPE_FIXTURE" >$OUT/aether_toon_handle_decl_fail_node_type.out 2>&1; then
     echo "expected TOON node declaration type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'root' must use ToonNode when initialized from 'toon_root'" /tmp/aether_toon_handle_decl_fail_node_type.out; then
+if ! grep -q "binding for 'root' must use ToonNode when initialized from 'toon_root'" $OUT/aether_toon_handle_decl_fail_node_type.out; then
     echo "missing TOON node declaration type failure message" >&2
-    cat /tmp/aether_toon_handle_decl_fail_node_type.out >&2
+    cat $OUT/aether_toon_handle_decl_fail_node_type.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_HANDLE_REASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_handle_reassign_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_HANDLE_REASSIGN_FAIL_FIXTURE" >$OUT/aether_toon_handle_reassign_fail.out 2>&1; then
     echo "expected TOON handle reassignment failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'current' must use ToonDoc when initialized from 'toon_parse'" /tmp/aether_toon_handle_reassign_fail.out; then
+if ! grep -q "binding for 'current' must use ToonDoc when initialized from 'toon_parse'" $OUT/aether_toon_handle_reassign_fail.out; then
     echo "missing TOON handle reassignment failure message" >&2
-    cat /tmp/aether_toon_handle_reassign_fail.out >&2
+    cat $OUT/aether_toon_handle_reassign_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_SCALAR_DECL_FAIL_TEXT_TYPE_FIXTURE" >/tmp/aether_toon_scalar_decl_fail_text_type.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_SCALAR_DECL_FAIL_TEXT_TYPE_FIXTURE" >$OUT/aether_toon_scalar_decl_fail_text_type.out 2>&1; then
     echo "expected TOON scalar declaration type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrong' must use Text when initialized from 'toon_get_text'" /tmp/aether_toon_scalar_decl_fail_text_type.out; then
+if ! grep -q "binding for 'wrong' must use Text when initialized from 'toon_get_text'" $OUT/aether_toon_scalar_decl_fail_text_type.out; then
     echo "missing TOON scalar declaration type failure message" >&2
-    cat /tmp/aether_toon_scalar_decl_fail_text_type.out >&2
+    cat $OUT/aether_toon_scalar_decl_fail_text_type.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_SCALAR_REASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_scalar_reassign_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_SCALAR_REASSIGN_FAIL_FIXTURE" >$OUT/aether_toon_scalar_reassign_fail.out 2>&1; then
     echo "expected TOON scalar reassignment type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'enabled' must use Text when initialized from 'toon_get_text'" /tmp/aether_toon_scalar_reassign_fail.out; then
+if ! grep -q "binding for 'enabled' must use Text when initialized from 'toon_get_text'" $OUT/aether_toon_scalar_reassign_fail.out; then
     echo "missing TOON scalar reassignment type failure message" >&2
-    cat /tmp/aether_toon_scalar_reassign_fail.out >&2
+    cat $OUT/aether_toon_scalar_reassign_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_SCALAR_CROSS_ASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_scalar_cross_assign_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_SCALAR_CROSS_ASSIGN_FAIL_FIXTURE" >$OUT/aether_toon_scalar_cross_assign_fail.out 2>&1; then
     echo "expected TOON scalar cross-assignment failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "cannot assign Text binding 'name' to Bool binding 'enabled'" /tmp/aether_toon_scalar_cross_assign_fail.out; then
+if ! grep -q "cannot assign Text binding 'name' to Bool binding 'enabled'" $OUT/aether_toon_scalar_cross_assign_fail.out; then
     echo "missing TOON scalar cross-assignment failure message" >&2
-    cat /tmp/aether_toon_scalar_cross_assign_fail.out >&2
+    cat $OUT/aether_toon_scalar_cross_assign_fail.out >&2
     exit 1
 fi
 # The scalar assignment mismatch must carry [TYPE-001] so --diagnostics-json
 # feeds the code->guide repair loop (regression: used to be uncoded).
-if "$AETHER_BIN" --diagnostics-json --no-cache "$TOON_SCALAR_CROSS_ASSIGN_FAIL_FIXTURE" >/tmp/aether_toon_scalar_cross_assign_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TOON_SCALAR_CROSS_ASSIGN_FAIL_FIXTURE" >$OUT/aether_toon_scalar_cross_assign_json.out 2>&1; then
     echo "expected TOON scalar cross-assignment diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"TYPE-001"' /tmp/aether_toon_scalar_cross_assign_json.out; then
+if ! grep -q '"code":"TYPE-001"' $OUT/aether_toon_scalar_cross_assign_json.out; then
     echo "missing TYPE-001 code on scalar cross-assignment (regression: uncoded semantic diagnostic?)" >&2
-    cat /tmp/aether_toon_scalar_cross_assign_json.out >&2
+    cat $OUT/aether_toon_scalar_cross_assign_json.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_KEY_ARG_TYPE_FAIL_FIXTURE" >/tmp/aether_toon_key_arg_type_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_KEY_ARG_TYPE_FAIL_FIXTURE" >$OUT/aether_toon_key_arg_type_fail.out 2>&1; then
     echo "expected TOON key argument type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_get_text' expects a Text second argument, but 'badKey' is Int" /tmp/aether_toon_key_arg_type_fail.out; then
+if ! grep -q "call to 'toon_get_text' expects a Text second argument, but 'badKey' is Int" $OUT/aether_toon_key_arg_type_fail.out; then
     echo "missing TOON key argument type failure message" >&2
-    cat /tmp/aether_toon_key_arg_type_fail.out >&2
+    cat $OUT/aether_toon_key_arg_type_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_OBJECT_KEY_ARG_TYPE_FAIL_FIXTURE" >/tmp/aether_toon_object_key_arg_type_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_OBJECT_KEY_ARG_TYPE_FAIL_FIXTURE" >$OUT/aether_toon_object_key_arg_type_fail.out 2>&1; then
     echo "expected TOON object-key argument type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_key' expects a Text second argument, but 'badKey' is Bool" /tmp/aether_toon_object_key_arg_type_fail.out; then
+if ! grep -q "call to 'toon_key' expects a Text second argument, but 'badKey' is Bool" $OUT/aether_toon_object_key_arg_type_fail.out; then
     echo "missing TOON object-key argument type failure message" >&2
-    cat /tmp/aether_toon_object_key_arg_type_fail.out >&2
+    cat $OUT/aether_toon_object_key_arg_type_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_INDEX_ARG_TYPE_FAIL_FIXTURE" >/tmp/aether_toon_index_arg_type_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_INDEX_ARG_TYPE_FAIL_FIXTURE" >$OUT/aether_toon_index_arg_type_fail.out 2>&1; then
     echo "expected TOON index argument type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_at' expects a Int second argument, but 'badIndex' is Text" /tmp/aether_toon_index_arg_type_fail.out; then
+if ! grep -q "call to 'toon_at' expects a Int second argument, but 'badIndex' is Text" $OUT/aether_toon_index_arg_type_fail.out; then
     echo "missing TOON index argument type failure message" >&2
-    cat /tmp/aether_toon_index_arg_type_fail.out >&2
+    cat $OUT/aether_toon_index_arg_type_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_PARSE_ARG_TYPE_FAIL_FIXTURE" >/tmp/aether_toon_parse_arg_type_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_PARSE_ARG_TYPE_FAIL_FIXTURE" >$OUT/aether_toon_parse_arg_type_fail.out 2>&1; then
     echo "expected TOON parse argument type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_parse' expects a Text or TOON first argument, but 'badPayload' is Int" /tmp/aether_toon_parse_arg_type_fail.out; then
+if ! grep -q "call to 'toon_parse' expects a Text or TOON first argument, but 'badPayload' is Int" $OUT/aether_toon_parse_arg_type_fail.out; then
     echo "missing TOON parse argument type failure message" >&2
-    cat /tmp/aether_toon_parse_arg_type_fail.out >&2
+    cat $OUT/aether_toon_parse_arg_type_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_PARSE_FILE_ARG_TYPE_FAIL_FIXTURE" >/tmp/aether_toon_parse_file_arg_type_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_PARSE_FILE_ARG_TYPE_FAIL_FIXTURE" >$OUT/aether_toon_parse_file_arg_type_fail.out 2>&1; then
     echo "expected TOON parse_file argument type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_parse_file' expects a Text first argument, but 'badPath' is Bool" /tmp/aether_toon_parse_file_arg_type_fail.out; then
+if ! grep -q "call to 'toon_parse_file' expects a Text first argument, but 'badPath' is Bool" $OUT/aether_toon_parse_file_arg_type_fail.out; then
     echo "missing TOON parse_file argument type failure message" >&2
-    cat /tmp/aether_toon_parse_file_arg_type_fail.out >&2
+    cat $OUT/aether_toon_parse_file_arg_type_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_SHAPE_SCALAR_DECL_FAIL_FIXTURE" >/tmp/aether_toon_shape_scalar_decl_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_SHAPE_SCALAR_DECL_FAIL_FIXTURE" >$OUT/aether_toon_shape_scalar_decl_fail.out 2>&1; then
     echo "expected TOON shape scalar declaration type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrongLen' must use Int when initialized from 'toon_len'" /tmp/aether_toon_shape_scalar_decl_fail.out; then
+if ! grep -q "binding for 'wrongLen' must use Int when initialized from 'toon_len'" $OUT/aether_toon_shape_scalar_decl_fail.out; then
     echo "missing TOON length declaration type failure message" >&2
-    cat /tmp/aether_toon_shape_scalar_decl_fail.out >&2
+    cat $OUT/aether_toon_shape_scalar_decl_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_REAL_DECL_FAIL_FIXTURE" >/tmp/aether_toon_real_decl_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_REAL_DECL_FAIL_FIXTURE" >$OUT/aether_toon_real_decl_fail.out 2>&1; then
     echo "expected TOON real declaration type failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrong' must use Real when initialized from 'toon_get_real'" /tmp/aether_toon_real_decl_fail.out; then
+if ! grep -q "binding for 'wrong' must use Real when initialized from 'toon_get_real'" $OUT/aether_toon_real_decl_fail.out; then
     echo "missing TOON real declaration type failure message" >&2
-    cat /tmp/aether_toon_real_decl_fail.out >&2
+    cat $OUT/aether_toon_real_decl_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_TYPE_DECL_FAIL_FIXTURE" >/tmp/aether_toon_type_decl_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_TYPE_DECL_FAIL_FIXTURE" >$OUT/aether_toon_type_decl_fail.out 2>&1; then
     echo "expected TOON type inspection declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrongType' must use Text when initialized from 'toon_type'" /tmp/aether_toon_type_decl_fail.out; then
+if ! grep -q "binding for 'wrongType' must use Text when initialized from 'toon_type'" $OUT/aether_toon_type_decl_fail.out; then
     echo "missing TOON type() declaration type failure message" >&2
-    cat /tmp/aether_toon_type_decl_fail.out >&2
+    cat $OUT/aether_toon_type_decl_fail.out >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrongArr' must use Bool when initialized from 'toon_is_arr'" /tmp/aether_toon_type_decl_fail.out; then
+if ! grep -q "binding for 'wrongArr' must use Bool when initialized from 'toon_is_arr'" $OUT/aether_toon_type_decl_fail.out; then
     echo "missing TOON is_arr declaration type failure message" >&2
-    cat /tmp/aether_toon_type_decl_fail.out >&2
+    cat $OUT/aether_toon_type_decl_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_PRESENCE_DECL_FAIL_FIXTURE" >/tmp/aether_toon_presence_decl_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_PRESENCE_DECL_FAIL_FIXTURE" >$OUT/aether_toon_presence_decl_fail.out 2>&1; then
     echo "expected TOON presence declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrongKey' must use Bool when initialized from 'toon_has_key'" /tmp/aether_toon_presence_decl_fail.out; then
+if ! grep -q "binding for 'wrongKey' must use Bool when initialized from 'toon_has_key'" $OUT/aether_toon_presence_decl_fail.out; then
     echo "missing TOON has_key declaration type failure message" >&2
-    cat /tmp/aether_toon_presence_decl_fail.out >&2
+    cat $OUT/aether_toon_presence_decl_fail.out >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrongIndex' must use Bool when initialized from 'toon_has_at'" /tmp/aether_toon_presence_decl_fail.out; then
+if ! grep -q "binding for 'wrongIndex' must use Bool when initialized from 'toon_has_at'" $OUT/aether_toon_presence_decl_fail.out; then
     echo "missing TOON has_at declaration type failure message" >&2
-    cat /tmp/aether_toon_presence_decl_fail.out >&2
+    cat $OUT/aether_toon_presence_decl_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_DEFAULTS_DECL_FAIL_FIXTURE" >/tmp/aether_toon_defaults_decl_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_DEFAULTS_DECL_FAIL_FIXTURE" >$OUT/aether_toon_defaults_decl_fail.out 2>&1; then
     echo "expected TOON defaults declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'toon_get_int_or' expects a Int third argument, but 'fallbackText' is Text" /tmp/aether_toon_defaults_decl_fail.out; then
+if ! grep -q "call to 'toon_get_int_or' expects a Int third argument, but 'fallbackText' is Text" $OUT/aether_toon_defaults_decl_fail.out; then
     echo "missing TOON int default fallback type failure message" >&2
-    cat /tmp/aether_toon_defaults_decl_fail.out >&2
+    cat $OUT/aether_toon_defaults_decl_fail.out >&2
     exit 1
 fi
-if ! grep -q "binding for 'wrongFlag' must use Bool when initialized from 'toon_get_bool_or'" /tmp/aether_toon_defaults_decl_fail.out; then
+if ! grep -q "binding for 'wrongFlag' must use Bool when initialized from 'toon_get_bool_or'" $OUT/aether_toon_defaults_decl_fail.out; then
     echo "missing TOON bool default declaration type failure message" >&2
-    cat /tmp/aether_toon_defaults_decl_fail.out >&2
+    cat $OUT/aether_toon_defaults_decl_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$COST_ZERO_FAIL_FIXTURE" >/tmp/aether_cost_zero_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$COST_ZERO_FAIL_FIXTURE" >$OUT/aether_cost_zero_fail.out 2>&1; then
     echo "expected @cost zero-budget failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "@cost budget must be greater than zero" /tmp/aether_cost_zero_fail.out; then
+if ! grep -q "@cost budget must be greater than zero" $OUT/aether_cost_zero_fail.out; then
     echo "missing @cost zero-budget failure message" >&2
-    cat /tmp/aether_cost_zero_fail.out >&2
+    cat $OUT/aether_cost_zero_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$COST_UNIT_FAIL_FIXTURE" >/tmp/aether_cost_unit_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$COST_UNIT_FAIL_FIXTURE" >$OUT/aether_cost_unit_fail.out 2>&1; then
     echo "expected @cost unit failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "unsupported @cost unit 'ticks'" /tmp/aether_cost_unit_fail.out; then
+if ! grep -q "unsupported @cost unit 'ticks'" $OUT/aether_cost_unit_fail.out; then
     echo "missing @cost unit failure message" >&2
-    cat /tmp/aether_cost_unit_fail.out >&2
+    cat $OUT/aether_cost_unit_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$COST_DETACHED_FAIL_FIXTURE" >/tmp/aether_cost_detached_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$COST_DETACHED_FAIL_FIXTURE" >$OUT/aether_cost_detached_fail.out 2>&1; then
     echo "expected detached @cost failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "@cost must annotate the next function declaration" /tmp/aether_cost_detached_fail.out; then
+if ! grep -q "@cost must annotate the next function declaration" $OUT/aether_cost_detached_fail.out; then
     echo "missing detached @cost failure message" >&2
-    cat /tmp/aether_cost_detached_fail.out >&2
+    cat $OUT/aether_cost_detached_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$COST_DUPLICATE_FAIL_FIXTURE" >/tmp/aether_cost_duplicate_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$COST_DUPLICATE_FAIL_FIXTURE" >$OUT/aether_cost_duplicate_fail.out 2>&1; then
     echo "expected duplicate @cost failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "duplicate @cost annotation before function declaration" /tmp/aether_cost_duplicate_fail.out; then
+if ! grep -q "duplicate @cost annotation before function declaration" $OUT/aether_cost_duplicate_fail.out; then
     echo "missing duplicate @cost failure message" >&2
-    cat /tmp/aether_cost_duplicate_fail.out >&2
+    cat $OUT/aether_cost_duplicate_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_PRE_EMPTY_FAIL_FIXTURE" >/tmp/aether_contract_pre_empty_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$CONTRACT_PRE_EMPTY_FAIL_FIXTURE" >$OUT/aether_contract_pre_empty_fail.out 2>&1; then
     echo "expected empty @pre failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "@pre requires an expression" /tmp/aether_contract_pre_empty_fail.out; then
+if ! grep -q "@pre requires an expression" $OUT/aether_contract_pre_empty_fail.out; then
     echo "missing empty @pre failure message" >&2
-    cat /tmp/aether_contract_pre_empty_fail.out >&2
+    cat $OUT/aether_contract_pre_empty_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_POST_DETACHED_FAIL_FIXTURE" >/tmp/aether_contract_post_detached_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$CONTRACT_POST_DETACHED_FAIL_FIXTURE" >$OUT/aether_contract_post_detached_fail.out 2>&1; then
     echo "expected detached @post failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "@post must annotate the next function declaration" /tmp/aether_contract_post_detached_fail.out; then
+if ! grep -q "@post must annotate the next function declaration" $OUT/aether_contract_post_detached_fail.out; then
     echo "missing detached @post failure message" >&2
-    cat /tmp/aether_contract_post_detached_fail.out >&2
+    cat $OUT/aether_contract_post_detached_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_PURE_TRAILING_FAIL_FIXTURE" >/tmp/aether_contract_pure_trailing_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$CONTRACT_PURE_TRAILING_FAIL_FIXTURE" >$OUT/aether_contract_pure_trailing_fail.out 2>&1; then
     echo "expected trailing @pure syntax failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "@pure does not take arguments" /tmp/aether_contract_pure_trailing_fail.out; then
+if ! grep -q "@pure does not take arguments" $OUT/aether_contract_pure_trailing_fail.out; then
     echo "missing trailing @pure syntax failure message" >&2
-    cat /tmp/aether_contract_pure_trailing_fail.out >&2
+    cat $OUT/aether_contract_pure_trailing_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_PRE_FIXTURE" >/tmp/aether_contract_fail_pre.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_PRE_FIXTURE" >$OUT/aether_contract_fail_pre.out 2>&1; then
     echo "expected precondition failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether @pre failed in inc" /tmp/aether_contract_fail_pre.out; then
+if ! grep -q "Aether @pre failed in inc" $OUT/aether_contract_fail_pre.out; then
     echo "missing precondition failure message" >&2
-    cat /tmp/aether_contract_fail_pre.out >&2
+    cat $OUT/aether_contract_fail_pre.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_POST_FIXTURE" >/tmp/aether_contract_fail_post.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_POST_FIXTURE" >$OUT/aether_contract_fail_post.out 2>&1; then
     echo "expected postcondition failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether @post failed in inc" /tmp/aether_contract_fail_post.out; then
+if ! grep -q "Aether @post failed in inc" $OUT/aether_contract_fail_post.out; then
     echo "missing postcondition failure message" >&2
-    cat /tmp/aether_contract_fail_post.out >&2
+    cat $OUT/aether_contract_fail_post.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$EFFECTS_FAIL_FIXTURE" >/tmp/aether_effects_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$EFFECTS_FAIL_FIXTURE" >$OUT/aether_effects_fail.out 2>&1; then
     echo "expected effect-boundary failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether effect error: call to 'writeln' requires an fx block" /tmp/aether_effects_fail.out; then
+if ! grep -q "Aether effect error: call to 'writeln' requires an fx block" $OUT/aether_effects_fail.out; then
     echo "missing effect-boundary failure message" >&2
-    cat /tmp/aether_effects_fail.out >&2
+    cat $OUT/aether_effects_fail.out >&2
     exit 1
 fi
 
 # The effect fence is an AST check, so token layout cannot dodge it: a call
 # with its open-paren on the NEXT line (which escaped the old per-line scan)
 # still needs an fx block.
-if "$AETHER_BIN" --no-cache "$FX_CROSS_LINE_CALL_FAIL_FIXTURE" >/tmp/aether_fx_cross_line_call_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FX_CROSS_LINE_CALL_FAIL_FIXTURE" >$OUT/aether_fx_cross_line_call_fail.out 2>&1; then
     echo "expected cross-line effect-boundary failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[FX-001\] Aether effect error: call to 'println' requires an fx block" /tmp/aether_fx_cross_line_call_fail.out; then
+if ! grep -q "\[FX-001\] Aether effect error: call to 'println' requires an fx block" $OUT/aether_fx_cross_line_call_fail.out; then
     echo "missing cross-line effect-boundary failure message" >&2
-    cat /tmp/aether_fx_cross_line_call_fail.out >&2
+    cat $OUT/aether_fx_cross_line_call_fail.out >&2
     exit 1
 fi
 
 # ...and conversely, `fx` with its `{` on the NEXT line is a valid effect
 # block (the old per-line scan rejected it with a spurious FX-001).
-"$AETHER_BIN" --no-cache "$FX_BRACE_NEXT_LINE_PASS_FIXTURE" >/tmp/aether_fx_brace_next_line_pass.out 2>&1
-printf 'brace on next line\n' >/tmp/aether_fx_brace_next_line_pass_expected.out
-if ! cmp -s /tmp/aether_fx_brace_next_line_pass_expected.out /tmp/aether_fx_brace_next_line_pass.out; then
+"$AETHER_BIN" --no-cache "$FX_BRACE_NEXT_LINE_PASS_FIXTURE" >$OUT/aether_fx_brace_next_line_pass.out 2>&1
+printf 'brace on next line\n' >$OUT/aether_fx_brace_next_line_pass_expected.out
+if ! cmp -s $OUT/aether_fx_brace_next_line_pass_expected.out $OUT/aether_fx_brace_next_line_pass.out; then
     echo "unexpected fx-brace-on-next-line output" >&2
-    cat /tmp/aether_fx_brace_next_line_pass.out >&2
+    cat $OUT/aether_fx_brace_next_line_pass.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TASK_ALIAS_FAIL_FIXTURE" >/tmp/aether_task_alias_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TASK_ALIAS_FAIL_FIXTURE" >$OUT/aether_task_alias_fail.out 2>&1; then
     echo "expected task alias effect-boundary failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether effect error: call to 'task_spawn' requires an fx block" /tmp/aether_task_alias_fail.out; then
+if ! grep -q "Aether effect error: call to 'task_spawn' requires an fx block" $OUT/aether_task_alias_fail.out; then
     echo "missing task alias effect-boundary failure message" >&2
-    cat /tmp/aether_task_alias_fail.out >&2
+    cat $OUT/aether_task_alias_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$SLEEP_ALIAS_FAIL_FIXTURE" >/tmp/aether_sleep_alias_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$SLEEP_ALIAS_FAIL_FIXTURE" >$OUT/aether_sleep_alias_fail.out 2>&1; then
     echo "expected sleep alias effect-boundary failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether effect error: call to 'sleep' requires an fx block" /tmp/aether_sleep_alias_fail.out; then
+if ! grep -q "Aether effect error: call to 'sleep' requires an fx block" $OUT/aether_sleep_alias_fail.out; then
     echo "missing sleep alias effect-boundary failure message" >&2
-    cat /tmp/aether_sleep_alias_fail.out >&2
+    cat $OUT/aether_sleep_alias_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$AI_ALIAS_FAIL_FIXTURE" >/tmp/aether_ai_alias_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$AI_ALIAS_FAIL_FIXTURE" >$OUT/aether_ai_alias_fail.out 2>&1; then
     echo "expected ai alias effect-boundary failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether effect error: call to 'ai_chat' requires an fx block" /tmp/aether_ai_alias_fail.out; then
+if ! grep -q "Aether effect error: call to 'ai_chat' requires an fx block" $OUT/aether_ai_alias_fail.out; then
     echo "missing ai alias effect-boundary failure message" >&2
-    cat /tmp/aether_ai_alias_fail.out >&2
+    cat $OUT/aether_ai_alias_fail.out >&2
     exit 1
 fi
 
 if [ "$HAS_OPENAI" = 1 ]; then
-if env -u OPENAI_API_KEY "$AETHER_BIN" --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FIXTURE" >/tmp/aether_runtime_line_mapping_fail.out 2>&1; then
+if env -u OPENAI_API_KEY "$AETHER_BIN" --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FIXTURE" >$OUT/aether_runtime_line_mapping_fail.out 2>&1; then
     echo "expected runtime line-mapping failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "OpenAIChatCompletions requires an API key" /tmp/aether_runtime_line_mapping_fail.out; then
+if ! grep -q "OpenAIChatCompletions requires an API key" $OUT/aether_runtime_line_mapping_fail.out; then
     echo "missing runtime openai failure message" >&2
-    cat /tmp/aether_runtime_line_mapping_fail.out >&2
+    cat $OUT/aether_runtime_line_mapping_fail.out >&2
     exit 1
 fi
 # The runtime error echoes the source path the VM was handed (leading slash
 # stripped); its directory is incidental to corpus location, so match the
 # basename + line, not the dir prefix the umbrella baked in (Tests/aether/).
-if ! grep -qE '(^|/)runtime_line_mapping_fail\.aether:4: OpenAIChatCompletions requires an API key via argument or OPENAI_API_KEY\.$' /tmp/aether_runtime_line_mapping_fail.out; then
+if ! grep -qE '(^|/)runtime_line_mapping_fail\.aether:4: OpenAIChatCompletions requires an API key via argument or OPENAI_API_KEY\.$' $OUT/aether_runtime_line_mapping_fail.out; then
     echo "missing plain-text runtime file/line prefix" >&2
-    cat /tmp/aether_runtime_line_mapping_fail.out >&2
+    cat $OUT/aether_runtime_line_mapping_fail.out >&2
     exit 1
 fi
-if ! grep -q "\\[Error Location\\] Offset: " /tmp/aether_runtime_line_mapping_fail.out; then
+if ! grep -q "\\[Error Location\\] Offset: " $OUT/aether_runtime_line_mapping_fail.out; then
     echo "missing runtime error location" >&2
-    cat /tmp/aether_runtime_line_mapping_fail.out >&2
+    cat $OUT/aether_runtime_line_mapping_fail.out >&2
     exit 1
 fi
-if ! grep -q "Line: 4" /tmp/aether_runtime_line_mapping_fail.out; then
+if ! grep -q "Line: 4" $OUT/aether_runtime_line_mapping_fail.out; then
     echo "missing mapped runtime line number" >&2
-    cat /tmp/aether_runtime_line_mapping_fail.out >&2
+    cat $OUT/aether_runtime_line_mapping_fail.out >&2
     exit 1
 fi
-if env -u OPENAI_API_KEY "$AETHER_BIN" --diagnostics-json --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FIXTURE" >/tmp/aether_runtime_line_mapping_json.out 2>&1; then
+if env -u OPENAI_API_KEY "$AETHER_BIN" --diagnostics-json --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FIXTURE" >$OUT/aether_runtime_line_mapping_json.out 2>&1; then
     echo "expected runtime diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"phase":"runtime"' /tmp/aether_runtime_line_mapping_json.out; then
+if ! grep -q '"phase":"runtime"' $OUT/aether_runtime_line_mapping_json.out; then
     echo "missing runtime diagnostics-json phase" >&2
-    cat /tmp/aether_runtime_line_mapping_json.out >&2
+    cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q '"kind":"runtime"' /tmp/aether_runtime_line_mapping_json.out; then
+if ! grep -q '"kind":"runtime"' $OUT/aether_runtime_line_mapping_json.out; then
     echo "missing runtime diagnostics-json kind" >&2
-    cat /tmp/aether_runtime_line_mapping_json.out >&2
+    cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q '"file":"'"$RUNTIME_LINE_MAPPING_FAIL_FIXTURE"'"' /tmp/aether_runtime_line_mapping_json.out; then
+if ! grep -q '"file":"'"$RUNTIME_LINE_MAPPING_FAIL_FIXTURE"'"' $OUT/aether_runtime_line_mapping_json.out; then
     echo "missing runtime diagnostics-json file path" >&2
-    cat /tmp/aether_runtime_line_mapping_json.out >&2
+    cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q '"line":4' /tmp/aether_runtime_line_mapping_json.out; then
+if ! grep -q '"line":4' $OUT/aether_runtime_line_mapping_json.out; then
     echo "missing runtime diagnostics-json line number" >&2
-    cat /tmp/aether_runtime_line_mapping_json.out >&2
+    cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q 'OpenAIChatCompletions requires an API key' /tmp/aether_runtime_line_mapping_json.out; then
+if ! grep -q 'OpenAIChatCompletions requires an API key' $OUT/aether_runtime_line_mapping_json.out; then
     echo "missing runtime diagnostics-json message" >&2
-    cat /tmp/aether_runtime_line_mapping_json.out >&2
+    cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
 fi
-if env -u OPENAI_API_KEY "$AETHER_BIN" --diagnostics-toon --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FIXTURE" >/tmp/aether_runtime_line_mapping_toon.out 2>&1; then
+if env -u OPENAI_API_KEY "$AETHER_BIN" --diagnostics-toon --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FIXTURE" >$OUT/aether_runtime_line_mapping_toon.out 2>&1; then
     echo "expected runtime diagnostics-toon failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '^diagnostics\[1\]{severity,phase,kind,code,file,line,column,message,hint,raw}:$' /tmp/aether_runtime_line_mapping_toon.out; then
+if ! grep -q '^diagnostics\[1\]{severity,phase,kind,code,file,line,column,message,hint,raw}:$' $OUT/aether_runtime_line_mapping_toon.out; then
     echo "missing runtime diagnostics-toon header" >&2
-    cat /tmp/aether_runtime_line_mapping_toon.out >&2
+    cat $OUT/aether_runtime_line_mapping_toon.out >&2
     exit 1
 fi
-if ! grep -q '"error","runtime","runtime","","'"$RUNTIME_LINE_MAPPING_FAIL_FIXTURE"'",4,null,"OpenAIChatCompletions requires an API key via argument or OPENAI_API_KEY\."' /tmp/aether_runtime_line_mapping_toon.out; then
+if ! grep -q '"error","runtime","runtime","","'"$RUNTIME_LINE_MAPPING_FAIL_FIXTURE"'",4,null,"OpenAIChatCompletions requires an API key via argument or OPENAI_API_KEY\."' $OUT/aether_runtime_line_mapping_toon.out; then
     echo "missing runtime diagnostics-toon row" >&2
-    cat /tmp/aether_runtime_line_mapping_toon.out >&2
+    cat $OUT/aether_runtime_line_mapping_toon.out >&2
     exit 1
 fi
 else
     echo "[skip] runtime_line_mapping_fail: OpenAI ext-builtin not present" >&2
 fi
 
-if "$AETHER_BIN" --no-cache "$PRINT_ALIAS_FAIL_FIXTURE" >/tmp/aether_print_alias_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$PRINT_ALIAS_FAIL_FIXTURE" >$OUT/aether_print_alias_fail.out 2>&1; then
     echo "expected print alias effect-boundary failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether effect error: call to 'println' requires an fx block" /tmp/aether_print_alias_fail.out; then
+if ! grep -q "Aether effect error: call to 'println' requires an fx block" $OUT/aether_print_alias_fail.out; then
     echo "missing print alias effect-boundary failure message" >&2
-    cat /tmp/aether_print_alias_fail.out >&2
+    cat $OUT/aether_print_alias_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$INFERRED_LET_UNKNOWN_FAIL_FIXTURE" >/tmp/aether_inferred_let_unknown_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$INFERRED_LET_UNKNOWN_FAIL_FIXTURE" >$OUT/aether_inferred_let_unknown_fail.out 2>&1; then
     echo "expected inferred let rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether declaration parser error: cannot infer the type of 'answer' from its initializer" /tmp/aether_inferred_let_unknown_fail.out; then
+if ! grep -q "Aether declaration parser error: cannot infer the type of 'answer' from its initializer" $OUT/aether_inferred_let_unknown_fail.out; then
     echo "missing inferred let rewrite failure message" >&2
-    cat /tmp/aether_inferred_let_unknown_fail.out >&2
+    cat $OUT/aether_inferred_let_unknown_fail.out >&2
     exit 1
 fi
-if ! grep -q "hint: add an explicit type, for example \`let answer: Int = ...;\`." /tmp/aether_inferred_let_unknown_fail.out; then
+if ! grep -q "hint: add an explicit type, for example \`let answer: Int = ...;\`." $OUT/aether_inferred_let_unknown_fail.out; then
     echo "missing inferred let rewrite failure hint" >&2
-    cat /tmp/aether_inferred_let_unknown_fail.out >&2
+    cat $OUT/aether_inferred_let_unknown_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$INFERRED_LET_UNKNOWN_FAIL_FIXTURE" >/tmp/aether_inferred_let_unknown_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$INFERRED_LET_UNKNOWN_FAIL_FIXTURE" >$OUT/aether_inferred_let_unknown_json.out 2>&1; then
     echo "expected inferred let rewrite failure with diagnostics-json but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"phase":"parser"' /tmp/aether_inferred_let_unknown_json.out; then
+if ! grep -q '"phase":"parser"' $OUT/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json parser phase" >&2
-    cat /tmp/aether_inferred_let_unknown_json.out >&2
+    cat $OUT/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
-if ! grep -q '"kind":"declaration"' /tmp/aether_inferred_let_unknown_json.out; then
+if ! grep -q '"kind":"declaration"' $OUT/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json declaration kind" >&2
-    cat /tmp/aether_inferred_let_unknown_json.out >&2
+    cat $OUT/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
-if ! grep -q '"file":"'"$INFERRED_LET_UNKNOWN_FAIL_FIXTURE"'"' /tmp/aether_inferred_let_unknown_json.out; then
+if ! grep -q '"file":"'"$INFERRED_LET_UNKNOWN_FAIL_FIXTURE"'"' $OUT/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json file path" >&2
-    cat /tmp/aether_inferred_let_unknown_json.out >&2
+    cat $OUT/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
 # The guide-pointer `help: see <CODE> ...` line is folded into the preceding
 # diagnostic's hint by the collector (no separate junk entry), so the hint is
 # the original text plus the folded guide pointer.
-if ! grep -q '"hint":"add an explicit type, for example `let answer: Int = ...;`.; see TYPE-001 in the Aether guide' /tmp/aether_inferred_let_unknown_json.out; then
+if ! grep -q '"hint":"add an explicit type, for example `let answer: Int = ...;`.; see TYPE-001 in the Aether guide' $OUT/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json hint (with folded help pointer)" >&2
-    cat /tmp/aether_inferred_let_unknown_json.out >&2
+    cat $OUT/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
 # Function-scoped binding tables: same-name locals in different functions each
@@ -1702,130 +1732,130 @@ fi
 # shadows a global const leaves the global Text binding intact for later
 # functions. Under the old program-flat tables this drew a false [TYPE-001] on
 # sum_real and mis-typed `let b = label;` as Int (a hard compile error).
-"$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_PASS_FIXTURE" >/tmp/aether_scoped_bindings_pass.out
-printf '42\nanswer\n2.500000\n3\nscoped\n42\n' >/tmp/aether_scoped_bindings_expected.out
-if ! cmp -s /tmp/aether_scoped_bindings_expected.out /tmp/aether_scoped_bindings_pass.out; then
+"$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_PASS_FIXTURE" >$OUT/aether_scoped_bindings_pass.out
+printf '42\nanswer\n2.500000\n3\nscoped\n42\n' >$OUT/aether_scoped_bindings_expected.out
+if ! cmp -s $OUT/aether_scoped_bindings_expected.out $OUT/aether_scoped_bindings_pass.out; then
     echo "unexpected scoped bindings output (regression: cross-function binding leakage / shadowed global not restored)" >&2
-    cat /tmp/aether_scoped_bindings_pass.out >&2
+    cat $OUT/aether_scoped_bindings_pass.out >&2
     exit 1
 fi
 # The flip side: a name declared only inside another function must NOT feed
 # inference. `let copy = secret;` has nothing in scope, so the parse fails with
 # the coded cannot-infer diagnostic (previously the leaked Text entry typed it
 # and the error surfaced later as an undefined global).
-if "$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_FAIL_FIXTURE" >/tmp/aether_scoped_bindings_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_FAIL_FIXTURE" >$OUT/aether_scoped_bindings_fail.out 2>&1; then
     echo "expected scoped bindings failure but program succeeded (regression: another function's local leaked into inference)" >&2
     exit 1
 fi
-if ! grep -q "\[TYPE-001\] Aether declaration parser error: cannot infer the type of 'copy' from its initializer" /tmp/aether_scoped_bindings_fail.out; then
+if ! grep -q "\[TYPE-001\] Aether declaration parser error: cannot infer the type of 'copy' from its initializer" $OUT/aether_scoped_bindings_fail.out; then
     echo "missing scoped bindings cannot-infer diagnostic" >&2
-    cat /tmp/aether_scoped_bindings_fail.out >&2
+    cat $OUT/aether_scoped_bindings_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" >/tmp/aether_function_missing_return_type_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" >$OUT/aether_function_missing_return_type_fail.out 2>&1; then
     echo "expected missing return type rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function parser error: functions must declare an explicit return type" /tmp/aether_function_missing_return_type_fail.out; then
+if ! grep -q "Aether function parser error: functions must declare an explicit return type" $OUT/aether_function_missing_return_type_fail.out; then
     echo "missing function return type rewrite failure message" >&2
-    cat /tmp/aether_function_missing_return_type_fail.out >&2
+    cat $OUT/aether_function_missing_return_type_fail.out >&2
     exit 1
 fi
-if ! grep -q "hint: write \`fn name(args) -> Void { ... }\` or replace \`Void\` with the actual return type." /tmp/aether_function_missing_return_type_fail.out; then
+if ! grep -q "hint: write \`fn name(args) -> Void { ... }\` or replace \`Void\` with the actual return type." $OUT/aether_function_missing_return_type_fail.out; then
     echo "missing function return type rewrite failure hint" >&2
-    cat /tmp/aether_function_missing_return_type_fail.out >&2
+    cat $OUT/aether_function_missing_return_type_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" >/tmp/aether_function_missing_return_type_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$FUNCTION_MISSING_RETURN_TYPE_FAIL_FIXTURE" >$OUT/aether_function_missing_return_type_json.out 2>&1; then
     echo "expected missing return type diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"phase":"parser"' /tmp/aether_function_missing_return_type_json.out; then
+if ! grep -q '"phase":"parser"' $OUT/aether_function_missing_return_type_json.out; then
     echo "missing function diagnostics-json phase" >&2
-    cat /tmp/aether_function_missing_return_type_json.out >&2
+    cat $OUT/aether_function_missing_return_type_json.out >&2
     exit 1
 fi
-if ! grep -q '"line":1' /tmp/aether_function_missing_return_type_json.out; then
+if ! grep -q '"line":1' $OUT/aether_function_missing_return_type_json.out; then
     echo "missing function diagnostics-json line mapping" >&2
-    cat /tmp/aether_function_missing_return_type_json.out >&2
+    cat $OUT/aether_function_missing_return_type_json.out >&2
     exit 1
 fi
-if ! grep -q '"code":"SYN-001"' /tmp/aether_function_missing_return_type_json.out; then
+if ! grep -q '"code":"SYN-001"' $OUT/aether_function_missing_return_type_json.out; then
     echo "missing function diagnostics-json code" >&2
-    cat /tmp/aether_function_missing_return_type_json.out >&2
+    cat $OUT/aether_function_missing_return_type_json.out >&2
     exit 1
 fi
-if ! grep -q '"message":"Aether function parser error: functions must declare an explicit return type\."' /tmp/aether_function_missing_return_type_json.out; then
+if ! grep -q '"message":"Aether function parser error: functions must declare an explicit return type\."' $OUT/aether_function_missing_return_type_json.out; then
     echo "missing function diagnostics-json message" >&2
-    cat /tmp/aether_function_missing_return_type_json.out >&2
+    cat $OUT/aether_function_missing_return_type_json.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE" >/tmp/aether_function_missing_value_return_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE" >$OUT/aether_function_missing_value_return_fail.out 2>&1; then
     echo "expected missing value return rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function parser error: non-Void functions have a fallthrough path with no return value" /tmp/aether_function_missing_value_return_fail.out; then
+if ! grep -q "Aether function parser error: non-Void functions have a fallthrough path with no return value" $OUT/aether_function_missing_value_return_fail.out; then
     echo "missing value return rewrite failure message" >&2
-    cat /tmp/aether_function_missing_value_return_fail.out >&2
+    cat $OUT/aether_function_missing_value_return_fail.out >&2
     exit 1
 fi
-if ! grep -q 'hint: add `ret value;` on the top-level path that can reach the closing `}`, or declare the function `-> Void` if it only performs side effects\.' /tmp/aether_function_missing_value_return_fail.out; then
+if ! grep -q 'hint: add `ret value;` on the top-level path that can reach the closing `}`, or declare the function `-> Void` if it only performs side effects\.' $OUT/aether_function_missing_value_return_fail.out; then
     echo "missing value return rewrite failure hint" >&2
-    cat /tmp/aether_function_missing_value_return_fail.out >&2
+    cat $OUT/aether_function_missing_value_return_fail.out >&2
     exit 1
 fi
 # FLOW-002: an empty `ret;` in a non-Void function (a return statement exists but
 # supplies no value) is a coded diagnostic, distinct from the FLOW-001 fallthrough
 # rule above -- the fix differs (give the return a value vs add a return).
-if "$AETHER_BIN" --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >/tmp/aether_function_empty_return_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >$OUT/aether_function_empty_return_fail.out 2>&1; then
     echo "expected empty-return rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function parser error: return requires a value" /tmp/aether_function_empty_return_fail.out; then
+if ! grep -q "Aether function parser error: return requires a value" $OUT/aether_function_empty_return_fail.out; then
     echo "missing empty-return rewrite failure message" >&2
-    cat /tmp/aether_function_empty_return_fail.out >&2
+    cat $OUT/aether_function_empty_return_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >/tmp/aether_function_empty_return_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$FUNCTION_EMPTY_RETURN_FAIL_FIXTURE" >$OUT/aether_function_empty_return_json.out 2>&1; then
     echo "expected empty-return diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"FLOW-002"' /tmp/aether_function_empty_return_json.out; then
+if ! grep -q '"code":"FLOW-002"' $OUT/aether_function_empty_return_json.out; then
     echo "missing empty-return diagnostics-json code FLOW-002" >&2
-    cat /tmp/aether_function_empty_return_json.out >&2
+    cat $OUT/aether_function_empty_return_json.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TYPE_FIELD_COMMA_FAIL_FIXTURE" >/tmp/aether_type_field_comma_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TYPE_FIELD_COMMA_FAIL_FIXTURE" >$OUT/aether_type_field_comma_fail.out 2>&1; then
     echo "expected type field comma rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether type parser error: type fields must end with ';', not ','." /tmp/aether_type_field_comma_fail.out; then
+if ! grep -q "Aether type parser error: type fields must end with ';', not ','." $OUT/aether_type_field_comma_fail.out; then
     echo "missing type field comma rewrite failure message" >&2
-    cat /tmp/aether_type_field_comma_fail.out >&2
+    cat $OUT/aether_type_field_comma_fail.out >&2
     exit 1
 fi
-if ! grep -q "hint: write \`fieldName: Type;\` for each field inside a \`type\` block." /tmp/aether_type_field_comma_fail.out; then
+if ! grep -q "hint: write \`fieldName: Type;\` for each field inside a \`type\` block." $OUT/aether_type_field_comma_fail.out; then
     echo "missing type field comma rewrite failure hint" >&2
-    cat /tmp/aether_type_field_comma_fail.out >&2
+    cat $OUT/aether_type_field_comma_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_COMMA_FAIL_FIXTURE" >/tmp/aether_type_field_comma_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_COMMA_FAIL_FIXTURE" >$OUT/aether_type_field_comma_json.out 2>&1; then
     echo "expected type field comma diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"line":2' /tmp/aether_type_field_comma_json.out; then
+if ! grep -q '"line":2' $OUT/aether_type_field_comma_json.out; then
     echo "missing type field comma diagnostics-json line mapping" >&2
-    cat /tmp/aether_type_field_comma_json.out >&2
+    cat $OUT/aether_type_field_comma_json.out >&2
     exit 1
 fi
-if ! grep -q '"code":"SYN-001"' /tmp/aether_type_field_comma_json.out; then
+if ! grep -q '"code":"SYN-001"' $OUT/aether_type_field_comma_json.out; then
     echo "missing type field comma diagnostics-json code" >&2
-    cat /tmp/aether_type_field_comma_json.out >&2
+    cat $OUT/aether_type_field_comma_json.out >&2
     exit 1
 fi
-if ! grep -q '"message":"Aether type parser error: type fields must end with ' /tmp/aether_type_field_comma_json.out; then
+if ! grep -q '"message":"Aether type parser error: type fields must end with ' $OUT/aether_type_field_comma_json.out; then
     echo "missing type field comma diagnostics-json message" >&2
-    cat /tmp/aether_type_field_comma_json.out >&2
+    cat $OUT/aether_type_field_comma_json.out >&2
     exit 1
 fi
 # Constant record-field defaults (`field: Type = <const>`). The positive fixture
@@ -1835,14 +1865,14 @@ fi
 # must not clamp the field) and an Int default in a Real field (int->real widen).
 # The negatives are the FIELD-003 constant boundary and the TYPE-001 type
 # mismatch, both coded so --diagnostics-json feeds the guide map.
-"$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_PASS_FIXTURE" >/tmp/aether_type_field_default_pass.out
-printf '3\ndef\n9\nover\n1.500000\non\n' >/tmp/aether_type_field_default_expected.out
-if ! cmp -s /tmp/aether_type_field_default_expected.out /tmp/aether_type_field_default_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_PASS_FIXTURE" >$OUT/aether_type_field_default_pass.out
+printf '3\ndef\n9\nover\n1.500000\non\n' >$OUT/aether_type_field_default_expected.out
+if ! cmp -s $OUT/aether_type_field_default_expected.out $OUT/aether_type_field_default_pass.out; then
     echo "unexpected constant field default output (regression: defaults / override / unset / capacity)" >&2
-    cat /tmp/aether_type_field_default_pass.out >&2
+    cat $OUT/aether_type_field_default_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >/tmp/aether_type_field_default_nonconst_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >$OUT/aether_type_field_default_nonconst_fail.out 2>&1; then
     echo "expected non-constant field default failure but program succeeded" >&2
     exit 1
 fi
@@ -1850,36 +1880,36 @@ fi
 # construction" and offered "a constant expression" as the remedy, while the
 # check rejects a named const and any arithmetic over one -- neither computed,
 # and the second being exactly what it suggested.
-if ! grep -q "a field default must be a literal" /tmp/aether_type_field_default_nonconst_fail.out; then
+if ! grep -q "a field default must be a literal" $OUT/aether_type_field_default_nonconst_fail.out; then
     echo "missing non-constant field default failure message" >&2
-    cat /tmp/aether_type_field_default_nonconst_fail.out >&2
+    cat $OUT/aether_type_field_default_nonconst_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >/tmp/aether_type_field_default_nonconst_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_DEFAULT_NONCONST_FAIL_FIXTURE" >$OUT/aether_type_field_default_nonconst_json.out 2>&1; then
     echo "expected non-constant field default diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"FIELD-003"' /tmp/aether_type_field_default_nonconst_json.out; then
+if ! grep -q '"code":"FIELD-003"' $OUT/aether_type_field_default_nonconst_json.out; then
     echo "missing non-constant field default diagnostics-json code FIELD-003" >&2
-    cat /tmp/aether_type_field_default_nonconst_json.out >&2
+    cat $OUT/aether_type_field_default_nonconst_json.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" >/tmp/aether_type_field_default_type_mismatch_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" >$OUT/aether_type_field_default_type_mismatch_fail.out 2>&1; then
     echo "expected field default type-mismatch failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "field default value type mismatch" /tmp/aether_type_field_default_type_mismatch_fail.out; then
+if ! grep -q "field default value type mismatch" $OUT/aether_type_field_default_type_mismatch_fail.out; then
     echo "missing field default type-mismatch failure message" >&2
-    cat /tmp/aether_type_field_default_type_mismatch_fail.out >&2
+    cat $OUT/aether_type_field_default_type_mismatch_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" >/tmp/aether_type_field_default_type_mismatch_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$TYPE_FIELD_DEFAULT_TYPE_MISMATCH_FAIL_FIXTURE" >$OUT/aether_type_field_default_type_mismatch_json.out 2>&1; then
     echo "expected field default type-mismatch diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"TYPE-001"' /tmp/aether_type_field_default_type_mismatch_json.out; then
+if ! grep -q '"code":"TYPE-001"' $OUT/aether_type_field_default_type_mismatch_json.out; then
     echo "missing field default type-mismatch diagnostics-json code TYPE-001" >&2
-    cat /tmp/aether_type_field_default_type_mismatch_json.out >&2
+    cat $OUT/aether_type_field_default_type_mismatch_json.out >&2
     exit 1
 fi
 # Reserved-word collisions (broadest generative-testing gap): a field or method
@@ -1888,191 +1918,191 @@ fi
 # Rea lexer's type-name words (word/text/int/...) and its foreign keywords
 # (join/match/class/...) are ordinary identifiers since 2026-09-05-1 -- see
 # IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE -- so the fixtures use `for` and `div`.
-if "$AETHER_BIN" --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_field.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >$OUT/aether_reserved_field.out 2>&1; then
     echo "expected reserved field-name failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'for' is a reserved keyword and cannot be used as a field name." /tmp/aether_reserved_field.out; then
+if ! grep -q "'for' is a reserved keyword and cannot be used as a field name." $OUT/aether_reserved_field.out; then
     echo "missing reserved field-name collision message" >&2
-    cat /tmp/aether_reserved_field.out >&2
+    cat $OUT/aether_reserved_field.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_field_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$RESERVED_FIELD_NAME_FAIL_FIXTURE" >$OUT/aether_reserved_field_json.out 2>&1; then
     echo "expected reserved field-name diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"line":2' /tmp/aether_reserved_field_json.out; then
+if ! grep -q '"line":2' $OUT/aether_reserved_field_json.out; then
     echo "missing reserved field-name diagnostics-json line mapping" >&2
-    cat /tmp/aether_reserved_field_json.out >&2
+    cat $OUT/aether_reserved_field_json.out >&2
     exit 1
 fi
-if ! grep -q '"code":"SYN-001"' /tmp/aether_reserved_field_json.out; then
+if ! grep -q '"code":"SYN-001"' $OUT/aether_reserved_field_json.out; then
     echo "missing reserved field-name diagnostics-json code" >&2
-    cat /tmp/aether_reserved_field_json.out >&2
+    cat $OUT/aether_reserved_field_json.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_method.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >$OUT/aether_reserved_method.out 2>&1; then
     echo "expected reserved method-name failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'div' is a reserved operator word and cannot be used as a method name." /tmp/aether_reserved_method.out; then
+if ! grep -q "'div' is a reserved operator word and cannot be used as a method name." $OUT/aether_reserved_method.out; then
     echo "missing reserved method-name collision message" >&2
-    cat /tmp/aether_reserved_method.out >&2
+    cat $OUT/aether_reserved_method.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >/tmp/aether_reserved_method_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$RESERVED_METHOD_NAME_FAIL_FIXTURE" >$OUT/aether_reserved_method_json.out 2>&1; then
     echo "expected reserved method-name diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"line":3' /tmp/aether_reserved_method_json.out; then
+if ! grep -q '"line":3' $OUT/aether_reserved_method_json.out; then
     echo "missing reserved method-name diagnostics-json line mapping" >&2
-    cat /tmp/aether_reserved_method_json.out >&2
+    cat $OUT/aether_reserved_method_json.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$RESERVED_NEW_METHOD_FAIL_FIXTURE" >/tmp/aether_reserved_new.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$RESERVED_NEW_METHOD_FAIL_FIXTURE" >$OUT/aether_reserved_new.out 2>&1; then
     echo "expected reserved new-method failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'new' is a reserved keyword (the object allocator) and cannot be used as a method name." /tmp/aether_reserved_new.out; then
+if ! grep -q "'new' is a reserved keyword (the object allocator) and cannot be used as a method name." $OUT/aether_reserved_new.out; then
     echo "missing reserved new-method collision message" >&2
-    cat /tmp/aether_reserved_new.out >&2
+    cat $OUT/aether_reserved_new.out >&2
     exit 1
 fi
-if ! grep -q "Aether has no constructor methods" /tmp/aether_reserved_new.out; then
+if ! grep -q "Aether has no constructor methods" $OUT/aether_reserved_new.out; then
     echo "missing reserved new-method constructor hint" >&2
-    cat /tmp/aether_reserved_new.out >&2
+    cat $OUT/aether_reserved_new.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-json --no-cache "$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE" >/tmp/aether_diagnostic_line_mapping_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE" >$OUT/aether_diagnostic_line_mapping_json.out 2>&1; then
     echo "expected diagnostic line-mapping failure with diagnostics-json but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"file":"'"$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE"'"' /tmp/aether_diagnostic_line_mapping_json.out; then
+if ! grep -q '"file":"'"$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE"'"' $OUT/aether_diagnostic_line_mapping_json.out; then
     echo "missing mapped diagnostics-json file path" >&2
-    cat /tmp/aether_diagnostic_line_mapping_json.out >&2
+    cat $OUT/aether_diagnostic_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q '"line":8' /tmp/aether_diagnostic_line_mapping_json.out; then
+if ! grep -q '"line":8' $OUT/aether_diagnostic_line_mapping_json.out; then
     echo "missing mapped diagnostics-json loop line" >&2
-    cat /tmp/aether_diagnostic_line_mapping_json.out >&2
+    cat $OUT/aether_diagnostic_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q '"line":9' /tmp/aether_diagnostic_line_mapping_json.out; then
+if ! grep -q '"line":9' $OUT/aether_diagnostic_line_mapping_json.out; then
     echo "missing mapped diagnostics-json body line" >&2
-    cat /tmp/aether_diagnostic_line_mapping_json.out >&2
+    cat $OUT/aether_diagnostic_line_mapping_json.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --diagnostics-toon --no-cache "$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE" >/tmp/aether_diagnostic_line_mapping_toon.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-toon --no-cache "$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE" >$OUT/aether_diagnostic_line_mapping_toon.out 2>&1; then
     echo "expected diagnostic line-mapping failure with diagnostics-toon but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '^diagnostics\[3\]{severity,phase,kind,code,file,line,column,message,hint,raw}:$' /tmp/aether_diagnostic_line_mapping_toon.out; then
+if ! grep -q '^diagnostics\[3\]{severity,phase,kind,code,file,line,column,message,hint,raw}:$' $OUT/aether_diagnostic_line_mapping_toon.out; then
     echo "missing diagnostics-toon header" >&2
-    cat /tmp/aether_diagnostic_line_mapping_toon.out >&2
+    cat $OUT/aether_diagnostic_line_mapping_toon.out >&2
     exit 1
 fi
-if ! grep -q '"scope","SCOPE-001","'"$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE"'".*,8,null,"identifier '\''i'\'' not in scope\."' /tmp/aether_diagnostic_line_mapping_toon.out; then
+if ! grep -q '"scope","SCOPE-001","'"$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE"'".*,8,null,"identifier '\''i'\'' not in scope\."' $OUT/aether_diagnostic_line_mapping_toon.out; then
     echo "missing diagnostics-toon mapped loop line" >&2
-    cat /tmp/aether_diagnostic_line_mapping_toon.out >&2
+    cat $OUT/aether_diagnostic_line_mapping_toon.out >&2
     exit 1
 fi
-if ! grep -q '"scope","SCOPE-001","'"$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE"'".*,9,null,"identifier '\''i'\'' not in scope\."' /tmp/aether_diagnostic_line_mapping_toon.out; then
+if ! grep -q '"scope","SCOPE-001","'"$DIAGNOSTIC_LINE_MAPPING_FAIL_FIXTURE"'".*,9,null,"identifier '\''i'\'' not in scope\."' $OUT/aether_diagnostic_line_mapping_toon.out; then
     echo "missing diagnostics-toon mapped body line" >&2
-    cat /tmp/aether_diagnostic_line_mapping_toon.out >&2
+    cat $OUT/aether_diagnostic_line_mapping_toon.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$PURE_FAIL_EFFECTFUL_FIXTURE" >/tmp/aether_pure_fail_effectful.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$PURE_FAIL_EFFECTFUL_FIXTURE" >$OUT/aether_pure_fail_effectful.out 2>&1; then
     echo "expected purity failure for effectful builtin but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether purity error: pure function 'noisy' cannot call effectful builtin 'writeln'" /tmp/aether_pure_fail_effectful.out; then
+if ! grep -q "Aether purity error: pure function 'noisy' cannot call effectful builtin 'writeln'" $OUT/aether_pure_fail_effectful.out; then
     echo "missing purity failure for effectful builtin" >&2
-    cat /tmp/aether_pure_fail_effectful.out >&2
+    cat $OUT/aether_pure_fail_effectful.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$PURE_FAIL_NON_PURE_CALL_FIXTURE" >/tmp/aether_pure_fail_non_pure_call.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$PURE_FAIL_NON_PURE_CALL_FIXTURE" >$OUT/aether_pure_fail_non_pure_call.out 2>&1; then
     echo "expected purity failure for non-pure call but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether purity error: pure function 'wrapper' cannot call non-pure function 'noisy'" /tmp/aether_pure_fail_non_pure_call.out; then
+if ! grep -q "Aether purity error: pure function 'wrapper' cannot call non-pure function 'noisy'" $OUT/aether_pure_fail_non_pure_call.out; then
     echo "missing purity failure for non-pure call" >&2
-    cat /tmp/aether_pure_fail_non_pure_call.out >&2
+    cat $OUT/aether_pure_fail_non_pure_call.out >&2
     exit 1
 fi
 
 # @pure functions may not contain fx blocks at all (guide rule): the block
 # itself is rejected (ANN-001), independent of what it calls.
-if "$AETHER_BIN" --no-cache "$PURE_CONTAINS_FX_FAIL_FIXTURE" >/tmp/aether_pure_contains_fx_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$PURE_CONTAINS_FX_FAIL_FIXTURE" >$OUT/aether_pure_contains_fx_fail.out 2>&1; then
     echo "expected purity failure for fx block in pure function but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[ANN-001\] Aether purity error: pure function 'shout' contains an fx block" /tmp/aether_pure_contains_fx_fail.out; then
+if ! grep -q "\[ANN-001\] Aether purity error: pure function 'shout' contains an fx block" $OUT/aether_pure_contains_fx_fail.out; then
     echo "missing purity failure for fx block in pure function" >&2
-    cat /tmp/aether_pure_contains_fx_fail.out >&2
+    cat $OUT/aether_pure_contains_fx_fail.out >&2
     exit 1
 fi
 
-if ! "$AETHER_BIN" --no-cache "$IMPORT_MISSING_FAIL_FIXTURE" >/tmp/aether_import_missing_fail.out 2>&1; then
+if ! "$AETHER_BIN" --no-cache "$IMPORT_MISSING_FAIL_FIXTURE" >$OUT/aether_import_missing_fail.out 2>&1; then
     echo "missing import fixture should succeed by default" >&2
-    cat /tmp/aether_import_missing_fail.out >&2
+    cat $OUT/aether_import_missing_fail.out >&2
     exit 1
 fi
-if [ -s /tmp/aether_import_missing_fail.out ]; then
+if [ -s $OUT/aether_import_missing_fail.out ]; then
     echo "default missing import run should be silent" >&2
-    cat /tmp/aether_import_missing_fail.out >&2
+    cat $OUT/aether_import_missing_fail.out >&2
     exit 1
 fi
-if ! "$AETHER_BIN" --no-cache --verbose-compat "$IMPORT_MISSING_FAIL_FIXTURE" >/tmp/aether_import_missing_verbose.out 2>&1; then
+if ! "$AETHER_BIN" --no-cache --verbose-compat "$IMPORT_MISSING_FAIL_FIXTURE" >$OUT/aether_import_missing_verbose.out 2>&1; then
     echo "missing import verbose-compat run should still succeed" >&2
-    cat /tmp/aether_import_missing_verbose.out >&2
+    cat $OUT/aether_import_missing_verbose.out >&2
     exit 1
 fi
-if ! grep -q "^$IMPORT_MISSING_FAIL_FIXTURE:1: warning: \[IMP-001\] Aether ignored missing import 'definitely_missing_aether_module'\.$" /tmp/aether_import_missing_verbose.out; then
+if ! grep -q "^$IMPORT_MISSING_FAIL_FIXTURE:1: warning: \[IMP-001\] Aether ignored missing import 'definitely_missing_aether_module'\.$" $OUT/aether_import_missing_verbose.out; then
     echo "missing verbose-compat warning for ignored import" >&2
-    cat /tmp/aether_import_missing_verbose.out >&2
+    cat $OUT/aether_import_missing_verbose.out >&2
     exit 1
 fi
-if ! "$AETHER_BIN" --no-cache --diagnostics-json "$IMPORT_MISSING_FAIL_FIXTURE" >/tmp/aether_import_missing_json.out 2>&1; then
+if ! "$AETHER_BIN" --no-cache --diagnostics-json "$IMPORT_MISSING_FAIL_FIXTURE" >$OUT/aether_import_missing_json.out 2>&1; then
     echo "missing import diagnostics-json run should succeed" >&2
-    cat /tmp/aether_import_missing_json.out >&2
+    cat $OUT/aether_import_missing_json.out >&2
     exit 1
 fi
-if [ -s /tmp/aether_import_missing_json.out ]; then
+if [ -s $OUT/aether_import_missing_json.out ]; then
     echo "missing import diagnostics-json output should stay empty" >&2
-    cat /tmp/aether_import_missing_json.out >&2
+    cat $OUT/aether_import_missing_json.out >&2
     exit 1
 fi
-if ! "$AETHER_BIN" --no-cache --diagnostics-toon "$IMPORT_MISSING_FAIL_FIXTURE" >/tmp/aether_import_missing_toon.out 2>&1; then
+if ! "$AETHER_BIN" --no-cache --diagnostics-toon "$IMPORT_MISSING_FAIL_FIXTURE" >$OUT/aether_import_missing_toon.out 2>&1; then
     echo "missing import diagnostics-toon run should succeed" >&2
-    cat /tmp/aether_import_missing_toon.out >&2
+    cat $OUT/aether_import_missing_toon.out >&2
     exit 1
 fi
-if [ -s /tmp/aether_import_missing_toon.out ]; then
+if [ -s $OUT/aether_import_missing_toon.out ]; then
     echo "missing import diagnostics-toon output should stay empty" >&2
-    cat /tmp/aether_import_missing_toon.out >&2
+    cat $OUT/aether_import_missing_toon.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$PAR_FAIL_NON_CALL_FIXTURE" >/tmp/aether_par_fail_non_call.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$PAR_FAIL_NON_CALL_FIXTURE" >$OUT/aether_par_fail_non_call.out 2>&1; then
     echo "expected par rewrite failure for non-call statement but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether par parser error: only direct call statements are allowed inside par blocks" /tmp/aether_par_fail_non_call.out; then
+if ! grep -q "Aether par parser error: only direct call statements are allowed inside par blocks" $OUT/aether_par_fail_non_call.out; then
     echo "missing par rewrite failure message" >&2
-    cat /tmp/aether_par_fail_non_call.out >&2
+    cat $OUT/aether_par_fail_non_call.out >&2
     exit 1
 fi
 # PAR-002: the par-arity rule (only direct call statements inside par) is coded,
 # distinct from the PAR-001 shared-record data race below.
-if "$AETHER_BIN" --diagnostics-json --no-cache "$PAR_FAIL_NON_CALL_FIXTURE" >/tmp/aether_par_fail_non_call_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$PAR_FAIL_NON_CALL_FIXTURE" >$OUT/aether_par_fail_non_call_json.out 2>&1; then
     echo "expected par non-call diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"PAR-002"' /tmp/aether_par_fail_non_call_json.out; then
+if ! grep -q '"code":"PAR-002"' $OUT/aether_par_fail_non_call_json.out; then
     echo "missing par non-call diagnostics-json code PAR-002" >&2
-    cat /tmp/aether_par_fail_non_call_json.out >&2
+    cat $OUT/aether_par_fail_non_call_json.out >&2
     exit 1
 fi
 # TYPE-002 through --diagnostics-json. This fixture (`let s: Nope = new Nope();`
@@ -2085,13 +2115,13 @@ fi
 # with a code emitted at the site. What this fixture proves is that the coded
 # diagnostic reaches --diagnostics-json with its code intact, which the repair
 # loop depends on; the FIELD-002 JSON path is covered separately below.
-if "$AETHER_BIN" --diagnostics-json --no-cache "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" >/tmp/aether_unknown_type_annotation_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" >$OUT/aether_unknown_type_annotation_json.out 2>&1; then
     echo "expected unknown-type diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"TYPE-002"' /tmp/aether_unknown_type_annotation_json.out; then
+if ! grep -q '"code":"TYPE-002"' $OUT/aether_unknown_type_annotation_json.out; then
     echo "missing unknown-type diagnostics-json code TYPE-002" >&2
-    cat /tmp/aether_unknown_type_annotation_json.out >&2
+    cat $OUT/aether_unknown_type_annotation_json.out >&2
     exit 1
 fi
 # FIELD-002 must reach --diagnostics-json carrying its code too, so the repair
@@ -2099,13 +2129,13 @@ fi
 # check on a declared `type` (a receiver of an unknown type never gets that far
 # any more); the uncoded-message inference rule stays in diagnostics.c as a
 # backstop for any other raw codegen path that still emits one.
-if "$AETHER_BIN" --diagnostics-json --no-cache "$FIELD_UNKNOWN_CODED_FAIL_FIXTURE" >/tmp/aether_field_unknown_json.out 2>&1; then
+if "$AETHER_BIN" --diagnostics-json --no-cache "$FIELD_UNKNOWN_CODED_FAIL_FIXTURE" >$OUT/aether_field_unknown_json.out 2>&1; then
     echo "expected unknown-field diagnostics-json failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '"code":"FIELD-002"' /tmp/aether_field_unknown_json.out; then
+if ! grep -q '"code":"FIELD-002"' $OUT/aether_field_unknown_json.out; then
     echo "missing unknown-field diagnostics-json code FIELD-002" >&2
-    cat /tmp/aether_field_unknown_json.out >&2
+    cat $OUT/aether_field_unknown_json.out >&2
     exit 1
 fi
 
@@ -2117,15 +2147,15 @@ fi
 # element type compiled clean. Each name appears once in the fixture, so each must
 # produce exactly one TYPE-002 -- a count guards against the forward-declaration
 # pre-pass's duplicate copy of every signature leaking back in.
-if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" >/tmp/aether_unknown_type_annotation.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" >$OUT/aether_unknown_type_annotation.out 2>&1; then
     echo "expected TYPE-002 for unknown type annotations but program succeeded" >&2
     exit 1
 fi
 for missing in MissingField MissingParam MissingReturn MissingTupleItem MissingLet MissingScalar; do
-    count=$(grep -c "\[TYPE-002\].*unknown type '$missing'" /tmp/aether_unknown_type_annotation.out || true)
+    count=$(grep -c "\[TYPE-002\].*unknown type '$missing'" $OUT/aether_unknown_type_annotation.out || true)
     if [ "$count" != "1" ]; then
         echo "expected exactly 1 TYPE-002 for '$missing', got $count" >&2
-        cat /tmp/aether_unknown_type_annotation.out >&2
+        cat $OUT/aether_unknown_type_annotation.out >&2
         exit 1
     fi
 done
@@ -2134,13 +2164,13 @@ done
 # main-program walk never visits, and must attribute the diagnostic to the module
 # file rather than the importer. Matched on basename: the reported path is
 # cwd-relative for a module resolved beside its importer.
-if "$AETHER_BIN" --no-cache "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" >/tmp/aether_unknown_module_type.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" >$OUT/aether_unknown_module_type.out 2>&1; then
     echo "expected TYPE-002 for an unknown type inside an imported module but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "unknown_module_type_mod:6: \[TYPE-002\].*unknown type 'MissingInModule'" /tmp/aether_unknown_module_type.out; then
+if ! grep -q "unknown_module_type_mod:6: \[TYPE-002\].*unknown type 'MissingInModule'" $OUT/aether_unknown_module_type.out; then
     echo "missing module-attributed TYPE-002 for an unknown type inside an imported module" >&2
-    cat /tmp/aether_unknown_module_type.out >&2
+    cat $OUT/aether_unknown_module_type.out >&2
     exit 1
 fi
 
@@ -2150,7 +2180,7 @@ fi
 # produced no diagnostic at all. Each spelling must be rejected, and the ones
 # with a canonical Aether equivalent must name it -- the code alone does not
 # tell a reader that `Double` is spelled `Real`.
-if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_NAME_FAIL_FIXTURE" >/tmp/aether_unknown_type_name_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_NAME_FAIL_FIXTURE" >$OUT/aether_unknown_type_name_fail.out 2>&1; then
     echo "expected unknown type name failure but program succeeded (TYPE-002 regressed?)" >&2
     exit 1
 fi
@@ -2162,56 +2192,56 @@ for expected in \
     "unknown type 'List' in the declaration of 'items' in 'main'" \
     "unknown type 'Map' in the declaration of 'lookup' in 'main'"
 do
-    if ! grep -qF "$expected" /tmp/aether_unknown_type_name_fail.out; then
+    if ! grep -qF "$expected" $OUT/aether_unknown_type_name_fail.out; then
         echo "missing TYPE-002 diagnostic: $expected" >&2
-        cat /tmp/aether_unknown_type_name_fail.out >&2
+        cat $OUT/aether_unknown_type_name_fail.out >&2
         exit 1
     fi
 done
-if ! grep -q "\[TYPE-002\]" /tmp/aether_unknown_type_name_fail.out; then
+if ! grep -q "\[TYPE-002\]" $OUT/aether_unknown_type_name_fail.out; then
     echo "unknown type name diagnostic is missing its TYPE-002 code" >&2
-    cat /tmp/aether_unknown_type_name_fail.out >&2
+    cat $OUT/aether_unknown_type_name_fail.out >&2
     exit 1
 fi
 # Each function declaration reaches the checker twice (the parser emits a
 # bodiless prototype beside the definition); one mistake must still be one
 # diagnostic. Six bad names in the fixture, so six TYPE-002 lines exactly.
-if [ "$(grep -c "\[TYPE-002\]" /tmp/aether_unknown_type_name_fail.out)" -ne 6 ]; then
+if [ "$(grep -c "\[TYPE-002\]" $OUT/aether_unknown_type_name_fail.out)" -ne 6 ]; then
     echo "expected exactly 6 TYPE-002 diagnostics (duplicate suppression regressed?)" >&2
-    cat /tmp/aether_unknown_type_name_fail.out >&2
+    cat $OUT/aether_unknown_type_name_fail.out >&2
     exit 1
 fi
 # Rejecting the name at semantic time also keeps the backend's internal
 # "makeValueForType called with unhandled type 0 (UNKNOWN_VAR_TYPE)" note --
 # which carries no code and names nothing a reader can act on -- from ever
 # reaching the user on this path.
-if grep -q "makeValueForType" /tmp/aether_unknown_type_name_fail.out; then
+if grep -q "makeValueForType" $OUT/aether_unknown_type_name_fail.out; then
     echo "internal makeValueForType warning leaked to the user for an unknown type" >&2
-    cat /tmp/aether_unknown_type_name_fail.out >&2
+    cat $OUT/aether_unknown_type_name_fail.out >&2
     exit 1
 fi
 
 # `String` and `Float` are accepted alternate spellings of `Text` and `Real`;
 # a program written entirely in them must run identically to the canonical one,
 # and must interoperate with it (a Float value binds to a Real, and back).
-"$AETHER_BIN" --no-cache "$TYPE_ALIAS_STRING_FLOAT_PASS_FIXTURE" >/tmp/aether_type_alias_string_float_pass.out
-printf '3.00\naether!\n7\n' >/tmp/aether_type_alias_string_float_expected.out
-if ! cmp -s /tmp/aether_type_alias_string_float_expected.out /tmp/aether_type_alias_string_float_pass.out; then
+"$AETHER_BIN" --no-cache "$TYPE_ALIAS_STRING_FLOAT_PASS_FIXTURE" >$OUT/aether_type_alias_string_float_pass.out
+printf '3.00\naether!\n7\n' >$OUT/aether_type_alias_string_float_expected.out
+if ! cmp -s $OUT/aether_type_alias_string_float_expected.out $OUT/aether_type_alias_string_float_pass.out; then
     echo "unexpected String/Float alias output" >&2
-    cat /tmp/aether_type_alias_string_float_pass.out >&2
+    cat $OUT/aether_type_alias_string_float_pass.out >&2
     exit 1
 fi
 
 # PAR-001: the same pointer-backed record passed to more than one par branch is a
 # concurrent double-free at runtime (SIGABRT/SIGTRAP), silent today. It must be a
 # compile-time diagnostic, not a crash.
-if "$AETHER_BIN" --no-cache "$PAR_SHARED_RECORD_FAIL_FIXTURE" >/tmp/aether_par_shared_record_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$PAR_SHARED_RECORD_FAIL_FIXTURE" >$OUT/aether_par_shared_record_fail.out 2>&1; then
     echo "expected PAR-001 for a record shared across par branches but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[PAR-001\] Aether par error: record 'a' is shared by more than one par branch" /tmp/aether_par_shared_record_fail.out; then
+if ! grep -q "\[PAR-001\] Aether par error: record 'a' is shared by more than one par branch" $OUT/aether_par_shared_record_fail.out; then
     echo "missing PAR-001 shared-record diagnostic" >&2
-    cat /tmp/aether_par_shared_record_fail.out >&2
+    cat $OUT/aether_par_shared_record_fail.out >&2
     exit 1
 fi
 
@@ -2223,9 +2253,9 @@ fi
 # par branches only support bare direct-call statements (parseParBlock), so a
 # spawned call's result can't be captured/joined here; this is a compile+run
 # smoke test, not an output check (see par_shared_tuple_call_pass.aether).
-if ! "$AETHER_BIN" --no-cache "$PAR_SHARED_TUPLE_CALL_PASS_FIXTURE" >/tmp/aether_par_shared_tuple_call_pass.out 2>&1; then
+if ! "$AETHER_BIN" --no-cache "$PAR_SHARED_TUPLE_CALL_PASS_FIXTURE" >$OUT/aether_par_shared_tuple_call_pass.out 2>&1; then
     echo "expected par-shared-tuple-call to compile and run successfully" >&2
-    cat /tmp/aether_par_shared_tuple_call_pass.out >&2
+    cat $OUT/aether_par_shared_tuple_call_pass.out >&2
     exit 1
 fi
 
@@ -2255,36 +2285,36 @@ expect_par_branches() {
 
 # Both targets below main.
 expect_par_branches "par-forward-target" "$PAR_FORWARD_TARGET_PASS_FIXTURE" \
-    /tmp/aether_par_forward_target_pass.out "worker A" "worker B"
+    $OUT/aether_par_forward_target_pass.out "worker A" "worker B"
 # One target above main, one below: resolution is per branch, not per block.
 expect_par_branches "par-forward-target-mixed" "$PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE" \
-    /tmp/aether_par_forward_target_mixed_pass.out "worker A" "worker B"
+    $OUT/aether_par_forward_target_mixed_pass.out "worker A" "worker B"
 # par inside a helper, targets below that helper but above main: the boundary is
 # the routine being compiled, not main.
 expect_par_branches "par-forward-target-nested" "$PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE" \
-    /tmp/aether_par_forward_target_nested_pass.out "worker A" "worker B"
+    $OUT/aether_par_forward_target_nested_pass.out "worker A" "worker B"
 # Branches WITH arguments take the other spawn codegen path (address as a constant
 # + CALL_HOST rather than an inline THREAD_CREATE operand); it was broken too.
 expect_par_branches "par-forward-target-args" "$PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE" \
-    /tmp/aether_par_forward_target_args_pass.out "worker A 1" "worker B 2"
+    $OUT/aether_par_forward_target_args_pass.out "worker A 1" "worker B 2"
 
 # SCOPE-001: calling a method that is not defined on a record must fail at compile
 # time (parser lowers recv.method() to a Type.method global; aetherCheckMemberCalls
 # verifies it exists) rather than as a late "Undefined global variable" at runtime.
-if "$AETHER_BIN" --no-cache "$METHOD_UNDEFINED_FAIL_FIXTURE" >/tmp/aether_method_undefined_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$METHOD_UNDEFINED_FAIL_FIXTURE" >$OUT/aether_method_undefined_fail.out 2>&1; then
     echo "expected SCOPE-001 for an undefined method but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[SCOPE-001\] Aether method error: method 'distance' is not defined on type 'Point'" /tmp/aether_method_undefined_fail.out; then
+if ! grep -q "\[SCOPE-001\] Aether method error: method 'distance' is not defined on type 'Point'" $OUT/aether_method_undefined_fail.out; then
     echo "missing SCOPE-001 undefined-method diagnostic" >&2
-    cat /tmp/aether_method_undefined_fail.out >&2
+    cat $OUT/aether_method_undefined_fail.out >&2
     exit 1
 fi
 
 # SYN-001 backstop: an unparseable top-level construct must never exit non-zero
 # with empty stderr (the worst case for the repair loop). The silent-failure
 # backstop guarantees a coded diagnostic anchored where parsing stalled.
-if "$AETHER_BIN" --no-cache "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" >/tmp/aether_unknown_construct_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" >$OUT/aether_unknown_construct_fail.out 2>&1; then
     echo "expected SYN-001 for an unparseable construct but program succeeded" >&2
     exit 1
 fi
@@ -2292,12 +2322,12 @@ fi
 # error", emitted since the block parser stopped tolerating stalled statements)
 # or the silent-failure backstop's wording ("Aether syntax error"); both are
 # coded SYN-001 and anchored where parsing stalled.
-if ! grep -q "\[SYN-001\] Aether \(syntax\|parser\) error:" /tmp/aether_unknown_construct_fail.out; then
+if ! grep -q "\[SYN-001\] Aether \(syntax\|parser\) error:" $OUT/aether_unknown_construct_fail.out; then
     echo "missing SYN-001 backstop diagnostic (silent parse failure regressed)" >&2
-    cat /tmp/aether_unknown_construct_fail.out >&2
+    cat $OUT/aether_unknown_construct_fail.out >&2
     exit 1
 fi
-if ! [ -s /tmp/aether_unknown_construct_fail.out ]; then
+if ! [ -s $OUT/aether_unknown_construct_fail.out ]; then
     echo "backstop produced empty output for an unparseable construct" >&2
     exit 1
 fi
@@ -2305,22 +2335,22 @@ fi
 # Missing closing delimiters are hard SYN-001 errors, never silently tolerated
 # (regression: parseBlock/parseArgListEx used to consume-if-present, so an
 # unclosed body at EOF or an unclosed call arg list parsed without error).
-if "$AETHER_BIN" --no-cache "$UNCLOSED_BLOCK_FAIL_FIXTURE" >/tmp/aether_unclosed_block_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNCLOSED_BLOCK_FAIL_FIXTURE" >$OUT/aether_unclosed_block_fail.out 2>&1; then
     echo "expected unclosed-block failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[SYN-001\].*expected '}' to close block (opened at line 3)" /tmp/aether_unclosed_block_fail.out; then
+if ! grep -q "\[SYN-001\].*expected '}' to close block (opened at line 3)" $OUT/aether_unclosed_block_fail.out; then
     echo "missing unclosed-block SYN-001 diagnostic" >&2
-    cat /tmp/aether_unclosed_block_fail.out >&2
+    cat $OUT/aether_unclosed_block_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$UNCLOSED_CALL_FAIL_FIXTURE" >/tmp/aether_unclosed_call_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNCLOSED_CALL_FAIL_FIXTURE" >$OUT/aether_unclosed_call_fail.out 2>&1; then
     echo "expected unclosed-call failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[SYN-001\].*expected ')' to close argument list" /tmp/aether_unclosed_call_fail.out; then
+if ! grep -q "\[SYN-001\].*expected ')' to close argument list" $OUT/aether_unclosed_call_fail.out; then
     echo "missing unclosed-call SYN-001 diagnostic" >&2
-    cat /tmp/aether_unclosed_call_fail.out >&2
+    cat $OUT/aether_unclosed_call_fail.out >&2
     exit 1
 fi
 
@@ -2331,47 +2361,47 @@ fi
 # Bounds are now parsed at additive precedence (parseAdd), so this must be a
 # hard parser error (existing "expected '{' to open loop body" path, since
 # parseAdd correctly stops at `5` and leaves `&&` unconsumed).
-if "$AETHER_BIN" --no-cache "$LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE" >/tmp/aether_loop_range_bool_bound_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$LOOP_RANGE_BOOL_BOUND_FAIL_FIXTURE" >$OUT/aether_loop_range_bool_bound_fail.out 2>&1; then
     echo "expected loop-range Bool-bound failure but program succeeded" >&2
-    cat /tmp/aether_loop_range_bool_bound_fail.out >&2
+    cat $OUT/aether_loop_range_bool_bound_fail.out >&2
     exit 1
 fi
-if ! grep -q "\[SYN-001\].*expected '{' to open loop body" /tmp/aether_loop_range_bool_bound_fail.out; then
+if ! grep -q "\[SYN-001\].*expected '{' to open loop body" $OUT/aether_loop_range_bool_bound_fail.out; then
     echo "missing loop-range Bool-bound SYN-001 diagnostic" >&2
-    cat /tmp/aether_loop_range_bool_bound_fail.out >&2
+    cat $OUT/aether_loop_range_bool_bound_fail.out >&2
     exit 1
 fi
 # Fixed-size array types (Int[3]) are a single clear SYN-001 with the Int[]
 # hint, and the type parser resyncs past the ']' so no unrelated downstream
 # diagnostic appears (regression: consumed '[' then abandoned the stream).
-if "$AETHER_BIN" --no-cache "$FIXED_SIZE_ARRAY_FAIL_FIXTURE" >/tmp/aether_fixed_size_array_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FIXED_SIZE_ARRAY_FAIL_FIXTURE" >$OUT/aether_fixed_size_array_fail.out 2>&1; then
     echo "expected fixed-size array failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[SYN-001\].*fixed-size array types are not supported" /tmp/aether_fixed_size_array_fail.out; then
+if ! grep -q "\[SYN-001\].*fixed-size array types are not supported" $OUT/aether_fixed_size_array_fail.out; then
     echo "missing fixed-size array SYN-001 diagnostic" >&2
-    cat /tmp/aether_fixed_size_array_fail.out >&2
+    cat $OUT/aether_fixed_size_array_fail.out >&2
     exit 1
 fi
-if ! grep -q "hint: use \`Int\[\]\`" /tmp/aether_fixed_size_array_fail.out; then
+if ! grep -q "hint: use \`Int\[\]\`" $OUT/aether_fixed_size_array_fail.out; then
     echo "missing fixed-size array dynamic-array hint" >&2
-    cat /tmp/aether_fixed_size_array_fail.out >&2
+    cat $OUT/aether_fixed_size_array_fail.out >&2
     exit 1
 fi
-if [ "$(grep -c "\[SYN-001\]" /tmp/aether_fixed_size_array_fail.out)" != "1" ]; then
+if [ "$(grep -c "\[SYN-001\]" $OUT/aether_fixed_size_array_fail.out)" != "1" ]; then
     echo "fixed-size array should produce exactly one SYN-001 (stream resync regressed)" >&2
-    cat /tmp/aether_fixed_size_array_fail.out >&2
+    cat $OUT/aether_fixed_size_array_fail.out >&2
     exit 1
 fi
 # A print format spec whose ':' is not followed by a number is SYN-001
 # (regression: parseWriteArg swallowed the ':' and misaligned the stream).
-if "$AETHER_BIN" --no-cache "$WRITE_FORMAT_COLON_FAIL_FIXTURE" >/tmp/aether_write_format_colon_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$WRITE_FORMAT_COLON_FAIL_FIXTURE" >$OUT/aether_write_format_colon_fail.out 2>&1; then
     echo "expected write-format colon failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[SYN-001\].*expected a number after ':' in print format spec" /tmp/aether_write_format_colon_fail.out; then
+if ! grep -q "\[SYN-001\].*expected a number after ':' in print format spec" $OUT/aether_write_format_colon_fail.out; then
     echo "missing write-format colon SYN-001 diagnostic" >&2
-    cat /tmp/aether_write_format_colon_fail.out >&2
+    cat $OUT/aether_write_format_colon_fail.out >&2
     exit 1
 fi
 # Direct recursion in a tuple-return fn used to be rejected at compile time
@@ -2380,21 +2410,21 @@ fi
 # value (VM deep-copies on every return -- returnFromCall/copyRecord in
 # pscal-core), so each call frame gets its own independent result: this now
 # compiles and produces the correct accumulated values.
-"$AETHER_BIN" --no-cache "$TUPLE_RECURSION_PASS_FIXTURE" >/tmp/aether_tuple_recursion_pass.out 2>&1
-printf '3\n6\n' >/tmp/aether_tuple_recursion_expected.out
-if ! cmp -s /tmp/aether_tuple_recursion_expected.out /tmp/aether_tuple_recursion_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_RECURSION_PASS_FIXTURE" >$OUT/aether_tuple_recursion_pass.out 2>&1
+printf '3\n6\n' >$OUT/aether_tuple_recursion_expected.out
+if ! cmp -s $OUT/aether_tuple_recursion_expected.out $OUT/aether_tuple_recursion_pass.out; then
     echo "unexpected tuple-recursion output" >&2
-    cat /tmp/aether_tuple_recursion_pass.out >&2
+    cat $OUT/aether_tuple_recursion_pass.out >&2
     exit 1
 fi
 # Indirect recursion through tuple-returning functions (a() calls b() calls
 # a()) is the same defect class one hop removed; same reentrant record-return
 # fix applies, so this also now compiles and produces correct results.
-"$AETHER_BIN" --no-cache "$TUPLE_INDIRECT_RECURSION_PASS_FIXTURE" >/tmp/aether_tuple_indirect_recursion_pass.out 2>&1
-printf '2\n4\n' >/tmp/aether_tuple_indirect_recursion_expected.out
-if ! cmp -s /tmp/aether_tuple_indirect_recursion_expected.out /tmp/aether_tuple_indirect_recursion_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_INDIRECT_RECURSION_PASS_FIXTURE" >$OUT/aether_tuple_indirect_recursion_pass.out 2>&1
+printf '2\n4\n' >$OUT/aether_tuple_indirect_recursion_expected.out
+if ! cmp -s $OUT/aether_tuple_indirect_recursion_expected.out $OUT/aether_tuple_indirect_recursion_pass.out; then
     echo "unexpected indirect tuple-recursion output" >&2
-    cat /tmp/aether_tuple_indirect_recursion_pass.out >&2
+    cat $OUT/aether_tuple_indirect_recursion_pass.out >&2
     exit 1
 fi
 # A tuple-returning function whose parameter list wraps across multiple lines
@@ -2403,177 +2433,177 @@ fi
 # source line, so a wrapped signature never got its tuple signature
 # registered, and `ret (...)` was misparsed as a plain parenthesized
 # expression -- SYN-001 "expected ')' to close parenthesized expression").
-"$AETHER_BIN" --no-cache "$TUPLE_MULTILINE_SIGNATURE_PASS_FIXTURE" >/tmp/aether_tuple_multiline_signature_pass.out 2>&1
-printf '7.000000\n12.000000\n' >/tmp/aether_tuple_multiline_signature_expected.out
-if ! cmp -s /tmp/aether_tuple_multiline_signature_expected.out /tmp/aether_tuple_multiline_signature_pass.out; then
+"$AETHER_BIN" --no-cache "$TUPLE_MULTILINE_SIGNATURE_PASS_FIXTURE" >$OUT/aether_tuple_multiline_signature_pass.out 2>&1
+printf '7.000000\n12.000000\n' >$OUT/aether_tuple_multiline_signature_expected.out
+if ! cmp -s $OUT/aether_tuple_multiline_signature_expected.out $OUT/aether_tuple_multiline_signature_pass.out; then
     echo "unexpected multi-line-signature tuple-return output" >&2
-    cat /tmp/aether_tuple_multiline_signature_pass.out >&2
+    cat $OUT/aether_tuple_multiline_signature_pass.out >&2
     exit 1
 fi
 # ...while plain (non-tuple) direct recursion still parses and runs.
-"$AETHER_BIN" --no-cache "$RECURSION_PASS_FIXTURE" >/tmp/aether_recursion_pass.out 2>&1
-if ! grep -qx "120" /tmp/aether_recursion_pass.out; then
+"$AETHER_BIN" --no-cache "$RECURSION_PASS_FIXTURE" >$OUT/aether_recursion_pass.out 2>&1
+if ! printf '120\n' | cmp -s - $OUT/aether_recursion_pass.out; then
     echo "unexpected non-tuple recursion output" >&2
-    cat /tmp/aether_recursion_pass.out >&2
+    cat $OUT/aether_recursion_pass.out >&2
     exit 1
 fi
 # Recursion through an Int/Int division (which boxes a Double at the
 # division site, then retypes to the callee's Int64 param) must not crash --
 # regression for the setTypeValue stale-box-bits bug fixed in pscal-core#6.
-"$AETHER_BIN" --no-cache "$RET_RECURSION_PASS_FIXTURE" >/tmp/aether_ret_recursion_pass.out 2>&1
-if ! grep -qx "15" /tmp/aether_ret_recursion_pass.out; then
+"$AETHER_BIN" --no-cache "$RET_RECURSION_PASS_FIXTURE" >$OUT/aether_ret_recursion_pass.out 2>&1
+if ! printf '15\n' | cmp -s - $OUT/aether_ret_recursion_pass.out; then
     echo "unexpected ret-recursion (digit sum) output" >&2
-    cat /tmp/aether_ret_recursion_pass.out >&2
+    cat $OUT/aether_ret_recursion_pass.out >&2
     exit 1
 fi
 # `ret expr` must coerce to the declared return type like every other typed
 # sink: a `-> Int` body ending in Int/Int division returns 24, not 24.000000,
 # and a `-> Real` body returning an Int promotes to 5.000000 -- regression
 # for the returnFromCall coercion gap fixed in pscal-core.
-"$AETHER_BIN" --no-cache "$RET_INT_DIVISION_PASS_FIXTURE" >/tmp/aether_ret_int_division_pass.out 2>&1
-printf 'mean = 24\npromoted = 5.000000\n' >/tmp/aether_ret_int_division_expected.out
-if ! cmp -s /tmp/aether_ret_int_division_expected.out /tmp/aether_ret_int_division_pass.out; then
+"$AETHER_BIN" --no-cache "$RET_INT_DIVISION_PASS_FIXTURE" >$OUT/aether_ret_int_division_pass.out 2>&1
+printf 'mean = 24\npromoted = 5.000000\n' >$OUT/aether_ret_int_division_expected.out
+if ! cmp -s $OUT/aether_ret_int_division_expected.out $OUT/aether_ret_int_division_pass.out; then
     echo "unexpected ret int-division coercion output" >&2
-    cat /tmp/aether_ret_int_division_pass.out >&2
+    cat $OUT/aether_ret_int_division_pass.out >&2
     exit 1
 fi
 
-"$AETHER_BIN" --no-cache "$TOON_COMMENT_ARITH_PASS_FIXTURE" >/tmp/aether_toon_comment_arith_pass.out
-if ! grep -q '^Ada$' /tmp/aether_toon_comment_arith_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_COMMENT_ARITH_PASS_FIXTURE" >$OUT/aether_toon_comment_arith_pass.out
+if ! printf 'Ada\n' | cmp -s - $OUT/aether_toon_comment_arith_pass.out; then
     echo "missing TOON comment arithmetic pass output" >&2
-    cat /tmp/aether_toon_comment_arith_pass.out >&2
+    cat $OUT/aether_toon_comment_arith_pass.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$TOON_OBJECT_ROOT_ITER_FAIL_FIXTURE" >/tmp/aether_toon_object_root_iter_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TOON_OBJECT_ROOT_ITER_FAIL_FIXTURE" >$OUT/aether_toon_object_root_iter_fail.out 2>&1; then
     echo "expected object-root iteration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q '\[AETH-RUNTIME-TOON-GET-INDEX-ARRAY\]' /tmp/aether_toon_object_root_iter_fail.out; then
+if ! grep -q '\[AETH-RUNTIME-TOON-GET-INDEX-ARRAY\]' $OUT/aether_toon_object_root_iter_fail.out; then
     echo "missing object-root iteration runtime code" >&2
-    cat /tmp/aether_toon_object_root_iter_fail.out >&2
+    cat $OUT/aether_toon_object_root_iter_fail.out >&2
     exit 1
 fi
-if ! grep -q 'toon_at expects an array ToonNode, but got object\.' /tmp/aether_toon_object_root_iter_fail.out; then
+if ! grep -q 'toon_at expects an array ToonNode, but got object\.' $OUT/aether_toon_object_root_iter_fail.out; then
     echo "missing object-root iteration type-aware runtime error" >&2
-    cat /tmp/aether_toon_object_root_iter_fail.out >&2
+    cat $OUT/aether_toon_object_root_iter_fail.out >&2
     exit 1
 fi
-if ! grep -q 'extract its array field first, for example toon_key(root, "jobs")' /tmp/aether_toon_object_root_iter_fail.out; then
+if ! grep -q 'extract its array field first, for example toon_key(root, "jobs")' $OUT/aether_toon_object_root_iter_fail.out; then
     echo "missing object-root iteration hint" >&2
-    cat /tmp/aether_toon_object_root_iter_fail.out >&2
+    cat $OUT/aether_toon_object_root_iter_fail.out >&2
     exit 1
 fi
 
-"$AETHER_BIN" --no-cache "$TOON_NESTED_HELPERS_PASS_FIXTURE" >/tmp/aether_toon_nested_helpers_pass.out
-if ! grep -q '^Ada 91$' /tmp/aether_toon_nested_helpers_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_NESTED_HELPERS_PASS_FIXTURE" >$OUT/aether_toon_nested_helpers_pass.out
+if ! printf 'Ada 91\n' | cmp -s - $OUT/aether_toon_nested_helpers_pass.out; then
     echo "missing TOON nested helper pass output" >&2
-    cat /tmp/aether_toon_nested_helpers_pass.out >&2
+    cat $OUT/aether_toon_nested_helpers_pass.out >&2
     exit 1
 fi
 
 # MStream is a first-class opaque handle type (MS-001): declarations,
 # inference, and mstreambuffer -> Text extraction must run end to end.
-"$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_PASS_FIXTURE" >/tmp/aether_mstream_handle_pass.out
-printf 'aether streams\nempty ok\n' >/tmp/aether_mstream_handle_expected.out
-if ! cmp -s /tmp/aether_mstream_handle_expected.out /tmp/aether_mstream_handle_pass.out; then
+"$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_PASS_FIXTURE" >$OUT/aether_mstream_handle_pass.out
+printf 'aether streams\nempty ok\n' >$OUT/aether_mstream_handle_expected.out
+if ! cmp -s $OUT/aether_mstream_handle_expected.out $OUT/aether_mstream_handle_pass.out; then
     echo "unexpected MStream handle pass output" >&2
-    cat /tmp/aether_mstream_handle_pass.out >&2
+    cat $OUT/aether_mstream_handle_pass.out >&2
     exit 1
 fi
 
 # `let stream: Int = mstreamfromstring(...)` must be a COMPILE-time MS-001,
 # not the runtime VM crash "Cannot assign MEMORY_STREAM to integer".
-if "$AETHER_BIN" --no-cache "$MSTREAM_DECL_INT_FAIL_FIXTURE" >/tmp/aether_mstream_decl_int_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$MSTREAM_DECL_INT_FAIL_FIXTURE" >$OUT/aether_mstream_decl_int_fail.out 2>&1; then
     echo "expected MStream Int-declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'stream' must use MStream when initialized from 'mstreamfromstring'" /tmp/aether_mstream_decl_int_fail.out; then
+if ! grep -q "binding for 'stream' must use MStream when initialized from 'mstreamfromstring'" $OUT/aether_mstream_decl_int_fail.out; then
     echo "missing MStream Int-declaration failure message" >&2
-    cat /tmp/aether_mstream_decl_int_fail.out >&2
+    cat $OUT/aether_mstream_decl_int_fail.out >&2
     exit 1
 fi
-if ! grep -q "MS-001" /tmp/aether_mstream_decl_int_fail.out; then
+if ! grep -q "MS-001" $OUT/aether_mstream_decl_int_fail.out; then
     echo "MStream Int-declaration diagnostic missing MS-001 code" >&2
-    cat /tmp/aether_mstream_decl_int_fail.out >&2
+    cat $OUT/aether_mstream_decl_int_fail.out >&2
     exit 1
 fi
-if grep -q "Cannot assign MEMORY_STREAM to integer" /tmp/aether_mstream_decl_int_fail.out; then
+if grep -q "Cannot assign MEMORY_STREAM to integer" $OUT/aether_mstream_decl_int_fail.out; then
     echo "MStream Int-declaration crashed at runtime instead of failing at compile time" >&2
-    cat /tmp/aether_mstream_decl_int_fail.out >&2
+    cat $OUT/aether_mstream_decl_int_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_ARITH_FAIL_FIXTURE" >/tmp/aether_mstream_handle_arith_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_ARITH_FAIL_FIXTURE" >$OUT/aether_mstream_handle_arith_fail.out 2>&1; then
     echo "expected MStream arithmetic failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "opaque MStream handle 's' cannot be used in arithmetic expressions" /tmp/aether_mstream_handle_arith_fail.out; then
+if ! grep -q "opaque MStream handle 's' cannot be used in arithmetic expressions" $OUT/aether_mstream_handle_arith_fail.out; then
     echo "missing MStream arithmetic failure message" >&2
-    cat /tmp/aether_mstream_handle_arith_fail.out >&2
+    cat $OUT/aether_mstream_handle_arith_fail.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" >/tmp/aether_mstream_cross_kind_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" >$OUT/aether_mstream_cross_kind_fail.out 2>&1; then
     echo "expected MStream cross-kind declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'doc' must use MStream when initialized from 'mstreamcreate'" /tmp/aether_mstream_cross_kind_fail.out; then
+if ! grep -q "binding for 'doc' must use MStream when initialized from 'mstreamcreate'" $OUT/aether_mstream_cross_kind_fail.out; then
     echo "missing MStream cross-kind declaration failure message" >&2
-    cat /tmp/aether_mstream_cross_kind_fail.out >&2
+    cat $OUT/aether_mstream_cross_kind_fail.out >&2
     exit 1
 fi
 
 # Networking stays fx-gated: httpsession() outside fx is FX-001.
-if "$AETHER_BIN" --no-cache "$HTTP_SESSION_FX_FAIL_FIXTURE" >/tmp/aether_http_session_fx_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$HTTP_SESSION_FX_FAIL_FIXTURE" >$OUT/aether_http_session_fx_fail.out 2>&1; then
     echo "expected httpsession fx failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'httpsession' requires an fx block" /tmp/aether_http_session_fx_fail.out; then
+if ! grep -q "call to 'httpsession' requires an fx block" $OUT/aether_http_session_fx_fail.out; then
     echo "missing httpsession fx failure message" >&2
-    cat /tmp/aether_http_session_fx_fail.out >&2
+    cat $OUT/aether_http_session_fx_fail.out >&2
     exit 1
 fi
-if ! grep -q "FX-001" /tmp/aether_http_session_fx_fail.out; then
+if ! grep -q "FX-001" $OUT/aether_http_session_fx_fail.out; then
     echo "httpsession fx diagnostic missing FX-001 code" >&2
-    cat /tmp/aether_http_session_fx_fail.out >&2
+    cat $OUT/aether_http_session_fx_fail.out >&2
     exit 1
 fi
 
 # Raw sockets are network effects too (they were unclassified, so all three
 # of these used to pass): socketcreate() outside fx is FX-001, a @pure
 # function may not call it, and --deny net stops it at run time.
-if "$AETHER_BIN" --no-cache "$SOCKET_FX_FAIL_FIXTURE" >/tmp/aether_socket_fx_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$SOCKET_FX_FAIL_FIXTURE" >$OUT/aether_socket_fx_fail.out 2>&1; then
     echo "expected socketcreate fx failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[FX-001\].*call to 'socketcreate' requires an fx block" /tmp/aether_socket_fx_fail.out; then
+if ! grep -q "\[FX-001\].*call to 'socketcreate' requires an fx block" $OUT/aether_socket_fx_fail.out; then
     echo "missing socketcreate FX-001 failure message" >&2
-    cat /tmp/aether_socket_fx_fail.out >&2
+    cat $OUT/aether_socket_fx_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$SOCKET_PURE_FAIL_FIXTURE" >/tmp/aether_socket_pure_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$SOCKET_PURE_FAIL_FIXTURE" >$OUT/aether_socket_pure_fail.out 2>&1; then
     echo "expected @pure socketcreate failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "pure function 'openSocket' cannot call effectful builtin 'socketcreate'" /tmp/aether_socket_pure_fail.out; then
+if ! grep -q "pure function 'openSocket' cannot call effectful builtin 'socketcreate'" $OUT/aether_socket_pure_fail.out; then
     echo "missing @pure socketcreate purity failure message" >&2
-    cat /tmp/aether_socket_pure_fail.out >&2
+    cat $OUT/aether_socket_pure_fail.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$SOCKET_EFFECTS_PASS_FIXTURE" >/tmp/aether_socket_effects_pass.out 2>&1
-if ! cmp -s <(printf 'handle ok: true\n') /tmp/aether_socket_effects_pass.out; then
+"$AETHER_BIN" --no-cache "$SOCKET_EFFECTS_PASS_FIXTURE" >$OUT/aether_socket_effects_pass.out 2>&1
+if ! cmp -s <(printf 'handle ok: true\n') $OUT/aether_socket_effects_pass.out; then
     echo "unexpected socket effects output" >&2
-    cat /tmp/aether_socket_effects_pass.out >&2
+    cat $OUT/aether_socket_effects_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache --deny net "$SOCKET_EFFECTS_PASS_FIXTURE" >/tmp/aether_socket_deny_net.out 2>&1; then
+if "$AETHER_BIN" --no-cache --deny net "$SOCKET_EFFECTS_PASS_FIXTURE" >$OUT/aether_socket_deny_net.out 2>&1; then
     echo "expected --deny net to stop socketcreate but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "builtin 'socketcreate' denied by --deny/PSCAL_VM_DENY policy" /tmp/aether_socket_deny_net.out; then
+if ! grep -q "builtin 'socketcreate' denied by --deny/PSCAL_VM_DENY policy" $OUT/aether_socket_deny_net.out; then
     echo "missing --deny net socketcreate denial message" >&2
-    cat /tmp/aether_socket_deny_net.out >&2
+    cat $OUT/aether_socket_deny_net.out >&2
     exit 1
 fi
 
@@ -2581,24 +2611,24 @@ fi
 # effects like their task_*/thread_* aliases (FX-001 outside fx), and --deny
 # net stops a dnslookup queued on the pool or spawned as a task before it
 # runs; both used to print the lookup under --deny net,proc.
-if "$AETHER_BIN" --no-cache "$THREAD_RAW_FX_FAIL_FIXTURE" >/tmp/aether_thread_raw_fx_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$THREAD_RAW_FX_FAIL_FIXTURE" >$OUT/aether_thread_raw_fx_fail.out 2>&1; then
     echo "expected threadpoolsubmit fx failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[FX-001\].*call to 'threadpoolsubmit' requires an fx block" /tmp/aether_thread_raw_fx_fail.out; then
+if ! grep -q "\[FX-001\].*call to 'threadpoolsubmit' requires an fx block" $OUT/aether_thread_raw_fx_fail.out; then
     echo "missing threadpoolsubmit FX-001 failure message" >&2
-    cat /tmp/aether_thread_raw_fx_fail.out >&2
+    cat $OUT/aether_thread_raw_fx_fail.out >&2
     exit 1
 fi
 for thread_fixture in "$THREAD_POOL_DENY_PASS_FIXTURE" "$TASK_DENY_PASS_FIXTURE"; do
-    if "$AETHER_BIN" --no-cache --deny net "$thread_fixture" >/tmp/aether_thread_deny_net.out 2>&1; then
+    if "$AETHER_BIN" --no-cache --deny net "$thread_fixture" >$OUT/aether_thread_deny_net.out 2>&1; then
         echo "expected --deny net to stop the threaded dnslookup in $thread_fixture" >&2
-        cat /tmp/aether_thread_deny_net.out >&2
+        cat $OUT/aether_thread_deny_net.out >&2
         exit 1
     fi
-    if ! grep -q "builtin 'dnslookup' denied by --deny/PSCAL_VM_DENY policy" /tmp/aether_thread_deny_net.out; then
+    if ! grep -q "builtin 'dnslookup' denied by --deny/PSCAL_VM_DENY policy" $OUT/aether_thread_deny_net.out; then
         echo "missing threaded dnslookup denial message for $thread_fixture" >&2
-        cat /tmp/aether_thread_deny_net.out >&2
+        cat $OUT/aether_thread_deny_net.out >&2
         exit 1
     fi
 done
@@ -2606,28 +2636,28 @@ done
 # A user-declared top-level `fn swap` shadows the same-named, effectful PSCAL
 # vm_builtin for FX-001 purposes: calling the user's OWN swap from outside any
 # fx block must compile and run (previously misfired FX-001 on name alone).
-"$AETHER_BIN" --no-cache "$SWAP_SHADOW_BUILTIN_PASS_FIXTURE" >/tmp/aether_swap_shadow_builtin_pass.out
-printf '12345\n' >/tmp/aether_swap_shadow_builtin_expected.out
-if ! cmp -s /tmp/aether_swap_shadow_builtin_expected.out /tmp/aether_swap_shadow_builtin_pass.out; then
+"$AETHER_BIN" --no-cache "$SWAP_SHADOW_BUILTIN_PASS_FIXTURE" >$OUT/aether_swap_shadow_builtin_pass.out
+printf '12345\n' >$OUT/aether_swap_shadow_builtin_expected.out
+if ! cmp -s $OUT/aether_swap_shadow_builtin_expected.out $OUT/aether_swap_shadow_builtin_pass.out; then
     echo "unexpected swap-shadows-builtin bubble sort output" >&2
-    cat /tmp/aether_swap_shadow_builtin_pass.out >&2
+    cat $OUT/aether_swap_shadow_builtin_pass.out >&2
     exit 1
 fi
 
 # Without a user-declared `swap`, the real vm_builtin still requires fx: the
 # shadowing fix must not blanket-suppress FX-001 for the builtin itself.
-if "$AETHER_BIN" --no-cache "$SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE" >/tmp/aether_swap_builtin_unshadowed_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE" >$OUT/aether_swap_builtin_unshadowed_fail.out 2>&1; then
     echo "expected swap builtin fx failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'swap' requires an fx block" /tmp/aether_swap_builtin_unshadowed_fail.out; then
+if ! grep -q "call to 'swap' requires an fx block" $OUT/aether_swap_builtin_unshadowed_fail.out; then
     echo "missing swap builtin fx failure message" >&2
-    cat /tmp/aether_swap_builtin_unshadowed_fail.out >&2
+    cat $OUT/aether_swap_builtin_unshadowed_fail.out >&2
     exit 1
 fi
-if ! grep -q "FX-001" /tmp/aether_swap_builtin_unshadowed_fail.out; then
+if ! grep -q "FX-001" $OUT/aether_swap_builtin_unshadowed_fail.out; then
     echo "swap builtin fx diagnostic missing FX-001 code" >&2
-    cat /tmp/aether_swap_builtin_unshadowed_fail.out >&2
+    cat $OUT/aether_swap_builtin_unshadowed_fail.out >&2
     exit 1
 fi
 
@@ -2635,21 +2665,21 @@ fi
 # builds fail only at runtime, so this is a --no-run check).
 "$AETHER_BIN" --no-cache --no-run "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" >/dev/null
 
-"$AETHER_BIN" --no-cache "$TOON_SINGLE_CHAR_KEY_PASS_FIXTURE" >/tmp/aether_toon_single_char_key_pass.out
-if grep -qx "yyjson unavailable" /tmp/aether_toon_single_char_key_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_SINGLE_CHAR_KEY_PASS_FIXTURE" >$OUT/aether_toon_single_char_key_pass.out
+if grep -qx "yyjson unavailable" $OUT/aether_toon_single_char_key_pass.out; then
     :
 else
-    printf 'true\nfalse\n3.5\n0.0\n' >/tmp/aether_toon_single_char_key_expected.out
-    if ! cmp -s /tmp/aether_toon_single_char_key_expected.out /tmp/aether_toon_single_char_key_pass.out; then
+    printf 'true\nfalse\n3.5\n0.0\n' >$OUT/aether_toon_single_char_key_expected.out
+    if ! cmp -s $OUT/aether_toon_single_char_key_expected.out $OUT/aether_toon_single_char_key_pass.out; then
         echo "unexpected TOON single-char key output" >&2
-        cat /tmp/aether_toon_single_char_key_pass.out >&2
+        cat $OUT/aether_toon_single_char_key_pass.out >&2
         exit 1
     fi
 fi
 
 # --- One-liner block expansion (SYN-001 fix): `if c { fx {...} ret; }` and
 #     friends must parse and behave exactly like their multi-line form. ---
-cat > /tmp/aether_oneliner_guard.aether <<'AETH'
+cat > $OUT/aether_oneliner_guard.aether <<'AETH'
 fn main() -> Void {
     let x: Int = 5;
     if x > 3 { fx { println("big"); } ret; }
@@ -2657,32 +2687,32 @@ fn main() -> Void {
     ret;
 }
 AETH
-"$AETHER_BIN" --no-cache /tmp/aether_oneliner_guard.aether >/tmp/aether_oneliner_guard.out 2>&1
-printf 'big\n' >/tmp/aether_oneliner_guard_expected.out
-if ! cmp -s /tmp/aether_oneliner_guard_expected.out /tmp/aether_oneliner_guard.out; then
+"$AETHER_BIN" --no-cache $OUT/aether_oneliner_guard.aether >$OUT/aether_oneliner_guard.out 2>&1
+printf 'big\n' >$OUT/aether_oneliner_guard_expected.out
+if ! cmp -s $OUT/aether_oneliner_guard_expected.out $OUT/aether_oneliner_guard.out; then
     echo "unexpected one-liner guard output" >&2
-    cat /tmp/aether_oneliner_guard.out >&2
+    cat $OUT/aether_oneliner_guard.out >&2
     exit 1
 fi
 
-cat > /tmp/aether_oneliner_ifelse.aether <<'AETH'
+cat > $OUT/aether_oneliner_ifelse.aether <<'AETH'
 fn main() -> Void {
     let x: Int = 1;
     if x > 3 { fx { println("big"); } } else { fx { println("small"); } }
     ret;
 }
 AETH
-"$AETHER_BIN" --no-cache /tmp/aether_oneliner_ifelse.aether >/tmp/aether_oneliner_ifelse.out 2>&1
-printf 'small\n' >/tmp/aether_oneliner_ifelse_expected.out
-if ! cmp -s /tmp/aether_oneliner_ifelse_expected.out /tmp/aether_oneliner_ifelse.out; then
+"$AETHER_BIN" --no-cache $OUT/aether_oneliner_ifelse.aether >$OUT/aether_oneliner_ifelse.out 2>&1
+printf 'small\n' >$OUT/aether_oneliner_ifelse_expected.out
+if ! cmp -s $OUT/aether_oneliner_ifelse_expected.out $OUT/aether_oneliner_ifelse.out; then
     echo "unexpected one-liner if/else output" >&2
-    cat /tmp/aether_oneliner_ifelse.out >&2
+    cat $OUT/aether_oneliner_ifelse.out >&2
     exit 1
 fi
 
 # Error reported on a line *after* a one-liner must keep the original line
 # number (the expansion maps every produced line back to the source line).
-cat > /tmp/aether_oneliner_linemap.aether <<'AETH'
+cat > $OUT/aether_oneliner_linemap.aether <<'AETH'
 fn main() -> Void {
     let x: Int = 5;
     if x > 3 { ret; }
@@ -2690,15 +2720,15 @@ fn main() -> Void {
     ret;
 }
 AETH
-"$AETHER_BIN" --no-cache /tmp/aether_oneliner_linemap.aether >/tmp/aether_oneliner_linemap.out 2>&1 || true
-if ! grep -q ':4: \[FX-001\]' /tmp/aether_oneliner_linemap.out; then
+"$AETHER_BIN" --no-cache $OUT/aether_oneliner_linemap.aether >$OUT/aether_oneliner_linemap.out 2>&1 || true
+if ! grep -q ':4: \[FX-001\]' $OUT/aether_oneliner_linemap.out; then
     echo "one-liner expansion shifted diagnostic line numbers" >&2
-    cat /tmp/aether_oneliner_linemap.out >&2
+    cat $OUT/aether_oneliner_linemap.out >&2
     exit 1
 fi
 
 # One-liner condition with a toon_* capability call must still resolve.
-cat > /tmp/aether_oneliner_toon.aether <<'AETH'
+cat > $OUT/aether_oneliner_toon.aether <<'AETH'
 fn main() -> Void {
     if !has_toon() {
         fx { println("yyjson unavailable"); }
@@ -2714,14 +2744,14 @@ fn main() -> Void {
     ret;
 }
 AETH
-"$AETHER_BIN" --no-cache /tmp/aether_oneliner_toon.aether >/tmp/aether_oneliner_toon.out 2>&1
-if grep -qx "yyjson unavailable" /tmp/aether_oneliner_toon.out; then
+"$AETHER_BIN" --no-cache $OUT/aether_oneliner_toon.aether >$OUT/aether_oneliner_toon.out 2>&1
+if grep -qx "yyjson unavailable" $OUT/aether_oneliner_toon.out; then
     :
 else
-    printf 'int\n' >/tmp/aether_oneliner_toon_expected.out
-    if ! cmp -s /tmp/aether_oneliner_toon_expected.out /tmp/aether_oneliner_toon.out; then
+    printf 'int\n' >$OUT/aether_oneliner_toon_expected.out
+    if ! cmp -s $OUT/aether_oneliner_toon_expected.out $OUT/aether_oneliner_toon.out; then
         echo "unexpected one-liner toon-condition output" >&2
-        cat /tmp/aether_oneliner_toon.out >&2
+        cat $OUT/aether_oneliner_toon.out >&2
         exit 1
     fi
 fi
@@ -2731,7 +2761,7 @@ fi
 # like its multi-line form. A tuple `ret (a, b);` inside a one-liner guard must
 # hit translateTupleReturnLine (bare translateLine leaks `return (a, b);` ->
 # SYN-001 Unexpected COMMA). The minmax(3, 7) call takes the one-liner branch.
-cat > /tmp/aether_oneliner_tuple_ret.aether <<'AETH'
+cat > $OUT/aether_oneliner_tuple_ret.aether <<'AETH'
 fn minmax(a: Int, b: Int) -> (Int, Int) {
     if a <= b { ret (a, b); }
     ret (b, a);
@@ -2745,18 +2775,18 @@ fn main() -> Void {
     ret;
 }
 AETH
-"$AETHER_BIN" --no-cache /tmp/aether_oneliner_tuple_ret.aether >/tmp/aether_oneliner_tuple_ret.out 2>&1
-printf '3\n7\n' >/tmp/aether_oneliner_tuple_ret_expected.out
-if ! cmp -s /tmp/aether_oneliner_tuple_ret_expected.out /tmp/aether_oneliner_tuple_ret.out; then
+"$AETHER_BIN" --no-cache $OUT/aether_oneliner_tuple_ret.aether >$OUT/aether_oneliner_tuple_ret.out 2>&1
+printf '3\n7\n' >$OUT/aether_oneliner_tuple_ret_expected.out
+if ! cmp -s $OUT/aether_oneliner_tuple_ret_expected.out $OUT/aether_oneliner_tuple_ret.out; then
     echo "unexpected one-liner tuple-return output" >&2
-    cat /tmp/aether_oneliner_tuple_ret.out >&2
+    cat $OUT/aether_oneliner_tuple_ret.out >&2
     exit 1
 fi
 
 # An array append (`xs = xs + [v];`) inside a one-liner loop body must hit
 # translateArrayAppendLine, not bare translateLine (which leaks ARRAY + ARRAY ->
 # runtime "Operands must be numbers").
-cat > /tmp/aether_oneliner_array_append.aether <<'AETH'
+cat > $OUT/aether_oneliner_array_append.aether <<'AETH'
 fn main() -> Void {
     let squares: Int[] = [];
     loop i in 0..4 { squares = squares + [i * i]; }
@@ -2765,11 +2795,11 @@ fn main() -> Void {
     ret;
 }
 AETH
-"$AETHER_BIN" --no-cache /tmp/aether_oneliner_array_append.aether >/tmp/aether_oneliner_array_append.out 2>&1
-printf 'count = 4\n' >/tmp/aether_oneliner_array_append_expected.out
-if ! cmp -s /tmp/aether_oneliner_array_append_expected.out /tmp/aether_oneliner_array_append.out; then
+"$AETHER_BIN" --no-cache $OUT/aether_oneliner_array_append.aether >$OUT/aether_oneliner_array_append.out 2>&1
+printf 'count = 4\n' >$OUT/aether_oneliner_array_append_expected.out
+if ! cmp -s $OUT/aether_oneliner_array_append_expected.out $OUT/aether_oneliner_array_append.out; then
     echo "unexpected one-liner array-append output" >&2
-    cat /tmp/aether_oneliner_array_append.out >&2
+    cat $OUT/aether_oneliner_array_append.out >&2
     exit 1
 fi
 
@@ -2779,7 +2809,7 @@ fi
 # socketaccept/socketreceive block the calling task until a peer shows up, so
 # this runs in the background with a hard kill after 20s instead of a bare
 # foreground call — a regression here should fail loudly, not hang the suite.
-"$AETHER_BIN" --no-cache "$SOCKET_ECHO_PASS_FIXTURE" >/tmp/aether_socket_echo_pass.out 2>&1 &
+"$AETHER_BIN" --no-cache "$SOCKET_ECHO_PASS_FIXTURE" >$OUT/aether_socket_echo_pass.out 2>&1 &
 socket_echo_pid=$!
 socket_echo_waited=0
 while kill -0 "$socket_echo_pid" 2>/dev/null; do
@@ -2793,13 +2823,13 @@ while kill -0 "$socket_echo_pid" 2>/dev/null; do
 done
 if ! wait "$socket_echo_pid"; then
     echo "socket echo fixture exited non-zero" >&2
-    cat /tmp/aether_socket_echo_pass.out >&2
+    cat $OUT/aether_socket_echo_pass.out >&2
     exit 1
 fi
-printf 'server got: ping\nclient got: pong\ndone\n' >/tmp/aether_socket_echo_expected.out
-if ! cmp -s /tmp/aether_socket_echo_expected.out /tmp/aether_socket_echo_pass.out; then
+printf 'server got: ping\nclient got: pong\ndone\n' >$OUT/aether_socket_echo_expected.out
+if ! cmp -s $OUT/aether_socket_echo_expected.out $OUT/aether_socket_echo_pass.out; then
     echo "unexpected socket echo output" >&2
-    cat /tmp/aether_socket_echo_pass.out >&2
+    cat $OUT/aether_socket_echo_pass.out >&2
     exit 1
 fi
 
@@ -2811,7 +2841,7 @@ fi
 socket_journal="$(mktemp -t aether_socket_journal.XXXXXX)"
 for fx_mode in record replay; do
     "$AETHER_BIN" --no-cache "--fx-$fx_mode" "$socket_journal" "$SOCKET_ECHO_PASS_FIXTURE" \
-        >"/tmp/aether_socket_echo_$fx_mode.out" 2>&1 &
+        >"$OUT/aether_socket_echo_$fx_mode.out" 2>&1 &
     socket_echo_pid=$!
     socket_echo_waited=0
     while kill -0 "$socket_echo_pid" 2>/dev/null; do
@@ -2827,13 +2857,13 @@ for fx_mode in record replay; do
     if ! wait "$socket_echo_pid"; then
         rm -f "$socket_journal"
         echo "socket echo fixture exited non-zero under --fx-$fx_mode" >&2
-        cat "/tmp/aether_socket_echo_$fx_mode.out" >&2
+        cat "$OUT/aether_socket_echo_$fx_mode.out" >&2
         exit 1
     fi
-    if ! cmp -s /tmp/aether_socket_echo_expected.out "/tmp/aether_socket_echo_$fx_mode.out"; then
+    if ! cmp -s $OUT/aether_socket_echo_expected.out "$OUT/aether_socket_echo_$fx_mode.out"; then
         rm -f "$socket_journal"
         echo "socket echo fixture did not run cleanly under --fx-$fx_mode" >&2
-        cat "/tmp/aether_socket_echo_$fx_mode.out" >&2
+        cat "$OUT/aether_socket_echo_$fx_mode.out" >&2
         exit 1
     fi
 done
@@ -2842,12 +2872,14 @@ rm -f "$socket_journal"
 # File type end to end: assign/rewrite/writeln/close then reset/readln/eof/
 # close then erase, using Aether's own `File` type (lowers to rea's `text`
 # keyword / TYPE_FILE). Regression for "no file-content read/write API
-# reachable from Aether's own type system" (docs/ideas_and_todo.md).
-"$AETHER_BIN" --no-cache "$TESTS_DIR/file_io_pass.aether" >/tmp/aether_file_io_pass.out
-printf 'read 1: alpha\nread 2: beta\nexists_after_erase=false\n' >/tmp/aether_file_io_pass_expected.out
-if ! cmp -s /tmp/aether_file_io_pass_expected.out /tmp/aether_file_io_pass.out; then
+# reachable from Aether's own type system" (docs/ideas_and_todo.md). Runs from
+# $OUT: the fixture writes and erases a cwd-relative file, which must not land
+# in the checkout or collide with a concurrent run of the same checkout.
+(cd "$OUT" && "$AETHER_BIN" --no-cache "$TESTS_DIR/file_io_pass.aether") >$OUT/aether_file_io_pass.out
+printf 'read 1: alpha\nread 2: beta\nexists_after_erase=false\n' >$OUT/aether_file_io_pass_expected.out
+if ! cmp -s $OUT/aether_file_io_pass_expected.out $OUT/aether_file_io_pass.out; then
     echo "unexpected File type output (assign/rewrite/writeln/reset/readln/eof/close/erase)" >&2
-    cat /tmp/aether_file_io_pass.out >&2
+    cat $OUT/aether_file_io_pass.out >&2
     exit 1
 fi
 
@@ -2856,25 +2888,25 @@ fi
 # even when correctly declared". `db_open` is a real, unambiguous top-level
 # fn -- the check used to fire on the underscore split alone (`db` matches
 # `DB` case-insensitively) ahead of normal call resolution.
-"$AETHER_BIN" --no-cache "$LEGACY_METHOD_CALL_SHADOW_PASS_FIXTURE" >/tmp/aether_legacy_method_call_shadow_pass.out
-printf '42\n' >/tmp/aether_legacy_method_call_shadow_expected.out
-if ! cmp -s /tmp/aether_legacy_method_call_shadow_expected.out /tmp/aether_legacy_method_call_shadow_pass.out; then
+"$AETHER_BIN" --no-cache "$LEGACY_METHOD_CALL_SHADOW_PASS_FIXTURE" >$OUT/aether_legacy_method_call_shadow_pass.out
+printf '42\n' >$OUT/aether_legacy_method_call_shadow_expected.out
+if ! cmp -s $OUT/aether_legacy_method_call_shadow_expected.out $OUT/aether_legacy_method_call_shadow_pass.out; then
     echo "unexpected legacy-method-call shadow output (regression: TypeName_word fn rejected despite valid declaration)" >&2
-    cat /tmp/aether_legacy_method_call_shadow_pass.out >&2
+    cat $OUT/aether_legacy_method_call_shadow_pass.out >&2
     exit 1
 fi
 # The flip side: an underscore-prefixed call in the same shape but with no
 # matching declaration anywhere must still fail to compile -- fixing the
 # check to look before leaping must not silently make genuine
 # undefined-identifier errors disappear.
-if "$AETHER_BIN" --no-cache "$LEGACY_METHOD_CALL_UNDEFINED_FAIL_FIXTURE" >/tmp/aether_legacy_method_call_undefined_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$LEGACY_METHOD_CALL_UNDEFINED_FAIL_FIXTURE" >$OUT/aether_legacy_method_call_undefined_fail.out 2>&1; then
     echo "expected legacy-method-call undefined failure but program succeeded" >&2
-    cat /tmp/aether_legacy_method_call_undefined_fail.out >&2
+    cat $OUT/aether_legacy_method_call_undefined_fail.out >&2
     exit 1
 fi
-if ! grep -q "identifier 'db_missing' not in scope" /tmp/aether_legacy_method_call_undefined_fail.out; then
+if ! grep -q "identifier 'db_missing' not in scope" $OUT/aether_legacy_method_call_undefined_fail.out; then
     echo "missing legacy-method-call undefined-identifier diagnostic" >&2
-    cat /tmp/aether_legacy_method_call_undefined_fail.out >&2
+    cat $OUT/aether_legacy_method_call_undefined_fail.out >&2
     exit 1
 fi
 
@@ -2883,11 +2915,11 @@ fi
 # ... has no VM operator"). Covers a 2-element self-reassignment append, a
 # 0-element (empty-literal) append as a no-op, and a `let` initializer append
 # onto a different, already-declared array.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_append_multi_pass.aether" >/tmp/aether_array_append_multi_pass.out
-printf '3\n1\n2\n3\n0\n4\n10\n20\n30\n40\n' >/tmp/aether_array_append_multi_expected.out
-if ! cmp -s /tmp/aether_array_append_multi_expected.out /tmp/aether_array_append_multi_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_append_multi_pass.aether" >$OUT/aether_array_append_multi_pass.out
+printf '3\n1\n2\n3\n0\n4\n10\n20\n30\n40\n' >$OUT/aether_array_append_multi_expected.out
+if ! cmp -s $OUT/aether_array_append_multi_expected.out $OUT/aether_array_append_multi_pass.out; then
     echo "unexpected multi-element array append output" >&2
-    cat /tmp/aether_array_append_multi_pass.out >&2
+    cat $OUT/aether_array_append_multi_pass.out >&2
     exit 1
 fi
 
@@ -2896,11 +2928,11 @@ fi
 # VM ARRAY+ARRAY op (docs/ideas_and_todo.md, same entry). Covers the
 # self-reassignment idiom (`ys = ys + two;`) and confirms a call-valued RHS
 # (`xs + makeArr()`) is evaluated exactly once (callCount == 1), not twice.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_concat_pass.aether" >/tmp/aether_array_concat_pass.out
-printf '3\na\nb\nc\n1\n3\n1\n100\n200\n' >/tmp/aether_array_concat_expected.out
-if ! cmp -s /tmp/aether_array_concat_expected.out /tmp/aether_array_concat_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_concat_pass.aether" >$OUT/aether_array_concat_pass.out
+printf '3\na\nb\nc\n1\n3\n1\n100\n200\n' >$OUT/aether_array_concat_expected.out
+if ! cmp -s $OUT/aether_array_concat_expected.out $OUT/aether_array_concat_pass.out; then
     echo "unexpected array concatenation output" >&2
-    cat /tmp/aether_array_concat_pass.out >&2
+    cat $OUT/aether_array_concat_pass.out >&2
     exit 1
 fi
 
@@ -2909,11 +2941,11 @@ fi
 # confirms `xs` itself is untouched (concatenation copies, doesn't mutate the
 # left operand) and the declaration path lowers this the same way parseStmt's
 # buildArrayConcat does.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_concat_let_pass.aether" >/tmp/aether_array_concat_let_pass.out
-printf '4\n9\n1\n2\n3\n1\n' >/tmp/aether_array_concat_let_expected.out
-if ! cmp -s /tmp/aether_array_concat_let_expected.out /tmp/aether_array_concat_let_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/dynamic_array_concat_let_pass.aether" >$OUT/aether_array_concat_let_pass.out
+printf '4\n9\n1\n2\n3\n1\n' >$OUT/aether_array_concat_let_expected.out
+if ! cmp -s $OUT/aether_array_concat_let_expected.out $OUT/aether_array_concat_let_pass.out; then
     echo "unexpected let-initializer array concatenation output" >&2
-    cat /tmp/aether_array_concat_let_pass.out >&2
+    cat $OUT/aether_array_concat_let_pass.out >&2
     exit 1
 fi
 
@@ -2924,11 +2956,11 @@ fi
 # `mkdir` here is a user method on Foo that shares its name with an effectful
 # PSCAL vm_builtin; calling it via a 2-deep and 3-deep chain outside any fx
 # block must NOT trip FX-001, exactly like the direct `f.mkdir(...)` call.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/chained_method_call_shadow_builtin_pass.aether" >/tmp/aether_chained_method_call_shadow_builtin_pass.out
-printf 'true\ntrue\ntrue\n' >/tmp/aether_chained_method_call_shadow_builtin_expected.out
-if ! cmp -s /tmp/aether_chained_method_call_shadow_builtin_expected.out /tmp/aether_chained_method_call_shadow_builtin_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/chained_method_call_shadow_builtin_pass.aether" >$OUT/aether_chained_method_call_shadow_builtin_pass.out
+printf 'true\ntrue\ntrue\n' >$OUT/aether_chained_method_call_shadow_builtin_expected.out
+if ! cmp -s $OUT/aether_chained_method_call_shadow_builtin_expected.out $OUT/aether_chained_method_call_shadow_builtin_pass.out; then
     echo "unexpected chained-method-call shadow-builtin output" >&2
-    cat /tmp/aether_chained_method_call_shadow_builtin_pass.out >&2
+    cat $OUT/aether_chained_method_call_shadow_builtin_pass.out >&2
     exit 1
 fi
 
@@ -2938,11 +2970,11 @@ fi
 # "s[i]'s single-character result isn't accepted everywhere a Text is"). Covers
 # ASCII indexing plus a multi-byte UTF-8 codepoint and a whitespace char trimmed
 # to empty.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/text_index_char_builtins_pass.aether" >/tmp/aether_text_index_char_builtins_pass.out
-printf '5\n5.000000\nfalse\n5\n\xc3\xa9\n\n' >/tmp/aether_text_index_char_builtins_expected.out
-if ! cmp -s /tmp/aether_text_index_char_builtins_expected.out /tmp/aether_text_index_char_builtins_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/text_index_char_builtins_pass.aether" >$OUT/aether_text_index_char_builtins_pass.out
+printf '5\n5.000000\nfalse\n5\n\xc3\xa9\n\n' >$OUT/aether_text_index_char_builtins_expected.out
+if ! cmp -s $OUT/aether_text_index_char_builtins_expected.out $OUT/aether_text_index_char_builtins_pass.out; then
     echo "unexpected output for Text-index char passed into parse_int/parse_float/parse_bool/trim" >&2
-    cat /tmp/aether_text_index_char_builtins_pass.out >&2
+    cat $OUT/aether_text_index_char_builtins_pass.out >&2
     exit 1
 fi
 
@@ -2957,11 +2989,11 @@ fi
 # instead of stopping at equality (a regression this feature could easily
 # introduce: `&&`'s operand parser has to recurse through the new rungs, not
 # just skip past them).
-"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_ops_pass.aether" >/tmp/aether_bitwise_shift_ops_pass.out
-printf '12\n3\n2\n7\n5\n5\nfalse\ntrue\ntrue\n6\ntrue\n3\n' >/tmp/aether_bitwise_shift_ops_expected.out
-if ! cmp -s /tmp/aether_bitwise_shift_ops_expected.out /tmp/aether_bitwise_shift_ops_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_ops_pass.aether" >$OUT/aether_bitwise_shift_ops_pass.out
+printf '12\n3\n2\n7\n5\n5\nfalse\ntrue\ntrue\n6\ntrue\n3\n' >$OUT/aether_bitwise_shift_ops_expected.out
+if ! cmp -s $OUT/aether_bitwise_shift_ops_expected.out $OUT/aether_bitwise_shift_ops_pass.out; then
     echo "unexpected bitwise/shift operator output" >&2
-    cat /tmp/aether_bitwise_shift_ops_pass.out >&2
+    cat $OUT/aether_bitwise_shift_ops_pass.out >&2
     exit 1
 fi
 
@@ -2970,55 +3002,56 @@ fi
 # types at parse time -- see the comment above parseShift in ast_parser.c --
 # so this exercises the existing VM-level SHL/SHR type guard as the actual
 # safety net for the new operators).
-if "$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_type_mismatch_fail.aether" >/tmp/aether_bitwise_shift_type_mismatch_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_type_mismatch_fail.aether" >$OUT/aether_bitwise_shift_type_mismatch_fail.out 2>&1; then
     echo "expected bitwise/shift type-mismatch failure but program succeeded" >&2
-    cat /tmp/aether_bitwise_shift_type_mismatch_fail.out >&2
+    cat $OUT/aether_bitwise_shift_type_mismatch_fail.out >&2
     exit 1
 fi
-if ! grep -q "Operands for 'shl' and 'shr' must be integers" /tmp/aether_bitwise_shift_type_mismatch_fail.out; then
+if ! grep -q "Operands for 'shl' and 'shr' must be integers" $OUT/aether_bitwise_shift_type_mismatch_fail.out; then
     echo "missing shift type-mismatch diagnostic" >&2
-    cat /tmp/aether_bitwise_shift_type_mismatch_fail.out >&2
+    cat $OUT/aether_bitwise_shift_type_mismatch_fail.out >&2
     exit 1
 fi
 
 # Chained `else if` in if-EXPRESSION position (statement position already
 # supported this; the expression form only accepted a single `else`).
-"$AETHER_BIN" --no-cache "$TESTS_DIR/else_if_expression_pass.aether" >/tmp/aether_else_if_expression_pass.out
-printf 'big\nmedium\nsmall\nnon-positive\n' >/tmp/aether_else_if_expression_expected.out
-if ! cmp -s /tmp/aether_else_if_expression_expected.out /tmp/aether_else_if_expression_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/else_if_expression_pass.aether" >$OUT/aether_else_if_expression_pass.out
+printf 'big\nmedium\nsmall\nnon-positive\n' >$OUT/aether_else_if_expression_expected.out
+if ! cmp -s $OUT/aether_else_if_expression_expected.out $OUT/aether_else_if_expression_pass.out; then
     echo "unexpected else-if-in-expression output" >&2
-    cat /tmp/aether_else_if_expression_pass.out >&2
+    cat $OUT/aether_else_if_expression_pass.out >&2
     exit 1
 fi
 
 # ARR-001: mutating an array parameter in a Void function warns (arrays are
 # value-copied at the call boundary, unlike records) but must NOT fail the
-# build -- this is a warning, not an error.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_mutation_warning_pass.aether" >/tmp/aether_array_mutation_warning_pass.out 2>&1
+# build -- this is a warning, not an error. The warning goes to stderr, so the
+# two streams are captured apart and stdout is compared exactly.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_mutation_warning_pass.aether" >$OUT/aether_array_mutation_warning_pass.out 2>$OUT/aether_array_mutation_warning_pass.err
 if [ $? -ne 0 ]; then
     echo "ARR-001 must warn, not fail the build" >&2
-    cat /tmp/aether_array_mutation_warning_pass.out >&2
+    cat $OUT/aether_array_mutation_warning_pass.out $OUT/aether_array_mutation_warning_pass.err >&2
     exit 1
 fi
-if ! grep -q "warning: \[ARR-001\]" /tmp/aether_array_mutation_warning_pass.out; then
+if ! grep -q "warning: \[ARR-001\]" $OUT/aether_array_mutation_warning_pass.err; then
     echo "missing ARR-001 warning" >&2
-    cat /tmp/aether_array_mutation_warning_pass.out >&2
+    cat $OUT/aether_array_mutation_warning_pass.err >&2
     exit 1
 fi
-if ! grep -qx "xs\[0\]=1" /tmp/aether_array_mutation_warning_pass.out; then
+if ! printf 'xs[0]=1\n' | cmp -s - $OUT/aether_array_mutation_warning_pass.out; then
     echo "unexpected array-mutation-warning program output (caller's array should be unchanged)" >&2
-    cat /tmp/aether_array_mutation_warning_pass.out >&2
+    cat $OUT/aether_array_mutation_warning_pass.out >&2
     exit 1
 fi
 
 # Array slicing sugar `xs[a..b]`: half-open range, works as a let-binding
 # initializer and directly as a call argument; does not disturb the source
 # array (confirms it copies rather than aliasing).
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_slice_pass.aether" >/tmp/aether_array_slice_pass.out
-printf 'len=3\n20\n30\n40\nsum of xs[1..4] as direct arg=90\nxs[0] unaffected=10\n' >/tmp/aether_array_slice_expected.out
-if ! cmp -s /tmp/aether_array_slice_expected.out /tmp/aether_array_slice_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_slice_pass.aether" >$OUT/aether_array_slice_pass.out
+printf 'len=3\n20\n30\n40\nsum of xs[1..4] as direct arg=90\nxs[0] unaffected=10\n' >$OUT/aether_array_slice_expected.out
+if ! cmp -s $OUT/aether_array_slice_expected.out $OUT/aether_array_slice_pass.out; then
     echo "unexpected array-slice output" >&2
-    cat /tmp/aether_array_slice_pass.out >&2
+    cat $OUT/aether_array_slice_pass.out >&2
     exit 1
 fi
 
@@ -3028,11 +3061,11 @@ fi
 # (static) array copied -- and the ARR-001 warning text claimed value-copy for
 # both. Covers both styles at both boundaries, both mutation directions, the
 # `src + []` empty-append shape, and record-field stores/reads.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_value_semantics_pass.aether" >/tmp/aether_array_value_semantics_pass.out 2>/dev/null
-printf 'let-snap lit=1 con=1\nlet-rev lit=2 con=2\ncall lit=1 con=1 rets=99,99\nstmt src=3 dst=55\nappend-empty src=1 dst=44\nfield src=1 field=22 read=2\n' >/tmp/aether_array_value_semantics_expected.out
-if ! cmp -s /tmp/aether_array_value_semantics_expected.out /tmp/aether_array_value_semantics_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_value_semantics_pass.aether" >$OUT/aether_array_value_semantics_pass.out 2>/dev/null
+printf 'let-snap lit=1 con=1\nlet-rev lit=2 con=2\ncall lit=1 con=1 rets=99,99\nstmt src=3 dst=55\nappend-empty src=1 dst=44\nfield src=1 field=22 read=2\n' >$OUT/aether_array_value_semantics_expected.out
+if ! cmp -s $OUT/aether_array_value_semantics_expected.out $OUT/aether_array_value_semantics_pass.out; then
     echo "unexpected array-value-semantics output (array assignment/param aliased its source?)" >&2
-    cat /tmp/aether_array_value_semantics_pass.out >&2
+    cat $OUT/aether_array_value_semantics_pass.out >&2
     exit 1
 fi
 
@@ -3040,11 +3073,11 @@ fi
 # recycles a stack slot last used by an unrelated Int local in an earlier
 # sibling scope. Regression for a spurious "Type mismatch: Cannot assign
 # ARRAY to integer." (stale intlike type tag surviving in the recycled slot).
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_literal_tmp_slot_pass.aether" >/tmp/aether_array_literal_tmp_slot_pass.out
-printf '1\n1\na\n' >/tmp/aether_array_literal_tmp_slot_expected.out
-if ! cmp -s /tmp/aether_array_literal_tmp_slot_expected.out /tmp/aether_array_literal_tmp_slot_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_literal_tmp_slot_pass.aether" >$OUT/aether_array_literal_tmp_slot_pass.out
+printf '1\n1\na\n' >$OUT/aether_array_literal_tmp_slot_expected.out
+if ! cmp -s $OUT/aether_array_literal_tmp_slot_expected.out $OUT/aether_array_literal_tmp_slot_pass.out; then
     echo "unexpected array-literal-tmp-slot output (regression: stale intlike type tag in recycled scratch slot)" >&2
-    cat /tmp/aether_array_literal_tmp_slot_pass.out >&2
+    cat $OUT/aether_array_literal_tmp_slot_pass.out >&2
     exit 1
 fi
 
@@ -3054,11 +3087,11 @@ fi
 # used to reach the VM and die as "Got ARRAY and ARRAY". Covers the concat,
 # append and empty-append shapes, a slice operand, value semantics, the @post
 # variant, and confirms non-array `+` (Text/Int) is left alone.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_return_pass.aether" >/tmp/aether_array_concat_return_pass.out
-printf 'joined len=4 [1234]\nappended len=4 [1278]\nempty len=2 [12]\nsliced len=3 [239]\nguarded len=4 [1234]\nsrc len=2 [12]\ntext=abcd\nint=5\n' >/tmp/aether_array_concat_return_expected.out
-if ! cmp -s /tmp/aether_array_concat_return_expected.out /tmp/aether_array_concat_return_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_return_pass.aether" >$OUT/aether_array_concat_return_pass.out
+printf 'joined len=4 [1234]\nappended len=4 [1278]\nempty len=2 [12]\nsliced len=3 [239]\nguarded len=4 [1234]\nsrc len=2 [12]\ntext=abcd\nint=5\n' >$OUT/aether_array_concat_return_expected.out
+if ! cmp -s $OUT/aether_array_concat_return_expected.out $OUT/aether_array_concat_return_pass.out; then
     echo "unexpected array-concat-in-return output (regression: array '+' reaching the VM from ret position?)" >&2
-    cat /tmp/aether_array_concat_return_pass.out >&2
+    cat $OUT/aether_array_concat_return_pass.out >&2
     exit 1
 fi
 
@@ -3070,11 +3103,11 @@ fi
 # mixed literal/call operands, element ORDER, five terms, an empty literal
 # mid-chain, two concats on one line (their temps used to collide by name), the
 # `ret` position, and value semantics.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_chain_pass.aether" >/tmp/aether_array_concat_chain_pass.out
-printf 'mixed: 1 2 7 8 3\nfive len=5\nwithEmpty len=2\ncalls len=6\nfromRet len=5\nx[0] after mutating mixed =1\nprepend: 0 1 2\naround : 0 1 2 3\nselfdup: 1 2 1 2\n' >/tmp/aether_array_concat_chain_expected.out
-if ! cmp -s /tmp/aether_array_concat_chain_expected.out /tmp/aether_array_concat_chain_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_concat_chain_pass.aether" >$OUT/aether_array_concat_chain_pass.out
+printf 'mixed: 1 2 7 8 3\nfive len=5\nwithEmpty len=2\ncalls len=6\nfromRet len=5\nx[0] after mutating mixed =1\nprepend: 0 1 2\naround : 0 1 2 3\nselfdup: 1 2 1 2\n' >$OUT/aether_array_concat_chain_expected.out
+if ! cmp -s $OUT/aether_array_concat_chain_expected.out $OUT/aether_array_concat_chain_pass.out; then
     echo "unexpected chained-array-concat output (regression: a + b + c reaching the VM?)" >&2
-    cat /tmp/aether_array_concat_chain_pass.out >&2
+    cat $OUT/aether_array_concat_chain_pass.out >&2
     exit 1
 fi
 
@@ -3083,11 +3116,11 @@ fi
 # one level, so the concat group used to survive as a nested block and scope the
 # declared variable away -- `let r: Int[] = a[1..3] + b;` then reported
 # "[SCOPE-001] identifier 'r' not in scope" at every later use site.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_slice_concat_operand_pass.aether" >/tmp/aether_array_slice_concat_operand_pass.out
-printf 'left len=4 [2378]\nright len=4 [7812]\nboth len=4 [1234]\nappended len=3 [239]\nleft-mut len=4 [99378]\na len=4 [1234]\n' >/tmp/aether_array_slice_concat_operand_expected.out
-if ! cmp -s /tmp/aether_array_slice_concat_operand_expected.out /tmp/aether_array_slice_concat_operand_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_slice_concat_operand_pass.aether" >$OUT/aether_array_slice_concat_operand_pass.out
+printf 'left len=4 [2378]\nright len=4 [7812]\nboth len=4 [1234]\nappended len=3 [239]\nleft-mut len=4 [99378]\na len=4 [1234]\n' >$OUT/aether_array_slice_concat_operand_expected.out
+if ! cmp -s $OUT/aether_array_slice_concat_operand_expected.out $OUT/aether_array_slice_concat_operand_pass.out; then
     echo "unexpected slice-as-concat-operand output (regression: SCOPE-001 from a nested declaration-group splice?)" >&2
-    cat /tmp/aether_array_slice_concat_operand_pass.out >&2
+    cat $OUT/aether_array_slice_concat_operand_pass.out >&2
     exit 1
 fi
 
@@ -3098,29 +3131,29 @@ fi
 # the last character. Also covers multi-byte UTF-8 (indexed by codepoint, not
 # byte), copy() clamping past the end, and a prefix match returning 0 rather
 # than being confused with absent.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/text_zero_based_pass.aether" >/tmp/aether_text_zero_based_pass.out
-printf 'len=11\nfirst=h last=d\nchars: h e l l o   w o r l d\nslice=[hello][world]\nempty-slice=[]\ncopy=[hello][world]\ncopy-clamped=[world]\npos-prefix=0\npos-mid=6\npos-absent=-1\npos-empty-haystack=-1\nutf8=hé slice=[hé] len=5\nfirstWord=[hello]\n' >/tmp/aether_text_zero_based_expected.out
-if ! cmp -s /tmp/aether_text_zero_based_expected.out /tmp/aether_text_zero_based_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/text_zero_based_pass.aether" >$OUT/aether_text_zero_based_pass.out
+printf 'len=11\nfirst=h last=d\nchars: h e l l o   w o r l d\nslice=[hello][world]\nempty-slice=[]\ncopy=[hello][world]\ncopy-clamped=[world]\npos-prefix=0\npos-mid=6\npos-absent=-1\npos-empty-haystack=-1\nutf8=hé slice=[hé] len=5\nfirstWord=[hello]\n' >$OUT/aether_text_zero_based_expected.out
+if ! cmp -s $OUT/aether_text_zero_based_expected.out $OUT/aether_text_zero_based_pass.out; then
     echo "unexpected 0-based Text output (string index base / copy start / pos sentinel regressed?)" >&2
-    diff /tmp/aether_text_zero_based_expected.out /tmp/aether_text_zero_based_pass.out >&2 || true
+    diff $OUT/aether_text_zero_based_expected.out $OUT/aether_text_zero_based_pass.out >&2 || true
     exit 1
 fi
 
 # TYPE-001: copy() (the Text substring builtin) handed an array. Used to fail at
 # runtime with the uncoded "Copy expects (String/Char, Integer, Integer)." with
 # no mention of the slice sugar arr[lo..hi]. Mirror of the string_slice case.
-if "$AETHER_BIN" --no-cache "$TESTS_DIR/array_copy_fail.aether" >/tmp/aether_array_copy_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$TESTS_DIR/array_copy_fail.aether" >$OUT/aether_array_copy_fail.out 2>&1; then
     echo "expected TYPE-001 for copy() applied to an array but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[TYPE-001\] Aether array-copy parser error: copy() is the substring builtin for Text" /tmp/aether_array_copy_fail.out; then
+if ! grep -q "\[TYPE-001\] Aether array-copy parser error: copy() is the substring builtin for Text" $OUT/aether_array_copy_fail.out; then
     echo "missing TYPE-001 array-copy diagnostic (uncoded runtime 'Copy expects' regressed?)" >&2
-    cat /tmp/aether_array_copy_fail.out >&2
+    cat $OUT/aether_array_copy_fail.out >&2
     exit 1
 fi
-if ! grep -q "arr\[lo..hi\]" /tmp/aether_array_copy_fail.out; then
+if ! grep -q "arr\[lo..hi\]" $OUT/aether_array_copy_fail.out; then
     echo "TYPE-001 array-copy diagnostic lost its slice-form replacement hint" >&2
-    cat /tmp/aether_array_copy_fail.out >&2
+    cat $OUT/aether_array_copy_fail.out >&2
     exit 1
 fi
 
@@ -3130,29 +3163,29 @@ fi
 # integer precision])", so it sailed past a --no-run gate and only died once the
 # line executed. Must now be a compile-time diagnostic -- assert under --no-run
 # so a regression to runtime-only detection fails this lap.
-if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/builtin_arity_fail.aether" >/tmp/aether_builtin_arity_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/builtin_arity_fail.aether" >$OUT/aether_builtin_arity_fail.out 2>&1; then
     echo "expected BUILT-002 for formatfloat(r, 0, 2) but compilation succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[BUILT-002\] Aether builtin error: 'formatfloat' takes 1 to 2 arguments, but 3 were given." /tmp/aether_builtin_arity_fail.out; then
+if ! grep -q "\[BUILT-002\] Aether builtin error: 'formatfloat' takes 1 to 2 arguments, but 3 were given." $OUT/aether_builtin_arity_fail.out; then
     echo "missing BUILT-002 arity diagnostic (regressed to the uncoded runtime FormatFloat error?)" >&2
-    cat /tmp/aether_builtin_arity_fail.out >&2
+    cat $OUT/aether_builtin_arity_fail.out >&2
     exit 1
 fi
 # ...and the table must not over-fire: every accepted arity still compiles and
 # runs, including formatfloat's one-argument form (which its published signature
 # does not advertise), and a user fn / method may shadow a table name freely.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_pass.aether" >/tmp/aether_builtin_arity_pass.out
-printf '87.46 87.456700 87.456700\n3 2 9\n65 B ell\n2 x\n7 true 2\n' >/tmp/aether_builtin_arity_expected.out
-if ! cmp -s /tmp/aether_builtin_arity_expected.out /tmp/aether_builtin_arity_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_pass.aether" >$OUT/aether_builtin_arity_pass.out
+printf '87.46 87.456700 87.456700\n3 2 9\n65 B ell\n2 x\n7 true 2\n' >$OUT/aether_builtin_arity_expected.out
+if ! cmp -s $OUT/aether_builtin_arity_expected.out $OUT/aether_builtin_arity_pass.out; then
     echo "unexpected builtin-arity output (BUILT-002 table rejecting a valid arity?)" >&2
-    cat /tmp/aether_builtin_arity_pass.out >&2
+    cat $OUT/aether_builtin_arity_pass.out >&2
     exit 1
 fi
-"$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_shadow_pass.aether" >/tmp/aether_builtin_arity_shadow_pass.out
-if ! grep -qx '9 92' /tmp/aether_builtin_arity_shadow_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_shadow_pass.aether" >$OUT/aether_builtin_arity_shadow_pass.out
+if ! printf '9 92\n' | cmp -s - $OUT/aether_builtin_arity_shadow_pass.out; then
     echo "BUILT-002 table fired on a user-shadowed name (fn max / method min)" >&2
-    cat /tmp/aether_builtin_arity_shadow_pass.out >&2
+    cat $OUT/aether_builtin_arity_shadow_pass.out >&2
     exit 1
 fi
 
@@ -3160,16 +3193,12 @@ fi
 # `_file` suffix (one trace even hallucinated a guide citation for it), so an
 # alias normalizes it to toon_parse. Whole-identifier matching must leave the
 # real toon_parse / toon_parse_file names alone. Accept the no-yyjson fallback.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/toon_parse_string_alias_pass.aether" >/tmp/aether_toon_parse_string_alias_pass.out
-if ! grep -qxE 'Aether 42|toon unavailable' /tmp/aether_toon_parse_string_alias_pass.out; then
-    echo "unexpected toon_parse_string alias output" >&2
-    cat /tmp/aether_toon_parse_string_alias_pass.out >&2
-    exit 1
-fi
-if grep -qx 'Aether 42' /tmp/aether_toon_parse_string_alias_pass.out &&
-   ! grep -qx 'canonical' /tmp/aether_toon_parse_string_alias_pass.out; then
-    echo "toon_parse_string alias broke the canonical toon_parse call beside it" >&2
-    cat /tmp/aether_toon_parse_string_alias_pass.out >&2
+# The second golden line is the canonical toon_parse call beside the alias.
+"$AETHER_BIN" --no-cache "$TESTS_DIR/toon_parse_string_alias_pass.aether" >$OUT/aether_toon_parse_string_alias_pass.out
+if ! printf 'Aether 42\ncanonical\n' | cmp -s - $OUT/aether_toon_parse_string_alias_pass.out &&
+   ! printf 'toon unavailable\n' | cmp -s - $OUT/aether_toon_parse_string_alias_pass.out; then
+    echo "unexpected toon_parse_string alias output (a missing 'canonical' line means the alias broke the canonical toon_parse call beside it)" >&2
+    cat $OUT/aether_toon_parse_string_alias_pass.out >&2
     exit 1
 fi
 
@@ -3184,18 +3213,18 @@ fi
 # method calling a sibling method, a method calling a module-private function, and a
 # same-file type with methods alongside the imported one. The second, cached run also
 # guards the bytecode verifier's VOID/non-VOID RETURN rule for imported Void methods.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/imported_type_methods_pass.aether" >/tmp/aether_imported_type_methods_pass.out
-printf 'depth=3\ntop=19\nlocal=1\n' >/tmp/aether_imported_type_methods_expected.out
-if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_pass.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/imported_type_methods_pass.aether" >$OUT/aether_imported_type_methods_pass.out
+printf 'depth=3\ntop=19\nlocal=1\n' >$OUT/aether_imported_type_methods_expected.out
+if ! cmp -s $OUT/aether_imported_type_methods_expected.out $OUT/aether_imported_type_methods_pass.out; then
     echo "unexpected imported-type-methods output (imported type's vtable global regressed?)" >&2
-    diff /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_pass.out >&2 || true
+    diff $OUT/aether_imported_type_methods_expected.out $OUT/aether_imported_type_methods_pass.out >&2 || true
     exit 1
 fi
 "$AETHER_BIN" "$TESTS_DIR/imported_type_methods_pass.aether" >/dev/null 2>&1 || true
-"$AETHER_BIN" "$TESTS_DIR/imported_type_methods_pass.aether" >/tmp/aether_imported_type_methods_cached.out 2>&1
-if ! cmp -s /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_cached.out; then
+"$AETHER_BIN" "$TESTS_DIR/imported_type_methods_pass.aether" >$OUT/aether_imported_type_methods_cached.out 2>&1
+if ! cmp -s $OUT/aether_imported_type_methods_expected.out $OUT/aether_imported_type_methods_cached.out; then
     echo "unexpected cached imported-type-methods output (cache verifier rejecting Void methods?)" >&2
-    diff /tmp/aether_imported_type_methods_expected.out /tmp/aether_imported_type_methods_cached.out >&2 || true
+    diff $OUT/aether_imported_type_methods_expected.out $OUT/aether_imported_type_methods_cached.out >&2 || true
     exit 1
 fi
 
@@ -3204,19 +3233,21 @@ fi
 # works. A warning, so the program must still run. Exactly three fire: the
 # parenthesized form and the two eager-boolean uses (`&`/`|` on Bool operands)
 # must stay silent, which is why the check requires a provably-Int left operand.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_precedence_warn_pass.aether" >/tmp/aether_prec.out 2>&1
-if [ "$(grep -c '\[PREC-001\]' /tmp/aether_prec.out)" != "3" ]; then
+# Warnings go to stderr; stdout is the seven values exactly as the program
+# computes them (3 & (2 != 0) = 1, 3 | (2 == 2) = 3, 3 ^ (2 < 4) = 2, ...).
+"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_precedence_warn_pass.aether" >$OUT/aether_prec.out 2>$OUT/aether_prec.err
+if [ "$(grep -c '\[PREC-001\]' $OUT/aether_prec.err)" != "3" ]; then
     echo "expected exactly 3 PREC-001 warnings (& | ^ against a comparison)" >&2
-    cat /tmp/aether_prec.out >&2
+    cat $OUT/aether_prec.err >&2
     exit 1
 fi
-if ! grep -q "produces an Int, not a Bool" /tmp/aether_prec.out; then
+if ! grep -q "produces an Int, not a Bool" $OUT/aether_prec.err; then
     echo "PREC-001 lost its Int-not-Bool explanation" >&2
     exit 1
 fi
-if ! grep -qx '1' /tmp/aether_prec.out || ! grep -qx 'true' /tmp/aether_prec.out; then
-    echo "bitwise precedence fixture did not run to completion" >&2
-    cat /tmp/aether_prec.out >&2
+if ! printf '1\n3\n2\ntrue\ntrue\ntrue\n2\n' | cmp -s - $OUT/aether_prec.out; then
+    echo "unexpected bitwise precedence output (fixture did not run to completion, or a warning changed what runs)" >&2
+    cat $OUT/aether_prec.out >&2
     exit 1
 fi
 
@@ -3225,71 +3256,72 @@ fi
 # "SocketCreate") answered false on a build where socketcreate(0) works, so a
 # guard written the obvious way skipped code that would have run. The last two
 # assertions are the safety half -- a name that exists nowhere must stay false.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/has_builtin_core_pass.aether" >/tmp/aether_has_builtin_core.out 2>&1
-printf 'core     = true\ncore2    = true\nextended = true\nabsent   = false\nempty    = false\n' >/tmp/aether_has_builtin_core_expected.out
-if ! cmp -s /tmp/aether_has_builtin_core_expected.out /tmp/aether_has_builtin_core.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/has_builtin_core_pass.aether" >$OUT/aether_has_builtin_core.out 2>&1
+printf 'core     = true\ncore2    = true\nextended = true\nabsent   = false\nempty    = false\n' >$OUT/aether_has_builtin_core_expected.out
+if ! cmp -s $OUT/aether_has_builtin_core_expected.out $OUT/aether_has_builtin_core.out; then
     echo "has_builtin core-registry fallback regressed" >&2
-    cat /tmp/aether_has_builtin_core.out >&2
+    cat $OUT/aether_has_builtin_core.out >&2
     exit 1
 fi
 
 # readln must not alias: a Text filled by its out-parameter used to be mutated
 # in place, so every earlier copy shared the StringObj and tracked later reads.
-# Reading a file into an array gave N copies of the last line, silently.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/readln_no_alias_pass.aether" >/tmp/aether_readln_alias.out 2>&1
-printf 'one two three\none two three \n' >/tmp/aether_readln_alias_expected.out
-if ! cmp -s /tmp/aether_readln_alias_expected.out /tmp/aether_readln_alias.out; then
+# Reading a file into an array gave N copies of the last line, silently. Runs
+# from $OUT for the same reason as file_io_pass: it writes a cwd-relative file.
+(cd "$OUT" && "$AETHER_BIN" --no-cache "$TESTS_DIR/readln_no_alias_pass.aether") >$OUT/aether_readln_alias.out 2>&1
+printf 'one two three\none two three \n' >$OUT/aether_readln_alias_expected.out
+if ! cmp -s $OUT/aether_readln_alias_expected.out $OUT/aether_readln_alias.out; then
     echo "readln aliased a saved Text copy (in-place StringObj mutation regressed?)" >&2
-    cat /tmp/aether_readln_alias.out >&2
+    cat $OUT/aether_readln_alias.out >&2
     exit 1
 fi
 
 # FIELD-003 must reject a bare named const, not just an expression over one --
 # that is the form the old wording positively invited.
-cat > /tmp/aether_field_default_const.aether <<'AEEOF'
+cat > $OUT/aether_field_default_const.aether <<'AEEOF'
 const MAX_SCORE: Int = 100;
 type S { m: Int = MAX_SCORE; }
 fn main() -> Void { ret; }
 AEEOF
-if "$AETHER_BIN" --no-cache --no-run /tmp/aether_field_default_const.aether >/tmp/aether_field_default_const.out 2>&1; then
+if "$AETHER_BIN" --no-cache --no-run $OUT/aether_field_default_const.aether >$OUT/aether_field_default_const.out 2>&1; then
     echo "expected FIELD-003 for a named-const field default" >&2
     exit 1
 fi
-if ! grep -q "A named const is NOT accepted" /tmp/aether_field_default_const.out; then
+if ! grep -q "A named const is NOT accepted" $OUT/aether_field_default_const.out; then
     echo "FIELD-003 hint no longer names the const case" >&2
-    cat /tmp/aether_field_default_const.out >&2
+    cat $OUT/aether_field_default_const.out >&2
     exit 1
 fi
 
 # ARR-002: a one-dimensional array indexed twice. The DP-table shape -- models
 # declare `Int[]` and then write dp[i][j] -- which used to compile and die at
 # runtime with an uncoded "Expected a pointer to an array for element access."
-if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/array_rank_2d_fail.aether" >/tmp/aether_array_rank.out 2>&1; then
+if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/array_rank_2d_fail.aether" >$OUT/aether_array_rank.out 2>&1; then
     echo "expected ARR-002 for a 1-D array indexed twice" >&2
     exit 1
 fi
-if ! grep -q "\[ARR-002\].*'dp' is declared 'Int\[\]'" /tmp/aether_array_rank.out; then
+if ! grep -q "\[ARR-002\].*'dp' is declared 'Int\[\]'" $OUT/aether_array_rank.out; then
     echo "missing ARR-002 rank diagnostic (regressed to the uncoded runtime error?)" >&2
-    cat /tmp/aether_array_rank.out >&2
+    cat $OUT/aether_array_rank.out >&2
     exit 1
 fi
-if ! grep -q "Int\[\]\[\]" /tmp/aether_array_rank.out; then
+if ! grep -q "Int\[\]\[\]" $OUT/aether_array_rank.out; then
     echo "ARR-002 lost its nested-array declaration hint" >&2
-    cat /tmp/aether_array_rank.out >&2
+    cat $OUT/aether_array_rank.out >&2
     exit 1
 fi
 # ...and it must not fire on a real Int[][], on a slice (which lowers through a
 # temp before the second index), or on Text indexing.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_rank_2d_pass.aether" >/tmp/aether_array_rank_ok.out 2>&1
-if grep -q "ARR-002" /tmp/aether_array_rank_ok.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/array_rank_2d_pass.aether" >$OUT/aether_array_rank_ok.out 2>&1
+if grep -q "ARR-002" $OUT/aether_array_rank_ok.out; then
     echo "ARR-002 false positive on a genuine nested array / slice / Text" >&2
-    cat /tmp/aether_array_rank_ok.out >&2
+    cat $OUT/aether_array_rank_ok.out >&2
     exit 1
 fi
-printf '2 99 3\n20 30 b\n' >/tmp/aether_array_rank_expected.out
-if ! cmp -s /tmp/aether_array_rank_expected.out /tmp/aether_array_rank_ok.out; then
+printf '2 99 3\n20 30 b\n' >$OUT/aether_array_rank_expected.out
+if ! cmp -s $OUT/aether_array_rank_expected.out $OUT/aether_array_rank_ok.out; then
     echo "unexpected nested-array output" >&2
-    cat /tmp/aether_array_rank_ok.out >&2
+    cat $OUT/aether_array_rank_ok.out >&2
     exit 1
 fi
 
@@ -3298,32 +3330,32 @@ fi
 # then surfaced a *different* code (SCOPE-001) -- so the two spellings of one
 # mistake looked like unrelated problems and the hint appeared to cause the
 # second. Both must now name the unknown callee.
-if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_fail.aether" >/tmp/aether_unknown_callee.out 2>&1; then
+if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_fail.aether" >$OUT/aether_unknown_callee.out 2>&1; then
     echo "expected SCOPE-001 for an inferred let calling a nonexistent builtin" >&2
     exit 1
 fi
-if ! grep -q "\[SCOPE-001\].*identifier 'sqlite_open' not in scope" /tmp/aether_unknown_callee.out; then
+if ! grep -q "\[SCOPE-001\].*identifier 'sqlite_open' not in scope" $OUT/aether_unknown_callee.out; then
     echo "unknown callee in an inferred let did not report SCOPE-001 (regressed to the misleading TYPE-001?)" >&2
-    cat /tmp/aether_unknown_callee.out >&2
+    cat $OUT/aether_unknown_callee.out >&2
     exit 1
 fi
 # ...and the redirect must stay narrow: a real builtin with no inferable return
 # type still deserves TYPE-001 and the annotate hint.
-"$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_pass.aether" >/tmp/aether_known_callee.out 2>&1 || {
+"$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_pass.aether" >$OUT/aether_known_callee.out 2>&1 || {
     echo "annotated call to a real builtin (socketcreate) failed to compile" >&2
-    cat /tmp/aether_known_callee.out >&2
+    cat $OUT/aether_known_callee.out >&2
     exit 1
 }
 
 # NARROW-001: implicit Real -> Int truncation used to be completely silent in
 # every position. A warning, not an error, so the program must still run.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_warn_pass.aether" >/tmp/aether_narrowing_warn.out 2>&1
-if [ "$(grep -c '\[NARROW-001\]' /tmp/aether_narrowing_warn.out)" != "8" ]; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_warn_pass.aether" >$OUT/aether_narrowing_warn.out 2>&1
+if [ "$(grep -c '\[NARROW-001\]' $OUT/aether_narrowing_warn.out)" != "8" ]; then
     echo "expected 8 NARROW-001 warnings (literal, user fn, builtin, arithmetic, division, parse_float, random(), assignment)" >&2
-    cat /tmp/aether_narrowing_warn.out >&2
+    cat $OUT/aether_narrowing_warn.out >&2
     exit 1
 fi
-if ! grep -q 'random() -- the no-argument form returns a Real' /tmp/aether_narrowing_warn.out; then
+if ! grep -q 'random() -- the no-argument form returns a Real' $OUT/aether_narrowing_warn.out; then
     echo "NARROW-001 lost the random() arity-specific explanation" >&2
     exit 1
 fi
@@ -3331,10 +3363,10 @@ fi
 # resolved types lie here (min/max/clamp annotate REAL though they preserve
 # operand type, Int / Int annotates REAL, an inferred let reads as integral
 # during the pass), so a naive check fires on ordinary integer code.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_quiet_pass.aether" >/tmp/aether_narrowing_quiet.out 2>&1
-if grep -q '\[NARROW-001\]' /tmp/aether_narrowing_quiet.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/narrowing_quiet_pass.aether" >$OUT/aether_narrowing_quiet.out 2>&1
+if grep -q '\[NARROW-001\]' $OUT/aether_narrowing_quiet.out; then
     echo "NARROW-001 false positive on non-narrowing code" >&2
-    grep '\[NARROW-001\]' /tmp/aether_narrowing_quiet.out >&2
+    grep '\[NARROW-001\]' $OUT/aether_narrowing_quiet.out >&2
     exit 1
 fi
 
@@ -3343,19 +3375,19 @@ fi
 # randomize() only ever seeded the calling thread. A parallel sampler therefore
 # computed the same draws in each branch and reported a confidently wrong
 # aggregate, silently.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/random_par_streams_pass.aether" >/tmp/aether_random_par_streams.out
-if ! grep -qx 'streams: independent' /tmp/aether_random_par_streams.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/random_par_streams_pass.aether" >$OUT/aether_random_par_streams.out
+if ! printf 'streams: independent\n' | cmp -s - $OUT/aether_random_par_streams.out; then
     echo "par branches drew the same random stream (per-thread seeding regressed?)" >&2
-    cat /tmp/aether_random_par_streams.out >&2
+    cat $OUT/aether_random_par_streams.out >&2
     exit 1
 fi
 # ...and the fix must not cost reproducibility: with no randomize() call the
 # base seed never moves, so two runs of the same program must match exactly.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/random_reproducible_pass.aether" >/tmp/aether_random_repro_a.out
-"$AETHER_BIN" --no-cache "$TESTS_DIR/random_reproducible_pass.aether" >/tmp/aether_random_repro_b.out
-if ! cmp -s /tmp/aether_random_repro_a.out /tmp/aether_random_repro_b.out; then
+"$AETHER_BIN" --no-cache "$TESTS_DIR/random_reproducible_pass.aether" >$OUT/aether_random_repro_a.out
+"$AETHER_BIN" --no-cache "$TESTS_DIR/random_reproducible_pass.aether" >$OUT/aether_random_repro_b.out
+if ! cmp -s $OUT/aether_random_repro_a.out $OUT/aether_random_repro_b.out; then
     echo "an unseeded run is no longer reproducible (per-thread seeding regressed?)" >&2
-    diff /tmp/aether_random_repro_a.out /tmp/aether_random_repro_b.out >&2 || true
+    diff $OUT/aether_random_repro_a.out $OUT/aether_random_repro_b.out >&2 || true
     exit 1
 fi
 # randomize() must move the sequence. time(NULL) alone has whole-second
@@ -3363,13 +3395,13 @@ fi
 # folds in microseconds. Retry once before failing -- this is the one assertion
 # here that samples entropy rather than checking a fixed value.
 random_seeded_differs() {
-    "$AETHER_BIN" --no-cache "$TESTS_DIR/random_seeded_pass.aether" >/tmp/aether_random_seeded_a.out
-    "$AETHER_BIN" --no-cache "$TESTS_DIR/random_seeded_pass.aether" >/tmp/aether_random_seeded_b.out
-    ! cmp -s /tmp/aether_random_seeded_a.out /tmp/aether_random_seeded_b.out
+    "$AETHER_BIN" --no-cache "$TESTS_DIR/random_seeded_pass.aether" >$OUT/aether_random_seeded_a.out
+    "$AETHER_BIN" --no-cache "$TESTS_DIR/random_seeded_pass.aether" >$OUT/aether_random_seeded_b.out
+    ! cmp -s $OUT/aether_random_seeded_a.out $OUT/aether_random_seeded_b.out
 }
 if ! random_seeded_differs && ! random_seeded_differs; then
     echo "randomize() produced the same sequence twice (sub-second entropy regressed?)" >&2
-    cat /tmp/aether_random_seeded_a.out >&2
+    cat $OUT/aether_random_seeded_a.out >&2
     exit 1
 fi
 
@@ -3379,7 +3411,7 @@ fi
 # the check and surfaced as an uncoded "identifier 'Char' not in scope" or, in
 # parameter position, an internal makeValueForType warning. They are decided
 # before module loading, so the coded diagnostic is the only output.
-if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE" >/tmp/aether_unknown_type_scalar_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE" >$OUT/aether_unknown_type_scalar_fail.out 2>&1; then
     echo "expected scalar type-name failure but program succeeded (TYPE-002 stage 1 regressed?)" >&2
     exit 1
 fi
@@ -3391,113 +3423,113 @@ for expected in \
     "unknown type 'int' in the declaration of 'i' in 'main'; did you mean 'Int'?" \
     "unknown type 'string' in the declaration of 't' in 'main'; did you mean 'Text'?"
 do
-    if ! grep -qF "$expected" /tmp/aether_unknown_type_scalar_fail.out; then
+    if ! grep -qF "$expected" $OUT/aether_unknown_type_scalar_fail.out; then
         echo "missing TYPE-002 (stage 1) diagnostic: $expected" >&2
-        cat /tmp/aether_unknown_type_scalar_fail.out >&2
+        cat $OUT/aether_unknown_type_scalar_fail.out >&2
         exit 1
     fi
 done
-if [ "$(grep -c "\[TYPE-002\]" /tmp/aether_unknown_type_scalar_fail.out)" -ne 6 ]; then
+if [ "$(grep -c "\[TYPE-002\]" $OUT/aether_unknown_type_scalar_fail.out)" -ne 6 ]; then
     echo "expected exactly 6 TYPE-002 diagnostics for the scalar fixture" >&2
-    cat /tmp/aether_unknown_type_scalar_fail.out >&2
+    cat $OUT/aether_unknown_type_scalar_fail.out >&2
     exit 1
 fi
-if grep -qE "makeValueForType|not in scope" /tmp/aether_unknown_type_scalar_fail.out; then
+if grep -qE "makeValueForType|not in scope" $OUT/aether_unknown_type_scalar_fail.out; then
     echo "an uncoded backend message leaked past TYPE-002 stage 1" >&2
-    cat /tmp/aether_unknown_type_scalar_fail.out >&2
+    cat $OUT/aether_unknown_type_scalar_fail.out >&2
     exit 1
 fi
 
 # `loop NAME in COLLECTION { }` over arrays, Text, nested arrays, TOON nodes,
 # call-valued collections and slices, with `continue` and the `for` spelling.
-"$AETHER_BIN" --no-cache "$LOOP_FOREACH_PASS_FIXTURE" >/tmp/aether_loop_foreach_pass.out
-printf 'total=6 joined=ba qty=8 odds=2\nrev=cba cells=15 table00=1\nacc=27 ksum=6\n' >/tmp/aether_loop_foreach_expected.out
-if ! cmp -s /tmp/aether_loop_foreach_expected.out /tmp/aether_loop_foreach_pass.out; then
+"$AETHER_BIN" --no-cache "$LOOP_FOREACH_PASS_FIXTURE" >$OUT/aether_loop_foreach_pass.out
+printf 'total=6 joined=ba qty=8 odds=2\nrev=cba cells=15 table00=1\nacc=27 ksum=6\n' >$OUT/aether_loop_foreach_expected.out
+if ! cmp -s $OUT/aether_loop_foreach_expected.out $OUT/aether_loop_foreach_pass.out; then
     echo "unexpected foreach loop output" >&2
-    cat /tmp/aether_loop_foreach_pass.out >&2
+    cat $OUT/aether_loop_foreach_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" >/tmp/aether_loop_foreach_scalar_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" >$OUT/aether_loop_foreach_scalar_fail.out 2>&1; then
     echo "expected foreach-over-scalar failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "cannot iterate over a value of type Int" /tmp/aether_loop_foreach_scalar_fail.out; then
+if ! grep -q "cannot iterate over a value of type Int" $OUT/aether_loop_foreach_scalar_fail.out; then
     echo "missing foreach-over-scalar diagnostic" >&2
-    cat /tmp/aether_loop_foreach_scalar_fail.out >&2
+    cat $OUT/aether_loop_foreach_scalar_fail.out >&2
     exit 1
 fi
 # `loop i in a..b step n`: literal, negative, run-time signed, with continue.
-"$AETHER_BIN" --no-cache "$LOOP_STEP_PASS_FIXTURE" >/tmp/aether_loop_step_pass.out
-printf '0 3 6 9 \n10 6 2 \n0 3 6 9 \n9 3 \n1 3 5 7 \n' >/tmp/aether_loop_step_expected.out
-if ! cmp -s /tmp/aether_loop_step_expected.out /tmp/aether_loop_step_pass.out; then
+"$AETHER_BIN" --no-cache "$LOOP_STEP_PASS_FIXTURE" >$OUT/aether_loop_step_pass.out
+printf '0 3 6 9 \n10 6 2 \n0 3 6 9 \n9 3 \n1 3 5 7 \n' >$OUT/aether_loop_step_expected.out
+if ! cmp -s $OUT/aether_loop_step_expected.out $OUT/aether_loop_step_pass.out; then
     echo "unexpected stepped loop output" >&2
-    cat /tmp/aether_loop_step_pass.out >&2
+    cat $OUT/aether_loop_step_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$LOOP_STEP_ZERO_FAIL_FIXTURE" >/tmp/aether_loop_step_zero_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$LOOP_STEP_ZERO_FAIL_FIXTURE" >$OUT/aether_loop_step_zero_fail.out 2>&1; then
     echo "expected step-zero failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "loop step must not be zero" /tmp/aether_loop_step_zero_fail.out; then
+if ! grep -q "loop step must not be zero" $OUT/aether_loop_step_zero_fail.out; then
     echo "missing step-zero diagnostic" >&2
-    cat /tmp/aether_loop_step_zero_fail.out >&2
+    cat $OUT/aether_loop_step_zero_fail.out >&2
     exit 1
 fi
 
 # `and` / `or` / `not` are the word spellings of `&&` / `||` / `!`.
-"$AETHER_BIN" --no-cache "$WORD_OPERATORS_PASS_FIXTURE" >/tmp/aether_word_operators_pass.out
-printf 'false true true false true\nin range\nfive\n' >/tmp/aether_word_operators_expected.out
-if ! cmp -s /tmp/aether_word_operators_expected.out /tmp/aether_word_operators_pass.out; then
+"$AETHER_BIN" --no-cache "$WORD_OPERATORS_PASS_FIXTURE" >$OUT/aether_word_operators_pass.out
+printf 'false true true false true\nin range\nfive\n' >$OUT/aether_word_operators_expected.out
+if ! cmp -s $OUT/aether_word_operators_expected.out $OUT/aether_word_operators_pass.out; then
     echo "unexpected word-operator output" >&2
-    cat /tmp/aether_word_operators_pass.out >&2
+    cat $OUT/aether_word_operators_pass.out >&2
     exit 1
 fi
 
 # `==` / `!=` on arrays is structural (pscal-core vm.c pscalArraysDeepEqual);
 # it used to be the uncoded runtime error "Operands not comparable".
-"$AETHER_BIN" --no-cache "$ARRAY_EQUALITY_PASS_FIXTURE" >/tmp/aether_array_equality_pass.out
-if ! grep -qx "true false false true true true true false" /tmp/aether_array_equality_pass.out; then
+"$AETHER_BIN" --no-cache "$ARRAY_EQUALITY_PASS_FIXTURE" >$OUT/aether_array_equality_pass.out
+if ! printf 'true false false true true true true false\n' | cmp -s - $OUT/aether_array_equality_pass.out; then
     echo "unexpected array equality output" >&2
-    cat /tmp/aether_array_equality_pass.out >&2
+    cat $OUT/aether_array_equality_pass.out >&2
     exit 1
 fi
 
 # The shared lexer's foreign keywords and type-name words are ordinary Aether
 # identifiers (fields, functions, locals); the foreign *statement* keywords are
 # still rejected, by text, with a hint naming the Aether form.
-"$AETHER_BIN" --no-cache "$IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE" >/tmp/aether_identifier_foreign_keywords_pass.out
-if ! grep -qx "wt3truec ab 6 15 zm" /tmp/aether_identifier_foreign_keywords_pass.out; then
+"$AETHER_BIN" --no-cache "$IDENTIFIER_FOREIGN_KEYWORDS_PASS_FIXTURE" >$OUT/aether_identifier_foreign_keywords_pass.out
+if ! printf 'wt3truec ab 6 15 zm\n' | cmp -s - $OUT/aether_identifier_foreign_keywords_pass.out; then
     echo "unexpected output for foreign keywords used as identifiers" >&2
-    cat /tmp/aether_identifier_foreign_keywords_pass.out >&2
+    cat $OUT/aether_identifier_foreign_keywords_pass.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$FOREIGN_KEYWORD_RETURN_FAIL_FIXTURE" >/tmp/aether_foreign_keyword_return_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FOREIGN_KEYWORD_RETURN_FAIL_FIXTURE" >$OUT/aether_foreign_keyword_return_fail.out 2>&1; then
     echo "expected 'return' failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'return' is not Aether syntax" /tmp/aether_foreign_keyword_return_fail.out || \
-   ! grep -q "Aether returns with \`ret\`" /tmp/aether_foreign_keyword_return_fail.out; then
+if ! grep -q "'return' is not Aether syntax" $OUT/aether_foreign_keyword_return_fail.out || \
+   ! grep -q "Aether returns with \`ret\`" $OUT/aether_foreign_keyword_return_fail.out; then
     echo "missing 'return' diagnostic or hint" >&2
-    cat /tmp/aether_foreign_keyword_return_fail.out >&2
+    cat $OUT/aether_foreign_keyword_return_fail.out >&2
     exit 1
 fi
-if "$AETHER_BIN" --no-cache "$FOREIGN_KEYWORD_MATCH_FAIL_FIXTURE" >/tmp/aether_foreign_keyword_match_fail.out 2>&1; then
+if "$AETHER_BIN" --no-cache "$FOREIGN_KEYWORD_MATCH_FAIL_FIXTURE" >$OUT/aether_foreign_keyword_match_fail.out 2>&1; then
     echo "expected 'match' failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "'match' is not Aether syntax" /tmp/aether_foreign_keyword_match_fail.out; then
+if ! grep -q "'match' is not Aether syntax" $OUT/aether_foreign_keyword_match_fail.out; then
     echo "missing 'match' diagnostic" >&2
-    cat /tmp/aether_foreign_keyword_match_fail.out >&2
+    cat $OUT/aether_foreign_keyword_match_fail.out >&2
     exit 1
 fi
 
 # Dotted TOON paths walk nested objects in toon_key / toon_has_key / toon_get_*;
 # a missing segment degrades; array indexes are not path segments.
-"$AETHER_BIN" --no-cache "$TOON_DOTTED_PATH_PASS_FIXTURE" >/tmp/aether_toon_dotted_path_pass.out
-printf 'alpha 8080 MISSING []\ntrue false false\nalpha 2 -1\n' >/tmp/aether_toon_dotted_path_expected.out
-if ! cmp -s /tmp/aether_toon_dotted_path_expected.out /tmp/aether_toon_dotted_path_pass.out; then
+"$AETHER_BIN" --no-cache "$TOON_DOTTED_PATH_PASS_FIXTURE" >$OUT/aether_toon_dotted_path_pass.out
+printf 'alpha 8080 MISSING []\ntrue false false\nalpha 2 -1\n' >$OUT/aether_toon_dotted_path_expected.out
+if ! cmp -s $OUT/aether_toon_dotted_path_expected.out $OUT/aether_toon_dotted_path_pass.out; then
     echo "unexpected dotted TOON path output" >&2
-    cat /tmp/aether_toon_dotted_path_pass.out >&2
+    cat $OUT/aether_toon_dotted_path_pass.out >&2
     exit 1
 fi
 
@@ -3505,11 +3537,11 @@ fi
 # hoist every top-level `let` into the declaration section, so all of their
 # initializers ran before the first statement and read globals as they stood
 # before any assignment above them.
-"$AETHER_BIN" --no-cache "$GLOBAL_LET_SOURCE_ORDER_PASS_FIXTURE" >/tmp/aether_global_let_source_order_pass.out
-printf '5\n7\n6\n' >/tmp/aether_global_let_source_order_expected.out
-if ! cmp -s /tmp/aether_global_let_source_order_expected.out /tmp/aether_global_let_source_order_pass.out; then
+"$AETHER_BIN" --no-cache "$GLOBAL_LET_SOURCE_ORDER_PASS_FIXTURE" >$OUT/aether_global_let_source_order_pass.out
+printf '5\n7\n6\n' >$OUT/aether_global_let_source_order_expected.out
+if ! cmp -s $OUT/aether_global_let_source_order_expected.out $OUT/aether_global_let_source_order_pass.out; then
     echo "unexpected global-let source-order output" >&2
-    cat /tmp/aether_global_let_source_order_pass.out >&2
+    cat $OUT/aether_global_let_source_order_pass.out >&2
     exit 1
 fi
 
@@ -3517,23 +3549,23 @@ fi
 # run cached and print the same. The fixture's comment lists what used to
 # break it (an unreadable cache file, a crash, a phantom array element).
 CACHE_HOME="$(mktemp -d)"
-HOME="$CACHE_HOME" "$AETHER_BIN" --verbose "$CACHE_ROUNDTRIP_PASS_FIXTURE" >/tmp/aether_cache_roundtrip_1.out 2>/tmp/aether_cache_roundtrip_1.err
-HOME="$CACHE_HOME" "$AETHER_BIN" --verbose "$CACHE_ROUNDTRIP_PASS_FIXTURE" >/tmp/aether_cache_roundtrip_2.out 2>/tmp/aether_cache_roundtrip_2.err || true
+HOME="$CACHE_HOME" "$AETHER_BIN" --verbose "$CACHE_ROUNDTRIP_PASS_FIXTURE" >$OUT/aether_cache_roundtrip_1.out 2>$OUT/aether_cache_roundtrip_1.err
+HOME="$CACHE_HOME" "$AETHER_BIN" --verbose "$CACHE_ROUNDTRIP_PASS_FIXTURE" >$OUT/aether_cache_roundtrip_2.out 2>$OUT/aether_cache_roundtrip_2.err || true
 rm -rf "$CACHE_HOME"
-printf 'qty=8 evens=4 empty=0 grid=5\n' >/tmp/aether_cache_roundtrip_expected.out
-if ! cmp -s /tmp/aether_cache_roundtrip_expected.out /tmp/aether_cache_roundtrip_1.out; then
+printf 'qty=8 evens=4 empty=0 grid=5\n' >$OUT/aether_cache_roundtrip_expected.out
+if ! cmp -s $OUT/aether_cache_roundtrip_expected.out $OUT/aether_cache_roundtrip_1.out; then
     echo "unexpected cache round-trip output (compiled run)" >&2
-    cat /tmp/aether_cache_roundtrip_1.out /tmp/aether_cache_roundtrip_1.err >&2
+    cat $OUT/aether_cache_roundtrip_1.out $OUT/aether_cache_roundtrip_1.err >&2
     exit 1
 fi
-if ! grep -q '^Loaded cached bytecode' /tmp/aether_cache_roundtrip_2.err; then
+if ! grep -q '^Loaded cached bytecode' $OUT/aether_cache_roundtrip_2.err; then
     echo "second run did not load the cached bytecode" >&2
-    cat /tmp/aether_cache_roundtrip_2.err >&2
+    cat $OUT/aether_cache_roundtrip_2.err >&2
     exit 1
 fi
-if ! cmp -s /tmp/aether_cache_roundtrip_expected.out /tmp/aether_cache_roundtrip_2.out; then
+if ! cmp -s $OUT/aether_cache_roundtrip_expected.out $OUT/aether_cache_roundtrip_2.out; then
     echo "unexpected cache round-trip output (cached run)" >&2
-    cat /tmp/aether_cache_roundtrip_2.out /tmp/aether_cache_roundtrip_2.err >&2
+    cat $OUT/aether_cache_roundtrip_2.out $OUT/aether_cache_roundtrip_2.err >&2
     exit 1
 fi
 

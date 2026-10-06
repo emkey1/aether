@@ -1573,13 +1573,17 @@ checks, and the inferred-`new` fix. Nothing in `tests/run.sh` sets `AETHER_PARSE
 keep the fallback honestly characterized, or (b) schedule its retirement per the roadmap clause. The
 current state (unmaintained but advertised as reversible) is the worst of both.
 
-### Test-suite shape: one coarse CTest, fail-fast, examples not executed — *partially done 2026-07-01 (aether_examples compile lap added; run.sh granularity still open)*
-All ~149 assertions run inside a single `add_test` via the ~1850-line `tests/run.sh` with
-`set -e` fail-fast: one failure hides everything downstream and CTest granularity is 1, not 127.
-Only `showcase/agent_report` is CI-executed; the ~55 `examples/base` programs can rot silently (two
-already do — the tracked `ai_helpers`/`effects_contracts` gap). TOON is ~1/3 of fixtures while core
-control flow (nested if/elif, recursion) is thin. Ideas: per-fixture CTest registration or a
-keep-going mode + summary; an examples-compile lap in CI; a couple of core-control-flow fixtures.
+### Test-suite shape: one coarse CTest, fail-fast, examples not executed — *partially done 2026-07-01 (aether_examples compile lap added) and 2026-10-06 (private scratch dir, exact stdout checks); run.sh granularity still open*
+All ~430 assertions (437 `exit 1` sites) run inside a single `add_test` via the ~3,570-line
+`tests/run.sh` with `set -e` fail-fast: one failure hides everything downstream and CTest
+granularity is 1, not 236. Only `showcase/agent_report` is executed; the `aether_examples` lap
+compile-checks the rest with `--no-run` (64 `examples/base` and 5 showcase programs: 68 pass, 2
+skip on a build without OpenAI or SDL). TOON is ~1/7 of fixtures (32 of 236) while core control flow
+(nested if/elif, recursion) is thin. As of 2026-10-06 a run writes only into its own `mktemp -d`
+directory (fixed `/tmp/aether_*` names made two concurrent runs fail), and stdout is checked by
+exact `cmp -s` comparison (137 sites), but diagnostics are still matched by substring `grep -q`
+(~159 sites), which accepts extra output. Ideas: per-fixture CTest registration or a keep-going
+mode + summary; a couple of core-control-flow fixtures.
 
 ### Misc code-quality notes (parser) — *idea*
 Giant functions (`parseFnDecl` ~500 lines, `parseLetDeclAfterKeyword` ~320); the object-literal
