@@ -1,0 +1,3 @@
+# Public-hygiene allowlist for emkey1/aether (tools/check_public_hygiene.py).
+# Entries: `glob <path-glob> [<check>]` or `<path> <line-sha1-12>`, each with a reason.
+glob tools/check_public_hygiene.py  # the patterns themselves

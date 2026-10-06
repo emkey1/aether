@@ -161,3 +161,13 @@ set_tests_properties(aether_tests PROPERTIES
 add_test(NAME aether_examples COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_examples.sh)
 set_tests_properties(aether_examples PROPERTIES
     ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
+
+# ---- Public hygiene -----------------------------------------------------------
+# This repo is public: no host, fleet, credential or session data in tracked files.
+find_package(Python3 COMPONENTS Interpreter)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME aether_public_hygiene
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_public_hygiene.py
+                     --root ${CMAKE_CURRENT_SOURCE_DIR})
+    set_tests_properties(aether_public_hygiene PROPERTIES LABELS "lint" SKIP_RETURN_CODE 77)
+endif()

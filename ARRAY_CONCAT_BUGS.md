@@ -171,10 +171,10 @@ repo files outside the corpus, 3 guide lines.
 
 **Corrected 2026-07-24 — the chain is one hop longer than described here.**
 This repo's post-commit hook (`.git/hooks/post-commit`) pushes to origin and
-then runs `/Users/mke/PBuild/tools/sync_aether_canonical_repo.sh`, which bumps
+then runs the umbrella's `tools/sync_aether_canonical_repo.sh`, which bumps
 PBuild's `components/aether` gitlink and commits *there*. PBuild's own
 post-commit hook sees `components/aether` change and only *then* fires
-`tools/deploy_aether_to_claws.sh`, which rebuilds `/home/claw/aether-current`
+`tools/deploy_aether_to_claws.sh`, which rebuilds `~/aether-current`
 on claw1/claw2/claw3. Net effect is the same — a commit here reaches the claws
 — but nothing named `deploy_aether_to_claws.sh` exists in this repo's `tools/`,
 so don't go looking for it here. Disable with `AETHER_CANONICAL_SYNC=0` (stops

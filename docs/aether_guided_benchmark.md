@@ -326,7 +326,7 @@ runaway-reasoning failure mode on those specific prompts rather than a
 context-budget problem. Net effect on this suite: thinking trades away
 completion rate for a cleaner "correct or absent" split, and comes out
 *behind* no-think on raw task count (5–6/9 vs 5–8/9) because the timeouts
-dominate. Full run: `/home/claw/guided_sweep_base/qwen35-9b-base-think_large.json`
+dominate. Full run: `~/guided_sweep_base/qwen35-9b-base-think_large.json`
 on claw2.
 
 ### CS-classics (19 tasks)

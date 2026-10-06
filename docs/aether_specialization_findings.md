@@ -139,7 +139,7 @@ under repair.
 (BUILT-002 compile-time builtin arity check), `3e37352` and more while this board
 was running, and autodeploy moved every claw's `aether-current` with them. The
 8B/9B half had been graded with `c660b1b`. Fixed by building `c660b1b` at
-`/home/claw/aether-c660b1b` on claw2 **and** claw3 and pinning `--aether-bin` to
+`~/aether-c660b1b` on claw2 **and** claw3 and pinning `--aether-bin` to
 it. A differential probe did not find a case where the compilers disagree, so
 treat this as a control, not a known correction.
 
