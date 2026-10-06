@@ -1,0 +1,29 @@
+{
+  "_doc": "Stamp-to-text manifest for the three LLM-facing guides, written by tools/bump_guide_version.py and checked by tools/check_guide_stamps.py (CTest aether_guide_stamps). body_sha256 is the sha256 of the guide's UTF-8 bytes with its one '*Guide version: ...*' line and that line's newline removed, so it names the text a model reads. o200k is the whole-document o200k_base count (null when tiktoken was unavailable). Entries are oldest first; the last is the current stamp. Seeded 2026-10-06 at the stamps then current; earlier stamps are not listed because text changed under some of them.",
+  "guides": {
+    "docs/aether_for_llms_and_others.md": [
+      {
+        "stamp": "2026-10-06-1",
+        "date": "2026-10-06",
+        "body_sha256": "3a05ea695baff2281be7e6e6479b45dee48b717a65643ba35cfab9c1c08c7844",
+        "o200k": 28961
+      }
+    ],
+    "docs/aether_for_llms_medium_contexts.md": [
+      {
+        "stamp": "2026-09-05-1",
+        "date": "2026-09-05",
+        "body_sha256": "c83e02d533f6b227e5b07fe9b4cd72541e5ba7aa92310c7be7edd3cb0bd2db9c",
+        "o200k": 14985
+      }
+    ],
+    "docs/aether_for_llms_with_small_contexts.md": [
+      {
+        "stamp": "2026-09-05-1",
+        "date": "2026-09-05",
+        "body_sha256": "45a08c624816e76402bd2059821e799cb977a51ba69f14f09e7e645b5ba37f3e",
+        "o200k": 11898
+      }
+    ]
+  }
+}

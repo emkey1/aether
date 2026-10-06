@@ -239,4 +239,11 @@ else()
     set_tests_properties(aether_guide_tokens PROPERTIES
         SKIP_RETURN_CODE 77
         LABELS "guide")
+
+    # Each guide's text is the text its stamp names (docs/guide_stamps.json),
+    # every stamp has its changelog row, and VERSION matches CHANGELOG.md.
+    add_test(NAME aether_guide_stamps
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_guide_stamps.py)
+    set_tests_properties(aether_guide_stamps PROPERTIES LABELS "guide")
 endif()

@@ -103,23 +103,31 @@ def sha256_file(path):
     return h.hexdigest()
 
 
-def load_o200k(allow_download):
+def find_o200k(allow_download=False):
+    """Return (encoding, None) or (None, why not). Downloads only if allowed."""
     try:
         import tiktoken
     except ImportError:
-        skip("tiktoken is not installed (pip install -r tools/requirements-docs.txt)")
+        return None, "tiktoken is not installed (pip install -r tools/requirements-docs.txt)"
     cache = tiktoken_cache_dir()
     cached = os.path.join(cache, hashlib.sha1(O200K_URL.encode()).hexdigest())
     if not allow_download:
         if not os.path.exists(cached):
-            skip(f"o200k_base is not cached under {cache}; run tools/fetch_tokenizers.sh "
-                 "or pass --allow-download")
+            return None, (f"o200k_base is not cached under {cache}; run "
+                          "tools/fetch_tokenizers.sh or pass --allow-download")
         if sha256_file(cached) != O200K_SHA256:
-            skip(f"cached o200k_base at {cached} does not match its pinned sha256")
+            return None, f"cached o200k_base at {cached} does not match its pinned sha256"
     try:
-        return tiktoken.get_encoding("o200k_base")
+        return tiktoken.get_encoding("o200k_base"), None
     except Exception as exc:  # network or hash failure inside tiktoken
-        skip(f"o200k_base could not be loaded: {exc}")
+        return None, f"o200k_base could not be loaded: {exc}"
+
+
+def load_o200k(allow_download):
+    enc, why = find_o200k(allow_download)
+    if enc is None:
+        skip(why)
+    return enc
 
 
 def load_qwen():

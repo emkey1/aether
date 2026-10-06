@@ -11,29 +11,41 @@ reference documents.
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
-Each guide carries its own `YYYY-MM-DD-N` stamp in its front matter; bump it
-with `tools/bump_guide_version.py` and record what changed in
-[`aether_guide_changelog.md`](aether_guide_changelog.md). That stamp is what
-`aether_guided_benchmark.md` records per row, so a bump with no changelog entry
-leaves a score nothing can be attributed to.
+Each guide carries its own `YYYY-MM-DD-N` stamp in its front matter. That stamp
+is what `aether_guided_benchmark.md` records per row, so a guide whose text
+changes under an unchanged stamp, or a stamp with no changelog row, leaves a
+score nothing can be attributed to. Every guide edit, medium included:
 
-**Do not run the bump tool by hand on the full or small guide.** With
-`core.hooksPath` pointed at `tools/hooks` (the intended setup), the `pre-commit`
-hook already bumps those two whenever they are staged. Running the tool first
-and then committing bumps them **twice**, and the second bump happens inside the
-commit — so the stamp you read before committing is not the stamp that lands,
-and any changelog row written from it is wrong on arrival. Write the row after
-committing, from `sed -n '3p' docs/aether_for_llms_<guide>.md`, never from what
-you expected. The **medium guide is deliberately absent from the hook's regex**,
-so it is the one guide that still needs the manual bump. Check with:
+1. Edit the guide.
+2. Run `python3 tools/bump_guide_version.py docs/aether_for_llms_<guide>.md`.
+   It computes the next stamp from `git show HEAD:<guide>`, so it is
+   idempotent: a second run, or a run after an earlier one, leaves the stamp
+   alone. It writes the stamp's entry in [`guide_stamps.json`](guide_stamps.json)
+   (body sha256, o200k, date) and prints the changelog row, with net tokens
+   when tiktoken is installed.
+3. Paste the row at the top of the guide's table in
+   [`aether_guide_changelog.md`](aether_guide_changelog.md) and write its
+   change text. Leave the commit column as `(this commit)`: the row lands in
+   the same commit as the stamp, and `tools/check_guide_stamps.py --commits`
+   derives the hash from git when anyone needs it, so no follow-up commit
+   fills it in.
+4. Commit the guide, `guide_stamps.json` and the row together.
 
-```sh
-git config core.hooksPath        # blank = hook inactive, bump all three by hand
-```
+`ctest` enforces this through `aether_guide_stamps`
+(`tools/check_guide_stamps.py`): each guide's body hash (its bytes without the
+stamp line) must equal the manifest entry for its stamp; every manifest stamp
+needs a changelog row, the current one first; a commit hash typed into such a
+row must be the commit that introduced the stamp; and `VERSION` must equal the
+top `CHANGELOG.md` entry. A stamp without a text change is refused:
+harness-only bumps are retired, because the benchmark MANIFEST's harness and
+prompt-template sha256s now identify the harness. Changelog rows written before
+this rule keep their meaning. `guide_stamps.json` doubles as the stamp → sha256
+map a benchmark row can record beside the stamp.
 
-Beware `grep -h -m1 'Guide version' <three files>`, which can report the three
-stamps in an order that does not match the argument order. Read them one file at
-a time.
+The `pre-commit` hook in `tools/hooks` no longer bumps anything. With
+`core.hooksPath` pointed there it only warns when a staged guide still carries
+HEAD's stamp; it never edits, stages or blocks, and the gate does not depend on
+it.
 
 The medium guide must leave a ~32K window room for the prompt, a reasoning trace,
 the emitted program, and one repair round. **Hard ceiling: 15K tokens**, measured
