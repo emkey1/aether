@@ -1,0 +1,11 @@
+# Python packages for the guide and doc gates (tools/check_*.py, the CTest
+# `aether_guide*` tests). Only the token gate needs any of them; every other
+# gate is standard library.
+#
+#   pip install -r tools/requirements-docs.txt
+#
+# tiktoken counts o200k_base. tokenizers is optional: when it is missing,
+# check_guide_tokens.py loads the Qwen3.5 tokenizer.json into tiktoken instead.
+# The tokenizer files themselves come from tools/fetch_tokenizers.sh.
+tiktoken==0.14.0
+tokenizers==0.21.1

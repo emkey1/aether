@@ -106,12 +106,40 @@ measures 11,631. It has not been re-baselined and has not been trimmed; the
 figure in the table above is aspirational, not a measured budget. Resolve it the
 same way — pick a real ceiling or cut to the stated one — before relying on it.
 
-To reproduce these counts:
+To reproduce these counts, run the gate that enforces them
+(`ctest -R aether_guide_tokens` runs the same script):
 
 ```sh
-python3 -c 'import tiktoken,sys;e=tiktoken.get_encoding("o200k_base");[print(f"{p}: {len(e.encode(open(p).read())):,}") for p in sys.argv[1:]]' \
-    docs/aether_for_llms_*.md
+pip install -r tools/requirements-docs.txt   # tiktoken; tokenizers is optional
+tools/fetch_tokenizers.sh                    # o200k_base + Qwen3.5 into ~/.cache/aether-tokenizers
+python3 tools/check_guide_tokens.py          # prints the table, writes build/guide_sizes.md
 ```
+
+It measures whole documents. Until the first guide pass it **fails only when
+the medium guide exceeds 15,000 o200k tokens**; small, full and every other
+tokenizer are reported. From the first guide-pass commit the medium ceiling is
+counted in the largest cached cohort tokenizer (max(o200k, Qwen3.5, ...) ≤
+15,000), falling back to o200k ≤ 14,100 when only o200k is cached, because
+o200k undercounts the Qwen cohort by about 6%. That flip is one constant
+(`STAGE`) in the script; `--stage g1` previews it. Without tiktoken, or with
+o200k_base not cached, the test reports **Skipped**, never Passed: it downloads
+nothing unless run with `--allow-download`. The core/library split (Files,
+HTTP, Sockets, Tasks/AI and the appendices count as library) is reported and
+never gated.
+
+Measured 2026-10-06 at `a208b98`, whole documents (Qwen3.5 is the cached
+Qwen3.5/3.6 `tokenizer.json`, sha256 `87a7830d63fc`):
+
+| Guide | stamp | o200k | Qwen3.5 | core (o200k) | library (o200k) |
+|---|---|---|---|---|---|
+| small | 2026-09-05-1 | 11,898 | 12,633 | 10,019 | 1,879 |
+| medium | 2026-09-05-1 | 14,985 | **15,913** | 13,757 | 1,228 |
+| full | 2026-10-06-1 | 28,961 | 30,661 | 21,622 | 7,339 |
+
+Medium is already over 15,000 in Qwen3.5, the tokenizer of the local cohort it
+serves; the gate warns about that now and enforces it from the first guide
+pass. Devstral's Tekken and DeepSeek-Coder counts are not measured: neither
+tokenizer was available to fetch.
 
 Because the medium guide now covers the 32K tier, **the full guide is free to
 grow**. It no longer has to be the document that fits everywhere, so prefer
@@ -132,7 +160,13 @@ python3 tools/gen_builtin_appendix.py
 ```
 
 It reads `builtins_json(true)` from the built compiler, so it reflects that
-build. Two tiers, and the second is the point: names with a documented signature
+build. `--check` renders the same region and compares it with the file instead
+of writing it; that is the CTest `aether_builtin_appendix`, so an appendix that
+drifts from the compiler fails `ctest` until it is regenerated (and the full
+guide's stamp bumped). The canonical generator build is the standalone default
+(CURL on, SDL off); on an SDL build, which registers the graphics builtins for
+real, `--check` reports Skipped rather than a false diff. Two tiers, and the
+second is the point: names with a documented signature
 are safe to call, while name-only entries confirm a name is real *without*
 licensing a guess at its arguments. Anything in neither tier does not exist,
 which is what makes BUILT-001 checkable instead of an assertion.
@@ -186,17 +220,25 @@ plainly and never offers discovery as a fallback for an unlisted name.
 
 ### Verifying the guides
 
-**All three** guides are gated, not just the medium one:
+CTest runs the guide gates. `ctest -R 'aether_guide|aether_builtin_appendix'`
+selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 
-```sh
-for g in and_others medium_contexts with_small_contexts; do
-    python3 tools/verify_guide_snippets.py docs/aether_for_llms_$g.md || exit 1
-done
-```
+| CTest | What it checks | Fails when |
+|---|---|---|
+| `aether_guide_snippets_full`, `_medium`, `_small` | every ` ```aether ` block in that guide, compiled `--no-run` by `tools/verify_guide_snippets.py` | a block does not compile, or an `EXPECT_FAIL` block does |
+| `aether_builtin_appendix` | the full guide's generated appendix against what this build registers (`tools/gen_builtin_appendix.py --check`) | any difference; Skipped on a non-canonical (SDL) build |
+| `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 o200k; Skipped without tiktoken |
 
-It extracts every ` ```aether ` block, wraps fragments in a function with a
-context prelude supplying the names prose snippets reference, appends a trivial
-`main` to declaration-only blocks, and runs `aether --no-run` over the lot. A
+Still manual, because no gate does them: running complete programs and the
+recipes (the snippet gate compiles, it does not run; see below), and the
+four-category content audit above. To run one guide's snippet check by hand:
+`python3 tools/verify_guide_snippets.py docs/aether_for_llms_medium_contexts.md`
+(`AETHER_BIN` defaults to `build/aether`).
+
+The snippet check extracts every ` ```aether ` block, wraps fragments in a
+function with a context prelude supplying the names prose snippets reference,
+appends a trivial `main` to declaration-only blocks, and runs `aether --no-run`
+over the lot. A
 fragment that fails is retried inside an `fx { }` block, since a snippet quoted
 from prose may be a bare `println(...)` whose surrounding text already
 established it is inside one. Exit status is nonzero on any unexpected result,
@@ -226,11 +268,13 @@ Two maintenance notes. When a fragment references a new name, add it to
 keys **specific** — a key broad enough to match a block in another guide will
 mark a perfectly good snippet as expected-to-fail and hide a real regression.
 
-Beyond compiling, the recipes in **Writing what the surface does not give you**
-are executed and their output checked — a sort or a `replaceFirst` that compiles
-and computes the wrong answer would be worse than not shipping one. Avoid `...`
-elisions inside fenced blocks anywhere in this guide; models copy them verbatim
-and get a `SYN-001`.
+The recipes in **Writing what the surface does not give you** are **not**
+executed by any gate. They were run once by hand when they were written
+(`091e4f0`), and nothing repeats that. A sort or a `replaceFirst` that compiles
+and computes the wrong answer would be worse than not shipping one, so run any
+recipe you touch with a small driver and check its output. Avoid `...` elisions
+inside fenced blocks anywhere in this guide; models copy them verbatim and get
+a `SYN-001`.
 
 ## Small-context LLM doc extraction checklist
 

@@ -188,3 +188,55 @@ set_tests_properties(aether_stress_par PROPERTIES
     TIMEOUT 3600
     ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
 endif()
+
+# ---- Guide, doc and invariance gates ----------------------------------------
+# The three LLM-facing guides are the product; these tests turn the invariants
+# docs/aether_doc_maintenance.md states into gates. All are Python 3 scripts
+# under tools/. The token gate needs tiktoken (tools/requirements-docs.txt) and
+# reports Skipped, not Passed, without it: point AETHER_DOCS_PYTHON at an
+# interpreter that has it, e.g. -DAETHER_DOCS_PYTHON=$HOME/venv/bin/python.
+# Labels: every test here carries `guide`; the developer run is
+# `ctest -LE 'stress|metric'`.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+set(AETHER_DOCS_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
+    "Python 3 used by the guide/doc gates (needs tiktoken for aether_guide_tokens)")
+if(NOT AETHER_DOCS_PYTHON)
+    message(STATUS "Guide/doc gates not registered: no Python 3 interpreter found")
+else()
+    set(AETHER_GUIDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/docs)
+    set(AETHER_GUIDE_full ${AETHER_GUIDE_DIR}/aether_for_llms_and_others.md)
+    set(AETHER_GUIDE_medium ${AETHER_GUIDE_DIR}/aether_for_llms_medium_contexts.md)
+    set(AETHER_GUIDE_small ${AETHER_GUIDE_DIR}/aether_for_llms_with_small_contexts.md)
+
+    # Every ```aether block in each guide compiles, or fails as its EXPECT_FAIL
+    # entry says it must (tools/verify_guide_snippets.py).
+    foreach(guide full medium small)
+        add_test(NAME aether_guide_snippets_${guide}
+                 COMMAND ${AETHER_DOCS_PYTHON}
+                         ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_guide_snippets.py
+                         ${AETHER_GUIDE_${guide}})
+        set_tests_properties(aether_guide_snippets_${guide} PROPERTIES
+            ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+            LABELS "guide")
+    endforeach()
+
+    # The full guide's generated builtin appendix matches what this build
+    # registers. Skipped (77) on a non-canonical build such as SDL.
+    add_test(NAME aether_builtin_appendix
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/gen_builtin_appendix.py --check)
+    set_tests_properties(aether_builtin_appendix PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        SKIP_RETURN_CODE 77
+        LABELS "guide")
+
+    # Medium <= 15,000 o200k tokens, whole document (staged per D6; small, full
+    # and the Qwen3.5 count are reported only). Writes guide_sizes.md here.
+    add_test(NAME aether_guide_tokens
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_guide_tokens.py
+                     --sizes-out ${CMAKE_BINARY_DIR}/guide_sizes.md)
+    set_tests_properties(aether_guide_tokens PROPERTIES
+        SKIP_RETURN_CODE 77
+        LABELS "guide")
+endif()

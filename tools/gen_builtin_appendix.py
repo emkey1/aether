@@ -36,7 +36,19 @@ Regenerate after adding or renaming a builtin:
 
 It rewrites the region between the markers in docs/aether_for_llms_and_others.md
 and leaves the rest of the file untouched.
+
+    python3 tools/gen_builtin_appendix.py --check
+
+renders the same region to a string and compares it with the file instead of
+writing it: exit 0 when they match, 1 (with a diff) when they do not. This is
+the CTest `aether_builtin_appendix`. The appendix is generated from the
+canonical standalone build (CURL on, SDL off); a build that registers the SDL
+graphics builtins for real produces a different inventory, so --check exits 77
+(CTest's skip code) there rather than reporting a false diff. `--guide PATH`
+points either mode at another copy of the full guide.
 """
+import argparse
+import difflib
 import json
 import os
 import re
@@ -211,25 +223,76 @@ def render(documented, above, name_only):
     return "\n".join(out)
 
 
-def main():
-    entries = dump_builtins()
+# The graphics builtins are compiled in only on SDL builds. The standalone build
+# still lists them, as placeholders whose kind is "unknown"; an SDL build
+# registers them for real (kind function/procedure, category "graphics").
+GRAPHICS_PROBES = {"initgraph", "glclear", "putpixel", "playsound", "updatescreen"}
 
-    with open(GUIDE) as fh:
-        text = fh.read()
+SKIP = 77
+
+
+def non_canonical_reason(entries):
+    for e in entries:
+        if e.get("category") == "graphics" or (
+                e.get("name") in GRAPHICS_PROBES and e.get("kind") != "unknown"):
+            return (f"this build registers SDL graphics builtins ({e.get('name')}: "
+                    f"kind {e.get('kind')}, category {e.get('category')})")
+    return None
+
+
+def regenerate(text, entries, guide):
     if BEGIN not in text or END not in text:
-        sys.exit(f"markers not found in {GUIDE}; add {BEGIN} / {END} first")
-
+        sys.exit(f"markers not found in {guide}; add {BEGIN} / {END} first")
     documented, above, name_only = build_sections(entries, prose_documented(text))
     block = render(documented, above, name_only)
-
     head = text.split(BEGIN)[0]
     tail = text.split(END, 1)[1]
-    with open(GUIDE, "w") as fh:
-        fh.write(head + block + tail)
+    counts = (sum(len(v) for v in documented.values()),
+              sum(len(v) for v in above.values()),
+              sum(len(v) for v in name_only.values()))
+    return head + block + tail, counts
 
-    doc_count = sum(len(v) for v in documented.values())
-    above_count = sum(len(v) for v in above.values())
-    raw_count = sum(len(v) for v in name_only.values())
+
+def main():
+    ap = argparse.ArgumentParser(description="Regenerate (or --check) the builtin appendix.")
+    ap.add_argument("--check", action="store_true",
+                    help="compare instead of writing; exit 1 on any difference")
+    ap.add_argument("--guide", default=GUIDE, help="full guide to regenerate or check")
+    args = ap.parse_args()
+
+    entries = dump_builtins()
+
+    with open(args.guide, encoding="utf-8") as fh:
+        text = fh.read()
+
+    if args.check:
+        reason = non_canonical_reason(entries)
+        if reason:
+            print(f"SKIP: not the canonical generator build: {reason}. The appendix is "
+                  "generated from the standalone default build (CURL on, SDL off).")
+            sys.exit(SKIP)
+
+    new_text, (doc_count, above_count, raw_count) = regenerate(text, entries, args.guide)
+
+    if args.check:
+        if new_text == text:
+            print(f"builtin appendix in sync: {doc_count} documented, {above_count} "
+                  f"documented above, {raw_count} name-only ({len(entries)} raw entries)")
+            sys.exit(0)
+        diff = list(difflib.unified_diff(
+            text.splitlines(), new_text.splitlines(),
+            fromfile=args.guide, tofile="regenerated", lineterm="", n=1))
+        print(f"builtin appendix OUT OF SYNC with this build ({len(diff)} diff lines); "
+              "regenerate with `python3 tools/gen_builtin_appendix.py`, bump the full "
+              "guide's stamp and add its changelog row:")
+        for line in diff[:80]:
+            print(line[:240])
+        if len(diff) > 80:
+            print(f"... {len(diff) - 80} more diff lines")
+        sys.exit(1)
+
+    with open(args.guide, "w", encoding="utf-8") as fh:
+        fh.write(new_text)
     print(f"builtin appendix: {doc_count} documented, {above_count} documented "
           f"above, {raw_count} name-only ({len(entries)} raw entries in)")
 
