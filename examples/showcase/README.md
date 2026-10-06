@@ -6,10 +6,10 @@ one-file samples in `examples/base`.
 Run them from the repository root with:
 
 ```sh
-./build/bin/aether examples/showcase/agent_report
-./build/bin/aether examples/showcase/gradebook
-./build/bin/aether examples/showcase/release_board
-./build/bin/aether examples/showcase/grade_report
+./build/aether examples/showcase/agent_report
+./build/aether examples/showcase/gradebook
+./build/aether examples/showcase/release_board
+./build/aether examples/showcase/grade_report
 ```
 
 `agent_report` exercises the current Aether surface in combination:

@@ -11,7 +11,7 @@ Current constraints:
 
 Bootstrap status:
 
-- `build/bin/aether` now exists as a distinct front-end target.
+- `build/aether` now exists as a distinct front-end target.
 - The target currently reuses the Rea front-end implementation as a bootstrap
   so build, packaging, and CLI integration can be exercised without forking the
   bytecode compiler.
