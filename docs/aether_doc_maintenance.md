@@ -237,7 +237,8 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 
 | CTest | What it checks | Fails when |
 |---|---|---|
-| `aether_guide_snippets_full`, `_medium`, `_small` | every ` ```aether ` block in that guide, compiled `--no-run` by `tools/verify_guide_snippets.py` | a block does not compile, or an `EXPECT_FAIL` block does |
+| `aether_guide_snippets_full`, `_medium`, `_small` | every ` ```aether ` block in that guide, compiled `--no-run --diagnostics-json` by `tools/verify_guide_snippets.py` | a block does not compile; an `EXPECT_FAIL` block compiles, or fails with codes other than its entry's, or with an uncoded record; a fragment compiles only inside an `fx` block it does not show |
+| `aether_guide_snippet_keys` | every `EXPECT_FAIL` key still matches a block, across all three guides (`verify_guide_snippets.py --keys-only`) | a stale key |
 | `aether_builtin_appendix` | the full guide's generated appendix against what this build registers (`tools/gen_builtin_appendix.py --check`) | any difference; Skipped on a non-canonical (SDL) build |
 | `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 o200k; Skipped without tiktoken |
 | `aether_guide_stamps` | each guide's text against its stamp's manifest entry, the changelog rows, `VERSION` against `CHANGELOG.md` (`tools/check_guide_stamps.py`, above) | text changed under a stamp; a stamp without its row; a typed commit that did not introduce the stamp |
@@ -245,18 +246,22 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 
 Still manual, because no gate does them: running complete programs and the
 recipes (the snippet gate compiles, it does not run; see below), and the
-four-category content audit above. To run one guide's snippet check by hand:
-`python3 tools/verify_guide_snippets.py docs/aether_for_llms_medium_contexts.md`
-(`AETHER_BIN` defaults to `build/aether`).
+four-category content audit above. To run the snippet check by hand over all three
+guides, which includes the key check:
+`python3 tools/verify_guide_snippets.py docs/aether_for_llms_*.md`
+(`AETHER_BIN` defaults to `build/aether`); one path checks one guide.
 
 The snippet check extracts every ` ```aether ` block, wraps fragments in a
 function with a context prelude supplying the names prose snippets reference,
-appends a trivial `main` to declaration-only blocks, and runs `aether --no-run`
-over the lot. A
-fragment that fails is retried inside an `fx { }` block, since a snippet quoted
-from prose may be a bare `println(...)` whose surrounding text already
-established it is inside one. Exit status is nonzero on any unexpected result,
-so it can gate.
+appends a trivial `main` to declaration-only blocks, and runs `aether --no-run
+--diagnostics-json` over the lot. A fragment that fails is retried inside an
+`fx { }` block, but only to explain the failure: a fragment that compiles only
+that way is **UNEXPECTED**, because a model copies the block as written and a
+bare `println` at function scope is exactly what rule 1 forbids. Three
+small-guide blocks (the inline-if `println`, the per-character `print` loop and
+the array-printing loop) are allowlisted in `FX_RESCUED` and printed as notes
+until the first guide pass wraps them in `fx` and deletes the retry. Exit
+status is nonzero on any unexpected result, so it can gate.
 
 **It compiles; it does not run.** Because the sweep is `--no-run`, a snippet
 that compiles clean and then aborts at runtime passes the gate. That is not
@@ -268,14 +273,23 @@ across every edit in between, because none of them ran it. (How much of that
 window the compiler was actually broken for is unmeasured — the collision bug
 was found by this route, not bisected.) When you add or edit a **complete program**
 (one with its own `main`, as opposed to a prose fragment), run it once by hand
-and look at the output before committing. Note also that `CONTEXT` itself
-carries a `type Tally` / `fn tally` pair, so it is not a safe model to copy.
+and look at the output before committing. `CONTEXT` names its record
+`TallyRec` beside `fn tally` for the same reason.
 
-Blocks that *must* fail are allowlisted by a distinctive substring in
-`EXPECT_FAIL`, and the count of them is asserted — so a deliberate negative
-example silently starting to compile is also caught. They fall into three kinds:
-negative examples (a TOON getter handed a `ToonDoc`), prose sketches using `...`
-elision, and module examples whose module is not on disk.
+Blocks that *must* fail are listed in `EXPECT_FAIL` by a distinctive
+substring, each with the exact set of diagnostic codes it must fail with. The
+gate fails when such a block compiles, when its codes differ from the set, and
+when any record is uncoded (`code` null) — a negative example has to fail for
+the reason the guide gives, not for any reason. A key that matches no block in
+any guide also fails (`aether_guide_snippet_keys`; the dict is shared by all
+three guides, so that check runs over all three). `CODE_CHECK_REPORT_ONLY`
+holds the one block whose code check is printed but not yet enforced: the full
+guide's WRONG/RIGHT `self` contrast keeps both halves in one fence, so the
+RIGHT half's in-type `get` collides with the WRONG half's extension method and
+adds an uncoded "Duplicate method" record; it is enforced once the guide pass
+splits the fence. The blocks fall into three kinds: negative examples (a TOON
+getter handed a `ToonDoc`), prose sketches using `...` elision, and module
+examples whose module is not on disk.
 
 Two maintenance notes. When a fragment references a new name, add it to
 `CONTEXT` rather than dropping the block from the check. And keep `EXPECT_FAIL`

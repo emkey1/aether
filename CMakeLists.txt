@@ -208,8 +208,9 @@ else()
     set(AETHER_GUIDE_medium ${AETHER_GUIDE_DIR}/aether_for_llms_medium_contexts.md)
     set(AETHER_GUIDE_small ${AETHER_GUIDE_DIR}/aether_for_llms_with_small_contexts.md)
 
-    # Every ```aether block in each guide compiles, or fails as its EXPECT_FAIL
-    # entry says it must (tools/verify_guide_snippets.py).
+    # Every ```aether block in each guide compiles, or fails with exactly the
+    # codes its EXPECT_FAIL entry names; a fragment that compiles only inside an
+    # fx block it does not show fails too (tools/verify_guide_snippets.py).
     foreach(guide full medium small)
         add_test(NAME aether_guide_snippets_${guide}
                  COMMAND ${AETHER_DOCS_PYTHON}
@@ -219,6 +220,13 @@ else()
             ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
             LABELS "guide")
     endforeach()
+    # The EXPECT_FAIL keys are shared by all three guides, so whether each one
+    # still matches a block is checked once, over all three.
+    add_test(NAME aether_guide_snippet_keys
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_guide_snippets.py --keys-only
+                     ${AETHER_GUIDE_full} ${AETHER_GUIDE_medium} ${AETHER_GUIDE_small})
+    set_tests_properties(aether_guide_snippet_keys PROPERTIES LABELS "guide")
 
     # The full guide's generated builtin appendix matches what this build
     # registers. Skipped (77) on a non-canonical build such as SDL.
