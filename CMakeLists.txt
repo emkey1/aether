@@ -10,6 +10,14 @@
 cmake_minimum_required(VERSION 3.18)
 project(aether C)
 
+# Default to an optimised build. With no build type CMake compiles at -O0, and the
+# benchmark ran on that: a 10^7-step loop took 26 s, against 11 s for Release. The
+# default is a cache value, so -DCMAKE_BUILD_TYPE=Debug (or any other) still wins.
+if(NOT CMAKE_BUILD_TYPE AND NOT CMAKE_CONFIGURATION_TYPES)
+    set(CMAKE_BUILD_TYPE Release CACHE STRING "Build type (default Release)" FORCE)
+endif()
+message(STATUS "Aether build type: ${CMAKE_BUILD_TYPE}")
+
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
 add_compile_options(-Wall)
