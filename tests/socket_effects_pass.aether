@@ -1,0 +1,10 @@
+// A well-formed socket program: it runs normally, and --deny net stops it at
+// the first socket call. (Record/replay is covered by socket_echo_pass.)
+fn main() -> Void {
+    fx {
+        let s: Int = socketcreate(0);
+        println("handle ok: ", s >= 0);
+        socketclose(s);
+    }
+    ret;
+}

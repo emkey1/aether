@@ -1,0 +1,8 @@
+// The raw thread builtins are effects like their task_* / thread_* aliases:
+// threadpoolsubmit() outside fx must be FX-001. Regression: only the alias
+// spellings were classified, so the raw name compiled outside fx.
+fn main() -> Void {
+    let t: Int = threadpoolsubmit("delay", 1);
+    fx { println("job ", t); }
+    ret;
+}

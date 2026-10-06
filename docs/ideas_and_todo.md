@@ -776,6 +776,21 @@ left ungated. Documentation surfaced **filesystem + Pascal string ops**
 (`copy`/`pos`/`trim`/`stringofchar`) in both guides; BUILT-001 softened to
 "supported surface, discover others via `builtin_info`."
 
+**Correction, 2026-10-06-1.** `socket*` was never actually covered. The
+single-source table this entry delegated to (pscal-core
+`kEffectClassifiedNames`) carried `dnslookup` and `http*` but none of the 13
+`socket*` builtins, so until pscal-core `fb2cf14` they were pure: legal
+outside `fx` and inside `@pure`, `"effectful": false` in `builtin_info`, and
+not stopped by `--deny net`. The raw `thread*` spellings (`threadpoolsubmit`
+and the rest) were likewise unclassified while their `thread_*` aliases were,
+and a builtin run on a thread skipped `--deny` entirely (fixed in pscal-core
+`607a4e8`). Still open: the Pascal file procedures `assign` / `reset` /
+`rewrite` / `append` / `close` are unclassified too, so they work outside
+`fx` and inside `@pure` although the full guide's File section says they
+follow the same effect rules. Check their record/replay behaviour before
+classifying them; the journal's live-rerun path was built for exactly these
+handle-writeback calls.
+
 ### HTTP / sockets / SQLite — *HTTP done 2026-07-09-1; sockets done (docs-only) 2026-07-19; SQLite deferred*
 These are correctly fx-gated (effectful). Status:
 - **HTTP — surfaced 2026-07-09-1.** `MStream` is now a first-class opaque

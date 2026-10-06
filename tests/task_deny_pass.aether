@@ -1,0 +1,11 @@
+// The same route through the task_spawn alias (thread_spawn_named). run.sh
+// runs it only under --deny net, which must stop the job before it starts.
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("dnslookup", "w", "localhost");
+        task_wait(t);
+        let r: Text = task_result(t, true);
+        println("task=", r);
+    }
+    ret;
+}

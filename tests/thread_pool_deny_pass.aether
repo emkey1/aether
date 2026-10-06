@@ -1,0 +1,13 @@
+// Runs a network builtin on the thread pool. Without a policy it prints the
+// lookup; run.sh runs it only under --deny net, which must stop the job
+// before it is queued. Regression: a builtin handed to a thread skipped the
+// sandbox, so this printed 127.0.0.1 under --deny net,proc.
+fn main() -> Void {
+    fx {
+        let t: Int = threadpoolsubmit("dnslookup", "localhost");
+        waitforthread(t);
+        let r: Text = threadgetresult(t, true);
+        println("pool=", r);
+    }
+    ret;
+}

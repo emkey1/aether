@@ -12,6 +12,62 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-06-1
+
+**Raw sockets are effects, and the sandbox reaches builtins run on a thread.
+A `socket*` call outside `fx` is now `FX-001`, a `@pure` function may no
+longer open a socket, and `--deny net` now stops sockets and a network
+builtin handed to `threadpoolsubmit` / `task_spawn`.**
+
+The 13 socket builtins (`socketcreate`, `socketbind`, `socketbindaddr`,
+`socketlisten`, `socketaccept`, `socketconnect`, `socketsend`,
+`socketreceive`, `socketpoll`, `socketclose`, `socketsetblocking`,
+`socketpeeraddr`, `socketlasterror`) had no effect classification in
+pscal-core, so every check that reads it treated them as pure. All three
+guides already listed `socket*` as effectful; the compiler did not agree:
+
+```
+@pure
+fn openSocket() -> Int {
+    let s: Int = socketcreate(0);   // compiled, and returned a live handle
+    ret s;
+}
+```
+
+and `aether --deny net,proc` let a program create, bind and listen on a
+socket with exit 0, while `dnslookup` under the same flag was denied. The
+benchmark harness runs model-written programs with `--sandbox-deny net,proc`,
+so its network sandbox had the same hole.
+
+They are now network effects like `dnslookup` and the `http*` family
+(pscal-core `fb2cf14`). A program that already called sockets inside `fx`, as
+the guides teach, is unaffected. One that called them outside `fx` now gets
+`[FX-001] Aether effect error: call to 'socketcreate' requires an fx block.`,
+and the `@pure` example above also gets `[ANN-001] Aether purity error: pure
+function 'openSocket' cannot call effectful builtin 'socketcreate'.`
+`builtin_info(...)` and `builtins_json(true)` now report `"effectful": true`
+for all 13, and the generated builtin appendix in the full guide marks them
+*fx*. `--fx-record` / `--fx-replay` are unchanged: sockets stay out of the
+journal and run live on replay, as before.
+
+A second route around `--deny` went through threads (pscal-core `607a4e8`). A
+builtin started with `threadpoolsubmit` / `threadspawnbuiltin`, or through
+the `task_spawn` / `task_queue` aliases, runs its handler on the worker
+without passing the sandbox, so
+
+```
+let t: Int = threadpoolsubmit("dnslookup", "localhost");
+```
+
+printed `127.0.0.1` under `--deny net,proc` (the raw name was unclassified, so
+`--deny proc` missed it too), and `task_spawn("dnslookup", ...)` did the same
+under `--deny net`. The target builtin is now checked against the deny list
+before the job is queued, and the raw spellings `threadpoolsubmit`,
+`threadgetresult`, `threadgetstatus`, `threadcancel`, `threadlookup`,
+`threadpause`, `threadresume`, `threadsetname`, `threadstats` and
+`threadstatsjson` are effects like their `thread_*` aliases, so outside `fx`
+they are now `FX-001`. `par` is unaffected.
+
 ## 2026-09-23-1
 
 **A top-level `let` initializes where it stands. Every top-level `let` used to

@@ -1,0 +1,8 @@
+// Raw sockets are effectful: socketcreate() outside fx must be FX-001.
+// Regression: the socket* builtins had no effect classification, so this
+// compiled and ran.
+fn main() -> Void {
+    let s: Int = socketcreate(0);
+    fx { println("socket ", s); }
+    ret;
+}

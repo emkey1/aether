@@ -116,6 +116,12 @@ PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE="$TESTS_DIR/par_forward_target_mixed_pass.
 PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE="$TESTS_DIR/par_forward_target_nested_pass.aether"
 PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE="$TESTS_DIR/par_forward_target_args_pass.aether"
 SOCKET_ECHO_PASS_FIXTURE="$TESTS_DIR/socket_echo_pass.aether"
+SOCKET_FX_FAIL_FIXTURE="$TESTS_DIR/socket_fx_fail.aether"
+SOCKET_PURE_FAIL_FIXTURE="$TESTS_DIR/socket_pure_fail.aether"
+SOCKET_EFFECTS_PASS_FIXTURE="$TESTS_DIR/socket_effects_pass.aether"
+THREAD_RAW_FX_FAIL_FIXTURE="$TESTS_DIR/thread_raw_fx_fail.aether"
+THREAD_POOL_DENY_PASS_FIXTURE="$TESTS_DIR/thread_pool_deny_pass.aether"
+TASK_DENY_PASS_FIXTURE="$TESTS_DIR/task_deny_pass.aether"
 METHOD_UNDEFINED_FAIL_FIXTURE="$TESTS_DIR/method_undefined_fail.aether"
 UNKNOWN_CONSTRUCT_FAIL_FIXTURE="$TESTS_DIR/unknown_construct_fail.aether"
 UNCLOSED_BLOCK_FAIL_FIXTURE="$TESTS_DIR/unclosed_block_fail.aether"
@@ -418,6 +424,12 @@ for fixture in \
     "$SWAP_SHADOW_BUILTIN_PASS_FIXTURE" \
     "$SWAP_BUILTIN_UNSHADOWED_FAIL_FIXTURE" \
     "$HTTP_SESSION_FX_FAIL_FIXTURE" \
+    "$SOCKET_FX_FAIL_FIXTURE" \
+    "$SOCKET_PURE_FAIL_FIXTURE" \
+    "$SOCKET_EFFECTS_PASS_FIXTURE" \
+    "$THREAD_RAW_FX_FAIL_FIXTURE" \
+    "$THREAD_POOL_DENY_PASS_FIXTURE" \
+    "$TASK_DENY_PASS_FIXTURE" \
     "$HTTP_MSTREAM_COMPILE_PASS_FIXTURE" \
     "$LEGACY_METHOD_CALL_SHADOW_PASS_FIXTURE" \
     "$LEGACY_METHOD_CALL_UNDEFINED_FAIL_FIXTURE" \
@@ -2528,6 +2540,69 @@ if ! grep -q "FX-001" /tmp/aether_http_session_fx_fail.out; then
     exit 1
 fi
 
+# Raw sockets are network effects too (they were unclassified, so all three
+# of these used to pass): socketcreate() outside fx is FX-001, a @pure
+# function may not call it, and --deny net stops it at run time.
+if "$AETHER_BIN" --no-cache "$SOCKET_FX_FAIL_FIXTURE" >/tmp/aether_socket_fx_fail.out 2>&1; then
+    echo "expected socketcreate fx failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[FX-001\].*call to 'socketcreate' requires an fx block" /tmp/aether_socket_fx_fail.out; then
+    echo "missing socketcreate FX-001 failure message" >&2
+    cat /tmp/aether_socket_fx_fail.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache "$SOCKET_PURE_FAIL_FIXTURE" >/tmp/aether_socket_pure_fail.out 2>&1; then
+    echo "expected @pure socketcreate failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "pure function 'openSocket' cannot call effectful builtin 'socketcreate'" /tmp/aether_socket_pure_fail.out; then
+    echo "missing @pure socketcreate purity failure message" >&2
+    cat /tmp/aether_socket_pure_fail.out >&2
+    exit 1
+fi
+"$AETHER_BIN" --no-cache "$SOCKET_EFFECTS_PASS_FIXTURE" >/tmp/aether_socket_effects_pass.out 2>&1
+if ! cmp -s <(printf 'handle ok: true\n') /tmp/aether_socket_effects_pass.out; then
+    echo "unexpected socket effects output" >&2
+    cat /tmp/aether_socket_effects_pass.out >&2
+    exit 1
+fi
+if "$AETHER_BIN" --no-cache --deny net "$SOCKET_EFFECTS_PASS_FIXTURE" >/tmp/aether_socket_deny_net.out 2>&1; then
+    echo "expected --deny net to stop socketcreate but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "builtin 'socketcreate' denied by --deny/PSCAL_VM_DENY policy" /tmp/aether_socket_deny_net.out; then
+    echo "missing --deny net socketcreate denial message" >&2
+    cat /tmp/aether_socket_deny_net.out >&2
+    exit 1
+fi
+
+# A builtin handed to a thread is sandboxed too. The raw thread builtins are
+# effects like their task_*/thread_* aliases (FX-001 outside fx), and --deny
+# net stops a dnslookup queued on the pool or spawned as a task before it
+# runs; both used to print the lookup under --deny net,proc.
+if "$AETHER_BIN" --no-cache "$THREAD_RAW_FX_FAIL_FIXTURE" >/tmp/aether_thread_raw_fx_fail.out 2>&1; then
+    echo "expected threadpoolsubmit fx failure but program succeeded" >&2
+    exit 1
+fi
+if ! grep -q "\[FX-001\].*call to 'threadpoolsubmit' requires an fx block" /tmp/aether_thread_raw_fx_fail.out; then
+    echo "missing threadpoolsubmit FX-001 failure message" >&2
+    cat /tmp/aether_thread_raw_fx_fail.out >&2
+    exit 1
+fi
+for thread_fixture in "$THREAD_POOL_DENY_PASS_FIXTURE" "$TASK_DENY_PASS_FIXTURE"; do
+    if "$AETHER_BIN" --no-cache --deny net "$thread_fixture" >/tmp/aether_thread_deny_net.out 2>&1; then
+        echo "expected --deny net to stop the threaded dnslookup in $thread_fixture" >&2
+        cat /tmp/aether_thread_deny_net.out >&2
+        exit 1
+    fi
+    if ! grep -q "builtin 'dnslookup' denied by --deny/PSCAL_VM_DENY policy" /tmp/aether_thread_deny_net.out; then
+        echo "missing threaded dnslookup denial message for $thread_fixture" >&2
+        cat /tmp/aether_thread_deny_net.out >&2
+        exit 1
+    fi
+done
+
 # A user-declared top-level `fn swap` shadows the same-named, effectful PSCAL
 # vm_builtin for FX-001 purposes: calling the user's OWN swap from outside any
 # fx block must compile and run (previously misfired FX-001 on name alone).
@@ -2727,6 +2802,42 @@ if ! cmp -s /tmp/aether_socket_echo_expected.out /tmp/aether_socket_echo_pass.ou
     cat /tmp/aether_socket_echo_pass.out >&2
     exit 1
 fi
+
+# Sockets stay out of the --fx-record journal and run live on replay. When
+# they were first classified as network effects they were journaled, and
+# replay broke: a replayed socketcreate hands back a descriptor that was never
+# opened, socketreceive (never substitutable) runs live against it, and the
+# journal's one call order cannot follow the two par branches.
+socket_journal="$(mktemp -t aether_socket_journal.XXXXXX)"
+for fx_mode in record replay; do
+    "$AETHER_BIN" --no-cache "--fx-$fx_mode" "$socket_journal" "$SOCKET_ECHO_PASS_FIXTURE" \
+        >"/tmp/aether_socket_echo_$fx_mode.out" 2>&1 &
+    socket_echo_pid=$!
+    socket_echo_waited=0
+    while kill -0 "$socket_echo_pid" 2>/dev/null; do
+        sleep 1
+        socket_echo_waited=$((socket_echo_waited + 1))
+        if [ "$socket_echo_waited" -ge 20 ]; then
+            kill -9 "$socket_echo_pid" 2>/dev/null
+            rm -f "$socket_journal"
+            echo "socket echo fixture hung past 20s under --fx-$fx_mode" >&2
+            exit 1
+        fi
+    done
+    if ! wait "$socket_echo_pid"; then
+        rm -f "$socket_journal"
+        echo "socket echo fixture exited non-zero under --fx-$fx_mode" >&2
+        cat "/tmp/aether_socket_echo_$fx_mode.out" >&2
+        exit 1
+    fi
+    if ! cmp -s /tmp/aether_socket_echo_expected.out "/tmp/aether_socket_echo_$fx_mode.out"; then
+        rm -f "$socket_journal"
+        echo "socket echo fixture did not run cleanly under --fx-$fx_mode" >&2
+        cat "/tmp/aether_socket_echo_$fx_mode.out" >&2
+        exit 1
+    fi
+done
+rm -f "$socket_journal"
 
 # File type end to end: assign/rewrite/writeln/close then reset/readln/eof/
 # close then erase, using Aether's own `File` type (lowers to rea's `text`

@@ -1,0 +1,12 @@
+// A @pure function may not open a socket. Regression: the socket* builtins
+// had no effect classification, so this compiled and returned a live handle.
+@pure
+fn openSocket() -> Int {
+    let s: Int = socketcreate(0);
+    ret s;
+}
+
+fn main() -> Void {
+    fx { println(openSocket()); }
+    ret;
+}
