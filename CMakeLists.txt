@@ -246,4 +246,16 @@ else()
              COMMAND ${AETHER_DOCS_PYTHON}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_guide_stamps.py)
     set_tests_properties(aether_guide_stamps PROPERTIES LABELS "guide")
+
+    # Every commit hash README.md, CHANGELOG.md and docs/**/*.md cite resolves
+    # in aether, rea or pscal-core (or the umbrella, when PSCAL_UMBRELLA is set
+    # in the environment), and no placeholder hash ships. Skipped (77) without
+    # full git history.
+    add_test(NAME aether_doc_refs
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_doc_refs.py)
+    set_tests_properties(aether_doc_refs PROPERTIES
+        ENVIRONMENT "AETHER_REA_DIR=${rea_SOURCE_DIR};AETHER_PSCAL_CORE_DIR=${pscal_core_SOURCE_DIR}"
+        SKIP_RETURN_CODE 77
+        LABELS "guide")
 endif()

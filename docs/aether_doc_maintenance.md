@@ -240,6 +240,8 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 | `aether_guide_snippets_full`, `_medium`, `_small` | every ` ```aether ` block in that guide, compiled `--no-run` by `tools/verify_guide_snippets.py` | a block does not compile, or an `EXPECT_FAIL` block does |
 | `aether_builtin_appendix` | the full guide's generated appendix against what this build registers (`tools/gen_builtin_appendix.py --check`) | any difference; Skipped on a non-canonical (SDL) build |
 | `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 o200k; Skipped without tiktoken |
+| `aether_guide_stamps` | each guide's text against its stamp's manifest entry, the changelog rows, `VERSION` against `CHANGELOG.md` (`tools/check_guide_stamps.py`, above) | text changed under a stamp; a stamp without its row; a typed commit that did not introduce the stamp |
+| `aether_doc_refs` | every commit hash cited in `README.md`, `CHANGELOG.md` and `docs/**/*.md` resolves in aether, rea, pscal-core, or the umbrella when `PSCAL_UMBRELLA` names a checkout (`tools/check_doc_refs.py`) | an unresolvable hash, or a placeholder written where a hash belongs; Skipped in a shallow clone |
 
 Still manual, because no gate does them: running complete programs and the
 recipes (the snippet gate compiles, it does not run; see below), and the

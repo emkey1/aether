@@ -1,0 +1,4 @@
+# Hex tokens in README.md, CHANGELOG.md and docs/**/*.md that look like commit
+# references but are not (tools/check_doc_refs.py, CTest aether_doc_refs).
+# One token per line; a trailing `# reason` is required in spirit. Content
+# hashes written as "sha256 `abc...`" are already ignored and need no entry.
