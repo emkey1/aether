@@ -6,11 +6,11 @@
 # par_forward_target_args_pass failed 18 to 24 of 960 loaded runs. The
 # deterministic par fixtures now write results into records and print after
 # the join, so this lap must report 0 failed runs for each of them.
-# par_stdout_lines_pass is the dedicated whole-line check. It is expected to
-# tear until pscal-core's vmBuiltinWrite holds the stream lock across one
-# write/writeln call, so its torn runs are counted and reported, but they fail
-# the lap only with AETHER_PAR_STDOUT_XFAIL=0 (the same switch tests/run.sh
-# reads). A crash, a non-zero exit or a hang is always a failure.
+# par_stdout_lines_pass is the dedicated whole-line check. pscal-core's
+# vmBuiltinWrite holds the stream lock across one write/writeln call (W5-06),
+# so a torn run fails the lap; AETHER_PAR_STDOUT_XFAIL=1 only counts torn runs,
+# for an engine older than that fix (the same switch tests/run.sh reads). A
+# crash, a non-zero exit or a hang is always a failure.
 #
 # CTest registers this as aether_stress_par with LABELS stress. It never
 # gates: run the normal suite with `ctest -LE stress` and this lap with
@@ -20,13 +20,13 @@
 # Env:   AETHER_BIN               binary under test (default: ../build/aether)
 #        STRESS_PAR_RUNS          runs per fixture when no argument is given
 #        STRESS_PAR_LOAD          number of `yes` processes (default: one per core)
-#        AETHER_PAR_STDOUT_XFAIL  0 makes a torn par_stdout_lines_pass run a failure
+#        AETHER_PAR_STDOUT_XFAIL  1 reports torn par_stdout_lines_pass runs without failing
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 AETHER_BIN="${AETHER_BIN:-$SCRIPT_DIR/../build/aether}"
 RUNS="${1:-${STRESS_PAR_RUNS:-960}}"
-XFAIL="${AETHER_PAR_STDOUT_XFAIL:-1}"
+XFAIL="${AETHER_PAR_STDOUT_XFAIL:-0}"
 CORES="$(getconf _NPROCESSORS_ONLN 2>/dev/null || sysctl -n hw.ncpu 2>/dev/null || echo 2)"
 LOAD="${STRESS_PAR_LOAD:-$CORES}"
 RUN_TIMEOUT=30  # seconds; a run that takes longer counts as a failure
@@ -140,9 +140,9 @@ while [ "$n" -le "$RUNS" ]; do
     n=$((n + 1))
 done
 if [ "$XFAIL" = 1 ]; then
-    verdict="expected-fail until vmBuiltinWrite is line-atomic"
+    verdict="AETHER_PAR_STDOUT_XFAIL=1: torn runs reported only"
 else
-    verdict="AETHER_PAR_STDOUT_XFAIL=0: torn runs fail the lap"
+    verdict="torn runs fail the lap"
     failed_runs=$((failed_runs + torn))
 fi
 printf '%-32s %d/%d runs tore a line, %d crashed or hung (%ds; %s)\n' \

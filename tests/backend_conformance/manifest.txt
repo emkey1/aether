@@ -19,13 +19,16 @@
 
 int64_stored            stdout  pass         const, typed-local and accumulator Int stay 64-bit
 int64_stored_overflow   stdout  pass         a stored INT64 product past 2^63 traps with exit 1
-int64_paths             stdout  xfail:W5-04  literal-derived Int is INT32 at runtime and wraps
-int64_overflow_trap     stdout  xfail:W5-04  fact(25) from a literal wraps with exit 0 instead of trapping
-leak_guard              rss     xfail:W5-03  one ArrayObj leaked per indexed access
-stdin_pipe              stdout  xfail:W5-12  readln writes ESC[?25h to a piped stdout, strips and splits lines
+int64_literal           stdout  pass         literal-derived Int arithmetic past 2^31 stays 64-bit
+int64_paths             stdout  xfail:W5-04  parse_int past 2^31 and `<<` still wrap at 32 bits
+int64_overflow_trap     stdout  pass         fact(25) from a literal traps with exit 1
+leak_guard              rss     pass         no ArrayObj leaked per indexed access
+stdin_pipe_no_escape    stdout  pass         readln writes no cursor escape to a piped stdout
+stdin_pipe              stdout  xfail:W5-12  readln strips leading whitespace and splits a line over 1023 bytes
 width_spec_numeric      stdout  pass         width on a literal, an Int and a Real with precision
 width_spec              stdout  xfail:W5-13  width on a Text local or field prints ?, a Bool prints TRUE
 toon_len_absent         stdout  xfail:W5-09  toon_len of an absent key returns -1, not 0
 empty_array_eq          stdout  xfail:W5-08  an empty array after setlength is not == []
+zeroarg_record_call     stdout  pass         a zero-argument record/tuple call assigned to an lvalue is called
 d19/pascal_int_wrap.pas probe   report       D19: Pascal 32-bit wrap, stored and unstored
 d19/clike_int_wrap.cl   probe   report       D19: CLike store truncation (Int64.cl) and wrap

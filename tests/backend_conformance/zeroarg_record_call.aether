@@ -1,0 +1,41 @@
+// A zero-argument call returning a record or a tuple, assigned to an existing
+// variable, field or array element. The compiler treated any pointer-typed
+// lvalue as a procedure pointer, and record lvalues are pointer-typed, so
+// `r = mk();` stored mk's address instead of calling it and the next field
+// read failed with "Cannot access field on a non-record", exit 1. Fixed by
+// W5-07.
+type Point {
+    x: Int;
+    y: Int;
+}
+
+type Holder {
+    p: Point;
+}
+
+fn mk() -> Point {
+    let q: Point = Point { x: 3, y: 4 };
+    ret q;
+}
+
+fn pair() -> (Int, Text) {
+    ret (7, "seven");
+}
+
+fn main() -> Void {
+    let r: Point = Point { x: 0, y: 0 };
+    r = mk();
+    let h: Holder = Holder { p: Point { x: 0, y: 0 } };
+    h.p = mk();
+    let xs: Point[] = [Point { x: 0, y: 0 }, Point { x: 0, y: 0 }];
+    xs[0] = mk();
+    let t = pair();
+    t = pair();
+    fx {
+        println(r.x, " ", r.y);
+        println(h.p.x, " ", h.p.y);
+        println(xs[0].x, " ", xs[0].y, " ", xs[1].x);
+        println(t.0, " ", t.1);
+    }
+    ret;
+}

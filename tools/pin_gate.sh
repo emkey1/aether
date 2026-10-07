@@ -488,7 +488,7 @@ if want asan; then
         env HOME="$WORK/home-asan" ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=$leaks:abort_on_error=0}" \
             AETHER_BIN="$WORK/build-asan/aether" bash "$AETHER_SRC/tests/run.sh" \
         && env ASAN_OPTIONS="${ASAN_OPTIONS:-detect_leaks=$leaks:abort_on_error=0}" \
-            python3 "$AETHER_SRC/tests/backend_conformance/run.py" --aether "$WORK/build-asan/aether" --no-cache-modes
+            python3 "$AETHER_SRC/tests/backend_conformance/run.py" --aether "$WORK/build-asan/aether" --no-cache-modes --no-rss
     }
     if run_logged asan asan_lap; then record asan PASS "run.sh and conformance under AddressSanitizer"
     else record asan FAIL "see logs/asan.log"; fi

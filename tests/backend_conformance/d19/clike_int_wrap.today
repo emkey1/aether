@@ -2,4 +2,4 @@ store_truncation=705032704
 stored_int=-2147483648
 stored_long_long=2147483648
 unstored_literal=2147483648
-unstored_from_int=-2147483648
+unstored_from_int=2147483648

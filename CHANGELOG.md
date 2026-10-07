@@ -12,6 +12,104 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-07-1
+
+**Release L0 (front end batch A, pscal-core core-0, rea r-0): eight silent-wrong
+or crashing behaviours fixed. A nested `continue` advances only its own loop,
+a missing operand is `[SYN-001]`, `exit(n)` ends the program, `Int` arithmetic
+from literals no longer wraps at 32 bits, array indexing no longer leaks, a
+`println` from a `par` branch is never torn mid-line, `readln` writes no escape
+into piped output, and a zero-argument record call assigned to an lvalue is a
+call.** Every fix has a fixture; the gate log is in the pin commit.
+
+### Front end
+
+**A nested `continue` advances only its own loop** (`tests/loop_nested_continue_pass.aether`).
+The range/foreach lowering puts the counter step before each `continue`. It
+also reached into inner loops that were already lowered, so an inner
+`continue` stepped every enclosing `loop i in a..b` / `loop x in xs` counter,
+with exit 0:
+
+```
+loop i in 0..3 { loop j in 0..3 { if j == 1 { continue; } print("(", i, ",", j, ")"); } }
+```
+
+printed `(0,0)(1,2)(2,0)(3,2)` and now prints `(0,0)(0,2)(1,0)(1,2)(2,0)(2,2)`.
+A `continue` in a `loop cond { }` nested in a range loop was hit the same way.
+8-neighbour counts, pair loops and Life were silently wrong. All three guides
+already state the correct semantics. Rea had the same rewriter and the same
+bug; it is fixed in r-0 (below).
+
+**A missing operand or index is `[SYN-001]`** (`tests/dangling_operand_fail.aether`,
+`tests/array_empty_index_fail.aether`, `tests/param_list_single_error_fail.aether`).
+An operator with nothing after it used to compile into a program with a hole
+in it and exit 0. `if x == { ... }` ran neither branch, `ret x + ;` returned
+nil from a `-> Int` function, `println(x + )` printed a blank line,
+`let a: Int = xs[];` read whatever value was evaluated just before it, and
+`println(xs[1..])` dropped its argument. Each is now
+`[SYN-001] Aether parser error: expected an expression after '+', found ';'.`
+The `xs[]` case says "empty index `[]`", and adds "to append, write
+`xs = xs + [v];`" when an assignment follows. A bad parameter list now reports
+one error; the false "functions must declare an explicit return type" that
+followed it, even when the signature had `-> Int`, is gone. No program that
+compiled correctly before is affected.
+
+**`exit(n)` ends the program with status n, and an entry `fn main() -> Int`
+sets the exit status** (`tests/exit_in_helper_status_pass.aether`,
+`tests/main_returns_int_status_pass.aether`, `tests/user_fn_named_exit_pass.aether`,
+`tests/exit_no_arg_pass.aether`). `exit` reached the backend's Pascal
+`Exit(value)`, which returns from the enclosing function, so in a helper the
+program carried on:
+
+```
+fn check(n: Int) -> Int { if n < 0 { fx { println("bad"); exit(1); } } ret n; }
+```
+
+printed bad, then 1, then the rest of the program, and exited 0. In a
+`-> Bool` function exit returned true, in a `Text` function it was a type
+error, and in a `Void` function an uncoded error. `exit` is now an alias of
+`halt` (still fx). `fn main() -> Int { ret 2; }` now exits 2; it used to exit
+0. A user's own `fn exit`, or any user function named like an aliased builtin
+(`fn sleep(n: Int) -> Int` used to fail with "Built-in procedure 'delay'
+cannot be used as a function"), is called as written.
+
+### Engine
+
+pscal-core core-0 (`b801f63`..`2cb751d`) and rea r-0 (`b1320cf`):
+
+- **Indexing an array no longer leaks** (conformance `leak_guard`). Every
+  element read or write allocated an ArrayObj that only the Pascal
+  pointer-to-array path ever freed: 8e6 reads peaked at about 650 MB and now
+  at 3 MB.
+- **`Int` arithmetic on literal-derived values no longer wraps at 32 bits**
+  (conformance `int64_literal`, `int64_overflow_trap`; `tests/recursion_pass.aether`
+  now computes `factorial(20)`). An INT32 result that does not fit widens to
+  INT64: `fact(20)` printed -2102132736 and now prints 2432902008176640000,
+  `30*24*60*60*1000` is 2592000000, and `fact(25)` is a runtime integer
+  overflow with exit 1 instead of 2076180480 with exit 0. `parse_int` past
+  2^31 and `<<` still wrap (`int64_paths`, release L1). A store into a
+  narrower Pascal or CLike variable still truncates there; only unstored
+  intermediates change (D19 probes).
+- **A `println` from a `par` branch is never torn mid-line**
+  (`tests/par_stdout_lines_pass.aether`, now gating). One `write`/`writeln`
+  call holds the stream lock from its first argument through the newline.
+  Line order between branches is still unspecified.
+- **`readln` from stdin no longer writes a cursor escape into piped or
+  redirected output** (conformance `stdin_pipe_no_escape`). Piped output began
+  with `ESC[?25h`. Leading-whitespace stripping and the 1023-byte line split
+  are still open (`stdin_pipe`, release L1).
+- **A zero-argument record- or tuple-returning call assigned to an existing
+  variable, field or array element is a call** (conformance
+  `zeroarg_record_call`). `r = mk();` stored `mk`'s address, and the next field
+  read failed with "Cannot access field on a non-record", exit 1.
+- **Rea: a `continue` in a nested loop runs only its own loop's step.**
+
+Pin gate (pscal-core `2cb751d`, rea `b1320cf`): build, conformance, `tests/run.sh` uncached and on a cold and warm cache, rea's suite, the umbrella suites, the D19 probes and an AddressSanitizer lap all pass. Corpus A/B of the engine change over the umbrella's 748 corpus candidates: 735 compared, 0 differences (13 nondeterministic left out). D19 is settled ungated: only unstored Pascal and CLike intermediates moved, and every Pascal and CLike golden passes.
+Lane census of the front-end changes over tests, examples, corpus candidates
+and benchmark sources: the only program whose behaviour changes outside the
+new fixtures is corpus `22_game_of_life_random` (its neighbour count uses a
+nested `continue`), re-recorded in the umbrella. Deletion sweep (every single-token deletion of the test and example seeds that did not already fail with a code): all 67 deletions that left an operator without an operand and ran silently wrong now fail with `[SYN-001]`, and 37 that failed uncoded or crashed are now coded too; the 53 the sweep also flagged leave a valid expression (`n * f(x)` becomes `n * (x)`).
+
 ## 2026-10-06-1
 
 **Raw sockets are effects, and the sandbox reaches builtins run on a thread.

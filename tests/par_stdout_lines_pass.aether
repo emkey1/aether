@@ -5,10 +5,10 @@
 // whole lines, never their order: 4 branches x 200 lines, each line exactly
 // once.
 //
-// Expected to fail until pscal-core's vmBuiltinWrite holds the stream lock
-// across a whole write/writeln call (today it writes each argument and the
-// newline as separate stdio calls). tests/run.sh marks it expected-fail and
-// tests/stress_par.sh counts how many runs tear.
+// pscal-core's vmBuiltinWrite holds the stream lock across a whole
+// write/writeln call (W5-06); before that it wrote each argument and the
+// newline as separate stdio calls and two branches could interleave mid-line.
+// tests/stress_par.sh runs this under load and fails on any torn run.
 fn burst(tag: Text, count: Int) -> Void {
     loop i in 0..count {
         fx {

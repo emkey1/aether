@@ -1,0 +1,29 @@
+// Literal-derived Int arithmetic past 2^31 (B-runtime-semantics-2,
+// B-type-system-1). Aether `Int` is 64-bit, but a literal that fits in 32 bits
+// is an INT32 value at runtime. Before pscal-core widened an INT32 result that
+// does not fit to INT64 (W5-04a), each line below printed a wrapped value with
+// exit 0 (fact(20) printed -2102132736).
+fn fact(n: Int) -> Int {
+    if n <= 1 {
+        ret 1;
+    }
+    ret n * fact(n - 1);
+}
+
+fn mulmod(a: Int, b: Int, m: Int) -> Int {
+    ret (a * b) % m;
+}
+
+fn main() -> Void {
+    let s: Int = 100 * 365 * 24 * 60 * 60;
+    fx {
+        println(fact(20));
+        println(100000 * 100000);
+        println(s);
+        println(pow(2, 31));
+        println(30 * 24 * 60 * 60 * 1000);
+        println(-2147483647 - 10);
+        println(mulmod(123456789, 987654321, 1000000007));
+    }
+    ret;
+}

@@ -1,6 +1,6 @@
 // fact(25) overflows 64 bits, so it must stop with a runtime error and exit 1.
-// Today the literal argument keeps the recursion in INT32, which wraps
-// silently: it prints 2076180480 and exits 0. Fixed by W5-04.
+// The literal argument used to keep the recursion in INT32, which wrapped
+// silently: it printed 2076180480 and exited 0. Fixed by W5-04a.
 fn fact(n: Int) -> Int {
     if n <= 1 {
         ret 1;

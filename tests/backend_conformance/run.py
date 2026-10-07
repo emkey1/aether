@@ -209,8 +209,15 @@ def main():
     ap.add_argument("--only", nargs="*", help="run only these fixture names")
     ap.add_argument("--no-cache-modes", action="store_true",
                     help="run each stdout fixture with --no-cache only (skip the cold/warm cache runs)")
+    ap.add_argument("--no-rss", action="store_true",
+                    help="skip the rss fixtures (an AddressSanitizer build's quarantine "
+                         "makes peak RSS meaningless as a leak measure)")
     ap.add_argument("-v", "--verbose", action="store_true")
     args = ap.parse_args()
+    # Fixtures run with their own cwd, so a relative binary path must be made absolute.
+    args.aether = os.path.abspath(args.aether)
+    args.pascal = args.pascal and os.path.abspath(args.pascal)
+    args.clike = args.clike and os.path.abspath(args.clike)
 
     if not (os.path.isfile(args.aether) and os.access(args.aether, os.X_OK)):
         print(f"aether binary not found: {args.aether}", file=sys.stderr)
@@ -231,6 +238,10 @@ def main():
                 status, detail = run_probe(e, bins, work)
                 print(f"{status:6} {name}: {detail}")
                 counts[status] = counts.get(status, 0) + 1
+                continue
+            if kind == "rss" and args.no_rss:
+                print(f"SKIP   {name}: --no-rss")
+                counts["SKIP"] = counts.get("SKIP", 0) + 1
                 continue
             if kind == "stdout":
                 ok, detail = check_stdout(e, args.aether, work, not args.no_cache_modes, args.verbose)

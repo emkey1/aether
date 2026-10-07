@@ -1,7 +1,7 @@
 // readln from a piped stdin into a piped stdout (B-backend-coupling-4). Today
-// every stdin readln writes ESC[?25h to stdout even when it is not a terminal,
-// strips the leading whitespace of the line and splits a line longer than 1023
-// bytes. The expected stdout is byte-exact. Fixed by W5-12.
+// a stdin readln strips the leading whitespace of the line and splits a line
+// longer than 1023 bytes. The expected stdout is byte-exact. Fixed by W5-12;
+// the cursor escape it also wrote is gone (W5-12a, stdin_pipe_no_escape).
 fn main() -> Void {
     let a: Text = "";
     let b: Text = "";

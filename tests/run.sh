@@ -2319,13 +2319,11 @@ expect_par_branches "par-forward-target-args" "$PAR_FORWARD_TARGET_ARGS_PASS_FIX
 
 # Whole-line stdout from concurrent par branches: four branches each print 200
 # multi-argument lines directly. Branch order is free, so the sorted lines are
-# compared. EXPECTED TO FAIL until pscal-core's vmBuiltinWrite holds the stream
-# lock across one write/writeln call: it writes each argument and the newline
-# as separate stdio calls, so two branches can interleave mid-line. Until then
-# a torn line is reported as [xfail] and the run goes on; a crash or a non-zero
-# exit still fails it. When the engine fix lands, set the default below to 0
-# (AETHER_PAR_STDOUT_XFAIL=0 tries it first without editing this file).
-PAR_STDOUT_LINES_XFAIL="${AETHER_PAR_STDOUT_XFAIL:-1}"
+# compared. pscal-core's vmBuiltinWrite holds the stream lock across one
+# write/writeln call (W5-06), so a torn or merged line fails the run.
+# AETHER_PAR_STDOUT_XFAIL=1 reports it as [xfail] instead, for testing against
+# an engine older than that fix.
+PAR_STDOUT_LINES_XFAIL="${AETHER_PAR_STDOUT_XFAIL:-0}"
 "$AETHER_BIN" --no-cache "$PAR_STDOUT_LINES_PASS_FIXTURE" >$OUT/aether_par_stdout_lines_pass.out
 for tag in A B C D; do
     i=0
@@ -2490,7 +2488,7 @@ if ! cmp -s $OUT/aether_tuple_multiline_signature_expected.out $OUT/aether_tuple
 fi
 # ...while plain (non-tuple) direct recursion still parses and runs.
 "$AETHER_BIN" --no-cache "$RECURSION_PASS_FIXTURE" >$OUT/aether_recursion_pass.out 2>&1
-if ! printf '120\n' | cmp -s - $OUT/aether_recursion_pass.out; then
+if ! printf '2432902008176640000\n' | cmp -s - $OUT/aether_recursion_pass.out; then
     echo "unexpected non-tuple recursion output" >&2
     cat $OUT/aether_recursion_pass.out >&2
     exit 1

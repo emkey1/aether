@@ -1,5 +1,7 @@
 // Plain (non-tuple) direct recursion must keep parsing and running: the
-// TUP-001 self-call guard applies ONLY to tuple-return functions.
+// TUP-001 self-call guard applies ONLY to tuple-return functions. factorial(20)
+// is past INT32: a literal-derived Int wrapped to -2102132736 before pscal-core
+// widened INT32 overflow to INT64 (W5-04a).
 fn factorial(n: Int) -> Int {
     if n <= 1 {
         ret 1;
@@ -9,7 +11,7 @@ fn factorial(n: Int) -> Int {
 
 fn main() -> Void {
     fx {
-        println(factorial(5));
+        println(factorial(20));
     }
     ret;
 }
