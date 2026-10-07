@@ -65,6 +65,13 @@ benchmark programs frozen in `tests/replay/`. Regenerate them only with
 `python3 tools/export_replay.py --umbrella <umbrella checkout>`; a declared
 language break goes in `tests/replay/WAIVED` with its CHANGELOG version.
 
+`tools/diag_census.py` measures failing programs' diagnostics (coded, hinted,
+uncoded backend lines, JSON `code: null`, stderr over 1,200 chars) over the
+umbrella's archived attempts, the `_fail` fixtures and deletion mutants. The
+baselines are in `tests/diag_census/`; after each diagnostics batch, re-run it
+with `--umbrella <checkout> --compare tests/diag_census/<last>.csv` and commit
+the new CSV and table. `aether_diag_census` (label `metric`) is a quick report.
+
 ## Where a diagnostic comes from
 
 Search in this order: `src/aether/ast_parser.c` (parse, lowering, most coded

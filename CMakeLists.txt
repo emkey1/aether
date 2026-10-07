@@ -428,3 +428,19 @@ set_tests_properties(aether_replay PROPERTIES
     ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
     TIMEOUT 900
     LABELS "replay")
+
+# ---- Diagnostic census (W6-01) --------------------------------------------------
+# tools/diag_census.py measures what failing programs' diagnostics look like
+# (coded, hinted, uncoded backend lines, JSON code:null, stderr over the
+# 1,200-char repair budget). Report only, label `metric` (left out of the
+# default `ctest -LE 'stress|metric'`): the fixtures and 300 deletion mutants
+# here; the baselines in tests/diag_census/ add the umbrella's archive.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME aether_diag_census
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/diag_census.py
+                     --aether $<TARGET_FILE:aether> --mutants 300)
+    set_tests_properties(aether_diag_census PROPERTIES
+        TIMEOUT 900
+        LABELS "metric")
+endif()
