@@ -1,0 +1,63 @@
+name: CI
+
+# Builds aether against its pinned rea and pscal-core and runs every CTest:
+# tests/run.sh, the examples lap, the public-hygiene lint and the guide and doc
+# gates (snippets, appendix, token ceiling, stamps, commit references, audit,
+# diagnostic-code map, reformat invariance). A pin that points at an unpushed
+# commit fails at checkout.
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+  schedule:
+    - cron: "17 4 * * 1"   # the weekly macOS run
+  workflow_dispatch:
+
+jobs:
+  linux:
+    if: github.event_name != 'schedule'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0          # aether_doc_refs resolves commits in all three repos
+      - name: Toolchain
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libcurl4-openssl-dev
+      - name: Python packages for the doc gates
+        run: python3 -m pip install --user -r tools/requirements-docs.txt
+      - name: Tokenizer cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/aether-tokenizers
+          key: tokenizers-${{ hashFiles('tools/fetch_tokenizers.sh') }}
+      - name: Tokenizers (o200k; Qwen3.5 only when QWEN_TOKENIZER_URL is set)
+        run: tools/fetch_tokenizers.sh || echo "some tokenizers unavailable; the token gate reports what it can"
+        env:
+          QWEN_TOKENIZER_URL: ${{ vars.QWEN_TOKENIZER_URL }}
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAETHER_DOCS_PYTHON="$(command -v python3)"
+      - name: Build
+        run: cmake --build build -j "$(nproc)"
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -LE 'stress|metric'
+
+  macos:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+      - name: Python packages for the doc gates
+        run: python3 -m pip install --user --break-system-packages -r tools/requirements-docs.txt
+      - name: Tokenizers
+        run: tools/fetch_tokenizers.sh || echo "some tokenizers unavailable"
+      - name: Configure
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DAETHER_DOCS_PYTHON="$(command -v python3)"
+      - name: Build
+        run: cmake --build build -j "$(sysctl -n hw.ncpu)"
+      - name: Test
+        run: ctest --test-dir build --output-on-failure -LE 'stress|metric'
