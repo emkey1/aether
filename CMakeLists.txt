@@ -316,6 +316,18 @@ else()
     # fixture and example must print the same stdout with the same exit status.
     # tests/reformat_invariance.known lists today's divergences and only
     # shrinks: a new divergence fails, and so does a listed pair that passes.
+    # The normative spec's examples (docs/aether_spec.md): every @ok program
+    # prints its stated stdout, every @reject fails with exactly its code, every
+    # section-2 production has both, and a pinned @bug that flips is reported
+    # without failing (tools/verify_guide_snippets.py --spec).
+    add_test(NAME aether_spec
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_guide_snippets.py --spec
+                     ${AETHER_GUIDE_DIR}/aether_spec.md)
+    set_tests_properties(aether_spec PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        LABELS "spec")
+
     add_test(NAME aether_reformat_invariance
              COMMAND ${AETHER_DOCS_PYTHON}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/reformat_invariance.py)

@@ -6,6 +6,7 @@ Usage:
     python3 tools/verify_guide_snippets.py docs/aether_for_llms_medium_contexts.md
     python3 tools/verify_guide_snippets.py --keys-only docs/aether_for_llms_*.md
     python3 tools/verify_guide_snippets.py --run-outputs docs/aether_card.md
+    python3 tools/verify_guide_snippets.py --spec docs/aether_spec.md
 
 Every block is compiled with `aether --no-cache --no-run --diagnostics-json`
 ($AETHER_BIN, default build/aether). Fragments are wrapped in a function over
@@ -50,6 +51,9 @@ compiles can still abort or print the wrong thing (the par/Tally incident went
     written by hand from what the recipes SHOULD print, never blessed.
   * --update rewrites the goldens' stdout entries from this build and prints
     what changed; rc_only and skip entries are kept, stale keys dropped.
+
+--spec runs the tagged examples of the normative spec instead (see
+check_spec below and the header of docs/aether_spec.md).
 
 See docs/aether_doc_maintenance.md for why this exists.
 """
@@ -473,6 +477,159 @@ def run_recipes(guide_paths, workdir):
                                 f"{err.strip()[:300]}")
     return runs, problems
 
+# ---- --spec: the executable examples of docs/aether_spec.md -----------------
+# A spec example is a complete program in a fence whose info string carries a
+# tag and an id, e.g. ```aether @ok id=G.LetDecl.1 . The tags:
+#   @ok             compiles, runs, exits with rc=N (default 0), and prints exactly
+#                   the ```text block that follows (an empty block is no output);
+#                   warn=CODE also requires that warning on stderr.
+#   @reject=A[,B]   fails to compile (--no-run --diagnostics-json) with exactly
+#                   the codes listed and no uncoded record.
+#   @trap=CODE      compiles, then fails at run time with [CODE] on stderr.
+#   @bug=<ref>      pins today's outcome of a behaviour a decision row has decided
+#                   to change (or is still deciding): now=ok (with a ```text
+#                   block), now=<CODE> (rejected with that code), now=uncoded
+#                   (rejected with no code) or now=trap. A changed outcome is
+#                   reported as FLIPPED and does not fail the run (--strict-bugs
+#                   makes it fail): update the spec, and VERSION, when it flips.
+# Ids are unique. Every production defined in a ```ebnf fence of the section
+# whose heading starts "## 2." needs at least one @ok and one @reject or @trap
+# example whose id starts G.<Production>.
+SPEC_FENCE = re.compile(r"^```aether\s+@(ok|reject|trap|bug)(=\S+)?(.*)$")
+
+
+def spec_examples(path):
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    out, i = [], 0
+    while i < len(lines):
+        m = SPEC_FENCE.match(lines[i].strip())
+        if not m:
+            i += 1
+            continue
+        start, body = i + 1, []
+        i += 1
+        while i < len(lines) and lines[i].strip() != "```":
+            body.append(lines[i])
+            i += 1
+        i += 1
+        attrs = dict(a.split("=", 1) for a in m.group(3).split() if "=" in a)
+        stdout = None
+        j = i
+        while j < len(lines) and not lines[j].strip():
+            j += 1
+        if j < len(lines) and lines[j].strip() == "```text":
+            text, j = [], j + 1
+            while j < len(lines) and lines[j].strip() != "```":
+                text.append(lines[j])
+                j += 1
+            stdout = "".join(t + "\n" for t in text)
+            i = j + 1
+        out.append({"line": start, "tag": m.group(1), "arg": (m.group(2) or "=")[1:],
+                    "attrs": attrs, "src": "\n".join(body) + "\n", "stdout": stdout})
+    return out
+
+
+def spec_productions(path):
+    with open(path, encoding="utf-8") as fh:
+        text = fh.read()
+    sec = re.search(r"^## 2\..*?(?=^## \d+\.|\Z)", text, re.M | re.S)
+    names = []
+    for fence in re.findall(r"^```ebnf\n(.*?)^```", sec.group(0) if sec else "", re.M | re.S):
+        names += re.findall(r"^([A-Z][A-Za-z]*)\s*=", fence, re.M)
+    return names
+
+
+def spec_outcome(workdir, ex, tag):
+    """('ok', stdout, rc, stderr) | ('reject', codes, uncoded) | ('trap', stdout, stderr)."""
+    rc, records = compile_src(workdir, ex["src"], tag)
+    if rc != 0:
+        codes = {r.get("code") for r in records if r.get("code")}
+        return ("reject", codes, [r for r in records if not r.get("code")])
+    rrc, out, err = run_src(workdir, ex["src"], tag + "_run")
+    if rrc != 0 and re.search(r"\[[A-Z]+-\d{3}\]|Runtime Error|VM Error", err):
+        return ("trap", out, err, rrc)
+    return ("ok", out, rrc, err)
+
+
+def check_spec(path, strict_bugs=False):
+    examples = spec_examples(path)
+    problems, flipped = [], []
+    counts = {"ok": 0, "reject": 0, "trap": 0, "bug": 0}
+    seen = {}
+    for ex in examples:
+        eid = ex["attrs"].get("id")
+        where = f"{os.path.basename(path)}:{ex['line']} ({eid or 'no id'})"
+        if not eid:
+            problems.append(f"{where}: a spec example needs id=")
+        elif eid in seen:
+            problems.append(f"{where}: duplicate id, first at line {seen[eid]}")
+        else:
+            seen[eid] = ex["line"]
+    with tempfile.TemporaryDirectory(prefix="aether_spec_") as workdir:
+        if os.path.isdir(GUIDE_MODULES):
+            for mod in sorted(os.listdir(GUIDE_MODULES)):
+                shutil.copy(os.path.join(GUIDE_MODULES, mod), workdir)
+        for k, ex in enumerate(examples):
+            tag, eid = ex["tag"], ex["attrs"].get("id", f"x{k}")
+            where = f"{os.path.basename(path)}:{ex['line']} ({eid})"
+            got = spec_outcome(workdir, ex, f"spec{k:03d}")
+            counts[tag] += 1
+            if tag == "ok":
+                want_rc = int(ex["attrs"].get("rc", "0"))
+                warn = ex["attrs"].get("warn")
+                if ex["stdout"] is None:
+                    problems.append(f"{where}: @ok needs a ```text block with its stdout")
+                elif got[0] != "ok" or got[1] != ex["stdout"] or got[2] != want_rc:
+                    problems.append(f"{where}: expected rc {want_rc} and stdout "
+                                    f"{ex['stdout']!r}; got {got[0]} {got[1:3]!r}")
+                elif warn and f"[{warn}]" not in got[3]:
+                    problems.append(f"{where}: expected warning {warn}; stderr {got[3][:200]!r}")
+            elif tag == "reject":
+                want = set(ex["arg"].split(","))
+                if got[0] != "reject" or got[1] != want or got[2]:
+                    detail = (f"{got[0]} {sorted(got[1])} with {len(got[2])} uncoded"
+                              if got[0] == "reject" else f"{got[0]} {got[1]!r}")
+                    problems.append(f"{where}: expected rejection {sorted(want)}; got {detail}")
+            elif tag == "trap":
+                if got[0] != "trap" or f"[{ex['arg']}]" not in got[2]:
+                    problems.append(f"{where}: expected run-time [{ex['arg']}]; got {got[0]} "
+                                    f"{got[1:]!r}"[:300])
+            else:
+                now = ex["attrs"].get("now", "ok")
+                if now == "ok":
+                    same = got[0] == "ok" and got[1] == ex["stdout"] and got[2] == 0
+                elif now == "uncoded":
+                    same = got[0] == "reject" and not got[1] and bool(got[2])
+                elif now == "trap":
+                    same = got[0] == "trap"
+                else:
+                    same = got[0] == "reject" and got[1] == set(now.split(","))
+                if not same:
+                    flipped.append(f"{where}: @bug={ex['arg']} no longer behaves as pinned "
+                                   f"(now={now}); today: {got[0]} {got[1:3]!r}"[:400])
+    by_prod = {}
+    for ex in examples:
+        parts = ex["attrs"].get("id", "").split(".")
+        if len(parts) >= 3 and parts[0] == "G":
+            by_prod.setdefault(parts[1], set()).add(ex["tag"])
+    prods = spec_productions(path)
+    for name in prods:
+        tags = by_prod.get(name, set())
+        if "ok" not in tags or not tags & {"reject", "trap"}:
+            problems.append(f"production {name}: needs at least one @ok and one @reject/@trap "
+                            f"example with id G.{name}.<n> (has {sorted(tags) or 'none'})")
+    for name in sorted(set(by_prod) - set(prods)):
+        problems.append(f"example ids name G.{name}, which no ```ebnf fence in section 2 defines")
+    print(f"{os.path.basename(path)}: examples {len(examples)}  ok {counts['ok']}  reject "
+          f"{counts['reject']}  trap {counts['trap']}  bug {counts['bug']}  productions "
+          f"{len(prods)}  UNEXPECTED {len(problems)}  FLIPPED {len(flipped)}")
+    for f in flipped:
+        print(f"  FLIPPED {f}")
+    for p in problems:
+        print(f"--- UNEXPECTED {p}")
+    return 1 if problems or (strict_bugs and flipped) else 0
+
 
 def stale_keys(paths):
     """EXPECT_FAIL / FX_RESCUED keys that match no block in any given guide."""
@@ -499,7 +656,13 @@ def main():
                          "the tests/guide_recipes drivers (CTest aether_guide_run)")
     ap.add_argument("--update", action="store_true",
                     help="with --run: rewrite the goldens' stdout entries from this build")
+    ap.add_argument("--spec", action="store_true",
+                    help="run the tagged @ok/@reject/@trap/@bug examples of the spec")
+    ap.add_argument("--strict-bugs", action="store_true",
+                    help="with --spec, fail when a pinned @bug outcome flips")
     args = ap.parse_args()
+    if args.spec:
+        return max(check_spec(p, args.strict_bugs) for p in args.guides)
 
     names = {os.path.basename(p) for p in args.guides}
     all_guides = set(GUIDE_NAMES) <= names

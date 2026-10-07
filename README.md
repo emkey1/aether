@@ -142,6 +142,7 @@ Maintainer docs in [`docs/`](docs/):
 
 - [`aether_architecture_and_rationale.md`](docs/aether_architecture_and_rationale.md): how it is built and why (as-built)
 - [`aether_doc_maintenance.md`](docs/aether_doc_maintenance.md): the rules for editing the guides (budgets, stamps, gates)
+- [`aether_spec.md`](docs/aether_spec.md): the normative language spec (skeleton), whose examples run as a test
 - [`aether_decisions.md`](docs/aether_decisions.md): the decision register
 - [`CHANGELOG.md`](CHANGELOG.md), [`aether_guide_changelog.md`](docs/aether_guide_changelog.md), [`ideas_and_todo.md`](docs/ideas_and_todo.md): the language versions, the guide stamps, the backlog
 - [`aether_guided_benchmark.md`](docs/aether_guided_benchmark.md), [`aether_specialization_findings.md`](docs/aether_specialization_findings.md): benchmark results with and without a guide

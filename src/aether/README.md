@@ -8,5 +8,6 @@ described the line-based rewriter (`translate.c`) and its debug flag, both delet
 on 2026-07-01; that text survives in git history only.
 
 - How the pipeline is built, and why: `docs/aether_architecture_and_rationale.md` §2.
-- What the language accepts: the fixtures in `tests/` and the snippet gates.
+- What the language accepts: `docs/aether_spec.md` (normative, its examples run in CI)
+  and the fixtures in `tests/`.
 - How to write Aether: the three guides in `docs/`.

@@ -28,10 +28,10 @@
  * the post-parse checks in ast_checks.c; ast_internal.h holds the shared
  * AetherParser state and prototypes.
  *
- * There is no grammar in this file. What the parser must accept and reject is
- * pinned by the fixtures in tests/ and by the guide snippet gates
- * (tools/verify_guide_snippets.py); a comment here that disagrees with them is
- * the thing that is wrong.
+ * There is no grammar in this file. The grammar is docs/aether_spec.md, whose
+ * examples run in CI (CTest aether_spec), together with the fixtures in tests/
+ * and the guide snippet gates; a comment here that disagrees with them is the
+ * thing that is wrong.
  */
 
 #include "aether/parser.h"

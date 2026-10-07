@@ -256,6 +256,7 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 | `aether_guide_stamps` | each guide's text against its stamp's manifest entry, the changelog rows, `VERSION` against `CHANGELOG.md` (`tools/check_guide_stamps.py`, above) | text changed under a stamp; a stamp without its row; a typed commit that did not introduce the stamp |
 | `aether_guide_audit` | the content audit above (`tools/audit_guides.py`) | nothing yet: report mode prints the hits; `--strict` from the first guide pass |
 | `aether_diag_codes` | the codes the fixtures make the compiler print, against code literals in the sources and each guide's repair rules and full's "actually emits" list (`tools/check_diag_codes.py`) | nothing yet: report mode prints the findings; `--strict` from the first guide pass |
+| `aether_spec` | every tagged example in `docs/aether_spec.md`: `@ok` programs run to their stated stdout, `@reject` programs fail with exactly their code, each §2 production has both (`verify_guide_snippets.py --spec`) | a wrong stdout or code, a duplicate id, a production without both kinds; a pinned `@bug` that flips is printed as FLIPPED and does not fail |
 | `aether_doc_refs` | every commit hash cited in `README.md`, `CHANGELOG.md` and `docs/**/*.md` resolves in aether, rea, pscal-core, or the umbrella when `PSCAL_UMBRELLA` names a checkout (`tools/check_doc_refs.py`) | an unresolvable hash, or a placeholder written where a hash belongs; Skipped in a shallow clone |
 | `aether_guide_run` | every complete program (a block with its own `fn main`) in the three guides is **run**, against [`guide_goldens.json`](guide_goldens.json), and the recipe drivers in `tests/guide_recipes/` run against their hand-written `.out` (`verify_guide_snippets.py --run`) | a program exits non-zero or prints other than its golden; a program with no golden; a stale golden; a recipe's output differs |
 | `aether_examples_run` | every example program runs from a copy of its own directory; the "best example files" below print their `tests/example_goldens/` output (`tests/run_examples.sh --run`) | a non-zero exit, a timeout, or a golden mismatch |
@@ -317,8 +318,10 @@ getter handed a `ToonDoc`), prose sketches using `...` elision, and module
 examples whose module is not on disk. The last kind should go away: every file
 in `tests/guide_modules/` (today the stubs `score_utils` and `geometry`) is
 copied next to each compiled block, so an import example written against one
-of them compiles for real, and a call to an export the stub does not have fails
-with `SCOPE-001` exactly as it would for a model.
+of them compiles for real, and an unqualified call to an export the stub does
+not have fails with `SCOPE-001` exactly as it would for a model. (A qualified
+`Module.missing()` call fails with an uncoded record today; spec example
+`P.import.2` pins it.)
 
 Two maintenance notes. When a fragment references a new name, add it to
 `CONTEXT` rather than dropping the block from the check. And keep `EXPECT_FAIL`
@@ -430,7 +433,9 @@ Practical examples:
 
 Implementation notes:
 
-- [`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md) §2,
+- [`aether_spec.md`](aether_spec.md), the normative grammar and its executable
+  examples, and
+  [`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md) §2,
   the pipeline as built. `src/aether/DESIGN.md` and `src/aether/README.md` are
   historical and describe the deleted rewriter.
 
