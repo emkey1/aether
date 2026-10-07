@@ -7,7 +7,7 @@ awkward ones. It is deliberately separate from:
 - [`src/aether/DESIGN.md`](../src/aether/DESIGN.md) — the original design
   *vision* (goals, phases), written 2026-06. Historical: where it and this
   document disagree, this document and the decision register win.
-- [`Docs/aether_for_llms_and_others.md`](aether_for_llms_and_others.md) — the
+- [`docs/aether_for_llms_and_others.md`](aether_for_llms_and_others.md) — the
   *reference guide* fed to models and humans who just want to write Aether.
   Descriptive, not rationale.
 
@@ -17,16 +17,31 @@ earth is it done *this* way," start here.
 
 ---
 
-## 1. The one-sentence thesis
+## 1. The thesis, and what is actually measured
 
 > Aether is optimized so that a language model can write **valid, correct Aether
-> with no reference guide in its prompt**, and the benchmark suite — not taste —
+> from as little in its prompt as possible**, and the benchmark suite — not taste —
 > is the instrument that tells us when the language design is wrong.
 
-Everything below follows from that sentence. "Compact and human-auditable" (the
-DESIGN.md framing) is necessary but secondary. The hard, measurable target is
-**no-guide generation correctness**, abbreviated everywhere as **`none`** (as in
-the `none` documentation variant — no guide supplied).
+This section used to name no-guide correctness (`none`) as the one hard target.
+That is not what the project measures or runs on. The newest no-guide board in
+this repo is cs-aug20 (fine-tuned models, graded by aether `c660b1b`), and every
+board since has handed the model a guide. In practice the project runs on "the
+guide is enough", and the KPIs now say so (decision **D9**, option (a)):
+
+- **G, the medium guide on a local open-weight panel, is the primary KPI.** It
+  is what the benchmark runs and what most users of the language will do.
+- **P, the frozen card** (`docs/aether_card.md`, about 2,000 tokens), on the same
+  panel, says how close Aether is to what models already believe. The gap
+  between G and P is the prior-alignment signal, and it needs no GPU retrain.
+- **N, no guide on the fine-tuned reference model**, stays the long-run test of
+  whether the language can be learned, measured cheaply by replay and retrained
+  only at milestones.
+- **S, the silent-wrong share,** is a release gate: no release may raise it.
+
+§3.1 defines all six KPIs. "Compact and human-auditable" (the DESIGN.md framing)
+remains necessary but secondary: DESIGN.md's "≤1.1× Python tokens" goal is
+retired as a gate and survives only as the report-only KPI T.
 
 ---
 
@@ -173,24 +188,51 @@ review of its commit checks them:
 This is the most important idea in the project and the least obvious from the
 code. Read this section before proposing any "the language should…" change.
 
-### 3.1 What the benchmark is
+### 3.1 What the benchmark is, and the KPIs it reports
 
-`aether_doc_bench.py` (in the PBuild umbrella harness, not this repo) runs a fixed
-suite of **30 tasks** (the "v2" suite). Each task is a
-natural-language spec; the model must emit an Aether program that compiles and
-produces the expected stdout. Every task is run under several **documentation
-variants**:
+`aether_doc_bench.py` (in the PBuild umbrella harness, not this repo) issues a
+task, compiles and runs the program the model returns with the `aether` binary,
+and scores its stdout byte for byte. With repair on, the compiler's diagnostics
+go back to the model for up to two more attempts. The suites in current use are
+`tasks_v2_pos` (35 simple tasks, v`2026-07-15-1`), `tasks_hard_v2` (14 large,
+v`2026-07-28-1`), `tasks_cs` (19 CS classics, v`2026-06-23-1`) and
+`tasks_hard_nontoon` (5 non-TOON hard, v`2026-07-27-1`). The trap suite G and S
+need, `tasks_traps` (tasks whose natural reading in another language prints
+something else, scored with the expected output hidden on the first attempt,
+D37a), is being added by the bench workstream. Each task runs under a
+**documentation variant**:
 
-| Variant  | What's in the prompt                | What it measures                    |
-|----------|-------------------------------------|-------------------------------------|
-| `full`   | the complete reference guide        | ceiling: can it follow a spec?      |
-| `small`  | a condensed guide                   | working memory under context budget |
-| `none`   | **no guide at all**                 | **what the model internalized**     |
-| python   | (baseline) write the task in Python | task difficulty floor               |
+| Variant  | What's in the prompt                         | What it measures                          |
+|----------|----------------------------------------------|-------------------------------------------|
+| `full`   | the full guide (~29K tokens)                 | ceiling: can the model follow the spec?   |
+| `medium` | the working guide (≤15K)                     | **the primary KPI, G**                    |
+| `small`  | the concise guide (16K-window tier, D11)     | working memory under a tight budget       |
+| `card`   | the frozen card, `docs/aether_card.md` (~2K) | prior alignment, P                        |
+| `none`   | no guide                                     | what a model has internalized, N          |
+| python   | (baseline) the same task in Python           | task difficulty floor and the token bar, T |
 
-`none` is the KPI. A model scoring well on `none` has *learned the language*,
-which is the entire point of the fine-tuning effort. When `none ≈ small ≈ full`,
-the language has been internalized.
+The KPIs (D9), pre-registered here before the boards that report them:
+
+| KPI | Definition | Cadence | Gate |
+|---|---|---|---|
+| **G** | `medium` on the G panel: 4–5 local open-weight destinations with hashed weights (D37d), suites `v2_pos` + `cs` + `hard_nontoon` + `traps`, sampled per D37b (T=0.2, seed 42+r, 3 repeats), repair 2. Report **G1** = first-attempt exact-pass share and **Gf** = final exact-pass share, each with a confidence interval | each `VERSION` or guide-stamp bump, not nightly | non-inferiority: a change is adopted only if G1 does not fall by more than 3 points, by a bootstrap blocked by task, model and seed (D37d) |
+| **P** | `card` on the same panel and suites; **P1**, **Pf** as for G. G1 − P1 is the prior-alignment gap | with G | report |
+| **S** | silent-wrong share: attempts that exit 0 with wrong stdout, over all attempts, on `traps` + `v2_pos`, under `card` and `medium` | each release | **no release raises S** |
+| **N** | `none` on the fine-tuned reference model: paired replay of its recorded programs on each bump; a retrain and fresh grade only at milestones (D9: the last M5 item if a rig week is free, otherwise M6) | replay per bump | report |
+| **R** | replay regressions: recorded programs that passed on the previous `VERSION` and fail on this one, minus those explained in the CHANGELOG entry | each `VERSION` | **R = 0** |
+| **T** | tokens to an exact pass, repairs included, against Python on the same model and suite | after one persisted `--python-baseline` run | report only |
+
+Untrained `none` is not a KPI: it measures the floor of a model's priors, and
+the idea miner already reports where models reach. The `full` variant on frontier
+models is a sanity ceiling, not a KPI: B0-full (two cloud models, `v2_pos` +
+`hard_v2`, decision D3) came back at 99–100% first-attempt accuracy, which is a
+ceiling effect and cannot rank a language change.
+
+**What the README's "Evidence status" block carries** (filled in from the first
+board after the B0/B1 baseline, and refreshed with each release's measurement
+row): the latest G1/Gf, P1/Pf, S and N with their dates; the `VERSION` and the
+guide and card stamps they were scored on; the suite versions; and the sha256 of
+the bench MANIFEST that identifies the harness (D41).
 
 ### 3.2 The inversion: a hard task is a language bug, not a model bug
 
@@ -207,7 +249,8 @@ not a scoreboard entry.
 
 ### 3.3 The repair loop
 
-When a model fails a `none` task, triage the failing generation
+When a model fails a task (any variant; `none` and `card` failures are the most
+informative about priors), triage the failing generation
 (`tools/none_fail_detail.py <eval>.json none`) into one of two buckets:
 
 1. **Wrong prior** — the model wrote something reasonable from another language
@@ -542,8 +585,8 @@ Paths are tagged by repo: unmarked = **this repo** (`emkey1/aether`);
 | You want to… | Go to |
 |---|---|
 | Understand the *vision* / phases | `src/aether/DESIGN.md` |
-| *Write* Aether (reference) | `Docs/aether_for_llms_and_others.md` (and the `…small_contexts` variant) |
-| Run the KPI benchmark | *(umbrella)* `tools/aether_doc_bench.py` (variants `full`/`small`/`none`, `--python-baseline`) |
+| *Write* Aether (reference) | `docs/aether_for_llms_and_others.md` (and the medium and small guides); what is accepted: `docs/aether_spec.md` |
+| Run the KPI benchmark | *(umbrella)* `tools/aether_doc_bench.py` (variants `full`/`medium`/`small`/`card`/`none`, `--python-baseline`; KPIs in §3.1) |
 | Triage a `none` failure | *(umbrella)* `tools/none_fail_detail.py <eval>.json none` |
 | See the surface↔backend alias lowering | `src/aether/ast_prepasses.c` (pre-passes) + `src/aether/ast_parser.c` |
 | Find Aether-only behavior forks | grep `FRONTEND_KIND_AETHER` |
@@ -557,12 +600,15 @@ Paths are tagged by repo: unmarked = **this repo** (`emkey1/aether`);
 ## 10. The through-line
 
 Aether is a thin, opinionated front end over the PSCAL backend whose every design
-choice is answerable to one question: **did the no-guide benchmark go up?** When a
-small model fails a task, the first hypothesis is that *Aether* is wrong — too many
-spellings, a missing obvious builtin, a crash where degradation belonged, ceremony
-where a dotted path belonged. Fix the language and every model gets better for
-free; patch the corpus only when the model's prior, not the language, is the
-thing at fault. The warts are debts owed to the Rea-rewrite bootstrap — but, as
-the one-liner-`if` fix (§6.1) showed, most are payable *without* a new parser, by
-normalizing the surface into the form the existing line machinery already
-handles. Forking the shared grammar is the last resort, not the first.
+choice is answerable to one question: **did the measured KPI go up, and did the
+silent-wrong share stay down?** Concretely: does G (the medium guide on the local
+panel) hold or rise, does the G − P gap shrink, does S not rise, and does replay
+show R = 0 (§3.1). When a small model fails a task, the first hypothesis is still
+that *Aether* is wrong — too many spellings that mean different things, a
+missing obvious builtin, a crash where degradation belonged, ceremony where a
+dotted path belonged. Fix the language and every model gets better for free;
+patch the corpus or the guide only when the model's prior, not the language, is
+the thing at fault, and check the surface registry (§5.7) before calling a
+spelling a wrong prior. The warts were debts owed to the rewrite-era bootstrap;
+the AST parser paid most of them, and the lowering contract (§2.2) is how the
+next desugaring avoids new ones.
