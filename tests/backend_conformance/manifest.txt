@@ -1,0 +1,31 @@
+# Backend conformance pack: what Aether programs need from the shared engine
+# (pscal-core, rea), checked on every pin bump. Run by tests/backend_conformance/run.py,
+# CTest `aether_backend_conformance` and tools/pin_gate.sh.
+#
+# One fixture per line: <name> <kind> <expect>  <note>
+#   kind    stdout  run <name>.aether, compare stdout byte for byte with <name>.out,
+#                   the exit status with <name>.rc (default 0), stdin from <name>.in
+#                   (default empty), and require each line of <name>.stderr_has
+#                   (case-insensitive) in stderr; once with --no-cache, then twice on
+#                   a private cache (cold, then warm)
+#           rss     run <name>.aether.tmpl with @N@ = 8000 and 200000 and compare peak
+#                   RSS: more than 8 bytes per extra loop iteration fails
+#           probe   D19 report-only probe under d19/ (needs --pascal / --clike); its
+#                   output is printed beside <file>.today and never fails the pack
+#   expect  pass          must pass
+#           xfail:<item>  a known engine defect, fixed by the named plan item. It must
+#                   fail; once it passes the pack fails until this line says `pass`,
+#                   in the same commit as the pin bump that fixed it.
+
+int64_stored            stdout  pass         const, typed-local and accumulator Int stay 64-bit
+int64_stored_overflow   stdout  pass         a stored INT64 product past 2^63 traps with exit 1
+int64_paths             stdout  xfail:W5-04  literal-derived Int is INT32 at runtime and wraps
+int64_overflow_trap     stdout  xfail:W5-04  fact(25) from a literal wraps with exit 0 instead of trapping
+leak_guard              rss     xfail:W5-03  one ArrayObj leaked per indexed access
+stdin_pipe              stdout  xfail:W5-12  readln writes ESC[?25h to a piped stdout, strips and splits lines
+width_spec_numeric      stdout  pass         width on a literal, an Int and a Real with precision
+width_spec              stdout  xfail:W5-13  width on a Text local or field prints ?, a Bool prints TRUE
+toon_len_absent         stdout  xfail:W5-09  toon_len of an absent key returns -1, not 0
+empty_array_eq          stdout  xfail:W5-08  an empty array after setlength is not == []
+d19/pascal_int_wrap.pas probe   report       D19: Pascal 32-bit wrap, stored and unstored
+d19/clike_int_wrap.cl   probe   report       D19: CLike store truncation (Int64.cl) and wrap

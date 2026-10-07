@@ -1,0 +1,18 @@
+// readln from a piped stdin into a piped stdout (B-backend-coupling-4). Today
+// every stdin readln writes ESC[?25h to stdout even when it is not a terminal,
+// strips the leading whitespace of the line and splits a line longer than 1023
+// bytes. The expected stdout is byte-exact. Fixed by W5-12.
+fn main() -> Void {
+    let a: Text = "";
+    let b: Text = "";
+    let c: Text = "";
+    fx {
+        readln(a);
+        readln(b);
+        readln(c);
+        println("[", a, "]");
+        println("[", b, "]");
+        println(length(c));
+    }
+    ret;
+}

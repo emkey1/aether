@@ -1,0 +1,5 @@
+stored_integer=-2147483648
+stored_longint=2147483648
+stored_int64=2147483648
+unstored_literal=-2147483648
+unstored_from_integer=-2147483648

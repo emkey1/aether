@@ -1,0 +1,17 @@
+// `value:width` on a computed Text and on a Bool (B-expressiveness-4). Only an
+// ASCII string literal formats today: a Text local or record field prints `?`
+// and a Bool prints TRUE, unlike println(b). Fixed by W5-13.
+type Row { name: Text = ""; }
+
+fn main() -> Void {
+    let s: Text = "ab";
+    let r: Row = new Row();
+    r.name = "cd";
+    let b: Bool = true;
+    fx {
+        println("[", s:5, "]");
+        println("[", r.name:5, "]");
+        println("[", b:6, "]");
+    }
+    ret;
+}

@@ -1,0 +1,29 @@
+// The 64-bit paths that work today: a const, typed locals, an accumulator and
+// a loop counter. A backend change that truncates stored Int values (as
+// pscal-core 95efdcb once did) fails here.
+const SECS: Int = 100 * 365 * 24 * 60 * 60;
+
+fn factLoop(n: Int) -> Int {
+    let acc: Int = 1;
+    loop k in 2..n + 1 {
+        acc = acc * k;
+    }
+    ret acc;
+}
+
+fn main() -> Void {
+    let big: Int = 3000000000;
+    let p: Int = 1;
+    loop i in 0..40 {
+        p = p * 2;
+    }
+    let num: Int = 20;
+    fx {
+        println(SECS);
+        println(big + big);
+        println(p);
+        println(factLoop(num));
+        println(factLoop(20));
+    }
+    ret;
+}

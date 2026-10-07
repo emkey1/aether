@@ -316,3 +316,22 @@ else()
         TIMEOUT 1200
         LABELS "invariance")
 endif()
+
+# ---- Backend conformance ------------------------------------------------------
+# tests/backend_conformance/run.py: what Aether programs need from the shared
+# engine (pscal-core, rea), each stdout fixture run uncached and then cold and
+# warm on a private cache. Today's known engine defects are expected failures
+# (manifest.txt `xfail:<item>`): they do not fail this test, but one that starts
+# passing does, until its line flips to `pass` in the commit whose pin bump
+# fixed it. A few seconds, so the default run includes it; tools/pin_gate.sh
+# runs the same pack against candidate pins.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME aether_backend_conformance
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/backend_conformance/run.py
+                     --aether $<TARGET_FILE:aether>)
+    set_tests_properties(aether_backend_conformance PROPERTIES
+        TIMEOUT 300
+        LABELS "conformance")
+endif()

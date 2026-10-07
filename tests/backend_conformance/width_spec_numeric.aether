@@ -1,0 +1,13 @@
+// The width specs that work today: a string literal, an Int and a Real with
+// a precision.
+fn main() -> Void {
+    let n: Int = 42;
+    let x: Real = 3.14159;
+    fx {
+        println("[", "ab":5, "]");
+        println("[", n:5, "]");
+        println("[", x:0:2, "]");
+        println("[", x:8:3, "]");
+    }
+    ret;
+}

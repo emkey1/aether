@@ -1,0 +1,12 @@
+// A stored INT64 accumulator that passes 2^63 stops with a runtime error and
+// exit 1 instead of wrapping.
+fn main() -> Void {
+    let acc: Int = 1;
+    loop k in 2..26 {
+        acc = acc * k;
+    }
+    fx {
+        println(acc);
+    }
+    ret;
+}

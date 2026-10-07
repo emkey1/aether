@@ -1,0 +1,16 @@
+// toon_len of an absent key (A-probe-full-B-2). A null node gives 0, but the
+// node toon_key returns for a missing key gives -1, so `loop i < toon_len(n)`
+// is safe only by accident. Fixed by W5-09 (absent and null nodes are total).
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"jobs\":[1,2,3]}");
+    let root: ToonNode = toon_root(doc);
+    let jobs: ToonNode = toon_key(root, "jobs");
+    let missing: ToonNode = toon_key(root, "nope");
+    fx {
+        println(toon_len(jobs));
+        println(toon_len(missing));
+        println(toon_len(toon_null()));
+    }
+    toon_close(doc);
+    ret;
+}
