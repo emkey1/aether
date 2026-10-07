@@ -2450,6 +2450,11 @@ static int appendAetherBuiltinAlias(Buffer *out, const char *nameStart, size_t n
     if (nameLen == 3 && strncmp(nameStart, "len", nameLen) == 0) {
         return aetherAliasAppendRecorded(out, nameStart, nameLen, "length");
     }
+    /* Twin of aliasBuiltinName's entry: `exit(n)` ends the program (halt),
+     * rather than pscal's Exit(value), which only returns from the function. */
+    if (nameLen == 4 && strncmp(nameStart, "exit", nameLen) == 0) {
+        return aetherAliasAppendRecorded(out, nameStart, nameLen, "halt");
+    }
     return 0;
 }
 

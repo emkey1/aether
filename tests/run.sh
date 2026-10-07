@@ -89,6 +89,10 @@ LOOP_NESTED_CONTINUE_PASS_FIXTURE="$TESTS_DIR/loop_nested_continue_pass.aether"
 ARRAY_EMPTY_INDEX_FAIL_FIXTURE="$TESTS_DIR/array_empty_index_fail.aether"
 DANGLING_OPERAND_FAIL_FIXTURE="$TESTS_DIR/dangling_operand_fail.aether"
 PARAM_LIST_SINGLE_ERROR_FAIL_FIXTURE="$TESTS_DIR/param_list_single_error_fail.aether"
+EXIT_IN_HELPER_STATUS_PASS_FIXTURE="$TESTS_DIR/exit_in_helper_status_pass.aether"
+MAIN_RETURNS_INT_STATUS_PASS_FIXTURE="$TESTS_DIR/main_returns_int_status_pass.aether"
+USER_FN_NAMED_EXIT_PASS_FIXTURE="$TESTS_DIR/user_fn_named_exit_pass.aether"
+EXIT_NO_ARG_PASS_FIXTURE="$TESTS_DIR/exit_no_arg_pass.aether"
 LOOP_STEP_ZERO_FAIL_FIXTURE="$TESTS_DIR/loop_step_zero_fail.aether"
 WORD_OPERATORS_PASS_FIXTURE="$TESTS_DIR/word_operators_pass.aether"
 ARRAY_EQUALITY_PASS_FIXTURE="$TESTS_DIR/array_equality_pass.aether"
@@ -316,6 +320,10 @@ for fixture in \
     "$ARRAY_EMPTY_INDEX_FAIL_FIXTURE" \
     "$DANGLING_OPERAND_FAIL_FIXTURE" \
     "$PARAM_LIST_SINGLE_ERROR_FAIL_FIXTURE" \
+    "$EXIT_IN_HELPER_STATUS_PASS_FIXTURE" \
+    "$MAIN_RETURNS_INT_STATUS_PASS_FIXTURE" \
+    "$USER_FN_NAMED_EXIT_PASS_FIXTURE" \
+    "$EXIT_NO_ARG_PASS_FIXTURE" \
     "$LOOP_STEP_ZERO_FAIL_FIXTURE" \
     "$WORD_OPERATORS_PASS_FIXTURE" \
     "$ARRAY_EQUALITY_PASS_FIXTURE" \
@@ -3640,6 +3648,28 @@ if [ "$(grep -c '\[[A-Z][A-Z]*-[0-9][0-9]*\]' $OUT/param_list_single_error_fail.
     cat $OUT/param_list_single_error_fail.stderr >&2
     exit 1
 fi
+
+# `exit(n)` ends the program with status n (it aliases halt); it used to be
+# pscal's Exit(value), which returned n from the enclosing function and let the
+# program carry on with status 0. An entry `fn main() -> Int` sets the status
+# from its return value. A user's own `fn exit` shadows the alias.
+# expect_status FILE RC STDOUT: the program exits RC and prints exactly STDOUT.
+expect_status() {
+    local src="$1" want_rc="$2" want_out="$3" name rc
+    name="$(basename "$src" .aether)"
+    rc=0
+    "$AETHER_BIN" --no-cache "$src" >$OUT/$name.out 2>$OUT/$name.err || rc=$?
+    printf "$want_out" >$OUT/$name.expected
+    if [ "$rc" != "$want_rc" ] || ! cmp -s $OUT/$name.expected $OUT/$name.out; then
+        echo "$name: expected exit $want_rc and the recorded output, got exit $rc" >&2
+        cat $OUT/$name.out $OUT/$name.err >&2
+        exit 1
+    fi
+}
+expect_status "$EXIT_IN_HELPER_STATUS_PASS_FIXTURE" 1 'bad\n'
+expect_status "$MAIN_RETURNS_INT_STATUS_PASS_FIXTURE" 2 'exiting with 2\n'
+expect_status "$USER_FN_NAMED_EXIT_PASS_FIXTURE" 0 '40\nstill running\n'
+expect_status "$EXIT_NO_ARG_PASS_FIXTURE" 0 'stopping\n'
 
 # The bytecode cache round trip: the second run must load the chunk the first
 # run cached and print the same. The fixture's comment lists what used to

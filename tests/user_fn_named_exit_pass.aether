@@ -1,0 +1,15 @@
+// A user's own `fn exit` shadows the builtin alias (exit -> halt), the same
+// rule as any other aliased builtin: the call reaches the user's function,
+// and the program carries on and exits 0.
+fn exit(code: Int) -> Int {
+    ret code * 10;
+}
+
+fn main() -> Void {
+    let r: Int = exit(4);
+    fx {
+        println(r);
+        println("still running");
+    }
+    ret;
+}

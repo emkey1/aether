@@ -1,0 +1,18 @@
+// `exit(n)` ends the program with status n, from any function. It used to be
+// pscal's Exit(value): in a helper it returned n and the program carried on,
+// so this printed "bad", "1" and "after" and exited 0.
+fn check(n: Int) -> Int {
+    if n < 0 {
+        fx { println("bad"); exit(1); }
+    }
+    ret n;
+}
+
+fn main() -> Void {
+    let r: Int = check(-5);
+    fx {
+        println(r);
+        println("after");
+    }
+    ret;
+}

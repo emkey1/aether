@@ -1,0 +1,6 @@
+// An entry `fn main() -> Int` sets the process exit status from its return
+// value. The implicit main() call used to discard it, so this exited 0.
+fn main() -> Int {
+    fx { println("exiting with 2"); }
+    ret 2;
+}

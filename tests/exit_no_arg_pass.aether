@@ -1,0 +1,12 @@
+// `exit()` with no status ends the program with status 0; nothing after it
+// runs.
+fn stop() -> Void {
+    fx { println("stopping"); exit(); }
+    ret;
+}
+
+fn main() -> Void {
+    stop();
+    fx { println("not reached"); }
+    ret;
+}

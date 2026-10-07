@@ -1218,6 +1218,10 @@ static const char *aliasBuiltinName(const char *name) {
         { "print",           "write" },
         { "string_len",      "length" },
         { "len",             "length" },
+        /* `exit(n)` ends the program with status n. Unaliased it is pscal's
+         * Exit(value), which returns n from the enclosing function and lets
+         * the program carry on (exit 0). */
+        { "exit",            "halt" },
     };
     if (!name) return name;
     for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); i++) {
@@ -2533,7 +2537,11 @@ static AST *parsePrimary(AetherParser *p) {
              * (e.g. FX-001 must say 'println', not 'writeln'). */
             char *surfaceAlias = NULL;
             const char *raw = tok->value ? tok->value : "";
-            const char *canonical = aliasBuiltinName(raw);
+            /* A user's own top-level `fn NAME` shadows an aliased builtin: the
+             * text pre-pass leaves such a name verbatim (505cd44), so aliasing
+             * it here would call the builtin instead of the user's function. */
+            const char *canonical = aetherAstIsTopLevelUserFunction(raw)
+                                        ? raw : aliasBuiltinName(raw);
             if (canonical != raw && strcmp(canonical, raw) != 0) {
                 surfaceAlias = strdup(raw);
                 freeToken(tok);
@@ -6254,12 +6262,20 @@ AST *parseAetherAst(const char *rawSource) {
      * inject an implicit `main()` call so the VM runs user code on start --
      * identical to rea parseRea's tail. */
     bool has_main = false;
+    bool mainIsInt = false;
+    VarType mainType = TYPE_VOID;
     for (int i = 0; i < decls->child_count; i++) {
         AST *d = decls->children[i];
         if (!d) continue;
         if ((d->type == AST_FUNCTION_DECL || d->type == AST_PROCEDURE_DECL) &&
             d->token && d->token->value && strcasecmp(d->token->value, "main") == 0) {
             has_main = true;
+            if (d->type == AST_FUNCTION_DECL &&
+                (d->var_type == TYPE_INT64 || d->var_type == TYPE_INT32 ||
+                 d->var_type == TYPE_INTEGER)) {
+                mainIsInt = true;
+                mainType = d->var_type;
+            }
         }
     }
     /* A top-level `let` sits in `stmts` to keep its position, but it is a
@@ -6276,6 +6292,20 @@ AST *parseAetherAst(const char *rawSource) {
     if (!has_executable_stmt && has_main) {
         Token *mainTok = newToken(TOKEN_IDENTIFIER, "main", 0, 0);
         AST *call = newASTNode(AST_PROCEDURE_CALL, mainTok);
+        /* `fn main() -> Int` sets the process exit status: inject
+         * `halt(main())`, so `ret 2;` from main exits 2. The bare call
+         * discarded the value and always exited 0. */
+        if (mainIsInt) {
+            setTypeAST(call, mainType);
+            Token *haltTok = newToken(TOKEN_IDENTIFIER, "halt", 0, 0);
+            AST *halt = newASTNode(AST_PROCEDURE_CALL, haltTok);
+            addChild(halt, call);
+            setTypeAST(halt, TYPE_VOID);
+            /* Compiler-injected, like the contract guards' halt: outside the
+             * fx fence (it would otherwise draw FX-001 on a line-0 call). */
+            aetherAstRegisterSynthesizedSubtree(halt);
+            call = halt;
+        }
         AST *stmt = newASTNode(AST_EXPR_STMT, call->token);
         setLeft(stmt, call);
         addChild(stmts, stmt);
