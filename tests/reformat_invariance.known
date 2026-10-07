@@ -1,0 +1,93 @@
+# Known reformat-invariance divergences: `program transform  # why`.
+# tests/tools/reformat_invariance.py (CTest aether_reformat_invariance)
+# fails on a divergence missing here and on a line here that now passes,
+# so this list only shrinks. Re-baselining (--write-known) needs the owner's
+# sign-off. Each fix commit deletes its lines and records the new count.
+examples/base/barnsley_fern leteq  # rc 0->1: barnsley_fern:81: Runtime Error: Undefined global variable 'counts'.
+examples/base/inferred_decls args  # rc 0->1: inferred_decls:17: [BUILT-002] Aether builtin parser error: 'toon_get_int' takes 2 arguments (node, key), but 1 was given.
+examples/base/inferred_decls argsnofn  # rc 0->1: inferred_decls:17: [BUILT-002] Aether builtin parser error: 'toon_get_int' takes 2 arguments (node, key), but 1 was given.
+examples/base/parsing leteq  # rc 0->1: parsing:14: Runtime Error: Undefined global variable 'names'.
+examples/base/text_processing leteq  # rc 0->1: text_processing:87: Runtime Error: Undefined global variable 'parts'.
+examples/base/toon_access args  # rc 0->1: toon_access:14: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_access argsnofn  # rc 0->1: toon_access:14: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_defaults args  # rc 0->1: toon_defaults:16: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/base/toon_defaults argsnofn  # rc 0->1: toon_defaults:16: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/base/toon_key_vars args  # rc 0->1: toon_key_vars:18: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_key_vars argsnofn  # rc 0->1: toon_key_vars:18: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_parse_payloads args  # rc 0->1: toon_parse_payloads:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_parse_payloads argsnofn  # rc 0->1: toon_parse_payloads:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_real_scalars args  # rc 0->1: toon_real_scalars:11: [BUILT-002] Aether builtin parser error: 'toon_get_real' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_real_scalars argsnofn  # rc 0->1: toon_real_scalars:11: [BUILT-002] Aether builtin parser error: 'toon_get_real' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_rebind args  # rc 0->1: toon_rebind:16: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_rebind argsnofn  # rc 0->1: toon_rebind:16: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_safe_nested args  # rc 0->1: toon_safe_nested:23: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/base/toon_safe_nested argsnofn  # rc 0->1: toon_safe_nested:23: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/base/toon_scalar_alias args  # rc 0->1: toon_scalar_alias:11: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_scalar_alias argsnofn  # rc 0->1: toon_scalar_alias:11: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_scalar_bindings args  # rc 0->1: toon_scalar_bindings:11: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_scalar_bindings argsnofn  # rc 0->1: toon_scalar_bindings:11: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_scalar_rebind args  # rc 0->1: toon_scalar_rebind:11: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_scalar_rebind argsnofn  # rc 0->1: toon_scalar_rebind:11: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_typed_handles args  # rc 0->1: toon_typed_handles:22: [BUILT-002] Aether builtin parser error: 'toon_get_int' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_typed_handles argsnofn  # rc 0->1: toon_typed_handles:22: [BUILT-002] Aether builtin parser error: 'toon_get_int' takes 2 arguments (node, key), but 1 was given.
+examples/base/tuple_post_contracts args  # rc 0->1: tuple_post_contracts:6: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+examples/base/tuple_post_contracts argsnofn  # rc 0->1: tuple_post_contracts:11: Runtime Error: Undefined global variable '__aether_tupdest_11'.
+examples/base/tuple_returns args  # rc 0->1: tuple_returns:15: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+examples/base/tuple_returns argsnofn  # rc 0->1: tuple_returns:55: Runtime Error: Undefined global variable '__aether_tupdest_55'.
+examples/base/tuple_returns join  # rc 0->1: L52: duplicate variable '__aether_tupdest_52' in this scope.
+examples/showcase/agent_report args  # rc 0->1: agent_report:24: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/showcase/agent_report argsnofn  # rc 0->1: agent_report:24: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/showcase/grade_report args  # rc 0->1: grade_report:176: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/showcase/grade_report argsnofn  # rc 0->1: grade_report:176: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/showcase/grade_report leteq  # rc 0->1: grade_report:255: Runtime Error: Undefined global variable 'students'.
+examples/showcase/release_board args  # rc 0->1: release_board:135: [BUILT-002] Aether builtin parser error: 'toon_get_int_or' takes 3 arguments (node, key, fallback), but 1 was given.
+examples/showcase/release_board argsnofn  # rc 0->1: release_board:135: [BUILT-002] Aether builtin parser error: 'toon_get_int_or' takes 3 arguments (node, key, fallback), but 1 was given.
+tests/alias_string_literal_pass.aether args  # rc 0->1: alias_string_literal_pass.aether:7: [SCOPE-001] identifier 'string_eq' not in scope.
+tests/alias_string_literal_pass.aether argsnofn  # rc 0->1: alias_string_literal_pass.aether:7: [SCOPE-001] identifier 'string_eq' not in scope.
+tests/array_concat_chain_pass.aether leteq  # rc 0->1: array_concat_chain_pass.aether:34: Runtime Error: Undefined global variable 'mixed'.
+tests/array_concat_return_pass.aether leteq  # rc 0->1: array_concat_return_pass.aether:57: Runtime Error: Undefined global variable 'joined'.
+tests/array_field_index_pass.aether leteq  # rc 0->1: array_field_index_pass.aether:6: Runtime Error: Undefined global variable 'items'.
+tests/array_literal_after_loop_pass.aether leteq  # rc 0->1: array_literal_after_loop_pass.aether:12: Runtime Error: Undefined global variable 'd'.
+tests/array_slice_concat_operand_pass.aether leteq  # rc 0->1: array_slice_concat_operand_pass.aether:29: Runtime Error: Undefined global variable 'left'.
+tests/array_value_semantics_pass.aether leteq  # rc 0->1: array_value_semantics_pass.aether:23: Runtime Error: Undefined global variable 'con'.
+tests/contract_collection_length_pass.aether leteq  # rc 0->1: contract_collection_length_pass.aether:16: Runtime Error: Undefined global variable 'v'.
+tests/dynamic_array_append_multi_pass.aether leteq  # rc 0->1: dynamic_array_append_multi_pass.aether:12: Runtime Error: Undefined global variable 'ws'.
+tests/dynamic_array_concat_let_pass.aether leteq  # rc 0->1: dynamic_array_concat_let_pass.aether:6: Runtime Error: Undefined global variable 'zs'.
+tests/inferred_bindings_pass.aether args  # rc 0->1: inferred_bindings_pass.aether:17: [BUILT-002] Aether builtin parser error: 'toon_get_int' takes 2 arguments (node, key), but 1 was given.
+tests/inferred_bindings_pass.aether argsnofn  # rc 0->1: inferred_bindings_pass.aether:17: [BUILT-002] Aether builtin parser error: 'toon_get_int' takes 2 arguments (node, key), but 1 was given.
+tests/inline_object_method_inference_pass.aether leteq  # rc 0->1: inline_object_method_inference_pass.aether:15: Runtime Error: Undefined global variable '__aether_obj_15'.
+tests/par_shared_tuple_call_pass.aether args  # rc 0->1: par_shared_tuple_call_pass.aether:14: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/string_eq_alias_pass.aether args  # rc 0->1: string_eq_alias_pass.aether:3: [SCOPE-001] identifier 'string_eq' not in scope.
+tests/string_eq_alias_pass.aether argsnofn  # rc 0->1: string_eq_alias_pass.aether:3: [SCOPE-001] identifier 'string_eq' not in scope.
+tests/string_parse_pass.aether leteq  # rc 0->1: string_parse_pass.aether:5: Runtime Error: Undefined global variable 'parts'.
+tests/swap_shadow_builtin_pass.aether leteq  # rc 0->1: swap_shadow_builtin_pass.aether:10: Runtime Error: Undefined global variable 'xs'.
+tests/toon_alias_pass.aether args  # rc 0->1: toon_alias_pass.aether:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_alias_pass.aether argsnofn  # rc 0->1: toon_alias_pass.aether:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_comment_arithmetic_pass.aether args  # rc 0->1: toon_comment_arithmetic_pass.aether:16: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_comment_arithmetic_pass.aether argsnofn  # rc 0->1: toon_comment_arithmetic_pass.aether:16: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_dotted_path_pass.aether args  # rc 0->1: toon_dotted_path_pass.aether:7: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+tests/toon_dotted_path_pass.aether argsnofn  # rc 0->1: toon_dotted_path_pass.aether:7: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
+tests/toon_json_helpers_pass.aether args  # rc 0->1: toon_json_helpers_pass.aether:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_json_helpers_pass.aether argsnofn  # rc 0->1: toon_json_helpers_pass.aether:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_nested_helpers_pass.aether args  # rc 0->1: toon_nested_helpers_pass.aether:17: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_nested_helpers_pass.aether argsnofn  # rc 0->1: toon_nested_helpers_pass.aether:17: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_parse_string_alias_pass.aether args  # rc 0->1: toon_parse_string_alias_pass.aether:15: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_parse_string_alias_pass.aether argsnofn  # rc 0->1: toon_parse_string_alias_pass.aether:15: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+tests/toon_single_char_key_pass.aether args  # rc 0->1: toon_single_char_key_pass.aether:20: [BUILT-002] Aether builtin parser error: 'toon_get_real_or' takes 3 arguments (node, key, fallback), but 1 was gi
+tests/toon_single_char_key_pass.aether argsnofn  # rc 0->1: toon_single_char_key_pass.aether:20: [BUILT-002] Aether builtin parser error: 'toon_get_real_or' takes 3 arguments (node, key, fallback), but 1 was gi
+tests/tuple_array_item_pass.aether args  # rc 0->1: tuple_array_item_pass.aether:9: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_array_item_pass.aether argsnofn  # rc 0->1: tuple_array_item_pass.aether:29: Runtime Error: Undefined global variable '__aether_tupdest_29'.
+tests/tuple_array_item_pass.aether join  # rc 0->1: L22: duplicate variable '__aether_tupdest_22' in this scope.
+tests/tuple_destructure_forward_pass.aether args  # rc 0->1: tuple_destructure_forward_pass.aether:12: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_destructure_forward_pass.aether argsnofn  # rc 0->1: tuple_destructure_forward_pass.aether:2: Runtime Error: Undefined global variable '__aether_tupdest_2'.
+tests/tuple_destructure_pass.aether args  # rc 0->1: tuple_destructure_pass.aether:1: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_destructure_pass.aether argsnofn  # rc 0->1: tuple_destructure_pass.aether:7: Runtime Error: Undefined global variable '__aether_tupdest_7'.
+tests/tuple_index_access_pass.aether args  # rc 0->1: tuple_index_access_pass.aether:1: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_indirect_recursion_pass.aether args  # rc 0->1: tuple_indirect_recursion_pass.aether:9: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_indirect_recursion_pass.aether argsnofn  # rc 0->1: tuple_indirect_recursion_pass.aether:21: Runtime Error: Undefined global variable '__aether_tupdest_21'.
+tests/tuple_multiline_signature_pass.aether args  # rc 0->1: tuple_multiline_signature_pass.aether:20: Runtime Error: Undefined global variable '__aether_tupdest_20'.
+tests/tuple_multiline_signature_pass.aether argsnofn  # rc 0->1: tuple_multiline_signature_pass.aether:19: Runtime Error: Undefined global variable '__aether_tupdest_19'.
+tests/tuple_post_pass.aether args  # rc 0->1: tuple_post_pass.aether:6: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_post_pass.aether argsnofn  # rc 0->1: tuple_post_pass.aether:11: Runtime Error: Undefined global variable '__aether_tupdest_11'.
+tests/tuple_recursion_pass.aether args  # rc 0->1: tuple_recursion_pass.aether:9: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed.
+tests/tuple_recursion_pass.aether argsnofn  # rc 0->1: tuple_recursion_pass.aether:14: Runtime Error: Undefined global variable '__aether_tupdest_14'.

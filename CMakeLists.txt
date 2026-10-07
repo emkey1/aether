@@ -195,7 +195,8 @@ endif()
 # under tools/. The token gate needs tiktoken (tools/requirements-docs.txt) and
 # reports Skipped, not Passed, without it: point AETHER_DOCS_PYTHON at an
 # interpreter that has it, e.g. -DAETHER_DOCS_PYTHON=$HOME/venv/bin/python.
-# Labels: every test here carries `guide`; the developer run is
+# Labels: `guide` on the doc gates (`report` on the two that only report until
+# the first guide pass), `invariance` on the reformat gate; the developer run is
 # `ctest -LE 'stress|metric'`.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 set(AETHER_DOCS_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
@@ -285,4 +286,17 @@ else()
     set_tests_properties(aether_diag_codes PROPERTIES
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>;AETHER_REA_DIR=${rea_SOURCE_DIR};AETHER_PSCAL_CORE_DIR=${pscal_core_SOURCE_DIR}"
         LABELS "guide;report")
+
+    # Layout-only rewrites (wrapped arguments, a `let` broken after `=`,
+    # re-indentation, trailing comments, joined statements) of every pass
+    # fixture and example must print the same stdout with the same exit status.
+    # tests/reformat_invariance.known lists today's divergences and only
+    # shrinks: a new divergence fails, and so does a listed pair that passes.
+    add_test(NAME aether_reformat_invariance
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/reformat_invariance.py)
+    set_tests_properties(aether_reformat_invariance PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        TIMEOUT 1200
+        LABELS "invariance")
 endif()
