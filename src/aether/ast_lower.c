@@ -1933,6 +1933,14 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line)
  * sign is only known at run time tests both directions
  * (`(s > 0 && NAME < HIGH) || (s < 0 && NAME > HIGH)`), so the loop never
  * runs away in the wrong direction. A literal `step 0` is rejected. */
+/* copyAST(high) for the runtime-step form's second test, registered like the
+ * original so both read as a range bound. */
+static AST *aetherAstRegisteredRangeBoundCopy(AST *high) {
+    AST *copy = copyAST(high);
+    aetherAstRegisterRangeBound(copy);
+    return copy;
+}
+
 AST *parseLoopRange(AetherParser *p) {
     if (!aetherTokenIsIdentifierLike(&p->current)) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
@@ -2104,6 +2112,7 @@ AST *parseLoopRange(AetherParser *p) {
                                        : buildIntLiteral(stepLit, idLine))
 
     AST *cond;
+    aetherAstRegisterRangeBound(high);
     if (stepSign > 0) {
         cond = buildBinOp(TOKEN_LESS, "<", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine), high,
                           TYPE_BOOLEAN, idLine);
@@ -2121,7 +2130,7 @@ AST *parseLoopRange(AetherParser *p) {
                 buildBinOp(TOKEN_LESS, "<", AETHER_STEP_REF(), buildIntLiteral(0, idLine),
                            TYPE_BOOLEAN, idLine),
                 buildBinOp(TOKEN_GREATER, ">", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine),
-                           copyAST(high), TYPE_BOOLEAN, idLine),
+                           aetherAstRegisteredRangeBoundCopy(high), TYPE_BOOLEAN, idLine),
                 TYPE_BOOLEAN, idLine);
         cond = buildBinOp(TOKEN_OR, "||", up, down, TYPE_BOOLEAN, idLine);
     }

@@ -11,6 +11,7 @@
 #include "backend_ast/builtin.h"
 #include "aether/diagnostics.h"
 #include "aether/parser.h"
+#include "aether/types.h"
 #include "rea/semantic.h"
 
 /* Opaque handle kinds tracked by the textual type-flow pass. The TOON pair
@@ -3548,6 +3549,9 @@ void aetherPerformSemanticAnalysis(AST *root) {
      * target as untyped and fired only on `let` declarations, whose type comes
      * straight off the parsed declaration. */
     aetherWalkNarrowing(root);
+    /* The type oracle's pass (types.c). It runs only when AETHER_DUMP_TYPES is
+     * set and reports no diagnostics: W7-24a ships the oracle with no rules. */
+    aetherTypedPass(root);
 }
 
 void aetherSemanticSetSourcePath(const char *path) {

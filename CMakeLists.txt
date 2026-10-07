@@ -126,6 +126,8 @@ set(AETHER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_checks.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/semantic.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/state.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/experiment.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/types.c
 )
 
 add_executable(aether ${AETHER_SOURCES})
@@ -181,6 +183,21 @@ if(Python3_Interpreter_FOUND)
              COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_public_hygiene.py
                      --root ${CMAKE_CURRENT_SOURCE_DIR})
     set_tests_properties(aether_public_hygiene PROPERTIES LABELS "lint" SKIP_RETURN_CODE 77)
+endif()
+
+# ---- Type oracle (W7-24a) ------------------------------------------------------
+# AETHER_DUMP_TYPES over every tests/*_pass.aether must agree with the types the
+# fixtures declare (no MISMATCH row), and the oracle's builtin return table must
+# agree with the binary's builtins_json. See tools/check_type_oracle.py.
+if(Python3_Interpreter_FOUND)
+    add_test(NAME aether_type_oracle
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_type_oracle.py)
+    add_test(NAME aether_type_oracle_builtins
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_type_oracle.py
+                     --builtins)
+    set_tests_properties(aether_type_oracle aether_type_oracle_builtins PROPERTIES
+        LABELS "oracle"
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
 endif()
 
 # ---- Stress laps (off by default: -DAETHER_STRESS_TESTS=ON, then ctest -L stress)

@@ -138,6 +138,10 @@ static struct { const AST **items; size_t count; size_t cap; } g_aetherSynthesiz
  * looks Int-declared when it will in fact resolve to Real. Only a declaration
  * the author typed can contradict its initializer. */
 static struct { const AST **items; size_t count; size_t cap; } g_aetherExplicitTypedDecls;
+/* Upper-bound expressions of `loop i in a..b`. Lowering turns the bound into
+ * the right operand of the loop's `i < b` test, where it reads like any other
+ * comparison; the type oracle (types.c) needs to tell the two apart. */
+static struct { const AST **items; size_t count; size_t cap; } g_aetherRangeBounds;
 
 void aetherAstRegisterFxBlock(const AST *block, int line) {
     if (!block) return;
@@ -377,6 +381,27 @@ int aetherAstDeclHasExplicitType(const AST *node) {
     return 0;
 }
 
+void aetherAstRegisterRangeBound(const AST *node) {
+    if (!node) return;
+    if (g_aetherRangeBounds.count == g_aetherRangeBounds.cap) {
+        size_t newCap = g_aetherRangeBounds.cap ? g_aetherRangeBounds.cap * 2 : 16;
+        const AST **grown = (const AST **)realloc((void *)g_aetherRangeBounds.items,
+                                                  newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherRangeBounds.items = grown;
+        g_aetherRangeBounds.cap = newCap;
+    }
+    g_aetherRangeBounds.items[g_aetherRangeBounds.count++] = node;
+}
+
+int aetherAstIsRangeBound(const AST *node) {
+    if (!node) return 0;
+    for (size_t i = 0; i < g_aetherRangeBounds.count; i++) {
+        if (g_aetherRangeBounds.items[i] == node) return 1;
+    }
+    return 0;
+}
+
 int aetherAstNodeIsSynthesizedSubtree(const AST *node) {
     if (!node) return 0;
     for (size_t i = 0; i < g_aetherSynthesized.count; i++) {
@@ -416,6 +441,10 @@ void aetherAstClearSemanticRegistries(void) {
     g_aetherCallSurfaces.cap = 0;
 
     free((void *)g_aetherSynthesized.items);
+    free((void *)g_aetherRangeBounds.items);
+    g_aetherRangeBounds.items = NULL;
+    g_aetherRangeBounds.count = 0;
+    g_aetherRangeBounds.cap = 0;
     free((void *)g_aetherExplicitTypedDecls.items);
     g_aetherExplicitTypedDecls.items = NULL;
     g_aetherExplicitTypedDecls.count = 0;

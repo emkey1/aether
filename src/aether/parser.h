@@ -43,6 +43,9 @@ void aetherAstRegisterFunctionReturnsReal(const char *name, int returnsReal);
 void aetherAstRegisterExplicitTypedDecl(const AST *node);
 int aetherAstDeclHasExplicitType(const AST *node);
 int aetherAstLookupFunctionReturnsReal(const char *name, int *returnsReal);
+/* The upper bound of a lowered `loop i in a..b` (see types.c). */
+void aetherAstRegisterRangeBound(const AST *node);
+int aetherAstIsRangeBound(const AST *node);
 
 /* Record a top-level (non-method, i.e. not declared inside a `type { ... }`
  * body) function declaration's bare name. Used to let a user's own function
