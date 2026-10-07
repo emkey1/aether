@@ -46,6 +46,27 @@ check div_differ.aether "div=intplus"  1 "code:DIV-001"
 check div_differ.aether "div=realplus" 0 "avg=3.500000 twice=7"
 check div_differ.aether "div=ctx"      1 "code:DIV-001"
 
+# Number of distinct warnings carrying CODE (the help line repeats the code).
+check_warn() {
+    local fixture="$1" exp="$2" code="$3" want="$4" got
+    got="$(cd "$OUT" && HOME="$OUT" AETHER_EXPERIMENT="$exp" "$AETHER_BIN" --no-cache \
+        "$DIR/$fixture" 2>&1 >/dev/null </dev/null | grep -c "warning: \[$code\]")"
+    if [ "$got" != "$want" ]; then
+        echo "FAIL $fixture AETHER_EXPERIMENT='$exp': $got $code warnings, want $want"
+        fail=$((fail + 1))
+    else
+        pass=$((pass + 1))
+    fi
+}
+
+# D8: array parameters (W8-09).
+check arr_params.aether ""               0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
+check arr_params.aether "arrays=value"   0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
+check arr_params.aether "arrays=vstrict" 0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
+check arr_params.aether "arrays=ref"     0 "1358 g=1 a=5 b=5 s0=0 a0=1 t=6"
+check_warn arr_params.aether ""               ARR-001 0
+check_warn arr_params.aether "arrays=vstrict" ARR-001 5
+
 # A typo must not silently measure the default.
 (cd "$OUT" && AETHER_EXPERIMENT="div=nope" "$AETHER_BIN" --no-cache "$DIR/div_demand.aether" \
     >/dev/null 2>&1 </dev/null)

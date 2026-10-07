@@ -3537,6 +3537,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
     if (pascal_semantic_error_count > errorCountBefore) {
         return;
     }
+    aetherRunExperimentsBeforeRea(root);
     reaPerformSemanticAnalysis(root);
     /* TYPE-002, stage 2, runs here and not with the source-text passes above:
      * imported modules are loaded by the pass that just ran, so this is the

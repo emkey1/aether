@@ -1,0 +1,60 @@
+{
+ "ref": [
+  {
+   "key": "tests/array_mutation_warning_pass.aether",
+   "new_first_code": "ARR-001",
+   "new_rc": 0,
+   "new_stdout": "xs[0]=999\n",
+   "old_rc": 0,
+   "old_stdout": "xs[0]=1\n"
+  },
+  {
+   "key": "tests/array_value_semantics_pass.aether",
+   "new_first_code": null,
+   "new_rc": 0,
+   "new_stdout": "let-snap lit=1 con=1\nlet-rev lit=2 con=2\ncall lit=99 con=99 rets=99,99\nstmt src=3 dst=55\nappend-empty src=99 dst=44\nfield src=99 field=22 read=2\n",
+   "old_rc": 0,
+   "old_stdout": "let-snap lit=1 con=1\nlet-rev lit=2 con=2\ncall lit=1 con=1 rets=99,99\nstmt src=3 dst=55\nappend-empty src=1 dst=44\nfield src=1 field=22 read=2\n"
+  },
+  {
+   "key": "archive/718a73457892.aether",
+   "new_first_code": "ARR-001",
+   "new_rc": 0,
+   "new_stdout": "7\n19\n42\n",
+   "old_rc": 0,
+   "old_stdout": "42\n7\n19\n"
+  },
+  {
+   "key": "archive/dc3ff3f91938.aether",
+   "new_first_code": "ARR-001",
+   "new_rc": 0,
+   "new_stdout": "1\n, \n2\n, \n3\n, \n5\n, \n8\n, \n9\n\n",
+   "old_rc": 0,
+   "old_stdout": "5\n, \n2\n, \n8\n, \n1\n, \n9\n, \n3\n\n"
+  },
+  {
+   "key": "archive/e233b1ae8254.aether",
+   "new_first_code": "ARR-001",
+   "new_rc": 0,
+   "new_stdout": "1\n, \n2\n, \n3\n, \n5\n, \n8\n, \n9\n\n",
+   "old_rc": 0,
+   "old_stdout": "5\n, \n2\n, \n8\n, \n1\n, \n9\n, \n3\n\n"
+  },
+  {
+   "key": "corpus/28_perceptron.aether",
+   "new_first_code": null,
+   "new_rc": 1,
+   "new_stdout": "",
+   "old_rc": 0,
+   "old_stdout": "AND gate predictions:\n0,0 -> 0\n0,1 -> 0\n1,0 -> 0\n1,1 -> 1\n"
+  },
+  {
+   "key": "corpus/71_xor_convolution_fwht.aether",
+   "new_first_code": null,
+   "new_rc": 0,
+   "new_stdout": "First sequence: [31, -3, 5, -1, -13, 13, -7, -1]\nSecond sequence: [49, 7, -1, 1, -7, -9, -9, 9]\nXOR convolution: [190, 227, 178, 210, 183, 157, 198, 176]\nMatches quadratic verification: false\n",
+   "old_rc": 0,
+   "old_stdout": "First sequence: [3, 1, 4, 1, 5, 9, 2, 6]\nSecond sequence: [5, 3, 5, 8, 9, 7, 9, 3]\nXOR convolution: [190, 227, 178, 210, 183, 157, 198, 176]\nMatches quadratic verification: true\n"
+  }
+ ]
+}

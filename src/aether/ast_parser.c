@@ -61,6 +61,7 @@
 #include "aether/semantic.h"
 #include "aether/diagnostics.h"
 #include "aether/ast_prepasses.h"
+#include "aether/experiment.h"
 #include "aether/ast_internal.h"
 
 /* Count of user-facing diagnostics written to stderr during the current parse.
@@ -5101,7 +5102,17 @@ static AST *parseFnDecl(AetherParser *p) {
      * turn an empty non-Void body into a "fallthrough path") and before the
      * @pre injection below (the guard still lands at children[0]; copies
      * never change parameter values, so guard-vs-copy order is immaterial). */
-    if (hasBody && block && !p->hadError) {
+    /* AETHER_EXPERIMENT=arrays=ref (D8 census, src/aether/experiment.h): array
+     * parameters by reference and no prologue copy. The forward prototype gets
+     * the same marks, since the compiler reads parameter modes from it. */
+    bool arraysByRef = aetherExperiment()->arrays == AETHER_ARRAYS_REF;
+    if (arraysByRef) {
+        for (int pi = 0; pi < params->child_count; pi++) {
+            AST *paramDecl = params->children[pi];
+            if (paramDecl && paramDecl->var_type == TYPE_ARRAY) paramDecl->by_ref = 1;
+        }
+    }
+    if (hasBody && block && !p->hadError && !arraysByRef) {
         for (int pi = params->child_count - 1; pi >= 0; pi--) {
             AST *paramDecl = params->children[pi];
             if (!paramDecl || paramDecl->var_type != TYPE_ARRAY ||

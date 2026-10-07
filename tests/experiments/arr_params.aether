@@ -1,0 +1,65 @@
+// D8 experiment fixture: textbook Lomuto quicksort, whose swaps write into an
+// array parameter, plus a grid helper, an append helper that returns its
+// parameter, a whole-value copy of a parameter and an rvalue argument. Today
+// (value semantics) the sort is lost; arrays=ref sorts in place; V-strict
+// warns at every write the caller never sees.
+fn partition(xs: Int[], lo: Int, hi: Int) -> Int {
+    let p: Int = xs[hi];
+    let i: Int = lo;
+    loop j in lo..hi {
+        if xs[j] < p {
+            let t: Int = xs[i];
+            xs[i] = xs[j];
+            xs[j] = t;
+            i = i + 1;
+        }
+    }
+    let t: Int = xs[i];
+    xs[i] = xs[hi];
+    xs[hi] = t;
+    ret i;
+}
+
+fn qsort(xs: Int[], lo: Int, hi: Int) -> Void {
+    if lo < hi {
+        let p: Int = partition(xs, lo, hi);
+        qsort(xs, lo, p - 1);
+        qsort(xs, p + 1, hi);
+    }
+}
+
+fn mark(g: Int[][], r: Int, c: Int) -> Void {
+    g[r][c] = 1;
+}
+
+fn grow(xs: Int[]) -> Int[] {
+    xs = xs + [9];
+    ret xs;
+}
+
+fn snapshot(xs: Int[]) -> Int[] {
+    let c: Int[] = xs;
+    ret c;
+}
+
+fn total(xs: Int[]) -> Int {
+    let s: Int = 0;
+    for x in xs {
+        s = s + x;
+    }
+    ret s;
+}
+
+fn main() -> Void {
+    let a: Int[] = [5, 3, 8, 1];
+    qsort(a, 0, 3);
+    let g: Int[][] = [[0, 0], [0, 0]];
+    mark(g, 1, 1);
+    let b: Int[] = grow(a);
+    let s: Int[] = snapshot(a);
+    s[0] = 0;
+    fx {
+        println(a[0], a[1], a[2], a[3], " g=", g[1][1], " a=", length(a), " b=", length(b),
+                " s0=", s[0], " a0=", a[0], " t=", total([1, 2, 3]));
+    }
+}

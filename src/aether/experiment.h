@@ -9,6 +9,7 @@
  * variable AETHER_EXPERIMENT, a comma-separated list of key=value items:
  *
  *   div=current|int|intplus|realplus|ctx   Int/Int `/` (D4, W8-08)
+ *   arrays=value|vstrict|ref               array parameters (D8, W8-09)
  *
  * With the variable unset or empty every flag is at its first value, which is
  * the shipped behaviour. An unknown key or value is a usage error (exit 2): a
@@ -22,6 +23,13 @@
  *   div  <source>  <line>  <use>  <sink label>  <sink type>  <action>
  * action is int (rewritten to integer division), real (left Real), div001
  * (rejected), or unknown (an operand the oracle cannot type; left as today).
+ *   arr  <source>  <line>  <param>  <write kind>  <fn kind>  <verdict>
+ * one row per write to an array parameter: write kind is index, nested (an
+ * element of an element), resize (setlength / append) or reassign; fn kind
+ * is void or value; verdict is returned (the function returns that parameter,
+ * alone or in a tuple) or lost (V-strict's error). Also
+ *   arr-ref  <source>  <line>  <callee>  <param index>  -  hoisted|unhoistable
+ * for every rvalue argument the `ref` arm moved into a temporary.
  *
  * AETHER_DUMP_TYPES turns on the type oracle's dump (src/aether/types.c): "1"
  * writes it to stdout and exits after semantic analysis; any other value is a
@@ -42,8 +50,15 @@ typedef enum {
     AETHER_DIV_CTX          /* ctx: integer where an Int is demanded, else DIV-001  */
 } AetherDivRule;
 
+typedef enum {
+    AETHER_ARRAYS_VALUE = 0, /* value copies at the call boundary; ARR-001 as shipped */
+    AETHER_ARRAYS_VSTRICT,   /* V-strict in warn mode: ARR-001 at every lost write  */
+    AETHER_ARRAYS_REF        /* array parameters by reference, no prologue copy     */
+} AetherArraysRule;
+
 typedef struct {
     AetherDivRule div;
+    AetherArraysRule arrays;
     int any; /* nonzero when any flag is off its default */
 } AetherExperiment;
 
@@ -55,5 +70,9 @@ const char *aetherDumpTypesTarget(void);
 /* Runs the active arms over the analysed program (after rea's semantic pass,
  * before the type dump). A no-op with every flag at its default and no log. */
 void aetherRunExperiments(AST *root);
+
+/* The arms that must act before rea's semantic pass (arrays=ref moves rvalue
+ * arguments of by-reference parameters into temporaries). */
+void aetherRunExperimentsBeforeRea(AST *root);
 
 #endif
