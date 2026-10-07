@@ -1023,6 +1023,54 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->pendingObjLitCapacity = 0;
     p->nextObjLitId = 0;
     p->nextLoopId = 0;
+    p->exprAfterOpText = NULL;
+    p->exprAfterOpLen = 0;
+    p->exprAfterOpAt = NULL;
+    p->exprAfterOpLine = 0;
+    p->stmtStartAt = NULL;
+    p->detachedText = false;
+}
+
+/* Record that the operator token `op` was just consumed, so a missing right
+ * operand can name it (aetherReportMissingExpr). Keyed on the start of the
+ * token after the operator, so a stale record never matches. */
+void aetherNoteOperator(AetherParser *p, const ReaToken *op) {
+    p->exprAfterOpText = op->start;
+    p->exprAfterOpLen = (int)op->length;
+    p->exprAfterOpAt = p->current.start;
+    p->exprAfterOpLine = op->line;
+}
+
+/* SYN-001 for an expression that is not there: `if x == {`, `ret x + ;`,
+ * `println(x + )`, `f(a, , b)`. These used to return a NULL operand with no
+ * diagnostic, and callers built a NULL AST child from it, so the program ran
+ * with a missing branch, a nil return or a dropped argument and exit 0.
+ * Reports once (no-op when an error is already recorded) and always sets
+ * hadError. `context` (e.g. "after 'ret'") overrides the operator wording. */
+void aetherReportMissingExpr(AetherParser *p, const char *context) {
+    if (p->hadError) return;
+    p->hadError = true;
+    if (p->detachedText) return; /* parseExprFromText's caller reports */
+    char found[48];
+    if (p->current.type == REA_TOKEN_EOF || !p->current.start || p->current.length <= 0) {
+        snprintf(found, sizeof(found), "end of input");
+    } else {
+        int n = p->current.length > 32 ? 32 : (int)p->current.length;
+        snprintf(found, sizeof(found), "'%.*s'", n, p->current.start);
+    }
+    char msg[160];
+    int line = p->current.line;
+    if (context) {
+        snprintf(msg, sizeof(msg), "expected an expression %s, found %s.", context, found);
+    } else if (p->exprAfterOpText && p->exprAfterOpAt == p->current.start) {
+        int on = p->exprAfterOpLen > 8 ? 8 : p->exprAfterOpLen;
+        snprintf(msg, sizeof(msg), "expected an expression after '%.*s', found %s.",
+                 on, p->exprAfterOpText, found);
+        if (p->exprAfterOpLine > 0) line = p->exprAfterOpLine;
+    } else {
+        snprintf(msg, sizeof(msg), "expected an expression, found %s.", found);
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser", msg, NULL);
 }
 
 /* Queue a hoisted object-literal declaration (an i_val==1 AST_COMPOUND from
@@ -1735,7 +1783,7 @@ static AST *parseArgListEx(AetherParser *p, bool isWrite) {
     AST *args = newASTNode(AST_COMPOUND, NULL);
     while (p->current.type != REA_TOKEN_RIGHT_PAREN && p->current.type != REA_TOKEN_EOF) {
         AST *arg = isWrite ? parseWriteArg(p) : parseExpr(p);
-        if (!arg) break;
+        if (!arg) { aetherReportMissingExpr(p, NULL); break; }
         addChild(args, arg);
         if (p->current.type == REA_TOKEN_COMMA) {
             aetherAdvance(p);
@@ -1945,7 +1993,29 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
             /* array index: base[expr] -> AST_ARRAY_ACCESS (rea parseArrayAccess). */
             int openLine = p->current.line;
             aetherAdvance(p); /* consume '[' */
+            if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
+                /* `xs[]` has no index. It used to build an ARRAY_ACCESS with a
+                 * NULL index child, which read whatever operand was pushed
+                 * before it (a plausible value, exit 0) or crashed in a loop. */
+                aetherAdvance(p); /* consume ']' */
+                bool assigns = (p->current.type == REA_TOKEN_EQUAL);
+                if (!p->hadError) {
+                    reportAetherAstError(aetherSemanticGetSourcePath(), openLine, "parser",
+                            "empty index `[]`: an index expression is required.",
+                            assigns ? "to append, write `xs = xs + [v];`; to set an element, "
+                                      "write `xs[i] = v;`."
+                                    : "write `xs[i]` with an Int index (0-based).");
+                }
+                p->hadError = true;
+                freeAST(node);
+                return NULL;
+            }
             AST *index = parseExpr(p);
+            if (!index && p->current.type != AE_TOKEN_DOTDOT) {
+                aetherReportMissingExpr(p, "as the index");
+                freeAST(node);
+                return NULL;
+            }
             if (p->current.type == AE_TOKEN_DOTDOT) {
                 /* Slice sugar: base[lo..hi]. NOT a first-class Range value --
                  * docs/ideas_and_todo.md's array-slicing entry explicitly
@@ -1953,7 +2023,9 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                  * one, matching the no-closures decision's spirit (avoid a
                  * construct that can float around ambiguously). Lowered
                  * below to a hoisted temp-array decl + copy loop. */
+                ReaToken dots = p->current;
                 aetherAdvance(p); /* consume '..' */
+                aetherNoteOperator(p, &dots);
                 /* High bound via parseAdd, not parseExpr, mirroring
                  * parseLoopRange's documented rationale: full parseExpr would
                  * over-consume into &&/comparison operators (`xs[a..b && c]`
@@ -2167,7 +2239,7 @@ static AST *parseIfExpr(AetherParser *p) {
     int line = p->current.line;
     aetherAdvance(p); /* consume 'if' */
     AST *cond = parseExpr(p);
-    if (!cond) { p->hadError = true; return NULL; }
+    if (!cond) { aetherReportMissingExpr(p, "as the if condition"); return NULL; }
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                 "expected '{' after if-expression condition.", NULL);
@@ -2188,7 +2260,7 @@ static AST *parseIfExpr(AetherParser *p) {
         if (thenExpr) freeAST(thenExpr);
         return NULL;
     }
-    if (!thenExpr) { p->hadError = true; freeAST(cond); return NULL; }
+    if (!thenExpr) { aetherReportMissingExpr(p, "in the if branch"); freeAST(cond); return NULL; }
     if (p->current.type != REA_TOKEN_ELSE) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                 "if-expression requires an 'else' branch.", NULL);
@@ -2227,7 +2299,11 @@ static AST *parseIfExpr(AetherParser *p) {
             if (elseExpr) freeAST(elseExpr);
             return NULL;
         }
-        if (!elseExpr) { p->hadError = true; freeAST(cond); freeAST(thenExpr); return NULL; }
+        if (!elseExpr) {
+            aetherReportMissingExpr(p, "in the else branch");
+            freeAST(cond); freeAST(thenExpr);
+            return NULL;
+        }
     }
 
     Token *tok = newToken(TOKEN_IF, "?", line, 0);
@@ -2252,6 +2328,7 @@ static AST *parsePrimary(AetherParser *p) {
     if (p->current.type == REA_TOKEN_MINUS) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parsePrimary(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_MINUS, "-", op.line, 0);
@@ -2265,6 +2342,7 @@ static AST *parsePrimary(AetherParser *p) {
     if (p->current.type == REA_TOKEN_BANG || isAetherKeyword(&p->current, "not")) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parsePrimary(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_NOT, "!", op.line, 0);
@@ -2300,7 +2378,11 @@ static AST *parsePrimary(AetherParser *p) {
         while (p->current.type != REA_TOKEN_RIGHT_BRACKET &&
                p->current.type != REA_TOKEN_EOF) {
             AST *element = parseExpr(p);
-            if (!element) break;
+            if (!element) {
+                aetherReportMissingExpr(p, "as an array element");
+                freeAST(literal);
+                return NULL;
+            }
             addChild(literal, element);
             if (p->current.type == REA_TOKEN_COMMA) {
                 aetherAdvance(p);
@@ -2574,6 +2656,12 @@ static AST *parsePrimary(AetherParser *p) {
         setTypeAST(node, TYPE_UNKNOWN);
         return parsePostfix(p, node);
     }
+    /* No expression starts at this token. Report it (SYN-001) unless the token
+     * opened an expression statement, where parseBlock's "expected a
+     * statement" is the better message. */
+    if (!(p->stmtStartAt && p->current.start == p->stmtStartAt)) {
+        aetherReportMissingExpr(p, NULL);
+    }
     return NULL;
 }
 
@@ -2590,6 +2678,7 @@ static AST *parseMul(AetherParser *p) {
            p->current.type == REA_TOKEN_PERCENT) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parsePrimary(p);
         if (!right) return NULL;
         VarType lt = node->var_type, rt = right->var_type;
@@ -2621,6 +2710,7 @@ AST *parseAdd(AetherParser *p) {
     while (p->current.type == REA_TOKEN_PLUS || p->current.type == REA_TOKEN_MINUS) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseMul(p);
         if (!right) return NULL;
         TokenType tt = (op.type == REA_TOKEN_PLUS) ? TOKEN_PLUS : TOKEN_MINUS;
@@ -2662,6 +2752,7 @@ static AST *parseShift(AetherParser *p) {
     while (p->current.type == REA_TOKEN_SHIFT_LEFT || p->current.type == REA_TOKEN_SHIFT_RIGHT) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseAdd(p);
         if (!right) return NULL;
         TokenType tt = (op.type == REA_TOKEN_SHIFT_LEFT) ? TOKEN_SHL : TOKEN_SHR;
@@ -2685,6 +2776,7 @@ static AST *parseComparison(AetherParser *p) {
            p->current.type == REA_TOKEN_LESS || p->current.type == REA_TOKEN_LESS_EQUAL) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseShift(p);
         if (!right) return NULL;
         TokenType tt;
@@ -2737,6 +2829,7 @@ static AST *parseEquality(AetherParser *p) {
     while (p->current.type == REA_TOKEN_EQUAL_EQUAL || p->current.type == REA_TOKEN_BANG_EQUAL) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseComparison(p);
         if (!right) return NULL;
         /* Opaque-handle nil comparison: `handle == nil` / `nil == handle` ->
@@ -2831,6 +2924,7 @@ static AST *parseBitwiseAnd(AetherParser *p) {
     while (p->current.type == REA_TOKEN_AND) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseEquality(p);
         if (!right) return NULL;
         aetherWarnBitwisePrecedence(p, "&", node, right, op.line);
@@ -2852,6 +2946,7 @@ static AST *parseBitwiseXor(AetherParser *p) {
     while (p->current.type == REA_TOKEN_XOR) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseBitwiseAnd(p);
         if (!right) return NULL;
         const char *lexeme = (strncmp(op.start, "xor", op.length) == 0) ? "xor" : "^";
@@ -2881,6 +2976,7 @@ static AST *parseBitwiseOr(AetherParser *p) {
     while (p->current.type == REA_TOKEN_OR) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseBitwiseXor(p);
         if (!right) return NULL;
         aetherWarnBitwisePrecedence(p, "|", node, right, op.line);
@@ -2902,6 +2998,7 @@ static AST *parseLogicalAnd(AetherParser *p) {
     while (p->current.type == REA_TOKEN_AND_AND || isAetherKeyword(&p->current, "and")) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseBitwiseOr(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_AND, "&&", op.line, 0);
@@ -2920,6 +3017,7 @@ static AST *parseLogicalOr(AetherParser *p) {
     while (p->current.type == REA_TOKEN_OR_OR || isAetherKeyword(&p->current, "or")) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *right = parseLogicalAnd(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_OR, "||", op.line, 0);
@@ -2943,6 +3041,7 @@ static AST *parseConditional(AetherParser *p) {
     if (p->current.type != REA_TOKEN_QUESTION) return cond;
     ReaToken question = p->current;
     aetherAdvance(p); /* consume '?' */
+    aetherNoteOperator(p, &question);
     AST *thenBranch = parseExpr(p);
     if (!thenBranch) { p->hadError = true; freeAST(cond); return NULL; }
     if (p->current.type != REA_TOKEN_COLON) {
@@ -2952,7 +3051,9 @@ static AST *parseConditional(AetherParser *p) {
         freeAST(cond); freeAST(thenBranch);
         return NULL;
     }
+    ReaToken colon = p->current;
     aetherAdvance(p); /* consume ':' */
+    aetherNoteOperator(p, &colon);
     AST *elseBranch = parseExpr(p);
     if (!elseBranch) { p->hadError = true; freeAST(cond); freeAST(thenBranch); return NULL; }
     Token *tok = newToken(TOKEN_IF, "?", question.line, 0);
@@ -2979,8 +3080,9 @@ AST *parseExpr(AetherParser *p) {
          p->current.type == REA_TOKEN_PERCENT_EQUAL)) {
         ReaToken op = p->current;
         aetherAdvance(p);
+        aetherNoteOperator(p, &op);
         AST *value = parseExpr(p);
-        if (!value) return NULL;
+        if (!value) { aetherReportMissingExpr(p, NULL); return NULL; }
         /* Mirror rea parseAssignment: a compound assignment `x OP= v` lowers to an
          * AST_ASSIGN whose token carries the arithmetic op (TOKEN_PLUS/...); the
          * backend reads the lvalue, applies OP with the value, and stores -- so the
@@ -3049,6 +3151,7 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     sub.nextTupleTypeId = p->nextTupleTypeId;
     sub.classFields = p->classFields;
     sub.inMethodContract = inMethodContract;
+    sub.detachedText = true;
     aetherAdvance(&sub);
     AST *expr = parseExpr(&sub);
     if (!expr || sub.hadError) {
@@ -3299,7 +3402,9 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
 
     AST *init = NULL;
     if (p->current.type == REA_TOKEN_EQUAL) {
+        ReaToken eq = p->current;
         aetherAdvance(p); /* consume '=' */
+        aetherNoteOperator(p, &eq);
 
         /* Inline object-method: `let x = T { f: v, ... }.method(args);`. The
          * rewriter hoists the inline object literal into a temp
@@ -3491,6 +3596,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             init = parseExpr(p);
         }
         if (!init) {
+            aetherReportMissingExpr(p, NULL);
             freeToken(nameTok);
             if (typeNode) freeAST(typeNode);
             free(declaredTypeName);
@@ -3708,6 +3814,12 @@ static AST *parseIfStmt(AetherParser *p) {
      * as parseLoop does for its condition form; the general expression
      * grammar already parses balanced parens anywhere within it. */
     AST *condition = parseExpr(p);
+    if (!condition) {
+        /* `if x == { ... }` used to build an IF with a NULL condition that ran
+         * neither branch, exit 0. */
+        aetherReportMissingExpr(p, "as the if condition");
+        return NULL;
+    }
     AST *thenBranch = NULL;
     if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         thenBranch = parseBlock(p);
@@ -3987,6 +4099,7 @@ static AST *parseStatementInner(AetherParser *p) {
         }
     }
     /* Expression statement or assignment. */
+    p->stmtStartAt = p->current.start;
     AST *expr = parseExpr(p);
     if (!expr) return NULL;
     if (p->current.type == REA_TOKEN_SEMICOLON) {
@@ -4621,6 +4734,19 @@ static AST *parseFnDecl(AetherParser *p) {
                 "expected ')' to close parameter list.", NULL);
         p->hadError = true;
     }
+    /* A parameter-list error is the whole story: stop here. Carrying on used to
+     * reach the `->` check below at whatever token the list stalled on and add
+     * a false "functions must declare an explicit return type" even when the
+     * signature has `-> Int`, pointing the repair at the wrong fix. */
+    if (p->hadError) {
+        free(firstParamName);
+        free(firstParamAetherType);
+        freeAST(params);
+        freeToken(nameTok);
+        aetherFreePending(&p->pending);
+        bindingScopeLeave(p->bindings);
+        return NULL;
+    }
 
     /* Extension method: a top-level `fn f(self: T, ...)` whose first parameter is
      * self-like (`self`/`my`/`myself`) and typed as a user type T. The rewriter
@@ -5117,9 +5243,12 @@ static AST *parseConstDecl(AetherParser *p) {
         free(declaredTypeName);
         return NULL;
     }
+    ReaToken eq = p->current;
     aetherAdvance(p); /* consume '=' */
+    aetherNoteOperator(p, &eq);
     AST *value = parseExpr(p);
     if (!value) {
+        aetherReportMissingExpr(p, NULL);
         freeToken(nameTok);
         if (typeNode) freeAST(typeNode);
         free(declaredTypeName);
@@ -5336,7 +5465,11 @@ static AST *parseTypeDecl(AetherParser *p) {
                 if (p->current.type == REA_TOKEN_EQUAL) {
                     int eqLine = p->current.line;
                     aetherAdvance(p); /* consume '=' */
-                    AST *defExpr = parseExpr(p);
+                    /* A missing default keeps the field-default message below. */
+                    bool noValue = (p->current.type == REA_TOKEN_SEMICOLON ||
+                                    p->current.type == REA_TOKEN_COMMA ||
+                                    p->current.type == REA_TOKEN_RIGHT_BRACE);
+                    AST *defExpr = noValue ? NULL : parseExpr(p);
                     if (!defExpr || p->hadError) {
                         if (!p->hadError) {
                             reportAetherAstError(aetherSemanticGetSourcePath(), eqLine, "field-default",

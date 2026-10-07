@@ -86,6 +86,9 @@ CACHE_ROUNDTRIP_PASS_FIXTURE="$TESTS_DIR/cache_roundtrip_pass.aether"
 LOOP_FOREACH_SCALAR_FAIL_FIXTURE="$TESTS_DIR/loop_foreach_scalar_fail.aether"
 LOOP_STEP_PASS_FIXTURE="$TESTS_DIR/loop_step_pass.aether"
 LOOP_NESTED_CONTINUE_PASS_FIXTURE="$TESTS_DIR/loop_nested_continue_pass.aether"
+ARRAY_EMPTY_INDEX_FAIL_FIXTURE="$TESTS_DIR/array_empty_index_fail.aether"
+DANGLING_OPERAND_FAIL_FIXTURE="$TESTS_DIR/dangling_operand_fail.aether"
+PARAM_LIST_SINGLE_ERROR_FAIL_FIXTURE="$TESTS_DIR/param_list_single_error_fail.aether"
 LOOP_STEP_ZERO_FAIL_FIXTURE="$TESTS_DIR/loop_step_zero_fail.aether"
 WORD_OPERATORS_PASS_FIXTURE="$TESTS_DIR/word_operators_pass.aether"
 ARRAY_EQUALITY_PASS_FIXTURE="$TESTS_DIR/array_equality_pass.aether"
@@ -310,6 +313,9 @@ for fixture in \
     "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" \
     "$LOOP_STEP_PASS_FIXTURE" \
     "$LOOP_NESTED_CONTINUE_PASS_FIXTURE" \
+    "$ARRAY_EMPTY_INDEX_FAIL_FIXTURE" \
+    "$DANGLING_OPERAND_FAIL_FIXTURE" \
+    "$PARAM_LIST_SINGLE_ERROR_FAIL_FIXTURE" \
     "$LOOP_STEP_ZERO_FAIL_FIXTURE" \
     "$WORD_OPERATORS_PASS_FIXTURE" \
     "$ARRAY_EQUALITY_PASS_FIXTURE" \
@@ -3586,6 +3592,52 @@ printf '5\n7\n6\n' >$OUT/aether_global_let_source_order_expected.out
 if ! cmp -s $OUT/aether_global_let_source_order_expected.out $OUT/aether_global_let_source_order_pass.out; then
     echo "unexpected global-let source-order output" >&2
     cat $OUT/aether_global_let_source_order_pass.out >&2
+    exit 1
+fi
+
+# A missing operand or index is SYN-001, not a NULL AST child. Each of these
+# used to compile and run with exit 0: `if x == {` ran neither branch,
+# `ret x + ;` returned nil from -> Int, `println(x + )` printed a blank line,
+# and `xs[]` read whatever value was evaluated before it. Nothing may run.
+# expect_syn001 FILE TEXT: the compile fails, prints nothing on stdout, and
+# reports a coded SYN-001 containing TEXT.
+expect_syn001() {
+    local src="$1" text="$2" name
+    name="$(basename "$src" .aether)"
+    if "$AETHER_BIN" --no-cache "$src" >$OUT/$name.stdout 2>$OUT/$name.stderr; then
+        echo "expected SYN-001 failure for $name but it ran" >&2
+        cat $OUT/$name.stdout >&2
+        exit 1
+    fi
+    if [ -s $OUT/$name.stdout ] || ! grep -q '\[SYN-001\]' $OUT/$name.stderr || \
+       ! grep -qF "$text" $OUT/$name.stderr; then
+        echo "missing SYN-001 '$text' for $name (or it printed output)" >&2
+        cat $OUT/$name.stdout $OUT/$name.stderr >&2
+        exit 1
+    fi
+}
+expect_syn001 "$ARRAY_EMPTY_INDEX_FAIL_FIXTURE" 'empty index `[]`'
+printf 'fn main() -> Void {\n    let xs: Int[] = [1, 2, 3];\n    xs[] = 4;\n    fx { println(xs[0]); }\n    ret;\n}\n' >$OUT/aether_empty_index_lvalue.aether
+expect_syn001 $OUT/aether_empty_index_lvalue.aether 'empty index `[]`'
+if ! grep -qF 'to append, write `xs = xs + [v];`' $OUT/aether_empty_index_lvalue.stderr; then
+    echo "missing append hint for xs[] = v" >&2
+    cat $OUT/aether_empty_index_lvalue.stderr >&2
+    exit 1
+fi
+printf 'fn main() -> Void {\n    let g: Int[][] = [[1, 2], [3, 4]];\n    let i: Int = 0;\n    let a: Int = g[i][];\n    fx { println(a); }\n    ret;\n}\n' >$OUT/aether_empty_index_2d.aether
+expect_syn001 $OUT/aether_empty_index_2d.aether 'empty index `[]`'
+expect_syn001 "$DANGLING_OPERAND_FAIL_FIXTURE" "expected an expression after '==', found '{'"
+printf 'fn f(x: Int) -> Int {\n    ret x + ;\n}\nfn main() -> Void {\n    fx { println(f(2)); }\n    ret;\n}\n' >$OUT/aether_dangling_ret.aether
+expect_syn001 $OUT/aether_dangling_ret.aether "expected an expression after '+', found ';'"
+printf 'fn main() -> Void {\n    let x: Int = 1;\n    fx { println(x + ); }\n    ret;\n}\n' >$OUT/aether_dangling_println.aether
+expect_syn001 $OUT/aether_dangling_println.aether "expected an expression after '+', found ')'"
+printf 'fn add(a: Int, b: Int) -> Int { ret a + b; }\nfn main() -> Void {\n    let x: Int = 1;\n    let y: Int = add(x * , 2);\n    fx { println(y); }\n    ret;\n}\n' >$OUT/aether_dangling_arg.aether
+expect_syn001 $OUT/aether_dangling_arg.aether "expected an expression after '*', found ','"
+# A bad parameter list is one diagnostic: no false "explicit return type" after it.
+expect_syn001 "$PARAM_LIST_SINGLE_ERROR_FAIL_FIXTURE" "expected ')' to close parameter list"
+if [ "$(grep -c '\[[A-Z][A-Z]*-[0-9][0-9]*\]' $OUT/param_list_single_error_fail.stderr)" != 1 ]; then
+    echo "expected exactly one diagnostic for a bad parameter list" >&2
+    cat $OUT/param_list_single_error_fail.stderr >&2
     exit 1
 fi
 

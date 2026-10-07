@@ -209,6 +209,18 @@ typedef struct {
     int pendingObjLitCapacity;
     int nextObjLitId;          /* monotonic counter for unique temp names */
     int nextLoopId;            /* monotonic counter for foreach / step temp names */
+    /* Missing-operand diagnostics (aetherReportMissingExpr). A binary or unary
+     * operator records its text and the start of the token right after it, so
+     * an operand that is not there reads "expected an expression after '+'".
+     * stmtStartAt is the first token of an expression statement: a token that
+     * cannot start a statement keeps parseBlock's "expected a statement".
+     * detachedText marks a parseExprFromText sub-parser, whose caller reports. */
+    const char *exprAfterOpText;   /* operator lexeme (not NUL-terminated) */
+    int exprAfterOpLen;
+    const char *exprAfterOpAt;
+    int exprAfterOpLine;
+    const char *stmtStartAt;
+    bool detachedText;
 } AetherParser;
 
 /* One right-hand operand of a left-nested array-`+` chain, in APPLY order.
@@ -232,6 +244,8 @@ typedef struct {
 /* ---- Defined in ast_parser.c ---------------------------------------- */
 
 int aetherDiagf(const char *fmt, ...);
+void aetherReportMissingExpr(AetherParser *p, const char *context);
+void aetherNoteOperator(AetherParser *p, const ReaToken *op);
 void reportAetherAstError(const char *path, int line, const char *kind,
                           const char *detail, const char *hint);
 void bindingTableSet(AetherBindingTable *t, const char *name, const char *typeName);

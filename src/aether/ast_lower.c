@@ -1558,6 +1558,8 @@ AST *parseRet(AetherParser *p) {
     if (p->current.type != REA_TOKEN_SEMICOLON && p->current.type != REA_TOKEN_RIGHT_BRACE &&
         p->current.type != REA_TOKEN_EOF) {
         value = parseExpr(p);
+        /* `ret x + ;` used to return nil from a `-> Int` function, exit 0. */
+        if (!value) aetherReportMissingExpr(p, "after 'ret'");
     } else if (p->currentFunctionType != TYPE_VOID) {
         /* Empty `ret;` in a non-Void function. Route through the coded path so the
          * diagnostic carries a code (FLOW-002) + guide pointer, matching its
@@ -1965,10 +1967,15 @@ AST *parseLoopRange(AetherParser *p) {
      * (literals, identifiers, calls, indexing, +/-/ * // /div/mod, unary,
      * parens, if-expressions), just not the operators that indicate the
      * author meant something other than a number. */
-    AST *low = parseAdd(p);
+    /* No bound at all (`loop i in ..5`, `loop i in {`): the loop-header message
+     * says more than parsePrimary's generic missing-expression one. */
+    AST *low = (p->current.type == AE_TOKEN_DOTDOT || p->current.type == REA_TOKEN_LEFT_BRACE)
+                   ? NULL : parseAdd(p);
     if (!low) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
-                "expected '<low>..<high>' or a collection after 'in' in the loop header.", NULL);
+        if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
+                    "expected '<low>..<high>' or a collection after 'in' in the loop header.", NULL);
+        }
         p->hadError = true;
         free(nameBuf);
         return NULL;
@@ -1997,11 +2004,15 @@ AST *parseLoopRange(AetherParser *p) {
         free(nameBuf);
         return NULL;
     }
+    ReaToken dots = p->current;
     aetherAdvance(p); /* consume '..' */
+    aetherNoteOperator(p, &dots);
     AST *high = parseAdd(p);
     if (!high) {
-        reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
-                "could not parse loop range bounds.", NULL);
+        if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
+                    "could not parse loop range bounds.", NULL);
+        }
         p->hadError = true;
         freeAST(low);
         free(nameBuf);
@@ -2026,10 +2037,12 @@ AST *parseLoopRange(AetherParser *p) {
     if (isAetherKeyword(&p->current, "step")) {
         int stepLine = p->current.line;
         aetherAdvance(p); /* consume 'step' */
-        step = parseAdd(p);
+        step = (p->current.type == REA_TOKEN_LEFT_BRACE) ? NULL : parseAdd(p);
         if (!step || step->var_type == TYPE_BOOLEAN) {
-            reportAetherAstError(aetherSemanticGetSourcePath(), stepLine, "parser",
-                    "expected an Int step after 'step' (for example `step 2` or `step -1`).", NULL);
+            if (step || !p->hadError) {
+                reportAetherAstError(aetherSemanticGetSourcePath(), stepLine, "parser",
+                        "expected an Int step after 'step' (for example `step 2` or `step -1`).", NULL);
+            }
             p->hadError = true;
             if (step) freeAST(step);
             freeAST(low);

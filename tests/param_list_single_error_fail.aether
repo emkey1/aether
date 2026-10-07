@@ -1,0 +1,11 @@
+// A bad parameter list reports exactly one error. A second, false
+// "functions must declare an explicit return type" used to follow it even
+// though the signature has `-> Int`, pointing the repair at the wrong fix.
+fn add(a: Int b: Int) -> Int {
+    ret a + b;
+}
+
+fn main() -> Void {
+    fx { println(add(1, 2)); }
+    ret;
+}

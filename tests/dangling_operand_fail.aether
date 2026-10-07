@@ -1,0 +1,13 @@
+// An operator with no right operand. `if x == {` used to parse with a missing
+// condition and run neither branch (this printed only "end", exit 0). It is
+// now SYN-001 "expected an expression after '=='". tests/run.sh checks the
+// same for `ret x + ;` (used to return nil from -> Int), `println(x + )` (used
+// to print a blank line) and a call argument `f(x * , 2)`.
+fn main() -> Void {
+    let x: Int = 1;
+    fx {
+        if x == { println("yes"); } else { println("no"); }
+        println("end");
+    }
+    ret;
+}

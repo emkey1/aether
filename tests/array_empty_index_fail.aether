@@ -1,0 +1,11 @@
+// `xs[]` has no index. It used to build an array access with a missing index
+// that read whatever value was evaluated before it: this printed 1, exit 0
+// (and crashed when repeated in a loop). It is now SYN-001 "empty index".
+// tests/run.sh also checks the assignment form `xs[] = v;` (with the append
+// hint) and the second-dimension form `g[i][]`.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let a: Int = xs[];
+    fx { println(a); }
+    ret;
+}
