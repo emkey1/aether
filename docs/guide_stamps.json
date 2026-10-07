@@ -1,5 +1,5 @@
 {
-  "_doc": "Stamp-to-text manifest for the three LLM-facing guides, written by tools/bump_guide_version.py and checked by tools/check_guide_stamps.py (CTest aether_guide_stamps). body_sha256 is the sha256 of the guide's UTF-8 bytes with its one '*Guide version: ...*' line and that line's newline removed, so it names the text a model reads. o200k is the whole-document o200k_base count (null when tiktoken was unavailable). Entries are oldest first; the last is the current stamp. Seeded 2026-10-06 at the stamps then current; earlier stamps are not listed because text changed under some of them.",
+  "_doc": "Stamp-to-text manifest for the three LLM-facing guides and the prior-alignment card, written by tools/bump_guide_version.py and checked by tools/check_guide_stamps.py (CTest aether_guide_stamps). body_sha256 is the sha256 of the guide's UTF-8 bytes with its one '*Guide version: ...*' (or '*Card version: ...*') line and that line's newline removed, so it names the text a model reads. o200k is the whole-document o200k_base count (null when tiktoken was unavailable). Entries are oldest first; the last is the current stamp. Seeded 2026-10-06 at the stamps then current; earlier stamps are not listed because text changed under some of them.",
   "guides": {
     "docs/aether_for_llms_and_others.md": [
       {

@@ -49,8 +49,9 @@ GUIDES = {
     "aether_for_llms_and_others.md": "full",
     "aether_for_llms_medium_contexts.md": "medium",
     "aether_for_llms_with_small_contexts.md": "small",
+    "aether_card.md": "card",
 }
-CONSTRAINED = {"medium", "small"}
+CONSTRAINED = {"medium", "small", "card"}
 SUITES = ("tasks_v2_pos", "tasks_hard_v2", "tasks_cs", "tasks_hard_nontoon", "tasks")
 
 TERMS = {
