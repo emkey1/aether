@@ -1,11 +1,23 @@
 /* Per-branch resolution: workerA is defined above main, workerB below it. Before
- * the fix only "worker A" printed -- the backward branch kept its real address
- * while the forward one spawned a stub. Guards against a fix that repairs the
- * whole block only when EVERY target is forward. */
+ * the fix only workerA ran -- the backward branch kept its real address while
+ * the forward one spawned a stub. Guards against a fix that repairs the whole
+ * block only when EVERY target is forward.
+ *
+ * Each branch writes into its own result record and main prints after the
+ * join, so the output has one fixed order and a dropped branch prints "not
+ * run". Printing from inside the branches made the line order vary, and under
+ * load two branches' output could tear mid-line. The calls stay zero-argument
+ * (an argument would change the spawn codegen under test), so the records are
+ * top-level bindings rather than arguments. */
+type BranchResult {
+    line: Text = "not run";
+}
+
+let resultA: BranchResult = new BranchResult();
+let resultB: BranchResult = new BranchResult();
+
 fn workerA() -> Void {
-    fx {
-        writeln("worker A");
-    }
+    resultA.line = "worker A";
     ret;
 }
 
@@ -14,12 +26,14 @@ fn main() -> Void {
         workerA();
         workerB();
     }
+    fx {
+        println(resultA.line);
+        println(resultB.line);
+    }
     ret;
 }
 
 fn workerB() -> Void {
-    fx {
-        writeln("worker B");
-    }
+    resultB.line = "worker B";
     ret;
 }

@@ -1,7 +1,21 @@
 /* The boundary is the function ENCLOSING the par block, not main. Both workers
  * sit above main but below runBoth, and both were dropped before the fix --
  * "defined before main" is not the property that matters, "defined before the
- * routine whose body is being compiled" is. */
+ * routine whose body is being compiled" is.
+ *
+ * Each branch writes into its own result record and main prints once runBoth
+ * has returned, which is after the join, so the output has one fixed order and
+ * a dropped branch prints "not run". Printing from inside the branches made the
+ * line order vary, and under load two branches' output could tear mid-line.
+ * The calls stay zero-argument (an argument would change the spawn codegen
+ * under test), so the records are top-level bindings rather than arguments. */
+type BranchResult {
+    line: Text = "not run";
+}
+
+let resultA: BranchResult = new BranchResult();
+let resultB: BranchResult = new BranchResult();
+
 fn runBoth() -> Void {
     par {
         workerA();
@@ -11,20 +25,20 @@ fn runBoth() -> Void {
 }
 
 fn workerA() -> Void {
-    fx {
-        writeln("worker A");
-    }
+    resultA.line = "worker A";
     ret;
 }
 
 fn workerB() -> Void {
-    fx {
-        writeln("worker B");
-    }
+    resultB.line = "worker B";
     ret;
 }
 
 fn main() -> Void {
     runBoth();
+    fx {
+        println(resultA.line);
+        println(resultB.line);
+    }
     ret;
 }

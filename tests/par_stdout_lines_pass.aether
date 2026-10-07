@@ -1,0 +1,29 @@
+// Whole-line stdout from concurrent par branches. Unlike the other par
+// fixtures, each branch prints directly, many lines of several arguments
+// each, so a println that is not line-atomic shows up as a torn or merged
+// line. Branches finish in any order, so tests/run.sh compares the multiset of
+// whole lines, never their order: 4 branches x 200 lines, each line exactly
+// once.
+//
+// Expected to fail until pscal-core's vmBuiltinWrite holds the stream lock
+// across a whole write/writeln call (today it writes each argument and the
+// newline as separate stdio calls). tests/run.sh marks it expected-fail and
+// tests/stress_par.sh counts how many runs tear.
+fn burst(tag: Text, count: Int) -> Void {
+    loop i in 0..count {
+        fx {
+            println("branch ", tag, " line ", i, " of ", count);
+        }
+    }
+    ret;
+}
+
+fn main() -> Void {
+    par {
+        burst("A", 200);
+        burst("B", 200);
+        burst("C", 200);
+        burst("D", 200);
+    }
+    ret;
+}

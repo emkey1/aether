@@ -130,6 +130,7 @@ PAR_FORWARD_TARGET_PASS_FIXTURE="$TESTS_DIR/par_forward_target_pass.aether"
 PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE="$TESTS_DIR/par_forward_target_mixed_pass.aether"
 PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE="$TESTS_DIR/par_forward_target_nested_pass.aether"
 PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE="$TESTS_DIR/par_forward_target_args_pass.aether"
+PAR_STDOUT_LINES_PASS_FIXTURE="$TESTS_DIR/par_stdout_lines_pass.aether"
 SOCKET_ECHO_PASS_FIXTURE="$TESTS_DIR/socket_echo_pass.aether"
 SOCKET_FX_FAIL_FIXTURE="$TESTS_DIR/socket_fx_fail.aether"
 SOCKET_PURE_FAIL_FIXTURE="$TESTS_DIR/socket_pure_fail.aether"
@@ -349,6 +350,7 @@ for fixture in \
     "$PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE" \
     "$PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE" \
     "$PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE" \
+    "$PAR_STDOUT_LINES_PASS_FIXTURE" \
     "$METHOD_UNDEFINED_FAIL_FIXTURE" \
     "$UNKNOWN_CONSTRUCT_FAIL_FIXTURE" \
     "$UNCLOSED_BLOCK_FAIL_FIXTURE" \
@@ -920,15 +922,15 @@ fi
 # par_pass was a --no-run compile check for years, which is exactly why the
 # forward-target silent skip (fixed 2026-08-11) survived: a dropped branch still
 # exits 0, so only inspecting OUTPUT catches it. Run it and assert both branches
-# actually printed. See expect_par_branches below for the ordering caveat.
+# ran. Each branch writes into its own result record and main prints after the
+# join, so the output order is fixed and compared exactly (see
+# expect_par_branches below).
 "$AETHER_BIN" --no-cache "$PAR_PASS_FIXTURE" >$OUT/aether_par_pass.out
-for line in "worker A" "worker B"; do
-    if ! grep -qx "$line" $OUT/aether_par_pass.out; then
-        echo "par branch did not run: missing '$line'" >&2
-        cat $OUT/aether_par_pass.out >&2
-        exit 1
-    fi
-done
+if ! printf 'worker A\nworker B\n' | cmp -s - $OUT/aether_par_pass.out; then
+    echo "par branch did not run (a dropped branch prints 'not run')" >&2
+    cat $OUT/aether_par_pass.out >&2
+    exit 1
+fi
 "$AETHER_BIN" --no-cache "$FOR_RANGE_PASS_FIXTURE" >$OUT/aether_for_range_pass.out
 if ! printf '10\n' | cmp -s - $OUT/aether_for_range_pass.out; then
     echo "unexpected for-range output" >&2
@@ -2263,40 +2265,70 @@ fi
 # silently dropped: the forward-declaration pre-pass marks every top-level fn
 # defined, so spawn codegen trusted a prototype's placeholder address and spawned
 # an empty stub. Nothing printed, nothing was diagnosed, exit 0 -- so these must
-# assert on output. Branches run concurrently and finish in either order, so check
-# each expected line independently; never diff against a fixed line order.
+# assert on output. Each branch writes into its own result record and the
+# fixture prints after the join, so the whole output (stderr included) is
+# compared exactly and a dropped branch prints "not run". The branches used to
+# print for themselves, which made the line order vary and, under load, tore a
+# line about 2.5% of the time; whole-line stdout from concurrent branches is
+# checked on its own by par_stdout_lines_pass below. The expected output is a
+# printf-style string, e.g. 'worker A\nworker B\n'.
 expect_par_branches() {
-    local label="$1" fixture="$2" out="$3"
-    shift 3
+    local label="$1" fixture="$2" out="$3" expected="$4"
     if ! "$AETHER_BIN" --no-cache "$fixture" >"$out" 2>&1; then
         echo "expected $label to compile and run successfully" >&2
         cat "$out" >&2
         exit 1
     fi
-    local expected
-    for expected in "$@"; do
-        if ! grep -qx "$expected" "$out"; then
-            echo "$label: par branch did not run (missing '$expected')" >&2
-            cat "$out" >&2
-            exit 1
-        fi
-    done
+    if ! printf '%b' "$expected" | cmp -s - "$out"; then
+        echo "$label: unexpected output (a par branch that did not run prints 'not run')" >&2
+        cat "$out" >&2
+        exit 1
+    fi
 }
 
 # Both targets below main.
 expect_par_branches "par-forward-target" "$PAR_FORWARD_TARGET_PASS_FIXTURE" \
-    $OUT/aether_par_forward_target_pass.out "worker A" "worker B"
+    $OUT/aether_par_forward_target_pass.out 'worker A\nworker B\n'
 # One target above main, one below: resolution is per branch, not per block.
 expect_par_branches "par-forward-target-mixed" "$PAR_FORWARD_TARGET_MIXED_PASS_FIXTURE" \
-    $OUT/aether_par_forward_target_mixed_pass.out "worker A" "worker B"
+    $OUT/aether_par_forward_target_mixed_pass.out 'worker A\nworker B\n'
 # par inside a helper, targets below that helper but above main: the boundary is
 # the routine being compiled, not main.
 expect_par_branches "par-forward-target-nested" "$PAR_FORWARD_TARGET_NESTED_PASS_FIXTURE" \
-    $OUT/aether_par_forward_target_nested_pass.out "worker A" "worker B"
+    $OUT/aether_par_forward_target_nested_pass.out 'worker A\nworker B\n'
 # Branches WITH arguments take the other spawn codegen path (address as a constant
 # + CALL_HOST rather than an inline THREAD_CREATE operand); it was broken too.
 expect_par_branches "par-forward-target-args" "$PAR_FORWARD_TARGET_ARGS_PASS_FIXTURE" \
-    $OUT/aether_par_forward_target_args_pass.out "worker A 1" "worker B 2"
+    $OUT/aether_par_forward_target_args_pass.out 'worker A 1\nworker B 2\n'
+
+# Whole-line stdout from concurrent par branches: four branches each print 200
+# multi-argument lines directly. Branch order is free, so the sorted lines are
+# compared. EXPECTED TO FAIL until pscal-core's vmBuiltinWrite holds the stream
+# lock across one write/writeln call: it writes each argument and the newline
+# as separate stdio calls, so two branches can interleave mid-line. Until then
+# a torn line is reported as [xfail] and the run goes on; a crash or a non-zero
+# exit still fails it. When the engine fix lands, set the default below to 0
+# (AETHER_PAR_STDOUT_XFAIL=0 tries it first without editing this file).
+PAR_STDOUT_LINES_XFAIL="${AETHER_PAR_STDOUT_XFAIL:-1}"
+"$AETHER_BIN" --no-cache "$PAR_STDOUT_LINES_PASS_FIXTURE" >$OUT/aether_par_stdout_lines_pass.out
+for tag in A B C D; do
+    i=0
+    while [ "$i" -lt 200 ]; do
+        printf 'branch %s line %d of 200\n' "$tag" "$i"
+        i=$((i + 1))
+    done
+done | LC_ALL=C sort >$OUT/aether_par_stdout_lines_expected.out
+if ! LC_ALL=C sort $OUT/aether_par_stdout_lines_pass.out | cmp -s - $OUT/aether_par_stdout_lines_expected.out; then
+    if [ "$PAR_STDOUT_LINES_XFAIL" = 1 ]; then
+        echo "[xfail] par_stdout_lines_pass: par branches tore or merged stdout lines (expected until vmBuiltinWrite is line-atomic)" >&2
+    else
+        echo "par branches tore or merged stdout lines (vmBuiltinWrite must hold the stream lock for a whole write/writeln)" >&2
+        LC_ALL=C sort $OUT/aether_par_stdout_lines_pass.out | diff $OUT/aether_par_stdout_lines_expected.out - | head -20 >&2 || true
+        exit 1
+    fi
+elif [ "$PAR_STDOUT_LINES_XFAIL" = 1 ]; then
+    echo "[xpass] par_stdout_lines_pass: no torn line this run; if vmBuiltinWrite is line-atomic now, set PAR_STDOUT_LINES_XFAIL to 0" >&2
+fi
 
 # SCOPE-001: calling a method that is not defined on a record must fail at compile
 # time (parser lowers recv.method() to a Type.method global; aetherCheckMemberCalls

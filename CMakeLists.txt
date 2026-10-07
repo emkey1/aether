@@ -171,3 +171,20 @@ if(Python3_Interpreter_FOUND)
                      --root ${CMAKE_CURRENT_SOURCE_DIR})
     set_tests_properties(aether_public_hygiene PROPERTIES LABELS "lint" SKIP_RETURN_CODE 77)
 endif()
+
+# ---- Stress laps (off by default: -DAETHER_STRESS_TESTS=ON, then ctest -L stress)
+# tests/stress_par.sh runs each par fixture 960 times while every core is kept
+# busy, to catch output that depends on thread timing. It takes minutes and
+# loads the whole machine, so it never gates and is not registered unless asked
+# for: a plain `ctest` stays fast. RUN_SERIAL keeps `ctest -j` from running other
+# tests beside it. STRESS_PAR_RUNS=<n> in the environment shortens or lengthens
+# the lap.
+option(AETHER_STRESS_TESTS "Register the stress laps (minutes, loads every core)" OFF)
+if(AETHER_STRESS_TESTS)
+add_test(NAME aether_stress_par COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/stress_par.sh)
+set_tests_properties(aether_stress_par PROPERTIES
+    LABELS stress
+    RUN_SERIAL TRUE
+    TIMEOUT 3600
+    ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
+endif()

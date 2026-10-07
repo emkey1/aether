@@ -1,14 +1,25 @@
+// Both par targets are defined above main, so both branches spawn through the
+// inline-address THREAD_CREATE path. Each branch writes into its own result
+// record and main prints after the join, so the output has one fixed order and
+// a dropped branch prints "not run". Printing from inside the branches made the
+// line order vary, and under load two branches' output could tear mid-line
+// ("worker Aworker B"). The calls stay zero-argument (an argument would move
+// them to the other spawn path), so the records are top-level bindings rather
+// than arguments.
+type BranchResult {
+    line: Text = "not run";
+}
+
+let resultA: BranchResult = new BranchResult();
+let resultB: BranchResult = new BranchResult();
+
 fn workerA() -> Void {
-    fx {
-        writeln("worker A");
-    }
+    resultA.line = "worker A";
     ret;
 }
 
 fn workerB() -> Void {
-    fx {
-        writeln("worker B");
-    }
+    resultB.line = "worker B";
     ret;
 }
 
@@ -16,6 +27,10 @@ fn main() -> Void {
     par {
         workerA();
         workerB();
+    }
+    fx {
+        println(resultA.line);
+        println(resultB.line);
     }
     ret;
 }

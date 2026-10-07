@@ -4,25 +4,39 @@
  * top-level fn, which the compiler emitted as an empty JUMP/RETURN stub and
  * marked is_defined, so spawn codegen baked in the stub's address instead of
  * taking the resolve-by-name path. The spawned threads returned immediately --
- * no output, no diagnostic, exit 0. */
+ * no output, no diagnostic, exit 0.
+ *
+ * Each branch writes into its own result record and main prints after the
+ * join, so the output has one fixed order and a dropped branch prints "not
+ * run". Printing from inside the branches made the line order vary, and under
+ * load two branches' output could tear mid-line. The calls stay zero-argument
+ * (an argument would change the spawn codegen under test), so the records are
+ * top-level bindings rather than arguments. */
+type BranchResult {
+    line: Text = "not run";
+}
+
+let resultA: BranchResult = new BranchResult();
+let resultB: BranchResult = new BranchResult();
+
 fn main() -> Void {
     par {
         workerA();
         workerB();
     }
+    fx {
+        println(resultA.line);
+        println(resultB.line);
+    }
     ret;
 }
 
 fn workerA() -> Void {
-    fx {
-        writeln("worker A");
-    }
+    resultA.line = "worker A";
     ret;
 }
 
 fn workerB() -> Void {
-    fx {
-        writeln("worker B");
-    }
+    resultB.line = "worker B";
     ret;
 }

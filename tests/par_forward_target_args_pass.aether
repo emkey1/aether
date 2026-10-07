@@ -1,25 +1,42 @@
 /* The second spawn codegen path. A zero-arg branch emits THREAD_CREATE with an
  * inline address; a branch WITH arguments emits the address as a constant plus
  * CALL_HOST. Both read the same stale prototype address, so both were broken --
- * this fixture covers the one the other three fixtures miss. */
+ * this fixture covers the one the other three fixtures miss.
+ *
+ * Each branch writes its argument into its own result record and main prints
+ * after the join, so the output has one fixed order and a dropped branch
+ * prints "not run 0". The calls are unchanged (one Int argument each), so the
+ * spawn bytecode is the same as when the branches printed. They used to print
+ * with a two-argument writeln, and under load the two branches' writes
+ * interleaved mid-line in about 2.5% of runs. */
+type BranchResult {
+    name: Text = "not run";
+    n: Int = 0;
+}
+
+let resultA: BranchResult = new BranchResult();
+let resultB: BranchResult = new BranchResult();
+
 fn main() -> Void {
     par {
         workerA(1);
         workerB(2);
     }
+    fx {
+        println(resultA.name, " ", resultA.n);
+        println(resultB.name, " ", resultB.n);
+    }
     ret;
 }
 
 fn workerA(n: Int) -> Void {
-    fx {
-        writeln("worker A ", n);
-    }
+    resultA.name = "worker A";
+    resultA.n = n;
     ret;
 }
 
 fn workerB(n: Int) -> Void {
-    fx {
-        writeln("worker B ", n);
-    }
+    resultB.name = "worker B";
+    resultB.n = n;
     ret;
 }
