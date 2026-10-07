@@ -53,6 +53,13 @@ writes `.out`/`.rc`/`.codes` and prints the diff: review it before committing.
 CTest runs one `aether_fixtures_<dir>` per directory (re-configure after adding
 one), and `tests/run.sh` runs them all at its end.
 
+`aether_guide_run` and `aether_examples_run` run what the compile gates only
+compile: every complete guide program against `docs/guide_goldens.json`, the
+recipe drivers in `tests/guide_recipes/` against hand-written `.out` files, and
+every example (goldens in `tests/example_goldens/`). `--update` on
+`tools/verify_guide_snippets.py --run` or `tests/run_examples.sh --run`
+re-blesses the goldens; read the printed diff before committing.
+
 ## Where a diagnostic comes from
 
 Search in this order: `src/aether/ast_parser.c` (parse, lowering, most coded

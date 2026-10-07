@@ -1,0 +1,8 @@
+job 0: planner / ready / 95
+job 1: writer / review / 81
+job 2: tester / review / 72
+job 3: auditor / blocked / 55
+total = 4
+ready = 1
+review = 2
+blocked = 1

@@ -1,0 +1,43 @@
+// guides: full medium
+// recipes: total mean largest sorted joinText upper contains startsWith replaceFirst evensDoubled isAllDigits lookup
+//
+// Driver for the "Writing what the surface does not give you" recipes. The gate
+// (tools/verify_guide_snippets.py --run) extracts each recipe named above from
+// each guide named above, puts this main after them, and compares stdout with
+// writing_surface.out, which states what the recipes SHOULD print. Seeded from
+// the 2026-10-06 review's recipe driver, plus edge cases.
+fn main() -> Void {
+    let xs: Int[] = [5, 3, 9, 3, 1];
+    let neg: Int[] = [-2, 7, -9, 0];
+    let e: Int[] = [];
+    let one: Int[] = [7];
+    let s: Int[] = sorted(xs);
+    let sn: Int[] = sorted(neg);
+    fx {
+        println("total ", total(xs), " ", total(e), " ", total(neg));
+        println("mean ", mean(xs):0:2, " ", mean(e):0:2, " ", mean(one):0:2);
+        println("largest ", largest(xs), " ", largest(neg), " ", largest(one));
+        println("sorted ", s[0], s[1], s[2], s[3], s[4], " len ", length(s));
+        println("sorted-neg ", sn[0], " ", sn[1], " ", sn[2], " ", sn[3]);
+        println("input-untouched ", xs[0], xs[4]);
+        println("sorted-edge ", length(sorted(e)), " ", sorted(one)[0]);
+        println("join [", joinText(["a", "b", "c"], ", "), "] [", joinText([], "-"), "] [",
+                joinText(["solo"], "+"), "]");
+        println("upper ", upper("Hello, World! az{`"), " [", upper(""), "]");
+        println("contains ", contains("haystack", "st"), " ", contains("haystack", "zz"), " ",
+                contains("haystack", "hay"), " ", contains("haystack", "ack"));
+        println("startsWith ", startsWith("prefix", "pre"), " ", startsWith("pr", "prefix"), " ",
+                startsWith("prefix", "fix"), " ", startsWith("same", "same"));
+        println("replaceFirst ", replaceFirst("a-b-c", "-", "+"), " ", replaceFirst("abc", "x", "y"),
+                " ", replaceFirst("abc", "c", "Z"), " ", replaceFirst("abc", "a", ""),
+                " ", replaceFirst("aaa", "aa", "b"));
+        let ev: Int[] = evensDoubled([1, 2, 3, 4, -6]);
+        println("evensDoubled ", length(ev), " ", ev[0], " ", ev[1], " ", ev[2], " ",
+                length(evensDoubled([1, 3])));
+        println("isAllDigits ", isAllDigits("0123"), " ", isAllDigits("12a"), " ",
+                isAllDigits(""), " ", isAllDigits("-1"), " ", isAllDigits("9"));
+        println("lookup ", lookup(["x", "y"], [10, 20], "y"), " ", lookup(["x", "y"], [10, 20], "q"),
+                " ", lookup([], [], "x"), " ", lookup(["k", "k"], [1, 2], "k"));
+    }
+    ret;
+}

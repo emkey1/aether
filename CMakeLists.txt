@@ -390,3 +390,30 @@ if(Python3_Interpreter_FOUND)
         TIMEOUT 300
         LABELS "fixtures")
 endif()
+
+# ---- Run gates for guide programs, recipes and examples (W2-25) ----------------
+# The snippet gates and the examples lap compile with --no-run, so a block or
+# example that compiles and then aborts or prints the wrong thing shipped (the
+# par/Tally incident went 16 days unnoticed). aether_guide_run runs every
+# complete guide program against docs/guide_goldens.json and the
+# tests/guide_recipes drivers against their hand-written .out
+# (verify_guide_snippets.py --run); aether_examples_run runs every example from
+# a copy of its directory, with goldens for the best examples to copy from.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME aether_guide_run
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_guide_snippets.py --run
+                     ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_and_others.md
+                     ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_medium_contexts.md
+                     ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_with_small_contexts.md)
+    set_tests_properties(aether_guide_run PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        TIMEOUT 600
+        LABELS "guide;run")
+    add_test(NAME aether_examples_run
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_examples.sh --run)
+    set_tests_properties(aether_examples_run PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        TIMEOUT 600
+        LABELS "examples;run")
+endif()

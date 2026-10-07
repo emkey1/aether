@@ -66,3 +66,10 @@ def read_caps_file(path):
     if unknown:
         raise SystemExit(f"{path}: unknown capability {unknown[0]!r} (known: {', '.join(KNOWN)})")
     return set(words)
+
+
+if __name__ == "__main__":
+    import sys
+    if len(sys.argv) != 2:
+        raise SystemExit("usage: python3 tools/aether_caps.py AETHER_BIN  (prints the build's capabilities)")
+    print(" ".join(sorted(detect(sys.argv[1]))))

@@ -14,6 +14,8 @@ examples/base/toon_defaults args  # rc 0->1: toon_defaults:16: [BUILT-002] Aethe
 examples/base/toon_defaults argsnofn  # rc 0->1: toon_defaults:16: [BUILT-002] Aether builtin parser error: 'toon_get_text_or' takes 3 arguments (node, key, fallback), but 1 was given.
 examples/base/toon_key_vars args  # rc 0->1: toon_key_vars:18: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
 examples/base/toon_key_vars argsnofn  # rc 0->1: toon_key_vars:18: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
+examples/base/toon_parse_file args  # rc 0->1: toon_parse_file:20: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given. (unmasked when W2-25 fixed its payload path)
+examples/base/toon_parse_file argsnofn  # rc 0->1: toon_parse_file:20: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given. (unmasked when W2-25 fixed its payload path)
 examples/base/toon_parse_payloads args  # rc 0->1: toon_parse_payloads:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
 examples/base/toon_parse_payloads argsnofn  # rc 0->1: toon_parse_payloads:13: [BUILT-002] Aether builtin parser error: 'toon_get_text' takes 2 arguments (node, key), but 1 was given.
 examples/base/toon_real_scalars args  # rc 0->1: toon_real_scalars:11: [BUILT-002] Aether builtin parser error: 'toon_get_real' takes 2 arguments (node, key), but 1 was given.

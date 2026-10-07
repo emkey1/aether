@@ -29,13 +29,38 @@ The run fails (exit 1) on any of:
     whose run exits non-zero or prints anything else. The card states what each
     program prints, so the gate runs it.
 
+With --run (CTest aether_guide_run) it instead RUNS every complete program
+(a block with its own `fn main`) and the recipe drivers, because a block that
+compiles can still abort or print the wrong thing (the par/Tally incident went
+16 days unnoticed under the compile-only gate):
+
+  * each complete program must exit 0 within 20 s, and print exactly the
+    stdout docs/guide_goldens.json records for it, keyed by the sha256 of the
+    block text. An `rc_only` entry (time- or environment-dependent output)
+    checks the exit status alone; a `skip` entry (live network) is not run;
+    an EXPECT_FAIL block is counted as expected and not run. A socket
+    program's port literal is rewritten to a free port in the temp copy, so
+    concurrent runs do not collide. A program with no entry fails: bless it
+    with --update and review the diff.
+  * each tests/guide_recipes/<name>.driver.aether names a guide set and the
+    recipe functions it exercises in its header (`// guides: full medium`,
+    `// recipes: total mean ...`). The functions are extracted from each named
+    guide by name (with the annotations directly above them), the driver's
+    main is appended, and the run's stdout must equal <name>.out. The .out is
+    written by hand from what the recipes SHOULD print, never blessed.
+  * --update rewrites the goldens' stdout entries from this build and prints
+    what changed; rc_only and skip entries are kept, stale keys dropped.
+
 See docs/aether_doc_maintenance.md for why this exists.
 """
 import argparse
+import difflib
+import hashlib
 import json
 import os
 import re
 import shutil
+import socket
 import subprocess
 import sys
 import tempfile
@@ -47,6 +72,10 @@ AETHER = os.environ.get("AETHER_BIN", os.path.join(REPO, "build", "aether"))
 GUIDE_MODULES = os.path.join(REPO, "tests", "guide_modules")
 GUIDE_NAMES = ("aether_for_llms_and_others.md", "aether_for_llms_medium_contexts.md",
                "aether_for_llms_with_small_contexts.md")
+GUIDE_SHORT = {"full": GUIDE_NAMES[0], "medium": GUIDE_NAMES[1], "small": GUIDE_NAMES[2]}
+GOLDENS = os.path.join(REPO, "docs", "guide_goldens.json")
+RECIPES = os.path.join(REPO, "tests", "guide_recipes")
+RUN_TIMEOUT = 20
 
 # Blocks that MUST fail, keyed by a distinctive substring of the block. The
 # value is (why, the exact set of codes the block must fail with). One dict
@@ -292,6 +321,159 @@ def check_guide(path, workdir, tag_prefix, run_outputs=False):
     return stats, problems, notes
 
 
+def block_sha(src):
+    return hashlib.sha256(src.encode("utf-8")).hexdigest()
+
+
+def load_goldens():
+    if not os.path.exists(GOLDENS):
+        return {"_note": [], "blocks": {}}
+    with open(GOLDENS, encoding="utf-8") as fh:
+        return json.load(fh)
+
+
+def free_port():
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sk:
+        sk.bind(("127.0.0.1", 0))
+        return sk.getsockname()[1]
+
+
+PORT_LITERAL = re.compile(r"(let\s+port\s*:\s*Int\s*=\s*)(\d{4,5})(\s*;)")
+
+
+def run_program(workdir, src, tag, timeout=RUN_TIMEOUT):
+    """(exit status or 'timeout', stdout, stderr) of one complete program."""
+    if "socketbind" in src:
+        src = PORT_LITERAL.sub(lambda m: f"{m.group(1)}{free_port()}{m.group(3)}", src)
+    path = os.path.join(workdir, f"{tag}.aether")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    try:
+        r = subprocess.run([AETHER, "--no-cache", path], capture_output=True, text=True,
+                           timeout=timeout, cwd=workdir, stdin=subprocess.DEVNULL)
+        return r.returncode, r.stdout, r.stderr
+    except subprocess.TimeoutExpired:
+        return "timeout", "", ""
+
+
+def run_guide(path, workdir, tag_prefix, goldens, update):
+    """Run every complete program in one guide. Returns (stats, problems, seen shas)."""
+    name = os.path.basename(path)
+    stats = {"whole": 0, "stdout": 0, "rc_only": 0, "skip": 0, "expected_fail": 0}
+    problems, seen = [], set()
+    entries = goldens.setdefault("blocks", {})
+    for k, (ln, src) in enumerate(parse_blocks(path)):
+        kind, full = wrap(src)
+        if kind != "whole":
+            continue
+        stats["whole"] += 1
+        sha = block_sha(src)
+        seen.add(sha)
+        where = f"{name}:{ln}"
+        if next((key for key in EXPECT_FAIL if key in src), None) is not None:
+            stats["expected_fail"] += 1
+            continue
+        entry = entries.get(sha)
+        if entry and "skip" in entry:
+            stats["skip"] += 1
+            continue
+        rc, out, err = run_program(workdir, full, f"{tag_prefix}_run{k:02d}_L{ln}")
+        if rc != 0:
+            problems.append(f"{where}: exit {rc}\n      {err.strip()[:300]}")
+            continue
+        if entry and "rc_only" in entry:
+            stats["rc_only"] += 1
+            continue
+        if update:
+            if entry is None or entry.get("stdout") != out:
+                print(f"  update {where}: stdout {out!r}"
+                      + (f" (was {entry.get('stdout')!r})" if entry else " (new)"))
+            entries[sha] = {"where": f"{name}:{ln}", "stdout": out}
+            stats["stdout"] += 1
+            continue
+        if entry is None:
+            problems.append(f"{where}: no golden in docs/guide_goldens.json for this block "
+                            f"(sha256 {sha[:12]}); run --run --update and review the diff")
+            continue
+        if out != entry["stdout"]:
+            problems.append(f"{where}: printed {out!r}, golden says {entry['stdout']!r}")
+            continue
+        stats["stdout"] += 1
+    return stats, problems, seen
+
+
+def extract_function(guide_path, fname):
+    """The source of `fn fname(` in a guide's aether blocks, with the annotation
+    lines directly above it. Raises ValueError unless exactly one is found."""
+    found = []
+    for _, src in parse_blocks(guide_path):
+        lines = src.split("\n")
+        for i, line in enumerate(lines):
+            if not re.match(r"\s*(export\s+)?fn\s+" + re.escape(fname) + r"\s*\(", line):
+                continue
+            start = i
+            while start > 0 and lines[start - 1].strip().startswith("@"):
+                start -= 1
+            depth, end, opened = 0, None, False
+            for j in range(i, len(lines)):
+                code = lines[j].split("//", 1)[0]
+                depth += code.count("{") - code.count("}")
+                opened = opened or "{" in code
+                if opened and depth <= 0:
+                    end = j
+                    break
+            if end is None:
+                raise ValueError(f"fn {fname}: no closing brace")
+            found.append("\n".join(lines[start:end + 1]))
+    if len(found) != 1:
+        raise ValueError(f"fn {fname}: {len(found)} definitions in {os.path.basename(guide_path)}")
+    return found[0]
+
+
+def run_recipes(guide_paths, workdir):
+    """Run each recipe driver against the guides it names. Returns (runs, problems)."""
+    by_short = {short: p for short, n in GUIDE_SHORT.items()
+                for p in guide_paths if os.path.basename(p) == n}
+    runs, problems = 0, []
+    if not os.path.isdir(RECIPES):
+        return runs, problems
+    for drv in sorted(f for f in os.listdir(RECIPES) if f.endswith(".driver.aether")):
+        name = drv[:-len(".driver.aether")]
+        with open(os.path.join(RECIPES, drv), encoding="utf-8") as fh:
+            driver = fh.read()
+        want_path = os.path.join(RECIPES, name + ".out")
+        if not os.path.exists(want_path):
+            problems.append(f"guide_recipes/{drv}: no {name}.out")
+            continue
+        with open(want_path, encoding="utf-8") as fh:
+            want = fh.read()
+        mg = re.search(r"^// guides:(.*)$", driver, re.M)
+        mr = re.search(r"^// recipes:(.*)$", driver, re.M)
+        if not mg or not mr:
+            problems.append(f"guide_recipes/{drv}: needs `// guides:` and `// recipes:` header lines")
+            continue
+        for short in mg.group(1).split():
+            if short not in GUIDE_SHORT:
+                problems.append(f"guide_recipes/{drv}: unknown guide {short!r}")
+                continue
+            if short not in by_short:
+                continue  # that guide was not given on this run
+            try:
+                funcs = [extract_function(by_short[short], f) for f in mr.group(1).split()]
+            except ValueError as err:
+                problems.append(f"guide_recipes/{drv} [{short}]: {err}")
+                continue
+            prog = "\n\n".join(funcs) + "\n\n" + driver
+            rc, out, err = run_program(workdir, prog, f"recipe_{name}_{short}")
+            runs += 1
+            if rc != 0 or out != want:
+                diff = "".join(difflib.unified_diff(want.splitlines(True), out.splitlines(True),
+                                                    f"{name}.out", f"{short} recipes"))
+                problems.append(f"guide_recipes/{drv} [{short}]: exit {rc}\n{diff}"
+                                f"{err.strip()[:300]}")
+    return runs, problems
+
+
 def stale_keys(paths):
     """EXPECT_FAIL / FX_RESCUED keys that match no block in any given guide."""
     blocks = {os.path.basename(p): [src for _, src in parse_blocks(p)] for p in paths}
@@ -312,11 +494,19 @@ def main():
     ap.add_argument("--run-outputs", action="store_true",
                     help="also run every complete program and compare its stdout with "
                          "the ```text block that follows it (the card's gate)")
+    ap.add_argument("--run", action="store_true",
+                    help="run every complete program against docs/guide_goldens.json, and "
+                         "the tests/guide_recipes drivers (CTest aether_guide_run)")
+    ap.add_argument("--update", action="store_true",
+                    help="with --run: rewrite the goldens' stdout entries from this build")
     args = ap.parse_args()
 
     names = {os.path.basename(p) for p in args.guides}
     all_guides = set(GUIDE_NAMES) <= names
     failed = False
+
+    if args.run:
+        return run_mode(args.guides, all_guides, args.update)
 
     if not args.keys_only:
         with tempfile.TemporaryDirectory(prefix="aether_guide_snip_") as workdir:
@@ -346,6 +536,56 @@ def main():
     elif args.keys_only:
         print("ERROR: --keys-only needs all three guides: " + ", ".join(GUIDE_NAMES))
         return 2
+    return 1 if failed else 0
+
+
+def run_mode(guides, all_guides, update):
+    goldens = load_goldens()
+    failed, seen = False, set()
+    total = {"whole": 0, "stdout": 0, "rc_only": 0, "skip": 0, "expected_fail": 0}
+    with tempfile.TemporaryDirectory(prefix="aether_guide_run_") as workdir:
+        if os.path.isdir(GUIDE_MODULES):
+            for mod in sorted(os.listdir(GUIDE_MODULES)):
+                shutil.copy(os.path.join(GUIDE_MODULES, mod), workdir)
+        for n, path in enumerate(guides):
+            stats, problems, shas = run_guide(path, workdir, f"g{n}", goldens, update)
+            seen |= shas
+            for key in total:
+                total[key] += stats[key]
+            print(f"{os.path.basename(path)}: complete programs {stats['whole']}  ran to golden "
+                  f"stdout {stats['stdout']}  rc-only {stats['rc_only']}  skipped {stats['skip']}  "
+                  f"expected-fail {stats['expected_fail']}  UNEXPECTED {len(problems)}")
+            for p in problems:
+                print(f"--- UNEXPECTED {p}\n")
+            failed = failed or bool(problems)
+        runs, problems = run_recipes(guides, workdir)
+        print(f"recipe drivers: {runs} run(s)  UNEXPECTED {len(problems)}")
+        for p in problems:
+            print(f"--- UNEXPECTED {p}\n")
+        failed = failed or bool(problems)
+    entries = goldens.get("blocks", {})
+    if all_guides:
+        stale = sorted(k for k in entries if k not in seen)
+        if update:
+            for k in stale:
+                print(f"  update: dropped stale golden {entries[k].get('where')} ({k[:12]})")
+                del entries[k]
+        else:
+            for k in stale:
+                print(f"--- UNEXPECTED stale golden (matches no block): {entries[k].get('where')} {k[:12]}")
+            failed = failed or bool(stale)
+    if update:
+        def where_key(kv):
+            guide, _, line = kv[1].get("where", "").rpartition(":")
+            return (guide, int(line) if line.isdigit() else 0, kv[0])
+        goldens["blocks"] = dict(sorted(entries.items(), key=where_key))
+        with open(GOLDENS, "w", encoding="utf-8") as fh:
+            json.dump(goldens, fh, indent=2, ensure_ascii=False)
+            fh.write("\n")
+        print(f"wrote {os.path.relpath(GOLDENS, REPO)}: review the diff before committing")
+    print(f"complete programs {total['whole']}: {total['stdout']} ran to golden stdout, "
+          f"{total['rc_only']} rc-only, {total['skip']} skipped, "
+          f"{total['expected_fail']} expected-fail (not run)")
     return 1 if failed else 0
 
 

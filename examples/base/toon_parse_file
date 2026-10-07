@@ -6,7 +6,14 @@ fn main() -> Void {
         ret;
     }
 
-    let path: Text = "Examples/aether/base/toon_parse_file_payload.json";
+    // The payload sits beside this file: cwd-relative when run from
+    // examples/base, with a fallback for a run from the repository root.
+    let path: Text = "toon_parse_file_payload.json";
+    let local: Bool = false;
+    fx { local = fileexists(path); }
+    if !local {
+        path = "examples/base/toon_parse_file_payload.json";
+    }
     let doc: ToonDoc;
     fx { doc = toon_parse_file(path); }   // reads a file -> effectful (FX-001)
     let root: ToonNode = toon_root(doc);

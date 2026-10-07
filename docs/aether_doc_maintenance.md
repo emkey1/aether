@@ -257,10 +257,11 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 | `aether_guide_audit` | the content audit above (`tools/audit_guides.py`) | nothing yet: report mode prints the hits; `--strict` from the first guide pass |
 | `aether_diag_codes` | the codes the fixtures make the compiler print, against code literals in the sources and each guide's repair rules and full's "actually emits" list (`tools/check_diag_codes.py`) | nothing yet: report mode prints the findings; `--strict` from the first guide pass |
 | `aether_doc_refs` | every commit hash cited in `README.md`, `CHANGELOG.md` and `docs/**/*.md` resolves in aether, rea, pscal-core, or the umbrella when `PSCAL_UMBRELLA` names a checkout (`tools/check_doc_refs.py`) | an unresolvable hash, or a placeholder written where a hash belongs; Skipped in a shallow clone |
+| `aether_guide_run` | every complete program (a block with its own `fn main`) in the three guides is **run**, against [`guide_goldens.json`](guide_goldens.json), and the recipe drivers in `tests/guide_recipes/` run against their hand-written `.out` (`verify_guide_snippets.py --run`) | a program exits non-zero or prints other than its golden; a program with no golden; a stale golden; a recipe's output differs |
+| `aether_examples_run` | every example program runs from a copy of its own directory; the "best example files" below print their `tests/example_goldens/` output (`tests/run_examples.sh --run`) | a non-zero exit, a timeout, or a golden mismatch |
 
-Still manual, because no gate does them: running complete programs and the
-recipes (the snippet gate compiles, it does not run; see below), and acting
-on the content audit's report until it turns strict. To run the snippet check by hand over all three
+Still manual, because no gate does it: acting on the content audit's report
+until it turns strict. To run the snippet check by hand over all three
 guides, which includes the key check:
 `python3 tools/verify_guide_snippets.py docs/aether_for_llms_*.md`
 (`AETHER_BIN` defaults to `build/aether`); one path checks one guide.
@@ -285,10 +286,20 @@ the 2026-08-11 compiler that case-insensitive collision aborts with a VM
 slot-window error the moment it executes. Sixteen days of green snippet checks
 across every edit in between, because none of them ran it. (How much of that
 window the compiler was actually broken for is unmeasured — the collision bug
-was found by this route, not bisected.) When you add or edit a **complete program**
-(one with its own `main`, as opposed to a prose fragment), run it once by hand
-and look at the output before committing. `CONTEXT` names its record
-`TallyRec` beside `fn tally` for the same reason.
+was found by this route, not bisected.) The compile sweep is still `--no-run`;
+the complete programs are now run by `ctest -R aether_guide_run`
+(`verify_guide_snippets.py --run`). Each one must exit 0 within 20 s and print
+the stdout [`guide_goldens.json`](guide_goldens.json) records for it, keyed by
+the sha256 of the block's text, so an edited program fails until its output is
+re-blessed: run `python3 tools/verify_guide_snippets.py --run --update
+docs/aether_for_llms_*.md` and read the printed stdout before committing. Two
+entries are `rc_only` (the medium guide's epoch/date program and the full
+guide's `home=` program print time- or host-dependent text) and one is `skip`
+(the full guide's live HTTP GET). The three module-import programs are
+`EXPECT_FAIL` and are not run. A socket program's port literal is rewritten to
+a free port in the temp copy. At 2026-10-07-1, 33 of the 37 complete programs
+run (31 to golden stdout, 2 rc-only). `CONTEXT` names its record `TallyRec`
+beside `fn tally` for the same reason.
 
 Blocks that *must* fail are listed in `EXPECT_FAIL` by a distinctive
 substring, each with the exact set of diagnostic codes it must fail with. The
@@ -314,11 +325,15 @@ Two maintenance notes. When a fragment references a new name, add it to
 keys **specific** — a key broad enough to match a block in another guide will
 mark a perfectly good snippet as expected-to-fail and hide a real regression.
 
-The recipes in **Writing what the surface does not give you** are **not**
-executed by any gate. They were run once by hand when they were written
-(`091e4f0`), and nothing repeats that. A sort or a `replaceFirst` that compiles
-and computes the wrong answer would be worse than not shipping one, so run any
-recipe you touch with a small driver and check its output. Avoid `...` elisions
+The recipes in **Writing what the surface does not give you** are run by
+`ctest -R aether_guide_run`. `tests/guide_recipes/writing_surface.driver.aether`
+names the guides (full and medium) and the recipe functions in its header; the
+gate extracts each function from each guide by name, with the annotations
+above it, appends the driver's edge cases, and compares the output with
+`writing_surface.out`. That file states what the recipes **should** print and
+is written by hand, never blessed: a sort or a `replaceFirst` that compiles and
+computes the wrong answer would be worse than not shipping one. Add a call to
+the driver, and its expected line to the `.out`, for any recipe you add. Avoid `...` elisions
 inside fenced blocks anywhere in this guide; models copy them verbatim and get
 a `SYN-001`.
 
@@ -418,7 +433,8 @@ Implementation notes:
 - `src/aether/README.md`
 - `src/aether/DESIGN.md`
 
-Best example files to copy from:
+Best example files to copy from (`tests/run_examples.sh --run` holds each to
+its `tests/example_goldens/` stdout; keep its `BEST_EXAMPLES` list in step):
 
 - `examples/base/hello`
 - `examples/base/contracts`

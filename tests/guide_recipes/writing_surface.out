@@ -1,0 +1,15 @@
+total 21 0 -4
+mean 4.20 0.00 7.00
+largest 9 7 7
+sorted 13359 len 5
+sorted-neg -9 -2 0 7
+input-untouched 51
+sorted-edge 0 7
+join [a, b, c] [] [solo]
+upper HELLO, WORLD! AZ{` []
+contains true false true true
+startsWith true false false true
+replaceFirst a+b-c abc abZ bc ba
+evensDoubled 3 4 8 -12 0
+isAllDigits true false false false true
+lookup 20 -1 -1 1
