@@ -359,9 +359,11 @@ no result attributable to either one.
   `VERSION` bump.
 - **Guides never interleave with a release.** A guide pass starts only after the
   outgoing stamps have a recorded measurement (measurement before churn), and
-  it never runs while a release is open. A release lands as at most three aether
-  commits: front end with pins and `VERSION`, the guide sync if one is needed,
-  and nothing changelog-only.
+  it never runs while a release is open. A release lands on aether as one commit
+  per front-end fix (each bisects and reverts on its own), then one pin commit
+  carrying the pins, any front-end change they need, the conformance flips,
+  `VERSION` and the `CHANGELOG.md` entry, then the guide sync if one is needed.
+  Never a changelog-only commit.
 - **A measurement row closes each release.** It is the bench workstream's
   paired replay or board row, run on the release binary.
 - **Names** follow the remediation plan's batch field: pscal-core batch 1 (the
