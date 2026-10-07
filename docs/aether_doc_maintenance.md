@@ -7,7 +7,7 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ~9K tokens *(stated; measures 11.4K — see below)* | 8–16K context models |
+| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,898 o200k / 12,633 Qwen3.5 | ~16K context models |
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
@@ -59,7 +59,7 @@ backticked identifiers, all of which tokenize badly. Measured with `o200k_base`
 
 | Guide | ceiling | 2026-08-06 | 2026-08-11 (SCOPE-001) | 2026-08-11 (ORDER-001) | 2026-08-11 (ORDER-001 retired) | 2026-09-05 | headroom |
 |---|---|---|---|---|---|---|---|
-| small | ~9K *(stated, not re-baselined)* | 11,369 | 11,613 | 11,631 | 11,534 | 11,898 | −2,898 |
+| small | 8,000 (D11; was a stated ~9K) | 11,369 | 11,613 | 11,631 | 11,534 | 11,898 | −3,898 |
 | medium | 15K | 14,350 | 14,922 | 14,922 | 14,849 | 14,985 | 15 |
 | full | none | 25,646 | 26,960 | 27,099 | 26,950 | 28,892 | n/a |
 
@@ -108,15 +108,25 @@ to warn about a compiler defect should be deleted when the defect is fixed, not
 softened** — and the paired-cut constraint above still binds the next addition;
 this repayment does not license a spend.
 
-Note the small guide grew (+18) in the same revision. It has no enforced
-ceiling to pair against, only the aspirational ~9K below, so cuts there are
-opportunistic rather than mandatory. That asymmetry is deliberate but it is
-also why the small guide keeps drifting; see below.
+Note the small guide grew (+18) in the same revision. It had no enforced
+ceiling to pair against, only an estimate-derived ~9K, so cuts there were
+opportunistic rather than mandatory, and that asymmetry is why it kept drifting.
 
-The small guide's ~9K is **still the old estimate-derived number** and it
-measures 11,631. It has not been re-baselined and has not been trimmed; the
-figure in the table above is aspirational, not a measured budget. Resolve it the
-same way — pick a real ceiling or cut to the stated one — before relying on it.
+**The small tier is decided (D11, option (a), 2026-10-06).** The small guide is
+for **~16K-context models** (the local 16K cohort: DeepSeek-Coder 6.7B with its
+hard 16,384 window, Qwen3-8B without thinking, Qwen3.5-9B), and its ceiling is
+**8,000 tokens** counted in the largest tokenizer of that cohort,
+DeepSeek-Coder's included, which is the same half-window rule as medium. It
+measures 11,898 o200k (12,633 Qwen3.5) today, so it does not fit an 8K window and
+leaves about 4K of a 16K window after the prompt. The cut to 8,000 happens in
+A/B-validated steps in the small-guide pass (W3-15), not in one edit; if
+DeepSeek-Coder counts well above o200k (not yet measured), the o200k-equivalent
+ceiling falls toward 6,500–7,000. Until that pass lands, `aether_guide_tokens`
+only reports small. The stated "~9K; 8–16K" is retired.
+
+**The medium rules bind small too.** Re-measure (o200k and Qwen3.5) before every
+small-guide edit, not only after, and pair every addition with a cut of at least
+its size until the guide is under its ceiling.
 
 To reproduce these counts, run the gate that enforces them
 (`ctest -R aether_guide_tokens` runs the same script):

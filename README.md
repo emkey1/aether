@@ -136,7 +136,7 @@ The three LLM-facing guides are the product (sizes in o200k tokens, 2026-10-06):
 
 - [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full guide (28,961 tokens; frontier contexts), ending in a generated builtin inventory
 - [`aether_for_llms_medium_contexts.md`](docs/aether_for_llms_medium_contexts.md): the working guide (14,985 tokens, hard ceiling 15,000; ~32K contexts). The benchmark's main tier
-- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (11,898 tokens; 16K-class contexts)
+- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (11,898 tokens; ~16K contexts, ceiling 8,000 to be reached by the next small-guide pass)
 
 Maintainer docs in [`docs/`](docs/):
 
