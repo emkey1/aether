@@ -322,6 +322,64 @@ recipe you touch with a small driver and check its output. Avoid `...` elisions
 inside fenced blocks anywhere in this guide; models copy them verbatim and get
 a `SYN-001`.
 
+## Release train
+
+Engine fixes ship in batches, called releases, not one at a time. Each fix
+moved alone costs a pscal-core commit, an aether pin bump, an umbrella gitlink,
+a `VERSION` bump and a `CHANGELOG.md` entry. Benchmark rows are attributed by
+`VERSION` and guide stamp, so a guide edit made in the middle of a batch leaves
+no result attributable to either one.
+
+- **Accumulate upstream.** A release collects on a `core-N` branch in pscal-core
+  (and in rea when rea changes too). Every fix arrives with its fixture, and
+  `tools/pin_gate.sh --core core-N --rea <ref>` runs on every push. At the cut,
+  `main` fast-forwards to `core-N`. rea built standalone fetches pscal-core at
+  `GIT_TAG main`, so it only ever sees whole releases. aether and the umbrella
+  build from pins.
+- **One pin commit per release.** `tools/bump_pins.sh --core <ref> --rea <ref>
+  --gate` moves aether's `external/` pins once per release. It resolves each ref
+  after fetching it and refuses a SHA that does not resolve, is not on the
+  submodule's `origin/main`, or would move a pin backwards. It refuses when the
+  checkout is behind `origin`. It runs `ctest -LE 'stress|metric'`, and the gate
+  summary goes in the commit message. Any front-end change the new pins need is
+  staged before running it, so the change and its pins land in one commit; the
+  tool refuses pins that fail the tests. (0e51e8c and bbfd7a2 are the two commits
+  where a front-end change landed apart from its pins and left `main` failing.)
+- **Conformance flips land with the pin.** `tests/backend_conformance/manifest.txt`
+  lists today's known engine defects as `xfail:<item>`. Once a pin bump fixes
+  one, its probe passes and the pack fails, so the line changes to `pass` in that
+  same pin commit. Raising `tests/recursion_pass.aether` to `factorial(20)`
+  belongs to the INT64 release.
+- **One `VERSION` bump and one `CHANGELOG.md` entry per release.** The entry lists
+  every fix with its fixture or backlog-probe id. It cites the corpus A/B line
+  from the gate log (every changed program, each one explained) and, once the
+  bench workstream records it, the release's measurement row. `bump_pins.sh` flags
+  upstream subjects that may change what programs compile or print. A pin-only
+  release whose replay and conformance pack show 0 output differences takes no
+  `VERSION` bump.
+- **Guides never interleave with a release.** A guide pass starts only after the
+  outgoing stamps have a recorded measurement (measurement before churn), and
+  it never runs while a release is open. A release lands as at most three aether
+  commits: front end with pins and `VERSION`, the guide sync if one is needed,
+  and nothing changelog-only.
+- **A measurement row closes each release.** It is the bench workstream's
+  paired replay or board row, run on the release binary.
+- **Names** follow the remediation plan's batch field: pscal-core batch 1 (the
+  effect table including Pascal file ops, line-atomic write, INT64 widening,
+  ...), FE batch A, guide pass 1, and so on. Use the same name in the
+  `core-N` branch, the pin commit and the `CHANGELOG.md` entry.
+
+What `pin_gate.sh` runs: aether built from the working tree over scratch clones
+of the candidates; the conformance pack; `tests/run.sh` uncached, then cold and
+warm on a private cache; rea's own `tests/run.sh`; the umbrella suites when
+`PSCAL_UMBRELLA` names an umbrella checkout (pascal, clike, rea, aether,
+pscalvm_frontend and json2bc CTests, plus exsh, pscalasm, vm_fx_policy and
+vm_thread_stress, each failure compared against the umbrella on its own pins);
+the D19 Pascal/CLike wrap probes; `tools/corpus_ab.py`; and, with `--asan`, an
+AddressSanitizer lap for releases that touch ownership. Each step can be
+selected or skipped with `--steps` and `--skip`. It never modifies `external/`,
+the umbrella or any repo it clones from.
+
 ## Small-context LLM doc extraction checklist
 
 When updating `docs/aether_for_llms_with_small_contexts.md`, preserve these

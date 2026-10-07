@@ -52,6 +52,9 @@ behaviour in the shared code sits behind `frontendIsAether()`.
   `external/` here (aether's pscal-core pin wins over rea's), then the
   umbrella's `components/` gitlinks. Batch engine fixes: one pin bump and one
   VERSION bump per release, not one per fix.
+- **Release train.** Gate candidate pins with `tools/pin_gate.sh`, move them with
+  `tools/bump_pins.sh` (never by hand); the policy is the "Release train"
+  section of `docs/aether_doc_maintenance.md`.
 - **No Aether VM.** Never add a separate VM, bytecode or runtime for Aether.
 
 ## The guides
