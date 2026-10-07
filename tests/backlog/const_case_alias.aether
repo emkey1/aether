@@ -1,0 +1,7 @@
+// Backlog probe (W4-22): names ignore case: `let limit` overwrites `const LIMIT`.
+// Correct behaviour: prints 10 3, or a coded NAME-001.
+const LIMIT: Int = 10;
+fn main() -> Void {
+    let limit: Int = 3;
+    fx { println(LIMIT, " ", limit); }
+}

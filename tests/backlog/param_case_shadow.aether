@@ -1,0 +1,9 @@
+// Backlog probe (W4-22): parameter `limit` answers to `LIMIT`.
+// Correct behaviour: prints 100, or a coded NAME-001.
+const LIMIT: Int = 100;
+fn check(limit: Int) -> Int {
+    ret LIMIT;
+}
+fn main() -> Void {
+    fx { println(check(5)); }
+}

@@ -1,0 +1,4 @@
+// Backlog probe (W4-08): main-program Int from Real aborts with no file, line or code.
+// Correct behaviour: prints 3 with a NARROW-001 warning.
+let n: Int = 3.7;
+fx { println(n); }

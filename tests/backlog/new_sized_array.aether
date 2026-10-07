@@ -1,0 +1,7 @@
+// Backlog probe (W4-28): SYN-001 with a misleading empty-index hint; the class cannot see the hint.
+// Correct behaviour: a coded rejection that names the sized-allocation form.
+fn main() -> Void {
+    let xs: Int[] = new Int[](5);
+    xs[0] = 1;
+    fx { println(xs[0]); }
+}

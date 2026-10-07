@@ -1,0 +1,8 @@
+// Backlog probe (W4-40): `s[i] = t` with a Text variable is an uncoded VM error.
+// Correct behaviour: prints zbc.
+fn main() -> Void {
+    let s: Text = "abc";
+    let t: Text = "z";
+    s[0] = t;
+    fx { println(s); }
+}

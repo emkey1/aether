@@ -335,3 +335,19 @@ if(Python3_Interpreter_FOUND)
         TIMEOUT 300
         LABELS "conformance")
 endif()
+
+# ---- Backlog probe lap (W2-23) -------------------------------------------------
+# tools/run_backlog.py: each tests/backlog/ probe pins TODAY's wrong behaviour
+# of one open plan item, by outcome class (manifest.tsv). It fails when a
+# probe's class changes, so the commit that fixes an item must also flip its
+# probe, the ledger entry and the guide lines it names. About 2 s, so the
+# default run includes it; `ctest -LE backlog` leaves it out during WIP.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME aether_backlog
+             COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_backlog.py
+                     --aether $<TARGET_FILE:aether>)
+    set_tests_properties(aether_backlog PROPERTIES
+        TIMEOUT 300
+        LABELS "backlog")
+endif()

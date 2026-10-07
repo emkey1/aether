@@ -1,0 +1,7 @@
+// Backlog probe (W4-09): TOON Bool getters print 1.
+// Correct behaviour: prints true.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"ok\": true}");
+    let root: ToonNode = toon_root(doc);
+    fx { println(toon_get_bool(root, "ok")); }
+}

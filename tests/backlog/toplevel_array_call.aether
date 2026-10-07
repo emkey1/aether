@@ -1,0 +1,7 @@
+// Backlog probe (W4-06): file-scope `let xs: Int[] = mk()` is out of scope.
+// Correct behaviour: prints 3.
+fn mk() -> Int[] { ret [1, 2, 3]; }
+let xs: Int[] = mk();
+fn main() -> Void {
+    fx { println(len(xs)); }
+}

@@ -1,0 +1,8 @@
+// Backlog probe (W4-17): `ret` is not checked against the declared type.
+// Correct behaviour: a coded type error.
+fn name() -> Int {
+    ret "bob";
+}
+fn main() -> Void {
+    fx { println(name()); }
+}

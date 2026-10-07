@@ -1,0 +1,9 @@
+// Backlog probe (W5-24): `let s = trim(s)` reads the new, empty slot.
+// Correct behaviour: prints [hi].
+fn clean(s: Text) -> Text {
+    let s: Text = trim(s);
+    ret s;
+}
+fn main() -> Void {
+    fx { println("[", clean("  hi  "), "]"); }
+}

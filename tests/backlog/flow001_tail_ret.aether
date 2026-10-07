@@ -1,0 +1,9 @@
+// Backlog probe (W4-04): classify with no tail ret returns nil.
+// Correct behaviour: FLOW-001.
+fn classify(n: Int) -> Text {
+    if n < 0 { ret "neg"; }
+    if n == 0 { ret "zero"; }
+}
+fn main() -> Void {
+    fx { println(classify(5), "|"); }
+}

@@ -1,0 +1,10 @@
+// Backlog probe (W4-10): fn __init__ compiles and never runs.
+// Correct behaviour: rejected with the constructor hint.
+type Counter {
+    n: Int;
+    fn __init__() -> Void { self.n = 5; }
+}
+fn main() -> Void {
+    let c: Counter = new Counter { n: 0 };
+    fx { println(c.n); }
+}

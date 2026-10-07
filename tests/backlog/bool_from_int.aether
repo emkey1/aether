@@ -1,0 +1,6 @@
+// Backlog probe (W4-17): `let b: Bool = 5` is accepted.
+// Correct behaviour: a coded type error.
+fn main() -> Void {
+    let b: Bool = 5;
+    fx { println(b); }
+}

@@ -1,0 +1,14 @@
+// Backlog probe (W5-29): eof() with no argument is always true.
+// Correct behaviour: prints 2 (two stdin lines).
+fn main() -> Void {
+    let n: Int = 0;
+    fx {
+        loop i in 0..3 {
+            if eof() { break; }
+            let line: Text = "";
+            readln(line);
+            n = n + 1;
+        }
+        println(n);
+    }
+}

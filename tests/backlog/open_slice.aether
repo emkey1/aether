@@ -1,0 +1,7 @@
+// Backlog probe (W4-35): open-ended slices do not parse.
+// Correct behaviour: prints 3.
+fn main() -> Void {
+    let a: Int[] = [10, 20, 30, 40];
+    let s: Int[] = a[1..];
+    fx { println(len(s)); }
+}

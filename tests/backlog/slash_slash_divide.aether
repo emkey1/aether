@@ -1,0 +1,7 @@
+// Backlog probe (W4-36): `x // 3` with no `;` is a comment.
+// Correct behaviour: a coded error for the expression-shaped `//`.
+fn main() -> Void {
+    let x: Int = 30;
+    let y: Int = x // 3
+    fx { println(y); }
+}

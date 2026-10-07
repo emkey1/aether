@@ -1,0 +1,6 @@
+// Backlog probe (ideas_and_todo): ret inside fx compiles and runs, but the full guide still forbids it.
+// Correct behaviour: this already works; the guide line is stale.
+fn f() -> Int {
+    fx { println("x"); ret 3; }
+}
+fn main() -> Void { fx { println(f()); } }

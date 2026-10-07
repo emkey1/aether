@@ -1,0 +1,5 @@
+// Backlog probe (W5-18): chr(233) prints through CP437.
+// Correct behaviour: prints é.
+fn main() -> Void {
+    fx { println(chr(233)); }
+}

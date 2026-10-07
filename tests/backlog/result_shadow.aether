@@ -1,0 +1,9 @@
+// Backlog probe (W4-43): the backend's `result` local shadows the user's global.
+// Correct behaviour: prints 42.
+let result: Int = 42;
+fn peek() -> Int {
+    ret result;
+}
+fn main() -> Void {
+    fx { println(peek()); }
+}

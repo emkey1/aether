@@ -1,0 +1,7 @@
+// Backlog probe (W4-42): Int/Int `/` is Real outside a typed sink, so 7/2 == 3 is false.
+// Correct behaviour: prints eq3.
+fn main() -> Void {
+    let a: Int = 7;
+    let b: Int = 2;
+    if a / b == 3 { fx { println("eq3"); } } else { fx { println("not eq3"); } }
+}

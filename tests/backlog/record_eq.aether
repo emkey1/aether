@@ -1,0 +1,8 @@
+// Backlog probe (W4-20): record == compares identity.
+// Correct behaviour: REC-001, or prints same.
+type Pos { r: Int; c: Int; }
+fn main() -> Void {
+    let p: Pos = new Pos { r: 1, c: 2 };
+    let q: Pos = new Pos { r: 1, c: 2 };
+    if p == q { fx { println("same"); } } else { fx { println("differ"); } }
+}

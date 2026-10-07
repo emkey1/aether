@@ -36,6 +36,13 @@ guide pass. Bump a guide with `python3 tools/bump_guide_version.py <guide>`, whi
 prints the changelog row to commit with it; the pre-commit hook only warns.
 `-DAETHER_STRESS_TESTS=ON` adds the par stress lap (minutes, every core).
 
+`aether_backlog` (`tools/run_backlog.py`, label `backlog`) pins today's wrong
+behaviour of each open plan item as a probe in `tests/backlog/`, by outcome
+class. A fix that changes a probe's class fails it: in the same commit, update
+the ledger entry and guide lines its `manifest.tsv` row names, then move the
+probe into `tests/` as a regression fixture. `ctest -LE backlog` skips it
+during WIP.
+
 ## Where a diagnostic comes from
 
 Search in this order: `src/aether/ast_parser.c` (parse, lowering, most coded

@@ -1,0 +1,11 @@
+// Backlog probe (W4-33): the range bound is re-read every pass.
+// Correct behaviour: prints 10.
+fn main() -> Void {
+    let n: Int = 10;
+    let runs: Int = 0;
+    loop i in 0..n {
+        n = n - 1;
+        runs = runs + 1;
+    }
+    fx { println(runs); }
+}

@@ -1,0 +1,7 @@
+// Backlog probe (W4-23): a duplicate fn is silently last-wins.
+// Correct behaviour: a coded duplicate-declaration error.
+fn score() -> Int { ret 1; }
+fn score() -> Int { ret 2; }
+fn main() -> Void {
+    fx { println(score()); }
+}

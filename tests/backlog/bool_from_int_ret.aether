@@ -1,0 +1,8 @@
+// Backlog probe (W4-17): `ret 7` from -> Bool prints 7.
+// Correct behaviour: a coded type error.
+fn ok() -> Bool {
+    ret 7;
+}
+fn main() -> Void {
+    fx { println(ok()); }
+}

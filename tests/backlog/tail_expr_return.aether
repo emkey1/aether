@@ -1,0 +1,9 @@
+// Backlog probe (W4-03): `a b` juxtaposition keeps a and drops b.
+// Correct behaviour: a coded SYN-001.
+fn pick(a: Int, b: Int) -> Int {
+    let t: Int = a b;
+    ret t;
+}
+fn main() -> Void {
+    fx { println(pick(2, 9)); }
+}

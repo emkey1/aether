@@ -1,0 +1,5 @@
+// Backlog probe (W4-45): upcase takes the first code point.
+// Correct behaviour: prints RED.
+fn main() -> Void {
+    fx { println(upcase("red")); }
+}

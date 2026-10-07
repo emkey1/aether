@@ -1,0 +1,7 @@
+// Backlog probe (W4-22): a loop variable named like a let leaves the let at 0.
+// Correct behaviour: a coded NAME-001 (the loop reuses a let's name).
+fn main() -> Void {
+    let i: Int = 0;
+    loop i in 0..3 { }
+    fx { println(i); }
+}

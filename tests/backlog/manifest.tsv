@@ -1,0 +1,42 @@
+# Backlog probes: today's wrong behaviour of open items, one probe per finding.
+# Run by tools/run_backlog.py (CTest aether_backlog); its docstring defines the columns.
+# A probe that flips fails the lap: fix the ledger and guide lines in the same commit,
+# then move the probe into tests/ as a regression fixture and delete its row.
+# slug	outcome	anchor	guide	note
+div_compare	silent:not eq3	W4-42	medium:301,small:266,full:693	Int/Int `/` is Real outside a typed sink, so 7/2 == 3 is false
+div_range_bound	silent:4	W4-42	full:693	`0..7 / 2` runs 4 times: the bound is 3.5
+div_mod_digit	uncoded-runtime	W4-19	full:693	`n / 10 % 10` is Real % Int, an uncoded VM error
+div_int_to_text	uncoded-runtime	W4-19	-	int_to_text(a / b) is an uncoded IntToStr error
+const_case_alias	silent:3 3	W4-22	-	names ignore case: `let limit` overwrites `const LIMIT`
+param_case_shadow	silent:5	W4-22	-	parameter `limit` answers to `LIMIT`
+loop_var_outer	silent:0	W4-22	-	a loop variable named like a let leaves the let at 0
+main_with_toplevel	silent:top	W4-05	-	a top-level statement beside fn main suppresses main
+upcase_text	silent:R	W4-45	full:868	upcase takes the first code point
+toon_bool	silent:1	W4-09	small:105,medium:337,full:254	TOON Bool getters print 1
+record_eq	silent:differ	W4-20	medium:339,full:282	record == compares identity
+eof_always_true	silent:0	W5-29	-	eof() with no argument is always true
+ret_text_from_int	silent:bob	W4-17	-	`ret` is not checked against the declared type
+bool_from_int	silent:true	W4-17	-	`let b: Bool = 5` is accepted
+bool_from_int_ret	silent:7	W4-17	-	`ret 7` from -> Bool prints 7
+flow001_tail_ret	silent:nil|	W4-04	full:83,medium:83,small:64	classify with no tail ret returns nil
+flow001_int_fallthrough	silent:nil	W4-04	full:83,medium:83,small:64	a -> Int fallthrough returns nil
+init_never_runs	silent:0	W4-10	full:121,medium:121,small:208	fn __init__ compiles and never runs
+int_cast_call	fails:SCOPE-001	W4-10	full:191,full:738,medium:192	`Int(x)` in a typed let is SCOPE-001 although the guides accept it
+open_slice	fails:SYN-001	W4-35	full:1270	open-ended slices do not parse
+new_sized_array	fails:SYN-001	W4-28	-	SYN-001 with a misleading empty-index hint; the class cannot see the hint
+cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped)
+ret_inside_fx	passes	ideas:Misleading `FLOW-001` on `ret` inside `fx`	full:309	ret inside fx compiles and runs, but the full guide still forbids it
+toplevel_array_call	fails:SCOPE-001	W4-06	-	file-scope `let xs: Int[] = mk()` is out of scope
+main_real_to_int	uncoded-runtime	W4-08	medium:137,medium:265,full:158	main-program Int from Real aborts with no file, line or code
+tail_expr_return	silent:2	W4-03	-	`a b` juxtaposition keeps a and drops b
+unterminated_string	silent:abc	W4-13	-	an unterminated string swallows the `;`
+chained_compare	silent:working age	W4-15	-	`18 <= age < 65` is (18 <= age) < 65
+let_self_init	silent:[]	W5-24	-	`let s = trim(s)` reads the new, empty slot
+duplicate_fn	silent:2	W4-23	-	a duplicate fn is silently last-wins
+range_bound_reread	silent:5	W4-33	full:628	the range bound is re-read every pass
+slash_slash_divide	silent:30	W4-36	medium:330	`x // 3` with no `;` is a comment
+result_shadow	silent:nil	W4-43	-	the backend's `result` local shadows the user's global
+print_array	silent~ARRAY\(dims:1, base_type:INT64, elements_at:0x[0-9a-fA-F]+\)	W8-15	full:1284,small:547	println(xs) prints the internal array header
+int_of_text	silent:0	W8-15	full:191,small:307	int(Text) is silently 0
+text_index_store	uncoded-runtime	W4-40	-	`s[i] = t` with a Text variable is an uncoded VM error
+chr_high	silent:Θ	W5-18	-	chr(233) prints through CP437

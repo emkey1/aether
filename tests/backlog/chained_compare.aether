@@ -1,0 +1,6 @@
+// Backlog probe (W4-15): `18 <= age < 65` is (18 <= age) < 65.
+// Correct behaviour: a coded error (or prints other).
+fn main() -> Void {
+    let age: Int = 70;
+    if 18 <= age < 65 { fx { println("working age"); } } else { fx { println("other"); } }
+}

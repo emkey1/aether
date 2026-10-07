@@ -1,0 +1,9 @@
+// Backlog probe (W4-04): a -> Int fallthrough returns nil.
+// Correct behaviour: FLOW-001.
+fn sign(n: Int) -> Int {
+    if n < 0 { ret -1; }
+    if n > 0 { ret 1; }
+}
+fn main() -> Void {
+    fx { println(sign(0)); }
+}
