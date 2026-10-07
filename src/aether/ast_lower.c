@@ -1570,6 +1570,10 @@ AST *parseRet(AetherParser *p) {
                              "return a value), or declare the function `-> Void`.");
         p->hadError = true;
     }
+    if (value && aetherTailRejectJuxtaposed(p)) {
+        freeAST(value);
+        return NULL;
+    }
     if (p->current.type == REA_TOKEN_SEMICOLON) {
         aetherAdvance(p);
     }

@@ -67,6 +67,15 @@ check arr_params.aether "arrays=ref"     0 "1358 g=1 a=5 b=5 s0=0 a0=1 t=6"
 check_warn arr_params.aether ""               ARR-001 0
 check_warn arr_params.aether "arrays=vstrict" ARR-001 5
 
+# D39: discarded values and tail expressions (W4-03 arms).
+check tail_expr.aether ""             0 "bigger=nil"
+check tail_expr.aether "tail=current" 0 "bigger=nil"
+check tail_expr.aether "tail=reject"  1 "code:FLOW-001"
+check tail_expr.aether "tail=ret"     0 "bigger=9"
+check juxtapose.aether ""             0 "total=3"
+check juxtapose.aether "tail=reject"  1 "code:SYN-001"
+check juxtapose.aether "tail=ret"     0 "total=3"
+
 # A typo must not silently measure the default.
 (cd "$OUT" && AETHER_EXPERIMENT="div=nope" "$AETHER_BIN" --no-cache "$DIR/div_demand.aether" \
     >/dev/null 2>&1 </dev/null)

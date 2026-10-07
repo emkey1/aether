@@ -1,0 +1,12 @@
+// D39 experiment fixture: a Rust-style tail `if` in a non-Void function. Today
+// it compiles and returns nothing (prints nil); tail=reject makes it FLOW-001;
+// tail=ret returns the branch value.
+fn bigger(a: Int, b: Int) -> Int {
+    if a > b { a } else { b }
+}
+
+fn main() -> Void {
+    fx {
+        println("bigger=", bigger(3, 9));
+    }
+}

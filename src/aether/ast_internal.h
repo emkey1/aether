@@ -221,6 +221,11 @@ typedef struct {
     int exprAfterOpLine;
     const char *stmtStartAt;
     bool detachedText;
+    /* The token before `current` (line, text), for the D39 juxtaposition
+     * arm (AETHER_EXPERIMENT=tail=reject). Set by aetherAdvance. */
+    int prevLine;
+    const char *prevStart;
+    int prevLength;
 } AetherParser;
 
 /* One right-hand operand of a left-nested array-`+` chain, in APPLY order.
@@ -268,6 +273,11 @@ AST *parseExpr(AetherParser *p);
 AST *buildContractGuard(AetherParser *p, const char *exprText,
                        const char *kind, const char *fnName, int line);
 AST *parseStatement(AetherParser *p);
+/* AETHER_EXPERIMENT=tail=reject (D39 census): true, after reporting SYN-001,
+ * when `current` starts another expression on the line of the token before
+ * it with no `;` between them (`let t: Int = price qty;`). False otherwise,
+ * and always false with the flag off. */
+bool aetherTailRejectJuxtaposed(AetherParser *p);
 AST *parseBlock(AetherParser *p);
 
 /* ---- Defined in ast_lower.c ----------------------------------------- */

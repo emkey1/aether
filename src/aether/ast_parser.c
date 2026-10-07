@@ -975,6 +975,9 @@ static ReaToken makeDotDot(const char *at, int line) {
  *   a..5 : IDENT DOT NUMBER(".5")    -> trim leading dot, inject DOTDOT
  * Every other token passes through untouched. */
 void aetherAdvance(AetherParser *p) {
+    p->prevLine = p->current.line;
+    p->prevStart = p->current.start;
+    p->prevLength = p->current.length;
     ReaToken t = aetherRawNext(p);
 
     /* `<num>..` : current NUMBER folded a trailing '.'. */
@@ -3644,6 +3647,13 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             return NULL;
         }
     }
+    if (aetherTailRejectJuxtaposed(p)) {
+        freeToken(nameTok);
+        if (typeNode) freeAST(typeNode);
+        free(declaredTypeName);
+        if (init) freeAST(init);
+        return NULL;
+    }
     if (p->current.type == REA_TOKEN_SEMICOLON) {
         aetherAdvance(p);
     }
@@ -4052,6 +4062,122 @@ static bool aetherNextContinuesIdentifierStatement(ReaTokenType next) {
     }
 }
 
+/* D39 census arms (AETHER_EXPERIMENT=tail=..., src/aether/experiment.h). */
+static void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
+                                         const char *hint) {
+    const char *path = aetherSemanticGetSourcePath();
+    aetherDiagf("%s:%d: [%s] Aether parser error: %s\n", path ? path : "<aether>",
+                line > 0 ? line : 1, code, detail);
+    if (hint && *hint) aetherDiagf("hint: %s\n", hint);
+    aetherReportGuideHelp(code);
+}
+
+/* A keyword that opens a statement or declaration: after an expression on
+ * the same line it means a missing `;` or a foreign modifier (`pure fn`), not
+ * a deleted operator, and those keep their own diagnostics. */
+static bool aetherCurrentIsStatementWord(const AetherParser *p) {
+    static const char *const kStatementWords[] = {
+        "fn", "let", "const", "type", "mod", "use", "import", "if", "else", "loop",
+        "while", "for", "ret", "return", "fx", "par", "break", "continue", "export",
+    };
+    for (size_t i = 0; i < sizeof(kStatementWords) / sizeof(kStatementWords[0]); i++) {
+        if (isAetherKeyword(&p->current, kStatementWords[i])) return true;
+    }
+    return p->current.type == REA_TOKEN_IF || p->current.type == REA_TOKEN_WHILE ||
+           p->current.type == REA_TOKEN_FOR || p->current.type == REA_TOKEN_BREAK ||
+           p->current.type == REA_TOKEN_CONTINUE;
+}
+
+bool aetherTailRejectJuxtaposed(AetherParser *p) {
+    if (aetherExperiment()->tail != AETHER_TAIL_REJECT || p->forwardScan) return false;
+    if (p->current.type == REA_TOKEN_SEMICOLON || p->current.type == REA_TOKEN_RIGHT_BRACE ||
+        p->current.type == REA_TOKEN_EOF || p->current.line != p->prevLine)
+        return false;
+    if (aetherCurrentIsStatementWord(p)) return false;
+    char detail[200];
+    snprintf(detail, sizeof(detail), "missing operator or `=` between `%.*s` and `%.*s`?",
+             p->prevLength > 40 ? 40 : p->prevLength, p->prevStart ? p->prevStart : "",
+             p->current.length > 40 ? 40 : (int)p->current.length, p->current.start);
+    reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
+                                 "two expressions on one line need an operator between them, "
+                                 "or a `;` if they are separate statements.");
+    p->hadError = true;
+    return true;
+}
+
+/* An expression whose only effect is its value: discarding it is a mistake. */
+static bool aetherIsDiscardableValue(const AST *e) {
+    if (!e) return false;
+    switch (e->type) {
+        case AST_VARIABLE: case AST_NUMBER: case AST_STRING: case AST_BOOLEAN: case AST_NIL:
+        case AST_BINARY_OP: case AST_UNARY_OP: case AST_TERNARY: case AST_ARRAY_ACCESS:
+        case AST_FIELD_ACCESS: case AST_ARRAY_LITERAL: case AST_FORMATTED_EXPR:
+            return true;
+        default:
+            return false;
+    }
+}
+
+/* tail=reject: a value computed and thrown away. */
+static bool aetherTailRejectDiscarded(AetherParser *p, const AST *expr, int line) {
+    if (aetherExperiment()->tail != AETHER_TAIL_REJECT || p->forwardScan ||
+        !aetherIsDiscardableValue(expr))
+        return false;
+    /* `pure fn ...`: a foreign modifier word, which keeps today's diagnostic. */
+    if (expr->type == AST_VARIABLE && p->current.line == p->prevLine &&
+        aetherCurrentIsStatementWord(p))
+        return false;
+    if (p->functionDepth > 0 && p->currentFunctionType != TYPE_VOID) {
+        reportAetherAstErrorWithCode(line, "FLOW-001",
+            "value computed and discarded; Aether has no implicit return.",
+            "write `ret <expr>;` (a branch value: `ret if c { a } else { b };`).");
+    } else {
+        reportAetherAstErrorWithCode(line, "SYN-001", "this expression has no effect.",
+            "assign it (`x = ...;`), print it inside fx, or delete it.");
+    }
+    p->hadError = true;
+    return true;
+}
+
+/* tail=ret (D39 (b)): the final bare value of a non-Void body, or of each
+ * branch of a final if/else, becomes `ret <value>;` (Rust-style). Not applied
+ * under @post or a tuple return, whose `ret` lowering is more than a RETURN. */
+static int aetherTailRetIn(AetherParser *p, AST *stmt, AST **slot);
+
+static int aetherTailRetBlock(AetherParser *p, AST *block) {
+    if (!block || block->child_count == 0) return 0;
+    AST **slot = &block->children[block->child_count - 1];
+    return aetherTailRetIn(p, *slot, slot);
+}
+
+static int aetherTailRetIn(AetherParser *p, AST *stmt, AST **slot) {
+    if (!stmt) return 0;
+    if (stmt->type == AST_COMPOUND) return aetherTailRetBlock(p, stmt);
+    if (stmt->type == AST_IF) {
+        if (!stmt->extra) return 0; /* without else, not a value */
+        int n = aetherTailRetIn(p, stmt->right, &stmt->right);
+        return n + aetherTailRetIn(p, stmt->extra, &stmt->extra);
+    }
+    AST *value = NULL;
+    if (stmt->type == AST_EXPR_STMT && aetherIsDiscardableValue(stmt->left)) value = stmt->left;
+    if (stmt->type == AST_EXPR_STMT && stmt->left && stmt->left->type == AST_PROCEDURE_CALL &&
+        stmt->left->token && stmt->left->token->value && p->funcReturns) {
+        const char *rt = bindingTableGet(p->funcReturns, stmt->left->token->value,
+                                         strlen(stmt->left->token->value));
+        if (rt && strcmp(rt, "Void") != 0) value = stmt->left;
+    }
+    if (!value) return 0;
+    Token *rtok = newToken(TOKEN_RETURN, "return", value->token ? value->token->line : 0, 0);
+    AST *ret = newASTNode(AST_RETURN, rtok);
+    stmt->left = NULL;
+    setLeft(ret, value);
+    setTypeAST(ret, value->var_type);
+    ret->parent = stmt->parent;
+    *slot = ret;
+    freeAST(stmt);
+    return 1;
+}
+
 static AST *parseStatementInner(AetherParser *p) {
     /* Empty statement `;` -- consume it and return a no-op block. Without this, a
      * stray/trailing `;` (e.g. `fx {…};`, or a bare `;`) would fall to the
@@ -4141,8 +4267,13 @@ static AST *parseStatementInner(AetherParser *p) {
     }
     /* Expression statement or assignment. */
     p->stmtStartAt = p->current.start;
+    int exprLine = p->current.line;
     AST *expr = parseExpr(p);
     if (!expr) return NULL;
+    if (aetherTailRejectJuxtaposed(p) || aetherTailRejectDiscarded(p, expr, exprLine)) {
+        freeAST(expr);
+        return NULL;
+    }
     if (p->current.type == REA_TOKEN_SEMICOLON) {
         aetherAdvance(p);
     }
@@ -5082,6 +5213,10 @@ static AST *parseFnDecl(AetherParser *p) {
      * (a,b);` lowers to a real value-bearing `return` (see parseTupleReturn),
      * so a genuine fallthrough in a tuple fn is now a real, catchable bug
      * instead of a silently-void-shaped escape. */
+    if (hasBody && block && !p->hadError && vtype != TYPE_VOID &&
+        aetherExperiment()->tail == AETHER_TAIL_RET && !postExpr && !p->currentTupleSig) {
+        aetherTailRetBlock(p, block);
+    }
     if (hasBody && block && !p->hadError && vtype != TYPE_VOID &&
         astBlockHasFallthroughStmt(block) && !astHasValueReturn(block)) {
         reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "function",
