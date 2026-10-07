@@ -351,6 +351,60 @@ the driver, and its expected line to the `.out`, for any recipe you add. Avoid `
 inside fenced blocks anywhere in this guide; models copy them verbatim and get
 a `SYN-001`.
 
+## Guide pass checklist
+
+The pre-commit hook only warns (and is off unless `core.hooksPath` points at
+`tools/hooks`), so a guide pass depends on the maintainer doing every step. The
+2026-08-11 medium miss and the stale ledger entries are what happens when one is
+skipped. Run this list on every guide pass (G1, G2, each G-sync) and on any
+one-off guide edit:
+
+1. **Re-measure before editing.** `python3 tools/check_guide_tokens.py` (o200k
+   and Qwen3.5); write the starting counts in the pass's notes.
+2. **Edit.** For medium, and for small until it is under its ceiling, pair every
+   addition with a cut of at least its size.
+3. **Run the gates.** `ctest --test-dir build -L guide` (the three snippet
+   gates and the key check, the builtin appendix `--check`, tokens, stamps,
+   audit, diagnostic codes, doc references) and `ctest --test-dir build -L spec`
+   (the spec and the surface registry: a guide sentence that disagrees with
+   them is wrong). Add `check_guides` and `check_guide_facts` when the guide
+   workstream lands them.
+4. **Run every complete program you touched, and every recipe, by hand** and
+   read the output, until the snippet gate runs programs (W3-06).
+5. **Stamp each touched guide** with `python3 tools/bump_guide_version.py
+   <guide>` and paste the printed row into `aether_guide_changelog.md` in the
+   same commit (D28). The row names the counterpart rows in the other two
+   guides, or says `n/a` and why.
+6. **Update the size table** above with the new counts and the commit.
+7. **Close the ledger entries the pass makes stale**, each with a status token
+   (*fixed*, *resolved*, *superseded*, *reopened*) and a date. Find them by
+   heading, since line numbers drift. For guide pass 1:
+   - `ideas_and_todo.md`, "Misleading `FLOW-001` on `ret` inside `fx`": `ret`
+     inside `fx` compiles and runs today (checked 2026-10-07), so the full
+     guide's "`ret` is not legal inside an `fx` block" is the thing to fix, and
+     the entry closes with it.
+   - "Integer division (`div` / `//`) is undiscoverable": action (a) is done;
+     drop `//` from the advice (D45).
+   - "Models reach for `Int(...)` / `Real(...)` casts — resolved (docs-only)":
+     reopened until the cast rows land (W3-19).
+   - "`replace` / whole-string case conversion": it says the recipes section is
+     in all three guides; it is in full and medium only.
+   - Item 4, "Truncation drops the exact tables": superseded by the medium guide.
+   - Item 5, "Contradictory import guidance": its "verified" silent no-op changes
+     under D25.
+   - The `paramstr(0)` entry: D33 decides it returns the program path.
+   - The snippet gate's `fx` retry and `FX_RESCUED`: deleted by D27.
+   - In this file: "a violating shape alongside each Highest-Value Rule" and the
+     conservative-inference lines, where D43 and D10 amend them, and the small
+     checklist's `_or` warning if the small pass changes it (D43).
+8. **Ask the corpus workstream to regenerate the reference corpora** from the
+   medium guide (D10), in the pass's gitlink commit.
+9. **Schedule the board.** Cadence (within D3): boards at the baseline (B0, B1),
+   after each guide pass, and at each language batch boundary, each scored on the
+   (`VERSION`, guide stamps) pair together. A stamp made between those points
+   (a sync stamp) is marked *unscored* in the changelog instead of getting a
+   board of its own.
+
 ## Release train
 
 Engine fixes ship in batches, called releases, not one at a time. Each fix
