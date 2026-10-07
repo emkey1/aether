@@ -1,0 +1,128 @@
+// A `continue` advances only the loop it is written in. The range/foreach
+// lowering injects the counter step before each `continue`; it used to descend
+// into nested (already lowered) loops too, so an inner `continue` also stepped
+// every enclosing range/foreach counter: range/range printed
+// (0,0)(1,2)(2,0)(3,2) with exit 0, and 8-neighbour counts came out wrong.
+
+fn neighbours(g: Int[][], r: Int, c: Int) -> Int {
+    let n: Int = 0;
+    loop dr in -1..2 {
+        loop dc in -1..2 {
+            if dr == 0 && dc == 0 { continue; }
+            let rr: Int = r + dr;
+            let cc: Int = c + dc;
+            if rr < 0 || rr >= length(g) || cc < 0 || cc >= length(g[0]) { continue; }
+            n = n + g[rr][cc];
+        }
+    }
+    ret n;
+}
+
+fn grid(rows: Int, cols: Int, v: Int) -> Int[][] {
+    let g: Int[][] = [];
+    loop r in 0..rows {
+        let row: Int[] = [];
+        loop c in 0..cols { row = row + [v]; }
+        g = g + [row];
+    }
+    ret g;
+}
+
+fn step(g: Int[][]) -> Int[][] {
+    let next: Int[][] = [];
+    next = grid(length(g), length(g[0]), 0);
+    loop r in 0..length(g) {
+        loop c in 0..length(g[0]) {
+            let n: Int = neighbours(g, r, c);
+            if g[r][c] == 1 && (n == 2 || n == 3) { next[r][c] = 1; }
+            if g[r][c] == 0 && n == 3 { next[r][c] = 1; }
+        }
+    }
+    ret next;
+}
+
+fn show(g: Int[][]) -> Void {
+    fx {
+        loop r in 0..length(g) {
+            loop c in 0..length(g[0]) {
+                if g[r][c] == 1 { print("#"); } else { print("."); }
+            }
+            println("");
+        }
+    }
+    ret;
+}
+
+fn main() -> Void {
+    // Grids are built with a separate assignment: a `let x: T[][] = f(...);`
+    // broken after its `=` is a known reformat-invariance divergence
+    // (tests/reformat_invariance.known, leteq), unrelated to `continue`.
+    let ones: Int[][] = [];
+    ones = grid(3, 3, 1);
+    fx {
+        // range / range
+        loop i in 0..3 { loop j in 0..3 { if j == 1 { continue; } print("(", i, ",", j, ")"); } }
+        println("");
+
+        // range / while
+        loop i in 0..3 {
+            let k: Int = 0;
+            loop k < 3 {
+                k = k + 1;
+                if k == 2 { continue; }
+                print(i, ":", k, " ");
+            }
+        }
+        println("");
+
+        // foreach / range
+        let xs: Int[] = [10, 20, 30];
+        loop x in xs { loop j in 0..3 { if j == 0 { continue; } print(x + j, " "); } }
+        println("");
+
+        // step / range
+        loop i in 0..9 step 3 { loop j in 0..2 { if j == 0 { continue; } print(i, "-", j, " "); } }
+        println("");
+
+        // 3-level nest: 4 * 4 * 3 = 48 bodies reach the counter
+        let count: Int = 0;
+        loop a in 0..4 {
+            loop b in 0..4 {
+                loop c in 0..4 {
+                    if c == 2 { continue; }
+                    count = count + 1;
+                }
+            }
+        }
+        println("count=", count);
+
+        // while-in-range with continue in both loops
+        let total: Int = 0;
+        loop i in 0..4 {
+            if i == 1 { continue; }
+            let k: Int = 0;
+            loop k < 4 {
+                k = k + 1;
+                if k % 2 == 0 { continue; }
+                total = total + i * 10 + k;
+            }
+        }
+        println("total=", total);
+
+        // 8-neighbour count of the centre of an all-ones grid
+        println("neighbours=", neighbours(ones, 1, 1));
+    }
+
+    // Life blinker: vertical -> horizontal -> vertical
+    let g: Int[][] = [];
+    g = grid(5, 5, 0);
+    g[1][2] = 1;
+    g[2][2] = 1;
+    g[3][2] = 1;
+    g = step(g);
+    show(g);
+    fx { println("--"); }
+    g = step(g);
+    show(g);
+    ret;
+}

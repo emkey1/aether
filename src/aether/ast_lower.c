@@ -1621,14 +1621,32 @@ AST *parseRet(AetherParser *p) {
     return node;
 }
 
-/* Inject the loop post-step before every `continue` in a range-loop body, exactly
- * as rea's parseFor does (rewriteContinueWithPost). `loop i in a..b` lowers to a
- * while whose post-increment is the last body statement, so a bare `continue`
- * would jump straight to the condition, skip the increment, and spin forever.
- * Rewrite each `continue` to `{ post; continue; }`. Recurses through the whole
- * subtree, matching rea so output stays byte-for-byte identical to the rewriter. */
+/* Inject the loop post-step before every `continue` in a range-loop body.
+ * `loop i in a..b` lowers to a while whose post-increment is the last body
+ * statement, so a bare `continue` would jump straight to the condition, skip the
+ * increment, and spin forever. Rewrite each `continue` to `{ post; continue; }`.
+ *
+ * Stop at nested loop and routine nodes: a `continue` inside them belongs to
+ * that inner loop, not to this one. This is exact, not heuristic -- an inner
+ * range/foreach loop has already been lowered to AST_WHILE (with its own
+ * post-step spliced in) by the time the outer body is rewritten, so descending
+ * into it would re-wrap the inner `continue` and advance every enclosing
+ * counter too (`loop i in 0..3 { loop j in 0..3 { if j == 1 { continue; } ... } }`
+ * used to bump `i` on every inner `continue`). Descend through everything else,
+ * including if/match/case, which do not own `continue`. */
 static AST *aetherRewriteContinueWithPost(AST *node, AST *postStmt) {
     if (!node) return NULL;
+    switch (node->type) {
+        case AST_WHILE:
+        case AST_REPEAT:
+        case AST_FOR_TO:
+        case AST_FOR_DOWNTO:
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL:
+            return node;
+        default:
+            break;
+    }
     if (node->type == AST_CONTINUE) {
         AST *comp = newASTNode(AST_COMPOUND, NULL);
         addChild(comp, copyAST(postStmt));

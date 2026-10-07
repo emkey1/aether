@@ -85,6 +85,7 @@ LOOP_FOREACH_PASS_FIXTURE="$TESTS_DIR/loop_foreach_pass.aether"
 CACHE_ROUNDTRIP_PASS_FIXTURE="$TESTS_DIR/cache_roundtrip_pass.aether"
 LOOP_FOREACH_SCALAR_FAIL_FIXTURE="$TESTS_DIR/loop_foreach_scalar_fail.aether"
 LOOP_STEP_PASS_FIXTURE="$TESTS_DIR/loop_step_pass.aether"
+LOOP_NESTED_CONTINUE_PASS_FIXTURE="$TESTS_DIR/loop_nested_continue_pass.aether"
 LOOP_STEP_ZERO_FAIL_FIXTURE="$TESTS_DIR/loop_step_zero_fail.aether"
 WORD_OPERATORS_PASS_FIXTURE="$TESTS_DIR/word_operators_pass.aether"
 ARRAY_EQUALITY_PASS_FIXTURE="$TESTS_DIR/array_equality_pass.aether"
@@ -308,6 +309,7 @@ for fixture in \
     "$CACHE_ROUNDTRIP_PASS_FIXTURE" \
     "$LOOP_FOREACH_SCALAR_FAIL_FIXTURE" \
     "$LOOP_STEP_PASS_FIXTURE" \
+    "$LOOP_NESTED_CONTINUE_PASS_FIXTURE" \
     "$LOOP_STEP_ZERO_FAIL_FIXTURE" \
     "$WORD_OPERATORS_PASS_FIXTURE" \
     "$ARRAY_EQUALITY_PASS_FIXTURE" \
@@ -3496,6 +3498,16 @@ printf '0 3 6 9 \n10 6 2 \n0 3 6 9 \n9 3 \n1 3 5 7 \n' >$OUT/aether_loop_step_ex
 if ! cmp -s $OUT/aether_loop_step_expected.out $OUT/aether_loop_step_pass.out; then
     echo "unexpected stepped loop output" >&2
     cat $OUT/aether_loop_step_pass.out >&2
+    exit 1
+fi
+# A nested `continue` advances only its own loop. The range/foreach lowering
+# used to inject its counter step into inner loops' `continue`s as well, so
+# range/range printed (0,0)(1,2)(2,0)(3,2) and neighbour counts were short.
+"$AETHER_BIN" --no-cache "$LOOP_NESTED_CONTINUE_PASS_FIXTURE" >$OUT/aether_loop_nested_continue_pass.out
+printf '(0,0)(0,2)(1,0)(1,2)(2,0)(2,2)\n0:1 0:3 1:1 1:3 2:1 2:3 \n11 12 21 22 31 32 \n0-1 3-1 6-1 \ncount=48\ntotal=112\nneighbours=8\n.....\n.....\n.###.\n.....\n.....\n--\n.....\n..#..\n..#..\n..#..\n.....\n' >$OUT/aether_loop_nested_continue_expected.out
+if ! cmp -s $OUT/aether_loop_nested_continue_expected.out $OUT/aether_loop_nested_continue_pass.out; then
+    echo "unexpected nested-continue loop output" >&2
+    cat $OUT/aether_loop_nested_continue_pass.out >&2
     exit 1
 fi
 if "$AETHER_BIN" --no-cache "$LOOP_STEP_ZERO_FAIL_FIXTURE" >$OUT/aether_loop_step_zero_fail.out 2>&1; then
