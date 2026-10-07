@@ -372,12 +372,21 @@ and **the rationale**. Commit hashes are given so you can read the actual diff.
 
 ### 5.6 `fx { … }` effect blocks
 
-- **Decision / rationale.** All observable effects (I/O, etc.) live inside `fx`
-  blocks. This is the surface fence that makes `@pure` and the contract system
-  meaningful: a pure function provably contains no `fx`. It is a *front-end
-  semantic fence*, not a new VM frame — consistent with the shared-backend rule.
-  The cost: `fx` shows up a lot in generated code, which is why its interaction
-  with one-liner `if` is the most-felt wart.
+- **Decision / rationale.** Calls to effect-gated builtins (I/O, the clock,
+  randomness, processes, the network) must sit lexically inside an `fx` block
+  (FX-001). It is a *front-end semantic fence*, not a new VM frame, which is
+  consistent with the shared-backend rule.
+- **As built.** `fx` is a lexical audit marker for gated builtin call sites. It
+  is not transitive: a user function may wrap its own `fx { println(..) }` and
+  be called from anywhere, so effects pass unmarked through user functions. The
+  checked guarantee is `@pure`, enforced by annotation (ANN-001): a pure
+  function may not contain an `fx` block, call an effectful builtin, or call a
+  function that is not itself `@pure`. `@pure` does not rely on `fx`; the
+  earlier wording here ("the fence that makes `@pure` meaningful: a pure
+  function provably contains no `fx`") overstated the link. The cost: `fx`
+  shows up a lot in generated code, which is why its interaction with one-liner
+  `if` is the most-felt wart. The measured cost in repairs is D12's gate
+  (`results/decisions/fx_gate_2026-10-07.md`).
 
 ### 5.7 Four synonym classes, not one canonical spelling
 
