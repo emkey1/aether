@@ -266,4 +266,13 @@ else()
         ENVIRONMENT "AETHER_REA_DIR=${rea_SOURCE_DIR};AETHER_PSCAL_CORE_DIR=${pscal_core_SOURCE_DIR}"
         SKIP_RETURN_CODE 77
         LABELS "guide")
+
+    # The "LLM-applicable content only" audit (provenance, build, history and
+    # repo-meta terms in medium and small; the copied "yyjson unavailable"
+    # literal and benchmark identifiers in all three). REPORT mode until the
+    # first guide pass: prints every hit, exits 0. The pass adds --strict.
+    add_test(NAME aether_guide_audit
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_guides.py)
+    set_tests_properties(aether_guide_audit PROPERTIES LABELS "guide;report")
 endif()

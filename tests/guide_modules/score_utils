@@ -1,0 +1,31 @@
+// Stub module for the guides' import examples (tools/verify_guide_snippets.py
+// copies every file in tests/guide_modules/ next to each compiled block), so a
+// `use "score_utils";` block compiles for real instead of being listed in
+// EXPECT_FAIL, and a call to an export that does not exist fails with
+// SCOPE-001 as it would for a model. Neutral names on purpose: no guide example
+// may reuse a benchmark task's module or export names (tools/audit_guides.py).
+mod ScoreUtils {
+    export const BaseScore: Int = 50;
+
+    @pure
+    export fn clampScore(score: Int) -> Int {
+        if score < 0 {
+            ret 0;
+        }
+        if score > 100 {
+            ret 100;
+        }
+        ret score;
+    }
+
+    @pure
+    export fn labelScore(score: Int) -> Text {
+        if score >= 90 {
+            ret "ready";
+        }
+        if score >= 50 {
+            ret "review";
+        }
+        ret "blocked";
+    }
+}

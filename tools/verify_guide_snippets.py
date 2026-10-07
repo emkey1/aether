@@ -9,6 +9,8 @@ Usage:
 Every block is compiled with `aether --no-cache --no-run --diagnostics-json`
 ($AETHER_BIN, default build/aether). Fragments are wrapped in a function over
 the CONTEXT prelude below, and declaration-only blocks get a trivial `main`.
+The stub modules in tests/guide_modules/ sit next to every compiled block, so
+`use "score_utils";` or `use "geometry";` resolves and its calls are checked.
 The run fails (exit 1) on any of:
 
   * a block that does not compile and matches no EXPECT_FAIL key;
@@ -28,12 +30,16 @@ import argparse
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 AETHER = os.environ.get("AETHER_BIN", os.path.join(REPO, "build", "aether"))
+# Stub modules copied next to every compiled block, so an import example whose
+# module is one of these compiles for real instead of sitting in EXPECT_FAIL.
+GUIDE_MODULES = os.path.join(REPO, "tests", "guide_modules")
 GUIDE_NAMES = ("aether_for_llms_and_others.md", "aether_for_llms_medium_contexts.md",
                "aether_for_llms_with_small_contexts.md")
 
@@ -258,6 +264,9 @@ def main():
 
     if not args.keys_only:
         with tempfile.TemporaryDirectory(prefix="aether_guide_snip_") as workdir:
+            if os.path.isdir(GUIDE_MODULES):
+                for mod in sorted(os.listdir(GUIDE_MODULES)):
+                    shutil.copy(os.path.join(GUIDE_MODULES, mod), workdir)
             for n, path in enumerate(args.guides):
                 stats, problems, notes = check_guide(path, workdir, f"g{n}")
                 print(f"{os.path.basename(path)}: blocks {stats['blocks']}  compiled "

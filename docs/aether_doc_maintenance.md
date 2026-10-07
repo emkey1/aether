@@ -226,6 +226,18 @@ categories, all of which must return zero hits:
 - cross-document or repo meta (`docs/`, `README`, `examples/`, benchmark names,
   references to the other guides)
 
+`tools/audit_guides.py` (CTest `aether_guide_audit`) automates this audit
+for medium **and small**, and checks all three guides, full included, for the
+copied `"yyjson unavailable"` template literal and for benchmark identifiers
+(task ids, task module and file names, and their mod and export names) listed
+in `tools/bench_identifiers.txt`. That list is regenerated from the umbrella's
+task suites with `PSCAL_UMBRELLA=<checkout> python3 tools/audit_guides.py
+--refresh`, so the test never reads the umbrella. A per-guide `ALLOWLIST` keeps
+the deliberate hits: the Pascal naming mnemonics (`arctan` not `atan`), the
+Pascal-style `File` handle model, and the runtime-discovery sentences below.
+It runs in **report mode** until the first guide pass, which fixes today's
+hits and adds `--strict`; until then it prints its hit list and passes.
+
 Runtime-discovery advice is a special case: `builtin_info` / `builtins_json` are
 *runtime* calls a one-shot generator cannot make, so the medium guide states that
 plainly and never offers discovery as a fallback for an unlisted name.
@@ -242,11 +254,12 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 | `aether_builtin_appendix` | the full guide's generated appendix against what this build registers (`tools/gen_builtin_appendix.py --check`) | any difference; Skipped on a non-canonical (SDL) build |
 | `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 o200k; Skipped without tiktoken |
 | `aether_guide_stamps` | each guide's text against its stamp's manifest entry, the changelog rows, `VERSION` against `CHANGELOG.md` (`tools/check_guide_stamps.py`, above) | text changed under a stamp; a stamp without its row; a typed commit that did not introduce the stamp |
+| `aether_guide_audit` | the content audit above (`tools/audit_guides.py`) | nothing yet: report mode prints the hits; `--strict` from the first guide pass |
 | `aether_doc_refs` | every commit hash cited in `README.md`, `CHANGELOG.md` and `docs/**/*.md` resolves in aether, rea, pscal-core, or the umbrella when `PSCAL_UMBRELLA` names a checkout (`tools/check_doc_refs.py`) | an unresolvable hash, or a placeholder written where a hash belongs; Skipped in a shallow clone |
 
 Still manual, because no gate does them: running complete programs and the
-recipes (the snippet gate compiles, it does not run; see below), and the
-four-category content audit above. To run the snippet check by hand over all three
+recipes (the snippet gate compiles, it does not run; see below), and acting
+on the content audit's report until it turns strict. To run the snippet check by hand over all three
 guides, which includes the key check:
 `python3 tools/verify_guide_snippets.py docs/aether_for_llms_*.md`
 (`AETHER_BIN` defaults to `build/aether`); one path checks one guide.
@@ -289,7 +302,11 @@ RIGHT half's in-type `get` collides with the WRONG half's extension method and
 adds an uncoded "Duplicate method" record; it is enforced once the guide pass
 splits the fence. The blocks fall into three kinds: negative examples (a TOON
 getter handed a `ToonDoc`), prose sketches using `...` elision, and module
-examples whose module is not on disk.
+examples whose module is not on disk. The last kind should go away: every file
+in `tests/guide_modules/` (today the stubs `score_utils` and `geometry`) is
+copied next to each compiled block, so an import example written against one
+of them compiles for real, and a call to an export the stub does not have fails
+with `SCOPE-001` exactly as it would for a model.
 
 Two maintenance notes. When a fragment references a new name, add it to
 `CONTEXT` rather than dropping the block from the check. And keep `EXPECT_FAIL`

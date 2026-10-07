@@ -1,0 +1,14 @@
+// Stub module for the guides' import examples; see score_utils beside it.
+mod Geometry {
+    export const Sides: Int = 4;
+
+    @pure
+    export fn area(width: Int, height: Int) -> Int {
+        ret width * height;
+    }
+
+    @pure
+    export fn perimeter(width: Int, height: Int) -> Int {
+        ret 2 * (width + height);
+    }
+}
