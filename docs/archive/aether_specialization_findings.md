@@ -1,11 +1,16 @@
 # Exact-Match Understates Competence: Findings from the Aether No-Guide Program
 
+> **Historical, frozen.** Archived from `docs/` and no longer maintained. It records
+> results and reasoning as of when it was written; for current behaviour see the
+> guides, [`../aether_architecture_and_rationale.md`](../aether_architecture_and_rationale.md)
+> and [`../aether_decisions.md`](../aether_decisions.md).
+
 *Audience: maintainers, collaborators, and anyone reasoning about how to measure
 whether a model has "learned" a language.* This is a findings note, not a
 reference guide. For how to actually write Aether see
-[`aether_for_llms_and_others.md`](aether_for_llms_and_others.md); for why the
+[`aether_for_llms_and_others.md`](../aether_for_llms_and_others.md); for why the
 language is shaped the way it is see
-[`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md). For
+[`aether_architecture_and_rationale.md`](../aether_architecture_and_rationale.md). For
 the complementary measurement — *untrained* models writing Aether from the guide
 in context — see [`aether_guided_benchmark.md`](aether_guided_benchmark.md).
 
@@ -41,7 +46,7 @@ confound that is a textbook instance of the headline observation.
 Our scoring instrument runs each generated program and compares its standard
 output, byte for byte, against an oracle. The headline KPI ("none") gives the
 model the task and **nothing else**: no grammar, no
-[`aether_for_llms_and_others.md`](aether_for_llms_and_others.md), no examples.
+[`aether_for_llms_and_others.md`](../aether_for_llms_and_others.md), no examples.
 
 When we extended the program to a 24B dense model from a different family
 (Mistral-Small-24B-Instruct-2501, which uses the Tekken tokenizer), the
@@ -95,7 +100,7 @@ measuring the model or measuring the metric.
 ## 2. Background: the no-guide specialization program
 
 Aether is a compact front end on the PSCAL backend, designed under one thesis
-(from [`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md)):
+(from [`aether_architecture_and_rationale.md`](../aether_architecture_and_rationale.md)):
 
 > Aether is optimized so that a language model can write valid, correct Aether
 > **with no reference guide in its prompt**, and the benchmark suite, not taste,
@@ -119,9 +124,9 @@ Concretely:
 
 The training and benchmarking harness lives outside this repository; what lives
 *here* is the language those findings feed back into: the compiler and runtime
-in [`../src/aether/`](../src/aether), the design vision in
-[`../src/aether/DESIGN.md`](../src/aether/DESIGN.md), the reference guides in
-this `docs/` folder, and the conformance programs in [`../tests/`](../tests).
+in [`../src/aether/`](../../src/aether), the design vision in
+[`../src/aether/DESIGN.md`](../../src/aether/DESIGN.md), the reference guides in
+this `docs/` folder, and the conformance programs in [`../tests/`](../../tests).
 
 ---
 
@@ -206,7 +211,7 @@ and does not exist yet. When that happens we treat it as evidence about the
   accessor `toon_key` did not. The 14B and the MoE both reached for the missing
   `toon_key_or`; the 7B used the plain form and passed. The asymmetry was a real
   API gap. The lowering lives in
-  [`../src/aether/translate.c`](../src/aether/translate.c) (search `toon_key_or`,
+  `src/aether/translate.c` (deleted in 6ca5d7b; read it at that commit's parent) (search `toon_key_or`,
   `toon_null`), and adding it took the best dense model to **30/30** on the clean
   sweep.
 - **Integer division and modulo** (`n / 2`, `n % 2`) — surfaced by the hard-task
@@ -544,14 +549,14 @@ one without the other and gain nothing.
 
 **In this repository.**
 
-- [`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md)
+- [`aether_architecture_and_rationale.md`](../aether_architecture_and_rationale.md)
   — the as-built rationale and the benchmark-as-instrument thesis.
-- [`aether_for_llms_and_others.md`](aether_for_llms_and_others.md) — the full
+- [`aether_for_llms_and_others.md`](../aether_for_llms_and_others.md) — the full
   reference guide (the artifact the "none" KPI withholds).
-- [`aether_for_llms_with_small_contexts.md`](aether_for_llms_with_small_contexts.md)
+- [`aether_for_llms_with_small_contexts.md`](../aether_for_llms_with_small_contexts.md)
   — the condensed guide for small context windows.
-- [`../src/aether/DESIGN.md`](../src/aether/DESIGN.md) — forward-looking design
+- [`../src/aether/DESIGN.md`](../../src/aether/DESIGN.md) — forward-looking design
   vision.
-- [`../src/aether/translate.c`](../src/aether/translate.c) — lowering for the
+- `src/aether/translate.c` (deleted in 6ca5d7b; read it at that commit's parent) — lowering for the
   model-driven additions (`toon_key_or`, `toon_null`, record literals).
-- [`../tests/`](../tests) — conformance programs exercising the idioms above.
+- [`../tests/`](../../tests) — conformance programs exercising the idioms above.

@@ -1,5 +1,10 @@
 # The Guide Is Enough: In-Context (Untrained) Results for Aether
 
+> **Historical, frozen.** Archived from `docs/` and no longer maintained. It records
+> results and reasoning as of when it was written; for current behaviour see the
+> guides, [`../aether_architecture_and_rationale.md`](../aether_architecture_and_rationale.md)
+> and [`../aether_decisions.md`](../aether_decisions.md).
+
 *Companion to [`aether_specialization_findings.md`](aether_specialization_findings.md).*
 
 That note measures one half of "can a language model write Aether": a model
@@ -25,9 +30,9 @@ an entire frontier tier writes *every* program on the core benchmark correctly.
   apart; **CS-classics** ([`tasks_cs.json`](https://github.com/emkey1/pscal/blob/AetherLang/Tests/aether_doc_bench/tasks_cs.json),
   19 tasks) tests textbook algorithms.
 - **The guide in the prompt, two sizes.** The **full** guide
-  ([`aether_for_llms_and_others.md`](aether_for_llms_and_others.md), ~980 lines,
+  ([`aether_for_llms_and_others.md`](../aether_for_llms_and_others.md), ~980 lines,
   ~8.7k tokens) or the condensed **small** one
-  ([`aether_for_llms_with_small_contexts.md`](aether_for_llms_with_small_contexts.md),
+  ([`aether_for_llms_with_small_contexts.md`](../aether_for_llms_with_small_contexts.md),
   ~500 lines, ~4.6k tokens). There is no `none` condition — that is the no-guide
   note's department. Guide version **2026-06-23-1**. The prompt is the same size
   across all three instruments: the large set's bigger inputs go to the *compiled
@@ -301,8 +306,8 @@ and write-ups live here in `emkey1/aether`.
   (v2/30), [`tasks_hard.json`](https://github.com/emkey1/pscal/blob/AetherLang/Tests/aether_doc_bench/tasks_hard.json)
   (large), and [`tasks_cs.json`](https://github.com/emkey1/pscal/blob/AetherLang/Tests/aether_doc_bench/tasks_cs.json)
   (CS-classics). Each carries its prompt, input fixtures, and expected stdout.
-- **Guides.** [full](aether_for_llms_and_others.md) and
-  [small](aether_for_llms_with_small_contexts.md) — the only Aether any model here
+- **Guides.** [full](../aether_for_llms_and_others.md) and
+  [small](../aether_for_llms_with_small_contexts.md) — the only Aether any model here
   ever sees.
 - **The training (no-guide) side.** Companion write-up
   [`aether_specialization_findings.md`](aether_specialization_findings.md).

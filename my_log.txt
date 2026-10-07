@@ -1,3 +1,0 @@
-Log entry 1: System started.
-Log entry 2: Processing data...
-Log entry 3: System shutting down.

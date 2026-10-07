@@ -89,6 +89,42 @@ The [known warts](#6-known-warts-be-honest) section below is largely a record
 of the retired rewrite-layer era; it is kept because it explains why several
 design decisions and tests look the way they do.
 
+### 2.1 Front-end internals: splice groups, temps and hoists
+
+Several Aether shapes have no PSCAL AST node and are lowered to a run of ordinary
+statements: array `+` (`buildArrayConcatSteps`, `ast_lower.c`), array append,
+slices, `ret T { ... }`, `ret a + b`, record literals in expression position,
+tuple destructuring and the range/foreach/`step` loops. Three conventions hold
+those lowerings together; a new desugaring should reuse them, not invent a fourth.
+
+- **Splice groups.** A lowering that needs several statements returns an
+  `AST_COMPOUND` with `i_val == 1`. `parseBlock` splices such a compound's
+  children in as siblings instead of opening a scope, so a `let` produced inside
+  one stays visible to the statements after it. It splices **one level only**:
+  a splice group nested inside another wrapper survives as a real block and
+  scopes its declarations away (the cause of the 2026-07-24 `let r = a[1..3] + b`
+  SCOPE-001, fixed in 8ebf8e7 by flattening the statement in `parseStatement`'s
+  hoist wrapper too).
+- **Hoists.** An expression-position shape that needs a temporary (a record
+  literal as an argument, for instance) queues its declaration on
+  `pendingObjLits`; `parseStatement` flushes the queue ahead of the statement
+  being parsed, as one splice group. A lowering that needs a *statement*
+  position and is not given one is the classic failure: before 8ebf8e7,
+  `ret a + b` had nowhere to put the copy loop, the raw array `+` reached the VM,
+  and it died with "Got ARRAY and ARRAY".
+- **Temps.** Synthesized locals are named `__aether_<kind>_...` and must be
+  unique per program, not per line: `__aether_concat_other_<line>_<serial>`,
+  `__aether_slice_<id>` and `__aether_lit_<id>` (from `nextObjLitId`), and so on.
+  Line-only names collide when one line holds two lowerings (`mk() + mk() + mk()`
+  failed with "duplicate variable" until the concat temps gained a serial,
+  CHANGELOG 2026-08-09-1). A lowering evaluates each operand once, into a temp,
+  before it reads it more than once. The `__aether_` prefix is a convention, not
+  yet reserved: user code may still declare such a name today.
+
+Ownership: the lowering helpers only read the nodes they are handed and copy what
+they keep (`buildLengthCall` copies its target), so passing a node that is
+already a child of the tree is safe.
+
 ---
 
 ## 3. The benchmark is the design instrument

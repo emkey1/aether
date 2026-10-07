@@ -148,9 +148,17 @@ include(GNUInstallDirs)
 install(TARGETS aether RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/
         DESTINATION ${CMAKE_INSTALL_DATADIR}/aether/examples)
-install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/docs/
-        DESTINATION ${CMAKE_INSTALL_DOCDIR})
-install(FILES ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+# Only the reader-facing docs install: the three guides, their changelog, the
+# as-built rationale, the language CHANGELOG and the README. Maintainer ledgers,
+# benchmark notes and docs/archive stay in the repo.
+install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_and_others.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_medium_contexts.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_with_small_contexts.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_guide_changelog.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_architecture_and_rationale.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/CHANGELOG.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/README.md
         DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 # ---- Test -------------------------------------------------------------------
