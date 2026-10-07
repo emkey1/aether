@@ -1,0 +1,9 @@
+fn main() -> Void {
+    let n: Int = 3;
+    n = n + 2;
+    n = n - 1;
+    n = n * 3;
+    n = n / 2;
+    n = n % 4;
+    fx { println(n); }
+}

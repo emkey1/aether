@@ -1,0 +1,3 @@
+fn main() -> Void {
+    foreach x in [1] { }
+}

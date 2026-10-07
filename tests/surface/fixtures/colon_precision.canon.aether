@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let r: Real = 3.14159;
+    fx { println(r:0:2); }
+}

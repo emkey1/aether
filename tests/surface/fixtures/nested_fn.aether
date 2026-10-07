@@ -1,0 +1,4 @@
+fn main() -> Void {
+    fn g() -> Int { ret 1; }
+    fx { println(g()); }
+}

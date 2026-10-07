@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(itoa(5), inttostr(6), IntToStr(7)); }
+}

@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let s: Text = "abc";
+    fx { println(s.contains("b")); }
+}

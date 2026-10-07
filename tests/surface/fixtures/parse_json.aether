@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let d: ToonDoc = parse_json("{\"a\": 3, \"t\": \"x\"}");
+    let r: ToonNode = toon_root(d);
+    fx { println(toon_get_int_or(r, "a", 0)); }
+}

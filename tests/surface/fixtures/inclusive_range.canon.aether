@@ -1,0 +1,4 @@
+fn main() -> Void {
+    loop i in 0..3 { fx { print(i); } }
+    fx { println(""); }
+}

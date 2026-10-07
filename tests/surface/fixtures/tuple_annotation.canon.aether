@@ -1,0 +1,5 @@
+fn pair() -> (Int, Int) { ret (1, 2); }
+fn main() -> Void {
+    let t = pair();
+    fx { println(t.0, t.1); }
+}

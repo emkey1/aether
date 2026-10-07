@@ -1,0 +1,5 @@
+type P {
+    x: Int;
+    fn __init__(self) -> Void { }
+}
+fn main() -> Void { }

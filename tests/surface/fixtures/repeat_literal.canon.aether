@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let xs: Int[] = [];
+    loop i in 0..3 { xs = xs + [7]; }
+    fx { println(length(xs), xs[2]); }
+}

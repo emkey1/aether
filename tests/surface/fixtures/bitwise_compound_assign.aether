@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let n: Int = 3;
+    n |= 1;
+}

@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let d: ToonDoc = toon_parse("{\"a\": 3, \"t\": \"x\"}");
+    let r: ToonNode = root_node(d);
+    fx { println(toon_get_int_or(r, "a", 0)); }
+}

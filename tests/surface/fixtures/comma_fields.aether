@@ -1,0 +1,2 @@
+type P { x: Int, y: Int }
+fn main() -> Void { }

@@ -1,0 +1,5 @@
+type P { x: Int; y: Int; }
+fn main() -> Void {
+    let p: P = P { x: 1, y: 2 };
+    fx { println(p.x + p.y); }
+}

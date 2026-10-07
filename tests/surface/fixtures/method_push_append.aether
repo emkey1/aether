@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Int[] = [];
+    xs.push(1);
+}

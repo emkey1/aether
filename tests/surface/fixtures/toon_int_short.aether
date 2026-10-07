@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let d: ToonDoc = toon_parse("{\"a\": 3, \"t\": \"x\"}");
+    let r: ToonNode = toon_root(d);
+    let n: ToonNode = toon_key(r, "a");
+    fx { println(toon_int(n)); }
+}

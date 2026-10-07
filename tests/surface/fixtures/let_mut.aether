@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let mut n: Int = 1;
+    n = n + 1;
+    fx { println(n); }
+}

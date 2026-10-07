@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let r: Float = 1.5;
+    let s: String = "x";
+    fx { println(r, s); }
+}

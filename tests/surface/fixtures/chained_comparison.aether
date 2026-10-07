@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let i: Int = 5;
+    fx { println(0 <= i < 3); }
+}

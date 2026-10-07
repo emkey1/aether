@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let s: Int = 0;
+    loop i in 0..4 { s = s + i; }
+    fx { println(s); }
+}

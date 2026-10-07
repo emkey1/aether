@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let a: Int = 1;
+    let b: Int = a > 0 ? 10 : 20;
+    fx { println(b); }
+}

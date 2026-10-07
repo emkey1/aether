@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Int[] = [1];
+    let ys = xs.map(x => x * 2);
+}

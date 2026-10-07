@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(int(3.7), " ", real(2), " ", 1 != 0); }
+}

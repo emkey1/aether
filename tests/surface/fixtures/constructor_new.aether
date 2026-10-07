@@ -1,0 +1,5 @@
+type P {
+    x: Int;
+    fn new(self) -> Void { }
+}
+fn main() -> Void { }

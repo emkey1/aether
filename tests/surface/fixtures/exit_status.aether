@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println("a"); exit(3); }
+}

@@ -1,0 +1,6 @@
+type P { x: Int; }
+fn main() -> Void {
+    let a: P = new P { x: 1 };
+    let b: P = new P { x: 1 };
+    fx { println(a == b); }
+}

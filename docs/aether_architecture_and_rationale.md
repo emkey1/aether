@@ -211,9 +211,13 @@ When a model fails a `none` task, triage the failing generation
 (`tools/none_fail_detail.py <eval>.json none`) into one of two buckets:
 
 1. **Wrong prior** — the model wrote something reasonable from another language
-   (`new T{}`, `1..=3`, `parse_json(...)`, bracket-indexed tuples). The language
-   is fine; the model guessed. **Fix:** add a verified `broken → fixed` repair
-   drill to the corpus (see [§7](#7-corpus-core--per-family-overlays)).
+   that Aether rejects (`return`, `elif`, `xs.push(v)`, a bracket-indexed tuple
+   `t[0]`). The language is fine; the model guessed. **Fix:** add a verified
+   `broken → fixed` repair drill to the corpus (see
+   [§7](#7-corpus-core--per-family-overlays)). Look the spelling up in the
+   surface registry first (§5.7): a class-1 or class-4 spelling (`new T{}`,
+   `..=` once D7 ships, `parse_json`) is accepted, so a drill that "repairs" it
+   teaches models to avoid valid code.
 
 2. **Language defect** — the natural, correct-looking program *should* work but
    doesn't (it crashes, needs verbose staging, or lacks an obvious builtin).
@@ -332,40 +336,63 @@ and **the rationale**. Commit hashes are given so you can read the actual diff.
   The cost: `fx` shows up a lot in generated code, which is why its interaction
   with one-liner `if` is the most-felt wart.
 
-### 5.7 One canonical spelling for ranges, structs, returns
+### 5.7 Four synonym classes, not one canonical spelling
 
-The benchmark punishes synonyms: every alternative spelling is a coin-flip the
-model can lose. So Aether deliberately admits **one** form and rejects the others:
+This section used to say that Aether admits one form of each construct and
+rejects the rest. The shipped surface never matched that (four record-init
+forms, `while`/`for` beside `loop`, `+=`, `?:`, `.len()`, Text + number), and
+the rule did not survive measurement: a rejected synonym costs a repair turn
+that the no-guide tier does not have, and an accepted synonym with an exact
+meaning costs nothing. Decision **D7** replaced it with four classes:
 
-- **Ranges are half-open only.** `loop i in 0..3` yields `0 1 2`. `0..=3` is
-  **rejected** (SYN-001). Rationale: `..` vs `..=` is exactly the kind of
-  off-by-one coin-flip that tanks `none`; pick the Rust/Python-`range` half-open
-  form and make the other a hard error so the model is corrected, not silently
-  wrong.
-- **Struct fields are `name: Type;` (semicolon, one per line); init is
-  `Type { field: val }`.** Verified form:
-  ```aether
-  type Point {
-      x: Int;
-      y: Int;
-  }
-  let p: Point = Point { x: 1, y: 2 };   // also: new Point() then field assign
-  ```
-  `new T{}` (the brace-after-`new` C#/Java prior) is **not** valid and is a
-  documented corpus revert. Comma-separated fields silently parse as *no* fields
-  (you get `FIELD-002 Unknown field` at the use site) — a sharp edge to be aware
-  of.
-- **`ret;` / `ret expr;`** is the one return form.
+1. **Accepted with exact meaning; may be taught.** `while`/`for`, the word
+   operators, `Float`/`String`, `itoa`, `len`/`.len`, bare `T { ... }` (with
+   `new T { ... }` canonical), Text + number (left-to-right stringify),
+   `+= -= *= /= %=`, `Int()`/`Real()`/`Bool()` casts, `exit(n)`; and, decided
+   but not shipped yet, `..=`, `xs.length`, `[v; n]`, `x:.2` and a matching tuple
+   annotation.
+2. **Rejected with a coded diagnostic that names the Aether form.** `elif`,
+   `foreach`, `match`/`switch`, `return`/`class`/`import`, comma-separated
+   fields, `Int[N]`, `fn new`; still owed a code or a hint: `++`, the bitwise
+   compound assignments, `.push`/`.size`/`.contains`, `new Int[n]`, lambdas.
+3. **Never accepted, because it means something different in another
+   language.** `//` as division, chained comparisons, `not X == Y`, `{}`/`%d`
+   placeholders, `int(Text)`, record `==`. Each is still silently accepted today
+   and has its decision row (D45, D32, D48, D14, D24).
+4. **Tolerated, not taught.** Hidden aliases such as `toon_parse_string`,
+   `parse_json`, `root_node` and `lookup_*`, and `?:`.
 
-### 5.8 Contracts are executable, not decorative
+The list itself lives in [`tests/surface/registry.json`](../tests/surface/registry.json),
+one entry per spelling with its class, canonical form, code and decision row, and
+a fixture. `tools/check_surface_registry.py` (CTest `aether_surface_registry`)
+proves each class: a class-1 or class-4 fixture prints exactly what its canonical
+twin prints, and a class-2 or class-3 fixture fails with exactly its code. An
+entry decided but not shipped is marked pending and pins what its fixture does
+today, so the commit that ships it flips the entry. The guides, the corpus
+exporter's non-canonical patterns and the repair-drill polarity should all be
+read from this one file rather than kept as four lists that disagree.
 
-`@pre`, `@post`, `@pure`, `@cost` lower to real checks/analysis (entry guards,
-pre-return guards, purity analysis, frontend-validated budgets). A malformed or
-detached annotation **fails in the front end** rather than degrading into a
-comment. Rationale: a contract the compiler can't act on is a lie in the source;
-the benchmark's contract tasks check that the guard actually fires. Tuple
-post-conditions use dot indexing (`@post result.0 >= result.1`), **not** brackets
-(`result[0]`) — another documented family revert.
+Two details from the old text still hold, now verified: a field list is
+`name: Type;`, and comma-separated fields are rejected with SYN-001 (not silently
+parsed as no fields, which is what this section used to claim).
+
+### 5.8 Contracts: what is enforced
+
+`@pre` and `@post` lower to real checks: an entry guard and a guard before each
+return, which stop the program with `Aether @pre failed in f` (or `@post`) on
+stdout and exit status 1. `@pure` is checked statically: a pure function may not
+contain an `fx` block or call an effectful builtin (ANN-001). The front end
+rejects an annotation it can recognise as malformed: `@pre` with no expression,
+`@pure noisy`, a `@cost` with a zero budget, an unknown unit or a duplicate, and
+any annotation that is not directly above a function (ANN-001), or one written
+inside a body (SYN-001). Tuple post-conditions use dot indexing,
+`@post result.0 >= result.1`; `result[0]` is ANN-001.
+
+Not enforced, and not to be relied on: `@cost` is decorative by decision (its
+syntax is validated, nothing measures the budget), and an unknown `@word`,
+`@pure()` and `@cost(5)` are accepted today and ignored. W4 makes those three
+errors; until then a contract the compiler does not act on can still sit in the
+source.
 
 ---
 

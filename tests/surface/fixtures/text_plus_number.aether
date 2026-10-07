@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let n: Int = 3;
+    let r: Real = 1.5;
+    let s: Text = "n=" + n + " r=" + r;
+    fx { println(s); }
+}

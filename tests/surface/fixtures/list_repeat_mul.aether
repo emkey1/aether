@@ -1,0 +1,3 @@
+fn main() -> Void {
+    let xs: Int[] = [0] * 3;
+}

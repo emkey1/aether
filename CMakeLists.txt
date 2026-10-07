@@ -328,6 +328,17 @@ else()
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
         LABELS "spec")
 
+    # The surface registry (tests/surface/registry.json, decision D7): each
+    # class-1/4 spelling prints what its canonical twin prints, each class-2/3
+    # spelling fails with exactly its code; a pending entry pins today's outcome
+    # and is reported, not failed, when it flips (tools/check_surface_registry.py).
+    add_test(NAME aether_surface_registry
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_surface_registry.py)
+    set_tests_properties(aether_surface_registry PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        LABELS "spec")
+
     add_test(NAME aether_reformat_invariance
              COMMAND ${AETHER_DOCS_PYTHON}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/reformat_invariance.py)

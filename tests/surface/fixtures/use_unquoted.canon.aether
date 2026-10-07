@@ -1,0 +1,4 @@
+use "geometry";
+fn main() -> Void {
+    fx { println(Geometry.area(2, 3)); }
+}

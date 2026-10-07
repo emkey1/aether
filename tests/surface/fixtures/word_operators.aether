@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let a: Bool = true;
+    fx { println(a and false, a or false, not a, 6 xor 3); }
+}

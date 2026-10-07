@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let d: ToonDoc = toon_parse("{\"a\": 3, \"t\": \"x\"}");
+    fx { close_doc(d); println("closed"); }
+}

@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(intToText(5)); }
+}

@@ -1,0 +1,4 @@
+fn dbl(n: Int) -> Int { ret n * 2; }
+fn main() -> Void {
+    let g = dbl;
+}

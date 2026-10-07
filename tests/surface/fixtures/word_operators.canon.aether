@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let a: Bool = true;
+    fx { println(a && false, a || false, !a, 6 ^ 3); }
+}

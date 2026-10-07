@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let a: Int = 1;
+    fx { println(not a == 2); }
+}
