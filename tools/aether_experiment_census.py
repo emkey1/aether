@@ -119,7 +119,7 @@ def collect_sources(args):
     return out
 
 
-def run_one(binary, experiment, src, fixtures, home, run):
+def run_one(binary, experiment, src, fixtures, home, run, timeout=TIMEOUT):
     env = dict(os.environ)
     env.pop("AETHER_EXPERIMENT", None)
     env.pop("AETHER_DUMP_TYPES", None)
@@ -142,7 +142,7 @@ def run_one(binary, experiment, src, fixtures, home, run):
                     shutil.copy(fp, cwd)
         try:
             p = subprocess.run([binary, "--no-cache", "--dump-ast-json", src], cwd=cwd, env=env,
-                               stdin=subprocess.DEVNULL, capture_output=True, timeout=TIMEOUT)
+                               stdin=subprocess.DEVNULL, capture_output=True, timeout=timeout)
             res["ast"] = sha(p.stdout + b"\0" + p.stderr)
             res["ast_rc"] = p.returncode
         except subprocess.TimeoutExpired:
@@ -150,7 +150,7 @@ def run_one(binary, experiment, src, fixtures, home, run):
         argv = [binary, "--no-cache"] + ([] if run else ["--no-run"]) + [src]
         try:
             p = subprocess.run(argv, cwd=cwd, env=env, stdin=subprocess.DEVNULL,
-                               capture_output=True, timeout=TIMEOUT)
+                               capture_output=True, timeout=timeout)
             res["rc"] = p.returncode
             res["stdout"] = p.stdout.decode("utf-8", "replace")
             res["stderr"] = p.stderr.decode("utf-8", "replace")
@@ -175,6 +175,7 @@ def main():
     ap.add_argument("--results", action="append")
     ap.add_argument("--fixtures", help="files copied into every run directory")
     ap.add_argument("--jobs", type=int, default=max(1, (os.cpu_count() or 2) - 2))
+    ap.add_argument("--timeout", type=int, default=TIMEOUT, help="seconds per compile or run")
     ap.add_argument("--identity", action="store_true",
                     help="exit 1 unless every arm matches the first on ast, rc and stdout")
     ap.add_argument("--json", help="write per-program rows here")
@@ -204,7 +205,7 @@ def main():
         run = not NETWORK_RE.search(text)
         row = {"key": key, "run": run, "golden": golden is not None}
         for name, binary, exp in arms:
-            r = run_one(binary, exp, path, args.fixtures, homes, run)
+            r = run_one(binary, exp, path, args.fixtures, homes, run, args.timeout)
             if golden is not None:
                 r["pass"] = (r["rc"] == 0 and r["stdout"] == golden)
             row[name] = r

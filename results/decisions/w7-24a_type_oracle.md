@@ -14,23 +14,29 @@ nothing to the diagnostic stream. No rule is switched on.
 | tests | 245 (149 `*_pass`) | `tests/*.aether` |
 | examples | 70 | every program file under `examples/` |
 | corpus | 748 | umbrella `Tests/aether_specialization/corpus_candidates_manifest.json` items, run with the corpus fixtures in the working directory |
-| archive | 629 | the review's archived model programs (the 596-program set, as since extended) united with every distinct `source_code` in the umbrella's tracked `Tests/aether_doc_bench/results/**/*.json` (259, of which 252 were already in the set) |
+| archive | 413 | the review's archived model programs (the 596-program set, as since extended) united with every distinct `source_code` in the umbrella's tracked `Tests/aether_doc_bench/results/**/*.json`: 629 files. 190 of them still carried the harness's `__AETHER_BENCH_START__`/`__AETHER_BENCH_END__` sentinel lines from the raw generation. Those lines are stripped and the result deduplicated by content, leaving 413 distinct programs |
 
-17 programs print different output on two runs of one binary (random seeds,
+18 programs print different output on two runs of one binary (random seeds,
 the clock, the environment, par timing). Their AST and diagnostics are still
 compared; their run stdout is not.
 
+(The first runs of this lane used the 629 raw files with the sentinels still in
+place, and so measured 189 sentinel copies as SCOPE-001 failures. Every number
+below comes from the re-run on the 413 cleaned programs at the lane's final
+commit.)
+
 ## Gate 1: 0 added diagnostics, flags-off identity
 
-Three arms over all 1,692 programs: the 7f58a33 binary, this commit's binary,
-and this commit's binary with `AETHER_DUMP_TYPES=/dev/null` (the pass runs over
-every program, then compilation continues).
+Three arms over all 1,476 programs: the 7f58a33 binary, the lane's final
+binary, and the lane's final binary with `AETHER_DUMP_TYPES=/dev/null` (the
+pass runs over every program, then compilation continues). The same check on
+this commit's own binary, over the raw 629-file archive, also gave 0 diffs.
 
 | Arm | `--dump-ast-json` (stdout+stderr) differs | run rc/stdout differs | run stderr differs | corpus golden pass |
 |---|---|---|---|---|
-| base 7f58a33 | - | - | - | 716 / 734 |
-| this commit | 0 | 0 | 0 | 716 / 734 |
-| this commit, pass on | 0 | 0 | 0 | 716 / 734 |
+| base 7f58a33 | - | - | - | 717 / 734 |
+| final binary | 0 | 0 | 0 | 717 / 734 |
+| final binary, pass on | 0 | 0 | 0 | 717 / 734 |
 
 ```sh
 tools/aether_experiment_census.py --identity \
@@ -39,7 +45,7 @@ tools/aether_experiment_census.py --identity \
     --tests tests --examples examples \
     --corpus <umbrella>/Tests/aether_specialization/corpus_candidates_manifest.json \
     --corpus-root <umbrella> --fixtures <umbrella>/Tests/aether_specialization/fixtures \
-    --dir <archive dir> --nondeterministic <the 17 keys>
+    --dir <cleaned archive dir> --nondeterministic <the 18 keys> --timeout 60
 ```
 
 ## Gate 2: the dump agrees with the declared types
@@ -78,9 +84,9 @@ oracle bug or a program the compiler should not accept):
 |---|---|---|---|
 | corpus | 21,791 | 0 | 10 |
 | examples | 1,023 | 0 | 2 |
-| archive | 10,040 | 28 | 33 |
+| archive | 6,349 | 28 | 28 |
 
-All 28 archive MISMATCH rows are two copies of one program,
+All 28 archive MISMATCH rows come from two variants of one program,
 `let adj: Int[][] = []; adj = adj + [1, 4];`. The append lowering
 (`setlength` plus one indexed store per element) flattens the row into
 separate Int elements of a 2-D array, which then fails at run time with the
