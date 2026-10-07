@@ -1,0 +1,6 @@
+// A Real stored into an Int warns NARROW-001 and still runs, truncating.
+fn half(x: Real) -> Real { ret x / 2.0; }
+fn main() -> Void {
+    let n: Int = half(7.0);
+    fx { println(n); }
+}

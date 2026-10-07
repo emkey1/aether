@@ -1,0 +1,12 @@
+// A record with a mutating method and a by-value array field.
+type Counter {
+    n: Int;
+    tags: Text[];
+    fn bump(by: Int) -> Void { self.n = self.n + by; }
+}
+fn main() -> Void {
+    let c: Counter = new Counter { n: 1, tags: ["a"] };
+    c.bump(4);
+    c.tags = c.tags + ["b"];
+    fx { println(c.n, " ", len(c.tags), " ", c.tags[1]); }
+}

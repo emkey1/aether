@@ -43,6 +43,16 @@ the ledger entry and guide lines its `manifest.tsv` row names, then move the
 probe into `tests/` as a regression fixture. `ctest -LE backlog` skips it
 during WIP.
 
+**New fixtures go in `tests/fx/`, not in `tests/run.sh`.** A fixture is
+`tests/fx/<dir>/<name>.aether` plus sidecars: `.out` (exact stdout),
+`.unordered` (compare `.out` as a multiset of lines, for `par`), `.err`
+(required stderr substrings; a `!` line is forbidden), `.codes` (the exact
+diagnostic code set; `code: null` fails), `.rc`, `.in`, `.flags`, `.cap`
+(curl, yyjson, openai, sdl). `python3 tools/run_fixtures.py --update <name>`
+writes `.out`/`.rc`/`.codes` and prints the diff: review it before committing.
+CTest runs one `aether_fixtures_<dir>` per directory (re-configure after adding
+one), and `tests/run.sh` runs them all at its end.
+
 ## Where a diagnostic comes from
 
 Search in this order: `src/aether/ast_parser.c` (parse, lowering, most coded

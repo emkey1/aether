@@ -351,3 +351,42 @@ if(Python3_Interpreter_FOUND)
         TIMEOUT 300
         LABELS "backlog")
 endif()
+
+# ---- Data-driven fixtures (W2-24) ----------------------------------------------
+# tools/run_fixtures.py runs tests/fx/[<dir>/]<name>.aether against its sidecars
+# (.out .unordered .err .codes .rc .in .flags .cap), keeps going past a failure
+# and reports them all. Every new fixture goes here, not into tests/run.sh. One
+# CTest per tests/fx subdirectory, labelled `fixtures` and the directory name
+# (a new directory needs a re-configure); aether_fixtures_selftest mutates
+# each sidecar class in a copy and fails when the runner misses one.
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    file(GLOB _aether_fx_entries LIST_DIRECTORIES true CONFIGURE_DEPENDS
+         ${CMAKE_CURRENT_SOURCE_DIR}/tests/fx/*)
+    file(GLOB _aether_fx_top CONFIGURE_DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/tests/fx/*.aether)
+    if(_aether_fx_top)
+        add_test(NAME aether_fixtures
+                 COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_fixtures.py
+                         --aether $<TARGET_FILE:aether> --dir .)
+        set_tests_properties(aether_fixtures PROPERTIES TIMEOUT 600 LABELS "fixtures")
+    endif()
+    foreach(_fx_dir IN LISTS _aether_fx_entries)
+        if(IS_DIRECTORY ${_fx_dir})
+            get_filename_component(_fx_name ${_fx_dir} NAME)
+            add_test(NAME aether_fixtures_${_fx_name}
+                     COMMAND ${Python3_EXECUTABLE} ${CMAKE_CURRENT_SOURCE_DIR}/tools/run_fixtures.py
+                             --aether $<TARGET_FILE:aether> --dir ${_fx_name})
+            set_tests_properties(aether_fixtures_${_fx_name} PROPERTIES
+                TIMEOUT 600 LABELS "fixtures;${_fx_name}")
+        endif()
+    endforeach()
+    # tests/run.sh runs the fixtures too, for callers that exec it by path;
+    # under CTest they already have their own tests.
+    set_property(TEST aether_tests APPEND PROPERTY ENVIRONMENT "AETHER_RUN_SH_FIXTURES=0")
+    add_test(NAME aether_fixtures_selftest
+             COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/run_fixtures_selftest.sh)
+    set_tests_properties(aether_fixtures_selftest PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        TIMEOUT 300
+        LABELS "fixtures")
+endif()

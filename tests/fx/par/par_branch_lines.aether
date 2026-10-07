@@ -1,0 +1,12 @@
+// Each par branch prints its own line; the order between branches is not fixed.
+fn show(k: Int) -> Void {
+    fx { println("branch ", k, " sq=", k * k); }
+}
+fn main() -> Void {
+    par {
+        show(1);
+        show(2);
+        show(3);
+    }
+    fx { println("joined"); }
+}

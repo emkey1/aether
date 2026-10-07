@@ -1,0 +1,15 @@
+// Sums one Int per stdin line with readln and parse_int, stopping at an empty line.
+fn main() -> Void {
+    let total: Int = 0;
+    let count: Int = 0;
+    fx {
+        loop i in 0..100 {
+            let line: Text = "";
+            readln(line);
+            if len(trim(line)) == 0 { break; }
+            total = total + parse_int(trim(line));
+            count = count + 1;
+        }
+        println("count=", count, " total=", total);
+    }
+}

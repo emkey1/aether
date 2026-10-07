@@ -1,0 +1,9 @@
+// Under --deny net the first network builtin stops the program before any
+// request is made; the lines printed before it still reach stdout.
+fn main() -> Void {
+    fx {
+        println("before");
+        let session: Int = httpsession();
+        println("after ", session);
+    }
+}

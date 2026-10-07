@@ -3693,4 +3693,17 @@ if ! cmp -s $OUT/aether_cache_roundtrip_expected.out $OUT/aether_cache_roundtrip
     exit 1
 fi
 
+# Data-driven fixtures (tests/fx/, tools/run_fixtures.py): run here as well so
+# a caller that execs this script by path (the umbrella's
+# Tests/run_aether_tests.sh) covers them too. The runner keeps going and lists
+# every failing fixture. AETHER_RUN_SH_FIXTURES=0 skips it (CTest runs the same
+# fixtures as aether_fixtures_*).
+if [ "${AETHER_RUN_SH_FIXTURES:-1}" != "0" ]; then
+    if command -v python3 >/dev/null 2>&1; then
+        python3 "$SCRIPT_DIR/../tools/run_fixtures.py" --aether "$AETHER_BIN"
+    else
+        echo "[skip] tests/fx fixtures (no python3)"
+    fi
+fi
+
 echo "aether smoke tests passed"

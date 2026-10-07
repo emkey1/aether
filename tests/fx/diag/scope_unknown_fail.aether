@@ -1,0 +1,5 @@
+// An undeclared name is a coded SCOPE-001, with no uncoded record beside it.
+fn main() -> Void {
+    let total: Int = 3;
+    fx { println(totl); }
+}
