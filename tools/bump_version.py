@@ -44,8 +44,13 @@ def bump() -> str:
 
 
 if __name__ == "__main__":
-    if "--show" in sys.argv:
+    args = sys.argv[1:]
+    if args == ["--show"]:
         print(read() or "(unset)")
+    elif args:
+        # Anything else, --help included, must not bump: a bump is a release.
+        print(__doc__.split("Usage:", 1)[1].rstrip(), file=sys.stderr)
+        sys.exit(0 if args[0] in ("-h", "--help") else 2)
     else:
         old = read()
         print(f"{old or '(unset)'} -> {bump()}")
