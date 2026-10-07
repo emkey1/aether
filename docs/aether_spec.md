@@ -405,7 +405,7 @@ them errors.
 TypeDecl   = "type" Ident "{" { Member } "}" ;
 Member     = Field | Method ;
 Field      = Ident ":" Type [ "=" Literal ] ";" ;
-Method     = { Annotation } "fn" Ident "(" "self" { "," Param } ")" "->" ReturnType Block ;
+Method     = { Annotation } "fn" Ident "(" [ "self" { "," Param } | Params ] ")" "->" ReturnType Block ;
 ConstDecl  = "const" Ident [ ":" TypeName ] "=" Expr ";" ;
 Type       = TypeName { "[" "]" } ;
 TypeName   = "Int" | "Real" | "Text" | "Bool" | "Void" | "ToonDoc" | "ToonNode"
@@ -413,8 +413,9 @@ TypeName   = "Int" | "Real" | "Text" | "Bool" | "Void" | "ToonDoc" | "ToonNode"
 ```
 
 A record type's fields are `name: Type;`, one per declaration, with an optional
-literal default. A method's first parameter is `self`; fields are read and
-written through it. A `type` or `const` may also be declared inside a block.
+literal default. Inside a method the receiver is `self`, written as the first
+parameter or left implicit; fields are read and written through it, never as
+bare names (METH-001: methods do not capture outer locals either). A `type` or `const` may also be declared inside a block.
 `T[]` is a dynamic array of `T`; `T[][]` an array of arrays.
 
 ```aether @ok id=G.TypeDecl.1
@@ -502,6 +503,42 @@ fn main() -> Void {
 
 ```text
 4
+```
+
+```aether @ok id=G.Method.3
+type Tally {
+    keys: Text[] = [];
+    counts: Int[] = [];
+    fn bump(k: Text) -> Void {
+        loop i in 0..length(self.keys) {
+            if self.keys[i] == k {
+                self.counts[i] = self.counts[i] + 1;
+                ret;
+            }
+        }
+        self.keys = self.keys + [k];
+        self.counts = self.counts + [1];
+    }
+}
+fn main() -> Void {
+    let t: Tally = new Tally();
+    t.bump("a");
+    t.bump("b");
+    t.bump("a");
+    fx { println(length(t.keys), " ", t.counts[0]); }
+}
+```
+
+```text
+2 2
+```
+
+```aether @reject=SCOPE-001 id=G.Method.4
+type C {
+    n: Int = 2;
+    fn get() -> Int { ret n; }
+}
+fn main() -> Void { }
 ```
 
 ```aether @reject=SYN-001 id=G.Method.2
