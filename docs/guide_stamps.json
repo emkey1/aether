@@ -24,6 +24,14 @@
         "body_sha256": "45a08c624816e76402bd2059821e799cb977a51ba69f14f09e7e645b5ba37f3e",
         "o200k": 11898
       }
+    ],
+    "docs/aether_card.md": [
+      {
+        "stamp": "2026-10-07-1",
+        "date": "2026-10-07",
+        "body_sha256": "15cd97ed149149d4e38f81bed8d8dbd9af945a74f4503cf5e333d78341a2d3d4",
+        "o200k": 1789
+      }
     ]
   }
 }

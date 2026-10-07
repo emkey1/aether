@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Measure the three LLM-facing guides in tokens and gate the medium ceiling.
+"""Measure the three LLM-facing guides and the card in tokens; gate their ceilings.
 
 Run by CTest as `aether_guide_tokens`. The whole document is measured, front
 matter and code fences included, because that is what a harness sends.
@@ -14,6 +14,10 @@ The gate is staged (owner decision D6, 2026-10-06):
     <= 15,000). When only o200k is cached the fallback is o200k <= 14,100,
     since o200k undercounts the Qwen cohort by ~6%. Flip STAGE below in that
     commit; `--stage g1` previews it.
+
+The prior-alignment card (docs/aether_card.md) is gated from the start: FAIL
+if it is over 2,000 tokens in the largest tokenizer available (o200k, plus
+Qwen3.5 when cached). It is measured and reported with the guides.
 
 The core/library split (Files, HTTP, Sockets, Tasks/AI and the appendices
 count as library) is reported only; it is never gated.
@@ -30,7 +34,7 @@ counts exactly on these guides); the method is printed with the count.
 Nothing is downloaded unless --allow-download is given: a missing o200k cache
 is a skip, not a network fetch.
 
-Exit status: 0 pass, 1 medium over its ceiling, 2 usage or I/O error,
+Exit status: 0 pass, 1 medium or the card over its ceiling, 2 usage or I/O error,
 77 (CTest SKIP_RETURN_CODE) when tiktoken or the o200k_base file is missing.
 
 Usage:
@@ -53,11 +57,13 @@ STAGE = "pre-g1"
 
 CEILING = 15000          # medium, whole document
 G1_O200K_FALLBACK = 14100  # medium under g1 when o200k is the only tokenizer cached
+CARD_CEILING = 2000      # the card, under max(available tokenizers), every stage
 
 GUIDES = (
     ("small", "aether_for_llms_with_small_contexts.md"),
     ("medium", "aether_for_llms_medium_contexts.md"),
     ("full", "aether_for_llms_and_others.md"),
+    ("card", "aether_card.md"),
 )
 
 O200K_URL = "https://openaipublic.blob.core.windows.net/encodings/o200k_base.tiktoken"
@@ -66,7 +72,7 @@ O200K_SHA256 = "446a9538cb6c348e3516120d7c08b09f57c36495e2acfffe59a5bf8b0cfb1a2d
 # A `## ` section whose heading starts with one of these is library reference
 # rather than core language. Everything else is core.
 LIBRARY_HEADING = re.compile(r"^##\s+(Files\b|HTTP\b|Sockets\b|Tasks\b|Appendix\b)")
-STAMP = re.compile(r"^\*Guide version:\s*(\d{4}-\d{2}-\d{2}-\d+)\*[ \t]*$", re.M)
+STAMP = re.compile(r"^\*(?:Guide|Card) version:\s*(\d{4}-\d{2}-\d{2}-\d+)\*[ \t]*$", re.M)
 
 SKIP = 77
 
@@ -192,7 +198,7 @@ def fmt(n):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--docs", default=os.path.join(REPO, "docs"),
-                    help="directory holding the three guides (default: the repo's docs/)")
+                    help="directory holding the guides and the card (default: the repo's docs/)")
     ap.add_argument("--sizes-out", default=os.path.join(REPO, "build", "guide_sizes.md"),
                     help="where to write the measured table (default: build/guide_sizes.md)")
     ap.add_argument("--stage", choices=("pre-g1", "g1"), default=STAGE,
@@ -240,6 +246,12 @@ def main():
             gated_value, rule, limit = max(cohort), f"max(o200k, qwen3.5) <= {CEILING:,}", CEILING
     over = gated_value > limit
 
+    card = rows["card"]
+    card_value = max(v for v in (card["o200k"], card["qwen"]) if v is not None)
+    card_rule = (f"max(o200k, qwen3.5) <= {CARD_CEILING:,}" if card["qwen"] is not None
+                 else f"o200k <= {CARD_CEILING:,} (only o200k cached)")
+    card_over = card_value > CARD_CEILING
+
     print(f"guide token counts (whole document; stage {args.stage}, D6)")
     print(f"  {'guide':<7} {'stamp':<13} {'o200k':>8} {'qwen3.5':>8}  ceiling")
     for role, _ in GUIDES:
@@ -247,6 +259,9 @@ def main():
         if role == "medium":
             verdict = "FAIL" if over else "PASS"
             note = f"{rule}: {verdict} ({limit - gated_value:+,} headroom)"
+        elif role == "card":
+            verdict = "FAIL" if card_over else "PASS"
+            note = f"{card_rule}: {verdict} ({CARD_CEILING - card_value:+,} headroom)"
         else:
             note = "reported only"
         print(f"  {role:<7} {r['stamp']:<13} {fmt(r['o200k']):>8} {fmt(r['qwen']):>8}  {note}")
@@ -272,7 +287,8 @@ def main():
             fh.write("|---|---|---:|---:|---:|---:|---|\n")
             for role, _ in GUIDES:
                 r = rows[role]
-                ceil = rule if role == "medium" else "none (reported)"
+                ceil = (rule if role == "medium" else card_rule if role == "card"
+                        else "none (reported)")
                 fh.write(f"| {role} | `{r['stamp']}` | {fmt(r['o200k'])} | {fmt(r['qwen'])} | "
                          f"{fmt(r['core'])} | {fmt(r['library'])} | {ceil} |\n")
             fh.write(f"\nMeasured {datetime.date.today().isoformat()}, whole documents, "
@@ -284,8 +300,10 @@ def main():
     if over:
         print(f"FAIL: medium is {gated_value:,} tokens under '{rule}'. Cut, do not creep: "
               "pair every addition with a named cut (docs/aether_doc_maintenance.md).")
-        return 1
-    return 0
+    if card_over:
+        print(f"FAIL: the card is {card_value:,} tokens under '{card_rule}'. It changes only "
+              "at a release boundary; cut it back under the ceiling.")
+    return 1 if over or card_over else 0
 
 
 if __name__ == "__main__":

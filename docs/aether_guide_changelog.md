@@ -118,3 +118,16 @@ touched several guides at once, the same entry appears under each.
 | `2026-06-27-3` | 2026-06-27 | `be03f58` | docs: document FUNC-001 (no function values) + the `par` concurrency pattern |
 | `2026-06-21-1` | 2026-06-21 | `404a7b7` | docs(guides): version both guides (YYYY-MM-DD-N) + bump helper |
 
+
+## Prior-alignment card — `aether_card.md`
+
+The card is a frozen ~2K-token summary of the core language, used to measure
+what a model writes from a minimal description (KPI P) and as the rule-neutral
+document for the language decision probes. It changes only at a release
+boundary, and each change runs the old and the new card once on the same
+bundle. Its stamp line reads `*Card version: ...*`; it is checked like a
+guide's.
+
+| version | date | commit | change |
+|---|---|---|---|
+| `2026-10-07-1` | 2026-10-07 | (this commit) | new: **card-v1**. Program shape and `fx`, bindings and types, `if`/`else if`, the range, stepped, foreach, condition and bare loops, functions and tuple returns, `@pure`, records with methods and `self.`, arrays (append, `length`, slices, `T[][]`), `Text` (indexing, `copy`/`pos`/`split`/`trim`, `int_to_text`/`parse_int`), the `println` rules (no separator, `Real` at 6 decimals) and 11 diagnostics with one-line fixes. Every program runs to the output the card states (`verify_guide_snippets.py --run-outputs`). Deliberately silent on the rules under test: `/` on two `Int`s, writes to an array parameter, and tail expressions; every function returns with `ret`. 1,789 o200k, 1,928 Qwen3.5 tokens; ceiling 2,000 under the larger |

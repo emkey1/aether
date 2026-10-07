@@ -229,6 +229,18 @@ else()
                      ${AETHER_GUIDE_full} ${AETHER_GUIDE_medium} ${AETHER_GUIDE_small})
     set_tests_properties(aether_guide_snippet_keys PROPERTIES LABELS "guide")
 
+    # The prior-alignment card: every block compiles, and every complete
+    # program runs to the output the ```text block after it states. Its
+    # 2,000-token ceiling is checked by aether_guide_tokens, its stamp by
+    # aether_guide_stamps.
+    add_test(NAME aether_card_snippets
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_guide_snippets.py --run-outputs
+                     ${AETHER_GUIDE_DIR}/aether_card.md)
+    set_tests_properties(aether_card_snippets PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        LABELS "guide")
+
     # The full guide's generated builtin appendix matches what this build
     # registers. Skipped (77) on a non-canonical build such as SDL.
     add_test(NAME aether_builtin_appendix
@@ -240,7 +252,8 @@ else()
         LABELS "guide")
 
     # Medium <= 15,000 o200k tokens, whole document (staged per D6; small, full
-    # and the Qwen3.5 count are reported only). Writes guide_sizes.md here.
+    # and the Qwen3.5 count are reported only), and the card <= 2,000 under the
+    # larger of o200k and Qwen3.5. Writes guide_sizes.md here.
     add_test(NAME aether_guide_tokens
              COMMAND ${AETHER_DOCS_PYTHON}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_guide_tokens.py

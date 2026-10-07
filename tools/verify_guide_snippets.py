@@ -5,6 +5,7 @@ Usage:
     python3 tools/verify_guide_snippets.py docs/aether_for_llms_*.md     # all three
     python3 tools/verify_guide_snippets.py docs/aether_for_llms_medium_contexts.md
     python3 tools/verify_guide_snippets.py --keys-only docs/aether_for_llms_*.md
+    python3 tools/verify_guide_snippets.py --run-outputs docs/aether_card.md
 
 Every block is compiled with `aether --no-cache --no-run --diagnostics-json`
 ($AETHER_BIN, default build/aether). Fragments are wrapped in a function over
@@ -22,7 +23,11 @@ The run fails (exit 1) on any of:
     model copies the block as written -- unless FX_RESCUED allowlists it;
   * an EXPECT_FAIL key that matches no block in any guide. The keys are shared
     by all three guides, so this runs when all three are given (or alone, with
-    --keys-only, as the CTest aether_guide_snippet_keys does).
+    --keys-only, as the CTest aether_guide_snippet_keys does);
+  * with --run-outputs (the card's CTest, aether_card_snippets): a complete
+    program that is not followed by a ```text block holding its output, or
+    whose run exits non-zero or prints anything else. The card states what each
+    program prints, so the gate runs it.
 
 See docs/aether_doc_maintenance.md for why this exists.
 """
@@ -138,6 +143,41 @@ def parse_blocks(path):
     return blocks
 
 
+def output_fences(path):
+    """{start line of an ```aether block: the ```text block right after it}."""
+    with open(path, encoding="utf-8") as fh:
+        lines = fh.read().split("\n")
+    out, last_aether, i = {}, None, 0
+    while i < len(lines):
+        s = lines[i].strip()
+        if s == "```aether":
+            last_aether = i + 1
+            while i + 1 < len(lines) and lines[i + 1].strip() != "```":
+                i += 1
+            i += 2
+            continue
+        if s == "```text" and last_aether is not None:
+            body = []
+            i += 1
+            while i < len(lines) and lines[i].strip() != "```":
+                body.append(lines[i])
+                i += 1
+            out[last_aether] = "\n".join(body) + "\n"
+        elif s:
+            last_aether = None
+        i += 1
+    return out
+
+
+def run_src(workdir, src, tag):
+    path = os.path.join(workdir, f"{tag}.aether")
+    with open(path, "w", encoding="utf-8") as fh:
+        fh.write(src)
+    r = subprocess.run([AETHER, "--no-cache", path], capture_output=True, text=True,
+                       timeout=60, cwd=workdir)
+    return r.returncode, r.stdout, r.stderr
+
+
 def wrap(src):
     if re.search(r"\bfn\s+main\s*\(", src):
         return "whole", src
@@ -184,11 +224,12 @@ def show(records, workdir, limit=4):
     return "\n".join(out)
 
 
-def check_guide(path, workdir, tag_prefix):
+def check_guide(path, workdir, tag_prefix, run_outputs=False):
     """Return (summary dict, list of problem strings, list of report-only notes)."""
     name = os.path.basename(path)
     problems, notes = [], []
-    stats = {"blocks": 0, "compiled": 0, "expected_fail": 0, "fx_rescued": 0}
+    stats = {"blocks": 0, "compiled": 0, "expected_fail": 0, "fx_rescued": 0, "ran": 0}
+    outputs = output_fences(path) if run_outputs else {}
     for k, (ln, src) in enumerate(parse_blocks(path)):
         stats["blocks"] += 1
         key = next((s for s in EXPECT_FAIL if s in src), None)
@@ -220,6 +261,18 @@ def check_guide(path, workdir, tag_prefix):
 
         if rc == 0:
             stats["compiled"] += 1
+            if run_outputs and kind == "whole":
+                want = outputs.get(ln)
+                if want is None:
+                    problems.append(f"{where}: a complete program with no ```text block "
+                                    f"after it stating its output\n{excerpt}")
+                    continue
+                rrc, got, err = run_src(workdir, full, f"{tag_prefix}_b{k:02d}_L{ln}_run")
+                if rrc != 0 or got != want:
+                    problems.append(f"{where}: ran with exit {rrc}; the card says it prints\n"
+                                    f"{want!r}\nbut it printed\n{got!r}\n{err.strip()[:300]}")
+                else:
+                    stats["ran"] += 1
             continue
         if kind == "frag":
             rc_fx, _ = compile_src(workdir, wrap_fx(src), f"{tag_prefix}_b{k:02d}_L{ln}_fx")
@@ -256,6 +309,9 @@ def main():
     ap.add_argument("guides", nargs="+")
     ap.add_argument("--keys-only", action="store_true",
                     help="only check that every EXPECT_FAIL key still matches a block")
+    ap.add_argument("--run-outputs", action="store_true",
+                    help="also run every complete program and compare its stdout with "
+                         "the ```text block that follows it (the card's gate)")
     args = ap.parse_args()
 
     names = {os.path.basename(p) for p in args.guides}
@@ -268,10 +324,12 @@ def main():
                 for mod in sorted(os.listdir(GUIDE_MODULES)):
                     shutil.copy(os.path.join(GUIDE_MODULES, mod), workdir)
             for n, path in enumerate(args.guides):
-                stats, problems, notes = check_guide(path, workdir, f"g{n}")
+                stats, problems, notes = check_guide(path, workdir, f"g{n}", args.run_outputs)
+                ran = f"  ran to stated output {stats['ran']}" if args.run_outputs else ""
                 print(f"{os.path.basename(path)}: blocks {stats['blocks']}  compiled "
                       f"{stats['compiled']}  expected-fail verified {stats['expected_fail']}  "
-                      f"fx-rescued (allowlisted) {stats['fx_rescued']}  UNEXPECTED {len(problems)}")
+                      f"fx-rescued (allowlisted) {stats['fx_rescued']}{ran}  "
+                      f"UNEXPECTED {len(problems)}")
                 for note in notes:
                     print(f"  note: {note}")
                 for p in problems:

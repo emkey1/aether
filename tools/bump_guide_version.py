@@ -30,7 +30,9 @@ A stamp without a text change is refused. Harness-only bumps are retired: the
 benchmark MANIFEST's harness and prompt-template sha256s identify the harness,
 so a guide stamp names guide text and nothing else.
 
-If a guide has no stamp yet, one is inserted just below the title.
+If a guide has no stamp yet, one is inserted just below the title. The
+prior-alignment card (docs/aether_card.md) is stamped the same way, with a
+``*Card version: ...*`` line.
 """
 import argparse
 import datetime
@@ -42,7 +44,8 @@ import sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from check_guide_stamps import MANIFEST, STAMP_LINE, body_sha256, stamp_key  # noqa: E402
+from check_guide_stamps import (MANIFEST, STAMP_LINE, body_sha256, stamp_key,  # noqa: E402
+                                stamp_label)
 
 REPO = os.path.dirname(HERE)
 
@@ -68,8 +71,8 @@ def next_stamp(head_stamp, today):
     return f"{today}-1"
 
 
-def set_stamp(text, stamp):
-    line = f"*Guide version: {stamp}*"
+def set_stamp(text, stamp, label="Guide"):
+    line = f"*{label} version: {stamp}*"
     m = STAMP_LINE.search(text)
     if m:
         return text[:m.start()] + line + text[m.end():]
@@ -107,7 +110,7 @@ def bump(path, today, count):
         stamp, action = cur_stamp, f"already stamped {cur_stamp} since HEAD; stamp left alone"
     else:
         stamp = next_stamp(old_stamp, today)
-        text = set_stamp(text, stamp)
+        text = set_stamp(text, stamp, stamp_label(rel))
         with open(path, "w", encoding="utf-8") as fh:
             fh.write(text)
         action = f"{old_stamp or '(no stamp)'} -> {stamp}"

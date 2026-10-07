@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """Check that every guide's text is named by its stamp, and VERSION by CHANGELOG.
 
+"Guide" here covers the three LLM-facing guides and the prior-alignment card
+(docs/aether_card.md), whose stamp line reads `*Card version: ...*` instead.
+
 Run by CTest as `aether_guide_stamps`. Benchmark rows are attributed by guide
 stamp, so a guide whose text changes under an unchanged stamp produces scores
 nothing can be traced back to. This verifies instead of mutating:
@@ -44,16 +47,23 @@ GUIDES = (
     "docs/aether_for_llms_and_others.md",
     "docs/aether_for_llms_medium_contexts.md",
     "docs/aether_for_llms_with_small_contexts.md",
+    "docs/aether_card.md",
 )
+CARD = "aether_card.md"
 MANIFEST = "docs/guide_stamps.json"
 GUIDE_CHANGELOG = "docs/aether_guide_changelog.md"
 
-STAMP_LINE = re.compile(r"^\*Guide version:\s*(\d{4}-\d{2}-\d{2}-\d+)\*[ \t]*$", re.M)
+STAMP_LINE = re.compile(r"^\*(?:Guide|Card) version:\s*(\d{4}-\d{2}-\d{2}-\d+)\*[ \t]*$", re.M)
 STAMP_VALUE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})-(\d+)$")
 ROW = re.compile(r"^\|\s*`(\d{4}-\d{2}-\d{2}-\d+)`\s*\|\s*([^|]*)\|\s*([^|]*)\|")
 SECTION = re.compile(r"^##\s.*`([^`]+\.md)`")
 LANG_ENTRY = re.compile(r"^##\s+(\d{4}-\d{2}-\d{2}-\d+)\s*$")
 THIS_COMMIT = "(this commit)"
+
+
+def stamp_label(rel):
+    """The word before 'version:' in a document's stamp line."""
+    return "Card" if os.path.basename(rel) == CARD else "Guide"
 
 
 def split_stamp(text):
@@ -130,7 +140,7 @@ def history_available(root):
 def introducing_commit(root, rel, stamp):
     """Oldest commit whose diff changes the count of this stamp line, or None."""
     out = git(root, "log", "--format=%H", "--reverse", "-S",
-              f"*Guide version: {stamp}*", "--", rel)
+              f"*{stamp_label(rel)} version: {stamp}*", "--", rel)
     if not out:
         return None
     return out.split()[0]
@@ -182,7 +192,7 @@ def main():
             continue
         stamp, digest = body_sha256(text)
         if stamp is None:
-            fail(f"{rel}: needs exactly one '*Guide version: YYYY-MM-DD-N*' line")
+            fail(f"{rel}: needs exactly one '*{stamp_label(rel)} version: YYYY-MM-DD-N*' line")
             continue
 
         # 3. stamps strictly increase; consecutive bodies differ.
