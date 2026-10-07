@@ -1,0 +1,21 @@
+// D4 experiment fixture: every Int / Int below sits where an Int is demanded
+// (Int let, ret from -> Int, range bound, index), so ctx and A both make it the
+// integer quotient. Today the range bound is 3.5 and the loop runs 4 times.
+fn half(n: Int) -> Int {
+    ret n / 2;
+}
+
+fn main() -> Void {
+    let a: Int = 7;
+    let b: Int = 2;
+    let x: Int = a / b;
+    let cnt: Int = 0;
+    loop i in 0..a / b {
+        cnt = cnt + 1;
+    }
+    let xs: Int[] = [10, 20, 30, 40, 50];
+    let pick: Int = xs[a / b];
+    fx {
+        println("x=", x, " half=", half(a), " loops=", cnt, " pick=", pick);
+    }
+}

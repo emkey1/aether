@@ -1,0 +1,12 @@
+// D4 experiment fixture: Int / Int where the two readings differ -- a Real
+// sink and a `*` composition. A makes both the integer quotient; A+ rejects
+// the Real sink; ctx rejects both; B+ and today keep the Real quotient.
+fn main() -> Void {
+    let a: Int = 7;
+    let b: Int = 2;
+    let avg: Real = a / b;
+    let twice: Int = a / b * 2;
+    fx {
+        println("avg=", avg, " twice=", twice);
+    }
+}

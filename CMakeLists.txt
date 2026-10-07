@@ -200,6 +200,13 @@ if(Python3_Interpreter_FOUND)
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
 endif()
 
+# ---- Experiment arms (AETHER_EXPERIMENT; batch X, off by default) -------------
+# Each arm on its fixtures, plus the shipped compiler with the variable unset.
+add_test(NAME aether_experiment_flags COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/experiments/run.sh)
+set_tests_properties(aether_experiment_flags PROPERTIES
+    LABELS "experiment"
+    ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>")
+
 # ---- Stress laps (off by default: -DAETHER_STRESS_TESTS=ON, then ctest -L stress)
 # tests/stress_par.sh runs each par fixture 960 times while every core is kept
 # busy, to catch output that depends on thread timing. It takes minutes and

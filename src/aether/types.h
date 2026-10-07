@@ -97,6 +97,9 @@ typedef struct {
     void *ctx;
     /* Called for every expression node before its children, with its use. */
     void (*onExpr)(void *ctx, AST *expr, const AetherUse *use, const AetherTypeEnv *env);
+    /* Called for every expression node after its children were visited (a
+     * visitor that rewrites a node sees its operands' rewrites first). */
+    void (*onExprPost)(void *ctx, AST *expr, const AetherUse *use, const AetherTypeEnv *env);
     /* Called once per sink (a typed let, assign, ret, call argument). */
     void (*onSink)(void *ctx, const AST *site, const AST *value, const AetherUse *use,
                    const AetherTypeEnv *env);

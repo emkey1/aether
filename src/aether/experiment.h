@@ -1,18 +1,59 @@
 #ifndef PSCAL_AETHER_EXPERIMENT_H
 #define PSCAL_AETHER_EXPERIMENT_H
 
+#include "ast/ast.h"
+
 /*
- * Measurement switches read from the environment. None of them is a language
- * feature: with the variables unset the compiler behaves exactly as shipped.
+ * Experiment flags: measurement arms for language decisions that wait on
+ * evidence (docs/aether_decisions.md). They are read once from the environment
+ * variable AETHER_EXPERIMENT, a comma-separated list of key=value items:
+ *
+ *   div=current|int|intplus|realplus|ctx   Int/Int `/` (D4, W8-08)
+ *
+ * With the variable unset or empty every flag is at its first value, which is
+ * the shipped behaviour. An unknown key or value is a usage error (exit 2): a
+ * census run with a typo must not quietly measure the default. Because an arm
+ * changes the compiled program, run it with --no-cache (a cached bytecode file
+ * from another arm would otherwise be reused).
+ *
+ * AETHER_EXPERIMENT_LOG=<path> appends one tab-separated row per site an arm
+ * classifies (also with every flag at its default, which is how the census
+ * counts sites under the shipped rule):
+ *   div  <source>  <line>  <use>  <sink label>  <sink type>  <action>
+ * action is int (rewritten to integer division), real (left Real), div001
+ * (rejected), or unknown (an operand the oracle cannot type; left as today).
  *
  * AETHER_DUMP_TYPES turns on the type oracle's dump (src/aether/types.c): "1"
  * writes it to stdout and exits after semantic analysis; any other value is a
  * file path to write it to, and compilation continues. (`--dump-types` is the
  * planned CLI spelling; it needs an option-table entry in the shared engine's
  * main.c, so it waits for the next rea release.)
+ *
+ * None of these is a language feature. A flag either becomes the language
+ * (with a VERSION bump and its own CHANGELOG entry) or is deleted once its
+ * decision is recorded.
  */
+
+typedef enum {
+    AETHER_DIV_CURRENT = 0, /* `/` always Real; Int sinks truncate (D1)            */
+    AETHER_DIV_INT,         /* A:   Int / Int is integer division                   */
+    AETHER_DIV_INTPLUS,     /* A+:  A, plus DIV-001 where it feeds a Real sink      */
+    AETHER_DIV_REALPLUS,    /* B+:  Real, plus DIV-001 at %, index, bound, Int arg  */
+    AETHER_DIV_CTX          /* ctx: integer where an Int is demanded, else DIV-001  */
+} AetherDivRule;
+
+typedef struct {
+    AetherDivRule div;
+    int any; /* nonzero when any flag is off its default */
+} AetherExperiment;
+
+const AetherExperiment *aetherExperiment(void);
 
 /* NULL when the dump is off; "1" for stdout-and-exit; otherwise a path. */
 const char *aetherDumpTypesTarget(void);
+
+/* Runs the active arms over the analysed program (after rea's semantic pass,
+ * before the type dump). A no-op with every flag at its default and no log. */
+void aetherRunExperiments(AST *root);
 
 #endif

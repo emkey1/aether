@@ -11,6 +11,7 @@
 #include "backend_ast/builtin.h"
 #include "aether/diagnostics.h"
 #include "aether/parser.h"
+#include "aether/experiment.h"
 #include "aether/types.h"
 #include "rea/semantic.h"
 
@@ -3549,9 +3550,17 @@ void aetherPerformSemanticAnalysis(AST *root) {
      * target as untyped and fired only on `let` declarations, whose type comes
      * straight off the parsed declaration. */
     aetherWalkNarrowing(root);
+    /* AETHER_EXPERIMENT arms (experiment.c); a no-op with the variable unset. */
+    aetherRunExperiments(root);
     /* The type oracle's pass (types.c). It runs only when AETHER_DUMP_TYPES is
      * set and reports no diagnostics: W7-24a ships the oracle with no rules. */
     aetherTypedPass(root);
+}
+
+void aetherSemanticReportCoded(const char *code, const char *kind, int line,
+                               const char *detail, int isError) {
+    if (isError) reportAetherErrorCoded(code, kind, line, detail);
+    else reportAetherWarningCoded(code, kind, line, detail);
 }
 
 void aetherSemanticSetSourcePath(const char *path) {

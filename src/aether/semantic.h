@@ -13,4 +13,9 @@ const char *aetherGetModuleName(int index);
 char *aetherResolveImportPath(const char *path);
 void aetherSemanticResetState(void);
 
+/* A coded diagnostic from outside semantic.c (the experiment arms). An error
+ * increments the semantic error count; a warning does not. */
+void aetherSemanticReportCoded(const char *code, const char *kind, int line,
+                               const char *detail, int isError);
+
 #endif

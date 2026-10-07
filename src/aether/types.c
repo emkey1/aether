@@ -802,9 +802,16 @@ static void walkCallArgs(Walker *w, AST *e) {
     }
 }
 
+static void walkExprInner(Walker *w, AST *e, AetherUse use);
+
 static void walkExpr(Walker *w, AST *e, AetherUse use) {
     if (!e) return;
     if (w->v->onExpr) w->v->onExpr(w->v->ctx, e, &use, &w->env);
+    walkExprInner(w, e, use);
+    if (w->v->onExprPost) w->v->onExprPost(w->v->ctx, e, &use, &w->env);
+}
+
+static void walkExprInner(Walker *w, AST *e, AetherUse use) {
     switch (e->type) {
         case AST_BINARY_OP: {
             TokenType tt = e->token ? e->token->type : TOKEN_UNKNOWN;
