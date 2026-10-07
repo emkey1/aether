@@ -225,7 +225,7 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
 // already knowing that, e.g., FX-001 maps to the "Effects (FX-001)" section.
 // No-op when code is NULL (an uncoded diagnostic). Deliberately guide-agnostic
 // (no filename): the caller may have either guide in context, both, or
-// neither, and both guides key every section on the same diagnostic code.
+// neither, and all three guides key their sections on the same diagnostic code.
 void aetherReportGuideHelp(const char *code) {
     if (!code) {
         return;

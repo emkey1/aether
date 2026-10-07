@@ -11,14 +11,14 @@
  *   - the context-free `string_eq(a, b)` inline alias lowered to `(a == b)`
  *   - imported-module exported binding/return types collected for `use`/`mod`
  *
- * These exact behaviors also exist in the text rewriter (translate.c). To keep
- * the AST path free of any dependency on the rewriter (so the rewriter's
- * line-based fragility cannot leak into AST parsing), the logic is reproduced
- * here as standalone code: byte-for-byte the same observable transforms, but in
- * a translation unit the AST parser owns. Nothing here calls into translate.c,
- * and translate.c is left untouched. The public entry points are the
- * aetherAstPrepass* / aetherAstCollectImportedTypes functions declared in
- * ast_prepasses.h.
+ * These passes are Aether-owned. They began as ports of the matching passes in
+ * the retired text rewriter (translate.c, deleted 2026-07-01) and no longer
+ * track it: the known divergence is that the builtin-alias pass copies string
+ * literals and `//` comments verbatim, where the rewriter renamed builtins
+ * inside them (CHANGELOG 2026-07-01-5, tests/alias_string_literal_pass.aether).
+ * The fixtures in tests/ are the contract, not the old rewriter's output. The
+ * public entry points are the aetherAstPrepass* / aetherAstCollectImportedTypes
+ * functions declared in ast_prepasses.h.
  */
 
 #include "aether/ast_prepasses.h"

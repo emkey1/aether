@@ -1,8 +1,17 @@
 # Aether Design
 
+> **Historical vision, written 2026-06. Do not read it as a description of today's
+> compiler.** Phases 0-3 of §15 are complete. The pipeline as built is §2 of
+> [`docs/aether_architecture_and_rationale.md`](../../docs/aether_architecture_and_rationale.md),
+> and design decisions are recorded in
+> [`docs/aether_decisions.md`](../../docs/aether_decisions.md), which overrides this
+> file wherever they disagree. In particular `@cost` is decorative by decision
+> (validated syntax, no enforcement), overriding §7.5, and the rewrite layer §6.2
+> describes was deleted on 2026-07-01.
+
 ## 1. Overview
 
-Aether is a planned standalone front end for the PSCAL suite.
+Aether was designed as a standalone front end for the PSCAL suite.
 
 Like Pascal, Rea, CLike, and the shell front end, Aether will:
 
@@ -214,32 +223,11 @@ Aether source
   -> shared PSCAL VM
 ```
 
-### 6.2 Current Bootstrap
+### 6.2 Bootstrap (retired)
 
-The current bootstrap uses:
-
-```text
-Aether source
-  -> Aether source rewrite layer
-  -> Rea parser/semantic path
-  -> shared PSCAL AST
-  -> shared bytecode compiler
-  -> shared PSCAL VM
-```
-
-This is intentionally transitional. It exists to:
-
-- establish the `aether` binary and build target,
-- provide an executable iteration loop,
-- validate syntax choices quickly,
-- avoid premature backend churn.
-
-The rewrite layer is not the final design.
-
-The repository also includes both small base examples under
-`Examples/aether/base` and a larger showcase under
-`Examples/aether/showcase/agent_report` so the supported surface can be
-exercised as complete programs instead of only isolated snippets.
+The bootstrap rewrite layer this section described was retired after the P7
+cutover and deleted on 2026-07-01. Aether now parses straight to the shared PSCAL
+AST; see §2 of `docs/aether_architecture_and_rationale.md`.
 
 ### 6.3 Shared Backend Rule
 
@@ -647,7 +635,7 @@ The backend may be shared. The front end should not be conceptually borrowed.
 
 ## 12. Bytecode and VM Relationship
 
-### 11.1 Shared Bytecode Compiler
+### 12.1 Shared Bytecode Compiler
 
 The bytecode compiler should remain the same shared compiler used by the rest
 of the suite.
@@ -661,7 +649,7 @@ Aether may motivate:
 
 but it should not fork the compiler.
 
-### 11.2 Shared VM
+### 12.2 Shared VM
 
 The PSCAL VM remains the execution engine.
 
@@ -673,7 +661,7 @@ This is important because it preserves:
 - common serialization and caching behavior,
 - common testing and deployment behavior.
 
-### 11.3 Extension Discipline
+### 12.3 Extension Discipline
 
 If Aether needs backend support, it should prefer:
 
@@ -699,7 +687,7 @@ special-case sidecar.
 
 ## 14. Security and Trust Roadmap
 
-### 13.1 Signed Bytecode
+### 14.1 Signed Bytecode
 
 Aether's future roadmap should include **optional cryptographic signing of
 compiled bytecode artifacts**.
@@ -720,7 +708,7 @@ This is a good fit for PSCAL because bytecode is already compact and portable.
 Signing can therefore protect trust without inflating source or requiring a new
 execution model.
 
-### 13.2 Design Constraints for Signing
+### 14.2 Design Constraints for Signing
 
 The signed-bytecode feature should:
 
@@ -738,7 +726,7 @@ Suggested future model:
 - signer/key identifier,
 - verification before execution or import when configured.
 
-### 13.3 Relationship to Current Hashing
+### 14.3 Relationship to Current Hashing
 
 The suite already contains hashing for cache integrity and invalidation.
 That is useful but not sufficient for trust.
@@ -750,7 +738,7 @@ The signed-bytecode roadmap should therefore distinguish:
 
 ## 15. Implementation Strategy
 
-### 14.1 Phase 0: Bootstrap
+### 15.1 Phase 0: Bootstrap
 
 Goals:
 
@@ -761,7 +749,7 @@ Goals:
 
 This phase is already underway.
 
-### 14.2 Phase 1: Minimal Native Language Slice
+### 15.2 Phase 1: Minimal Native Language Slice
 
 Target features:
 
@@ -777,7 +765,7 @@ Target features:
 At first, some of this may still be implemented through front-end rewriting,
 but the goal is to establish stable semantics and tests.
 
-### 14.3 Phase 2: Native Lexer and Parser
+### 15.3 Phase 2: Native Lexer and Parser
 
 Replace rewrite dependence with:
 
@@ -788,7 +776,7 @@ Replace rewrite dependence with:
 
 This is the point where Aether becomes truly standalone at the front-end level.
 
-### 14.4 Phase 3: Semantic Enforcement
+### 15.4 Phase 3: Semantic Enforcement
 
 Add:
 
@@ -797,7 +785,7 @@ Add:
 - tighter symbol/type rules,
 - early `par` restrictions.
 
-### 14.5 Phase 4: Data and Library Expansion
+### 15.5 Phase 4: Data and Library Expansion
 
 Add:
 
@@ -806,7 +794,7 @@ Add:
 - richer structured-data handling,
 - more examples and library tests.
 
-### 14.6 Phase 5: Trust and Distribution
+### 15.6 Phase 5: Trust and Distribution
 
 Add:
 
@@ -832,7 +820,7 @@ The language should not rely on informal examples alone.
 
 ## 17. Tradeoffs
 
-### 16.1 Compactness vs Readability
+### 17.1 Compactness vs Readability
 
 Aether intentionally favors compactness more than Pascal does.
 That creates risk if taken too far.
@@ -850,7 +838,7 @@ but not compress:
 - effect visibility,
 - reviewability.
 
-### 16.2 Front-End Speed vs Backend Purity
+### 17.2 Front-End Speed vs Backend Purity
 
 Using a rewrite/bootstrap path speeds early iteration, but should not become a
 permanent crutch.
@@ -860,7 +848,7 @@ The correct long-term tradeoff is:
 - fast bootstrap first,
 - native front-end ownership second.
 
-### 16.3 Feature Richness vs Stability
+### 17.3 Feature Richness vs Stability
 
 Aether should not attempt to launch with every possible agent-friendly feature.
 

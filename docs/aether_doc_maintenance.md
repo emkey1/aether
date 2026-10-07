@@ -430,8 +430,9 @@ Practical examples:
 
 Implementation notes:
 
-- `src/aether/README.md`
-- `src/aether/DESIGN.md`
+- [`aether_architecture_and_rationale.md`](aether_architecture_and_rationale.md) §2,
+  the pipeline as built. `src/aether/DESIGN.md` and `src/aether/README.md` are
+  historical and describe the deleted rewriter.
 
 Best example files to copy from (`tests/run_examples.sh --run` holds each to
 its `tests/example_goldens/` stdout; keep its `BEST_EXAMPLES` list in step):

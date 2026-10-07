@@ -1315,7 +1315,7 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
  * Returns an AST_COMPOUND splice (i_val==1) so parseBlock flattens it. The
  * current token is the type-name identifier (verified by the caller to be
  * followed by '{'). `line` is the source line of the `ret`, used for the temp
- * name (so it matches the rewriter byte-for-byte). */
+ * name (a naming convention kept from the retired rewriter). */
 static AST *buildReturnObjectInit(AetherParser *p, int line) {
     Token *clsTok = copyNameToken(p);
     if (!clsTok) return NULL;
@@ -1692,7 +1692,7 @@ static AST *aetherRewriteContinueWithPost(AST *node, AST *postStmt) {
  *     COMPOUND[ init-var-decl,
  *               WHILE(cond: i < HIGH,
  *                     body: COMPOUND[ body-block, post-expr-stmt ]) ]
- * We reproduce that exact structure so output matches byte-for-byte.
+ * We reproduce that exact structure so output matches rea's own for loop.
  *
  * The range operator is now a real AE_TOKEN_DOTDOT token (the aetherAdvance()
  * tokenizer reconstructs it despite the shared Rea lexer folding the dots), so

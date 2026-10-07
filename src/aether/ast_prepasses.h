@@ -2,10 +2,10 @@
 #define PSCAL_AETHER_AST_PREPASSES_H
 
 /*
- * Source pre-passes for the Aether AST frontend, implemented
- * self-contained in ast_prepasses.c with no dependency on the text rewriter
- * (translate.c). Each reproduces, byte-for-byte, the observable result of the
- * matching rewriter pre-pass.
+ * Source pre-passes for the Aether AST frontend, implemented in
+ * ast_prepasses.c. They are Aether-owned: they started as ports of the retired
+ * text rewriter's passes and have since diverged from it (string literals and
+ * comments are no longer alias-rewritten); tests/ is their contract.
  */
 
 /* TOON pre-pass: lower `toon:` blocks to escaped string literals before the

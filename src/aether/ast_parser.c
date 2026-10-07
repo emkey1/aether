@@ -14,20 +14,24 @@
  *
  * Node shapes are mirrored from rea's src/rea/parser.c (the canonical AST
  * producer). Aether's surface syntax differs from Rea's, but the AST it lowers
- * to is identical, so we reproduce rea's node construction verbatim and only
+ * to has the same shapes, so we reproduce rea's node construction and only
  * change how the tokens are recognized:
  *
  *   - Aether keywords (fn, ret, fx, loop, let, const) are NOT Rea keywords, so
  *     the lexer hands them back as REA_TOKEN_IDENTIFIER; we match them by text.
  *   - Aether type names (Int/Real/Text/Bool/Void) arrive as identifiers too;
- *     we map them to the Rea keyword-name + VarType the rewriter would have
- *     produced (Int->"int"/INT64, Real->"float"/DOUBLE, Text->"str"/
- *     UNICODE_STRING, Bool->"bool"/BOOLEAN, Void->VOID) so the AST -- and thus
- *     program output -- matches the rewriter path byte-for-byte.
+ *     we map them to the Rea keyword-name + VarType (Int->"int"/INT64,
+ *     Real->"float"/DOUBLE, Text->"str"/UNICODE_STRING, Bool->"bool"/BOOLEAN,
+ *     Void->VOID).
  *
  * The desugarings live in ast_lower.c, type-name inference in ast_types.c and
  * the post-parse checks in ast_checks.c; ast_internal.h holds the shared
  * AetherParser state and prototypes.
+ *
+ * There is no grammar in this file. What the parser must accept and reject is
+ * pinned by the fixtures in tests/ and by the guide snippet gates
+ * (tools/verify_guide_snippets.py); a comment here that disagrees with them is
+ * the thing that is wrong.
  */
 
 #include "aether/parser.h"
@@ -1190,11 +1194,10 @@ static bool reportReservedMemberName(const ReaToken *t, const char *member) {
     return true;
 }
 
-/* Map an Aether stdlib builtin name to its canonical Rea/pscal builtin, exactly
- * as translate.c appendAetherBuiltinAlias() does textually. Returns the canonical
- * name, or `name` unchanged if there is no alias. Keeping this in sync with the
- * rewriter is what lets call output match byte-for-byte (e.g. println -> writeln
- * -> AST_WRITELN). */
+/* Map an Aether stdlib builtin name to its canonical Rea/pscal builtin (the
+ * table began as a port of the retired rewriter's appendAetherBuiltinAlias()).
+ * Returns the canonical name, or `name` unchanged if there is no alias
+ * (e.g. println -> writeln -> AST_WRITELN). */
 static const char *aliasBuiltinName(const char *name) {
     static const struct { const char *from; const char *to; } aliases[] = {
         { "task_spawn",      "thread_spawn_named" },
@@ -1252,7 +1255,7 @@ static Token *currentAsIdentifier(AetherParser *p) {
 /* Map an Aether type name (the lexeme span) to the Rea keyword-name the
  * rewriter would emit, plus the resulting VarType. Returns false if the name
  * is not a known builtin Aether type. This reproduces translate.c mapTypeName()
- * followed by rea mapType(), which is the byte-for-byte contract: the type node
+ * followed by rea mapType(), which is the output contract: the type node
  * token value and var_type must equal what the rewriter+parseRea produce. */
 bool mapAetherType(const char *name, size_t len,
                    const char **outReaName, VarType *outType) {
@@ -5203,7 +5206,7 @@ static AST *parseFnDecl(AetherParser *p) {
 /* const [Type] NAME = expr;  ->  AST_CONST_DECL (token=name, left=value,
  * right=type node or NULL), mirroring rea parseConstDecl. At top level
  * (functionDepth==0) the value is folded and registered with addCompilerConstant
- * so later references resolve -- the byte-for-byte contract for `const X = ...;
+ * so later references resolve -- the contract for `const X = ...;
  * let y = X;`. Aether writes the type *after* the name (`const NAME: T = e`),
  * unlike Rea's `const T NAME = e`, so we accept the Aether form and build the
  * same node. The binding is recorded for inferred-let type resolution. */

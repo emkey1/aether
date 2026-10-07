@@ -149,6 +149,8 @@ Maintainer docs in [`docs/`](docs/):
 Historical, kept for the record and not a description of today's compiler:
 [`src/aether/DESIGN.md`](src/aether/DESIGN.md) (the original design vision),
 [`parser_roadmap.md`](docs/parser_roadmap.md) and [`docs/archive/`](docs/archive/).
+The pipeline as built is §2 of the
+[architecture and rationale](docs/aether_architecture_and_rationale.md#2-the-compile-pipeline-as-actually-built).
 
 ## Models and benchmarks
 

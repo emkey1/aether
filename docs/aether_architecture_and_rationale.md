@@ -4,8 +4,9 @@
 today and **why** specific implementation decisions were made — including the
 awkward ones. It is deliberately separate from:
 
-- [`src/aether/DESIGN.md`](../src/aether/DESIGN.md) — the forward-looking design
-  *vision* (goals, phases, what Aether *should* become). Aspirational.
+- [`src/aether/DESIGN.md`](../src/aether/DESIGN.md) — the original design
+  *vision* (goals, phases), written 2026-06. Historical: where it and this
+  document disagree, this document and the decision register win.
 - [`Docs/aether_for_llms_and_others.md`](aether_for_llms_and_others.md) — the
   *reference guide* fed to models and humans who just want to write Aether.
   Descriptive, not rationale.
@@ -57,8 +58,8 @@ Key facts a maintainer must internalize:
   `ast_parser.c` tokenizes with Rea's lexer and builds the shared PSCAL AST
   directly, in the same node shapes Rea's own parser produces, so everything
   downstream is the shared pipeline unchanged. The bootstrap-era line-based
-  text rewriter (`translate.c`, DESIGN.md §6.2's "intentionally transitional"
-  path) was **retired and deleted on 2026-07-01** — see `parser_roadmap.md` for
+  text rewriter (`translate.c`, the transitional path DESIGN.md §6.2 once
+  described) was **retired and deleted on 2026-07-01** — see `parser_roadmap.md` for
   the migration history. **There is no separate Aether VM, bytecode, or
   runtime.** That is a hard architectural rule.
 
