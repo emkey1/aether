@@ -275,4 +275,14 @@ else()
              COMMAND ${AETHER_DOCS_PYTHON}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_guides.py)
     set_tests_properties(aether_guide_audit PROPERTIES LABELS "guide;report")
+
+    # The diagnostic-code map: codes the fixtures make the compiler print,
+    # against code literals in the sources and each guide's repair rules.
+    # REPORT mode until the first guide pass (prints findings, exits 0).
+    add_test(NAME aether_diag_codes
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_diag_codes.py)
+    set_tests_properties(aether_diag_codes PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>;AETHER_REA_DIR=${rea_SOURCE_DIR};AETHER_PSCAL_CORE_DIR=${pscal_core_SOURCE_DIR}"
+        LABELS "guide;report")
 endif()

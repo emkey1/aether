@@ -255,6 +255,7 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 | `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 o200k; Skipped without tiktoken |
 | `aether_guide_stamps` | each guide's text against its stamp's manifest entry, the changelog rows, `VERSION` against `CHANGELOG.md` (`tools/check_guide_stamps.py`, above) | text changed under a stamp; a stamp without its row; a typed commit that did not introduce the stamp |
 | `aether_guide_audit` | the content audit above (`tools/audit_guides.py`) | nothing yet: report mode prints the hits; `--strict` from the first guide pass |
+| `aether_diag_codes` | the codes the fixtures make the compiler print, against code literals in the sources and each guide's repair rules and full's "actually emits" list (`tools/check_diag_codes.py`) | nothing yet: report mode prints the findings; `--strict` from the first guide pass |
 | `aether_doc_refs` | every commit hash cited in `README.md`, `CHANGELOG.md` and `docs/**/*.md` resolves in aether, rea, pscal-core, or the umbrella when `PSCAL_UMBRELLA` names a checkout (`tools/check_doc_refs.py`) | an unresolvable hash, or a placeholder written where a hash belongs; Skipped in a shallow clone |
 
 Still manual, because no gate does them: running complete programs and the
