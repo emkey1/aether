@@ -121,6 +121,9 @@ set(AETHER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/parser.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_prepasses.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_parser.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_lower.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_types.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_checks.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/semantic.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/state.c
 )
