@@ -8,15 +8,19 @@ same thing** and they drift apart on purpose:
   [`VERSION`](../VERSION) — bumped only when a change alters what programs
   compile or how they run.
 - This file tracks each **guide document's** own front-matter stamp — bumped
-  whenever the guide text changes, and also on a harness change that could
-  plausibly move a score (see `tools/bump_guide_version.py`).
+  whenever the guide text changes, and only then. Since 2026-10-06 (decision
+  D41) a harness change no longer bumps a stamp: the benchmark records the
+  harness and prompt-template hashes itself. Older harness-only rows keep their
+  meaning.
 
 `docs/aether_guided_benchmark.md` stamps every row with the guide version it was
 scored against, so this file is what turns that stamp back into "and what was
 different about it."
 
-Entries are newest first, one per version stamp, reconstructed from git history
-(the commit named is the one that carried the stamp change). Where a commit
+Entries are newest first, one per version stamp. The row lands in the same
+commit as the stamp, so a new row's commit cell reads `(this commit)`;
+`python3 tools/check_guide_stamps.py --commits` prints the hash that introduced
+each stamp (older rows were reconstructed from git history). Where a commit
 touched several guides at once, the same entry appears under each.
 
 ## Full guide — `aether_for_llms_and_others.md`

@@ -19,14 +19,22 @@ never commit host names, fleet details, credential locations or session paths
 git submodule update --init --recursive   # external/rea, external/pscal-core
 cmake -S . -B build && cmake --build build -j   # Release by default
 ./build/aether --no-cache prog.aether            # --no-run compiles only
-ctest --test-dir build --output-on-failure      # run.sh, examples, hygiene lint
+ctest --test-dir build --output-on-failure      # everything below, ~2.5 min
+ctest --test-dir build -LE invariance           # the same minus the 2-min reformat lap
 AETHER_BIN=$PWD/build/aether tests/run.sh        # the .aether corpus directly
 ```
 
-Guide gates: `python3 tools/verify_guide_snippets.py docs/aether_for_llms_<guide>.md`
-for each of `and_others`, `medium_contexts`, `with_small_contexts` (compile-only);
-`python3 tools/gen_builtin_appendix.py` regenerates the full guide's appendix
-(never hand-edit it).
+CTest runs `tests/run.sh`, the examples lap, the hygiene lint, and the guide and
+doc gates: the snippet gates for each guide (compile-only), the builtin appendix
+(`tools/gen_builtin_appendix.py --check`; regenerate it, never hand-edit it), the
+staged token ceiling (needs tiktoken: configure with
+`-DAETHER_DOCS_PYTHON=<python with tools/requirements-docs.txt>`, otherwise
+Skipped), guide stamps against `docs/guide_stamps.json`, commit references in
+docs, and the reformat-invariance lap (`tests/reformat_invariance.known` may only
+shrink). `aether_guide_audit` and `aether_diag_codes` report only until the first
+guide pass. Bump a guide with `python3 tools/bump_guide_version.py <guide>`, which
+prints the changelog row to commit with it; the pre-commit hook only warns.
+`-DAETHER_STRESS_TESTS=ON` adds the par stress lap (minutes, every core).
 
 ## Where a diagnostic comes from
 
