@@ -1,0 +1,6 @@
+number 0: 6 -> 8 steps
+number 1: 7 -> 16 steps
+number 2: 11 -> 14 steps
+number 3: 27 -> 111 steps
+number 4: 9 -> 19 steps
+max steps = 111 (number 27)

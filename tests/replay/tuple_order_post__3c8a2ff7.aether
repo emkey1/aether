@@ -1,0 +1,16 @@
+@post result.0 >= result.1
+fn ordered(a: Int, b: Int) -> (Int, Int) {
+    if a >= b {
+        ret (a, b);
+    }
+    ret (b, a);
+}
+
+fn main() -> Void {
+    let (hi, lo) = ordered(3, 8);
+    fx {
+        println("hi=", hi);
+        println("lo=", lo);
+    }
+    ret;
+}

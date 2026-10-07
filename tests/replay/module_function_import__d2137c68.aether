@@ -1,0 +1,13 @@
+use "bench_math";
+
+fn main() -> Void {
+    let v2: Int = cube(2);
+    let v3: Int = cube(3);
+    let v4: Int = cube(4);
+    fx {
+        println("cube(2)=", v2);
+        println("cube(3)=", v3);
+        println("cube(4)=", v4);
+    }
+    ret;
+}

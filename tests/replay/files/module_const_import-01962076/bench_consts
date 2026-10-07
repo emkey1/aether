@@ -1,0 +1,4 @@
+mod BenchConsts {
+    export const Base: Int = 100;
+    export const Step: Int = 7;
+}

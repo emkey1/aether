@@ -1,0 +1,12 @@
+event 0: info / start
+event 1: warn / slow
+event 2: error / oops
+event 3: info / retry
+event 4: error / fail
+event 5: warn / degraded
+event 6: error / crash
+info = 2
+warn = 2
+error = 3
+dominant = error
+first error at index 2

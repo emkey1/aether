@@ -1,0 +1,37 @@
+@pure
+fn minMax(xs: Int[]) -> (Int, Int) {
+    let lo: Int = xs[0];
+    let hi: Int = xs[0];
+    loop i in 1..length(xs) {
+        lo = min(lo, xs[i]);
+        hi = max(hi, xs[i]);
+    }
+    ret (lo, hi);
+}
+
+@pure
+fn sumCount(xs: Int[]) -> (Int, Int) {
+    let s: Int = 0;
+    let n: Int = length(xs);
+    loop i in 0..n {
+        s = s + xs[i];
+    }
+    ret (s, n);
+}
+
+fn main() -> Void {
+    let xs: Int[] = [12, 5, 30, 8, 21];
+    let (lo, hi) = minMax(xs);
+    let sc = sumCount(xs);
+    let sum: Int = sc.0;
+    let n: Int = sc.1;
+    let span: Int = hi - lo;
+    let mean: Real = sum * 1.0 / n;
+    let floorMean: Int = int(mean);
+    fx {
+        println("lo=", lo, " hi=", hi, " span=", span);
+        println("sum=", sum, " n=", n, " mean=", formatfloat(mean, 2));
+        println("floorMean=", floorMean);
+    }
+    ret;
+}

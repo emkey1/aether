@@ -1,0 +1,4 @@
+# Declared breaks: `<case> <CHANGELOG version> <reason>`, one per line.
+# tests/run_replay.sh expects a listed case to fail and fails when it passes.
+# Add a line in the commit whose language change breaks the case; the next
+# tools/export_replay.py run drops cases that no longer pass, and their lines.

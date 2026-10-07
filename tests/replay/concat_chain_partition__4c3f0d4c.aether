@@ -1,0 +1,37 @@
+@pure
+fn evens(arr: Int[]) -> Int[] {
+    let out: Int[] = [];
+    loop i in 0..length(arr) {
+        if arr[i] % 2 == 0 {
+            out = out + [arr[i]];
+        }
+    }
+    ret out;
+}
+
+@pure
+fn odds(arr: Int[]) -> Int[] {
+    let out: Int[] = [];
+    loop i in 0..length(arr) {
+        if arr[i] % 2 != 0 {
+            out = out + [arr[i]];
+        }
+    }
+    ret out;
+}
+
+fn main() -> Void {
+    let input: Int[] = [5, 2, 9, 4, 7, 6];
+    let evensArr: Int[] = evens(input);
+    let oddsArr: Int[] = odds(input);
+    let merged: Int[] = evensArr + [0] + oddsArr + [99];
+    fx {
+        print("merged:");
+        loop i in 0..length(merged) {
+            print(" ", merged[i]);
+        }
+        println("");
+        println("len=", length(merged));
+    }
+    ret;
+}

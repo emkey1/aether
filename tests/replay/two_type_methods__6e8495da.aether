@@ -1,0 +1,31 @@
+type Point {
+    x: Int;
+    y: Int;
+}
+
+type Box {
+    width: Int;
+    height: Int;
+}
+
+fn shiftX(self: Point, dx: Int) -> Int {
+    ret self.x + dx;
+}
+
+fn area(self: Box) -> Int {
+    ret self.width * self.height;
+}
+
+fn main() -> Void {
+    let p: Point = new Point { x: 3, y: 4 };
+    let b: Box = new Box { width: 5, height: 6 };
+    let sx: Int = p.shiftX(10);
+    let a: Int = b.area();
+    let c: Int = sx + a;
+    fx {
+        println("shiftedX=", sx);
+        println("area=", a);
+        println("combined=", c);
+    }
+    ret;
+}

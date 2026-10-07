@@ -1,0 +1,24 @@
+fn main() -> Void {
+    let xs: Int[] = [5, 2, 8, 1, 9, 3];
+    let n: Int = length(xs);
+
+    loop i in 0..n {
+        loop j in 0..n - 1 - i {
+            if xs[j] > xs[j + 1] {
+                let tmp: Int = xs[j];
+                xs[j] = xs[j + 1];
+                xs[j + 1] = tmp;
+            }
+        }
+    }
+
+    fx {
+        print(xs[0]);
+        loop k in 1..n {
+            print(", ");
+            print(xs[k]);
+        }
+        println();
+    }
+    ret;
+}

@@ -1,0 +1,29 @@
+fn bubble_sort(xs: Int[]) -> Int[] {
+    let n: Int = length(xs);
+    loop i in 0..n {
+        loop j in 0..n - 1 - i {
+            if xs[j] > xs[j + 1] {
+                let tmp: Int = xs[j];
+                xs[j] = xs[j + 1];
+                xs[j + 1] = tmp;
+            }
+        }
+    }
+    ret xs;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [5, 2, 8, 1, 9, 3];
+    let sorted: Int[] = bubble_sort(xs);
+    let n: Int = length(sorted);
+
+    let result: Text = itoa(sorted[0]);
+    loop i in 1..n {
+        result = result + ", " + itoa(sorted[i]);
+    }
+
+    fx {
+        println(result);
+    }
+    ret;
+}

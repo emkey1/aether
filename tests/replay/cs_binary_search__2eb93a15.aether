@@ -1,0 +1,25 @@
+fn main() -> Void {
+    let arr: Int[] = [1, 3, 5, 7, 9, 11];
+    let target: Int = 7;
+    let lo: Int = 0;
+    let hi: Int = length(arr) - 1;
+    let found: Int = -1;
+
+    loop lo <= hi {
+        let mid: Int = lo + (hi - lo) / 2;
+        if arr[mid] == target {
+            found = mid;
+            break;
+        }
+        if arr[mid] < target {
+            lo = mid + 1;
+        } else {
+            hi = mid - 1;
+        }
+    }
+
+    fx {
+        println("index = ", found);
+    }
+    ret;
+}

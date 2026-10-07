@@ -1,0 +1,23 @@
+@pure
+fn fizzbuzz_label(n: Int) -> Text {
+    if n % 3 == 0 && n % 5 == 0 {
+        ret "FizzBuzz";
+    }
+    if n % 3 == 0 {
+        ret "Fizz";
+    }
+    if n % 5 == 0 {
+        ret "Buzz";
+    }
+    ret int_to_text(n);
+}
+
+fn main() -> Void {
+    loop i in 1..16 {
+        let label: Text = fizzbuzz_label(i);
+        fx {
+            println(label);
+        }
+    }
+    ret;
+}

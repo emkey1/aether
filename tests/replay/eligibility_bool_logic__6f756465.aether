@@ -1,0 +1,49 @@
+@pure
+fn admit(age: Int, hasTicket: Bool, isVip: Bool, flagged: Bool) -> Bool {
+    ret age >= 18 && (hasTicket || isVip) && !flagged;
+}
+
+type Guest {
+    age: Int;
+    hasTicket: Bool;
+    isVip: Bool;
+    flagged: Bool;
+}
+
+fn main() -> Void {
+    let guests: Guest[] = [new Guest(), new Guest(), new Guest(), new Guest(), new Guest()];
+
+    guests[0].age = 20;
+    guests[0].hasTicket = true;
+    guests[0].isVip = false;
+    guests[0].flagged = false;
+
+    guests[1].age = 16;
+    guests[1].hasTicket = true;
+    guests[1].isVip = false;
+    guests[1].flagged = false;
+
+    guests[2].age = 25;
+    guests[2].hasTicket = false;
+    guests[2].isVip = false;
+    guests[2].flagged = false;
+
+    guests[3].age = 30;
+    guests[3].hasTicket = false;
+    guests[3].isVip = true;
+    guests[3].flagged = true;
+
+    guests[4].age = 40;
+    guests[4].hasTicket = true;
+    guests[4].isVip = false;
+    guests[4].flagged = false;
+
+    loop i in 0..length(guests) {
+        let g: Guest = guests[i];
+        let result: Bool = admit(g.age, g.hasTicket, g.isVip, g.flagged);
+        fx {
+            println("guest ", i, ": ", result);
+        }
+    }
+    ret;
+}

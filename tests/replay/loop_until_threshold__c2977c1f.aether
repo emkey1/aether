@@ -1,0 +1,22 @@
+fn main() -> Void {
+    let level: Int = 0;
+    let steps: Int = 0;
+
+    loop {
+        level = level + 7;
+        steps = steps + 1;
+        let line: Text = "step " + itoa(steps) + ": " + itoa(level);
+        fx {
+            println(line);
+        }
+        if level >= 30 {
+            break;
+        }
+    }
+
+    let totalLine: Text = "steps = " + itoa(steps);
+    fx {
+        println(totalLine);
+    }
+    ret;
+}

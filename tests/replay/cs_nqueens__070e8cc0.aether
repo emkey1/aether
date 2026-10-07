@@ -1,0 +1,35 @@
+const N: Int = 6;
+
+let cols: Bool[] = [false, false, false, false, false, false];
+let d1: Bool[] = [false, false, false, false, false, false, false, false, false, false, false];
+let d2: Bool[] = [false, false, false, false, false, false, false, false, false, false, false];
+
+fn solve(row: Int) -> Int {
+    if row == N {
+        ret 1;
+    }
+    let count: Int = 0;
+    loop col in 0..N {
+        let d1idx: Int = row - col + N - 1;
+        let d2idx: Int = row + col;
+        if !cols[col] && !d1[d1idx] && !d2[d2idx] {
+            cols[col] = true;
+            d1[d1idx] = true;
+            d2[d2idx] = true;
+            count = count + solve(row + 1);
+            cols[col] = false;
+            d1[d1idx] = false;
+            d2[d2idx] = false;
+        }
+    }
+    ret count;
+}
+
+fn main() -> Void {
+    let total: Int = solve(0);
+    fx {
+        let msg: Text = "solutions = " + int_to_text(total);
+        println(msg);
+    }
+    ret;
+}

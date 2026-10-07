@@ -1,0 +1,43 @@
+const INF: Int = 999999;
+const N: Int = 5;
+
+fn main() -> Void {
+    let adj: Int[] = [
+        0, 4, 1, 999999, 999999,
+        4, 0, 2, 1, 999999,
+        1, 2, 0, 5, 999999,
+        999999, 1, 5, 0, 3,
+        999999, 999999, 999999, 3, 0
+    ];
+
+    let dist: Int[] = [999999, 999999, 999999, 999999, 999999];
+    let visited: Bool[] = [false, false, false, false, false];
+    dist[0] = 0;
+
+    loop k in 0..N {
+        let u: Int = -1;
+        let minD: Int = INF + 1;
+        loop i in 0..N {
+            if !visited[i] && dist[i] < minD {
+                minD = dist[i];
+                u = i;
+            }
+        }
+        if u == -1 {
+            ret;
+        }
+        visited[u] = true;
+
+        loop v in 0..N {
+            let w: Int = adj[u * N + v];
+            if w != INF && dist[u] + w < dist[v] {
+                dist[v] = dist[u] + w;
+            }
+        }
+    }
+
+    fx {
+        println("distance = ", dist[4]);
+    }
+    ret;
+}

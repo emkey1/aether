@@ -1,0 +1,4 @@
+row 0 len=2: 1 2
+row 1 len=3: 2 4 6
+row 2 len=4: 3 6 9 12
+total=45

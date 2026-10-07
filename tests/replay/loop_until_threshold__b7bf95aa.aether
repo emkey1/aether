@@ -1,0 +1,20 @@
+fn main() -> Void {
+    let level: Int = 0;
+    let steps: Int = 0;
+
+    loop {
+        steps = steps + 1;
+        level = level + 7;
+        fx {
+            println("step ", steps, ": ", level);
+        }
+        if level >= 30 {
+            break;
+        }
+    }
+
+    fx {
+        println("steps = ", steps);
+    }
+    ret;
+}

@@ -1,0 +1,16 @@
+fn main() -> Void {
+    let n: Int = 27;
+    let steps: Int = 0;
+    loop n != 1 {
+        if odd(n) {
+            n = 3 * n + 1;
+        } else {
+            n = n / 2;
+        }
+        steps = steps + 1;
+    }
+    fx {
+        println("steps = ", steps);
+    }
+    ret;
+}

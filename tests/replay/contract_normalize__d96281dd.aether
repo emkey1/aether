@@ -1,0 +1,15 @@
+@pre score >= 0
+@post result >= 0 && result <= 100
+fn normalize(score: Int) -> Int {
+    ret min(score, 100);
+}
+
+fn main() -> Void {
+    let r1: Int = normalize(150);
+    let r2: Int = normalize(42);
+    fx {
+        println(150, " => ", r1);
+        println(42, " => ", r2);
+    }
+    ret;
+}

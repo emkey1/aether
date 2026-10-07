@@ -1,0 +1,21 @@
+fn hanoi(n: Int, from: Text, to: Text, aux: Text) -> Void {
+    if n == 1 {
+        fx {
+            println("move disk ", n, " from ", from, " to ", to);
+        }
+        ret;
+    }
+    hanoi(n - 1, from, aux, to);
+    fx {
+        println("move disk ", n, " from ", from, " to ", to);
+    }
+    hanoi(n - 1, aux, to, from);
+    ret;
+}
+
+fn main() -> Void {
+    fx {
+        hanoi(3, "A", "C", "B");
+    }
+    ret;
+}

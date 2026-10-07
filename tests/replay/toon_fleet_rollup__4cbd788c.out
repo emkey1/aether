@@ -1,0 +1,4 @@
+a1: cores=8 mem=32 tags=1
+b2: cores=4 mem=0 tags=0
+c3: cores=16 mem=128 tags=2
+totals cores=28 mem=160 tagged=2

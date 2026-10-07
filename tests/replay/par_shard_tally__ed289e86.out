@@ -1,0 +1,3 @@
+shardA total=108 count=9
+shardB total=300 count=8
+combined total=408 count=17

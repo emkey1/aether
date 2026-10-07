@@ -417,3 +417,14 @@ if(Python3_Interpreter_FOUND)
         TIMEOUT 600
         LABELS "examples;run")
 endif()
+
+# ---- Replay lap (W1-17) ---------------------------------------------------------
+# tests/run_replay.sh: the real model-written benchmark programs that passed
+# when tools/export_replay.py froze them into tests/replay/ must still print
+# their task's expected stdout, run the way the harness runs them. Declared
+# breaks go in tests/replay/WAIVED with their CHANGELOG version. About 10 s.
+add_test(NAME aether_replay COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/run_replay.sh)
+set_tests_properties(aether_replay PROPERTIES
+    ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+    TIMEOUT 900
+    LABELS "replay")

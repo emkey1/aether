@@ -1,0 +1,10 @@
+use "bench_math";
+
+fn main() -> Void {
+    fx {
+        println("cube(2)=", cube(2));
+        println("cube(3)=", cube(3));
+        println("cube(4)=", cube(4));
+    }
+    ret;
+}

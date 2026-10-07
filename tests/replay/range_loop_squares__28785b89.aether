@@ -1,0 +1,9 @@
+fn main() -> Void {
+    loop i in 0..5 {
+        let square: Int = i * i;
+        fx {
+            println(i, " => ", square);
+        }
+    }
+    ret;
+}

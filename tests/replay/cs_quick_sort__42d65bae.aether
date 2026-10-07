@@ -1,0 +1,54 @@
+@pure
+fn quicksort(xs: Int[]) -> Int[] {
+    let n: Int = length(xs);
+    if n <= 1 {
+        ret xs;
+    }
+    
+    let pivot: Int = xs[0];
+    let less: Int[] = [];
+    let equal: Int[] = [];
+    let greater: Int[] = [];
+    
+    loop i in 0..n {
+        let v: Int = xs[i];
+        if v < pivot {
+            less = less + [v];
+        } else if v == pivot {
+            equal = equal + [v];
+        } else {
+            greater = greater + [v];
+        }
+    }
+    
+    let sortedLess: Int[] = quicksort(less);
+    let sortedGreater: Int[] = quicksort(greater);
+    
+    let result: Int[] = sortedLess;
+    loop i in 0..length(equal) {
+        result = result + [equal[i]];
+    }
+    loop i in 0..length(sortedGreater) {
+        result = result + [sortedGreater[i]];
+    }
+    
+    ret result;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [6, 3, 9, 1, 7, 4, 8, 2, 5];
+    let sorted: Int[] = quicksort(xs);
+    
+    let out: Text = "";
+    loop i in 0..length(sorted) {
+        if i > 0 {
+            out = out + ", ";
+        }
+        out = out + itoa(sorted[i]);
+    }
+    
+    fx {
+        println(out);
+    }
+    ret;
+}

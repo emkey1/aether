@@ -1,0 +1,21 @@
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 4, 1, 5];
+    let sum: Int = 0;
+    let max: Int = xs[0];
+    let count: Int = length(xs);
+
+    loop i in 0..count {
+        let v: Int = xs[i];
+        sum = sum + v;
+        if v > max {
+            max = v;
+        }
+    }
+
+    fx {
+        println("sum=", sum);
+        println("max=", max);
+        println("count=", count);
+    }
+    ret;
+}

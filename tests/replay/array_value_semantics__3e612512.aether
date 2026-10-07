@@ -1,0 +1,32 @@
+@pure
+fn scale(arr: Int[], k: Int) -> Int[] {
+    let out: Int[] = [];
+    loop i in 0..length(arr) {
+        out = out + [arr[i] * k];
+    }
+    ret out;
+}
+
+fn main() -> Void {
+    let original: Int[] = [1, 2, 3];
+    let scaled: Int[] = scale(original, 10);
+    let twice: Int[] = scale(scaled, 3);
+    fx {
+        print("scaled:");
+        loop i in 0..length(scaled) {
+            print(" ", scaled[i]);
+        }
+        println("");
+        print("twice:");
+        loop i in 0..length(twice) {
+            print(" ", twice[i]);
+        }
+        println("");
+        print("original:");
+        loop i in 0..length(original) {
+            print(" ", original[i]);
+        }
+        println("");
+    }
+    ret;
+}

@@ -60,6 +60,11 @@ every example (goldens in `tests/example_goldens/`). `--update` on
 `tools/verify_guide_snippets.py --run` or `tests/run_examples.sh --run`
 re-blesses the goldens; read the printed diff before committing.
 
+`aether_replay` (`tests/run_replay.sh`) replays about 220 real model-written
+benchmark programs frozen in `tests/replay/`. Regenerate them only with
+`python3 tools/export_replay.py --umbrella <umbrella checkout>`; a declared
+language break goes in `tests/replay/WAIVED` with its CHANGELOG version.
+
 ## Where a diagnostic comes from
 
 Search in this order: `src/aether/ast_parser.c` (parse, lowering, most coded

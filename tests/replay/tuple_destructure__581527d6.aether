@@ -1,0 +1,11 @@
+fn pair() -> (Text, Int) {
+    ret ("answer", 42);
+}
+
+fn main() -> Void {
+    let (label, value) = pair();
+    fx {
+        println(label, " ", value);
+    }
+    ret;
+}

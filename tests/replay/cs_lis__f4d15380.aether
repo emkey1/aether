@@ -1,0 +1,32 @@
+fn main() -> Void {
+    let nums: Int[] = [10, 9, 2, 5, 3, 7, 101, 18];
+    let n: Int = length(nums);
+    let dp: Int[] = [];
+
+    loop i in 0..n {
+        dp = dp + [1];
+    }
+
+    loop i in 0..n {
+        loop j in 0..i {
+            if nums[j] < nums[i] {
+                let candidate: Int = dp[j] + 1;
+                if candidate > dp[i] {
+                    dp[i] = candidate;
+                }
+            }
+        }
+    }
+
+    let best: Int = 0;
+    loop i in 0..n {
+        if dp[i] > best {
+            best = dp[i];
+        }
+    }
+
+    fx {
+        println("lis = ", best);
+    }
+    ret;
+}

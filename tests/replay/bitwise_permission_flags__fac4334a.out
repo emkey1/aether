@@ -1,0 +1,7 @@
+0 -> ---
+1 -> r--
+3 -> rw-
+5 -> r-x
+7 -> rwx
+6 -> -wx
+union=7 shifted=28

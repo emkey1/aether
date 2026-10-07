@@ -1,0 +1,59 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx {
+            println("yyjson unavailable");
+        }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx {
+        doc = toon_parse_file("org_hard_e.json");
+    }
+    let root: ToonNode = toon_root(doc);
+    let depts: ToonNode = toon_key(root, "departments");
+
+    let totalMembers: Int = 0;
+    let totalPayroll: Int = 0;
+    let topName: Text = "";
+    let topPayroll: Int = 0;
+
+    loop i in 0..toon_len(depts) {
+        let dept: ToonNode = toon_at(depts, i);
+        let name: Text = toon_get_text(dept, "name");
+        let members: ToonNode = toon_key(dept, "members");
+
+        let count: Int = toon_len(members);
+        let sum: Int = 0;
+        loop j in 0..count {
+            let member: ToonNode = toon_at(members, j);
+            let salary: Int = toon_get_int(member, "salary");
+            sum = sum + salary;
+            toon_free(member);
+        }
+
+        fx {
+            println("dept ", i, ": ", name, " / ", count, " members / payroll ", sum);
+        }
+
+        totalMembers = totalMembers + count;
+        totalPayroll = totalPayroll + sum;
+
+        if sum > topPayroll {
+            topPayroll = sum;
+            topName = name;
+        }
+
+        toon_free(members);
+        toon_free(dept);
+    }
+
+    fx {
+        println("total members = ", totalMembers);
+        println("total payroll = ", totalPayroll);
+        println("top department = ", topName, " (", topPayroll, ")");
+    }
+
+    toon_close(doc);
+    ret;
+}

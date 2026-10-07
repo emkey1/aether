@@ -1,0 +1,10 @@
+use "bench_consts";
+
+fn main() -> Void {
+    fx {
+        println(Base);
+        println(Base + Step);
+        println(Base + Step + Step);
+    }
+    ret;
+}

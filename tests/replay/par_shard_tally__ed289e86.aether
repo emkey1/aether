@@ -1,0 +1,31 @@
+type Tally {
+    total: Int = 0;
+    count: Int = 0;
+}
+
+fn tallyRange(t: Tally, start: Int, end: Int) -> Void {
+    loop i in start..end {
+        if i % 3 == 0 {
+            t.total = t.total + i;
+            t.count = t.count + 1;
+        }
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let a: Tally = new Tally();
+    let b: Tally = new Tally();
+
+    par {
+        tallyRange(a, 0, 25);
+        tallyRange(b, 25, 50);
+    }
+
+    fx {
+        println("shardA total=", a.total, " count=", a.count);
+        println("shardB total=", b.total, " count=", b.count);
+        println("combined total=", a.total + b.total, " count=", a.count + b.count);
+    }
+    ret;
+}

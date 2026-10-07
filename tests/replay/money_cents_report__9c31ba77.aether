@@ -1,0 +1,29 @@
+type Item {
+    label: Text = "";
+    cents: Int = 0;
+}
+
+fn main() -> Void {
+    let items: Item[] = [
+        new Item { label: "widget", cents: 1999 },
+        new Item { label: "gadget", cents: 550 },
+        new Item { label: "bolt", cents: 7 }
+    ];
+    let totalCents: Int = 0;
+    loop i in 0..length(items) {
+        let item: Item = items[i];
+        fx {
+            println(item.label, ": ", formatfloat(item.cents * 1.0 / 100.0, 2));
+        }
+        totalCents = totalCents + item.cents;
+    }
+    let count: Int = length(items);
+    let avgCentsReal: Real = totalCents * 1.0 / count;
+    let avgDollars: Real = avgCentsReal / 100.0;
+    let rounded: Int = round(avgCentsReal);
+    fx {
+        println("total=", formatfloat(totalCents * 1.0 / 100.0, 2));
+        println("avg=", formatfloat(avgDollars, 3), " rounded=", rounded);
+    }
+    ret;
+}

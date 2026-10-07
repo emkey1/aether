@@ -1,0 +1,28 @@
+fn main() -> Void {
+    let f: File;
+    fx {
+        assign(f, "ledger_tmp.txt");
+        rewrite(f);
+        writeln(f, "alpha,10");
+        writeln(f, "beta,25");
+        writeln(f, "gamma,7");
+        close(f);
+
+        reset(f);
+        let line: Text;
+        let total: Int = 0;
+        loop {
+            if eof(f) { break; }
+            readln(f, line);
+            let parts: Text[] = split(line, ",");
+            let name: Text = parts[0];
+            let value: Int = parse_int(parts[1]);
+            total = total + value;
+            println(name, "=", value);
+        }
+        close(f);
+        println("total=", total);
+        erase(f);
+    }
+    ret;
+}

@@ -1,0 +1,64 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx {
+            println("yyjson unavailable");
+        }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx {
+        doc = toon_parse_file("expenses_hard_a.json");
+    }
+    let root: ToonNode = toon_root(doc);
+    let expenses: ToonNode = toon_key(root, "expenses");
+
+    let names: Text[] = [];
+    let amounts: Int[] = [];
+    let sum: Real = 0.0;
+
+    loop i in 0..toon_len(expenses) {
+        let exp: ToonNode = toon_at(expenses, i);
+        let name: Text = toon_get_text(exp, "name");
+        let amount: Int = toon_get_int(exp, "amount");
+        names = names + [name];
+        amounts = amounts + [amount];
+        sum = sum + amount;
+        toon_free(exp);
+    }
+
+    let count: Int = length(names);
+    let mean: Real = sum / count;
+
+    let outlierCount: Int = 0;
+    let maxDev: Real = 0.0;
+
+    loop i in 0..count {
+        let name: Text = names[i];
+        let amount: Int = amounts[i];
+        let dev: Real = abs(mean - amount);
+        let isOutlier: Bool = dev > mean / 2.0;
+
+        if isOutlier {
+            outlierCount = outlierCount + 1;
+        }
+        if dev > maxDev {
+            maxDev = dev;
+        }
+
+        fx {
+            println("expense ", i, ": ", name, " / ", amount, " / dev ", dev:0:2, " / ", isOutlier);
+        }
+    }
+
+    fx {
+        println("count = ", count);
+        println("mean = ", mean:0:2);
+        println("outliers = ", outlierCount);
+        println("maxDev = ", maxDev:0:2);
+    }
+
+    toon_free(expenses);
+    toon_close(doc);
+    ret;
+}

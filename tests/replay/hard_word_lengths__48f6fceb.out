@@ -1,0 +1,12 @@
+word 0: hi (2) short
+word 1: hello (5) medium
+word 2: a (1) short
+word 3: wonderful (9) long
+word 4: cat (3) short
+word 5: elephantine (11) long
+word 6: dog (3) short
+short = 4
+medium = 1
+long = 2
+total chars = 34
+longest = elephantine (11)

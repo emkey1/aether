@@ -1,0 +1,71 @@
+type Graph {
+    n: Int;
+    adj: Int[];
+}
+
+@pure
+fn initGraph() -> Graph {
+    let g: Graph = new Graph { n: 5 };
+    let size: Int = 25;
+    let adj: Int[] = [];
+    loop i in 0..size {
+        adj = adj + [999999];
+    }
+    adj[0 * 5 + 1] = 4; adj[1 * 5 + 0] = 4;
+    adj[0 * 5 + 2] = 1; adj[2 * 5 + 0] = 1;
+    adj[1 * 5 + 2] = 2; adj[2 * 5 + 1] = 2;
+    adj[1 * 5 + 3] = 1; adj[3 * 5 + 1] = 1;
+    adj[2 * 5 + 3] = 5; adj[3 * 5 + 2] = 5;
+    adj[3 * 5 + 4] = 3; adj[4 * 5 + 3] = 3;
+    g.adj = adj;
+    ret g;
+}
+
+@pure
+fn getWeight(g: Graph, u: Int, v: Int) -> Int {
+    ret g.adj[u * g.n + v];
+}
+
+@pure
+fn dijkstra(g: Graph, start: Int, end: Int) -> Int {
+    let dist: Int[] = [];
+    let visited: Bool[] = [];
+    loop i in 0..g.n {
+        dist = dist + [999999];
+        visited = visited + [false];
+    }
+    dist[start] = 0;
+    loop iter in 0..g.n {
+        let u: Int = -1;
+        let minDist: Int = 999999;
+        loop v in 0..g.n {
+            if !visited[v] && dist[v] < minDist {
+                minDist = dist[v];
+                u = v;
+            }
+        }
+        if u == -1 || u == end {
+            break;
+        }
+        visited[u] = true;
+        loop v in 0..g.n {
+            let w: Int = getWeight(g, u, v);
+            if !visited[v] && w < 999999 {
+                let newDist: Int = dist[u] + w;
+                if newDist < dist[v] {
+                    dist[v] = newDist;
+                }
+            }
+        }
+    }
+    ret dist[end];
+}
+
+fn main() -> Void {
+    let g: Graph = initGraph();
+    let distance: Int = dijkstra(g, 0, 4);
+    fx {
+        println("distance = ", distance);
+    }
+    ret;
+}

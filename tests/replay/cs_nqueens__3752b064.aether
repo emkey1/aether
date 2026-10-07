@@ -1,0 +1,47 @@
+type Board {
+    cols: Int[];
+    count: Int;
+}
+
+fn isSafe(board: Board, row: Int, col: Int) -> Bool {
+    loop i in 0..row {
+        let qCol: Int = board.cols[i];
+        if qCol == col {
+            ret false;
+        }
+        let diffRow: Int = row - i;
+        let diffCol: Int = col - qCol;
+        if diffCol < 0 {
+            diffCol = -diffCol;
+        }
+        if diffRow == diffCol {
+            ret false;
+        }
+    }
+    ret true;
+}
+
+fn solve(board: Board, row: Int) -> Void {
+    if row == 6 {
+        board.count = board.count + 1;
+        ret;
+    }
+    loop col in 0..6 {
+        if isSafe(board, row, col) {
+            let oldCols: Int[] = board.cols;
+            board.cols = board.cols + [col];
+            solve(board, row + 1);
+            board.cols = oldCols;
+        }
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let board: Board = new Board { cols: [], count: 0 };
+    solve(board, 0);
+    fx {
+        println("solutions = ", board.count);
+    }
+    ret;
+}

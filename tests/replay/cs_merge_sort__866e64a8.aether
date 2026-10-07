@@ -1,0 +1,49 @@
+fn merge(a: Int[], b: Int[]) -> Int[] {
+    let result: Int[] = [];
+    let i: Int = 0;
+    let j: Int = 0;
+    loop {
+        if i >= length(a) || j >= length(b) {
+            break;
+        }
+        if a[i] <= b[j] {
+            result = result + [a[i]];
+            i = i + 1;
+        } else {
+            result = result + [b[j]];
+            j = j + 1;
+        }
+    }
+    loop i < length(a) {
+        result = result + [a[i]];
+        i = i + 1;
+    }
+    loop j < length(b) {
+        result = result + [b[j]];
+        j = j + 1;
+    }
+    ret result;
+}
+
+fn merge_sort(arr: Int[], lo: Int, hi: Int) -> Int[] {
+    if lo >= hi {
+        ret [arr[lo]];
+    }
+    let mid: Int = lo + (hi - lo) / 2;
+    let left: Int[] = merge_sort(arr, lo, mid);
+    let right: Int[] = merge_sort(arr, mid + 1, hi);
+    ret merge(left, right);
+}
+
+fn main() -> Void {
+    let data: Int[] = [38, 27, 43, 3, 9, 82, 10];
+    let sorted: Int[] = merge_sort(data, 0, length(data) - 1);
+    loop i in 0..length(sorted) {
+        if i > 0 {
+            fx { print(", "); }
+        }
+        fx { print(sorted[i]); }
+    }
+    fx { println(); }
+    ret;
+}

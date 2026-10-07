@@ -1,0 +1,6 @@
+dept 0: eng / 2 members / payroll 220
+dept 1: sales / 1 members / payroll 90
+dept 2: ops / 3 members / payroll 285
+total members = 6
+total payroll = 595
+top department = ops (285)

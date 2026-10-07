@@ -1,0 +1,15 @@
+@pure
+fn factorial(n: Int) -> Int {
+    if n <= 1 {
+        ret 1;
+    }
+    ret n * factorial(n - 1);
+}
+
+fn main() -> Void {
+    let result: Int = factorial(10);
+    fx {
+        println("10! = ", result);
+    }
+    ret;
+}

@@ -1,0 +1,22 @@
+@pure
+fn validName(name: Text) -> Bool {
+    if string_len(name) < 1 {
+        ret false;
+    }
+    if string_len(name) > 6 {
+        ret false;
+    }
+    if name == "bad" {
+        ret false;
+    }
+    ret true;
+}
+
+fn main() -> Void {
+    fx {
+        println("alpha=", validName("alpha"));
+        println("empty=", validName(""));
+        println("bad=", validName("bad"));
+    }
+    ret;
+}

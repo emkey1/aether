@@ -1,0 +1,59 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("ops_hard_c.json"); }
+
+    let root: ToonNode = toon_root(doc);
+    let cap: Int = toon_get_int(root, "cap");
+    let ops: ToonNode = toon_key(root, "operations");
+
+    let balance: Int = 0;
+    let applied: Int = 0;
+    let rejected: Int = 0;
+
+    loop i in 0..toon_len(ops) {
+        let op: ToonNode = toon_at(ops, i);
+        let kindNode: ToonNode = toon_key(op, "kind");
+        let kind: Text = toon_text_value(kindNode);
+        let amount: Int = toon_get_int(op, "amount");
+
+        if kind == "deposit" {
+            balance = balance + amount;
+            if balance > cap {
+                balance = cap;
+            }
+            fx { println("op ", i, ": deposit ", amount, " -> ", balance); }
+            applied = applied + 1;
+        } else if kind == "withdraw" {
+            if balance >= amount {
+                balance = balance - amount;
+                fx { println("op ", i, ": withdraw ", amount, " -> ", balance); }
+                applied = applied + 1;
+            } else {
+                fx { println("op ", i, ": withdraw ", amount, " REJECTED (balance ", balance, ")"); }
+                rejected = rejected + 1;
+            }
+        } else if kind == "interest" {
+            let interest: Int = balance * amount / 100;
+            balance = balance + interest;
+            fx { println("op ", i, ": interest ", amount, "% -> ", balance); }
+            applied = applied + 1;
+        }
+
+        toon_free(kindNode);
+        toon_free(op);
+    }
+
+    fx {
+        println("final balance = ", balance);
+        println("applied = ", applied);
+        println("rejected = ", rejected);
+    }
+
+    toon_close(doc);
+    ret;
+}

@@ -1,0 +1,5 @@
+mod BenchMath {
+    export fn cube(n: Int) -> Int {
+        ret n * n * n;
+    }
+}

@@ -1,0 +1,15 @@
+const PI: Real = 3.14159265;
+
+@pure
+fn area(radius: Real) -> Real {
+    ret PI * radius * radius;
+}
+
+fn main() -> Void {
+    let r: Real = 2.5;
+    let a: Real = area(r);
+    fx {
+        println("area=", a:0:2);
+    }
+    ret;
+}

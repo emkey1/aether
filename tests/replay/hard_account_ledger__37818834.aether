@@ -1,0 +1,77 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx {
+            println("yyjson unavailable");
+        }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx {
+        doc = toon_parse_file("ops_hard_c.json");
+    }
+    let root: ToonNode = toon_root(doc);
+    let cap: Int = toon_get_int(root, "cap");
+    let ops: ToonNode = toon_key(root, "operations");
+
+    let balance: Int = 0;
+    let applied: Int = 0;
+    let rejected: Int = 0;
+
+    loop i in 0..toon_len(ops) {
+        let op: ToonNode = toon_at(ops, i);
+        let kind: Text = toon_get_text(op, "kind");
+        let amount: Int = toon_get_int(op, "amount");
+        let prevBalance: Int = balance;
+
+        if kind == "deposit" {
+            let newBal: Int = balance + amount;
+            if newBal > cap {
+                balance = cap;
+            } else {
+                balance = newBal;
+            }
+            if balance != prevBalance {
+                applied = applied + 1;
+            } else {
+                rejected = rejected + 1;
+            }
+            fx {
+                println("op ", i, ": deposit ", amount, " -> ", balance);
+            }
+        } else if kind == "withdraw" {
+            if balance >= amount {
+                balance = balance - amount;
+                applied = applied + 1;
+                fx {
+                    println("op ", i, ": withdraw ", amount, " -> ", balance);
+                }
+            } else {
+                rejected = rejected + 1;
+                fx {
+                    println("op ", i, ": withdraw ", amount, " REJECTED (balance ", balance, ")");
+                }
+            }
+        } else if kind == "interest" {
+            let interestAmount: Int = balance * amount / 100;
+            if interestAmount > 0 {
+                balance = balance + interestAmount;
+                applied = applied + 1;
+            } else {
+                rejected = rejected + 1;
+            }
+            fx {
+                println("op ", i, ": interest ", amount, "% -> ", balance);
+            }
+        }
+    }
+
+    fx {
+        println("final balance = ", balance);
+        println("applied = ", applied);
+        println("rejected = ", rejected);
+    }
+
+    toon_close(doc);
+    ret;
+}

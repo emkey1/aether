@@ -1,0 +1,15 @@
+fn main() -> Void {
+    let a: Int = 70;
+    let b: Int = 80;
+    let c: Int = 95;
+
+    let total: Int = a + b + c;
+    let average: Real = total * 1.0 / 3;
+
+    fx {
+        println("total = ", total);
+        println("average = ", average:0:2);
+    }
+
+    ret;
+}

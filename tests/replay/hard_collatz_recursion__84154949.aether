@@ -1,0 +1,48 @@
+@pure
+fn collatz(n: Int) -> Int {
+    if n <= 1 {
+        ret 0;
+    }
+    if n % 2 == 0 {
+        ret 1 + collatz(n / 2);
+    }
+    ret 1 + collatz(3 * n + 1);
+}
+
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("numbers_hard_d.json"); }
+    let root: ToonNode = toon_root(doc);
+    let nums: ToonNode = toon_key(root, "numbers");
+    let maxSteps: Int = 0;
+    let maxN: Int = 0;
+
+    loop i in 0..toon_len(nums) {
+        let row: ToonNode = toon_at(nums, i);
+        let n: Int = toon_get_int(row, "n");
+        let steps: Int = collatz(n);
+        
+        fx {
+            println("number ", i, ": ", n, " -> ", steps, " steps");
+        }
+        
+        if steps > maxSteps {
+            maxSteps = steps;
+            maxN = n;
+        }
+        
+        toon_free(row);
+    }
+
+    fx {
+        println("max steps = ", maxSteps, " (number ", maxN, ")");
+    }
+
+    toon_close(doc);
+    ret;
+}

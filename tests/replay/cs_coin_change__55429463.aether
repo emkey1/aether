@@ -1,0 +1,28 @@
+fn main() -> Void {
+    let amount: Int = 11;
+    let limit: Int = amount + 1;
+    let coins: Int[] = [1, 2, 5];
+    let n: Int = length(coins);
+    
+    let dp: Int[] = [];
+    loop i in 0..limit {
+        dp = dp + [1_000_000];
+    }
+    dp[0] = 0;
+    
+    loop i in 1..limit {
+        loop j in 0..n {
+            let coin: Int = coins[j];
+            if i >= coin {
+                let cand: Int = dp[i - coin] + 1;
+                if cand < dp[i] {
+                    dp[i] = cand;
+                }
+            }
+        }
+    }
+    
+    let out: Text = "coins = " + itoa(dp[amount]);
+    fx { println(out); }
+    ret;
+}

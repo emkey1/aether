@@ -1,0 +1,61 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("words_hard_h.json"); }
+    let root: ToonNode = toon_root(doc);
+    let words: ToonNode = toon_key(root, "words");
+
+    let shortCount: Int = 0;
+    let mediumCount: Int = 0;
+    let longCount: Int = 0;
+    let totalChars: Int = 0;
+    let longestWord: Text = "";
+    let longestLen: Int = 0;
+
+    loop i in 0..toon_len(words) {
+        let row: ToonNode = toon_at(words, i);
+        let wNode: ToonNode = toon_key(row, "w");
+        let w: Text = toon_text_value(wNode);
+        let len: Int = string_len(w);
+
+        let kind: Text = if len < 4 { "short" } else if len > 7 { "long" } else { "medium" };
+
+        fx {
+            println("word ", i, ": ", w, " (", len, ") ", kind);
+        }
+
+        if kind == "short" {
+            shortCount = shortCount + 1;
+        } else if kind == "medium" {
+            mediumCount = mediumCount + 1;
+        } else {
+            longCount = longCount + 1;
+        }
+
+        totalChars = totalChars + len;
+
+        if len > longestLen {
+            longestLen = len;
+            longestWord = w;
+        }
+
+        toon_free(wNode);
+        toon_free(row);
+    }
+
+    fx {
+        println("short = ", shortCount);
+        println("medium = ", mediumCount);
+        println("long = ", longCount);
+        println("total chars = ", totalChars);
+        println("longest = ", longestWord, " (", longestLen, ")");
+    }
+
+    toon_free(words);
+    toon_close(doc);
+    ret;
+}

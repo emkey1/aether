@@ -1,0 +1,34 @@
+@pure
+fn allPositive(xs: Int[]) -> Bool {
+    loop i in 0..length(xs) {
+        if xs[i] <= 0 {
+            ret false;
+        }
+    }
+    ret true;
+}
+
+@pure
+@pre allPositive(xs)
+@post result >= 0
+fn spread(xs: Int[]) -> Int {
+    let minVal: Int = xs[0];
+    let maxVal: Int = xs[0];
+    loop i in 1..length(xs) {
+        minVal = min(minVal, xs[i]);
+        maxVal = max(maxVal, xs[i]);
+    }
+    ret maxVal - minVal;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [4, 19, 7, 2, 11];
+    let s1: Int = spread(xs);
+    let ys: Int[] = [5];
+    let s2: Int = spread(ys);
+    fx {
+        println("spread=", s1);
+        println("single=", s2);
+    }
+    ret;
+}

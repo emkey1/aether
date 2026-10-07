@@ -1,0 +1,40 @@
+fn get_neighbors(u: Int) -> Int[] {
+    if u == 0 { ret [1, 4]; }
+    if u == 1 { ret [0, 2, 5]; }
+    if u == 2 { ret [1, 3]; }
+    if u == 3 { ret [2, 6]; }
+    if u == 4 { ret [0, 5]; }
+    if u == 5 { ret [1, 4, 6]; }
+    if u == 6 { ret [3, 5]; }
+    ret [];
+}
+
+fn main() -> Void {
+    let q: Int[] = [0];
+    let head: Int = 0;
+    let visited: Bool[] = [false, false, false, false, false, false, false];
+    visited[0] = true;
+    
+    loop head < length(q) {
+        let u: Int = q[head];
+        head = head + 1;
+        
+        let neighbors: Int[] = get_neighbors(u);
+        loop i in 0..length(neighbors) {
+            let v: Int = neighbors[i];
+            if !visited[v] {
+                visited[v] = true;
+                q = q + [v];
+            }
+        }
+    }
+    
+    let out: Text = itoa(q[0]);
+    loop i in 1..length(q) {
+        out = out + " " + itoa(q[i]);
+    }
+    fx {
+        println(out);
+    }
+    ret;
+}

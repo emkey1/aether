@@ -1,0 +1,8 @@
+fn main() -> Void {
+    fx {
+        println(clamp(120, 0, 100));
+        println(clamp(-5, 0, 100));
+        println(clamp(50, 0, 100));
+    }
+    ret;
+}

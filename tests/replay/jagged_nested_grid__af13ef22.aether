@@ -1,0 +1,31 @@
+fn main() -> Void {
+    let grid: Int[][] = [];
+    loop r in 0..3 {
+        let row: Int[] = [];
+        loop c in 0..r+2 {
+            row = row + [(r + 1) * (c + 1)];
+        }
+        grid = grid + [row];
+    }
+
+    let total: Int = 0;
+    loop r in 0..3 {
+        loop c in 0..length(grid[r]) {
+            total = total + grid[r][c];
+        }
+    }
+
+    fx {
+        loop r in 0..3 {
+            let n: Int = length(grid[r]);
+            print("row ", r, " len=", n, ":");
+            loop c in 0..n {
+                print(" ", grid[r][c]);
+            }
+            println("");
+        }
+        println("total=", total);
+    }
+
+    ret;
+}

@@ -1,0 +1,18 @@
+fn main() -> Void {
+    let passed: Int = 0;
+    let failed: Int = 0;
+    let scores: Int[] = [75, 50, 90, 40];
+    loop i in 0..length(scores) {
+        let s: Int = scores[i];
+        if s >= 60 {
+            passed = passed + 1;
+        } else {
+            failed = failed + 1;
+        }
+    }
+    fx {
+        println("passed = ", passed);
+        println("failed = ", failed);
+    }
+    ret;
+}

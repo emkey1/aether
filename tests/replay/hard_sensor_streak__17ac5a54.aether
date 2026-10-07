@@ -1,0 +1,54 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx {
+            println("yyjson unavailable");
+        }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx {
+        doc = toon_parse_file("readings_hard_f.json");
+    }
+    let root: ToonNode = toon_root(doc);
+    let readings: ToonNode = toon_key(root, "readings");
+    let n: Int = toon_len(readings);
+
+    let maxJump: Int = 0;
+    let longestRun: Int = 1;
+    let currentRun: Int = 1;
+    let prev: Int = 0;
+
+    loop i in 0..n {
+        let reading: ToonNode = toon_at(readings, i);
+        let value: Int = toon_get_int(reading, "value");
+
+        if i > 0 {
+            let delta: Int = value - prev;
+            fx {
+                println("step ", i, ": ", prev, " -> ", value, " (", delta, ")");
+            }
+            if delta > maxJump {
+                maxJump = delta;
+            }
+            if value >= prev {
+                currentRun = currentRun + 1;
+            } else {
+                currentRun = 1;
+            }
+            if currentRun > longestRun {
+                longestRun = currentRun;
+            }
+        }
+        prev = value;
+        toon_free(reading);
+    }
+
+    fx {
+        println("maxJump = ", maxJump);
+        println("longest non-decreasing run = ", longestRun);
+    }
+
+    toon_close(doc);
+    ret;
+}

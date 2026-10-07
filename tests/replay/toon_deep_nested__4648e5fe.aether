@@ -1,0 +1,37 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("rosters.json"); }
+    let root: ToonNode = toon_root(doc);
+    let teams: ToonNode = toon_key(root, "teams");
+    let total: Int = 0;
+
+    loop i in 0..toon_len(teams) {
+        let team: ToonNode = toon_at(teams, i);
+        let nameNode: ToonNode = toon_key(team, "name");
+        let name: Text = toon_text_value(nameNode);
+        let members: ToonNode = toon_key(team, "members");
+        let count: Int = toon_len(members);
+
+        fx {
+            println("team ", i, ": ", name, " / ", count);
+        }
+
+        total = total + count;
+        toon_free(nameNode);
+        toon_free(members);
+        toon_free(team);
+    }
+
+    fx {
+        println("total members = ", total);
+    }
+
+    toon_free(teams);
+    toon_close(doc);
+    ret;
+}

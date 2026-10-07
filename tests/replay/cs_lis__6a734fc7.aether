@@ -1,0 +1,32 @@
+fn main() -> Void {
+    let xs: Int[] = [10, 9, 2, 5, 3, 7, 101, 18];
+    let n: Int = length(xs);
+    
+    let dp: Int[] = [];
+    loop i in 0..n {
+        dp = dp + [1];
+    }
+    
+    loop i in 0..n {
+        loop j in 0..i {
+            if xs[j] < xs[i] {
+                let newLen: Int = dp[j] + 1;
+                if newLen > dp[i] {
+                    dp[i] = newLen;
+                }
+            }
+        }
+    }
+    
+    let maxLen: Int = 0;
+    loop i in 0..n {
+        if dp[i] > maxLen {
+            maxLen = dp[i];
+        }
+    }
+    
+    fx {
+        println("lis = ", maxLen);
+    }
+    ret;
+}

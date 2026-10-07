@@ -1,0 +1,1 @@
+{"fleet":[{"id":"a1","spec":{"cores":8,"mem":{"gb":32}},"tags":["prod"]},{"id":"b2","spec":{"cores":4},"tags":[]},{"id":"c3","spec":{"cores":16,"mem":{"gb":128}},"tags":["prod","gpu"]}]}

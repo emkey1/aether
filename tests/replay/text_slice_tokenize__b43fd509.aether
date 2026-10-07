@@ -1,0 +1,40 @@
+fn splitManual(s: Text, sep: Text) -> Text[] {
+    let parts: Text[] = [];
+    let n: Int = string_len(s);
+    let start: Int = 0;
+    loop i in 0..n {
+        if s[i] == sep[0] {
+            parts = parts + [s[start..i]];
+            start = i + 1;
+        }
+    }
+    if start < n {
+        parts = parts + [s[start..n]];
+    }
+    ret parts;
+}
+
+fn capitalizeFirst(s: Text) -> Text {
+    if string_len(s) == 0 {
+        ret s;
+    }
+    let first: Text = s[0];
+    let c: Int = ord(first);
+    if c >= 97 && c <= 122 {
+        ret chr(c - 32) + s[1..string_len(s)];
+    }
+    ret s;
+}
+
+fn main() -> Void {
+    let parts: Text[] = splitManual("red-green-blue", "-");
+    fx {
+        loop i in 0..length(parts) {
+            let part: Text = parts[i];
+            let cap: Text = capitalizeFirst(part);
+            println(i, ":", cap, " len=", string_len(part));
+        }
+        println("count=", length(parts));
+    }
+    ret;
+}

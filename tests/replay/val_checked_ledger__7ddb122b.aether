@@ -1,0 +1,26 @@
+fn main() -> Void {
+    let fields: Text[] = ["42", "7x", "", "-13", "100", "3.5"];
+    let accepted: Int = 0;
+    let rejected: Int = 0;
+    let total: Int = 0;
+    loop i in 0..length(fields) {
+        let raw: Text = fields[i];
+        let n: Int = 0;
+        let code: Int = 0;
+        val(raw, n, code);
+        if code == 0 {
+            accepted = accepted + 1;
+            total = total + n;
+        } else {
+            rejected = rejected + 1;
+            fx {
+                println("reject: ", raw);
+            }
+        }
+    }
+    fx {
+        println("accepted=", accepted, " rejected=", rejected);
+        println("sum=", total);
+    }
+    ret;
+}

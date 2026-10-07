@@ -1,0 +1,30 @@
+fn main() -> Void {
+    let xs: Int[] = [5, 2, 8, 1, 9, 3];
+    let n: Int = length(xs);
+    let swapped: Bool = true;
+
+    loop swapped {
+        swapped = false;
+        loop i in 0..n - 1 {
+            if xs[i] > xs[i + 1] {
+                let tmp: Int = xs[i];
+                xs[i] = xs[i + 1];
+                xs[i + 1] = tmp;
+                swapped = true;
+            }
+        }
+    }
+
+    let result: Text = "";
+    loop i in 0..n {
+        if i > 0 {
+            result = result + ", ";
+        }
+        result = result + itoa(xs[i]);
+    }
+    fx {
+        println(result);
+    }
+
+    ret;
+}

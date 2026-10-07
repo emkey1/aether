@@ -1,0 +1,9 @@
+op 0: deposit 200 -> 200
+op 1: withdraw 50 -> 150
+op 2: withdraw 1000 REJECTED (balance 150)
+op 3: deposit 400 -> 500
+op 4: interest 10% -> 550
+op 5: withdraw 100 -> 450
+final balance = 450
+applied = 5
+rejected = 1

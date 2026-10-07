@@ -1,0 +1,29 @@
+@pure
+fn admit(age: Int, hasTicket: Bool, isVip: Bool, flagged: Bool) -> Bool {
+    if age >= 18 && (hasTicket || isVip) && !flagged {
+        ret true;
+    }
+    ret false;
+}
+
+fn main() -> Void {
+    let ages: Int[] = [20, 16, 25, 30, 40];
+    let tickets: Bool[] = [true, true, false, false, true];
+    let vips: Bool[] = [false, false, false, true, false];
+    let flagged: Bool[] = [false, false, false, true, false];
+
+    loop i in 0..length(ages) {
+        let age: Int = ages[i];
+        let hasTicket: Bool = tickets[i];
+        let isVip: Bool = vips[i];
+        let isFlagged: Bool = flagged[i];
+
+        let result: Bool = admit(age, hasTicket, isVip, isFlagged);
+
+        fx {
+            println("guest ", i, ": ", result);
+        }
+    }
+
+    ret;
+}

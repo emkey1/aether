@@ -1,0 +1,12 @@
+fn main() -> Void {
+    let a: Int = clamp(120, 0, 100);
+    let b: Int = clamp(-5, 0, 100);
+    let c: Int = clamp(50, 0, 100);
+
+    fx {
+        println(a);
+        println(b);
+        println(c);
+    }
+    ret;
+}

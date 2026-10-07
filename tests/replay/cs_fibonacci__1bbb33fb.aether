@@ -1,0 +1,18 @@
+fn main() -> Void {
+    let fibs: Int[] = [0, 1];
+    loop i in 2..10 {
+        let next: Int = fibs[i - 1] + fibs[i - 2];
+        fibs = fibs + [next];
+    }
+
+    let out: Text = itoa(fibs[0]);
+    loop i in 1..10 {
+        out = out + ", " + itoa(fibs[i]);
+    }
+
+    fx {
+        println(out);
+    }
+
+    ret;
+}

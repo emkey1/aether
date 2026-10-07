@@ -1,0 +1,29 @@
+fn main() -> Void {
+    let amount: Int = 11;
+    let coins: Int[] = [1, 2, 5];
+    let n: Int = length(coins);
+    let limit: Int = amount + 1;
+    
+    let dp: Int[] = [];
+    loop i in 0..limit {
+        dp = dp + [limit];
+    }
+    dp[0] = 0;
+    
+    loop j in 1..limit {
+        loop k in 0..n {
+            let coin: Int = coins[k];
+            if j - coin >= 0 {
+                let cand: Int = dp[j - coin] + 1;
+                if cand < dp[j] {
+                    dp[j] = cand;
+                }
+            }
+        }
+    }
+    
+    fx {
+        println("coins = ", dp[amount]);
+    }
+    ret;
+}

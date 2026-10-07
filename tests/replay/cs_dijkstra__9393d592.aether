@@ -1,0 +1,61 @@
+fn main() -> Void {
+    let n: Int = 5;
+    let INF: Int = 999999;
+
+    let dist: Int[] = [];
+    let visited: Bool[] = [];
+
+    loop i in 0..n {
+        dist = dist + [INF];
+        visited = visited + [false];
+    }
+    dist[0] = 0;
+
+    let w: Int[][] = [];
+    loop i in 0..n {
+        let row: Int[] = [];
+        loop j in 0..n {
+            row = row + [INF];
+        }
+        w = w + [row];
+    }
+
+    w[0][1] = 4; w[1][0] = 4;
+    w[0][2] = 1; w[2][0] = 1;
+    w[1][2] = 2; w[2][1] = 2;
+    w[1][3] = 1; w[3][1] = 1;
+    w[2][3] = 5; w[3][2] = 5;
+    w[3][4] = 3; w[4][3] = 3;
+
+    loop iter in 0..n {
+        let u: Int = -1;
+        let minVal: Int = INF;
+
+        loop v in 0..n {
+            if !visited[v] && dist[v] < minVal {
+                minVal = dist[v];
+                u = v;
+            }
+        }
+
+        if u == -1 {
+            break;
+        }
+
+        visited[u] = true;
+
+        loop v in 0..n {
+            if !visited[v] && w[u][v] != INF {
+                let alt: Int = dist[u] + w[u][v];
+                if alt < dist[v] {
+                    dist[v] = alt;
+                }
+            }
+        }
+    }
+
+    fx {
+        println("distance = ", dist[4]);
+    }
+    ret;
+}

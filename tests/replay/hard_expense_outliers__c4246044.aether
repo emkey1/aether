@@ -1,0 +1,61 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx {
+        doc = toon_parse_file("expenses_hard_a.json");
+    }
+    let root: ToonNode = toon_root(doc);
+    let expenses: ToonNode = toon_key(root, "expenses");
+    let n: Int = toon_len(expenses);
+
+    // First pass: compute sum of amounts
+    let sum: Real = 0.0;
+    loop i in 0..n {
+        let row: ToonNode = toon_at(expenses, i);
+        let amount: Int = toon_get_int(row, "amount");
+        sum = sum + amount * 1.0;
+        toon_free(row);
+    }
+
+    let mean: Real = sum / n;
+
+    // Second pass: compute deviations, classify outliers, print
+    let outliers: Int = 0;
+    let maxDev: Real = 0.0;
+
+    loop i in 0..n {
+        let row: ToonNode = toon_at(expenses, i);
+        let name: Text = toon_get_text(row, "name");
+        let amount: Int = toon_get_int(row, "amount");
+
+        let deviation: Real = abs(mean - amount * 1.0);
+        let isOutlier: Bool = deviation > mean / 2.0;
+
+        if isOutlier {
+            outliers = outliers + 1;
+        }
+        if deviation > maxDev {
+            maxDev = deviation;
+        }
+
+        fx {
+            println("expense ", i, ": ", name, " / ", amount, " / dev ", deviation:0:2, " / ", isOutlier);
+        }
+
+        toon_free(row);
+    }
+
+    fx {
+        println("count = ", n);
+        println("mean = ", mean:0:2);
+        println("outliers = ", outliers);
+        println("maxDev = ", maxDev:0:2);
+    }
+
+    toon_close(doc);
+    ret;
+}

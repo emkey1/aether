@@ -1,0 +1,11 @@
+expense 0: a / 100 / dev 29.29 / false
+expense 1: b / 110 / dev 19.29 / false
+expense 2: c / 90 / dev 39.29 / false
+expense 3: d / 105 / dev 24.29 / false
+expense 4: e / 95 / dev 34.29 / false
+expense 5: big / 400 / dev 270.71 / true
+expense 6: tiny / 5 / dev 124.29 / true
+count = 7
+mean = 129.29
+outliers = 2
+maxDev = 270.71

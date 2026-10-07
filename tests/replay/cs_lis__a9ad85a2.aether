@@ -1,0 +1,27 @@
+fn main() -> Void {
+    let arr: Int[] = [10, 9, 2, 5, 3, 7, 101, 18];
+    let n: Int = length(arr);
+    let dp: Int[] = [];
+
+    loop i in 0..n {
+        dp = dp + [1];
+    }
+
+    loop i in 0..n {
+        loop j in 0..i {
+            if arr[j] < arr[i] {
+                dp[i] = max(dp[i], dp[j] + 1);
+            }
+        }
+    }
+
+    let best: Int = 0;
+    loop i in 0..n {
+        best = max(best, dp[i]);
+    }
+
+    fx {
+        println("lis = ", best);
+    }
+    ret;
+}

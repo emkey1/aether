@@ -1,0 +1,69 @@
+type Edge {
+    u: Int;
+    v: Int;
+    w: Int;
+}
+
+@pure
+fn dijkstra(edges: Edge[], source: Int, target: Int) -> Int {
+    let n: Int = 5;
+    let dist: Int[] = [1000000, 1000000, 1000000, 1000000, 1000000];
+    let visited: Bool[] = [false, false, false, false, false];
+
+    dist[source] = 0;
+
+    loop iter in 0..n {
+        let u: Int = -1;
+        let minDist: Int = 1000001;
+        loop v in 0..n {
+            if !visited[v] && dist[v] < minDist {
+                minDist = dist[v];
+                u = v;
+            }
+        }
+
+        if u == -1 || u == target {
+            break;
+        }
+
+        visited[u] = true;
+
+        loop i in 0..length(edges) {
+            let e: Edge = edges[i];
+            let neighbor: Int = -1;
+            if e.u == u {
+                neighbor = e.v;
+            } else if e.v == u {
+                neighbor = e.u;
+            }
+
+            if neighbor != -1 {
+                let w: Int = e.w;
+                if !visited[neighbor] && dist[u] + w < dist[neighbor] {
+                    dist[neighbor] = dist[u] + w;
+                }
+            }
+        }
+    }
+
+    ret dist[target];
+}
+
+fn main() -> Void {
+    let edges: Edge[] = [
+        new Edge { u: 0, v: 1, w: 4 },
+        new Edge { u: 0, v: 2, w: 1 },
+        new Edge { u: 1, v: 2, w: 2 },
+        new Edge { u: 1, v: 3, w: 1 },
+        new Edge { u: 2, v: 3, w: 5 },
+        new Edge { u: 3, v: 4, w: 3 },
+    ];
+
+    let distance: Int = dijkstra(edges, 0, 4);
+
+    fx {
+        println("distance = ", distance);
+    }
+
+    ret;
+}

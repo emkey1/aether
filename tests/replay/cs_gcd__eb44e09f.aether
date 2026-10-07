@@ -1,0 +1,15 @@
+@pure
+fn gcd(a: Int, b: Int) -> Int {
+    if b == 0 {
+        ret a;
+    }
+    ret gcd(b, a % b);
+}
+
+fn main() -> Void {
+    let result: Int = gcd(48, 36);
+    fx {
+        println("gcd(48, 36) = ", result);
+    }
+    ret;
+}

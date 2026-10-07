@@ -1,0 +1,22 @@
+fn main() -> Void {
+    let ms: MStream = mstreamfromstring("id=17;name=widget;qty=240");
+    let body: Text = mstreambuffer(ms);
+    mstreamfree(ms);
+    let fields: Text[] = split(body, ";");
+    let name: Text = "";
+    let qty: Int = 0;
+    loop i in 0..length(fields) {
+        let parts: Text[] = split(fields[i], "=");
+        if parts[0] == "name" {
+            name = parts[1];
+        }
+        if parts[0] == "qty" {
+            qty = parse_int(parts[1]);
+        }
+    }
+    fx {
+        println("bytes=", string_len(body), " fields=", length(fields));
+        println("name=", name, " qty=", qty, " doubled=", qty * 2);
+    }
+    ret;
+}

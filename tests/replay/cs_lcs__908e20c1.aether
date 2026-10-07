@@ -1,0 +1,51 @@
+@pure
+fn lcs_length(s1: Text, s2: Text) -> Int {
+    let n: Int = string_len(s1);
+    let m: Int = string_len(s2);
+    let dp: Int[] = [];
+    let i: Int = 0;
+    loop i < m + 1 {
+        dp = dp + [0];
+        i = i + 1;
+    }
+
+    let row: Int = 0;
+    loop row < n + 1 {
+        let prev: Int = 0;
+        let col: Int = 0;
+        loop col < m + 1 {
+            let old_val: Int = dp[col];
+            if row == 0 || col == 0 {
+                dp[col] = 0;
+            } else {
+                let c1: Text = copy(s1, row, 1);
+                let c2: Text = copy(s2, col, 1);
+                if string_eq(c1, c2) {
+                    dp[col] = prev + 1;
+                } else {
+                    let up: Int = dp[col];
+                    let left: Int = dp[col - 1];
+                    if up > left {
+                        dp[col] = up;
+                    } else {
+                        dp[col] = left;
+                    }
+                }
+            }
+            prev = old_val;
+            col = col + 1;
+        }
+        row = row + 1;
+    }
+    ret dp[m];
+}
+
+fn main() -> Void {
+    let s1: Text = "ABCBDAB";
+    let s2: Text = "BDCAB";
+    let result: Int = lcs_length(s1, s2);
+    fx {
+        println("lcs = ", result);
+    }
+    ret;
+}

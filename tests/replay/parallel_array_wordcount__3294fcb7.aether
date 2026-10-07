@@ -1,0 +1,48 @@
+fn main() -> Void {
+    let words: Text[] = ["ash", "birch", "ash", "cedar", "birch", "ash"];
+    let keys: Text[] = [];
+    let counts: Int[] = [];
+
+    loop i in 0..length(words) {
+        let w: Text = words[i];
+        let idx: Int = findKey(keys, w);
+        if idx >= 0 {
+            counts[idx] = counts[idx] + 1;
+        } else {
+            keys = keys + [w];
+            counts = counts + [1];
+        }
+    }
+
+    fx {
+        loop j in 0..length(keys) {
+            println(keys[j], "=", counts[j]);
+        }
+        println("distinct=", length(keys));
+    }
+
+    let bestIdx: Int = 0;
+    let bestCount: Int = 0;
+    loop k in 0..length(keys) {
+        if counts[k] > bestCount {
+            bestCount = counts[k];
+            bestIdx = k;
+        }
+    }
+
+    fx {
+        println("most=", keys[bestIdx], " (", bestCount, ")");
+    }
+
+    ret;
+}
+
+@pure
+fn findKey(keys: Text[], key: Text) -> Int {
+    loop i in 0..length(keys) {
+        if keys[i] == key {
+            ret i;
+        }
+    }
+    ret -1;
+}

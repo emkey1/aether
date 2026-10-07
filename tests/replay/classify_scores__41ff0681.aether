@@ -1,0 +1,19 @@
+@pure
+fn classify(score: Int) -> Text {
+    if score >= 90 {
+        ret "ready";
+    }
+    if score >= 70 {
+        ret "review";
+    }
+    ret "blocked";
+}
+
+fn main() -> Void {
+    fx {
+        println(95, " => ", classify(95));
+        println(72, " => ", classify(72));
+        println(10, " => ", classify(10));
+    }
+    ret;
+}

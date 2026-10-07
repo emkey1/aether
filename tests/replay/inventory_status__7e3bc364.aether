@@ -1,0 +1,37 @@
+type Inventory {
+    currentStock: Int;
+    maxCapacity: Int;
+
+    fn addItem(amount: Int) -> Int {
+        if self.currentStock + amount > self.maxCapacity {
+            self.currentStock = self.maxCapacity;
+        } else {
+            self.currentStock = self.currentStock + amount;
+        }
+        ret self.currentStock;
+    }
+
+    fn getStatus() -> Text {
+        if self.currentStock == self.maxCapacity {
+            ret "FULL";
+        }
+        if self.currentStock == 0 {
+            ret "EMPTY";
+        }
+        ret "IN_STOCK";
+    }
+}
+
+fn main() -> Void {
+    let inventory: Inventory = new Inventory();
+    inventory.currentStock = 10;
+    inventory.maxCapacity = 50;
+
+    inventory.addItem(25);
+
+    fx {
+        println("Final Stock: ", inventory.currentStock);
+        println("Current Status: ", inventory.getStatus());
+    }
+    ret;
+}

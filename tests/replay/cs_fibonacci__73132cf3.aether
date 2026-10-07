@@ -1,0 +1,24 @@
+fn main() -> Void {
+    let fibs: Int[] = [];
+    let a: Int = 0;
+    let b: Int = 1;
+    let i: Int = 0;
+
+    loop i < 10 {
+        fibs = fibs + [a];
+        let next: Int = a + b;
+        a = b;
+        b = next;
+        i = i + 1;
+    }
+
+    let s: Text = itoa(fibs[0]);
+    let j: Int = 1;
+    loop j < 10 {
+        s = s + ", " + itoa(fibs[j]);
+        j = j + 1;
+    }
+
+    fx { println(s); }
+    ret;
+}

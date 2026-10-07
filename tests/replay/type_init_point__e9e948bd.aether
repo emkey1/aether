@@ -1,0 +1,17 @@
+type Point {
+    x: Int;
+    y: Int;
+
+    fn sum() -> Int {
+        ret self.x + self.y;
+    }
+}
+
+fn main() -> Void {
+    let p: Point = Point { x: 3, y: 4 };
+    let s: Int = p.sum();
+    fx {
+        println("sum=", s);
+    }
+    ret;
+}

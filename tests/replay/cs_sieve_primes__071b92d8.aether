@@ -1,0 +1,38 @@
+fn main() -> Void {
+    const Limit: Int = 30;
+    let isPrime: Bool[] = [];
+    loop i in 0..Limit {
+        isPrime = isPrime + [true];
+    }
+    isPrime[0] = false;
+    isPrime[1] = false;
+
+    loop i in 2..10 {
+        if isPrime[i] {
+            loop j in i * i..Limit {
+                if j % i == 0 {
+                    isPrime[j] = false;
+                }
+            }
+        }
+    }
+
+    let primes: Text[] = [];
+    loop i in 2..Limit {
+        if isPrime[i] {
+            primes = primes + [itoa(i)];
+        }
+    }
+
+    fx {
+        let n: Int = length(primes);
+        loop i in 0..n {
+            if i > 0 {
+                print(", ");
+            }
+            print(primes[i]);
+        }
+        print("\n");
+    }
+    ret;
+}

@@ -1,0 +1,68 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("readings_hard_f.json"); }
+    let root: ToonNode = toon_root(doc);
+    let readings: ToonNode = toon_key(root, "readings");
+    let n: Int = toon_len(readings);
+
+    if n == 0 {
+        fx {
+            println("maxJump = 0");
+            println("longest non-decreasing run = 0");
+        }
+        toon_close(doc);
+        ret;
+    }
+
+    let maxJump: Int = 0;
+    let longestRun: Int = 1;
+    let currentRun: Int = 1;
+
+    let firstObj: ToonNode = toon_at(readings, 0);
+    let firstValNode: ToonNode = toon_key(firstObj, "value");
+    let prev: Int = toon_int_value(firstValNode);
+    toon_free(firstValNode);
+    toon_free(firstObj);
+
+    loop i in 1..n {
+        let currObj: ToonNode = toon_at(readings, i);
+        let currValNode: ToonNode = toon_key(currObj, "value");
+        let curr: Int = toon_int_value(currValNode);
+        let delta: Int = curr - prev;
+
+        fx {
+            println("step ", i, ": ", prev, " -> ", curr, " (", delta, ")");
+        }
+
+        if delta > maxJump {
+            maxJump = delta;
+        }
+
+        if curr >= prev {
+            currentRun = currentRun + 1;
+        } else {
+            currentRun = 1;
+        }
+
+        if currentRun > longestRun {
+            longestRun = currentRun;
+        }
+
+        prev = curr;
+        toon_free(currValNode);
+        toon_free(currObj);
+    }
+
+    fx {
+        println("maxJump = ", maxJump);
+        println("longest non-decreasing run = ", longestRun);
+    }
+
+    toon_close(doc);
+    ret;
+}

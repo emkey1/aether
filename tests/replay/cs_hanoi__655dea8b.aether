@@ -1,0 +1,17 @@
+fn hanoi(n: Int, from: Text, to: Text, aux: Text) -> Void {
+    if n == 1 {
+        let msg: Text = "move disk " + itoa(n) + " from " + from + " to " + to;
+        fx { println(msg); }
+        ret;
+    }
+    hanoi(n - 1, from, aux, to);
+    let msg2: Text = "move disk " + itoa(n) + " from " + from + " to " + to;
+    fx { println(msg2); }
+    hanoi(n - 1, aux, to, from);
+    ret;
+}
+
+fn main() -> Void {
+    hanoi(3, "A", "C", "B");
+    ret;
+}

@@ -1,0 +1,17 @@
+@pure
+fn factorial(n: Int) -> Int {
+    let result: Int = 1;
+    loop i in 2..n + 1 {
+        result = result * i;
+    }
+    ret result;
+}
+
+fn main() -> Void {
+    let n: Int = 10;
+    let result: Int = factorial(n);
+    fx {
+        println(n, "! = ", result);
+    }
+    ret;
+}

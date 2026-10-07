@@ -1,0 +1,36 @@
+fn main() -> Void {
+    let n: Int = 30;
+    let isPrime: Bool[] = [];
+    loop i in 0..n {
+        isPrime = isPrime + [true];
+    }
+    isPrime[0] = false;
+    isPrime[1] = false;
+
+    loop i in 2..n {
+        if i * i >= n {
+            break;
+        }
+        if isPrime[i] {
+            loop j in i * i..n {
+                if j % i == 0 {
+                    isPrime[j] = false;
+                }
+            }
+        }
+    }
+
+    let result: Text = "";
+    let first: Bool = true;
+    loop i in 0..n {
+        if isPrime[i] {
+            if !first {
+                result = result + ", ";
+            }
+            result = result + itoa(i);
+            first = false;
+        }
+    }
+    fx { println(result); }
+    ret;
+}

@@ -1,0 +1,37 @@
+fn main() -> Void {
+    let x: Text = "ABCBDAB";
+    let y: Text = "BDCAB";
+    let m: Int = string_len(x);
+    let n: Int = string_len(y);
+
+    let dp: Int[][] = [];
+    loop i in 0..m + 1 {
+        let row: Int[] = [];
+        loop j in 0..n + 1 {
+            row = row + [0];
+        }
+        dp = dp + [row];
+    }
+
+    loop i in 1..m + 1 {
+        loop j in 1..n + 1 {
+            if x[i - 1] == y[j - 1] {
+                dp[i][j] = dp[i - 1][j - 1] + 1;
+            } else {
+                let a: Int = dp[i - 1][j];
+                let b: Int = dp[i][j - 1];
+                if a >= b {
+                    dp[i][j] = a;
+                } else {
+                    dp[i][j] = b;
+                }
+            }
+        }
+    }
+
+    let result: Int = dp[m][n];
+    fx {
+        println("lcs = ", result);
+    }
+    ret;
+}

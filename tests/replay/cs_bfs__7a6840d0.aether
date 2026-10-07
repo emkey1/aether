@@ -1,0 +1,62 @@
+@pure
+fn neighbors(u: Int) -> Int[] {
+    if u == 0 {
+        let ns: Int[] = [1, 4];
+        ret ns;
+    }
+    if u == 1 {
+        let ns: Int[] = [0, 2, 5];
+        ret ns;
+    }
+    if u == 2 {
+        let ns: Int[] = [1, 3];
+        ret ns;
+    }
+    if u == 3 {
+        let ns: Int[] = [2, 6];
+        ret ns;
+    }
+    if u == 4 {
+        let ns: Int[] = [0, 5];
+        ret ns;
+    }
+    if u == 5 {
+        let ns: Int[] = [1, 4, 6];
+        ret ns;
+    }
+    let ns: Int[] = [3, 5];
+    ret ns;
+}
+
+fn main() -> Void {
+    let queue: Int[] = [0];
+    let head: Int = 0;
+    let visited: Bool[] = [false, false, false, false, false, false, false];
+    let result: Text = "";
+
+    visited[0] = true;
+
+    loop head < length(queue) {
+        let u: Int = queue[head];
+        head = head + 1;
+
+        if string_len(result) > 0 {
+            result = result + " ";
+        }
+        result = result + itoa(u);
+
+        let ns: Int[] = neighbors(u);
+        loop i in 0..length(ns) {
+            let v: Int = ns[i];
+            if !visited[v] {
+                visited[v] = true;
+                queue = queue + [v];
+            }
+        }
+    }
+
+    fx {
+        println(result);
+    }
+    ret;
+}

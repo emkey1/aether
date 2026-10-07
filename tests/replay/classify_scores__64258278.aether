@@ -1,0 +1,22 @@
+@pure
+fn classify(score: Int) -> Text {
+    if score >= 90 {
+        ret "ready";
+    }
+    if score >= 70 {
+        ret "review";
+    }
+    ret "blocked";
+}
+
+fn main() -> Void {
+    let scores: Int[] = [95, 72, 10];
+    loop i in 0..length(scores) {
+        let s: Int = scores[i];
+        let label: Text = classify(s);
+        fx {
+            println(s, " => ", label);
+        }
+    }
+    ret;
+}

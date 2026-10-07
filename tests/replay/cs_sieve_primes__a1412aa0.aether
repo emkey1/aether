@@ -1,0 +1,38 @@
+fn main() -> Void {
+    let isPrime: Bool[] = [];
+    loop i in 0..30 {
+        isPrime = isPrime + [true];
+    }
+    isPrime[0] = false;
+    isPrime[1] = false;
+
+    loop i in 2..6 {
+        if isPrime[i] {
+            let j: Int = i * i;
+            loop j < 30 {
+                isPrime[j] = false;
+                j = j + i;
+            }
+        }
+    }
+
+    let primes: Int[] = [];
+    loop i in 2..30 {
+        if isPrime[i] {
+            primes = primes + [i];
+        }
+    }
+
+    let result: Text = "";
+    loop i in 0..length(primes) {
+        if i > 0 {
+            result = result + ", ";
+        }
+        result = result + itoa(primes[i]);
+    }
+
+    fx {
+        println(result);
+    }
+    ret;
+}

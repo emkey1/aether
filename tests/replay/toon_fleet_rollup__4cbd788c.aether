@@ -1,0 +1,27 @@
+fn main() -> Void {
+    fx {
+        let doc: ToonDoc = toon_parse_file("fleet.json");
+        let root: ToonNode = toon_root(doc);
+        let fleet: ToonNode = toon_key(root, "fleet");
+        let coresSum: Int = 0;
+        let memSum: Int = 0;
+        let tagged: Int = 0;
+        loop i in 0..toon_len(fleet) {
+            let entry: ToonNode = toon_at(fleet, i);
+            let id: Text = toon_get_text(entry, "id");
+            let spec: ToonNode = toon_key_or(entry, "spec", toon_null());
+            let cores: Int = toon_get_int_or(spec, "cores", 0);
+            let memNode: ToonNode = toon_key_or(spec, "mem", toon_null());
+            let mem: Int = toon_get_int_or(memNode, "gb", 0);
+            let tags: ToonNode = toon_key_or(entry, "tags", toon_null());
+            let tagsLen: Int = toon_len(tags);
+            coresSum = coresSum + cores;
+            memSum = memSum + mem;
+            if tagsLen > 0 { tagged = tagged + 1; }
+            println(id, ": cores=", cores, " mem=", mem, " tags=", tagsLen);
+        }
+        println("totals cores=", coresSum, " mem=", memSum, " tagged=", tagged);
+        toon_close(doc);
+    }
+    ret;
+}

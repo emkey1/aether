@@ -1,0 +1,10 @@
+fn main() -> Void {
+    loop i in 1..4 {
+        loop j in 1..4 {
+            fx {
+                println(i, " x ", j, " = ", i * j);
+            }
+        }
+    }
+    ret;
+}

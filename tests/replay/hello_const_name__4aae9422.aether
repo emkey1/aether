@@ -1,0 +1,9 @@
+const Greeting: Text = "hello";
+const Target: Text = "Aether";
+
+fn main() -> Void {
+    fx {
+        println(Greeting, ", ", Target);
+    }
+    ret;
+}

@@ -1,0 +1,50 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("events_hard_g.json"); }
+    let root: ToonNode = toon_root(doc);
+    let events: ToonNode = toon_key(root, "events");
+    let passes: Int = 0;
+    let denied: Int = 0;
+    let state: Text = "locked";
+
+    loop i in 0..toon_len(events) {
+        let event: ToonNode = toon_at(events, i);
+        let e: ToonNode = toon_key(event, "e");
+        let eText: Text = toon_text_value(e);
+
+        if state == "locked" {
+            if eText == "coin" {
+                state = "unlocked";
+                fx { println("event ", i, ": coin -> unlocked"); }
+            } else {
+                denied = denied + 1;
+                fx { println("event ", i, ": push -> DENIED"); }
+            }
+        } else {
+            if eText == "push" {
+                passes = passes + 1;
+                state = "locked";
+                fx { println("event ", i, ": push -> PASS"); }
+            } else {
+                fx { println("event ", i, ": coin -> thanks"); }
+            }
+        }
+
+        toon_free(e);
+        toon_free(event);
+    }
+
+    fx {
+        println("passes = ", passes);
+        println("denied = ", denied);
+        println("final state = ", state);
+    }
+
+    toon_close(doc);
+    ret;
+}

@@ -1,0 +1,26 @@
+fn binary_search(xs: Int[], target: Int) -> Int {
+    let low: Int = 0;
+    let high: Int = length(xs) - 1;
+    loop low <= high {
+        let mid: Int = (low + high) / 2;
+        if xs[mid] == target {
+            ret mid;
+        }
+        if xs[mid] < target {
+            low = mid + 1;
+        } else {
+            high = mid - 1;
+        }
+    }
+    ret -1;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [1, 3, 5, 7, 9, 11];
+    let target: Int = 7;
+    let idx: Int = binary_search(xs, target);
+    fx {
+        println("index = ", idx);
+    }
+    ret;
+}

@@ -1,0 +1,42 @@
+@pure
+fn quicksort(arr: Int[]) -> Int[] {
+    if length(arr) <= 1 {
+        ret arr;
+    }
+    let pivot: Int = arr[0];
+    let less: Int[] = [];
+    let equal: Int[] = [];
+    let greater: Int[] = [];
+
+    loop i in 0..length(arr) {
+        let v: Int = arr[i];
+        if v < pivot {
+            less = less + [v];
+        } else if v == pivot {
+            equal = equal + [v];
+        } else {
+            greater = greater + [v];
+        }
+    }
+
+    let left: Int[] = quicksort(less);
+    let right: Int[] = quicksort(greater);
+
+    ret left + equal + right;
+}
+
+fn main() -> Void {
+    let arr: Int[] = [6, 3, 9, 1, 7, 4, 8, 2, 5];
+    let sorted: Int[] = quicksort(arr);
+
+    let result: Text = itoa(sorted[0]);
+    loop i in 1..length(sorted) {
+        result = result + ", " + itoa(sorted[i]);
+    }
+
+    fx {
+        println(result);
+    }
+
+    ret;
+}

@@ -1,0 +1,11 @@
+fn main() -> Void {
+    loop i in 1..4 {
+        loop j in 1..4 {
+            let product: Int = i * j;
+            fx {
+                println(i, " x ", j, " = ", product);
+            }
+        }
+    }
+    ret;
+}

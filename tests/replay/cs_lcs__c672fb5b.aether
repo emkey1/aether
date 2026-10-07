@@ -1,0 +1,41 @@
+fn main() -> Void {
+    let x: Text = "ABCBDAB";
+    let y: Text = "BDCAB";
+    let m: Int = string_len(x);
+    let n: Int = string_len(y);
+    let rows: Int = m + 1;
+    let cols: Int = n + 1;
+    let total: Int = rows * cols;
+    let dp: Int[] = [];
+    loop i in 0..total {
+        dp = dp + [0];
+    }
+
+    loop i in 0..rows {
+        loop j in 0..cols {
+            if i == 0 || j == 0 {
+                dp[i * cols + j] = 0;
+            } else {
+                let xi: Text = copy(x, i, 1);
+                let yj: Text = copy(y, j, 1);
+                if xi == yj {
+                    dp[i * cols + j] = dp[(i - 1) * cols + (j - 1)] + 1;
+                } else {
+                    let a: Int = dp[(i - 1) * cols + j];
+                    let b: Int = dp[i * cols + (j - 1)];
+                    if a >= b {
+                        dp[i * cols + j] = a;
+                    } else {
+                        dp[i * cols + j] = b;
+                    }
+                }
+            }
+        }
+    }
+
+    let result: Int = dp[m * cols + n];
+    fx {
+        println("lcs = ", result);
+    }
+    ret;
+}

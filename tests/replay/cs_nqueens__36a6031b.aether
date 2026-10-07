@@ -1,0 +1,37 @@
+type Counter {
+    value: Int;
+}
+
+fn solve(row: Int, cols: Int[], diag1: Int[], diag2: Int[], counter: Counter) -> Void {
+    if row == 6 {
+        counter.value = counter.value + 1;
+        ret;
+    }
+
+    loop col in 0..6 {
+        if cols[col] == 0 && diag1[row - col + 5] == 0 && diag2[row + col] == 0 {
+            cols[col] = 1;
+            diag1[row - col + 5] = 1;
+            diag2[row + col] = 1;
+            solve(row + 1, cols, diag1, diag2, counter);
+            cols[col] = 0;
+            diag1[row - col + 5] = 0;
+            diag2[row + col] = 0;
+        }
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let cols: Int[] = [0, 0, 0, 0, 0, 0];
+    let diag1: Int[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let diag2: Int[] = [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+    let counter: Counter = new Counter();
+
+    solve(0, cols, diag1, diag2, counter);
+
+    fx {
+        println("solutions = ", counter.value);
+    }
+    ret;
+}

@@ -1,0 +1,63 @@
+@pure
+fn merge_sort(xs: Int[]) -> Int[] {
+    let n: Int = length(xs);
+    if n <= 1 {
+        ret xs;
+    }
+    let mid: Int = n / 2;
+    let left: Int[] = [];
+    let right: Int[] = [];
+    loop i in 0..mid {
+        left = left + [xs[i]];
+    }
+    loop i in mid..n {
+        right = right + [xs[i]];
+    }
+    let sortedLeft: Int[] = merge_sort(left);
+    let sortedRight: Int[] = merge_sort(right);
+    ret merge(sortedLeft, sortedRight);
+}
+
+@pure
+fn merge(a: Int[], b: Int[]) -> Int[] {
+    let result: Int[] = [];
+    let i: Int = 0;
+    let j: Int = 0;
+    let n: Int = length(a);
+    let m: Int = length(b);
+    loop {
+        if !(i < n && j < m) { break; }
+        if a[i] <= b[j] {
+            result = result + [a[i]];
+            i = i + 1;
+        } else {
+            result = result + [b[j]];
+            j = j + 1;
+        }
+    }
+    loop i < n {
+        result = result + [a[i]];
+        i = i + 1;
+    }
+    loop j < m {
+        result = result + [b[j]];
+        j = j + 1;
+    }
+    ret result;
+}
+
+fn main() -> Void {
+    let data: Int[] = [38, 27, 43, 3, 9, 82, 10];
+    let sorted: Int[] = merge_sort(data);
+    fx {
+        let out: Text = "";
+        loop i in 0..length(sorted) {
+            if i > 0 {
+                out = out + ", ";
+            }
+            out = out + itoa(sorted[i]);
+        }
+        println(out);
+    }
+    ret;
+}

@@ -1,0 +1,10 @@
+event 0: push -> DENIED
+event 1: coin -> unlocked
+event 2: push -> PASS
+event 3: push -> DENIED
+event 4: coin -> unlocked
+event 5: coin -> thanks
+event 6: push -> PASS
+passes = 2
+denied = 2
+final state = locked

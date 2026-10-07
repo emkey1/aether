@@ -1,0 +1,20 @@
+fn collatzSteps(n: Int) -> Int {
+    let steps: Int = 0;
+    loop n != 1 {
+        if n % 2 == 0 {
+            n = n / 2;
+        } else {
+            n = 3 * n + 1;
+        }
+        steps = steps + 1;
+    }
+    ret steps;
+}
+
+fn main() -> Void {
+    let count: Int = collatzSteps(27);
+    fx {
+        println("steps = ", count);
+    }
+    ret;
+}

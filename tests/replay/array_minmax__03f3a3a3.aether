@@ -1,0 +1,18 @@
+fn main() -> Void {
+    let xs: Int[] = [12, 5, 23, 8, 19];
+    let n: Int = length(xs);
+    let currentMin: Int = xs[0];
+    let currentMax: Int = xs[0];
+    loop i in 1..n {
+        let v: Int = xs[i];
+        currentMin = min(currentMin, v);
+        currentMax = max(currentMax, v);
+    }
+    let range: Int = currentMax - currentMin;
+    fx {
+        println("min = ", currentMin);
+        println("max = ", currentMax);
+        println("range = ", range);
+    }
+    ret;
+}

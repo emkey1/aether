@@ -1,0 +1,7 @@
+fn main() -> Void {
+    let result: Int = factorial(10);
+    fx {
+        println("10! = ", result);
+    }
+    ret;
+}

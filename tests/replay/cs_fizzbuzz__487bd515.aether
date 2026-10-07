@@ -1,0 +1,17 @@
+fn main() -> Void {
+    loop i in 1..16 {
+        let label: Text = if i % 3 == 0 && i % 5 == 0 {
+            "FizzBuzz";
+        } else if i % 3 == 0 {
+            "Fizz";
+        } else if i % 5 == 0 {
+            "Buzz";
+        } else {
+            int_to_text(i);
+        };
+        fx {
+            println(label);
+        }
+    }
+    ret;
+}

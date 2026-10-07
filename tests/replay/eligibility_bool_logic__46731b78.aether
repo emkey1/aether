@@ -1,0 +1,30 @@
+@pure
+fn admit(age: Int, hasTicket: Bool, isVip: Bool, flagged: Bool) -> Bool {
+    ret age >= 18 && (hasTicket || isVip) && !flagged;
+}
+
+type Guest {
+    age: Int;
+    hasTicket: Bool;
+    isVip: Bool;
+    flagged: Bool;
+}
+
+fn main() -> Void {
+    let guests: Guest[] = [
+        Guest { age: 20, hasTicket: true, isVip: false, flagged: false },
+        Guest { age: 16, hasTicket: true, isVip: false, flagged: false },
+        Guest { age: 25, hasTicket: false, isVip: false, flagged: false },
+        Guest { age: 30, hasTicket: false, isVip: true, flagged: true },
+        Guest { age: 40, hasTicket: true, isVip: false, flagged: false }
+    ];
+
+    loop i in 0..length(guests) {
+        let g: Guest = guests[i];
+        let result: Bool = admit(g.age, g.hasTicket, g.isVip, g.flagged);
+        fx {
+            println("guest ", i, ": ", result);
+        }
+    }
+    ret;
+}

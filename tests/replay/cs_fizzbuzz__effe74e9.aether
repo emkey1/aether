@@ -1,0 +1,14 @@
+fn main() -> Void {
+    loop i in 1..16 {
+        if i % 3 == 0 && i % 5 == 0 {
+            fx { println("FizzBuzz"); }
+        } else if i % 3 == 0 {
+            fx { println("Fizz"); }
+        } else if i % 5 == 0 {
+            fx { println("Buzz"); }
+        } else {
+            fx { println(i); }
+        }
+    }
+    ret;
+}
