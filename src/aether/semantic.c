@@ -1824,6 +1824,16 @@ check_rhs:
     }
 }
 
+/* Int <- Real and Real <- Int are not type errors. Real -> Int truncates, and
+ * the AST pass warns NARROW-001 on it (aetherWalkNarrowing), exactly as it does
+ * for a Real literal or a Real-returning call; Int -> Real widens. Only an
+ * incompatible pair (Text, Bool, ...) is TYPE-001. */
+static int scalarAssignPairIsNumeric(const char *lhsType, const char *rhsType) {
+    return lhsType && rhsType &&
+           ((strcmp(lhsType, "Int") == 0 && strcmp(rhsType, "Real") == 0) ||
+            (strcmp(lhsType, "Real") == 0 && strcmp(rhsType, "Int") == 0));
+}
+
 static void validateScalarAssignmentLine(const char *body,
                                          const char *lineEnd,
                                          int line,
@@ -1878,7 +1888,8 @@ static void validateScalarAssignmentLine(const char *body,
         if (!rhsExprType) {
             return;
         }
-        if (strcmp(lhsBinding->typeName, rhsExprType) == 0) {
+        if (strcmp(lhsBinding->typeName, rhsExprType) == 0 ||
+            scalarAssignPairIsNumeric(lhsBinding->typeName, rhsExprType)) {
             return;
         }
 
@@ -1899,7 +1910,8 @@ static void validateScalarAssignmentLine(const char *body,
         if (!rhsExprType) {
             return;
         }
-        if (strcmp(lhsBinding->typeName, rhsExprType) == 0) {
+        if (strcmp(lhsBinding->typeName, rhsExprType) == 0 ||
+            scalarAssignPairIsNumeric(lhsBinding->typeName, rhsExprType)) {
             return;
         }
 
@@ -1913,7 +1925,8 @@ static void validateScalarAssignmentLine(const char *body,
         reportAetherErrorCoded("TYPE-001", "type", line, detail);
         return;
     }
-    if (strcmp(lhsBinding->typeName, rhsBinding->typeName) == 0) {
+    if (strcmp(lhsBinding->typeName, rhsBinding->typeName) == 0 ||
+        scalarAssignPairIsNumeric(lhsBinding->typeName, rhsBinding->typeName)) {
         return;
     }
 
@@ -2839,7 +2852,7 @@ static const char *const kAetherAlwaysRealBuiltins[] = {
     "parse_float", "toon_get_real", "toon_get_real_or", "toon_real_value",
 };
 
-static int aetherIsAlwaysRealBuiltin(const char *name) {
+int aetherIsAlwaysRealBuiltin(const char *name) {
     size_t i;
     if (!name) {
         return 0;

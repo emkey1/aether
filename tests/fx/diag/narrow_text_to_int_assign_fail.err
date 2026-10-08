@@ -1,0 +1,2 @@
+narrow_text_to_int_assign_fail.aether:5: [TYPE-001]
+cannot assign Text binding 's' to Int binding 't'

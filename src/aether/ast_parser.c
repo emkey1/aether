@@ -3408,6 +3408,38 @@ AST *buildContractGuard(AetherParser *p, const char *exprText,
  *   - inferred (no type):   `let x = e;`      -> type inferred from `e`
  * Block-level `const` is handled by parseConstDeclTop (AST_CONST_DECL), matching
  * the rewriter which lowers a local `const` to a Rea `const`, not a typed var. */
+/* May this initializer evaluate to a Real? A literal, variable, call or
+ * element whose inferred type is Real, a `/` (Int / Int is Real outside a typed
+ * sink), or + - * and unary minus over such an operand. Conservative the other
+ * way: `div`, `mod`, comparisons and anything not inferable say no. */
+static bool aetherLetInitMayBeReal(AetherParser *p, AST *e, int depth) {
+    if (!e || depth > 8) return false;
+    if (e->type == AST_BINARY_OP && e->token && e->token->value) {
+        const char *op = e->token->value;
+        if (strcmp(op, "/") == 0) return true;
+        if (strcmp(op, "+") == 0 || strcmp(op, "-") == 0 || strcmp(op, "*") == 0) {
+            return aetherLetInitMayBeReal(p, e->left, depth + 1) ||
+                   aetherLetInitMayBeReal(p, e->right, depth + 1);
+        }
+        return false;
+    }
+    if (e->type == AST_UNARY_OP) return aetherLetInitMayBeReal(p, e->left, depth + 1);
+    if (e->type == AST_PROCEDURE_CALL && e->token && e->token->value) {
+        const char *fn = e->token->value;
+        if (aetherIsAlwaysRealBuiltin(fn)) return true;
+        if (strcmp(fn, "random") == 0 && e->child_count == 0) return true;
+    }
+    char *t = inferLetTypeName(p, e);
+    bool isReal = t && strcmp(t, "Real") == 0;
+    free(t);
+    return isReal;
+}
+
+static bool aetherVarTypeIsIntFamily(VarType t) {
+    return t == TYPE_INT64 || t == TYPE_INT32 || t == TYPE_INTEGER || t == TYPE_INT16 ||
+           t == TYPE_INT8 || t == TYPE_BYTE || t == TYPE_WORD;
+}
+
 static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     /* `let` has already been consumed by the caller (which peeked for `(`). */
     /* Optional `mut` modifier: Rea bindings are mutable already, so accept and
@@ -3804,6 +3836,30 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     setTypeAST(decl, vtype);
     if (explicitType) {
         aetherAstRegisterExplicitTypedDecl(decl);
+    }
+    if (p->functionDepth == 0 && chainOpCount == 0 && explicitType && init &&
+        aetherVarTypeIsIntFamily(vtype) &&
+        aetherLetInitMayBeReal(p, init, 0)) {
+        /* Main-program `let n: Int = <Real>;` -> `let n: Int; n = <Real>;`. A
+         * main-program binding is a global (or a main-block slot) whose
+         * initializing store is strict and aborted with an uncoded "Type
+         * mismatch. Cannot assign REAL to INT64"; the assignment store
+         * truncates, as a fn-local `let` does. NARROW-001 still warns, now on
+         * the assignment. No trunc() wrapper: it would build an INT32. */
+        decl->left = NULL;
+        Token *nTok = newToken(TOKEN_IDENTIFIER, nameTok->value, kwLine, 0);
+        AST *target = newASTNode(AST_VARIABLE, nTok);
+        setTypeAST(target, vtype);
+        Token *aTok = newToken(TOKEN_ASSIGN, "=", kwLine, 0);
+        AST *assign = newASTNode(AST_ASSIGN, aTok);
+        setLeft(assign, target);
+        setRight(assign, init);
+        setTypeAST(assign, vtype);
+        AST *outer = newASTNode(AST_COMPOUND, NULL);
+        outer->i_val = 1; /* splice into the surrounding block */
+        addChild(outer, decl);
+        addChild(outer, assign);
+        return outer;
     }
     if (chainOpCount > 0) {
         /* `let x: T[] = a + b + ...;` -- `decl` above declares `x` as a copy of

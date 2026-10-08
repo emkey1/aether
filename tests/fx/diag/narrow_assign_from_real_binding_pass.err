@@ -1,0 +1,3 @@
+narrow_assign_from_real_binding_pass.aether:7: warning: [NARROW-001]
+narrow_assign_from_real_binding_pass.aether:9: warning: [NARROW-001]
+!error

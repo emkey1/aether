@@ -1,0 +1,15 @@
+// W4-08: a main-program `let n: Int = <Real>;` (file scope or a top-level fx
+// block) used to warn NARROW-001 and then abort with an uncoded "Type mismatch.
+// Cannot assign REAL to INT64". It now truncates, as the same line does in a fn.
+fn half(x: Real) -> Real { ret x / 2.0; }
+let r: Real = 2.5;
+let a: Int = 3.7;
+let b: Int = 7 / 2;
+let c: Int = half(7.0);
+let d: Int = r * 2;
+let e: Int = sqrt(16.0);
+fx {
+    let f: Int = 3.7;
+    let g: Int = -r;
+    println(a, " ", b, " ", c, " ", d, " ", e, " ", f, " ", g);
+}

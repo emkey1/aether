@@ -1,0 +1,7 @@
+// W4-08: only the numeric pairs relaxed; Text -> Int stays TYPE-001.
+fn main() -> Void {
+    let s: Text = "a";
+    let t: Int = 0;
+    t = s;
+    fx { println(t); }
+}

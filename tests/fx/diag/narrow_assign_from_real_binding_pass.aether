@@ -1,0 +1,16 @@
+// W4-08: assigning a Real binding or expression to an Int binding is the same
+// truncation as assigning a Real literal: a NARROW-001 warning, not TYPE-001.
+// Int -> Real widens with no diagnostic.
+fn main() -> Void {
+    let r: Real = 2.5;
+    let t: Int = 0;
+    t = r;
+    let u: Int = 0;
+    u = r * 2;
+    let n: Int = 3;
+    let x: Real = 0.0;
+    x = n;
+    let y: Real = 0.0;
+    y = n + 1;
+    fx { println(t, " ", u, " ", x, " ", y); }
+}
