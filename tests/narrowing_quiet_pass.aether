@@ -1,7 +1,8 @@
 // Regression: NARROW-001 must stay silent on everything that is not actually a
 // narrowing. The node's own resolved type is unreliable here -- min/max/clamp
-// annotate REAL although they preserve their operand type, Int / Int annotates
-// REAL although it evaluates to Int, and an inferred `let` whose initializer
+// annotate REAL although they preserve their operand type, Int / Int is a Real
+// that an Int `let` truncates (the D1 sink coercion; W4-19 leaves it unjudged),
+// and an inferred `let` whose initializer
 // mentions variables still reads as integral during this pass even though it
 // resolves to Real. All of those must produce no warning.
 @pure
@@ -15,7 +16,7 @@ fn whole() -> Int {
 }
 
 fn main() -> Void {
-    let n1: Int = 7 / 2;            // Int / Int is Int
+    let n1: Int = 7 / 2;            // Real 3.5, truncated by the Int sink
     let n2: Int = min(3, 5);        // min/max/clamp/abs preserve operand type
     let n3: Int = max(3, 5);
     let n4: Int = clamp(7, 1, 5);

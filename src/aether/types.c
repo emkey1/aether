@@ -1134,9 +1134,66 @@ static const char *numberCastName(const AST *e) {
     return NULL;
 }
 
+/* W4-19: a statically Real value where only an Int works. `/` is always real
+ * division, so `n / 10 % 10`, `int_to_text(a / b)` and `s[n / 2]` compiled and
+ * then stopped with an uncoded VM error ("Operands for 'mod' must be
+ * integers", "IntToStr requires an integer-compatible argument", "String/Char
+ * index must be an integer"). A Real into an Int `let`/assign/ret/argument
+ * keeps its D1 sink truncation (NARROW-001) and is not judged here. Off while
+ * an AETHER_EXPERIMENT div arm owns `/`. */
+static void reportRealInIntPosition(RuleCtx *c, const AST *at, const char *where) {
+    char detail[256];
+    snprintf(detail, sizeof(detail),
+             "this value is Real, and %s needs an Int: write `a div b` for an integer "
+             "quotient (`/` is real division), or trunc(x).",
+             where);
+    ruleReport(c, at, detail);
+}
+
+static int realRulesOn(void) {
+    return aetherExperiment()->div == AETHER_DIV_CURRENT;
+}
+
+static void ruleSink(void *vctx, const AST *site, const AST *value, const AetherUse *use,
+                     const AetherTypeEnv *env) {
+    RuleCtx *c = (RuleCtx *)vctx;
+    if (!realRulesOn() || !use->sinkLabel || strcmp(use->sinkLabel, "builtin-arg") != 0 ||
+        use->want.kind != AETHER_T_INT)
+        return;
+    const char *n = callName(site);
+    const char *shown = NULL;
+    if (n && (!strcasecmp(n, "inttostr") || !strcasecmp(n, "itoa"))) shown = "int_to_text";
+    else if (n && !strcasecmp(n, "chr")) shown = "chr";
+    else if (n && !strcasecmp(n, "copy")) shown = "copy";
+    if (!shown || aetherTypeOf(value, env).kind != AETHER_T_REAL) return;
+    char where[48];
+    snprintf(where, sizeof(where), "%s()", shown);
+    reportRealInIntPosition(c, value, where);
+}
+
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
-    (void)use;
+    if (realRulesOn() && (use->kind == AETHER_USE_MOD || use->kind == AETHER_USE_INT_DIV) &&
+        aetherTypeOf(e, env).kind == AETHER_T_REAL) {
+        reportRealInIntPosition(c, e, use->kind == AETHER_USE_MOD ? "`%`" : "`div`");
+        return;
+    }
+    /* A Text index only: an ARRAY index truncates a Real today and a replayed
+     * passing program relies on it (`xs[n / 2]` in a quick sort), so that one
+     * waits for the D4 rule, under which an index is an Int context. */
+    if (realRulesOn() && e->type == AST_ARRAY_ACCESS && e->child_count == 1 &&
+        isTextual(aetherTypeOf(e->left, env)) &&
+        aetherTypeOf(e->children[0], env).kind == AETHER_T_REAL) {
+        reportRealInIntPosition(c, e->children[0], "a Text index");
+        return;
+    }
+    if (realRulesOn() && e->type == AST_BINARY_OP && e->token &&
+        (e->token->type == TOKEN_SHL || e->token->type == TOKEN_SHR) &&
+        (aetherTypeOf(e->left, env).kind == AETHER_T_REAL ||
+         aetherTypeOf(e->right, env).kind == AETHER_T_REAL)) {
+        reportRealInIntPosition(c, e, e->token->type == TOKEN_SHL ? "`shl`" : "`shr`");
+        return;
+    }
     /* W8-15 (D14): an array printed the VM's `ARRAY(dims:1, ...)` header and
      * exited 0. There is no array output format for a model to guess. */
     if (isWriteCall(e)) {
@@ -1174,6 +1231,7 @@ void aetherTypedRules(AST *root) {
     memset(&v, 0, sizeof(v));
     v.ctx = &c;
     v.onExpr = ruleExpr;
+    v.onSink = ruleSink;
     aetherTypedWalk(root, &v);
 }
 

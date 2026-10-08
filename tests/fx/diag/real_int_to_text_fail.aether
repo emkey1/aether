@@ -1,0 +1,12 @@
+// W4-19: int_to_text(a / b) stopped with an uncoded "IntToStr requires an
+// integer-compatible argument"; a Real `div` operand and chr() likewise.
+fn main() -> Void {
+    let a: Int = 9;
+    let b: Int = 2;
+    let x: Real = 7.5;
+    fx {
+        println(int_to_text(a / b));
+        println(x div 2);
+        println(chr(130 / 2));
+    }
+}

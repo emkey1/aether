@@ -1,7 +1,0 @@
-// Backlog probe (W4-19): int_to_text(a / b) is an uncoded IntToStr error.
-// Correct behaviour: prints 3.
-fn main() -> Void {
-    let a: Int = 7;
-    let b: Int = 2;
-    fx { println(int_to_text(a / b)); }
-}

@@ -1,0 +1,7 @@
+// W4-19: a Real Text index stopped with an uncoded "String/Char index must be
+// an integer".
+fn main() -> Void {
+    let s: Text = "hello";
+    let n: Int = length(s);
+    fx { println(s[n / 2]); }
+}

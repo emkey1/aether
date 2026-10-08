@@ -1,0 +1,6 @@
+// W4-19: `/` is real division, so `n / 10 % 10` reached the VM as Real % Int
+// and stopped with an uncoded "Operands for 'mod' must be integers".
+fn main() -> Void {
+    let n: Int = 4721;
+    fx { println(n / 10 % 10); }
+}

@@ -5,8 +5,6 @@
 # slug	outcome	anchor	guide	note
 div_compare	silent:not eq3	W4-42	medium:301,small:266,full:693	Int/Int `/` is Real outside a typed sink, so 7/2 == 3 is false
 div_range_bound	silent:4	W4-42	full:693	`0..7 / 2` runs 4 times: the bound is 3.5
-div_mod_digit	uncoded-runtime	W4-19	full:693	`n / 10 % 10` is Real % Int, an uncoded VM error
-div_int_to_text	uncoded-runtime	W4-19	-	int_to_text(a / b) is an uncoded IntToStr error
 const_case_alias	fails:NAME-001	W4-22	-	names ignore case: `let limit` overwrote `const LIMIT` before W4-22
 param_case_shadow	fails:NAME-001	W4-22	-	parameter `limit` answered to `LIMIT` before W4-22
 loop_var_outer	fails:NAME-001	W4-22	-	a loop variable named like a let left the let at 0 before W4-22

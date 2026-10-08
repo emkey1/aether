@@ -1,0 +1,10 @@
+// W4-19 judges only the positions that crashed. An Int sink still truncates a
+// quotient (the D1 sink coercion), `div` and `%` on Ints work, and an array
+// index truncates a Real today (left to D4).
+fn main() -> Void {
+    let a: Int = 4721;
+    let b: Int = 10;
+    let q: Int = a / b;
+    let xs: Int[] = [10, 20, 30, 40];
+    fx { println(q % 10, " ", a div b % 10, " ", int_to_text(a div b), " ", xs[a / 2000]); }
+}

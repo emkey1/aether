@@ -2421,7 +2421,9 @@ declared `-> Real`, arithmetic with a Real operand, and zero-argument
 The sizing concern above turned out to be the whole difficulty, and the answer
 is that **the AST's resolved types cannot be trusted for this**. Sampling them:
 `min(3, 5)` is annotated `REAL` although min/max/clamp/abs preserve operand
-type, `7 / 2` is annotated `REAL` although `Int / Int` evaluates to `Int`,
+type, `7 / 2` is annotated `REAL` (correctly: `/` is always real division, and
+only an Int sink truncates it -- corrected by W4-19, which made a Real into `%`,
+`div`, `int_to_text` or a Text index a TYPE-001),
 `sqr(3)` arrives as `VOID`, and zero-argument `random()` is annotated `INTEGER`
 even though that is the Real arity. A check that trusted the annotation fired on
 `min` and on every integer division. What works instead is a hand-verified
