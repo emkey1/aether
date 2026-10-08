@@ -81,7 +81,8 @@ fn main() -> Void {
 
 ### 1.2 Identifiers and keywords
 
-An identifier is a letter or `_` followed by letters, digits and `_`.
+An identifier is a letter or `_` followed by letters, digits and `_`. A name
+that starts with `__` is reserved for compiler-generated temps and is NAME-001.
 **Identifiers are case-insensitive**: `count` and `Count` name the same binding.
 Keywords are case-sensitive and lower-case: `Let` is not `let`. The keywords are
 `fn let const type ret if else loop while for in step par fx use mod export new
@@ -115,6 +116,12 @@ fn main() -> Void {
 ```aether @reject=SYN-001 id=L.ident.3
 fn main() -> Void {
     let div: Int = 1;
+}
+```
+
+```aether @reject=NAME-001 id=L.ident.6
+fn main() -> Void {
+    let __tmp: Int = 1;
 }
 ```
 
