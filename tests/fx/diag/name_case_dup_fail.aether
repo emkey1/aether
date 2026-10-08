@@ -1,0 +1,16 @@
+// W4-22 (D17): Aether value names ignore case. A top-level `let Total` beside
+// `let total` used to fail only at run time ("Global variable redefined", exit
+// 0), and `let Count` in a function silently reused `count`.
+let Total: Int = 1;
+let total: Int = 2;
+
+fn tally() -> Int {
+    let count: Int = 0;
+    let Count: Int = 5;
+    ret count;
+}
+
+fn main() -> Void {
+    fx { println(tally(), " ", Total); }
+    ret;
+}

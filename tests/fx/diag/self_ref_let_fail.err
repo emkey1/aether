@@ -1,0 +1,3 @@
+self_ref_let_fail.aether:7:
+'n' is read in its own initializer
+assign instead: `n = n * 2;`

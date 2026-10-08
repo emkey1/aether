@@ -1,0 +1,33 @@
+// W4-22: only value bindings collide. A value named like its type
+// (`let board: Board`, 72 corpus programs) and a value named like a function
+// stay legal, and so do shadowing in a nested block and reuse across sibling
+// scopes.
+type Board {
+    cells: Int;
+}
+
+fn total(xs: Int[]) -> Int {
+    let s: Int = 0;
+    loop x in xs {
+        s += x;
+    }
+    ret s;
+}
+
+fn main() -> Void {
+    let board: Board = Board { cells: 9 };
+    let total: Int = total([1, 2, 3]);
+    let k: Int = 1;
+    if k > 0 {
+        let k: Int = 7;
+        fx { println(k); }
+    }
+    loop j in 0..2 {
+        fx { println(j); }
+    }
+    loop j in 0..1 {
+        fx { println(j + 10); }
+    }
+    fx { println(board.cells, " ", total, " ", k); }
+    ret;
+}

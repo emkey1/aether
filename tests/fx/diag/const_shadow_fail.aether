@@ -1,0 +1,21 @@
+// W4-22 (D17): a local or parameter must not reuse a top-level const or let
+// name, in any case. `let limit` used to overwrite `const LIMIT` (it printed
+// 3 3), and a parameter `limit` answered to `LIMIT`. This reverses the old
+// legality pinned by tests/scoped_bindings_pass.
+const LIMIT: Int = 10;
+const label: Text = "answer";
+
+fn shadow() -> Int {
+    let label: Int = 40;
+    ret label + 2;
+}
+
+fn check(limit: Int) -> Int {
+    ret LIMIT;
+}
+
+fn main() -> Void {
+    let limit: Int = 3;
+    fx { println(LIMIT, " ", limit, " ", shadow(), " ", check(5)); }
+    ret;
+}

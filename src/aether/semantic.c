@@ -10,6 +10,7 @@
 #include "core/type_registry.h"
 #include "backend_ast/builtin.h"
 #include "aether/diagnostics.h"
+#include "aether/ast_prepasses.h"   /* aetherAstCollectImportedTypes (NAME-001) */
 #include "aether/parser.h"
 #include "aether/experiment.h"
 #include "aether/types.h"
@@ -2379,33 +2380,317 @@ static void validateAetherSource(const char *source,
     }
 }
 
+/* NAME-001 value-binding checks (W4-22, decision D17).
+ *
+ * Aether value names ignore case (the shared engine folds them), so a second
+ * binding that differs only in case is the same variable: `let Count` in a
+ * loop overwrote `count`, `fn check(limit: Int) { ret LIMIT; }` returned the
+ * argument, and a top-level `let Total` beside `let total` only failed at run
+ * time. A text scan over the sanitized source (comments neutralized; strings
+ * are skipped here) tracks every value binding with its brace depth:
+ *
+ *   - a `let`/`const` that matches a binding of the same depth, in any case
+ *     (a second top-level `let`, or a body-level re-`let` of a parameter);
+ *   - a local, parameter or loop variable that matches a top-level const or
+ *     `let`, or a const/let exported by a `use`d module, in any case;
+ *   - a range/foreach loop variable that matches any visible local or
+ *     parameter of the same function (`let i = 0; loop i in 0..3 {}` left i
+ *     at 0);
+ *   - interim, until the engine compiles an initializer before activating the
+ *     new slot (W5): `let x = <expr reading x>` while an outer x exists, which
+ *     reads the new, still-empty slot (`let n: Int = n * 2` gave 0).
+ *
+ * Shadowing in a nested block and reuse across sibling scopes stay legal, and
+ * so do type/value pairs (`let board: Board`) and fn/value pairs: types and
+ * functions are not value bindings. */
+enum {
+    AETHER_DECL_LOCAL,
+    AETHER_DECL_PARAM,
+    AETHER_DECL_LOOP,
+    AETHER_DECL_GLOBAL,       /* top-level let */
+    AETHER_DECL_GLOBAL_CONST, /* top-level const */
+    AETHER_DECL_IMPORT        /* const/let exported by a `use`d module */
+};
+
 typedef struct {
     char *name;
     int depth;
+    int line;
+    int kind;
 } AetherLocalDecl;
 
-// Conservative NAME-001 pre-flight: flag a `let`/`const` local redeclared in the
-// SAME lexical scope. Sound by construction — shadowing in a nested scope and
-// name reuse across sibling scopes are allowed, and tuple/loop/parameter names
-// are not tracked — so anything it misses still trips the bytecode compiler's
-// own "duplicate variable" backstop. Reports via reportAetherError (kind
-// "redeclaration" -> NAME-001), which increments the semantic error count so the
-// compile aborts before codegen: one message, with a code and a guide pointer.
-// `source` is the sanitized scan source (comments already neutralized); string
-// literals are still present, so we skip them ourselves to keep brace depth
-// honest.
+typedef struct {
+    AetherLocalDecl *items;
+    size_t count;
+    size_t cap;
+} AetherDeclList;
+
+static int declListPush(AetherDeclList *list, const char *start, const char *end,
+                        int depth, int line, int kind) {
+    char *name = dupRange(start, end);
+    if (!name) {
+        return 0;
+    }
+    if (list->count == list->cap) {
+        size_t newCap = list->cap ? list->cap * 2 : 16;
+        AetherLocalDecl *grown =
+            (AetherLocalDecl *)realloc(list->items, newCap * sizeof(*grown));
+        if (!grown) {
+            free(name);
+            return 0;
+        }
+        list->items = grown;
+        list->cap = newCap;
+    }
+    list->items[list->count].name = name;
+    list->items[list->count].depth = depth;
+    list->items[list->count].line = line;
+    list->items[list->count].kind = kind;
+    list->count++;
+    return 1;
+}
+
+static void declListPopAbove(AetherDeclList *list, int depth) {
+    while (list->count > 0 && list->items[list->count - 1].depth > depth) {
+        free(list->items[list->count - 1].name);
+        list->count--;
+    }
+}
+
+static void declListFree(AetherDeclList *list) {
+    size_t k;
+    for (k = 0; k < list->count; k++) {
+        free(list->items[k].name);
+    }
+    free(list->items);
+    list->items = NULL;
+    list->count = list->cap = 0;
+}
+
+/* Most recent binding named `name` (any case) with minDepth <= depth <=
+ * maxDepth, or NULL. */
+static const AetherLocalDecl *declListFind(const AetherDeclList *list, const char *name,
+                                           int minDepth, int maxDepth) {
+    size_t k = list->count;
+    while (k > 0) {
+        const AetherLocalDecl *d = &list->items[--k];
+        if (d->depth >= minDepth && d->depth <= maxDepth && strcasecmp(d->name, name) == 0) {
+            return d;
+        }
+    }
+    return NULL;
+}
+
+static int isIdentStartChar(char c) {
+    return isalpha((unsigned char)c) || c == '_';
+}
+
+static int isIdentChar(char c) {
+    return isalnum((unsigned char)c) || c == '_';
+}
+
+/* Does [start, end) read the value `name` (any case)? A word preceded by `.`
+ * (a field) or followed by `(` (a call) is not a value read. */
+static int textReadsName(const char *start, const char *end, const char *name) {
+    size_t len = strlen(name);
+    const char *c = start;
+    while (c < end) {
+        if (*c == '"' || *c == '\'') {
+            const char *after = skipQuotedString(c, NULL);
+            c = (after > c && after <= end) ? after : end;
+            continue;
+        }
+        if (isIdentStartChar(*c) && (c == start || !isIdentChar(c[-1]))) {
+            const char *w = c;
+            while (c < end && isIdentChar(*c)) {
+                c++;
+            }
+            if ((size_t)(c - w) == len && strncasecmp(w, name, len) == 0 &&
+                !(w > start && w[-1] == '.')) {
+                const char *after = c;
+                while (after < end && (*after == ' ' || *after == '\t')) {
+                    after++;
+                }
+                if (after >= end || *after != '(') {
+                    return 1;
+                }
+            }
+            continue;
+        }
+        c++;
+    }
+    return 0;
+}
+
+static int g_nameCollisionReports = 0;
+
+static void reportNameCollision(int line, const char *detail, const char *hint) {
+    /* D5: keep a run's diagnostics short; the first collisions are enough. */
+    if (g_nameCollisionReports >= 3) {
+        pascal_semantic_error_count++;
+        return;
+    }
+    g_nameCollisionReports++;
+    fprintf(stderr, "%s:%d: [NAME-001] Aether redeclaration error: %s\n",
+            g_aether_source_path ? g_aether_source_path : "<aether>", line, detail);
+    if (hint && *hint) {
+        fprintf(stderr, "hint: %s\n", hint);
+    }
+    aetherReportGuideHelp("NAME-001");
+    pascal_semantic_error_count++;
+}
+
+static void collectImportedValueName(void *ctx, const char *name, const char *aetherType,
+                                     int isFunction) {
+    AetherDeclList *list = (AetherDeclList *)ctx;
+    (void)aetherType;
+    if (isFunction || !name || !*name || strchr(name, '.')) {
+        return;
+    }
+    declListPush(list, name, name + strlen(name), 0, 0, AETHER_DECL_IMPORT);
+}
+
+/* Top-level `let`/`const` names (brace depth 0), with their lines, so a local
+ * is checked against a global declared later in the file too. */
+static void collectTopLevelValueNames(const char *source, AetherDeclList *globals) {
+    const char *cursor = source;
+    int line = 1;
+    int depth = 0;
+    int atStmtStart = 1;
+    while (*cursor) {
+        char c = *cursor;
+        if (c == '\n') {
+            line++;
+            cursor++;
+            atStmtStart = 1;
+            continue;
+        }
+        if (c == '"' || c == '\'') {
+            const char *after = skipQuotedString(cursor, NULL);
+            cursor = (after > cursor) ? after : cursor + 1;
+            atStmtStart = 0;
+            continue;
+        }
+        if (c == '{' || c == '}' || c == ';') {
+            if (c == '{') depth++;
+            if (c == '}' && depth > 0) depth--;
+            cursor++;
+            atStmtStart = 1;
+            continue;
+        }
+        if (isspace((unsigned char)c)) {
+            cursor++;
+            continue;
+        }
+        if (atStmtStart && depth == 0) {
+            const char *lineEnd = cursor;
+            while (*lineEnd && *lineEnd != '\n') lineEnd++;
+            int isConst = startsWithWord(cursor, lineEnd, "const");
+            if (isConst || startsWithWord(cursor, lineEnd, "let")) {
+                const char *scan = skipInlineSpaces(cursor + (isConst ? 5 : 3), lineEnd);
+                if (startsWithWord(scan, lineEnd, "mut")) {
+                    scan = skipInlineSpaces(scan + 3, lineEnd);
+                }
+                const char *nameStart = scan;
+                while (scan < lineEnd && isIdentChar(*scan)) scan++;
+                if (scan > nameStart) {
+                    declListPush(globals, nameStart, scan, 0, line,
+                                 isConst ? AETHER_DECL_GLOBAL_CONST : AETHER_DECL_GLOBAL);
+                }
+                cursor = scan;
+                atStmtStart = 0;
+                continue;
+            }
+        }
+        atStmtStart = 0;
+        cursor++;
+    }
+}
+
+/* The top-level const/let, or imported const, that `name` collides with. */
+static const AetherLocalDecl *findGlobalValue(const AetherDeclList *globals, const char *name,
+                                              int line) {
+    size_t k;
+    for (k = 0; k < globals->count; k++) {
+        const AetherLocalDecl *g = &globals->items[k];
+        if (g->line != line && strcasecmp(g->name, name) == 0) {
+            return g;
+        }
+    }
+    return NULL;
+}
+
+static void describeGlobal(const AetherLocalDecl *g, char *out, size_t outSize) {
+    if (g->kind == AETHER_DECL_IMPORT) {
+        snprintf(out, outSize, "the imported const '%s'", g->name);
+    } else {
+        snprintf(out, outSize, "the top-level %s '%s' (line %d)",
+                 g->kind == AETHER_DECL_GLOBAL_CONST ? "const" : "let", g->name, g->line);
+    }
+}
+
+/* `fn name(a: T, b: U)`: push each parameter at the body's depth. `open`
+ * points just past `fn`. A parameter matching a global is reported here. */
+static void scanFnParams(const char *open, int bodyDepth, int line,
+                         AetherDeclList *decls, const AetherDeclList *globals) {
+    const char *c = open;
+    while (*c && *c != '(' && *c != '{' && *c != ';') c++;
+    if (*c != '(') {
+        return;
+    }
+    c++;
+    int parens = 1;
+    while (*c && parens > 0) {
+        if (*c == '"' || *c == '\'') {
+            const char *after = skipQuotedString(c, NULL);
+            c = (after > c) ? after : c + 1;
+            continue;
+        }
+        if (*c == '(' || *c == '[') { parens++; c++; continue; }
+        if (*c == ')' || *c == ']') { parens--; c++; continue; }
+        if (parens == 1 && isIdentStartChar(*c) && !isIdentChar(c[-1])) {
+            const char *w = c;
+            while (*c && isIdentChar(*c)) c++;
+            const char *after = c;
+            while (*after == ' ' || *after == '\t' || *after == '\n' || *after == '\r') after++;
+            if (*after == ':' && after[1] != ':') {
+                char *name = dupRange(w, c);
+                if (name) {
+                    const AetherLocalDecl *g = findGlobalValue(globals, name, -1);
+                    if (g) {
+                        char what[160], detail[320];
+                        describeGlobal(g, what, sizeof(what));
+                        snprintf(detail, sizeof(detail),
+                                 "parameter '%s' is the same name as %s: %sa parameter "
+                                 "must not reuse a const or global name.", name, what,
+                                 strcmp(name, g->name) ? "Aether names ignore case, and " : "");
+                        reportNameCollision(line, detail, "rename the parameter.");
+                    }
+                    free(name);
+                }
+                declListPush(decls, w, c, bodyDepth, line, AETHER_DECL_PARAM);
+            }
+            continue;
+        }
+        c++;
+    }
+}
+
 static void validateNoDuplicateLocals(const char *source) {
     const char *cursor = source;
     int line = 1;
     int depth = 0;
     int atStmtStart = 1;
-    AetherLocalDecl *decls = NULL;
-    size_t count = 0;
-    size_t cap = 0;
+    AetherDeclList decls = {0};
+    AetherDeclList globals = {0};
 
     if (!source) {
         return;
     }
+    g_nameCollisionReports = 0;
+    collectTopLevelValueNames(source, &globals);
+    aetherAstCollectImportedTypes(source, g_aether_source_path, collectImportedValueName,
+                                  &globals);
 
     while (*cursor) {
         char c = *cursor;
@@ -2432,10 +2717,7 @@ static void validateNoDuplicateLocals(const char *source) {
             if (depth > 0) {
                 depth--;
             }
-            while (count > 0 && decls[count - 1].depth > depth) {
-                free(decls[count - 1].name);
-                count--;
-            }
+            declListPopAbove(&decls, depth);
             cursor++;
             atStmtStart = 1;
             continue;
@@ -2452,61 +2734,157 @@ static void validateNoDuplicateLocals(const char *source) {
 
         if (atStmtStart) {
             const char *lineEnd = cursor;
+            const char *word = cursor;
             int isConst;
 
             while (*lineEnd && *lineEnd != '\n') {
                 lineEnd++;
             }
-            isConst = startsWithWord(cursor, lineEnd, "const");
-            if (isConst || startsWithWord(cursor, lineEnd, "let")) {
-                const char *scan = skipInlineSpaces(cursor + (isConst ? 5 : 3), lineEnd);
+            if (startsWithWord(word, lineEnd, "export")) {
+                word = skipInlineSpaces(word + 6, lineEnd);
+            }
+            if (startsWithWord(word, lineEnd, "fn")) {
+                scanFnParams(word + 2, depth + 1, line, &decls, &globals);
+                cursor = word + 2;
+                atStmtStart = 0;
+                continue;
+            }
+            if (startsWithWord(word, lineEnd, "loop")) {
+                const char *scan = skipInlineSpaces(word + 4, lineEnd);
+                const char *nameStart = scan;
+                while (scan < lineEnd && isIdentChar(*scan)) scan++;
+                const char *inWord = skipInlineSpaces(scan, lineEnd);
+                if (scan > nameStart && isIdentStartChar(*nameStart) &&
+                    startsWithWord(inWord, lineEnd, "in")) {
+                    char *name = dupRange(nameStart, scan);
+                    if (name) {
+                        const AetherLocalDecl *outer = declListFind(&decls, name, 0, depth);
+                        const AetherLocalDecl *g = outer ? NULL
+                                                         : findGlobalValue(&globals, name, line);
+                        char detail[320];
+                        if (outer) {
+                            snprintf(detail, sizeof(detail),
+                                     "loop variable '%s' reuses the name of '%s' (line %d); the "
+                                     "loop gets its own '%s', so the outer one is left "
+                                     "unchanged.", name, outer->name, outer->line, name);
+                            reportNameCollision(line, detail,
+                                                "pick a new loop variable name, and assign the "
+                                                "outer variable inside the loop if it must "
+                                                "change.");
+                        } else if (g) {
+                            char what[160];
+                            describeGlobal(g, what, sizeof(what));
+                            snprintf(detail, sizeof(detail),
+                                     "loop variable '%s' is the same name as %s; the loop "
+                                     "gets its own '%s'.", name, what, name);
+                            reportNameCollision(line, detail, "pick a new loop variable name.");
+                        }
+                        free(name);
+                    }
+                    declListPush(&decls, nameStart, scan, depth + 1, line, AETHER_DECL_LOOP);
+                }
+                cursor = scan > word ? scan : word + 4;
+                atStmtStart = 0;
+                continue;
+            }
+            isConst = startsWithWord(word, lineEnd, "const");
+            if (isConst || startsWithWord(word, lineEnd, "let")) {
+                const char *scan = skipInlineSpaces(word + (isConst ? 5 : 3), lineEnd);
                 const char *nameStart;
 
                 if (startsWithWord(scan, lineEnd, "mut")) {
                     scan = skipInlineSpaces(scan + 3, lineEnd);
                 }
                 nameStart = scan;
-                while (scan < lineEnd &&
-                       (isalnum((unsigned char)*scan) || *scan == '_')) {
+                while (scan < lineEnd && isIdentChar(*scan)) {
                     scan++;
                 }
                 if (scan > nameStart) {
                     char *name = dupRange(nameStart, scan);
                     if (name) {
-                        int dup = 0;
-                        size_t k;
-
-                        for (k = 0; k < count; k++) {
-                            if (decls[k].depth == depth &&
-                                strcmp(decls[k].name, name) == 0) {
-                                dup = 1;
+                        /* The initializer, up to the statement's `;` on this line. */
+                        const char *init = NULL;
+                        const char *initEnd = lineEnd;
+                        const char *q = scan;
+                        while (q < lineEnd) {
+                            if (*q == '"' || *q == '\'') {
+                                const char *after = skipQuotedString(q, NULL);
+                                q = (after > q) ? after : q + 1;
+                                continue;
+                            }
+                            if (!init && *q == '=' && q[1] != '=' &&
+                                (q == scan || (q[-1] != '!' && q[-1] != '<' && q[-1] != '>' &&
+                                               q[-1] != '='))) {
+                                init = q + 1;
+                            } else if (init && *q == ';') {
+                                initEnd = q;
                                 break;
                             }
+                            q++;
                         }
-                        if (dup) {
-                            char detail[256];
-                            snprintf(detail, sizeof(detail),
-                                     "local '%s' is already declared in this scope.",
-                                     name);
-                            reportAetherError("redeclaration", line, detail);
-                            free(name);
+                        int selfRef = init && textReadsName(init, initEnd, name);
+                        char assignHint[200];
+                        if (init) {
+                            const char *is = skipInlineSpaces(init, initEnd);
+                            int n = (int)(initEnd - is);
+                            while (n > 0 && isspace((unsigned char)is[n - 1])) n--;
+                            if (n > 48) n = 48;
+                            snprintf(assignHint, sizeof(assignHint),
+                                     "assign instead: `%s = %.*s;` (for arrays, pick a new "
+                                     "name).", name, n, is);
                         } else {
-                            if (count == cap) {
-                                size_t newCap = cap ? cap * 2 : 16;
-                                AetherLocalDecl *grown = (AetherLocalDecl *)realloc(
-                                    decls, newCap * sizeof(*grown));
-                                if (!grown) {
-                                    free(name);
-                                    break;
-                                }
-                                decls = grown;
-                                cap = newCap;
-                            }
-                            decls[count].name = name;
-                            decls[count].depth = depth;
-                            count++;
+                            snprintf(assignHint, sizeof(assignHint),
+                                     "assign to the existing '%s' instead, or pick a new name.",
+                                     name);
                         }
+
+                        const AetherLocalDecl *same = declListFind(&decls, name, depth, depth);
+                        const AetherLocalDecl *g = NULL;
+                        const AetherLocalDecl *outer = NULL;
+                        if (!same) {
+                            g = findGlobalValue(&globals, name, line);
+                            if (g && depth == 0 && g->kind != AETHER_DECL_IMPORT) {
+                                g = NULL; /* depth 0 is checked as `same` */
+                            }
+                        }
+                        if (!same && !g && selfRef && depth > 0) {
+                            outer = declListFind(&decls, name, 0, depth - 1);
+                        }
+                        char detail[320];
+                        if (same && same->kind == AETHER_DECL_PARAM) {
+                            snprintf(detail, sizeof(detail),
+                                     "'%s' is already the parameter '%s' of this function "
+                                     "(line %d); this `let` makes a second, empty '%s'.",
+                                     name, same->name, same->line, name);
+                            reportNameCollision(line, detail, assignHint);
+                        } else if (same && strcmp(same->name, name) == 0) {
+                            snprintf(detail, sizeof(detail),
+                                     "local '%s' is already declared in this scope.", name);
+                            reportNameCollision(line, detail, NULL);
+                        } else if (same) {
+                            snprintf(detail, sizeof(detail),
+                                     "'%s' is the same name as '%s' (line %d): Aether names "
+                                     "ignore case.", name, same->name, same->line);
+                            reportNameCollision(line, detail, "rename one of them.");
+                        } else if (g) {
+                            char what[160];
+                            describeGlobal(g, what, sizeof(what));
+                            snprintf(detail, sizeof(detail),
+                                     "'%s' is the same name as %s: %sa local must not "
+                                     "reuse a const or global name.", name, what,
+                                     strcmp(name, g->name) ? "Aether names ignore case, and "
+                                                           : "");
+                            reportNameCollision(line, detail, "pick a new name for the local.");
+                        } else if (outer) {
+                            snprintf(detail, sizeof(detail),
+                                     "'%s' is read in its own initializer, where it already "
+                                     "names the new, still-empty '%s' (the outer one is on "
+                                     "line %d).", name, name, outer->line);
+                            reportNameCollision(line, detail, assignHint);
+                        }
+                        free(name);
                     }
+                    declListPush(&decls, nameStart, scan, depth, line, AETHER_DECL_LOCAL);
                 }
                 cursor = scan;
                 atStmtStart = 0;
@@ -2518,13 +2896,8 @@ static void validateNoDuplicateLocals(const char *source) {
         cursor++;
     }
 
-    {
-        size_t k;
-        for (k = 0; k < count; k++) {
-            free(decls[k].name);
-        }
-    }
-    free(decls);
+    declListFree(&decls);
+    declListFree(&globals);
 }
 
 /* --------------------------------------------------------------------------

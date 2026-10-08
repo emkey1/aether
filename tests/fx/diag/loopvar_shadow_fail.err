@@ -1,0 +1,2 @@
+loopvar_shadow_fail.aether:5:
+loop variable 'i' reuses the name of 'i' (line 4)

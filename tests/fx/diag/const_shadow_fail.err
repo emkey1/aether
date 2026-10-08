@@ -1,0 +1,6 @@
+const_shadow_fail.aether:9:
+'label' is the same name as the top-level const 'label' (line 6)
+const_shadow_fail.aether:13:
+parameter 'limit' is the same name as the top-level const 'LIMIT' (line 5): Aether names ignore case
+const_shadow_fail.aether:18:
+!3 3

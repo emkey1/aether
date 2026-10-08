@@ -7,9 +7,9 @@ div_compare	silent:not eq3	W4-42	medium:301,small:266,full:693	Int/Int `/` is Re
 div_range_bound	silent:4	W4-42	full:693	`0..7 / 2` runs 4 times: the bound is 3.5
 div_mod_digit	uncoded-runtime	W4-19	full:693	`n / 10 % 10` is Real % Int, an uncoded VM error
 div_int_to_text	uncoded-runtime	W4-19	-	int_to_text(a / b) is an uncoded IntToStr error
-const_case_alias	silent:3 3	W4-22	-	names ignore case: `let limit` overwrites `const LIMIT`
-param_case_shadow	silent:5	W4-22	-	parameter `limit` answers to `LIMIT`
-loop_var_outer	silent:0	W4-22	-	a loop variable named like a let leaves the let at 0
+const_case_alias	fails:NAME-001	W4-22	-	names ignore case: `let limit` overwrote `const LIMIT` before W4-22
+param_case_shadow	fails:NAME-001	W4-22	-	parameter `limit` answered to `LIMIT` before W4-22
+loop_var_outer	fails:NAME-001	W4-22	-	a loop variable named like a let left the let at 0 before W4-22
 upcase_text	silent:R	W4-45	full:868	upcase takes the first code point
 record_eq	silent:differ	W4-20	medium:339,full:282	record == compares identity
 eof_always_true	silent:0	W5-29	-	eof() with no argument is always true
@@ -24,7 +24,7 @@ cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dr
 ret_inside_fx	passes	ideas:Misleading `FLOW-001` on `ret` inside `fx`	full:309	ret inside fx compiles and runs, but the full guide still forbids it
 tail_expr_return	silent:2	W4-03	-	`a b` juxtaposition keeps a and drops b
 chained_compare	fails:PREC-001	W4-15	-	`18 <= age < 65` was (18 <= age) < 65 before W4-15
-let_self_init	silent:[]	W5-24	-	`let s = trim(s)` reads the new, empty slot
+let_self_init	fails:NAME-001	W5-24	-	`let s = trim(s)` reads the new, empty slot; NAME-001 (W4-22 interim) until W5-24 lands
 duplicate_fn	silent:2	W4-23	-	a duplicate fn is silently last-wins
 range_bound_reread	silent:5	W4-33	full:628	the range bound is re-read every pass
 slash_slash_divide	silent:30	W4-36	medium:330	`x // 3` with no `;` is a comment

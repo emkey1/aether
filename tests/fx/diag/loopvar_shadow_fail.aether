@@ -1,0 +1,10 @@
+// W4-22: a loop variable named like an outer local gets its own slot, so the
+// local was left at 0 where a Python reader expects 2.
+fn main() -> Void {
+    let i: Int = 0;
+    loop i in 0..3 {
+        fx { println(i); }
+    }
+    fx { println(i); }
+    ret;
+}

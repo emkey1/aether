@@ -1,0 +1,11 @@
+// W4-22: `let` of a parameter's name at the top of the body is a second, empty
+// binding; `fn f(N: Int) { let n ... }` read 0 instead of the argument.
+fn scale(N: Int) -> Int {
+    let n: Int = 3;
+    ret n * N;
+}
+
+fn main() -> Void {
+    fx { println(scale(4)); }
+    ret;
+}

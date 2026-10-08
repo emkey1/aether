@@ -131,10 +131,13 @@ fn main() -> Void {
 ```
 
 Because names fold case, a second binding that differs only in case is a
-collision. Decision D17 makes it a coded error; today it is rejected without a
-code.
+collision, and decision D17 makes it NAME-001. The same code covers a local,
+parameter or loop variable that reuses a top-level const or `let` name (or a
+`use`d module's const), a body-level `let` of a parameter's name, and a loop
+variable named like a visible local. Type/value and fn/value pairs
+(`let board: Board`) are not collisions.
 
-```aether @bug=D17 now=uncoded id=L.ident.4
+```aether @reject=NAME-001 id=L.ident.4
 fn main() -> Void {
     let total: Int = 1;
     let Total: Int = 2;

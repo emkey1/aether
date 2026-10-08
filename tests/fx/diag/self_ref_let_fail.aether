@@ -1,0 +1,11 @@
+// W4-22 interim (until the engine compiles an initializer before it activates
+// the new slot, W5): `let n = n * 2` inside a block reads the new, still-empty
+// `n`, so this printed 0. Assign to the outer variable instead.
+fn main() -> Void {
+    let n: Int = 5;
+    if n > 0 {
+        let n: Int = n * 2;
+        fx { println(n); }
+    }
+    ret;
+}

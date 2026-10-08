@@ -44,10 +44,10 @@ fn server(listenSock: Int, out: Exchange) -> Void {
     ret;
 }
 
-fn client(port: Int, out: Exchange) -> Void {
+fn client(serverPort: Int, out: Exchange) -> Void {
     fx {
         let sock: Int = socketcreate(0);            // 0 = TCP, 1 = UDP
-        if socketconnect(sock, "127.0.0.1", port) == 0 {
+        if socketconnect(sock, "127.0.0.1", serverPort) == 0 {
             socketsend(sock, "ping");
             let ms: MStream = socketreceive(sock, BUF);
             out.got = mstreambuffer(ms);

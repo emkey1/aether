@@ -46,12 +46,12 @@ fn main() -> Void {
         existsLocal = fileexists("agent_payload.json");
         existsRepo = fileexists("examples/showcase/agent_payload.json");
     }
-    let payloadPath: Text = RepoPayloadPath;
+    let payloadFile: Text = RepoPayloadPath;
     if existsLocal {
-        payloadPath = "agent_payload.json";
+        payloadFile = "agent_payload.json";
     } else {
         if existsRepo {
-            payloadPath = "examples/showcase/agent_payload.json";
+            payloadFile = "examples/showcase/agent_payload.json";
         } else {
             fx {
                 println("payload unavailable: agent_payload.json");
@@ -67,7 +67,7 @@ fn main() -> Void {
     }
     let doc: ToonDoc;
     fx {
-        doc = toon_parse_file(payloadPath);
+        doc = toon_parse_file(payloadFile);
     }
     let root = toon_root(doc);
     let jobs = toon_key(root, "jobs");

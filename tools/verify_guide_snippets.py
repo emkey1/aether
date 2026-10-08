@@ -216,18 +216,38 @@ def run_src(workdir, src, tag):
     return r.returncode, r.stdout, r.stderr
 
 
+def context_for(src):
+    """CONTEXT minus the parameters the fragment binds itself. A `let`, `const`
+    or loop variable that reuses a parameter's name is NAME-001 (W4-22), so a
+    fragment that declares `doc` or `n` must not also receive it. Names fold
+    case. Line numbers are unchanged: a dropped parameter leaves its comma."""
+    bound = {m.lower() for m in re.findall(
+        r"^\s*(?:let|const)\s+(?:mut\s+)?([A-Za-z_]\w*)", src, re.M)}
+    bound |= {m.lower() for m in re.findall(r"\bloop\s+([A-Za-z_]\w*)\s+in\b", src)}
+    if not bound:
+        return CONTEXT
+    head, sep, params = CONTEXT.partition("fn snippetFrag(")
+    params, close, tail = params.partition(") -> Void {")
+
+    def keep(m):
+        return "" if m.group(1).lower() in bound else m.group(0)
+    params = re.sub(r"\b([A-Za-z_]\w*): [A-Za-z][\w\[\]]*,?[ \t]?", keep, params)
+    params = re.sub(r",(\s*)$", r"\1", params)
+    return head + sep + params + close + tail
+
+
 def wrap(src):
     if re.search(r"\bfn\s+main\s*\(", src):
         return "whole", src
     if re.search(r"^\s*(fn|type|mod|use|const|@)", src, re.M):
         return "decl", src + "\n" + MAIN_CALLED
     body = "\n".join("    " + x for x in src.split("\n"))
-    return "frag", CONTEXT + body + "\n    ret;\n}\n" + MAIN
+    return "frag", context_for(src) + body + "\n    ret;\n}\n" + MAIN
 
 
 def wrap_fx(src):
     body = "\n".join("        " + x for x in src.split("\n"))
-    return CONTEXT + "    fx {\n" + body + "\n    }\n    ret;\n}\n" + MAIN
+    return context_for(src) + "    fx {\n" + body + "\n    }\n    ret;\n}\n" + MAIN
 
 
 def parse_records(stderr):

@@ -1,17 +1,16 @@
 // Function-scoped binding tables: same-name locals in different functions each
-// keep their own type, and a local that shadows a global const leaves the
-// global's type intact for later functions. Under the old program-flat tables
-// this program failed twice: `let b = label;` inferred Int from shadow_and_bump's
-// leaked local (a compile-time "Cannot assign STRING to integer"), and
-// sum_real's `v = v + 1.0` drew a false [TYPE-001] because sum_int's `v: Int`
-// clobbered the Real entry.
+// keep their own type, and a function's locals leave a global const's type
+// intact for later functions. Under the old program-flat tables this program
+// failed twice: `let b = label;` inferred Int from a leaked local (a
+// compile-time "Cannot assign STRING to integer"), and sum_real's
+// `v = v + 1.0` drew a false [TYPE-001] because sum_int's `v: Int` clobbered
+// the Real entry. A local that shadows the const itself is NAME-001 since
+// W4-22 (D17): tests/fx/diag/const_shadow_fail.
 const label: Text = "answer";
 
 fn shadow_and_bump() -> Int {
-    // Shadows the global `label` with an Int local; on function exit the
-    // global Text binding must be restored, not last-write-wins.
-    let label: Int = 40;
-    ret label + 2;
+    let bumped: Int = 40;
+    ret bumped + 2;
 }
 
 fn sum_real() -> Void {

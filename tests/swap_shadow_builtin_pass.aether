@@ -7,9 +7,9 @@ fn swap(xs: Int[], i: Int, j: Int) -> Int[] {
 
 fn bubbleSort(input: Int[], n: Int) -> Int[] {
     let xs: Int[] = input;
-    let i: Int = 0;
+    // No `let i`/`let j` before the loops: a loop variable gets its own slot,
+    // so reusing an outer local's name is NAME-001 (W4-22).
     loop i in 0..n {
-        let j: Int = 0;
         loop j in 0..(n - i - 1) {
             if (xs[j] > xs[j + 1]) {
                 xs = swap(xs, j, j + 1);
