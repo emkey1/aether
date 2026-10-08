@@ -2281,10 +2281,33 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 }
             }
         }
+        /* W6-05 (D7 class 1): the bare `.length` property on a receiver whose
+         * type is positively an array or Text lowers to length(recv) too. A
+         * POSITIVE guard (the receiver's own type), never "not a user record":
+         * `self.length`, `rs[0].length` and `p.seg.length` stay field reads. */
+        char *recvTypeName = (!recvIsUserRecord) ? inferLetTypeName(p, node) : NULL;
+        /* `self.len` and `rs[0].len` with a record receiver are field reads too
+         * (W6-05 fixes the `.len` misfire the negative guard above missed). */
+        if (!recvIsUserRecord && node->type == AST_VARIABLE && node->token &&
+            node->token->value && strcasecmp(node->token->value, "myself") == 0 &&
+            p->currentClassName)
+            recvIsUserRecord = true;
+        if (!recvIsUserRecord && recvTypeName && !aetherIsBuiltinValueTypeName(recvTypeName)) {
+            VarType rvt = TYPE_UNKNOWN; const char *rrn = NULL;
+            if (!mapAetherType(recvTypeName, strlen(recvTypeName), &rrn, &rvt)) {
+                AST *rtyNode = lookupType(recvTypeName);
+                if (rtyNode && rtyNode->type == AST_RECORD_TYPE) recvIsUserRecord = true;
+                releaseTransientTypeNode(rtyNode);
+            }
+        }
+        bool recvIsArrayOrText = recvTypeName &&
+            (aetherTypeNameIsArray(recvTypeName) || strcmp(recvTypeName, "Text") == 0 ||
+             strcmp(recvTypeName, "String") == 0);
         if (!recvIsUserRecord && nameTok->value &&
             (strcmp(nameTok->value, "len") == 0 ||
              (strcmp(nameTok->value, "length") == 0 &&
-              p->current.type == REA_TOKEN_LEFT_PAREN))) {
+              (p->current.type == REA_TOKEN_LEFT_PAREN || recvIsArrayOrText)))) {
+            free(recvTypeName);
             /* `.len`, `.len()` and `.length()` are all the `length` builtin alias.
              * The builtin pre-pass rewrites `len(` -> `length(`, so the method-call
              * form arrives here as `length`; translate.c lowers all of these to
@@ -2305,6 +2328,18 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
             node = call;
             continue;
         }
+        /* W6-05: `.size` / `.count` (and other foreign members) on a builtin-typed
+         * receiver, before rea reports "'size' not in scope". */
+        if (p->current.type != REA_TOKEN_LEFT_PAREN && recvTypeName &&
+            aetherCheckBuiltinMethod(p, recvTypeName, nameTok->value, false, false,
+                                     nameTok->line)) {
+            free(recvTypeName);
+            freeToken(nameTok);
+            freeAST(node);
+            return NULL;
+        }
+        free(recvTypeName);
+        recvTypeName = NULL;
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             /* method call recv.method(args). */
             const char *cls = NULL;
@@ -2340,8 +2375,39 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
             bool clsIsBuiltin = false;
             if (cls) {
                 VarType cvt = TYPE_UNKNOWN; const char *crn = NULL;
-                clsIsBuiltin = mapAetherType(cls, strlen(cls), &crn, &cvt);
+                /* An array type (`Int[]`, `P[]`) is builtin too: `xs.m()` must not
+                 * mangle to `Int[].m` (W6-05). */
+                clsIsBuiltin = mapAetherType(cls, strlen(cls), &crn, &cvt) ||
+                               aetherTypeNameIsArray(cls);
             }
+            /* W6-05: a method on Int/Real/Text/Bool or an array is a coded
+             * SCOPE-001 unless it is a UFCS call of something callable (a user
+             * fn or extension method, a module export, a builtin). */
+            /* An element receiver (`xs[0].toString()`) is typed from its array. */
+            char *elemCls = (!cls && node->type == AST_ARRAY_ACCESS) ? inferLetTypeName(p, node)
+                                                                    : NULL;
+            const char *checkCls = cls ? cls : elemCls;
+            if (checkCls && aetherIsBuiltinValueTypeName(checkCls) && nameTok->value) {
+                const char *cls = checkCls;
+                const char *mname = nameTok->value;
+                const char *mcanon = aliasBuiltinName(mname);
+                char ext[192];
+                snprintf(ext, sizeof(ext), "%s.%s", cls, mname);
+                bool knownCallable =
+                    aetherAstIsTopLevelUserFunction(mname) ||
+                    (p->funcReturns &&
+                     (bindingTableGet(p->funcReturns, ext, strlen(ext)) ||
+                      bindingTableGet(p->funcReturns, mname, strlen(mname)))) ||
+                    getVmBuiltinID(mcanon ? mcanon : mname) >= 0;
+                if (aetherCheckBuiltinMethod(p, cls, mname, true, knownCallable,
+                                             nameTok->line)) {
+                    free(elemCls);
+                    freeToken(nameTok);
+                    freeAST(node);
+                    return NULL;
+                }
+            }
+            free(elemCls);
             if (cls && !clsIsBuiltin) {
                 size_t ln = strlen(cls) + 1 + strlen(nameTok->value) + 1;
                 char *m = (char *)malloc(ln);

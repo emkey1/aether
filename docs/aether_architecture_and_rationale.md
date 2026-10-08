@@ -400,13 +400,15 @@ meaning costs nothing. Decision **D7** replaced it with four classes:
 1. **Accepted with exact meaning; may be taught.** `while`/`for`, the word
    operators, `Float`/`String`, `itoa`, `len`/`.len`, bare `T { ... }` (with
    `new T { ... }` canonical), Text + number (left-to-right stringify),
-   `+= -= *= /= %=`, `Int()`/`Real()`/`Bool()` casts, `exit(n)`; and, decided
-   but not shipped yet, `..=`, `xs.length`, `[v; n]`, `x:.2` and a matching tuple
-   annotation.
+   `+= -= *= /= %=`, `Int()`/`Real()`/`Bool()` casts, `exit(n)`, `xs.length` on
+   an array or Text (W6-05); and, decided but not shipped yet, `..=`, `[v; n]`,
+   `x:.2` and a matching tuple annotation.
 2. **Rejected with a coded diagnostic that names the Aether form.** `elif`,
    `foreach`, `match`/`switch`, `return`/`class`/`import`, comma-separated
-   fields, `Int[N]`, `fn new`; still owed a code or a hint: `++`, the bitwise
-   compound assignments, `.push`/`.size`/`.contains`, `new Int[n]`, lambdas.
+   fields, `Int[N]`, `fn new`, methods on builtin types (`.push`, `.size`,
+   `.contains`, `.toString`, ...: SCOPE-001 with the Aether form, W6-05); still
+   owed a code or a hint: `++`, the bitwise compound assignments, `new Int[n]`,
+   lambdas.
 3. **Never accepted, because it means something different in another
    language.** `//` as division, chained comparisons, `not X == Y`, `{}`/`%d`
    placeholders, `int(Text)`, record `==`, each with its decision row (D45, D32,

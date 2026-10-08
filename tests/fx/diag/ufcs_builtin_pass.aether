@@ -1,0 +1,13 @@
+// W6-05: UFCS of a builtin or a user function on a builtin-typed receiver
+// still works (the value becomes the first argument).
+fn total(xs: Int[]) -> Int {
+    let t: Int = 0;
+    loop x in xs { t = t + x; }
+    ret t;
+}
+fn main() -> Void {
+    let s: Text = "  a,b  ";
+    let n: Int = -5;
+    let xs: Int[] = [1, 2, 3];
+    fx { println(s.trim(), " ", s.trim().split(",")[1], " ", n.abs(), " ", xs.total(), " ", xs.len); }
+}

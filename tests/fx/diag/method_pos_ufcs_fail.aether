@@ -1,0 +1,6 @@
+// W6-05 (D7): a JS/Java/Python method on a builtin-typed receiver is a coded
+// SCOPE-001 whose hint names the Aether form.
+fn main() -> Void {
+    let s: Text = "a,b";
+    fx { println(s.pos(",")); }
+}

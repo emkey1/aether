@@ -87,9 +87,8 @@
    "fixture": "fixtures/dot_length_property.aether",
    "twin": "fixtures/dot_length_property.canon.aether",
    "decided": "D7",
-   "status": "pending",
-   "today": "SCOPE-001",
-   "owner": "W8-17"
+   "status": "holds",
+   "note": "W6-05: lowered to length(recv) when the receiver is positively an array or Text; a record field named length is untouched"
   },
   {
    "id": "bare_record_literal",
@@ -373,12 +372,11 @@
    "spelling": "xs.push(v), xs.append(v)",
    "canonical_form": "xs = xs + [v];",
    "fixture": "fixtures/method_push_append.aether",
-   "code": null,
+   "code": "SCOPE-001",
    "decided": "D7",
-   "status": "pending",
-   "today": "uncoded",
-   "owner": "W6",
-   "note": "today FIELD-002 plus an uncoded record"
+   "status": "holds",
+   "note": "W6-05: was an uncoded FIELD-002 record and a file-less L3 codegen line",
+   "hint": "xs = xs + [v];"
   },
   {
    "id": "method_size_count",
@@ -386,12 +384,11 @@
    "spelling": "xs.size(), xs.count()",
    "canonical_form": "length(xs)",
    "fixture": "fixtures/method_size_count.aether",
-   "code": null,
+   "code": "SCOPE-001",
    "decided": "D7",
-   "status": "pending",
-   "today": "trap",
-   "owner": "W6",
-   "note": "today a run-time 'Undefined global variable'"
+   "status": "holds",
+   "note": "W6-05: was a run-time Undefined global variable",
+   "hint": "length(xs)"
   },
   {
    "id": "method_text_helpers",
@@ -399,12 +396,11 @@
    "spelling": "s.upper(), s.contains(t), n.toString()",
    "canonical_form": "upcase(s), pos(t, s) >= 0, int_to_text(n)",
    "fixture": "fixtures/method_text_helpers.aether",
-   "code": null,
+   "code": "SCOPE-001",
    "decided": "D7",
-   "status": "pending",
-   "today": "trap",
-   "owner": "W6",
-   "note": "today a run-time 'Undefined global variable'"
+   "status": "holds",
+   "note": "W6-05: was a run-time Undefined global variable; s.toUpper() printed the first letter",
+   "hint": "pos(needle, s)"
   },
   {
    "id": "new_sized_array",
@@ -441,8 +437,9 @@
    "code": "FUNC-001",
    "decided": "D37d",
    "status": "pending",
-   "today": "SYN-001",
-   "owner": "W6"
+   "today": "SCOPE-001",
+   "owner": "W6",
+   "note": "W6-05 made `xs.map(x => ...)` a SCOPE-001 (no closures: write a loop); FUNC-001 is still owed for a bare lambda"
   },
   {
    "id": "nested_fn",

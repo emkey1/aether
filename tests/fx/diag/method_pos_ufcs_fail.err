@@ -1,0 +1,4 @@
+Text has no method 'pos'
+pos(needle, s)
+!L3:
+!Runtime

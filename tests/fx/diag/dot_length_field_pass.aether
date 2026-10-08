@@ -1,0 +1,23 @@
+// W6-05 (D7 class 1): `.length` on an array or Text lowers to length(recv) under
+// a positive type guard; record fields named length or len (through a variable,
+// self, an element or a field chain) stay field reads.
+type Seg { length: Int; len: Int; }
+type Path {
+    seg: Seg;
+    length: Int;
+    len: Int;
+    fn describe() -> Int {
+        ret self.length * 100 + self.len;
+    }
+}
+fn main() -> Void {
+    let s: Seg = new Seg { length: 3, len: 4 };
+    let p: Path = new Path { seg: s, length: 5, len: 6 };
+    let rs: Seg[] = [s];
+    let words: Text[] = ["ab", "cde"];
+    fx {
+        println(s.length, " ", s.len, " ", rs[0].length, " ", rs[0].len);
+        println(p.seg.length, " ", p.describe());
+        println(words.length, " ", words[1].length, " ", words.len);
+    }
+}

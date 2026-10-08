@@ -131,6 +131,96 @@ bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surfac
     return true;
 }
 
+/* W6-05 (D7): a method call or property on a builtin-typed receiver. Aether's
+ * builtin types have no methods, and models arrive with JS/Java/Python
+ * spellings: `xs.push(4)` was a file-less "L3: Compiler error: Unknown field
+ * Int[].push", `xs.size()` / `s.contains(t)` / `n.toString()` passed --strict
+ * and died at run time ("Undefined global variable"), `s.toUpper()` printed
+ * the first letter and `t.pos(",")` silently swapped its arguments through
+ * UFCS. The receiver's type must be positively known (a binding, a call's
+ * return type); a user record never reaches here. */
+
+/* Int, Real, Text, Bool (and their accepted spellings) or any array. */
+bool aetherIsBuiltinValueTypeName(const char *t) {
+    if (!t || !*t) return false;
+    if (aetherTypeNameIsArray(t)) return true;
+    return strcmp(t, "Int") == 0 || strcmp(t, "Real") == 0 || strcmp(t, "Text") == 0 ||
+           strcmp(t, "Bool") == 0 || strcmp(t, "Float") == 0 || strcmp(t, "String") == 0;
+}
+
+typedef struct {
+    const char *names; /* space-separated, matched case-insensitively */
+    const char *hint;  /* %s: the receiver type */
+} AetherForeignMethod;
+
+static const char *foreignMethodHint(const char *recvType, const char *m, char *buf, size_t n) {
+    bool isArray = aetherTypeNameIsArray(recvType);
+    bool isText = strcmp(recvType, "Text") == 0 || strcmp(recvType, "String") == 0;
+    bool isInt = strcmp(recvType, "Int") == 0;
+    bool isReal = strcmp(recvType, "Real") == 0 || strcmp(recvType, "Float") == 0;
+    static const AetherForeignMethod table[] = {
+        {" push append add push_back pushback extend ", "append with `xs = xs + [v];`"},
+        {" pop remove clear insert splice shift unshift removeat delete ",
+         "build the new array with a loop, or take a slice `xs[a..b]`"},
+        {" sort sorted ", "there is no sort builtin: sort with a loop (an insertion sort)"},
+        {" reverse reversed ", "reverse with a loop from `length(xs) - 1` down to 0"},
+        {" join ", "there is no join: build the Text in a loop, adding the separator between items"},
+        {" map filter foreach each reduce any all ",
+         "there are no closures: write a `loop x in xs { ... }`"},
+        {" upper lower toupper tolower touppercase tolowercase uppercase lowercase capitalize ",
+         "there is no whole-string case builtin yet: map each character with ord/chr in a loop"},
+        {NULL, NULL}};
+    char key[72];
+    snprintf(key, sizeof(key), " %s ", m);
+    for (char *k = key; *k; k++) *k = (char)tolower((unsigned char)*k);
+    if (strstr(" contains includes indexof index find startswith endswith has ", key)) {
+        return isText ? "use `pos(needle, s)`: -1 when absent, 0 when s starts with it"
+                      : "search with a `loop x in xs { ... }`";
+    }
+    if (strstr(" tostring to_string str tostr totext to_text ", key)) {
+        if (isInt) return "write `int_to_text(n)`";
+        if (isReal) return "write `formatfloat(x, 2)`";
+        return "write `int_to_text(n)` for an Int, `formatfloat(x, 2)` for a Real";
+    }
+    if (strstr(" toint to_int parseint tointeger ", key)) {
+        return isText ? "write `parse_int(t)`" : "write `trunc(x)` or `round(x)`";
+    }
+    if (strstr(" tofloat toreal parsefloat todouble ", key)) return "write `parse_float(t)`";
+    if (strstr(" size count ", key) && (isArray || isText))
+        return isText ? "write `length(s)`" : "write `length(xs)`";
+    for (int i = 0; table[i].names; i++) {
+        if (strstr(table[i].names, key)) {
+            if (!isArray && i <= 5) break; /* array advice on a scalar: generic */
+            return table[i].hint;
+        }
+    }
+    (void)buf;
+    (void)n;
+    return NULL;
+}
+
+bool aetherCheckBuiltinMethod(AetherParser *p, const char *recvType, const char *method,
+                              bool isCall, bool knownCallable, int line) {
+    if (!aetherIsBuiltinValueTypeName(recvType) || !method) return false;
+    char buf[160];
+    const char *hint = foreignMethodHint(recvType, method, buf, sizeof(buf));
+    if (!hint && isCall && strcasecmp(method, "pos") == 0 &&
+        (strcmp(recvType, "Text") == 0 || strcmp(recvType, "String") == 0))
+        hint = "write `pos(needle, s)`: the needle comes first";
+    if (!hint && isCall && knownCallable) return false; /* UFCS: f(recv, args) */
+    if (!hint && isCall)
+        hint = "Aether types have no methods: call a function with the value as an argument";
+    if (!hint && !isCall) return false; /* a property: left to the field-access path */
+    const char *path = aetherSemanticGetSourcePath();
+    if (path && *path) aetherDiagf("%s:%d: ", path, line > 0 ? line : 1);
+    aetherDiagf("[SCOPE-001] Aether method error: %s has no %s '%s'.\n", recvType,
+                isCall ? "method" : "field", method);
+    aetherDiagf("hint: %s.\n", hint);
+    aetherReportGuideHelp("SCOPE-001");
+    p->hadError = true;
+    return true;
+}
+
 /* PAR-001: reject a record shared across par branches before it becomes a
  * concurrent double-free at runtime. Scan this call's argument variables
  * (children[0] is the receiver for a method call); a bare identifier whose
