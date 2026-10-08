@@ -1,0 +1,4 @@
+contract_same_line_fn_fail.aether:3:
+unexpected 'fn' after the @pre expression
+its own line
+!SCOPE-001

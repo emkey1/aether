@@ -1,0 +1,3 @@
+contract_juxtaposed_fail.aether:3:
+unexpected 'result' after the @post expression `result >= 0`
+!50

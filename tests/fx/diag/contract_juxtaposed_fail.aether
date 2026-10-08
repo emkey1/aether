@@ -1,0 +1,11 @@
+// W7-09: two @post clauses written side by side used to enforce only the
+// first; score(50) returned 50 past `result <= 10`.
+@post result >= 0 result <= 10
+fn score(x: Int) -> Int {
+    ret x;
+}
+
+fn main() -> Void {
+    fx { println(score(50)); }
+    ret;
+}

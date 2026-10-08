@@ -1,0 +1,4 @@
+contract_comma_fail.aether:3:
+unexpected ',' after the @pre expression `x > 0`
+join clauses with &&
+!500

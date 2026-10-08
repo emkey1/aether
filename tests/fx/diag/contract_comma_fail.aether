@@ -1,0 +1,11 @@
+// W7-09: a comma between contract clauses used to end the guard at the comma,
+// so only `x > 0` was enforced and clamp(500) returned 500.
+@pre x > 0, x < 100
+fn clamp(x: Int) -> Int {
+    ret x;
+}
+
+fn main() -> Void {
+    fx { println(clamp(500)); }
+    ret;
+}

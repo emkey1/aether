@@ -1,0 +1,11 @@
+// W7-09: a Python-style `in` range test used to parse as the bare `value`
+// guard, which an Int cannot even be; the hint now spells both bounds.
+@pre value in 0..100
+fn pct(value: Int) -> Int {
+    ret value;
+}
+
+fn main() -> Void {
+    fx { println(pct(500)); }
+    ret;
+}

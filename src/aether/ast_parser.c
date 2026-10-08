@@ -3234,6 +3234,87 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     return expr;
 }
 
+/* W7-09: a contract clause must be one whole expression. The guard parse stops
+ * at the first token that cannot continue an expression, so `@pre x > 0, x <
+ * 100` and `@post result >= 0 result <= 10` used to enforce only the first
+ * comparison, and a one-line `@pre ... fn f(...)` attached the rest of the line
+ * to the next function. Trial-parse the clause (stderr muted: a clause that does
+ * not parse at all is reported, as before, by the authoritative guard parse) and
+ * report ANN-001 at the directive line when text is left over. One trailing `;`
+ * is allowed. Returns true when it reported. */
+static bool aetherCheckContractClauseEnd(AetherParser *p, const char *kind,
+                                         const char *text, int line) {
+    if (!text || !*text || p->forwardScan) return false;
+    AetherParser sub;
+    aetherParserInit(&sub, text, p->bindings);
+    sub.currentClassName = p->currentClassName;
+    sub.funcReturns = p->funcReturns;
+    sub.tuples = p->tuples;
+    sub.nextTupleTypeId = p->nextTupleTypeId;
+    sub.classFields = p->classFields;
+    sub.detachedText = true;
+    int diagCount = g_aetherAstDiagCount;
+    int saved = aetherMuteStderr();
+    aetherAdvance(&sub);
+    AST *expr = parseExpr(&sub);
+    aetherUnmuteStderr(saved);
+    g_aetherAstDiagCount = diagCount;
+    bool parsed = expr && !sub.hadError;
+    if (expr) freeAST(expr);
+    if (!parsed) return false;
+    if (sub.current.type == REA_TOKEN_SEMICOLON) aetherAdvance(&sub);
+    if (sub.current.type == REA_TOKEN_EOF) return false;
+
+    const char *rest = sub.current.start ? sub.current.start : "";
+    int restLen = sub.current.length > 0 ? (int)sub.current.length : 0;
+    if (restLen > 24) restLen = 24;
+    size_t headLen = (rest >= text && rest <= text + strlen(text))
+                         ? (size_t)(rest - text) : strlen(text);
+    while (headLen > 0 && isspace((unsigned char)text[headLen - 1])) headLen--;
+    if (headLen > 60) headLen = 60;
+    bool isIn = restLen == 2 && strncmp(rest, "in", 2) == 0;
+    bool isFn = restLen == 2 && strncmp(rest, "fn", 2) == 0;
+    const char *why = isIn ? "Aether has no `in` test"
+                    : isFn ? "an annotation takes its whole line"
+                           : "join clauses with &&";
+    char detail[240];
+    snprintf(detail, sizeof(detail),
+             "unexpected '%.*s' after the @%s expression `%.*s`; %s.",
+             restLen, rest, kind, (int)headLen, text, why);
+    char hint[240];
+    const char *lo = NULL, *dots = NULL;
+    if (isIn) {
+        lo = rest + 2;
+        while (*lo && isspace((unsigned char)*lo)) lo++;
+        dots = strstr(lo, "..");
+    }
+    if (isIn && dots && dots > lo && dots[2] && dots[2] != '=') {
+        const char *hi = dots + 2;
+        while (*hi && isspace((unsigned char)*hi)) hi++;
+        int loLen = (int)(dots - lo), hiLen = (int)strlen(hi);
+        while (loLen > 0 && isspace((unsigned char)lo[loLen - 1])) loLen--;
+        while (hiLen > 0 && (isspace((unsigned char)hi[hiLen - 1]) || hi[hiLen - 1] == ';')) hiLen--;
+        if (loLen > 24) loLen = 24;
+        if (hiLen > 24) hiLen = 24;
+        snprintf(hint, sizeof(hint),
+                 "write `@%s %.*s >= %.*s && %.*s < %.*s` (`a..b` stops before b).",
+                 kind, (int)headLen, text, loLen, lo, (int)headLen, text, hiLen, hi);
+    } else if (isIn) {
+        snprintf(hint, sizeof(hint),
+                 "compare each bound: `@%s value >= 0 && value < 100`.", kind);
+    } else if (isFn) {
+        snprintf(hint, sizeof(hint),
+                 "put the @%s on its own line, directly above the `fn` line.", kind);
+    } else {
+        snprintf(hint, sizeof(hint),
+                 "a contract is one Bool expression: `@%s a && b`, or one @%s per line.",
+                 kind, kind);
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "contract", detail, hint);
+    p->hadError = true;
+    return true;
+}
+
 /* ------------------------------------------------------------------ */
 /* Contract predicate operand type-checking (ANN-001)                  */
 /* ------------------------------------------------------------------ */
@@ -4811,8 +4892,16 @@ static void collectPendingAnnotations(AetherParser *p) {
             }
         }
         if (dlen == 3 && strncmp(d, "pre", 3) == 0) {
+            if (aetherCheckContractClauseEnd(p, "pre", exprText, p->current.line)) {
+                free(exprText);
+                return;
+            }
             p->pending.preExpr = appendContractExprText(p->pending.preExpr, exprText);
         } else if (dlen == 4 && strncmp(d, "post", 4) == 0) {
+            if (aetherCheckContractClauseEnd(p, "post", exprText, p->current.line)) {
+                free(exprText);
+                return;
+            }
             p->pending.postExpr = appendContractExprText(p->pending.postExpr, exprText);
         } else if (dlen == 4 && strncmp(d, "pure", 4) == 0) {
             /* @pure has no codegen, but the fact is recorded on the upcoming fn

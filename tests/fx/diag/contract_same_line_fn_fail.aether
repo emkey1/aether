@@ -1,0 +1,8 @@
+// W7-09: an annotation and its fn on one line used to swallow the fn into the
+// contract text and report a misplaced SCOPE-001 against the next function.
+@pre x > 0 fn half(x: Int) -> Int { ret x div 2; }
+
+fn main() -> Void {
+    fx { println(half(8)); }
+    ret;
+}

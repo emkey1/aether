@@ -1,0 +1,4 @@
+contract_in_range_fail.aether:3:
+Aether has no `in` test
+`@pre value >= 0 && value < 100`
+!500
