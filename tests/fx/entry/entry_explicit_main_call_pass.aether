@@ -1,0 +1,9 @@
+// W4-05 (D16): top-level statements plus fn main are fine when the file calls
+// main itself; it runs once, where the call stands.
+let greeting: Text = "hi";
+fx { println("top ", greeting); }
+fn main() -> Void {
+    fx { println("main"); }
+}
+main();
+fx { println("after"); }

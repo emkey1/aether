@@ -1,0 +1,5 @@
+// W4-05 (D16): a module file (it declares a `mod`) still compiles and runs
+// directly, printing nothing: it is meant to be `use`d, so it is not ENTRY-001.
+mod Helpers {
+    export fn double(n: Int) -> Int { ret n * 2; }
+}

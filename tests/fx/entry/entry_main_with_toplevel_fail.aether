@@ -1,0 +1,7 @@
+// W4-05 (D16): a top-level statement beside fn main used to keep main from
+// running at all (exit 0, only "top" printed). Now ENTRY-001 at the statement.
+let greeting: Text = "hi";
+fx { println("top"); }
+fn main() -> Void {
+    fx { println("main"); }
+}

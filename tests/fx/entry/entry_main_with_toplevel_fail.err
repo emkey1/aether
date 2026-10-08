@@ -1,0 +1,3 @@
+entry_main_with_toplevel_fail.aether:4: [ENTRY-001]
+fn main will not run
+end the file with `main();`

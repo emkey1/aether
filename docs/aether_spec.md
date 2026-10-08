@@ -214,7 +214,8 @@ Annotation = "@pre" Expr | "@post" Expr | "@pure" | "@cost" Int [ Ident ] ;
 
 A program is its items in order. If it declares `fn main`, `main` is the entry
 point; if it has top-level statements and no `main`, they run in order (script
-mode). A file with both is decision D16 (§5). Declarations may appear in any
+mode). A file with both must call `main();` itself, or it is rejected with
+ENTRY-001 (decision D16, §5). Declarations may appear in any
 order. An annotation takes the rest of its
 line and attaches to the next `fn`.
 
@@ -1647,30 +1648,35 @@ a
 
 ## 5. Program structure and modules (stub)
 
-To be written: entry points, script mode, module files and name visibility.
-Open rows:
+To be written: module files and name visibility. Rows:
 
-- **D16**, entry point: ENTRY-001 for a file with declarations and no entry,
-  among others. Script mode stays legal. Today a declaration-only file runs and
-  prints nothing, and a top-level statement other than a `let` keeps `main`
-  from running at all.
+- **D16**, entry point (shipped): ENTRY-001 for an empty file, a file with
+  neither `fn main` nor a top-level statement, a `fn main` beside top-level
+  statements that never call it, and a `fn main` that takes parameters or
+  returns something other than `Void` or `Int`. Script mode (top-level
+  statements, no `fn main`) stays legal, and so does calling `main();` from
+  the top level.
 - **D25**, imports: IMP-001 when a module is missing. Today a missing module is
   ignored.
 
-```aether @bug=D16 now=ok id=P.entry.1
+```aether @reject=ENTRY-001 id=P.entry.1
 fn helper() -> Int { ret 1; }
 ```
 
-```text
-```
-
-```aether @bug=D16 now=ok id=P.entry.2
+```aether @reject=ENTRY-001 id=P.entry.2
 fx { println("top"); }
 fn main() -> Void { fx { println("main"); } }
 ```
 
+```aether @ok id=P.entry.3
+fx { println("top"); }
+fn main() -> Void { fx { println("main"); } }
+main();
+```
+
 ```text
 top
+main
 ```
 
 A qualified call to a name the module does not export fails without a code

@@ -1,0 +1,2 @@
+nothing to run: no `fn main` and no top-level statements
+add `fn main() -> Void { ... }`

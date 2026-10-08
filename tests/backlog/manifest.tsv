@@ -10,7 +10,6 @@ div_int_to_text	uncoded-runtime	W4-19	-	int_to_text(a / b) is an uncoded IntToSt
 const_case_alias	silent:3 3	W4-22	-	names ignore case: `let limit` overwrites `const LIMIT`
 param_case_shadow	silent:5	W4-22	-	parameter `limit` answers to `LIMIT`
 loop_var_outer	silent:0	W4-22	-	a loop variable named like a let leaves the let at 0
-main_with_toplevel	silent:top	W4-05	-	a top-level statement beside fn main suppresses main
 upcase_text	silent:R	W4-45	full:868	upcase takes the first code point
 toon_bool	silent:1	W4-09	small:105,medium:337,full:254	TOON Bool getters print 1
 record_eq	silent:differ	W4-20	medium:339,full:282	record == compares identity

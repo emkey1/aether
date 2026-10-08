@@ -1,0 +1,6 @@
+// W4-05 (D16): a file of declarations with no fn main and no top-level
+// statements used to compile and run nothing (exit 0). Now ENTRY-001.
+fn run() -> Void {
+    fx { println("never"); }
+}
+let limit: Int = 3;

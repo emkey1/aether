@@ -6240,8 +6240,42 @@ static void aetherImportTypeSink(void *ctxv, const char *name, const char *aethe
     }
 }
 
+/* Does this top-level subtree call the routine named `main` (bare, at any
+ * depth: inside fx, if, loop or an argument)? Used by the entry-point rule. */
+static bool aetherSubtreeCallsMain(const AST *n) {
+    if (!n) return false;
+    if (n->type == AST_PROCEDURE_CALL && n->token && n->token->value &&
+        strcasecmp(n->token->value, "main") == 0) {
+        return true;
+    }
+    if (aetherSubtreeCallsMain(n->left) || aetherSubtreeCallsMain(n->right) ||
+        aetherSubtreeCallsMain(n->extra)) {
+        return true;
+    }
+    for (int i = 0; i < n->child_count; i++) {
+        if (aetherSubtreeCallsMain(n->children[i])) return true;
+    }
+    return false;
+}
+
+#define AETHER_ENTRY_NOTHING_HINT \
+    "add `fn main() -> Void { ... }`: a file run as a program needs an entry point."
+
 AST *parseAetherAst(const char *rawSource) {
     if (!rawSource) return NULL;
+
+    /* Entry-point rule (D16), empty file: an entry file with nothing but
+     * whitespace used to exit 1 with no message at all. A `use`d module file
+     * keeps its old handling. */
+    if (!reaFrontendIsParsingLibraryFile()) {
+        const char *c = rawSource;
+        while (*c == ' ' || *c == '\t' || *c == '\n' || *c == '\r' || *c == '\f' || *c == '\v') c++;
+        if (*c == '\0') {
+            reportAetherAstErrorWithCode(1, "ENTRY-001", "nothing to run: the file is empty.",
+                                         AETHER_ENTRY_NOTHING_HINT);
+            return NULL;
+        }
+    }
 
     /* TOON pre-pass: lower `toon:` blocks to escaped string literals before the
      * lexer runs. This (and the two pre-passes below) live in ast_prepasses.c,
@@ -6329,6 +6363,9 @@ AST *parseAetherAst(const char *rawSource) {
 
     bool has_executable_stmt = false;
     bool stmtIsLet = false;
+    int firstStmtLine = 0;
+    int stmtLine = 0;
+    bool has_module_decl = false;
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
         /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
         collectPendingAnnotations(&p);
@@ -6358,12 +6395,14 @@ AST *parseAetherAst(const char *rawSource) {
             decl = parseUse(&p);                 /* `use X;` -> AST_USES_CLAUSE */
         } else if (aetherIsModKeyword(&p)) {
             decl = parseModuleDecl(&p);          /* `mod X { ... }` -> AST_MODULE */
+            has_module_decl = true;
         } else {
             /* Bare top-level statement: a script-style program with no explicit
              * `fn main`. parseStatement parses it; appendTopLevelDecl routes
              * var/const to globals and executable statements to the program body
              * (stmts), matching the rewriter's implicit-main wrapping. */
             stmtIsLet = isAetherKeyword(&p.current, "let");
+            stmtLine = p.current.line;
             decl = parseStatement(&p);
         }
         if (!decl) {
@@ -6376,7 +6415,10 @@ AST *parseAetherAst(const char *rawSource) {
          * lowering splices statements after the decl (the un-alias setlength,
          * concat steps, tuple and object-literal field stores): only a
          * statement the program wrote counts as executable. */
-        if (!stmtIsLet && stmts->child_count > stmtsBefore) has_executable_stmt = true;
+        if (!stmtIsLet && stmts->child_count > stmtsBefore) {
+            if (!has_executable_stmt) firstStmtLine = stmtLine;
+            has_executable_stmt = true;
+        }
         stmtIsLet = false;
     }
 
@@ -6458,12 +6500,14 @@ AST *parseAetherAst(const char *rawSource) {
     bool has_main = false;
     bool mainIsInt = false;
     VarType mainType = TYPE_VOID;
+    AST *mainDecl = NULL;
     for (int i = 0; i < decls->child_count; i++) {
         AST *d = decls->children[i];
         if (!d) continue;
         if ((d->type == AST_FUNCTION_DECL || d->type == AST_PROCEDURE_DECL) &&
             d->token && d->token->value && strcasecmp(d->token->value, "main") == 0) {
             has_main = true;
+            mainDecl = d;
             if (d->type == AST_FUNCTION_DECL &&
                 (d->var_type == TYPE_INT64 || d->var_type == TYPE_INT32 ||
                  d->var_type == TYPE_INTEGER)) {
@@ -6475,7 +6519,54 @@ AST *parseAetherAst(const char *rawSource) {
     /* A top-level `let` sits in `stmts` to keep its position, but it is a
      * declaration, not user code -- a file that is nothing but bindings and a
      * `fn main` still needs the implicit call. has_executable_stmt is set in
-     * the parse loop above, which knows which statements a `let` produced. */
+     * the parse loop above, which knows which statements a `let` produced.
+     *
+     * Entry-point rule (D16, ENTRY-001; this diverges from rea parseRea, which
+     * stays silent): a program that would run nothing, or would skip main, is
+     * rejected. Script mode -- top-level statements and no `fn main` -- stays
+     * legal. */
+    {
+        const char *entryMsg = NULL;
+        const char *entryHint = NULL;
+        int entryLine = 1;
+        if (mainDecl) {
+            int mainLine = mainDecl->token ? mainDecl->token->line : 1;
+            if (mainDecl->child_count > 0) {
+                entryMsg = "fn main takes no parameters.";
+                entryHint = "write `fn main() -> Void`; read command-line arguments with "
+                            "paramcount() and paramstr(i).";
+                entryLine = mainLine;
+            } else if (mainDecl->type == AST_FUNCTION_DECL && !mainIsInt) {
+                entryMsg = "fn main must return Void or Int.";
+                entryHint = "write `fn main() -> Void`, or `fn main() -> Int` to set the exit status.";
+                entryLine = mainLine;
+            }
+        }
+        if (!entryMsg && has_main && has_executable_stmt) {
+            bool callsMain = false;
+            for (int i = 0; i < stmts->child_count && !callsMain; i++) {
+                callsMain = aetherSubtreeCallsMain(stmts->children[i]);
+            }
+            if (!callsMain) {
+                entryMsg = "fn main will not run: this file also has top-level statements "
+                           "(this line is the first).";
+                entryHint = "move the top-level statements into main, or end the file with `main();`.";
+                entryLine = firstStmtLine;
+            }
+        }
+        /* A file that declares a `mod` is a module file: compiled directly it
+         * has nothing to run, and that is not a mistake (it is meant to be
+         * `use`d), so it keeps compiling. */
+        if (!entryMsg && !has_main && !has_executable_stmt && !has_module_decl) {
+            entryMsg = "nothing to run: no `fn main` and no top-level statements.";
+            entryHint = AETHER_ENTRY_NOTHING_HINT;
+        }
+        if (entryMsg) {
+            reportAetherAstErrorWithCode(entryLine, "ENTRY-001", entryMsg, entryHint);
+            freeAST(program);
+            return NULL;
+        }
+    }
     if (!has_executable_stmt && has_main) {
         Token *mainTok = newToken(TOKEN_IDENTIFIER, "main", 0, 0);
         AST *call = newASTNode(AST_PROCEDURE_CALL, mainTok);

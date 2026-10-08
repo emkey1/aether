@@ -1,0 +1,6 @@
+// W4-05 (D16): fn main returning something other than Void or Int used to run
+// and drop the value (exit 0). Now ENTRY-001 at main.
+fn main() -> Text {
+    fx { println("main"); }
+    ret "done";
+}

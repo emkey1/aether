@@ -1,0 +1,3 @@
+entry_main_params_fail.aether:3: [ENTRY-001]
+fn main takes no parameters
+paramstr(i)

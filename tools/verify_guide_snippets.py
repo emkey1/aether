@@ -10,7 +10,8 @@ Usage:
 
 Every block is compiled with `aether --no-cache --no-run --diagnostics-json`
 ($AETHER_BIN, default build/aether). Fragments are wrapped in a function over
-the CONTEXT prelude below, and declaration-only blocks get a trivial `main`.
+the CONTEXT prelude below, and declaration blocks get a trivial `main` and a
+top-level `main();` call.
 The stub modules in tests/guide_modules/ sit next to every compiled block, so
 `use "score_utils";` or `use "geometry";` resolves and its calls are checked.
 The run fails (exit 1) on any of:
@@ -159,6 +160,10 @@ fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           tx: Tx) -> Void {
 """
 MAIN = "\nfn main() -> Void {\n    ret;\n}\n"
+# A declaration block may also hold top-level statements (script mode); the
+# trivial main is then called explicitly, since a `fn main` beside top-level
+# statements that never call it is ENTRY-001 (decision D16).
+MAIN_CALLED = MAIN + "main();\n"
 
 
 def parse_blocks(path):
@@ -215,7 +220,7 @@ def wrap(src):
     if re.search(r"\bfn\s+main\s*\(", src):
         return "whole", src
     if re.search(r"^\s*(fn|type|mod|use|const|@)", src, re.M):
-        return "decl", src + "\n" + MAIN
+        return "decl", src + "\n" + MAIN_CALLED
     body = "\n".join("    " + x for x in src.split("\n"))
     return "frag", CONTEXT + body + "\n    ret;\n}\n" + MAIN
 

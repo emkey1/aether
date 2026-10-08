@@ -1,0 +1,5 @@
+// W4-05 (D16): fn main with parameters used to fail with an uncoded line-0
+// "Not enough arguments for 'main'". Now ENTRY-001 at main.
+fn main(args: Text[]) -> Void {
+    fx { println(len(args)); }
+}

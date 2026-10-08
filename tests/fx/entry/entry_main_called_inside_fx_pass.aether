@@ -1,0 +1,9 @@
+// W4-05 (D16): a call to main nested in a top-level block counts too.
+let ready: Bool = true;
+fn main() -> Void {
+    fx { println("main"); }
+}
+fx {
+    println("top");
+    if ready { main(); }
+}

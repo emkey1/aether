@@ -1,0 +1,2 @@
+entry_main_returns_text_fail.aether:3: [ENTRY-001]
+fn main must return Void or Int
