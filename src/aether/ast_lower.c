@@ -1239,10 +1239,15 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     /* Optional type annotation: `let (a, b): (T0, T1) = ...`. The rewriter accepts
      * and ignores it (the slot globals below carry the real per-item types); skip
      * from ':' to the '=' so the assignment check still fires. */
+    const char *annStart = NULL, *annEnd = NULL;
+    int annLine = kwLine;
     if (p->current.type == REA_TOKEN_COLON) {
         aetherAdvance(p); /* consume ':' */
+        annStart = p->current.start;
+        annLine = p->current.line;
         while (p->current.type != REA_TOKEN_EQUAL && p->current.type != REA_TOKEN_EOF &&
                p->current.type != REA_TOKEN_SEMICOLON) {
+            annEnd = p->current.start + p->current.length;
             aetherAdvance(p);
         }
     }
@@ -1284,6 +1289,31 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         p->hadError = true;
         for (size_t i = 0; i < nameCount; i++) free(names[i]);
         return NULL;
+    }
+    /* W4-25: the `: (T0, T1)` annotation used to be skipped unread, so
+     * `let (name, n): (Text, Int) = info();` against `-> (Int, Text)` compiled
+     * and printed the fields swapped. Check it item by item. */
+    if (annStart && annEnd && annEnd > annStart) {
+        char **ann = NULL;
+        size_t annCount = 0;
+        bool parsed = aetherParseTupleTypeList(annStart, annEnd, &ann, &annCount);
+        if (!parsed || !aetherTupleItemsMatch(ann, annCount, sig->itemTypes, sig->itemCount)) {
+            char have[160], want[160], detail[400];
+            aetherFormatTupleItems(sig->itemTypes, sig->itemCount, want, sizeof(want));
+            if (parsed) aetherFormatTupleItems(ann, annCount, have, sizeof(have));
+            else snprintf(have, sizeof(have), "%.*s", (int)(annEnd - annStart), annStart);
+            snprintf(detail, sizeof(detail),
+                     "the annotation %s does not match %s()'s return type %s.", have,
+                     calleeName, want);
+            reportAetherAstError(aetherSemanticGetSourcePath(), annLine, "tuple", detail,
+                                 "drop the annotation (`let (a, b) = f();`) or match the "
+                                 "fn's return type");
+            p->hadError = true;
+            if (parsed) aetherFreeTupleItems(ann, annCount);
+            for (size_t i = 0; i < nameCount; i++) free(names[i]);
+            return NULL;
+        }
+        aetherFreeTupleItems(ann, annCount);
     }
     /* Parse the call as a full expression (handles args), yielding a
      * PROCEDURE_CALL we use as a statement. */

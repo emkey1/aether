@@ -1,0 +1,6 @@
+// W4-25 (D53): a tuple parameter type was a generic SYN-001 that cascaded
+// into a false "must declare an explicit return type".
+fn show(p: (Int, Int)) -> Void {
+    fx { println(p.0); }
+}
+fn main() -> Void { }

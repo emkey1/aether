@@ -1,0 +1,7 @@
+// W4-25: two destructurings on one line used to collide on one temp name
+// ("duplicate variable __aether_tupdest_<line>").
+fn p2() -> (Int, Int) { ret (1, 2); }
+fn main() -> Void {
+    let (a, b) = p2(); let (c, d): (Int, Int) = p2();
+    fx { println(a, b, c, d); }
+}

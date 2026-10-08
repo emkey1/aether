@@ -375,14 +375,28 @@ fn one() -> (Int) { ret 1; }
 fn main() -> Void { }
 ```
 
-A tuple type is written only as a return type; decision D7 also accepts a
-matching annotation on a binding, which today is rejected:
+A tuple type is written only as a return type (D53). A single-name binding may
+carry a tuple annotation when its initializer is a direct call to a tuple fn and
+the annotation matches that fn's return type item by item (D7 class 1); a
+destructuring annotation is checked the same way. A tuple type anywhere else (a
+parameter, a field, an array element), a mismatched annotation and tuple
+assignment `(a, b) = f();` are TUP-001.
 
-```aether @bug=D7 now=SYN-001 id=G.TupleType.3
+```aether @ok id=G.TupleType.3
 fn pair() -> (Int, Int) { ret (1, 2); }
 fn main() -> Void {
     let t: (Int, Int) = pair();
+    fx { println(t.0, t.1); }
 }
+```
+
+```text
+12
+```
+
+```aether @reject=TUP-001 id=G.TupleType.4
+fn show(p: (Int, Int)) -> Void { }
+fn main() -> Void { }
 ```
 
 ```aether @ok id=G.Annotation.1

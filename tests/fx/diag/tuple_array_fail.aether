@@ -1,0 +1,4 @@
+// W4-25 (D53): an array of tuples (9 mined parse failures in 5 families).
+fn main() -> Void {
+    let xs: (Int, Bool)[] = [];
+}

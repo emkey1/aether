@@ -333,6 +333,14 @@ bool aetherCheckParSharedRecords(AetherParser *p, AST *call, int handle, int cal
 bool astHasValueReturn(const AST *node);
 bool astBlockHasFallthroughStmt(const AST *block);
 int aetherCheckMemberCalls(AST *node, AST *decls);
+
+/* ---- Tuple annotations (ast_parser.c, W4-25) ------------------------- */
+
+bool aetherParseTupleTypeList(const char *start, const char *end, char ***outItems,
+                              size_t *outCount);
+bool aetherTupleItemsMatch(char **ann, size_t annCount, char **sig, size_t sigCount);
+const char *aetherFormatTupleItems(char **items, size_t count, char *buf, size_t n);
+void aetherFreeTupleItems(char **items, size_t count);
 bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surface, int line);
 bool aetherIsBuiltinValueTypeName(const char *t);
 bool aetherCheckBuiltinMethod(AetherParser *p, const char *recvType, const char *method,

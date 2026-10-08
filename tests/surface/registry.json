@@ -188,9 +188,8 @@
    "fixture": "fixtures/tuple_annotation.aether",
    "twin": "fixtures/tuple_annotation.canon.aether",
    "decided": "D7",
-   "status": "pending",
-   "today": "SYN-001",
-   "owner": "W4"
+   "status": "holds",
+   "note": "W4-25: accepted when it matches the tuple fn item by item; TUP-001 otherwise"
   },
   {
    "id": "repeat_literal",

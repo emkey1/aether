@@ -1,0 +1,9 @@
+// W4-25 (D53, D7 class 1): a single-name annotation that matches the tuple
+// fn is accepted, `Float` spelling and `[]` items included.
+fn stats(xs: Real[]) -> (Int, Real[]) { ret (length(xs), xs); }
+fn pair() -> (Int, Text) { ret (7, "x"); }
+fn main() -> Void {
+    let s: (Int, Float[]) = stats([1.5, 2.5]);
+    let p: (Int, Text) = pair();
+    fx { println(s.0, " ", s.1[1], " ", p.0, p.1); }
+}

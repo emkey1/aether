@@ -1,0 +1,4 @@
+the annotation (Text, Int) does not match info()'s return type (Int, Text)
+bind without an annotation: `let t = f();`
+!SYN-001
+!explicit return type

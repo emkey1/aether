@@ -1,0 +1,8 @@
+// W4-25: tuple assignment was a generic SYN-001.
+fn step(j: Int) -> (Int, Int) { ret (j * 2, j + 1); }
+fn main() -> Void {
+    let v: Int = 0;
+    let j: Int = 1;
+    (v, j) = step(j);
+    fx { println(v, j); }
+}

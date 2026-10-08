@@ -1,0 +1,7 @@
+// W4-25: the destructuring annotation was skipped unread, so this printed the
+// fields swapped ("3! abc1"). It is checked item by item now.
+fn info() -> (Int, Text) { ret (3, "abc"); }
+fn main() -> Void {
+    let (name, n): (Text, Int) = info();
+    fx { println(n, "! ", name); }
+}

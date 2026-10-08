@@ -1,0 +1,5 @@
+// W4-25 (D53): a tuple record field.
+type Edge {
+    ends: (Int, Int);
+}
+fn main() -> Void { }

@@ -3935,6 +3935,8 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     VarType vtype = TYPE_UNKNOWN;
     char *declaredTypeName = NULL; /* Aether type name for binding + obj-init    */
     bool explicitType = false;
+    char **tupleAnnItems = NULL;   /* W4-25: a `: (A, B)` annotation's items     */
+    size_t tupleAnnCount = 0;
     if (p->current.type == REA_TOKEN_COLON) {
         explicitType = true;
         aetherAdvance(p); /* consume ':' */
@@ -3946,8 +3948,42 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             freeToken(nameTok);
             return NULL;
         }
-        typeNode = parseTypeWithArraySuffix(p, &vtype, &declaredTypeName);
-        if (!typeNode) { freeToken(nameTok); free(declaredTypeName); return NULL; }
+        if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+            /* W4-25 (D53): `let t: (A, B) = f();`. Accepted when it matches the
+             * tuple fn's return type item by item (checked once the initializer
+             * is parsed); the binding is then the inferred one. */
+            const char *ts = p->current.start;
+            const char *te = ts;
+            int depth = 0;
+            while (*te && *te != '\n') {
+                if (*te == '(') depth++;
+                else if (*te == ')' && --depth == 0) { te++; break; }
+                te++;
+            }
+            const char *after = te;
+            while (*after == ' ' || *after == '\t') after++;
+            if (depth != 0 || *after == '[' ||
+                !aetherParseTupleTypeList(ts, te, &tupleAnnItems, &tupleAnnCount)) {
+                reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "tuple",
+                        *after == '[' ? "tuple types are return types only; an array "
+                                        "element cannot be a tuple."
+                                      : "this tuple type annotation is not a list of types.",
+                        *after == '[' ? "use a record: `type Pair { a: Int; b: Int; }`, "
+                                        "then `Pair[]`"
+                                      : "bind without an annotation: `let t = f();`");
+                p->hadError = true;
+                freeToken(nameTok);
+                return NULL;
+            }
+            p->lexer.pos = (size_t)(te - p->lexer.source);
+            p->queueHead = 0;
+            p->queueCount = 0;
+            aetherAdvance(p);
+            explicitType = false;
+        } else {
+            typeNode = parseTypeWithArraySuffix(p, &vtype, &declaredTypeName);
+            if (!typeNode) { freeToken(nameTok); free(declaredTypeName); return NULL; }
+        }
     }
 
     AST *init = NULL;
@@ -4221,6 +4257,40 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
      * variable of the synthesized tuple record type (bindingTableSet below
      * records that type name, same as any other let), and later `v.0`/`v.1`
      * read its slots with compile-time bounds checking. */
+
+    if (tupleAnnItems) {
+        /* W4-25: the annotation must name a direct call to a tuple fn, and
+         * match its return type item by item. */
+        const AetherTupleSig *sig = NULL;
+        if (init && init->type == AST_PROCEDURE_CALL && init->token && init->token->value)
+            sig = tupleTableGet(p->tuples, init->token->value, strlen(init->token->value));
+        bool ok = sig && aetherTupleItemsMatch(tupleAnnItems, tupleAnnCount, sig->itemTypes,
+                                               sig->itemCount);
+        if (!ok) {
+            char ann[160], want[160], detail[400];
+            aetherFormatTupleItems(tupleAnnItems, tupleAnnCount, ann, sizeof(ann));
+            if (sig) {
+                aetherFormatTupleItems(sig->itemTypes, sig->itemCount, want, sizeof(want));
+                snprintf(detail, sizeof(detail),
+                         "the annotation %s does not match %s()'s return type %s.", ann,
+                         init->token->value, want);
+            } else {
+                snprintf(detail, sizeof(detail),
+                         "a tuple annotation %s needs a direct call to a tuple-returning fn.",
+                         ann);
+            }
+            reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "tuple", detail,
+                                 "bind without an annotation: `let t = f();`, then read "
+                                 "`t.0`, `t.1`");
+            p->hadError = true;
+            aetherFreeTupleItems(tupleAnnItems, tupleAnnCount);
+            freeToken(nameTok);
+            if (init) freeAST(init);
+            return NULL;
+        }
+        aetherFreeTupleItems(tupleAnnItems, tupleAnnCount);
+        tupleAnnItems = NULL;
+    }
 
     /* Inferred type: derive from the initializer, like the rewriter. */
     if (!explicitType) {
@@ -4749,6 +4819,33 @@ static AST *parseStatementInner(AetherParser *p) {
         /* `fx` with no following block: a no-op block. */
         return newASTNode(AST_COMPOUND, NULL);
     }
+    /* `(a, b) = step(j);`: tuple assignment. Aether destructures only into
+     * fresh names; this was a generic SYN-001 (W4-25). */
+    if (p->current.type == REA_TOKEN_LEFT_PAREN && p->current.start) {
+        const char *c = p->current.start + 1;
+        int names = 0;
+        for (;;) {
+            while (*c == ' ' || *c == '\t') c++;
+            if (!(isalpha((unsigned char)*c) || *c == '_')) break;
+            while (isalnum((unsigned char)*c) || *c == '_') c++;
+            names++;
+            while (*c == ' ' || *c == '\t') c++;
+            if (*c != ',') break;
+            c++;
+        }
+        if (names >= 2 && *c == ')') {
+            c++;
+            while (*c == ' ' || *c == '\t') c++;
+            if (c[0] == '=' && c[1] != '=') {
+                reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "tuple",
+                        "Aether has no tuple assignment.",
+                        "destructure into fresh names, `let (a2, b2) = f();`, then assign "
+                        "`a = a2;`");
+                p->hadError = true;
+                return NULL;
+            }
+        }
+    }
     if (isAetherKeyword(&p->current, "let")) {
         int kwLine = p->current.line;
         aetherAdvance(p); /* consume 'let' */
@@ -5173,6 +5270,60 @@ static bool parseTupleTypeList(const char *start, const char *end,
     return true;
 }
 
+/* W4-25: tuple annotations. Exported wrapper over parseTupleTypeList. */
+bool aetherParseTupleTypeList(const char *start, const char *end, char ***outItems,
+                              size_t *outCount) {
+    return parseTupleTypeList(start, end, outItems, outCount);
+}
+
+/* One annotated tuple item against a signature item: same name, or two
+ * spellings of one builtin type (`Float` / `Real`), with the same `[]` rank. */
+static bool aetherTupleItemMatches(const char *a, const char *b) {
+    if (!a || !b) return false;
+    if (strcasecmp(a, b) == 0) return true;
+    int ra = aetherTypeNameRank(a), rb = aetherTypeNameRank(b);
+    if (ra != rb) return false;
+    size_t la = strlen(a) - 2 * (size_t)ra, lb = strlen(b) - 2 * (size_t)rb;
+    VarType va = TYPE_UNKNOWN, vb = TYPE_UNKNOWN;
+    const char *na = NULL, *nb = NULL;
+    return mapAetherType(a, la, &na, &va) && mapAetherType(b, lb, &nb, &vb) && va == vb;
+}
+
+bool aetherTupleItemsMatch(char **ann, size_t annCount, char **sig, size_t sigCount) {
+    if (annCount != sigCount) return false;
+    for (size_t i = 0; i < annCount; i++)
+        if (!aetherTupleItemMatches(ann[i], sig[i])) return false;
+    return true;
+}
+
+/* "(Int, Text)" into buf. */
+const char *aetherFormatTupleItems(char **items, size_t count, char *buf, size_t n) {
+    size_t used = (size_t)snprintf(buf, n, "(");
+    for (size_t i = 0; i < count && used < n; i++)
+        used += (size_t)snprintf(buf + used, n - used, "%s%s", i ? ", " : "", items[i]);
+    if (used < n) snprintf(buf + used, n - used, ")");
+    return buf;
+}
+
+void aetherFreeTupleItems(char **items, size_t count) {
+    for (size_t i = 0; i < count; i++) free(items[i]);
+    free(items);
+}
+
+/* A tuple type where only a return type may have one: a parameter, a record
+ * field, an array element. TUP-001 instead of a generic SYN-001 (and, for a
+ * parameter, the cascade into "must declare an explicit return type"). */
+static bool aetherRejectTupleTypeHere(AetherParser *p, const char *where) {
+    if (p->current.type != REA_TOKEN_LEFT_PAREN) return false;
+    char detail[160];
+    snprintf(detail, sizeof(detail),
+             "tuple types are return types only; a %s cannot have one.", where);
+    reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "tuple", detail,
+                         "use a record: `type Pair { a: Int; b: Int; }`, then `Pair` here");
+    p->hadError = true;
+    return true;
+}
+
 /* Advance the lexer past the remainder of the physical line that contains
  * `p->current` (used after capturing an `@`-annotation's raw expression text).
  * Resets the token FIFO and re-primes `current` on the next line. */
@@ -5470,6 +5621,7 @@ static AST *parseFnDecl(AetherParser *p) {
         }
         VarType pvtype = TYPE_UNKNOWN;
         char *pAetherType = NULL;
+        if (aetherRejectTupleTypeHere(p, "parameter")) { freeToken(paramNameTok); break; }
         AST *ptypeNode = parseTypeWithArraySuffix(p, &pvtype, &pAetherType);
         if (!ptypeNode) { freeToken(paramNameTok); free(pAetherType); p->hadError = true; break; }
         /* Bind the param's name -> its Aether type name so body inference resolves it
@@ -6237,6 +6389,7 @@ static AST *parseTypeDecl(AetherParser *p) {
                 }
                 aetherAdvance(p); /* consume ':' */
                 VarType fvtype = TYPE_UNKNOWN;
+                if (aetherRejectTupleTypeHere(p, "record field")) { freeToken(fieldTok); break; }
                 AST *ftypeNode = parseTypeWithArraySuffix(p, &fvtype, NULL);
                 if (!ftypeNode) { freeToken(fieldTok); p->hadError = true; break; }
                 AST *fieldVar = newASTNode(AST_VARIABLE, fieldTok);

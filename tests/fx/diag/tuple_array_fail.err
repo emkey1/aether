@@ -1,0 +1,4 @@
+an array element cannot be a tuple
+then `Pair[]`
+!SYN-001
+!explicit return type

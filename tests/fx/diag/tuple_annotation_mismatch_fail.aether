@@ -1,0 +1,6 @@
+// W4-25 (D53): an annotation on a single name must match the fn.
+fn info() -> (Int, Text) { ret (3, "abc"); }
+fn main() -> Void {
+    let t: (Text, Int) = info();
+    fx { println(t.0); }
+}

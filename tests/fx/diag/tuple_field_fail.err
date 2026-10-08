@@ -1,0 +1,4 @@
+a record field cannot have one
+use a record
+!SYN-001
+!explicit return type

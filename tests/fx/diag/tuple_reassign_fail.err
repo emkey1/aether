@@ -1,0 +1,4 @@
+Aether has no tuple assignment
+`let (a2, b2) = f();`
+!SYN-001
+!explicit return type
