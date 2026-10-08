@@ -19,8 +19,6 @@ bool_from_int	silent:true	W4-17	-	`let b: Bool = 5` is accepted
 bool_from_int_ret	silent:7	W4-17	-	`ret 7` from -> Bool prints 7
 flow001_tail_ret	silent:nil|	W4-04	full:83,medium:83,small:64	classify with no tail ret returns nil
 flow001_int_fallthrough	silent:nil	W4-04	full:83,medium:83,small:64	a -> Int fallthrough returns nil
-init_never_runs	silent:0	W4-10	full:121,medium:121,small:208	fn __init__ compiles and never runs
-int_cast_call	fails:SCOPE-001	W4-10	full:191,full:738,medium:192	`Int(x)` in a typed let is SCOPE-001 although the guides accept it
 open_slice	fails:SYN-001	W4-35	full:1270	open-ended slices do not parse
 new_sized_array	fails:SYN-001	W4-28	-	SYN-001 with a misleading empty-index hint; the class cannot see the hint
 cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped)

@@ -956,6 +956,15 @@ and that `new` / `__init__` / `Type.new()` are not constructor forms. Still to d
 if desired: targeted diagnostics for the *call-site* forms `C.new()` and
 `fn __init__` (currently `expected a class name after 'new'` / `[SYN-001]`).
 
+**`fn __init__` done (W4-10).** A well-formed `fn __init__(...) -> Void` inside a
+type used to compile as an ordinary method that nothing calls (the object stayed
+zero-valued, exit 0), and the Python spelling without `->` got the return-type
+hint, which led straight into that silent form. Any `fn __init__` is now SYN-001
+with the constructor hint, before the signature is read. `init` and
+`constructor` stay legal method names. Regressions:
+`tests/fx/diag/dunder_init_fail`, `dunder_init_python_form_fail`,
+`tests/fx/basic/method_named_init_pass`. `C.new()` is still open.
+
 **Guide section added (2026-06-30, docs-only — no VERSION bump).** Both guides now
 carry a dedicated *Constructing records and typing bindings* section that shows
 the `new T()` + field-init idiom, the record-literal one-shot form
@@ -1254,12 +1263,20 @@ sugar over arrays, or make the index-only loop (and the array-indexing idiom)
 unmissable in the guide. (Related to the no-closures / first-order-`loop`
 stance already recorded under *Decided*.)
 
-### Models reach for `Int(...)` / `Real(...)` casts — *resolved 2026-09-05 (docs-only): they already worked via the case-insensitive `int`/`real`/`bool` builtins and are now documented as accepted*
+### Models reach for `Int(...)` / `Real(...)` casts — *fixed (W4-10, after the L1 front-end batch): the typed-let form compiles too*
 `let limit: Int = Int(sqrt(Real(n)));` → `[SCOPE-001] identifier 'Int' not in
 scope`. Aether has no type-name cast functions. Hit by `exaone3.5-32b`.
 **Action:** document the real conversion surface (`trunc`/`round`/`floor`/`ceil`
 for Real→Int, `realtostr`/`formatfloat` for Real→Text), or add `Int()`/`Real()`
 cast builtins. The Math-builtins guide section is the natural home.
+
+**Reopened and fixed (W4-10).** The 2026-09-05 docs-only resolution was only
+half true: the casts work through the case-insensitive `int`/`real`/`bool`
+builtins in expressions, but as the initializer of a `let` typed with the same
+name (`let n: Int = Int(x);`, this very trace) the object-literal detector
+consumed the type name and left a bare variable `Int`, so it stayed SCOPE-001.
+The detector now rewinds and parses a non-literal initializer as an ordinary
+expression. Regression: `tests/fx/basic/cast_in_typed_let_pass`.
 
 ### `par` blocks reject non-call statements, surprising models — *idea / clarify*
 Models put assignments and `fx`/`sleep` inside `par { ... }`:

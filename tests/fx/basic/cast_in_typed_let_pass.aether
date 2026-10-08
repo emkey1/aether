@@ -1,0 +1,17 @@
+// W4-10: the capitalized casts work as a typed let's initializer. The
+// object-literal detector used to consume the type name and leave a bare
+// variable `Int`, so `let n: Int = Int(x);` was SCOPE-001 'Int' not in scope.
+fn isqrt(n: Int) -> Int {
+    let limit: Int = Int(sqrt(Real(n)));
+    ret limit;
+}
+let top: Int = Int(2.7) + 1;
+fn main() -> Void {
+    let x: Real = 3.9;
+    let n: Int = Int(x);
+    let m: Int = Int(x) + 1;
+    let r: Real = Real(7) / 2.0;
+    let b: Bool = Bool(1);
+    let c: Bool = Bool(0) || Bool(n);
+    fx { println(n, " ", m, " ", r, " ", b, " ", c, " ", isqrt(50), " ", top); }
+}

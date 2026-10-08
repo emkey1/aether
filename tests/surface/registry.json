@@ -334,11 +334,10 @@
    "canonical_form": "new T { ... } or a factory fn",
    "fixture": "fixtures/constructor_init.aether",
    "code": "SYN-001",
+   "hint": "new T { field: value }",
    "decided": "D7",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W6",
-   "note": "today it is an ordinary method that nothing calls"
+   "status": "holds",
+   "note": "W4-10: rejected before the signature is read; it used to be an ordinary method that nothing called"
   },
   {
    "id": "bitwise_compound_assign",

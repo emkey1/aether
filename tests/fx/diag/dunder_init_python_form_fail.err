@@ -1,0 +1,3 @@
+dunder_init_python_form_fail.aether:5: [SYN-001]
+'__init__' is not a constructor
+!explicit return type

@@ -1,0 +1,11 @@
+// W4-10: `fn __init__` compiled as an ordinary method that nothing calls, so
+// the object stayed zero-valued and the program printed 0 with exit 0. It is
+// now SYN-001 with the constructor hint, at the method name.
+type Counter {
+    n: Int;
+    fn __init__() -> Void { self.n = 5; }
+}
+fn main() -> Void {
+    let c: Counter = new Counter { n: 0 };
+    fx { println(c.n); }
+}

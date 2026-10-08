@@ -3620,6 +3620,12 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             declaredTypeName &&
             (size_t)p->current.length == strlen(declaredTypeName) &&
             strncmp(p->current.start, declaredTypeName, p->current.length) == 0) {
+            /* Saved so a non-literal (`let n: Int = Int(x);`, `let p: P = P.make();`)
+             * re-parses from the type name as an ordinary expression. */
+            ReaToken nameSave = p->current;
+            int nameSavedHead = p->queueHead, nameSavedCount = p->queueCount;
+            ReaToken nq0 = p->queue[0], nq1 = p->queue[1], nq2 = p->queue[2];
+            ReaLexer nameSavedLexer = p->lexer;
             Token *clsTok = copyNameToken(p);
             int litLine = p->current.line;
             aetherAdvance(p); /* consume type name */
@@ -3663,11 +3669,17 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                 free(declaredTypeName);
                 return objDecl;
             }
-            /* Not an object literal after all: treat the consumed name as a bare
-             * variable reference and continue postfix parsing. */
-            AST *var = newASTNode(AST_VARIABLE, clsTok);
-            setTypeAST(var, TYPE_UNKNOWN);
-            init = parsePostfix(p, var);
+            /* Not an object literal after all: rewind to the type name and parse
+             * the whole initializer as an expression. Continuing from a bare
+             * AST_VARIABLE for the type name made `Int(x)` a call on a variable
+             * named Int (SCOPE-001 'Int' not in scope) and dropped any operator
+             * after it. */
+            freeToken(clsTok);
+            p->lexer = nameSavedLexer;
+            p->queueHead = nameSavedHead; p->queueCount = nameSavedCount;
+            p->queue[0] = nq0; p->queue[1] = nq1; p->queue[2] = nq2;
+            p->current = nameSave;
+            init = parseExpr(p);
         } else {
             init = parseExpr(p);
         }
@@ -4812,6 +4824,20 @@ static AST *parseFnDecl(AetherParser *p) {
             reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                     "expected function name after 'fn'.", NULL);
         }
+        p->hadError = true;
+        return NULL;
+    }
+    /* `fn __init__` is Python's constructor. Aether has none, and a method of
+     * that name compiled as an ordinary method that nothing ever calls: `new P()`
+     * left the object zero-valued and exit 0. Rejected before the signature is
+     * read, so the missing-`->` error never leads the repair into that form.
+     * `init` and `constructor` stay legal method names. */
+    if (p->current.length == 8 && strncmp(p->current.start, "__init__", 8) == 0) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                "'__init__' is not a constructor: Aether has no constructor methods, "
+                "so nothing would ever call it.",
+                "allocate with `new T { field: value }` (or `new T()` then set fields), "
+                "or write a top-level factory `fn` with a non-reserved name.");
         p->hadError = true;
         return NULL;
     }

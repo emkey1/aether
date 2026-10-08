@@ -1,7 +1,0 @@
-// Backlog probe (W4-10): `Int(x)` in a typed let is SCOPE-001 although the guides accept it.
-// Correct behaviour: prints 3.
-fn main() -> Void {
-    let x: Real = 3.9;
-    let n: Int = Int(x);
-    fx { println(n); }
-}

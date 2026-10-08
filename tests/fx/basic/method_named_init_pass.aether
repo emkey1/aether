@@ -1,0 +1,12 @@
+// W4-10: only `__init__` is rejected; `init` and `constructor` are ordinary
+// method names, called explicitly.
+type P {
+    x: Int;
+    fn init() -> Void { self.x = 2; }
+    fn constructor() -> Int { ret self.x * 10; }
+}
+fn main() -> Void {
+    let p: P = new P();
+    p.init();
+    fx { println(p.x, " ", p.constructor()); }
+}

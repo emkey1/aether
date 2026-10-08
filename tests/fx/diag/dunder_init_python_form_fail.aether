@@ -1,0 +1,10 @@
+// W4-10: the Python spelling (explicit self, no `->`) gets the constructor
+// hint too, not the missing-return-type hint that led into the silent form.
+type P {
+    x: Int;
+    fn __init__(self) { self.x = 1; }
+}
+fn main() -> Void {
+    let p: P = new P();
+    fx { println(p.x); }
+}
