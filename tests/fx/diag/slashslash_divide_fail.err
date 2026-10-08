@@ -1,0 +1,3 @@
+`// 2` is a comment in Aether, not integer division
+integer division is `div`
+!Runtime error

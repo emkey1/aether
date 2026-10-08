@@ -490,10 +490,8 @@
    "fixture": "fixtures/slashslash_division.aether",
    "code": "DIV-002",
    "decided": "D45",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W8-14",
-   "note": "Python reads floor division; today it divides (truncating), or is a comment"
+   "status": "holds",
+   "note": "W8-14: `//` is always a comment; it divided (`x // 2;`) or was a silent comment (no `;`)"
   },
   {
    "id": "chained_comparison",

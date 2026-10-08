@@ -909,6 +909,92 @@ static void aetherDemoteForeignKeyword(ReaToken *t) {
     }
 }
 
+/* DIV-002 (W8-14, D45): `//` is always a comment in Aether. The shared rea
+ * lexer reads `//` after an expression as integer division when the rest of
+ * the line looks like an expression, so `x // 2;` divided while `x // 2` with
+ * no `;` was a comment, and a comma in a trailing comment flipped it. Aether
+ * now skips every `//` to the end of the line, and judges a comment that
+ * directly follows an expression on the same line: expression-shaped text
+ * (rea's restLooksLikeExpression rule: no two adjacent bare words, no final
+ * '.') starting with a digit or `(` is an error, other expression-shaped text
+ * (`sum // total`) a warning. Prose (`x; // 3 items`) is never judged. */
+static bool aetherSlashTextLooksLikeExpression(const char *s) {
+    char first = *s;
+    if (!(isalnum((unsigned char)first) || first == '_' || first == '(' || first == '-' ||
+          first == '+' || first == '!' || first == '~'))
+        return false;
+    bool prevWasWord = false;
+    char last = '\0';
+    while (*s && *s != '\n') {
+        char c = *s;
+        if (c == ' ' || c == '\t' || c == '\r') { s++; continue; }
+        if (c == ';') return true;
+        /* A second `//`: prose that quotes `//` ("the // inside") is not an
+         * expression; only the digit/`(` class survives it. */
+        if (c == '/' && s[1] == '/') return isdigit((unsigned char)first) || first == '(';
+        if (isalnum((unsigned char)c) || c == '_') {
+            if (prevWasWord) return false;
+            prevWasWord = true;
+            while (isalnum((unsigned char)*s) || *s == '_') s++;
+            last = s[-1];
+            continue;
+        }
+        prevWasWord = false;
+        last = c;
+        s++;
+    }
+    return last != '.';
+}
+
+/* `at` is the first '/' of a comment that follows an expression tail. */
+static void aetherJudgeSlashComment(AetherParser *p, const char *at, int line) {
+    if (!at || p->forwardScan || p->detachedText) return;
+    if (p->slashJudgedAt && at <= p->slashJudgedAt) return;
+    p->slashJudgedAt = at;
+    const char *text = at + 2;
+    while (*text == ' ' || *text == '\t') text++;
+    if (!aetherSlashTextLooksLikeExpression(text)) return;
+    const char *end = text;
+    while (*end && *end != '\n' && *end != ';' && end - text < 24) end++;
+    while (end > text && (end[-1] == ' ' || end[-1] == '\t' || end[-1] == '\r')) end--;
+    char detail[200];
+    snprintf(detail, sizeof(detail),
+             "`// %.*s` is a comment in Aether, not integer division.", (int)(end - text), text);
+    const char *hint = "integer division is `div`: write `a div b`; end the statement with `;` "
+                       "before a comment";
+    if (isdigit((unsigned char)*text) || *text == '(') {
+        reportAetherAstError(aetherSemanticGetSourcePath(), line, "slash-comment", detail, hint);
+        p->hadError = true;
+    } else {
+        reportAetherAstWarning(aetherSemanticGetSourcePath(), line, "slash-comment", detail, hint);
+    }
+}
+
+/* Does this raw token end an expression (so a `//` right after it on the same
+ * line reads as Python floor division)? Identifiers that are Aether keywords
+ * do not. */
+static bool aetherRawTokenIsTail(const ReaToken *t) {
+    switch (t->type) {
+        case REA_TOKEN_NUMBER:
+        case REA_TOKEN_RIGHT_PAREN:
+        case REA_TOKEN_RIGHT_BRACKET:
+            return true;
+        case REA_TOKEN_IDENTIFIER: {
+            static const char *const kw[] = {"let", "fn", "loop", "ret", "fx", "par", "in",
+                                             "type", "use", "mod", "const", "else", "if",
+                                             "and", "or", "not", "xor", "div", "mut", "var",
+                                             "return", "while", "for", "break", "continue"};
+            for (size_t i = 0; i < sizeof(kw) / sizeof(kw[0]); i++) {
+                if (t->length == strlen(kw[i]) && strncmp(t->start, kw[i], t->length) == 0)
+                    return false;
+            }
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
 static ReaToken aetherRawNext(AetherParser *p) {
     if (p->queueCount > 0) {
         ReaToken t = p->queue[p->queueHead];
@@ -916,7 +1002,28 @@ static ReaToken aetherRawNext(AetherParser *p) {
         p->queueCount--;
         return t;
     }
+    const char *src = p->lexer.source;
+    size_t before = p->lexer.pos;
+    int beforeLine = p->lexer.line;
     ReaToken t = reaNextToken(&p->lexer);
+    while (t.type == REA_TOKEN_INT_DIV && t.length == 2 && t.start && t.start[0] == '/') {
+        /* The lexer took this `//` for division: it is a comment. */
+        if (p->rawPrevIsTail) aetherJudgeSlashComment(p, t.start, t.line);
+        const char *nl = t.start;
+        while (*nl && *nl != '\n') nl++;
+        p->lexer.pos = (size_t)(nl - src);
+        before = p->lexer.pos;
+        beforeLine = p->lexer.line;
+        p->rawPrevIsTail = false;
+        t = reaNextToken(&p->lexer);
+    }
+    /* A `//` the lexer skipped as a comment, on the line of an expression tail. */
+    if (p->rawPrevIsTail && src && t.start) {
+        const char *c = src + before;
+        while (c < t.start && (*c == ' ' || *c == '\t' || *c == '\r')) c++;
+        if (c + 1 < t.start && c[0] == '/' && c[1] == '/') aetherJudgeSlashComment(p, c, beforeLine);
+    }
+    p->rawPrevIsTail = aetherRawTokenIsTail(&t);
     aetherDemoteForeignKeyword(&t);
     return t;
 }
@@ -1054,6 +1161,8 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->inMethodContract = false;
     p->forwardScan = false;
     p->lastFnWasExtension = false;
+    p->rawPrevIsTail = false;
+    p->slashJudgedAt = NULL;
     p->pending.preExpr = NULL;
     p->pending.postExpr = NULL;
     p->pending.isPure = 0;
@@ -5007,6 +5116,14 @@ static void collectPendingAnnotations(AetherParser *p) {
         const char *exprStart = dEnd;
         while (exprStart < lineEnd && isspace((unsigned char)*exprStart)) exprStart++;
         const char *exprEnd = aetherAnnotationExprEnd(exprStart, lineEnd);
+        if (exprEnd < lineEnd) {
+            /* `@pre n // 2 > 0` lowered to `@pre n`: judge the comment (DIV-002). */
+            const char *tail = exprEnd;
+            while (tail > exprStart && isspace((unsigned char)tail[-1])) tail--;
+            if (tail > exprStart && (isalnum((unsigned char)tail[-1]) || tail[-1] == '_' ||
+                                     tail[-1] == ')' || tail[-1] == ']'))
+                aetherJudgeSlashComment(p, exprEnd, p->current.line);
+        }
         while (exprEnd > exprStart && isspace((unsigned char)exprEnd[-1])) exprEnd--;
         char *exprText = NULL;
         if (exprEnd > exprStart) {

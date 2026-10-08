@@ -1,0 +1,13 @@
+// W8-14: comments that are prose, follow a `;`, or sit inside a string are
+// never judged, and `div` is the integer division.
+fn main() -> Void {
+    let x: Int = 30;
+    let y: Int = x; // 3 items
+    let z: Int = x div 3; // 10, keep small
+    let w: Int = x    // the total, unchanged
+    ;
+    let v: Int = x // the // in this comment is quoted
+    ;
+    let url: Text = "http://a//b"; // (2) a URL
+    fx { println(y, " ", z, " ", w, " ", url); } // 3
+}

@@ -1472,11 +1472,14 @@ common enough to consider), but at minimum stop misclassifying them as scope err
 runtime with `Runtime Error: Operands for 'mod' must be integers. Got REAL and INTEGER`, because `/` is
 *always* real division. This is **not** a missing feature — `7 div 2` and `7 // 2` both already return `3`.
 The gap is discoverability + diagnostic quality: models default to `/` then `%`, and the runtime error names
-the type mismatch without pointing at the integer-division operators. **Action:** (a) document `div` and
-`//` for integer division prominently in the guide's arithmetic/operator section (and note that `/` yields
-`Real`); (b) make the `mod`-on-`Real` runtime error hint "use `div` or `//` for integer division, or
+the type mismatch without pointing at the integer-division operators. **Action:** (a) document `div`
+for integer division prominently in the guide's arithmetic/operator section (and note that `/` yields
+`Real`); (b) make the `mod`-on-`Real` runtime error hint "use `div` for integer division, or
 convert the operands to `Int`." Same `/`-is-real friction as the earlier collatz `n/2` Real→Int coercion
-fix (pscal-core `da08d77`), surfaced at `%` this time.
+fix (pscal-core `da08d77`), surfaced at `%` this time. **Amended (W8-14, D45):** `//` is never division in
+Aether. It is always a comment, and a `//` after an expression whose text starts with a digit or `(` is the
+coded error DIV-002 (other expression-shaped text a DIV-002 warning), so neither the guide nor a hint
+teaches it: it would be Python's floor token with C truncation (`-7 // 2` would be `-3`).
 
 **Triaged, not curated (pass 3).** The **range operator *outside* a loop** (`..` as a first-class value)
 was considered and *declined*: `..` inside a loop already works, the sole out-of-loop occurrence was a

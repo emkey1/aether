@@ -1,0 +1,9 @@
+// W8-14 (D45): the contract capture stops at `//`, so `@pre n // 2 > 0`
+// lowered to `@pre n`. DIV-002 now.
+@pre n // 2 > 0
+fn half(n: Int) -> Int {
+    ret n div 2;
+}
+fn main() -> Void {
+    fx { println(half(4)); }
+}

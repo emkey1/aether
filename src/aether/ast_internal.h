@@ -226,6 +226,11 @@ typedef struct {
     int prevLine;
     const char *prevStart;
     int prevLength;
+    /* DIV-002 (W8-14): whether the last token the lexer produced ends an
+     * expression, and the furthest `//` already judged (a speculative parse
+     * that rewinds the lexer must not report the same comment twice). */
+    bool rawPrevIsTail;
+    const char *slashJudgedAt;
 } AetherParser;
 
 /* One right-hand operand of a left-nested array-`+` chain, in APPLY order.

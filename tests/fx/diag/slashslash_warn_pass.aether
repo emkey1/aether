@@ -1,0 +1,7 @@
+// W8-14 (D45): expression-shaped text after an expression that does not start
+// with a digit or `(` is a DIV-002 warning; the line is still a comment.
+fn main() -> Void {
+    let sum: Int = 12;
+    let avg: Int = sum // count
+    fx { println(avg); }
+}

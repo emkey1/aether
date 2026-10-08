@@ -62,21 +62,19 @@ fn main() -> Void {
 }
 ```
 
-**The `//` rule (decision D45).** `//` is never an operator. Today the shared
-lexer reads `//` after an expression as integer division when the rest of the
-line looks like an expression, so `x // 2;` divides. D45 makes that an error when
-the text after `//` starts with a digit or `(`, and a warning otherwise.
+**The `//` rule (decision D45).** `//` is never an operator: it always starts a
+comment that runs to the end of the line. A `//` directly after an expression on
+the same line, whose text reads as an expression, is judged as Python floor
+division would be: DIV-002, an error when that text starts with a digit or `(`
+(`x // 2`, `rest // (b)`), a warning otherwise (`sum // count`). Prose after a
+`;` is never judged. Integer division is `div`.
 
-```aether @bug=D45 now=ok id=L.comment.3
+```aether @reject=DIV-002 id=L.comment.3
 fn main() -> Void {
     let x: Int = 7;
     let y: Int = x // 2;
     fx { println(y); }
 }
-```
-
-```text
-3
 ```
 
 ### 1.2 Identifiers and keywords

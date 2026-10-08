@@ -1,0 +1,7 @@
+// W8-14 (D45): `//` is always a comment in Aether. The shared lexer read
+// `x // 2;` as integer division, so this printed 3; it is DIV-002 now.
+fn main() -> Void {
+    let x: Int = 7;
+    let y: Int = x // 2;
+    fx { println(y); }
+}

@@ -1,0 +1,7 @@
+// W8-14 (D45): without the `;` the lexer took `// 3` for a comment, so this
+// printed 30 (the backlog probe slash_slash_divide). Same DIV-002 either way.
+fn main() -> Void {
+    let x: Int = 30;
+    let y: Int = x // 3
+    fx { println(y); }
+}

@@ -32,6 +32,11 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "format") == 0) {
             return "FMT-001";
         }
+        /* `//` after an expression, a comment that reads as floor division:
+         * W8-14, D45. */
+        if (strcmp(kind, "slash-comment") == 0) {
+            return "DIV-002";
+        }
         /* Wrong argument count for a real builtin. Distinct from BUILT-001,
          * which is "this helper does not exist at all" -- here the name is
          * right and only the call shape is wrong, so the guide fix is the

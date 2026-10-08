@@ -27,7 +27,6 @@ chained_compare	fails:PREC-001	W4-15	-	`18 <= age < 65` was (18 <= age) < 65 bef
 let_self_init	fails:NAME-001	W5-24	-	`let s = trim(s)` reads the new, empty slot; NAME-001 (W4-22 interim) until W5-24 lands
 duplicate_fn	silent:2	W4-23	-	a duplicate fn is silently last-wins
 range_bound_reread	silent:5	W4-33	full:628	the range bound is re-read every pass
-slash_slash_divide	silent:30	W4-36	medium:330	`x // 3` with no `;` is a comment
 result_shadow	silent:nil	W4-43	-	the backend's `result` local shadows the user's global
 print_array	silent~ARRAY\(dims:1, base_type:INT64, elements_at:0x[0-9a-fA-F]+\)	W8-15	full:1284,small:547	println(xs) prints the internal array header
 int_of_text	silent:0	W8-15	full:191,small:307	int(Text) is silently 0
