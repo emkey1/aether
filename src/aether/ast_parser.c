@@ -6345,6 +6345,54 @@ static void aetherImportTypeSink(void *ctxv, const char *name, const char *aethe
     }
 }
 
+/* The TOON Bool accessors (toon_get_bool[_or], toon_bool_value,
+ * toon_null_value, toon_has_key, toon_has_at) lower in the builtin pre-pass to
+ * Yyjson* backends that return an Int 1/0, so they printed 1/0 when passed to
+ * println, returned from a `-> Bool` fn or put in a Bool[] literal. Every such
+ * call in value position becomes `(call != 0)`, a real Bool; the node keeps its
+ * own parenthesis, so `!toon_get_bool(x)` stays correct. The engine's makeInt
+ * is left alone (Rea prints it with %d). A bare call statement is left as is. */
+static bool aetherIsToonBoolBackendCall(const AST *n) {
+    if (!n || n->type != AST_PROCEDURE_CALL || !n->token || !n->token->value) return false;
+    const char *v = n->token->value;
+    return strcasecmp(v, "YyjsonGetBool") == 0 || strcasecmp(v, "YyjsonHasKey") == 0 ||
+           strcasecmp(v, "YyjsonHasIndex") == 0 || strcasecmp(v, "YyjsonIsNull") == 0;
+}
+
+static void aetherWrapToonBoolCalls(AST *n);
+
+static void aetherWrapToonBoolSlot(AST *parent, AST **slot) {
+    AST *n = *slot;
+    if (!n) return;
+    aetherWrapToonBoolCalls(n);
+    if (!aetherIsToonBoolBackendCall(n) || parent->type == AST_COMPOUND ||
+        parent->type == AST_BLOCK) {
+        return;
+    }
+    int line = n->token ? n->token->line : 0;
+    Token *neTok = newToken(TOKEN_NOT_EQUAL, "!=", line, 0);
+    AST *ne = newASTNode(AST_BINARY_OP, neTok);
+    Token *zeroTok = newToken(TOKEN_INTEGER_CONST, "0", line, 0);
+    AST *zero = newASTNode(AST_NUMBER, zeroTok);
+    setTypeAST(zero, TYPE_INT64);
+    zero->i_val = 0;
+    setLeft(ne, n);
+    setRight(ne, zero);
+    setTypeAST(ne, TYPE_BOOLEAN);
+    *slot = ne;
+    ne->parent = parent;
+}
+
+static void aetherWrapToonBoolCalls(AST *n) {
+    if (!n) return;
+    aetherWrapToonBoolSlot(n, &n->left);
+    aetherWrapToonBoolSlot(n, &n->right);
+    aetherWrapToonBoolSlot(n, &n->extra);
+    for (int i = 0; i < n->child_count; i++) {
+        aetherWrapToonBoolSlot(n, &n->children[i]);
+    }
+}
+
 /* Does this top-level subtree call the routine named `main` (bare, at any
  * depth: inside fx, if, loop or an argument)? Used by the entry-point rule. */
 static bool aetherSubtreeCallsMain(const AST *n) {
@@ -6575,6 +6623,8 @@ AST *parseAetherAst(const char *rawSource) {
     bindingTableFree(&funcReturns);
     tupleTableFree(&tuples);
     free(source);
+
+    aetherWrapToonBoolCalls(program);
 
     /* A `use`d dependency file is not the program, so it has no entry point to
      * invoke (see the registration guard in parseFnDecl: only the entry file's

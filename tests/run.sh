@@ -1192,7 +1192,7 @@ fi
 if grep -qx "yyjson unavailable" $OUT/aether_toon_json_helpers_pass.out; then
     :
 else
-    printf 'Rea\n3\n1\n' >$OUT/aether_toon_json_helpers_expected.out
+    printf 'Rea\n3\ntrue\ntrue false\ntrue true\ntrue true false\ntrue true false false\n' >$OUT/aether_toon_json_helpers_expected.out
     if ! cmp -s $OUT/aether_toon_json_helpers_expected.out $OUT/aether_toon_json_helpers_pass.out; then
         echo "unexpected TOON helper output" >&2
         cat $OUT/aether_toon_json_helpers_pass.out >&2

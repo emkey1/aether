@@ -1,3 +1,7 @@
+fn isEnabled(root: ToonNode) -> Bool {
+    ret toon_get_bool(root, "enabled");
+}
+
 fn main() -> Void {
     if !has_toon() {
         fx {
@@ -6,13 +10,21 @@ fn main() -> Void {
         ret;
     }
 
-    let doc: ToonDoc = toon_parse("{\"name\":\"Rea\",\"count\":3,\"enabled\":true}");
+    let doc: ToonDoc = toon_parse("{\"name\":\"Rea\",\"count\":3,\"enabled\":true,\"gone\":null,\"xs\":[1,2]}");
     let root: ToonNode = toon_root(doc);
+    let xs: ToonNode = toon_key(root, "xs");
+    // W4-09: every Bool accessor is a real Bool -- printed, returned from
+    // -> Bool, stored in a Bool[] literal -- not the backend's Int 1/0.
+    let flags: Bool[] = [toon_get_bool(root, "enabled"), toon_has_key(root, "nope")];
 
     fx {
         println(toon_get_text(root, "name"));
         println(toon_get_int(root, "count"));
         println(toon_get_bool(root, "enabled"));
+        println(toon_get_bool_or(root, "enabled", false), " ", toon_get_bool_or(root, "nope", false));
+        println(toon_bool_value(toon_key(root, "enabled")), " ", toon_null_value(toon_key(root, "gone")));
+        println(toon_has_key(root, "xs"), " ", toon_has_at(xs, 1), " ", toon_has_at(xs, 2));
+        println(isEnabled(root), " ", flags[0], " ", flags[1], " ", !toon_get_bool(root, "enabled"));
     }
 
     toon_close(doc);

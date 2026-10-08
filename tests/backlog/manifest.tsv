@@ -11,7 +11,6 @@ const_case_alias	silent:3 3	W4-22	-	names ignore case: `let limit` overwrites `c
 param_case_shadow	silent:5	W4-22	-	parameter `limit` answers to `LIMIT`
 loop_var_outer	silent:0	W4-22	-	a loop variable named like a let leaves the let at 0
 upcase_text	silent:R	W4-45	full:868	upcase takes the first code point
-toon_bool	silent:1	W4-09	small:105,medium:337,full:254	TOON Bool getters print 1
 record_eq	silent:differ	W4-20	medium:339,full:282	record == compares identity
 eof_always_true	silent:0	W5-29	-	eof() with no argument is always true
 ret_text_from_int	silent:bob	W4-17	-	`ret` is not checked against the declared type
