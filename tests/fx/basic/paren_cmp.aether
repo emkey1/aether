@@ -1,0 +1,15 @@
+// W4-15 (D32): parentheses make a compared comparison, or a `not` of one,
+// explicit, and those stay legal. `not`/`!` keep their tight binding.
+fn main() -> Void {
+    let i: Int = 2;
+    let n: Int = 5;
+    let ok: Bool = true;
+    let inRange: Bool = 0 <= i && i < n;
+    fx {
+        println((0 <= i) == ok);
+        println(not (i == n), " ", !(i == 2), " ", (not ok) == false);
+        println(inRange, " ", (i < n) != (n < i), " ", not ok && i < n);
+        println(i == 2 and n != 4);
+    }
+    ret;
+}

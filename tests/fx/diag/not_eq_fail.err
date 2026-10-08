@@ -1,0 +1,4 @@
+not_eq_fail.aether:6:
+`not a == b` means `(not a) == b`
+`a != b`, or `not (a == b)`
+!false

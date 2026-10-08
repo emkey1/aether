@@ -1,0 +1,9 @@
+// W4-15 (D32): `x == y == z` used to compare the Bool `x == y` with z, so three
+// equal Ints printed false. Mixed `a < b == c` is rejected the same way.
+fn main() -> Void {
+    let x: Int = 4;
+    let y: Int = 4;
+    let z: Int = 4;
+    fx { println(x == y == z); }
+    ret;
+}

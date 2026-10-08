@@ -501,12 +501,10 @@
    "spelling": "a < b < c",
    "canonical_form": "a < b and b < c",
    "fixture": "fixtures/chained_comparison.aether",
-   "code": null,
+   "code": "PREC-001",
    "decided": "D32",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W4-15",
-   "note": "today (0 <= i) < 3, which prints true here"
+   "status": "holds",
+   "note": "before W4-15 it read (0 <= i) < 3 and printed true here"
   },
   {
    "id": "not_comparison",
@@ -514,12 +512,10 @@
    "spelling": "not a == b",
    "canonical_form": "not (a == b)",
    "fixture": "fixtures/not_comparison.aether",
-   "code": null,
+   "code": "PREC-001",
    "decided": "D32",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W4-15",
-   "note": "today (not a) == 2, which prints false here"
+   "status": "holds",
+   "note": "before W4-15 it read (not a) == 2 and printed false here"
   },
   {
    "id": "format_placeholders",

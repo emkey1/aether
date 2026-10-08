@@ -1030,9 +1030,10 @@ Binary operators of one level associate to the left. As in C, `&`, `|` and `^`
 bind looser than the comparisons (PREC-001 warns on `a & b != 0`). The word
 operators are exact synonyms of their symbols, `not` included: `not` binds as
 tightly as `!`. `div` and `%`/`mod` are integer quotient and remainder and
-truncate toward zero. Comparisons do not chain (decision D32), and
-`not X == Y` without parentheses is rejected by the same decision; both are
-accepted today with C meaning, which is the silent hazard D32 removes.
+truncate toward zero. Comparisons do not chain (decision D32): a second
+unparenthesised comparison (`0 <= i < n`, `a == b == c`, `a < b == c`) is
+PREC-001, and so is a bare `not X` or `!X` as a comparison operand (`not X ==
+Y`). Parentheses make either legal: `(0 <= i) == ok`, `not (X == Y)`.
 
 ```aether @ok id=G.Expr.1
 fn main() -> Void {
@@ -1172,15 +1173,11 @@ fn main() -> Void {
 }
 ```
 
-```aether @bug=D32 now=ok id=G.EqExpr.3
+```aether @reject=PREC-001 id=G.EqExpr.3
 fn main() -> Void {
     let a: Int = 1;
     fx { println(not a == 2); }
 }
-```
-
-```text
-false
 ```
 
 ```aether @ok id=G.RelExpr.1
@@ -1200,15 +1197,11 @@ fn main() -> Void {
 }
 ```
 
-```aether @bug=D32 now=ok id=G.RelExpr.3
+```aether @reject=PREC-001 id=G.RelExpr.3
 fn main() -> Void {
     let i: Int = 5;
     fx { println(0 <= i < 3); }
 }
-```
-
-```text
-true
 ```
 
 ```aether @ok id=G.ShiftExpr.1

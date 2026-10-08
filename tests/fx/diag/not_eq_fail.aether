@@ -1,0 +1,8 @@
+// W4-15 (D32): `not` binds as tightly as `!`, so `not x == y` was `(not x) == y`
+// and printed false where a Python reader expects true. It is now PREC-001.
+fn main() -> Void {
+    let x: Int = 3;
+    let y: Int = 4;
+    fx { println(not x == y); }
+    ret;
+}

@@ -1,0 +1,3 @@
+eq_chain_fail.aether:7:
+`a == b == c` means `(a == b) == c`
+!false

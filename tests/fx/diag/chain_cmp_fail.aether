@@ -1,0 +1,10 @@
+// W4-15 (D32): `0 <= i < n` used to compile as `(0 <= i) < n`, a Bool compared
+// with n, so valid_index(-3, 4) was true. Comparisons do not chain.
+fn valid_index(i: Int, n: Int) -> Bool {
+    ret 0 <= i < n;
+}
+
+fn main() -> Void {
+    fx { println(valid_index(-3, 4)); }
+    ret;
+}

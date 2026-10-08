@@ -74,6 +74,11 @@
  * silent (exit 1 with empty stderr + empty --diagnostics-json was the worst case
  * for both humans and the LLM repair loop -- nothing to react to). */
 static int g_aetherAstDiagCount = 0;
+/* W4-15: the `not`/`!` node and the relational node the expression parser
+ * built last without parentheses (see parseComparison). Each is either NULL or
+ * the node parseComparison just returned, so a stale pointer never matches. */
+static const AST *g_aetherBareNot = NULL;
+static const AST *g_aetherBareRel = NULL;
 
 /* stderr diagnostic sink: identical to fprintf(stderr, ...) but bumps the
  * emitted-diagnostic counter so the silent-failure backstop can tell whether the
@@ -2412,6 +2417,7 @@ static AST *parsePrimary(AetherParser *p) {
         AST *node = newASTNode(AST_UNARY_OP, tok);
         setLeft(node, right);
         setTypeAST(node, TYPE_BOOLEAN);
+        g_aetherBareNot = node; /* W4-15: checked by parseComparison/parseEquality */
         return node;
     }
     /* Parenthesized expression */
@@ -2419,6 +2425,8 @@ static AST *parsePrimary(AetherParser *p) {
         int openLine = p->current.line;
         aetherAdvance(p);
         AST *expr = parseExpr(p);
+        if (expr && expr == g_aetherBareNot) g_aetherBareNot = NULL; /* `(not a) == b` */
+        if (expr && expr == g_aetherBareRel) g_aetherBareRel = NULL; /* `(a < b) == c` */
         if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
             aetherAdvance(p);
         } else if (!p->hadError) {
@@ -2836,11 +2844,79 @@ static AST *parseShift(AetherParser *p) {
     return node;
 }
 
+/* W4-15 (D32): comparisons do not chain, and `not` stays a tight unary.
+ * The comparison and equality loops are left-associative, so `0 <= i < n` was
+ * `(0 <= i) < n` (true for i = -3) and `x == y == z` compared a Bool with z;
+ * `not a == b` is `(not a) == b`. A Python-prior model writes all three. A
+ * second unparenthesised comparison, a relational operand of `==`/`!=`, or a
+ * bare `not`/`!` operand of a comparison is a coded PREC-001 error (Rust's
+ * rule); parentheses state the intent and are accepted. */
+static void aetherReportCmpChain(AetherParser *p, const char *first, const char *second,
+                                 bool rightGrouped, int line) {
+    char detail[240];
+    if (rightGrouped) {
+        snprintf(detail, sizeof(detail),
+                 "comparison operators do not chain: `a %s b %s c` means `a %s (b %s c)`, "
+                 "which compares a with a Bool.", first, second, first, second);
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "comparison operators do not chain: `a %s b %s c` means `(a %s b) %s c`, "
+                 "which compares a Bool with c.", first, second, first, second);
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "precedence", detail,
+                         "write each comparison once and join them: `0 <= i && i < n`.");
+    p->hadError = true;
+}
+
+static void aetherReportBareNotCmp(AetherParser *p, const char *op, int line) {
+    char detail[200];
+    snprintf(detail, sizeof(detail),
+             "`not` and `!` apply only to the operand right after them: `not a %s b` "
+             "means `(not a) %s b`.", op, op);
+    char hint[160];
+    if (strcmp(op, "==") == 0 || strcmp(op, "!=") == 0) {
+        snprintf(hint, sizeof(hint), "write `a %s b`, or `not (a %s b)`.",
+                 strcmp(op, "==") == 0 ? "!=" : "==", op);
+    } else {
+        snprintf(hint, sizeof(hint), "write `not (a %s b)`.", op);
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "precedence", detail, hint);
+    p->hadError = true;
+}
+
+static const char *aetherRelOpText(ReaTokenType t) {
+    switch (t) {
+        case REA_TOKEN_GREATER:       return ">";
+        case REA_TOKEN_GREATER_EQUAL: return ">=";
+        case REA_TOKEN_LESS:          return "<";
+        case REA_TOKEN_LESS_EQUAL:    return "<=";
+        case REA_TOKEN_EQUAL_EQUAL:   return "==";
+        case REA_TOKEN_BANG_EQUAL:    return "!=";
+        default:                      return "?";
+    }
+}
+
 static AST *parseComparison(AetherParser *p) {
     AST *node = parseShift(p);
     if (!node) return NULL;
+    bool leftBareNot = (node == g_aetherBareNot);
+    int count = 0;
+    const char *firstOp = NULL;
     while (p->current.type == REA_TOKEN_GREATER || p->current.type == REA_TOKEN_GREATER_EQUAL ||
            p->current.type == REA_TOKEN_LESS || p->current.type == REA_TOKEN_LESS_EQUAL) {
+        if (count > 0) {
+            aetherReportCmpChain(p, firstOp, aetherRelOpText(p->current.type), false,
+                                 p->current.line);
+            freeAST(node);
+            return NULL;
+        }
+        if (leftBareNot) {
+            aetherReportBareNotCmp(p, aetherRelOpText(p->current.type), p->current.line);
+            freeAST(node);
+            return NULL;
+        }
+        firstOp = aetherRelOpText(p->current.type);
+        count++;
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
@@ -2861,6 +2937,8 @@ static AST *parseComparison(AetherParser *p) {
         setTypeAST(bin, TYPE_BOOLEAN);
         node = bin;
     }
+    g_aetherBareRel = (count > 0) ? node : NULL;
+    g_aetherBareNot = (count == 0 && leftBareNot) ? node : NULL;
     return node;
 }
 
@@ -2893,12 +2971,37 @@ static AST *aetherNilToMinusOne(AST *nilNode) {
 static AST *parseEquality(AetherParser *p) {
     AST *node = parseComparison(p);
     if (!node) return NULL;
+    int count = 0;
+    const char *firstOp = NULL;
     while (p->current.type == REA_TOKEN_EQUAL_EQUAL || p->current.type == REA_TOKEN_BANG_EQUAL) {
+        const char *opText = aetherRelOpText(p->current.type);
+        if (count > 0 || node == g_aetherBareRel) {
+            const char *prev = count > 0 ? firstOp
+                             : (node->token && node->token->value ? node->token->value : "<");
+            aetherReportCmpChain(p, prev, opText, false, p->current.line);
+            freeAST(node);
+            return NULL;
+        }
+        if (node == g_aetherBareNot) {
+            aetherReportBareNotCmp(p, opText, p->current.line);
+            freeAST(node);
+            return NULL;
+        }
+        firstOp = opText;
+        count++;
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
         AST *right = parseComparison(p);
         if (!right) return NULL;
+        if (right == g_aetherBareRel) {
+            aetherReportCmpChain(p, opText,
+                                 right->token && right->token->value ? right->token->value : "<",
+                                 true, op.line);
+            freeAST(node);
+            freeAST(right);
+            return NULL;
+        }
         /* Opaque-handle nil comparison: `handle == nil` / `nil == handle` ->
          * `handle == -1` (rewriteAetherOpaqueNilComparisons). Only when exactly one
          * side is nil and the other is a ToonDoc/ToonNode-typed operand. */

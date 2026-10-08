@@ -1,0 +1,4 @@
+chain_cmp_fail.aether:4:
+comparison operators do not chain
+`0 <= i && i < n`
+!true
