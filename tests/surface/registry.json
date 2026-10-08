@@ -525,10 +525,8 @@
    "fixture": "fixtures/format_placeholders.aether",
    "code": "FMT-001",
    "decided": "D48",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W6",
-   "note": "today the placeholder prints literally: n={}3"
+   "status": "holds",
+   "note": "W6-04: a placeholder used to print literally (n={}3)"
   },
   {
    "id": "fstring",
@@ -538,9 +536,8 @@
    "fixture": "fixtures/fstring.aether",
    "code": "FMT-001",
    "decided": "D48",
-   "status": "pending",
-   "today": "SYN-001",
-   "owner": "W6"
+   "status": "holds",
+   "note": "W6-04: was a generic SYN-001"
   },
   {
    "id": "upcase_single_char",

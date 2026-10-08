@@ -28,6 +28,10 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "scope") == 0) {
             return "SCOPE-001";
         }
+        /* A print placeholder (`println("{} items", n)`, `"%.2f"`): W6-04, D48. */
+        if (strcmp(kind, "format") == 0) {
+            return "FMT-001";
+        }
         /* Wrong argument count for a real builtin. Distinct from BUILT-001,
          * which is "this helper does not exist at all" -- here the name is
          * right and only the call shape is wrong, so the guide fix is the

@@ -1,0 +1,2 @@
+no f-strings or string interpolation
+println("n = ", n)

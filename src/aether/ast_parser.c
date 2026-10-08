@@ -2550,7 +2550,21 @@ static AST *parsePrimary(AetherParser *p) {
         Token *tok = currentAsIdentifier(p);
         if (!tok) return NULL;
         int idLine = p->current.line;
+        const char *idEnd = p->current.start ? p->current.start + p->current.length : NULL;
         aetherAdvance(p); /* consume identifier */
+
+        /* `f"n={n}"`: a Python f-string, a prefix glued to a string literal.
+         * It was a generic SYN-001; D48 rejects interpolation with FMT-001. */
+        if (p->current.type == REA_TOKEN_STRING && idEnd && p->current.start == idEnd &&
+            tok->value && (strcmp(tok->value, "f") == 0 || strcmp(tok->value, "F") == 0)) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "format",
+                                 "Aether has no f-strings or string interpolation.",
+                                 "pass values as separate arguments: `println(\"n = \", n)`; "
+                                 "decimals: `formatfloat(x, 2)`");
+            p->hadError = true;
+            freeToken(tok);
+            return NULL;
+        }
 
         /* Bare object literal `T { f: v, ... }` used as a general expression
          * (array element, call argument, nested operand, ...) rather than
@@ -2679,12 +2693,17 @@ static AST *parsePrimary(AetherParser *p) {
             } else {
                 call = newASTNode(AST_PROCEDURE_CALL, tok);
             }
+            moveArgsOntoCall(call, args);
+            setTypeAST(call, TYPE_UNKNOWN);
+            if (aetherCheckPrintPlaceholders(p, call, surfaceAlias, idLine)) {
+                free(surfaceAlias);
+                freeAST(call);
+                return NULL;
+            }
             if (surfaceAlias) {
                 aetherAstRegisterCallSurfaceName(call, surfaceAlias);
                 free(surfaceAlias);
             }
-            moveArgsOntoCall(call, args);
-            setTypeAST(call, TYPE_UNKNOWN);
             /* `copy(arr, lo, n)` on an array. `copy` is the *string* substring
              * builtin; handed an array it failed at runtime with the uncoded
              * "Copy expects (String/Char, Integer, Integer)." -- a message that

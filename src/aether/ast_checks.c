@@ -53,6 +53,84 @@ bool aetherCheckArrayRankIndex(AetherParser *p, AST *node, int openLine) {
     return false;
 }
 
+/* FMT-001 (W6-04, D48): a placeholder in the first argument of a print call
+ * that has more arguments. Aether's print/println concatenate their arguments,
+ * so `println("{} items", n)` printed `{} items5` with exit 0 -- a silent wrong
+ * answer that the stdout diff alone did not get models to repair. Placeholders
+ * are `{}`, `{0}`, `{:spec}`, `{name}` / `{name:spec}` with `name` a binding in
+ * scope, `${`, and a printf conversion `%[-+0#]*\d*(\.\d+)?[dsfixeg]`. A call
+ * with only the literal (`println("{}")`) and JSON-ish `{"` text never fire.
+ * Writes the placeholder found into `out` and returns true. */
+static bool aetherFindPlaceholder(AetherParser *p, const char *s, char *out, size_t outLen) {
+    for (const char *c = s; c && *c; c++) {
+        const char *end = NULL;
+        if (c[0] == '$' && c[1] == '{') {
+            const char *close = strchr(c + 2, '}');
+            end = (close && close - c <= 24) ? close + 1 : c + 2;
+        } else if (c[0] == '{') {
+            const char *q = c + 1;
+            if (*q == '}') {
+                end = q + 1;
+            } else if (*q >= '0' && *q <= '9') {
+                while (*q >= '0' && *q <= '9') q++;
+                if (*q == '}' || *q == ':') end = strchr(q, '}');
+                if (end) end++;
+            } else if (*q == ':') {
+                const char *close = strchr(q, '}');
+                if (close && close - q <= 12) end = close + 1;
+            } else if ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z') || *q == '_') {
+                const char *n0 = q;
+                while ((*q >= 'a' && *q <= 'z') || (*q >= 'A' && *q <= 'Z') ||
+                       (*q >= '0' && *q <= '9') || *q == '_')
+                    q++;
+                if ((*q == '}' || *q == ':') && p && p->bindings &&
+                    bindingTableGet(p->bindings, n0, (size_t)(q - n0))) {
+                    const char *close = strchr(q, '}');
+                    if (close) end = close + 1;
+                }
+            }
+        } else if (c[0] == '%') {
+            const char *q = c + 1;
+            while (*q == '-' || *q == '+' || *q == '0' || *q == '#') q++;
+            while (*q >= '0' && *q <= '9') q++;
+            if (*q == '.') {
+                q++;
+                if (!(*q >= '0' && *q <= '9')) continue;
+                while (*q >= '0' && *q <= '9') q++;
+            }
+            if (*q && strchr("dsfixeg", *q)) end = q + 1;
+        }
+        if (end) {
+            size_t n = (size_t)(end - c);
+            if (n >= outLen) n = outLen - 1;
+            memcpy(out, c, n);
+            out[n] = '\0';
+            return true;
+        }
+    }
+    return false;
+}
+
+bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surface, int line) {
+    if (!call || (call->type != AST_WRITE && call->type != AST_WRITELN)) return false;
+    if (call->child_count < 2) return false;
+    AST *first = call->children[0];
+    if (!first || first->type != AST_STRING || !first->token || !first->token->value) return false;
+    char found[32];
+    if (!aetherFindPlaceholder(p, first->token->value, found, sizeof(found))) return false;
+    const char *name = surface && *surface ? surface
+                       : (call->type == AST_WRITELN ? "println" : "print");
+    char detail[256];
+    snprintf(detail, sizeof(detail),
+             "%s has no placeholders: \"%s\" prints literally and the values are appended.",
+             name, found);
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "format", detail,
+                         "pass values as separate arguments: `println(\"n = \", n)`; "
+                         "decimals: `formatfloat(x, 2)`");
+    p->hadError = true;
+    return true;
+}
+
 /* PAR-001: reject a record shared across par branches before it becomes a
  * concurrent double-free at runtime. Scan this call's argument variables
  * (children[0] is the receiver for a method call); a bare identifier whose

@@ -409,8 +409,9 @@ meaning costs nothing. Decision **D7** replaced it with four classes:
    compound assignments, `.push`/`.size`/`.contains`, `new Int[n]`, lambdas.
 3. **Never accepted, because it means something different in another
    language.** `//` as division, chained comparisons, `not X == Y`, `{}`/`%d`
-   placeholders, `int(Text)`, record `==`. Each is still silently accepted today
-   and has its decision row (D45, D32, D48, D14, D24).
+   placeholders, `int(Text)`, record `==`, each with its decision row (D45, D32,
+   D48, D14, D24). Placeholders and f-strings are rejected with FMT-001 (W6-04);
+   the others are still silently accepted today.
 4. **Tolerated, not taught.** Hidden aliases such as `toon_parse_string`,
    `parse_json`, `root_node` and `lookup_*`, and `?:`.
 

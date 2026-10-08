@@ -1,0 +1,5 @@
+// W6-04 (D48): a printf conversion is a placeholder too (`area=%.219.63`).
+fn main() -> Void {
+    let area: Real = 19.625;
+    fx { println("area=%.2f", area); }
+}

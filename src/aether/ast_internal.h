@@ -328,5 +328,6 @@ bool aetherCheckParSharedRecords(AetherParser *p, AST *call, int handle, int cal
 bool astHasValueReturn(const AST *node);
 bool astBlockHasFallthroughStmt(const AST *block);
 int aetherCheckMemberCalls(AST *node, AST *decls);
+bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surface, int line);
 
 #endif /* AETHER_AST_INTERNAL_H */

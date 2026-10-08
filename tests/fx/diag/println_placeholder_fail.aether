@@ -1,0 +1,6 @@
+// W6-04 (D48): println concatenates its arguments, so a `{}` placeholder used to
+// print `{} items5` with exit 0. It is a coded FMT-001 now.
+fn main() -> Void {
+    let n: Int = 5;
+    fx { println("{} items", n); }
+}

@@ -1,0 +1,2 @@
+"%.2f" prints literally
+formatfloat(x, 2)

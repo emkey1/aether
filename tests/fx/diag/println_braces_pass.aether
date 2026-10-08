@@ -1,0 +1,14 @@
+// W6-04: FMT-001 never fires on a literal alone, on JSON-ish `{"` text, on braces
+// around a name that is not in scope, or on a `%` that is not a conversion.
+fn main() -> Void {
+    let n: Int = 5;
+    let f: Text = "x";
+    fx {
+        println("{}");
+        println("%d items");
+        println("{\"count\": ", n, "}");
+        println("set {a, b} has ", n);
+        println("50% done, ", n, " left at 100%");
+        println(f, "{");
+    }
+}

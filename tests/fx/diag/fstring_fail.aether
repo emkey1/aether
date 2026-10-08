@@ -1,0 +1,5 @@
+// D48: an f-string was a generic SYN-001; it is FMT-001 with the Aether form.
+fn main() -> Void {
+    let n: Int = 3;
+    fx { println(f"n={n}"); }
+}

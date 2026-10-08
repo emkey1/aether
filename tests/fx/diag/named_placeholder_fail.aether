@@ -1,0 +1,5 @@
+// W6-04 (D48): `{name}` with `name` in scope, and `${`, are placeholders.
+fn main() -> Void {
+    let total: Int = 7;
+    fx { print("total={total}\n", total); }
+}
