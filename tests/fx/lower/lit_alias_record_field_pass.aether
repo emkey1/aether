@@ -1,0 +1,48 @@
+// W4-47: an array placed in a record literal's field is a copy. Before the
+// fix an append-built source shared its storage with the field, so a write
+// through the field changed the source; a literal-built source always copied.
+type Box { data: Int[]; }
+type Sink {
+    n: Int;
+    fn take(b: Box) -> Void { b.data[0] = 40; ret; }
+}
+let shared: Int[] = [];
+fn wrapShared() -> Box { ret new Box { data: shared }; }
+fn wrapSharedBare() -> Box { ret Box { data: shared }; }
+fn poke(b: Box) -> Void { b.data[0] = 30; ret; }
+fn main() -> Void {
+    let xs: Int[] = [];
+    xs = xs + [1];
+    xs = xs + [2];
+    let lit: Int[] = [1, 2];
+
+    let a: Box = new Box { data: xs };
+    a.data[0] = 99;
+    let b: Box = Box { data: xs };
+    b.data[1] = 98;
+    let c: Box = new Box { data: [0] };
+    c = new Box { data: xs };
+    c.data[0] = 97;
+    let d: Box = new Box { data: lit };
+    d.data[0] = 96;
+    let bs: Box[] = [new Box { data: xs }];
+    bs = bs + [new Box { data: xs }];
+    bs[0].data[0] = 95;
+    bs[1].data[1] = 94;
+    poke(new Box { data: xs });
+    let k: Sink = new Sink { n: 0 };
+    k.take(new Box { data: xs });
+    fx {
+        println(xs[0], " ", xs[1], " ", lit[0]);
+        println(a.data[0], " ", b.data[1], " ", c.data[0], " ", d.data[0]);
+        println(bs[0].data[0], " ", bs[1].data[1]);
+    }
+
+    shared = shared + [5];
+    let w: Box = wrapShared();
+    w.data[0] = 93;
+    let w2: Box = wrapSharedBare();
+    w2.data[0] = 92;
+    fx { println(shared[0], " ", w.data[0], " ", w2.data[0]); }
+    ret;
+}

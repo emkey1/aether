@@ -14,14 +14,16 @@ static void buildArrayAppendSteps(const AST *target, AST *item, int line,
                                   AST **outSetlenStmt, AST **outIdxAssign);
 static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *other,
                                   char *otherTypeName, int line);
+static int aetherRecordFieldRank(const char *className, const char *fieldName);
 
 /* Expand a typed object-literal initializer `let x: T = T { f: v, ... };` into
  * the rea shape the rewriter produces: an AST_VAR_DECL with init = AST_NEW(T)
  * (no record-init block) followed by one AST_ASSIGN(x.f = v) per field. The
  * caller passes the already-parsed AST_NEW `lit` (built from the bare `T { }`
  * form). Returns an AST_COMPOUND[ var-decl, x.f=v ... ], or NULL on mismatch. */
-AST *buildObjectInitDecl(Token *nameTok, AST *typeNode, VarType vtype,
+AST *buildObjectInitDecl(AetherParser *p, Token *nameTok, AST *typeNode, VarType vtype,
                          const char *typeName, AST *lit, int line) {
+    const char *cls = lit->token ? lit->token->value : NULL;
     /* lit is AST_NEW with extra = AST_COMPOUND of field AST_ASSIGNs. */
     AST *inits = lit->extra;
     /* Strip the record-init block off the NEW so it becomes a plain `new T()`. */
@@ -66,6 +68,10 @@ AST *buildObjectInitDecl(Token *nameTok, AST *typeNode, VarType vtype,
             fa->right = NULL;
             setTypeAST(assign, value ? value->var_type : TYPE_UNKNOWN);
             addChild(outer, assign);
+            /* W4-47: `x.field = xs` here is the literal's own store, which the
+             * statement-level un-alias never sees. */
+            aetherEmitStoreUnalias(p, outer, fldAccess, value,
+                                   aetherRecordFieldRank(cls, fieldVar->token->value), line);
         }
         freeAST(inits);
     }
@@ -230,6 +236,193 @@ AST *buildArrayUnaliasStmt(const AST *target, int line) {
     return stmt;
 }
 
+/* Array rank of field `fieldName` of record type `className`, from the
+ * registered record's field declaration: 0 not an array, -1 unknown (no such
+ * type or field yet). */
+static int aetherRecordFieldRank(const char *className, const char *fieldName) {
+    if (!className || !fieldName) return -1;
+    AST *rec = lookupType(className);
+    if (!rec) return -1;
+    int rank = -1;
+    if (rec->type == AST_RECORD_TYPE) {
+        for (int i = 0; i < rec->child_count && rank < 0; i++) {
+            const AST *d = rec->children[i];
+            if (!d || d->type != AST_VAR_DECL) continue;
+            for (int j = 0; j < d->child_count; j++) {
+                const AST *v = d->children[j];
+                if (!v || !v->token || !v->token->value ||
+                    strcasecmp(v->token->value, fieldName) != 0) continue;
+                rank = 0;
+                for (const AST *t = d->right; t && t->type == AST_ARRAY_TYPE; t = t->right) rank++;
+                if (rank == 0 && d->var_type == TYPE_ARRAY) rank = 1;
+                break;
+            }
+        }
+    }
+    releaseTransientTypeNode(rec);
+    return rank;
+}
+
+static bool aetherIsCompositeLiteral(const AST *v) {
+    return v && ((v->type == AST_NEW && v->extra && v->extra->type == AST_COMPOUND) ||
+                 v->type == AST_ARRAY_LITERAL);
+}
+
+/* W4-47. A record literal's field initializers and an array literal's
+ * elements are stores the VM performs with a plain SET_INDIRECT, so an
+ * array-valued `xs` placed there shares xs's ArrayObj (the same aliasing
+ * buildArrayUnaliasStmt exists to break for `x = xs`). Once the literal has
+ * been stored at `dest`, emit into `outer` one un-alias step per field or
+ * element that holds an array which may alias: `setlength(dest.f, ...)`,
+ * `setlength(dest[i], ...)`. A nested literal recurses with its own dest
+ * path, so every literal copies its direct parts at depth 1 and no deeper:
+ * the rows of an array placed in a field stay shared, as they do after
+ * `x = xs` (the deep copy waits for V-strict). `destRank` is dest's array
+ * rank when known (0 not an array, -1 unknown). */
+void aetherEmitLiteralUnalias(AetherParser *p, AST *outer, const AST *dest,
+                              const AST *value, int destRank, int line) {
+    if (!outer || !dest || !aetherIsCompositeLiteral(value)) return;
+    if (value->type == AST_NEW) {
+        const char *cls = value->token ? value->token->value : NULL;
+        const AST *inits = value->extra;
+        for (int i = 0; i < inits->child_count; i++) {
+            const AST *fa = inits->children[i];
+            if (!fa || fa->type != AST_ASSIGN || !fa->left || !fa->left->token ||
+                !fa->left->token->value || !fa->right)
+                continue;
+            Token *fldTok = newToken(TOKEN_IDENTIFIER, fa->left->token->value, line, 0);
+            AST *fieldDest = newASTNode(AST_FIELD_ACCESS, fldTok);
+            setLeft(fieldDest, copyAST((AST *)dest));
+            setRight(fieldDest, newASTNode(AST_VARIABLE, newToken(TOKEN_IDENTIFIER,
+                                                                  fa->left->token->value, line, 0)));
+            aetherEmitStoreUnalias(p, outer, fieldDest, fa->right,
+                                   aetherRecordFieldRank(cls, fa->left->token->value), line);
+            freeAST(fieldDest);
+        }
+        return;
+    }
+    int elemRank = destRank > 0 ? destRank - 1 : -1;
+    for (int i = 0; i < value->child_count; i++) {
+        AST *elemDest = newASTNode(AST_ARRAY_ACCESS, NULL);
+        setLeft(elemDest, copyAST((AST *)dest));
+        addChild(elemDest, buildIntLiteral(i, line));
+        setTypeAST(elemDest, TYPE_UNKNOWN);
+        aetherEmitStoreUnalias(p, outer, elemDest, value->children[i], elemRank, line);
+        freeAST(elemDest);
+    }
+}
+
+/* The single store `dest = value` the front end performs for a literal's part
+ * or an append's element (`t[length(t) - 1] = item`): un-alias `dest` when
+ * `value` is an array that may share storage, or recurse into a literal. */
+void aetherEmitStoreUnalias(AetherParser *p, AST *outer, const AST *dest,
+                            const AST *value, int destRank, int line) {
+    if (!outer || !dest || !value) return;
+    if (aetherIsCompositeLiteral(value)) {
+        aetherEmitLiteralUnalias(p, outer, dest, value, destRank, line);
+        return;
+    }
+    if (destRank == 0 || !aetherArrayInitMayAlias(value)) return;
+    bool isArray = destRank > 0;
+    if (!isArray && p) {
+        char *tn = inferLetTypeName(p, (AST *)value);
+        isArray = aetherTypeNameIsArray(tn);
+        free(tn);
+    }
+    if (isArray) addChild(outer, buildArrayUnaliasStmt(dest, line));
+}
+
+/* The Aether type name of a composite literal, for a temp that holds it:
+ * `new T { ... }` is a T; `[e, ...]` is the first element's type plus "[]".
+ * NULL when the parser cannot name it. */
+static char *aetherCompositeLiteralTypeName(AetherParser *p, const AST *lit) {
+    if (!lit) return NULL;
+    if (lit->type == AST_NEW) return lit->token && lit->token->value ? strdup(lit->token->value) : NULL;
+    if (lit->type != AST_ARRAY_LITERAL || lit->child_count == 0) return NULL;
+    const AST *first = lit->children[0];
+    char *elem = aetherIsCompositeLiteral(first) ? aetherCompositeLiteralTypeName(p, first)
+                                                 : inferLetTypeName(p, (AST *)first);
+    if (!elem) return NULL;
+    size_t n = strlen(elem);
+    char *out = (char *)malloc(n + 3);
+    if (out) { memcpy(out, elem, n); memcpy(out + n, "[]", 3); }
+    free(elem);
+    return out;
+}
+
+static bool aetherExprHasCall(const AST *e) {
+    if (!e) return false;
+    if (e->type == AST_PROCEDURE_CALL) return true;
+    if (aetherExprHasCall(e->left) || aetherExprHasCall(e->right) || aetherExprHasCall(e->extra))
+        return true;
+    for (int i = 0; i < e->child_count; i++)
+        if (aetherExprHasCall(e->children[i])) return true;
+    return false;
+}
+
+/* W4-47, argument position: `poke(new Box { data: xs });`, `f([xs]);`. The
+ * callee's prologue copies an array parameter only at depth 1 and a record
+ * parameter not at all, so a write through the parameter reached xs. For a
+ * call that is a whole statement (`f(...);`, `let r = f(...);`, `r = f(...);`)
+ * bind each such literal argument to a temp, un-alias the temp's parts, and
+ * pass the temp. Only a user function or method, and only while every earlier
+ * argument is call-free, so no visible evaluation order changes. Returns the
+ * statements to run before `stmt` (an i_val==1 compound), or NULL. */
+AST *aetherHoistCallLiteralArgs(AetherParser *p, AST *stmt) {
+    if (!p || !stmt || p->forwardScan) return NULL;
+    AST *s = stmt;
+    if (s->type == AST_COMPOUND && s->i_val == 1 && s->child_count > 0) s = s->children[0];
+    AST *call = NULL;
+    if (!s) return NULL;
+    if (s->type == AST_EXPR_STMT) call = s->left;
+    else if (s->type == AST_VAR_DECL) call = s->left;
+    else if (s->type == AST_ASSIGN) call = s->right;
+    if (!call || call->type != AST_PROCEDURE_CALL || !call->token || !call->token->value ||
+        getVmBuiltinID(call->token->value) >= 0)
+        return NULL;
+    int line = call->token->line;
+    AST *out = NULL;
+    for (int i = 0; i < call->child_count; i++) {
+        AST *arg = call->children[i];
+        if (aetherIsCompositeLiteral(arg)) {
+            char tempName[64];
+            snprintf(tempName, sizeof(tempName), "__aether_arg_%d", p->nextObjLitId);
+            AST *tmpRef = buildVarRef(tempName, TYPE_UNKNOWN, line);
+            AST *steps = newASTNode(AST_COMPOUND, NULL);
+            char *tn = aetherCompositeLiteralTypeName(p, arg);
+            aetherEmitLiteralUnalias(p, steps, tmpRef, arg,
+                                     aetherTypeNameIsArray(tn) ? aetherTypeNameRank(tn) : -1, line);
+            freeAST(tmpRef);
+            VarType vt = TYPE_UNKNOWN;
+            AST *typeNode = (steps->child_count > 0 && tn)
+                                ? buildTypeNodeFromName(tn, strlen(tn), line, &vt) : NULL;
+            if (typeNode) {
+                p->nextObjLitId++;
+                bindingTableSet(p->bindings, tempName, tn);
+                if (!out) { out = newASTNode(AST_COMPOUND, NULL); out->i_val = 1; }
+                AST *decl = newASTNode(AST_VAR_DECL, NULL);
+                addChild(decl, buildVarRef(tempName, vt, line));
+                setLeft(decl, arg);
+                setRight(decl, typeNode);
+                setTypeAST(decl, vt);
+                addChild(out, decl);
+                for (int k = 0; k < steps->child_count; k++) {
+                    addChild(out, steps->children[k]);
+                    steps->children[k] = NULL;
+                }
+                steps->child_count = 0;
+                AST *ref = buildVarRef(tempName, vt, line);
+                call->children[i] = ref;
+                ref->parent = call;
+            }
+            free(tn);
+            freeAST(steps);
+        }
+        if (aetherExprHasCall(call->children[i])) break;
+    }
+    return out;
+}
+
 /* The line pscal-core's compiler gives a VAR_DECL (compiler.c getLine): the
  * node's own token, else its initializer's root token, else its first name. */
 int aetherDeclLine(const AST *decl) {
@@ -328,8 +521,20 @@ bool aetherArrayInitMayAlias(const AST *init) {
  * has already verified the shape. `assign` is consumed (its target + the items
  * are reused/freed). `items` itself (the array of pointers, not its elements)
  * is only read here -- ownership stays with the caller. */
-AST *buildArrayAppend(AST *assign, AST *target, AST **items, int itemCount, int line, AST *src) {
+/* Rank of the appended-to array `target` when its type can be named, else -1;
+ * its elements then have rank one less (W4-47's append element store). */
+static int aetherAppendTargetRank(AetherParser *p, const AST *target) {
+    if (!p || !target) return -1;
+    char *tn = inferLetTypeName(p, (AST *)target);
+    int rank = aetherTypeNameIsArray(tn) ? aetherTypeNameRank(tn) : -1;
+    free(tn);
+    return rank;
+}
+
+AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, int itemCount,
+                      int line, AST *src) {
     AST *copyStmt = NULL;
+    int targetRank = aetherAppendTargetRank(p, target);
     if (src && !aetherLValueEqual(target, src)) {
         Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
         AST *copyAssign = newASTNode(AST_ASSIGN, aTok);
@@ -348,6 +553,8 @@ AST *buildArrayAppend(AST *assign, AST *target, AST **items, int itemCount, int 
         buildArrayAppendSteps(target, items[i], line, &setlenStmt, &idxAssign);
         addChild(outer, setlenStmt);
         addChild(outer, idxAssign);
+        aetherEmitStoreUnalias(p, outer, idxAssign->left, idxAssign->right,
+                               targetRank > 0 ? targetRank - 1 : -1, line);
     }
 
     /* The original assign node's target was copied; release it along with the
@@ -987,11 +1194,14 @@ bool aetherEmitConcatOperand(AetherParser *p, AST *dest, AST *var,
         op->otherTypeName = NULL;  /* likewise (it takes ownership) */
         return ok;
     }
+    int varRank = op->itemCount > 0 ? aetherAppendTargetRank(p, var) : -1;
     for (int i = 0; i < op->itemCount; i++) {
         AST *setlenStmt = NULL, *idxAssign = NULL;
         buildArrayAppendSteps(var, op->items[i], op->line, &setlenStmt, &idxAssign);
         addChild(dest, setlenStmt);
         addChild(dest, idxAssign);
+        aetherEmitStoreUnalias(p, dest, idxAssign->left, idxAssign->right,
+                               varRank > 0 ? varRank - 1 : -1, op->line);
         op->items[i] = NULL; /* consumed */
     }
     free(op->items);
@@ -1025,7 +1235,7 @@ static AST *buildSimpleAssign(const char *name, AST *value, int line) {
 static AST *buildTempRecordReturn(const char *typeName, VarType vtype, AST *typeNode,
                                   const char *tempName,
                                   const char **fieldNames, AST **fieldValues, size_t fieldCount,
-                                  AST *guard, int line) {
+                                  AST *guard, int line, AetherParser *unaliasP) {
     Token *newTok = newToken(TOKEN_IDENTIFIER, typeName, line, 0);
     AST *newNode = newASTNode(AST_NEW, newTok);
     setTypeAST(newNode, TYPE_POINTER);
@@ -1059,6 +1269,11 @@ static AST *buildTempRecordReturn(const char *typeName, VarType vtype, AST *type
         setRight(assign, valExpr);
         setTypeAST(assign, valExpr ? valExpr->var_type : TYPE_UNKNOWN);
         addChild(outer, assign);
+        /* W4-47: a returned record literal's array fields (`ret T { f: xs }`).
+         * Tuple returns pass NULL: their destructuring `let` copies each item. */
+        if (unaliasP)
+            aetherEmitStoreUnalias(unaliasP, outer, fldAccess, valExpr,
+                                   aetherRecordFieldRank(typeName, fieldNames[i]), line);
     }
 
     if (guard) addChild(outer, guard);
@@ -1191,7 +1406,7 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
     }
 
     return buildTempRecordReturn(typeName, vtype, typeNode, tempName,
-                                 fieldNames, items, idx, guard, line);
+                                 fieldNames, items, idx, guard, line, NULL);
 }
 
 /* let (a, b, ...) = call();  tuple destructuring.
@@ -1430,7 +1645,7 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
     char tempName[64];
     snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", p->nextObjLitId++);
     AST *outer = buildTempRecordReturn(clsTok->value, vtype, typeNode, tempName,
-                                       fieldNames, fieldValues, fieldCount, NULL, line);
+                                       fieldNames, fieldValues, fieldCount, NULL, line, p);
 
     if (inits) freeAST(inits);
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
@@ -1686,7 +1901,12 @@ AST *parseRet(AetherParser *p) {
         } else {
             outer = newASTNode(AST_COMPOUND, NULL);
             outer->i_val = 1; /* splice into the surrounding block */
-            addChild(outer, buildSimpleAssign("result", value, line));
+            AST *stage = buildSimpleAssign("result", value, line);
+            addChild(outer, stage);
+            /* W4-47: `ret new T { f: xs };` / `ret [xs];` staged into `result`. */
+            int rank = aetherTypeNameIsArray(p->currentReturnTypeName)
+                           ? aetherTypeNameRank(p->currentReturnTypeName) : -1;
+            aetherEmitLiteralUnalias(p, outer, stage->left, value, rank, line);
         }
         AST *guard = buildContractGuard(p, p->currentPostExpr, "post",
                                         p->currentFunctionName, line);
@@ -1701,6 +1921,51 @@ AST *parseRet(AetherParser *p) {
         setTypeAST(ret, resultVt);
         addChild(outer, ret);
         return outer;
+    }
+
+    /* W4-47: `ret new T { f: xs };` / `ret [xs];` -- the literal shares xs's
+     * storage with the caller's copy (xs may be a field or a global). Bind it
+     * to a temp first, un-alias the temp's parts, then return the temp; the
+     * literal is the whole returned expression, so evaluation order holds. */
+    if (value && p->currentReturnTypeName && p->functionDepth > 0 &&
+        (value->type == AST_ARRAY_LITERAL || (value->type == AST_NEW && value->extra))) {
+        char tempName[64];
+        snprintf(tempName, sizeof(tempName), "__aether_retlit_%d", p->nextObjLitId);
+        int rank = aetherTypeNameIsArray(p->currentReturnTypeName)
+                       ? aetherTypeNameRank(p->currentReturnTypeName) : -1;
+        AST *tmpRef = buildVarRef(tempName, TYPE_UNKNOWN, line);
+        AST *steps = newASTNode(AST_COMPOUND, NULL);
+        aetherEmitLiteralUnalias(p, steps, tmpRef, value, rank, line);
+        VarType vt = TYPE_UNKNOWN;
+        AST *typeNode = steps->child_count > 0
+                            ? buildTypeNodeFromName(p->currentReturnTypeName,
+                                                    strlen(p->currentReturnTypeName), line, &vt)
+                            : NULL;
+        freeAST(tmpRef);
+        if (typeNode) {
+            p->nextObjLitId++;
+            AST *outer = newASTNode(AST_COMPOUND, NULL);
+            outer->i_val = 1; /* splice into the surrounding block */
+            AST *decl = newASTNode(AST_VAR_DECL, NULL);
+            addChild(decl, buildVarRef(tempName, vt, line));
+            setLeft(decl, value);
+            setRight(decl, typeNode);
+            setTypeAST(decl, vt);
+            addChild(outer, decl);
+            for (int i = 0; i < steps->child_count; i++) {
+                addChild(outer, steps->children[i]);
+                steps->children[i] = NULL;
+            }
+            steps->child_count = 0;
+            freeAST(steps);
+            Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
+            AST *ret = newASTNode(AST_RETURN, retTok);
+            setLeft(ret, buildVarRef(tempName, vt, line));
+            setTypeAST(ret, vt);
+            addChild(outer, ret);
+            return outer;
+        }
+        freeAST(steps);
     }
 
     Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);

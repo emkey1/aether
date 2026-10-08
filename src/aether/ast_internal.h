@@ -287,16 +287,21 @@ AST *parseBlock(AetherParser *p);
 
 /* ---- Defined in ast_lower.c ----------------------------------------- */
 
-AST *buildObjectInitDecl(Token *nameTok, AST *typeNode, VarType vtype,
+AST *buildObjectInitDecl(AetherParser *p, Token *nameTok, AST *typeNode, VarType vtype,
                          const char *typeName, AST *lit, int line);
 bool aetherIsLValueChain(const AST *node);
 bool aetherLValueEqual(const AST *a, const AST *b);
 bool aetherExprReadsLValue(const AST *expr, const AST *target);
 AST *buildArrayUnaliasStmt(const AST *target, int line);
+void aetherEmitLiteralUnalias(AetherParser *p, AST *outer, const AST *dest,
+                              const AST *value, int destRank, int line);
+AST *aetherHoistCallLiteralArgs(AetherParser *p, AST *stmt);
+void aetherEmitStoreUnalias(AetherParser *p, AST *outer, const AST *dest,
+                            const AST *value, int destRank, int line);
 int aetherDeclLine(const AST *decl);
 void aetherAlignSpliceLines(AST *outer, AST *anchor);
 bool aetherArrayInitMayAlias(const AST *init);
-AST *buildArrayAppend(AST *assign, AST *target, AST **items, int itemCount, int line, AST *src);
+AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, int itemCount, int line, AST *src);
 AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
 AST *buildVarRef(const char *name, VarType vt, int line);
 AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *other,

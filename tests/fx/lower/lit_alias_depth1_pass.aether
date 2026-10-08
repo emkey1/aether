@@ -1,0 +1,23 @@
+// W4-47 copies a literal's array parts at depth 1, the same depth as `x = xs`:
+// the outer array placed in a field or element is fresh, but a loop-built
+// grid's rows stay shared with the source's rows, so a nested write through a
+// row still reaches the source grid. This prints the same before and after the
+// fix; the deep copy waits for V-strict (L2), which pairs it with the
+// nested-write error.
+type Grid { cells: Int[][]; }
+fn mark(g: Grid) -> Void { g.cells[1][0] = 97; ret; }
+fn main() -> Void {
+    let g: Int[][] = [];
+    loop i in 0..2 {
+        let row: Int[] = [];
+        loop j in 0..2 { row = row + [i * 2 + j + 1]; }
+        g = g + [row];
+    }
+    let gb: Grid = new Grid { cells: g };
+    gb.cells[0][0] = 99;
+    let wrap: Int[][][] = [g];
+    wrap[0][1][1] = 98;
+    mark(new Grid { cells: g });
+    fx { println(g[0][0], " ", g[0][1], " ", g[1][0], " ", g[1][1]); }
+    ret;
+}

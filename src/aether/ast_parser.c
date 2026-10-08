@@ -2770,7 +2770,7 @@ static AST *parsePrimary(AetherParser *p) {
                 char tempName[40];
                 snprintf(tempName, sizeof(tempName), "__aether_lit_%d", p->nextObjLitId++);
                 Token *tempTok = newToken(TOKEN_IDENTIFIER, tempName, idLine, 0);
-                AST *hoisted = buildObjectInitDecl(tempTok, litTypeNode, litVarType,
+                AST *hoisted = buildObjectInitDecl(p, tempTok, litTypeNode, litVarType,
                                                    tok->value, lit, idLine);
                 pushPendingObjLit(p, hoisted);
                 bindingTableSet(p->bindings, tempName, tok->value);
@@ -4175,7 +4175,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                 if (declaredTypeName)
                     bindingTableSet(p->bindings,
                                     nameTok->value, declaredTypeName);
-                AST *objDecl = buildObjectInitDecl(nameTok, typeNode, vtype,
+                AST *objDecl = buildObjectInitDecl(p, nameTok, typeNode, vtype,
                                                    declaredTypeName, lit, litLine);
                 free(declaredTypeName);
                 return objDecl;
@@ -4384,6 +4384,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     if (declaredTypeName)
         bindingTableSet(p->bindings, nameTok->value, declaredTypeName);
     bool declIsArrayType = declaredTypeName && aetherTypeNameIsArray(declaredTypeName);
+    int declRank = declaredTypeName ? aetherTypeNameRank(declaredTypeName) : -1;
     free(declaredTypeName);
 
     AST *var = newASTNode(AST_VARIABLE, nameTok);
@@ -4440,6 +4441,8 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         if (!emitsAnyStep && aetherArrayInitMayAlias(init)) {
             addChild(outer, buildArrayUnaliasStmt(var, appendLine));
         }
+        /* W4-47: `let x = [xs] + ...;` -- the innermost literal's parts. */
+        aetherEmitLiteralUnalias(p, outer, var, init, declRank, kwLine);
 
         for (int i = 0; i < chainOpCount; i++) {
             if (!aetherEmitConcatOperand(p, outer, var, &chainOps[i])) {
@@ -4467,7 +4470,26 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         aetherAlignSpliceLines(outer, decl);
         return outer;
     }
-    return decl;
+    /* W4-47: `let b = new Box { data: xs };`, `let g = [xs];` -- the literal
+     * stored each array part with a plain store that shares xs's storage;
+     * un-alias those parts of `x` the way `x = xs` un-aliases `x`. */
+    AST *litSteps = newASTNode(AST_COMPOUND, NULL);
+    aetherEmitLiteralUnalias(p, litSteps, var, init, declRank, kwLine);
+    if (litSteps->child_count == 0) {
+        freeAST(litSteps);
+        return decl;
+    }
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, decl);
+    for (int i = 0; i < litSteps->child_count; i++) {
+        addChild(outer, litSteps->children[i]);
+        litSteps->children[i] = NULL;
+    }
+    litSteps->child_count = 0;
+    freeAST(litSteps);
+    aetherAlignSpliceLines(outer, decl);
+    return outer;
 }
 
 /* if cond { then } [else { else }]  ->  AST_IF (mirrors rea parseIf). The
@@ -5027,7 +5049,7 @@ static AST *parseStatementInner(AetherParser *p) {
                 if (items[i]) items[i]->parent = NULL;
             }
             rhs->right->child_count = 0;
-            AST *result = buildArrayAppend(expr, target, items, itemCount, line, rhs->left);
+            AST *result = buildArrayAppend(p, expr, target, items, itemCount, line, rhs->left);
             free(items);
             return result;
         }
@@ -5081,6 +5103,25 @@ static AST *parseStatementInner(AetherParser *p) {
                 return outer;
             }
         }
+        /* W4-47: `b = new Box { data: xs };`, `g = [xs];` -- un-alias the
+         * literal's array parts at their new home, as the let path does. */
+        if (target && rhs && expr->token && expr->token->type == TOKEN_ASSIGN &&
+            aetherIsLValueChain(target) &&
+            (rhs->type == AST_ARRAY_LITERAL || (rhs->type == AST_NEW && rhs->extra))) {
+            int line = expr->token->line;
+            char *lhsTypeName = inferLetTypeName(p, target);
+            int lhsRank = aetherTypeNameIsArray(lhsTypeName) ? aetherTypeNameRank(lhsTypeName) : -1;
+            free(lhsTypeName);
+            AST *outer = newASTNode(AST_COMPOUND, NULL);
+            outer->i_val = 1; /* splice into the surrounding block */
+            addChild(outer, expr);
+            aetherEmitLiteralUnalias(p, outer, target, rhs, lhsRank, line);
+            if (outer->child_count > 1) return outer;
+            outer->children[0] = NULL;
+            outer->child_count = 0;
+            expr->parent = NULL;
+            freeAST(outer);
+        }
         return expr; /* assignments act as statements directly */
     }
     AST *stmt = newASTNode(AST_EXPR_STMT, expr->token);
@@ -5106,6 +5147,10 @@ static AST *parseStatementInner(AetherParser *p) {
 AST *parseStatement(AetherParser *p) {
     int mark = p->pendingObjLitCount;
     AST *stmt = parseStatementInner(p);
+    /* W4-47: literal arguments of a statement-level call, bound to temps that
+     * run after this statement's other hoists (they may reference them). */
+    AST *argHoists = aetherHoistCallLiteralArgs(p, stmt);
+    if (argHoists) pushPendingObjLit(p, argHoists);
     if (p->pendingObjLitCount <= mark) {
         return stmt;
     }

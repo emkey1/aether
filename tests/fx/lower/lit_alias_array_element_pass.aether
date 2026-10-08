@@ -1,0 +1,42 @@
+// W4-47: an array placed in an array literal's element is a copy. Before the
+// fix an append-built source shared its storage with the element (`[xs]`,
+// `g + [xs]`, `f([xs])`), so a write through the element changed the source;
+// a literal-built source always copied.
+let shared: Int[] = [];
+fn wrapShared() -> Int[][] { ret [shared]; }
+fn poke(g: Int[][]) -> Void { g[0][0] = 30; ret; }
+fn main() -> Void {
+    let xs: Int[] = [];
+    xs = xs + [1];
+    xs = xs + [2];
+    let lit: Int[] = [1, 2];
+
+    let g: Int[][] = [xs, xs];
+    g[0][0] = 99;
+    g[1][1] = 98;
+    let h: Int[][] = [];
+    h = [xs];
+    h[0][0] = 97;
+    let m: Int[][] = [];
+    m = m + [xs];
+    m = m + [xs, lit];
+    m[0][0] = 96;
+    m[1][1] = 95;
+    m[2][0] = 94;
+    let n: Int[][] = [lit];
+    n[0][1] = 93;
+    let deep: Int[][][] = [[xs]];
+    deep[0][0][0] = 92;
+    poke([xs]);
+    fx {
+        println(xs[0], " ", xs[1], " ", lit[0], " ", lit[1]);
+        println(g[0][0], " ", g[1][0], " ", g[1][1], " ", h[0][0]);
+        println(m[0][0], " ", m[1][1], " ", m[2][0], " ", n[0][1], " ", deep[0][0][0]);
+    }
+
+    shared = shared + [5];
+    let w: Int[][] = wrapShared();
+    w[0][0] = 91;
+    fx { println(shared[0], " ", w[0][0]); }
+    ret;
+}
