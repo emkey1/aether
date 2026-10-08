@@ -1,0 +1,10 @@
+// W4-06: `let xs: T[] = other;` at file scope is a copy, in scope, and main runs.
+fn mk() -> Int[] { ret [4, 5]; }
+let src: Int[] = mk();
+let xs: Int[] = src;
+fn show() -> Void { fx { println("show ", len(xs), " ", xs[1]); } }
+fn main() -> Void {
+    show();
+    xs[0] = 7;
+    fx { println("main ", xs[0], " ", src[0]); }
+}

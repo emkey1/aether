@@ -26,7 +26,6 @@ open_slice	fails:SYN-001	W4-35	full:1270	open-ended slices do not parse
 new_sized_array	fails:SYN-001	W4-28	-	SYN-001 with a misleading empty-index hint; the class cannot see the hint
 cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped)
 ret_inside_fx	passes	ideas:Misleading `FLOW-001` on `ret` inside `fx`	full:309	ret inside fx compiles and runs, but the full guide still forbids it
-toplevel_array_call	fails:SCOPE-001	W4-06	-	file-scope `let xs: Int[] = mk()` is out of scope
 main_real_to_int	uncoded-runtime	W4-08	medium:137,medium:265,full:158	main-program Int from Real aborts with no file, line or code
 tail_expr_return	silent:2	W4-03	-	`a b` juxtaposition keeps a and drops b
 unterminated_string	silent:abc	W4-13	-	an unterminated string swallows the `;`

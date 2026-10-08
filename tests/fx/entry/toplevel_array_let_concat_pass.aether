@@ -1,0 +1,10 @@
+// W4-06: a file-scope concat `let` is in scope and main still runs.
+let base: Int[] = [1, 2];
+let xs: Int[] = base + [6];
+let ys: Int[] = base + xs + [7, 8];
+fn show() -> Void { fx { println("show ", len(xs), " ", xs[2], " ", len(ys)); } }
+fn main() -> Void {
+    show();
+    xs[0] = 9;
+    fx { println("main ", xs[0], " ", base[0], " ", ys[6]); }
+}

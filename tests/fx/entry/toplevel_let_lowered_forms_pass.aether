@@ -1,0 +1,9 @@
+// W4-06: other file-scope lets that lower to several statements (a tuple
+// destructure, a record literal) are declarations too: main still runs.
+type P { x: Int }
+fn pair() -> (Int, Int) { ret (1, 2); }
+let (a, b) = pair();
+let p = P { x: 4 };
+fn main() -> Void {
+    fx { println(a + b, " ", p.x); }
+}

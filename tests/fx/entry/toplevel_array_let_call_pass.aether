@@ -1,0 +1,9 @@
+// W4-06: a file-scope `let xs: T[] = f();` is in scope everywhere, and the
+// un-alias step it lowers to does not keep the implicit main() from running.
+fn mk() -> Int[] { ret [1, 2, 3]; }
+let xs: Int[] = mk();
+fn show() -> Void { fx { println("show ", len(xs), " ", xs[2]); } }
+fn main() -> Void {
+    show();
+    fx { println("main ", len(xs), " ", xs[0]); }
+}

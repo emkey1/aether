@@ -1,0 +1,7 @@
+// W4-06: in script mode (no fn main) the same file-scope lets are in scope
+// from a top-level fx block.
+fn mk() -> Int[] { ret [1, 2, 3]; }
+let xs: Int[] = mk();
+let ys: Int[] = xs + [4];
+let parts: Text[] = split("a,b", ",");
+fx { println(len(xs), " ", len(ys), " ", parts[1]); }

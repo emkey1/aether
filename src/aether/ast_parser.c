@@ -5983,10 +5983,16 @@ static AST *parseModuleDecl(AetherParser *p) {
  * let b = a;` with `b` reading `a` as it stood before the assignment. Its slot
  * is still defined ahead of the program (the compiler hoists that much -- see
  * hoistStatementGlobalSlots in pscal-core), so the binding is visible
- * everywhere regardless of where its initializer runs. */
+ * everywhere regardless of where its initializer runs.
+ *
+ * A splice compound (i_val==1: the may-alias `let x: T[] = f();` un-alias
+ * step, the concat and slice expansions, object-literal hoists) is flattened
+ * the same way parseBlock flattens it. Kept whole, it compiles as a nested
+ * block, which keeps its own locals, so the `let` it carries would be out of
+ * scope everywhere else (SCOPE-001 at every use). */
 static void appendTopLevelDecl(AST *decls, AST *stmts, AST *node) {
     if (!node) return;
-    if (node->type == AST_COMPOUND && node->is_global_scope) {
+    if (node->type == AST_COMPOUND && (node->is_global_scope || node->i_val == 1)) {
         for (int i = 0; i < node->child_count; i++) {
             AST *child = node->children[i];
             if (!child) continue;
@@ -6321,6 +6327,8 @@ AST *parseAetherAst(const char *rawSource) {
      * pass said anything; the forward scan's muted increments are discarded. */
     g_aetherAstDiagCount = 0;
 
+    bool has_executable_stmt = false;
+    bool stmtIsLet = false;
     while (p.current.type != REA_TOKEN_EOF && !p.hadError) {
         /* Contract annotations (`@pre/@post/@pure/@cost`) precede a `fn`. */
         collectPendingAnnotations(&p);
@@ -6355,13 +6363,21 @@ AST *parseAetherAst(const char *rawSource) {
              * `fn main`. parseStatement parses it; appendTopLevelDecl routes
              * var/const to globals and executable statements to the program body
              * (stmts), matching the rewriter's implicit-main wrapping. */
+            stmtIsLet = isAetherKeyword(&p.current, "let");
             decl = parseStatement(&p);
         }
         if (!decl) {
             p.hadError = true;
             break;
         }
+        int stmtsBefore = stmts->child_count;
         appendTopLevelDecl(decls, stmts, decl);
+        /* A top-level `let` is a declaration, not user code, even when its
+         * lowering splices statements after the decl (the un-alias setlength,
+         * concat steps, tuple and object-literal field stores): only a
+         * statement the program wrote counts as executable. */
+        if (!stmtIsLet && stmts->child_count > stmtsBefore) has_executable_stmt = true;
+        stmtIsLet = false;
     }
 
     aetherFreePending(&p.pending);
@@ -6458,15 +6474,8 @@ AST *parseAetherAst(const char *rawSource) {
     }
     /* A top-level `let` sits in `stmts` to keep its position, but it is a
      * declaration, not user code -- a file that is nothing but bindings and a
-     * `fn main` still needs the implicit call. */
-    bool has_executable_stmt = false;
-    for (int i = 0; i < stmts->child_count; i++) {
-        AST *s = stmts->children[i];
-        if (s && s->type != AST_VAR_DECL) {
-            has_executable_stmt = true;
-            break;
-        }
-    }
+     * `fn main` still needs the implicit call. has_executable_stmt is set in
+     * the parse loop above, which knows which statements a `let` produced. */
     if (!has_executable_stmt && has_main) {
         Token *mainTok = newToken(TOKEN_IDENTIFIER, "main", 0, 0);
         AST *call = newASTNode(AST_PROCEDURE_CALL, mainTok);
