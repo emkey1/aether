@@ -1113,6 +1113,8 @@ void aetherTypedWalk(AST *root, const AetherTypedVisitor *visitor) {
 
 typedef struct {
     int reported;
+    int fileLines[32]; /* W4-32: a forward declaration repeats its params */
+    int fileLineCount;
 } RuleCtx;
 
 static int nodeLine(const AST *n);
@@ -1223,10 +1225,73 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
     }
 }
 
+/* W4-32 (D34), a stopgap until File is reference-counted (W5): a File copy is
+ * not retained (pscal-core utils.c), so a File passed, returned, stored in a
+ * record field or copied into a second binding crashed with rc 139 and empty
+ * output, or corrupted the heap and exited 0. Delete with W5's File retain. */
+/* By VarType: `File` lowers to rea's `text` keyword, whose type node the
+ * oracle's name table would read as Text. */
+static int isFileDecl(const AST *decl) {
+    return decl && (decl->var_type == TYPE_FILE || (decl->right && decl->right->var_type == TYPE_FILE));
+}
+
+static void reportFileStopgap(RuleCtx *c, const AST *at, const char *what) {
+    int line = nodeLine(at);
+    for (int i = 0; i < c->fileLineCount; i++)
+        if (c->fileLines[i] == line) return;
+    if (c->fileLineCount < 32) c->fileLines[c->fileLineCount++] = line;
+    char detail[320];
+    snprintf(detail, sizeof(detail),
+             "a File cannot be %s yet: its copies are not tracked and the program crashes. "
+             "Use one top-level `let f: File;` that helpers read, or pass the path as Text "
+             "and open the file in the helper.",
+             what);
+    ruleReport(c, at, detail);
+}
+
+static void fileScan(RuleCtx *c, const AST *n) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL:
+            for (int i = 0; i < n->child_count; i++) {
+                const AST *prm = n->children[i];
+                if (prm && prm->type == AST_VAR_DECL && isFileDecl(prm))
+                    reportFileStopgap(c, prm, "a parameter");
+            }
+            if (n->type == AST_FUNCTION_DECL && n->var_type == TYPE_FILE)
+                reportFileStopgap(c, n->right ? n->right : n, "a return value");
+            break;
+        case AST_TYPE_DECL:
+            if (n->left && n->left->type == AST_RECORD_TYPE) {
+                for (int i = 0; i < n->left->child_count; i++) {
+                    const AST *f = n->left->children[i];
+                    if (f && f->type == AST_VAR_DECL && isFileDecl(f))
+                        reportFileStopgap(c, f, "a record field");
+                }
+            }
+            return;
+        case AST_VAR_DECL:
+            if (n->left && isFileDecl(n)) reportFileStopgap(c, n, "copied into a `let`");
+            return;
+        case AST_ASSIGN:
+            if (n->left && n->left->type == AST_VARIABLE && n->left->var_type == TYPE_FILE)
+                reportFileStopgap(c, n, "assigned to another File");
+            break;
+        default:
+            break;
+    }
+    fileScan(c, n->left);
+    fileScan(c, n->right);
+    fileScan(c, n->extra);
+    for (int i = 0; i < n->child_count; i++) fileScan(c, n->children[i]);
+}
+
 void aetherTypedRules(AST *root) {
     if (!root) return;
     RuleCtx c;
     memset(&c, 0, sizeof(c));
+    fileScan(&c, root);
     AetherTypedVisitor v;
     memset(&v, 0, sizeof(v));
     v.ctx = &c;

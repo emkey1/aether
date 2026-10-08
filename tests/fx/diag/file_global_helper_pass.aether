@@ -1,0 +1,38 @@
+// W4-32: the form the stopgap's hint names -- one top-level File that helpers
+// use, and a helper that takes the path as Text.
+let logFile: File;
+
+fn logLine(msg: Text) -> Void {
+    fx { writeln(logFile, msg); }
+}
+
+fn countLines(path: Text) -> Int {
+    let f: File;
+    let n: Int = 0;
+    fx {
+        assign(f, path);
+        reset(f);
+        loop {
+            if eof(f) { break; }
+            let line: Text;
+            readln(f, line);
+            n = n + 1;
+        }
+        close(f);
+    }
+    ret n;
+}
+
+fn main() -> Void {
+    fx {
+        assign(logFile, "file_global_helper_tmp.txt");
+        rewrite(logFile);
+    }
+    logLine("one");
+    logLine("two");
+    fx {
+        close(logFile);
+        println(countLines("file_global_helper_tmp.txt"));
+        erase(logFile);
+    }
+}

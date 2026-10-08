@@ -1,0 +1,8 @@
+// W4-32 (D34): returning a File, or copying it into a second binding.
+fn openLog() -> File {
+    let f: File;
+    ret f;
+}
+fn main() -> Void {
+    let g: File = openLog();
+}

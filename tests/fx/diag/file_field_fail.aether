@@ -1,0 +1,9 @@
+// W4-32 (D34): a File stored in a record field.
+type Log {
+    out: File;
+    lines: Int;
+}
+fn main() -> Void {
+    let l: Log = new Log { lines: 0 };
+    fx { println(l.lines); }
+}

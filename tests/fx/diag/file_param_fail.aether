@@ -1,0 +1,14 @@
+// W4-32 (D34): a File parameter crashed with rc 139 and no output (File copies
+// are not retained). A coded stopgap until W5's File retain lands.
+fn writeAll(f: File, msg: Text) -> Void {
+    fx { writeln(f, msg); }
+}
+fn main() -> Void {
+    let f: File;
+    fx {
+        assign(f, "file_param_fail_tmp.txt");
+        rewrite(f);
+    }
+    writeAll(f, "hi");
+    fx { close(f); }
+}
