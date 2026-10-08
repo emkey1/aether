@@ -36,6 +36,7 @@
 
 #include "aether/parser.h"
 
+#include "aether/types.h"         /* aetherHintTypeName (W6-06) */
 #include "backend_ast/builtin.h"   /* getVmBuiltinID: does this builtin exist at all? */
 
 #include <ctype.h>
@@ -3778,6 +3779,75 @@ static bool aetherVarTypeIsIntFamily(VarType t) {
            t == TYPE_INT8 || t == TYPE_BYTE || t == TYPE_WORD;
 }
 
+/* W6-06: the TYPE-001 "cannot infer" hint is built from the initializer. It
+ * used to say `let x: Int = ...;` for everything, and following it for an
+ * array literal (`let xs: Int = ["a"]`) passed --no-run and died uncoded at
+ * run time; for sqrt() it named the wrong type. Never a `<Type>` placeholder. */
+static char *aetherHintNameOf(AetherParser *p, AST *e) {
+    char buf[96];
+    const char *t = aetherHintTypeName(e, buf, sizeof(buf));
+    if (t) return strdup(t);
+    if (e && e->type == AST_ARRAY_LITERAL) return NULL; /* its elements decide */
+    return inferLetTypeName(p, e);
+}
+
+static void aetherInferHint(AetherParser *p, AST *init, const char *vn, char *hint, size_t n) {
+    if (init && init->type == AST_ARRAY_LITERAL) {
+        if (init->child_count == 0) {
+            snprintf(hint, n, "an empty `[]` needs its element type: `let %s: Int[] = [];` "
+                     "(or Text[], Real[], ...: what it will hold).", vn);
+            return;
+        }
+        char *first = NULL;
+        bool mixed = false, numericMix = true, unknown = false;
+        for (int i = 0; i < init->child_count; i++) {
+            char *el = aetherHintNameOf(p, init->children[i]);
+            if (!el) { unknown = true; continue; }
+            if (strcmp(el, "Int") != 0 && strcmp(el, "Real") != 0) numericMix = false;
+            if (!first) first = el;
+            else {
+                if (strcmp(first, el) != 0) mixed = true;
+                free(el);
+            }
+        }
+        if (first && !mixed && !unknown) {
+            snprintf(hint, n, "write the array type: `let %s: %s[] = [...];`.", vn, first);
+        } else if (first && mixed && numericMix) {
+            snprintf(hint, n, "an array holds one element type: `let %s: Real[] = [...];` "
+                     "for Int and Real elements.", vn);
+        } else if (first && mixed) {
+            snprintf(hint, n, "an array holds one element type: make the elements agree, then "
+                     "write it, e.g. `let %s: %s[] = [...];`.", vn, first);
+        } else {
+            snprintf(hint, n, "write the array type with its element type: `let %s: Int[] = "
+                     "[...];` (or Text[], Real[], ...).", vn);
+        }
+        free(first);
+        return;
+    }
+    if (init && init->type == AST_BINARY_OP && init->token && init->token->value &&
+        strcmp(init->token->value, "+") == 0) {
+        char *lt = inferLetTypeName(p, init->left);
+        char *rt = inferLetTypeName(p, init->right);
+        bool text = (lt && strcmp(lt, "Text") == 0) || (rt && strcmp(rt, "Text") == 0);
+        free(lt);
+        free(rt);
+        if (text) {
+            snprintf(hint, n, "add an explicit type: `let %s: Text = ...;` (Text + a number "
+                     "builds a Text).", vn);
+            return;
+        }
+    }
+    char buf[96];
+    const char *t = init ? aetherHintTypeName(init, buf, sizeof(buf)) : NULL;
+    if (t) {
+        snprintf(hint, n, "add an explicit type: `let %s: %s = ...;`.", vn, t);
+        return;
+    }
+    snprintf(hint, n, "add the value's type, for example `let %s: Real = ...;` (or Int, Text, "
+             "Bool, Int[]).", vn);
+}
+
 static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
     /* `let` has already been consumed by the caller (which peeked for `(`). */
     /* Optional `mut` modifier: Rea bindings are mutable already, so accept and
@@ -4127,12 +4197,15 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                     (!p->funcReturns ||
                      !bindingTableGet(p->funcReturns, callee, strlen(callee)))) {
                     char scopeDetail[256];
+                    char unknownHint[256];
                     snprintf(scopeDetail, sizeof(scopeDetail),
                              "identifier '%s' not in scope.", callee);
+                    snprintf(unknownHint, sizeof(unknownHint),
+                             "'%s' is not a builtin or a function in this program: check the "
+                             "spelling, or define it with `fn`.", callee);
                     reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "scope",
                             scopeDetail,
-                            "this helper does not exist -- check the name against the "
-                            "guide's builtin list, or define it before use.");
+                            unknownHint);
                     p->hadError = true;
                     freeToken(nameTok);
                     freeAST(init);
@@ -4141,8 +4214,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             }
             snprintf(detail, sizeof(detail),
                      "cannot infer the type of '%s' from its initializer.", vn);
-            snprintf(hint, sizeof(hint),
-                     "add an explicit type, for example `let %s: Int = ...;`.", vn);
+            aetherInferHint(p, init, vn, hint, sizeof(hint));
             reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "declaration",
                                  detail, hint);
             p->hadError = true;

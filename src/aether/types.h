@@ -75,6 +75,10 @@ AetherType aetherTypeOf(const AST *expr, const AetherTypeEnv *env);
  * FUNCTION_DECL return type, a record field). */
 AetherType aetherTypeFromTypeNode(const AST *typeNode, VarType fallback);
 
+/* An expression's type name for a hint, with no environment (W6-06); NULL
+ * when the oracle cannot name it. */
+const char *aetherHintTypeName(const AST *e, char *buf, size_t n);
+
 /* "Int", "Real[]", "Point", "?" ... into buf. */
 const char *aetherTypeFormat(AetherType t, char *buf, size_t n);
 int aetherOracleIsInt(AetherType t);

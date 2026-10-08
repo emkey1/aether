@@ -1,0 +1,7 @@
+// W6-06: the TYPE-001 "cannot infer" hint is built from the initializer. It
+// said `let xs: Int = ...;` for an array, and following it passed --no-run
+// and died uncoded at run time ("Cannot assign ARRAY to integer").
+fn main() -> Void {
+    let empty = [];
+    fx { println(length(empty)); }
+}

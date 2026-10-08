@@ -1,0 +1,3 @@
+cannot infer the type of 'empty'
+`let empty: Int[] = [];`
+!: Int =

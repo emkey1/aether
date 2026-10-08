@@ -1,0 +1,6 @@
+// W6-06: `let r = sqrt(2.0);` was told `let r: Int = ...;`, which compiles
+// and truncates. The hint names the builtin's return type.
+fn main() -> Void {
+    let r = sqrt(2.0);
+    fx { println(r); }
+}

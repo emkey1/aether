@@ -738,6 +738,21 @@ AetherType aetherTypeOf(const AST *e, const AetherTypeEnv *env) {
     }
 }
 
+/* The Aether type name of an expression with no environment (literals,
+ * builtin calls, operators over those), for a hint; NULL when unknown. A Char
+ * reads as Text, the only character type a program can write. Used by the
+ * parser's TYPE-001 "cannot infer" hint (W6-06), before any pass has run. */
+const char *aetherHintTypeName(const AST *e, char *buf, size_t n) {
+    AetherType t = aetherTypeOf(e, NULL);
+    if (t.kind == AETHER_T_CHAR) t.kind = AETHER_T_TEXT;
+    if (t.kind == AETHER_T_ARRAY && t.elem == AETHER_T_CHAR) t.elem = AETHER_T_TEXT;
+    if (t.kind == AETHER_T_UNKNOWN || t.kind == AETHER_T_VOID || t.kind == AETHER_T_NIL)
+        return NULL;
+    if (t.kind == AETHER_T_ARRAY && t.elem == AETHER_T_UNKNOWN) return NULL;
+    if ((t.kind == AETHER_T_RECORD || t.kind == AETHER_T_HANDLE) && !t.name) return NULL;
+    return aetherTypeFormat(t, buf, n);
+}
+
 /* ------------------------------------------------------------------ */
 /* The walker                                                          */
 /* ------------------------------------------------------------------ */

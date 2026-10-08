@@ -1713,7 +1713,7 @@ if ! grep -q "Aether declaration parser error: cannot infer the type of 'answer'
     cat $OUT/aether_inferred_let_unknown_fail.out >&2
     exit 1
 fi
-if ! grep -q "hint: add an explicit type, for example \`let answer: Int = ...;\`." $OUT/aether_inferred_let_unknown_fail.out; then
+if ! grep -q "hint: add an explicit type: \`let answer: Text = ...;\` (Text + a number builds a Text)." $OUT/aether_inferred_let_unknown_fail.out; then
     echo "missing inferred let rewrite failure hint" >&2
     cat $OUT/aether_inferred_let_unknown_fail.out >&2
     exit 1
@@ -1740,7 +1740,7 @@ fi
 # The guide-pointer `help: see <CODE> ...` line is folded into the preceding
 # diagnostic's hint by the collector (no separate junk entry), so the hint is
 # the original text plus the folded guide pointer.
-if ! grep -q '"hint":"add an explicit type, for example `let answer: Int = ...;`.; see TYPE-001 in the Aether guide' $OUT/aether_inferred_let_unknown_json.out; then
+if ! grep -q '"hint":"add an explicit type: `let answer: Text = ...;` (Text + a number builds a Text).; see TYPE-001 in the Aether guide' $OUT/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json hint (with folded help pointer)" >&2
     cat $OUT/aether_inferred_let_unknown_json.out >&2
     exit 1

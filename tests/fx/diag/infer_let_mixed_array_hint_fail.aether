@@ -1,0 +1,5 @@
+// W6-06: an Int/Real literal mix names Real[]; a builtin names its return type.
+fn main() -> Void {
+    let xs = [1, 2.5];
+    fx { println(xs[0]); }
+}
