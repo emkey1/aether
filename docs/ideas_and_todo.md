@@ -1228,6 +1228,11 @@ range-condition hybrid.
   its elements — no error, just silently wrong output. Hit independently in
   two files from the same generated batch. Documented in both guides'
   *Dynamic arrays* sections with the correct iterate-and-print idiom.
+- **Reversed by D14 (W8-15):** both are coded TYPE-001 errors now, on the type
+  oracle: an array argument to print/println/write/writeln ("println cannot
+  print an array: loop over it ..."), and int()/real() of a Text or a Text
+  index ("int() converts numbers, not Text: ... parse_int(t) ... ord(c)").
+  The guide caveats become repayable deletions at the next guide pass.
 - **The small and large guides both stated inline `if ... else ...`
   expressions are never allowed inside `println(...)` call arguments** — this
   was flatly wrong and contradicted an existing, passing regression fixture

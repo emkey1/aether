@@ -3939,6 +3939,9 @@ void aetherPerformSemanticAnalysis(AST *root) {
     aetherWalkNarrowing(root);
     /* AETHER_EXPERIMENT arms (experiment.c); a no-op with the variable unset. */
     aetherRunExperiments(root);
+    /* Coded errors hosted on the type oracle (types.c aetherTypedRules), on a
+     * program the passes above accepted. */
+    if (pascal_semantic_error_count == errorCountBefore) aetherTypedRules(root);
     /* The type oracle's pass (types.c). It runs only when AETHER_DUMP_TYPES is
      * set and reports no diagnostics: W7-24a ships the oracle with no rules. */
     aetherTypedPass(root);

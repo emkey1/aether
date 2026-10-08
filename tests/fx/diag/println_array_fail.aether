@@ -1,0 +1,10 @@
+// W8-15 (D14): printing an array printed the VM's internal header,
+// `ARRAY(dims:1, base_type:INT64, elements_at:0x...)`, and exited 0.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let words: Text[] = split("a,b", ",");
+    fx {
+        println(xs);
+        print("words: ", words, "\n");
+    }
+}

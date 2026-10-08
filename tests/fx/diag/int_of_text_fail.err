@@ -1,0 +1,3 @@
+int() converts numbers, not Text: for the number in a Text use parse_int(t), for a character code use ord(c)
+real() converts numbers, not Text: for the number in a Text use parse_float(t)
+!Runtime

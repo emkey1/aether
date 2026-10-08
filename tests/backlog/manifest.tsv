@@ -28,7 +28,5 @@ let_self_init	fails:NAME-001	W5-24	-	`let s = trim(s)` reads the new, empty slot
 duplicate_fn	silent:2	W4-23	-	a duplicate fn is silently last-wins
 range_bound_reread	silent:5	W4-33	full:628	the range bound is re-read every pass
 result_shadow	silent:nil	W4-43	-	the backend's `result` local shadows the user's global
-print_array	silent~ARRAY\(dims:1, base_type:INT64, elements_at:0x[0-9a-fA-F]+\)	W8-15	full:1284,small:547	println(xs) prints the internal array header
-int_of_text	silent:0	W8-15	full:191,small:307	int(Text) is silently 0
 text_index_store	uncoded-runtime	W4-40	-	`s[i] = t` with a Text variable is an uncoded VM error
 chr_high	silent:Θ	W5-18	-	chr(233) prints through CP437

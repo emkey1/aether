@@ -1104,6 +1104,80 @@ void aetherTypedWalk(AST *root, const AetherTypedVisitor *visitor) {
 }
 
 /* ------------------------------------------------------------------ */
+/* Rules hosted on the oracle (release L1)                             */
+/* ------------------------------------------------------------------ */
+
+/* The first rules on the typed pass. Each judges a POSITIVE static type only:
+ * an operand the oracle cannot type is never reported. They run after rea's
+ * semantic pass and the AETHER_EXPERIMENT arms (an arm may rewrite `/`). */
+
+typedef struct {
+    int reported;
+} RuleCtx;
+
+static int nodeLine(const AST *n);
+
+static void ruleReport(RuleCtx *c, const AST *at, const char *detail) {
+    int line = nodeLine(at);
+    aetherSemanticReportCoded("TYPE-001", "type", line > 0 ? line : 1, detail, 1);
+    c->reported++;
+}
+
+/* int(x) / real(x) and their cast spellings, one argument. */
+static const char *numberCastName(const AST *e) {
+    const char *n = callName(e);
+    if (!n || e->type != AST_PROCEDURE_CALL || e->child_count != 1) return NULL;
+    if (!strcasecmp(n, "int") || !strcasecmp(n, "toint")) return "int";
+    if (!strcasecmp(n, "real") || !strcasecmp(n, "double") || !strcasecmp(n, "todouble") ||
+        !strcasecmp(n, "float") || !strcasecmp(n, "tofloat"))
+        return "real";
+    return NULL;
+}
+
+static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
+    RuleCtx *c = (RuleCtx *)vctx;
+    (void)use;
+    /* W8-15 (D14): an array printed the VM's `ARRAY(dims:1, ...)` header and
+     * exited 0. There is no array output format for a model to guess. */
+    if (isWriteCall(e)) {
+        for (int i = 0; i < e->child_count; i++) {
+            const AST *a = e->children[i];
+            if (a && a->type == AST_FORMATTED_EXPR) a = a->left;
+            if (!a || aetherTypeOf(a, env).kind != AETHER_T_ARRAY) continue;
+            ruleReport(c, e, e->type == AST_WRITELN
+                                 ? "println cannot print an array: loop over it and print each "
+                                   "element (`loop x in xs { ... }`)."
+                                 : "print cannot print an array: loop over it and print each "
+                                   "element (`loop x in xs { ... }`).");
+            break;
+        }
+        return;
+    }
+    /* W8-15 (D14): int(Text) was 0, int(s[i]) the code point ("7" -> 55),
+     * real(Text) an uncoded VM error. */
+    const char *cast = numberCastName(e);
+    if (cast && isTextual(aetherTypeOf(e->children[0], env))) {
+        char detail[256];
+        snprintf(detail, sizeof(detail),
+                 "%s() converts numbers, not Text: for the number in a Text use %s, for a "
+                 "character code use ord(c).",
+                 cast, strcmp(cast, "int") == 0 ? "parse_int(t)" : "parse_float(t)");
+        ruleReport(c, e, detail);
+    }
+}
+
+void aetherTypedRules(AST *root) {
+    if (!root) return;
+    RuleCtx c;
+    memset(&c, 0, sizeof(c));
+    AetherTypedVisitor v;
+    memset(&v, 0, sizeof(v));
+    v.ctx = &c;
+    v.onExpr = ruleExpr;
+    aetherTypedWalk(root, &v);
+}
+
+/* ------------------------------------------------------------------ */
 /* The dump (AETHER_DUMP_TYPES)                                        */
 /* ------------------------------------------------------------------ */
 

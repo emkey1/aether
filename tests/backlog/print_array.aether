@@ -1,6 +1,0 @@
-// Backlog probe (W8-15): println(xs) prints the internal array header.
-// Correct behaviour: a coded error for printing an array.
-fn main() -> Void {
-    let xs: Int[] = [1, 2, 3];
-    fx { println(xs); }
-}

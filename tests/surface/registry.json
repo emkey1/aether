@@ -556,12 +556,10 @@
    "spelling": "int(\"42\")",
    "canonical_form": "parse_int(\"42\")",
    "fixture": "fixtures/int_of_text.aether",
-   "code": null,
+   "code": "TYPE-001",
    "decided": "D14",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W8-15",
-   "note": "today prints 0"
+   "status": "holds",
+   "note": "W8-15: int(Text) printed 0"
   },
   {
    "id": "println_array",
@@ -569,12 +567,10 @@
    "spelling": "println(xs)",
    "canonical_form": "a loop printing each element",
    "fixture": "fixtures/println_array.aether",
-   "code": null,
+   "code": "TYPE-001",
    "decided": "D14",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W8-15",
-   "note": "today prints a pointer dump"
+   "status": "holds",
+   "note": "W8-15: printed the internal ARRAY(dims:...) header"
   },
   {
    "id": "record_equality",

@@ -1,0 +1,9 @@
+// W8-15 (D14): int(Text) returned 0, and int(s[i]) the code point ("7" -> 55);
+// real(Text) stopped with an uncoded VM error. All three are TYPE-001.
+fn main() -> Void {
+    let s: Text = "7";
+    let a: Int = int(s);
+    let b: Int = int(s[0]);
+    let c: Real = real("2.5");
+    fx { println(a, b, c, int("42")); }
+}

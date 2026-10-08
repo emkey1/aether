@@ -1,6 +1,0 @@
-// Backlog probe (W8-15): int(Text) is silently 0.
-// Correct behaviour: a coded error pointing at parse_int.
-fn main() -> Void {
-    let c: Text = "7";
-    fx { println(int(c)); }
-}

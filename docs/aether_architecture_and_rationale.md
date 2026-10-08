@@ -411,8 +411,9 @@ meaning costs nothing. Decision **D7** replaced it with four classes:
    language.** `//` as division, chained comparisons, `not X == Y`, `{}`/`%d`
    placeholders, `int(Text)`, record `==`, each with its decision row (D45, D32,
    D48, D14, D24). Placeholders and f-strings are rejected with FMT-001 (W6-04),
-   and `//` is always a comment, coded DIV-002 after an expression (W8-14); the
-   others are still silently accepted today.
+   `//` is always a comment, coded DIV-002 after an expression (W8-14), and
+   `int(Text)` and printing an array are TYPE-001 (W8-15); chained comparisons,
+   `not X == Y` and record `==` are still silently accepted today.
 4. **Tolerated, not taught.** Hidden aliases such as `toon_parse_string`,
    `parse_json`, `root_node` and `lookup_*`, and `?:`.
 

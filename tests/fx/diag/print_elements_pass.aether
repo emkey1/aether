@@ -1,0 +1,9 @@
+// W8-15: elements, lengths, int() of numbers and ord() of a character still work.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let s: Text = "7";
+    fx {
+        loop x in xs { print(x, " "); }
+        println(length(xs), " ", xs[0], " ", int(3.7), " ", ord(s[0]), " ", parse_int(s));
+    }
+}

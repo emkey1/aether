@@ -117,6 +117,10 @@ void aetherTypeEnvRebind(const AetherTypeEnv *env, const char *name, AetherType 
 /* The declared return type of the function being walked (UNKNOWN at top level). */
 AetherType aetherTypeEnvReturnType(const AetherTypeEnv *env);
 
+/* The rules hosted on the oracle (L1: W8-15, W4-19, W4-32). Coded errors only;
+ * called by aetherPerformSemanticAnalysis after the experiment arms. */
+void aetherTypedRules(AST *root);
+
 /* The W7-24a pass: runs only when AETHER_DUMP_TYPES is set, and reports no
  * diagnostics. Called at the end of aetherPerformSemanticAnalysis. */
 void aetherTypedPass(AST *root);

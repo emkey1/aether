@@ -1584,8 +1584,8 @@ run-time errors. Open rows:
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
 - **D24**, record and tuple `==`: REC-001 from W4. Today `==` on two records
   compares identity.
-- **D14**, `println(array)` and `int(Text)` become coded errors. Today both are
-  silent.
+- **D14**, `println(array)` and `int(Text)` are coded TYPE-001 errors (W8-15);
+  both used to be silent.
 - **D33**, print widths and Bool spelling; **D46**, `println` puts nothing
   between its arguments.
 
@@ -1609,14 +1609,10 @@ fn main() -> Void {
 false
 ```
 
-```aether @bug=D14 now=ok id=D.inttext.1
+```aether @reject=TYPE-001 id=D.inttext.1
 fn main() -> Void {
     fx { println(int("42")); }
 }
-```
-
-```text
-0
 ```
 
 `x:.2` is accepted by D7 with its exact meaning (two decimals); today it prints
