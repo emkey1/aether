@@ -31,6 +31,11 @@ char *aetherAstPrepassInlineEq(const char *source);
 typedef void (*AetherImportTypeSink)(void *ctx, const char *name,
                                      const char *aetherType, int isFunction);
 
+/* Function-return-table key prefix that marks an extension method `fn f(self:
+ * T)` as `<prefix>T.f`, so the call-site UFCS rewrite `f(recv)` -> `recv.f()`
+ * fires for it and not for an ordinary method, whose key is plain `T.f`. */
+#define AETHER_EXT_METHOD_PREFIX "ext:"
+
 /* Scan `mainSource` for `use` imports, load each module file, and report its
  * exported const/let binding types and fn return types via `sink`. */
 void aetherAstCollectImportedTypes(const char *mainSource, const char *path,

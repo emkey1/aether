@@ -1,0 +1,37 @@
+// W4-12: a free `fn describe(c: Circle)` declared after the type used to be
+// registered onto the method's bare alias and silently replaced the method, so
+// `c.describe()` printed "free". Method and free function now stay apart in
+// both declaration orders, and `describe(c)` calls the free function.
+fn describe(s: Square) -> Text {
+    ret "free square";
+}
+
+type Square {
+    n: Int;
+
+    fn describe() -> Text {
+        ret "method square";
+    }
+}
+
+type Circle {
+    r: Int;
+
+    fn describe() -> Text {
+        ret "method circle";
+    }
+}
+
+fn describe2(c: Circle) -> Text {
+    ret "free circle";
+}
+
+fn main() -> Void {
+    let s: Square = Square { n: 1 };
+    let c: Circle = Circle { r: 2 };
+    fx {
+        println(s.describe(), " / ", describe(s));
+        println(c.describe(), " / ", describe2(c));
+    }
+    ret;
+}

@@ -1,0 +1,10 @@
+// W4-12: compiler temps are named `__aether_*`; user code could read and
+// overwrite them (here the hidden slice temp behind `xs[1..3]`). Identifiers
+// starting with `__` are reserved.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3, 4];
+    let ys: Int[] = xs[1..3];
+    __aether_slice_0[0] = 99;
+    fx { println(ys[0]); }
+    ret;
+}

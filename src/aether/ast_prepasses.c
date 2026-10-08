@@ -2040,6 +2040,11 @@ static void maybeRecordAetherFunctionReturnType(AetherFunctionTable *table,
         snprintf(qualifiedName, sizeof(qualifiedName), "%s.%s", receiverType, fnName) < (int)sizeof(qualifiedName)) {
         setAetherFunctionReturnType(table, qualifiedName, returnType);
     }
+    if (receiverType &&
+        snprintf(qualifiedName, sizeof(qualifiedName), AETHER_EXT_METHOD_PREFIX "%s.%s",
+                 receiverType, fnName) < (int)sizeof(qualifiedName)) {
+        setAetherFunctionReturnType(table, qualifiedName, returnType);
+    }
     free(receiverType);
     free(fnName);
     free(returnType);

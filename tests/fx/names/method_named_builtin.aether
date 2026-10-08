@@ -1,0 +1,40 @@
+// W4-12: every method used to get an unscoped bare-name alias, and user
+// procedures resolve before builtins, so a `max` method turned `max(3, 5)` into
+// "Function box.max expects 1 arguments", and methods named abs or trim broke
+// those builtins. Methods are now reached only through their receiver.
+type Box {
+    w: Int;
+
+    fn max() -> Int {
+        ret myself.w * 10;
+    }
+
+    fn abs() -> Int {
+        ret myself.w;
+    }
+
+    fn trim() -> Text {
+        ret "box";
+    }
+}
+
+fn total(xs: Int[]) -> Int {
+    let s: Int = 0;
+    loop x in xs {
+        s += x;
+    }
+    ret s;
+}
+
+fn main() -> Void {
+    let b: Box = Box { w: 4 };
+    let n: Int = 0;
+    loop c in "abc" {
+        n += 1;
+    }
+    fx {
+        println(max(3, 5), " ", abs(-2), " ", trim("  x  "), "|");
+        println(b.max(), " ", b.abs(), " ", b.trim(), " ", total([1, 2, 3]), " ", n);
+    }
+    ret;
+}

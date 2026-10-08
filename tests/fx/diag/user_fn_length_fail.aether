@@ -1,0 +1,24 @@
+// W4-12 (interim until W4-46): the compiler's own length/setlength/copy/halt
+// calls resolve through user scope, so this `length` captured every array copy
+// and Text foreach in the program. Such a declaration is NAME-001.
+type Vec {
+    x: Real;
+    y: Real;
+}
+
+fn length(v: Vec) -> Real {
+    ret v.x * v.x + v.y * v.y;
+}
+
+fn total(xs: Int[]) -> Int {
+    let s: Int = 0;
+    loop x in xs {
+        s += x;
+    }
+    ret s;
+}
+
+fn main() -> Void {
+    fx { println(total([1, 2])); }
+    ret;
+}

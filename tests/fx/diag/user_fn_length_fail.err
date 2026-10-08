@@ -1,0 +1,3 @@
+user_fn_length_fail.aether:9:
+the compiler calls `length` itself
+`size`

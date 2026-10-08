@@ -150,7 +150,7 @@ type TallyRec { count: Int = 0; }
 fn tally(t: TallyRec, upTo: Int) -> Void { ret; }
 fn doubleAll(arr: Int[]) -> Int[] { ret arr; }
 
-fn __frag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
+fn snippetFrag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           j: Int, id: Text, pct: Real, s: Text, url: Text, n: Int,
           rows: Int, cols: Int, path: Text, value: Int, answer: Int,
           successful: Int, amount: Int, name: Text, status: Text, ok: Int,

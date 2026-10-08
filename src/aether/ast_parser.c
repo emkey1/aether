@@ -1275,12 +1275,30 @@ static const char *aliasBuiltinName(const char *name) {
 
 /* Copy the current token's lexeme into a freshly allocated pscal identifier
  * Token (mirrors rea copyCurrentTokenAsIdentifier). */
+static void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
+                                         const char *hint);
+
 static Token *currentAsIdentifier(AetherParser *p) {
     size_t len = (size_t)p->current.length;
     char *lex = (char *)malloc(len + 1);
     if (!lex) return NULL;
     memcpy(lex, p->current.start, len);
     lex[len] = '\0';
+    /* W4-12: names starting with `__` belong to the compiler's temps
+     * (`__aether_slice_0`, `__aether_tupdest_3`, ...), which user code could
+     * otherwise read and overwrite. Synthesized contract text is parsed
+     * detached and is exempt; `fn __init__` keeps its own constructor
+     * diagnostic (W4-10). */
+    if (len >= 2 && lex[0] == '_' && lex[1] == '_' && strcmp(lex, "__init__") != 0 &&
+        !p->detachedText && !p->forwardScan && !p->hadError) {
+        char detail[160];
+        snprintf(detail, sizeof(detail),
+                 "'%.64s' starts with `__`, which is reserved for compiler-generated names.",
+                 lex);
+        reportAetherAstErrorWithCode(p->current.line, "NAME-001", detail,
+                                     "drop the leading underscores, for example `tmp` or `_tmp`.");
+        p->hadError = true;
+    }
     Token *tok = newToken(TOKEN_IDENTIFIER, lex, p->current.line, 0);
     free(lex);
     return tok;
@@ -1642,11 +1660,6 @@ static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, b
             }
         }
     }
-    bool sym_is_new = false;
-    if (sym && !sym->type_def) {
-        /* Freshly allocated above (no prior type_def): treat as new for aliasing. */
-        sym_is_new = (strcmp(sym->name, lower_name) == 0);
-    }
     if (sym) {
         sym->type = vtype;
         if (sym->type_def) {
@@ -1658,30 +1671,14 @@ static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, b
         }
     }
 
-    /* For a class method `Class.method`, register a bare-name alias `method` so
-     * that `obj.method(...)` resolves -- exactly as rea parseFunctionDecl does
-     * (rea gates this on p->currentClassName; mirror that here with `isMethod`
-     * rather than just checking for a dot in the name). A module-qualified
-     * name ("ModuleName.funcname") also contains a dot but must NOT get this
-     * treatment: an unscoped bare alias here is shared by every module, so a
-     * second module declaring a same-named private helper would silently
-     * reuse (and never update) the first module's alias, making the second
-     * module's private helper permanently unreachable by its own bare name. */
-    if (isMethod && sym && sym_is_new && sym->name) {
-        const char *dot = strrchr(sym->name, '.');
-        const char *bare = (dot && *(dot + 1)) ? dot + 1 : NULL;
-        if (bare && target_table && !hashTableLookup(target_table, bare)) {
-            Symbol *alias = (Symbol *)calloc(1, sizeof(Symbol));
-            if (alias) {
-                alias->name = strdup(bare);
-                alias->is_alias = true;
-                alias->real_symbol = sym;
-                alias->type = vtype;
-                alias->type_def = copyAST(sym->type_def);
-                hashTableInsert(target_table, alias);
-            }
-        }
-    }
+    /* No bare-name alias for a method (W4-12). Rea registers `method` beside
+     * `Class.method`, and pscal-core resolves user procedures before builtins,
+     * so `type Box { fn max() }` turned every `max(3, 5)` into "Function box.max
+     * expects 1 arguments", a method named abs/round/trim broke those builtins,
+     * and a later free `fn describe(c: Circle)` was registered onto the alias's
+     * target and silently replaced the method. Receiver calls resolve through
+     * the receiver's type, which does not need the alias. */
+    (void)isMethod;
 }
 
 /* ------------------------------------------------------------------ */
@@ -2632,10 +2629,16 @@ static AST *parsePrimary(AetherParser *p) {
                 AST *recv = args->children[0];
                 char *recvType = inferLetTypeName(p, recv);
                 if (recvType) {
-                    size_t qn = strlen(recvType) + 1 + strlen(tok->value) + 1;
+                    size_t qn = strlen(AETHER_EXT_METHOD_PREFIX) + strlen(recvType) + 1 +
+                                strlen(tok->value) + 1;
                     char *q = (char *)malloc(qn);
                     if (q) {
-                        snprintf(q, qn, "%s.%s", recvType, tok->value);
+                        /* Only a real extension method (`fn f(self: T)`) is
+                         * reached this way (W4-12). `T.f` alone is also the key
+                         * of every ordinary method, so `area(c)` used to run
+                         * `c.area()` and a free `describe(c)` could run the
+                         * method instead of itself. */
+                        snprintf(q, qn, AETHER_EXT_METHOD_PREFIX "%s.%s", recvType, tok->value);
                         bool isExt = (bindingTableGet(p->funcReturns, q, strlen(q)) != NULL);
                         free(q);
                         if (isExt) {
@@ -5061,6 +5064,30 @@ static AST *parseFnDecl(AetherParser *p) {
     }
     Token *nameTok = currentAsIdentifier(p);
     if (!nameTok) return NULL;
+    /* W4-12, interim until W4-46: the front end synthesizes calls to length,
+     * setlength, copy and halt (array copies and loops, Text foreach and
+     * slices, contract failures), and those calls resolve through user scope.
+     * A user `fn length(v: Vec) -> Real` therefore broke every array-parameter
+     * function and Text foreach, far from the cause; a method of that name is
+     * reached the same way from inside its type's other methods. */
+    if (!p->forwardScan && nameTok->value) {
+        static const char *const kCompilerCalls[] = { "length", "setlength", "copy", "halt" };
+        for (size_t i = 0; i < sizeof(kCompilerCalls) / sizeof(kCompilerCalls[0]); i++) {
+            if (strcasecmp(nameTok->value, kCompilerCalls[i]) != 0) continue;
+            char detail[200], hint[160];
+            snprintf(detail, sizeof(detail),
+                     "the compiler calls `%s` itself (arrays, Text, contracts), so a %s "
+                     "named '%s' would capture those calls.",
+                     kCompilerCalls[i], p->currentClassName ? "method" : "function",
+                     nameTok->value);
+            snprintf(hint, sizeof(hint), "rename it, for example `size`, `count` or `%s_of`.",
+                     kCompilerCalls[i]);
+            reportAetherAstErrorWithCode(p->current.line, "NAME-001", detail, hint);
+            p->hadError = true;
+            freeToken(nameTok);
+            return NULL;
+        }
+    }
     aetherAdvance(p); /* consume function name */
 
     /* Method: mangle name to ClassName.method and reserve a v-table slot. */
@@ -5352,10 +5379,14 @@ static AST *parseFnDecl(AetherParser *p) {
          * detect `f(recv,...)` as `recv.f(...)` (mirrors the rewriter's function
          * table, which keys extension methods under the receiver type). */
         if (isExtensionMethod && extClassName) {
-            size_t qn = strlen(extClassName) + 1 + strlen(nameTok->value) + 1;
+            size_t qn = strlen(AETHER_EXT_METHOD_PREFIX) + strlen(extClassName) + 1 +
+                        strlen(nameTok->value) + 1;
             char *q = (char *)malloc(qn);
             if (q) {
                 snprintf(q, qn, "%s.%s", extClassName, nameTok->value);
+                bindingTableSet(p->funcReturns, q, retTypeName);
+                /* The UFCS key, written for extension methods only. */
+                snprintf(q, qn, AETHER_EXT_METHOD_PREFIX "%s.%s", extClassName, nameTok->value);
                 bindingTableSet(p->funcReturns, q, retTypeName);
                 free(q);
             }
