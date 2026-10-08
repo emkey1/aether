@@ -108,8 +108,8 @@ D3).
 | Tier | Docs |
 |---|---|
 | As-built | `docs/aether_architecture_and_rationale.md` |
-| Reference | the three guides |
-| Decisions and ledgers | `docs/aether_decisions.md`, `CHANGELOG.md`, `docs/aether_guide_changelog.md`, `docs/ideas_and_todo.md` |
+| Reference | the three guides; `docs/aether_spec.md` (normative skeleton, examples run by `ctest -L spec`); `tests/surface/registry.json` (surface synonyms) |
+| Decisions and ledgers | `docs/aether_decisions.md`, `CHANGELOG.md`, `docs/aether_guide_changelog.md`, `docs/ideas_and_todo.md`; `results/decisions/` (the measured evidence behind decision rows, with the commands that produced it) |
 | Results | `docs/aether_guided_benchmark.md`, `docs/aether_specialization_findings.md` |
 | Historical (do not trust for current behaviour) | `src/aether/DESIGN.md`, `src/aether/README.md`, `docs/parser_roadmap.md`, `docs/text_zero_based_migration_plan.md`, `docs/archive/` |
 | Generated | the builtin appendix at the end of the full guide |
