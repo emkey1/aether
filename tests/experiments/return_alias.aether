@@ -1,0 +1,19 @@
+// `return` under the return= arms (D7): SYN-001 by default, the same statement
+// as `ret` under return=alias, including tuple and bare Void returns. An
+// identifier containing "return" is untouched.
+fn sq(x: Int) -> Int {
+    return x * x;
+}
+fn pair(a: Int) -> (Int, Int) {
+    return (a, a + 1);
+}
+fn show(n: Int) -> Void {
+    fx { println("n=", n); }
+    return;
+}
+fn main() -> Void {
+    let (a, b) = pair(3);
+    let return_count: Int = sq(4);
+    show(return_count + a + b);
+    return;
+}

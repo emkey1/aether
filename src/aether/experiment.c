@@ -31,7 +31,7 @@ static void usageError(const char *item) {
     fprintf(stderr,
             "AETHER_EXPERIMENT: unknown item '%s'. Expected a comma-separated list of "
             "div=current|int|intplus|realplus|ctx, arrays=value|vstrict|ref, "
-            "tail=current|reject|ret.\n",
+            "tail=current|reject|ret, return=reject|alias.\n",
             item);
     exit(2);
 }
@@ -40,6 +40,7 @@ static void loadExperiment(void) {
     static const char *const kDiv[] = {"current", "int", "intplus", "realplus", "ctx"};
     static const char *const kArrays[] = {"value", "vstrict", "ref"};
     static const char *const kTail[] = {"current", "reject", "ret"};
+    static const char *const kReturn[] = {"reject", "alias"};
     const char *env = getenv("AETHER_EXPERIMENT");
     g_experiment_loaded = 1;
     memset(&g_experiment, 0, sizeof(g_experiment));
@@ -65,6 +66,9 @@ static void loadExperiment(void) {
         } else if (strcmp(key, "tail") == 0) {
             v = lookupValue(value, kTail, 3);
             if (v >= 0) g_experiment.tail = (AetherTailRule)v;
+        } else if (strcmp(key, "return") == 0) {
+            v = lookupValue(value, kReturn, 2);
+            if (v >= 0) g_experiment.ret = (AetherReturnRule)v;
         }
         if (v < 0) {
             *eq = '=';
@@ -74,7 +78,8 @@ static void loadExperiment(void) {
     free(copy);
     g_experiment.any = g_experiment.div != AETHER_DIV_CURRENT ||
                        g_experiment.arrays != AETHER_ARRAYS_VALUE ||
-                       g_experiment.tail != AETHER_TAIL_CURRENT;
+                       g_experiment.tail != AETHER_TAIL_CURRENT ||
+                       g_experiment.ret != AETHER_RETURN_REJECT;
 }
 
 const AetherExperiment *aetherExperiment(void) {

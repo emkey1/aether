@@ -11,6 +11,7 @@
  *   div=current|int|intplus|realplus|ctx   Int/Int `/` (D4, W8-08)
  *   arrays=value|vstrict|ref               array parameters (D8, W8-09)
  *   tail=current|reject|ret                discarded values, tail exprs (D39, W4-03)
+ *   return=reject|alias                    `return` as a class-4 synonym of `ret` (D7)
  *
  * With the variable unset or empty every flag is at its first value, which is
  * the shipped behaviour. An unknown key or value is a usage error (exit 2): a
@@ -64,10 +65,16 @@ typedef enum {
     AETHER_TAIL_RET          /* D39 (b): a final bare value is returned (Rust-style) */
 } AetherTailRule;
 
+typedef enum {
+    AETHER_RETURN_REJECT = 0, /* `return` is SYN-001 naming `ret` (D7 class 2)       */
+    AETHER_RETURN_ALIAS       /* `return v;` / `return;` parse exactly as `ret`       */
+} AetherReturnRule;
+
 typedef struct {
     AetherDivRule div;
     AetherArraysRule arrays;
     AetherTailRule tail;
+    AetherReturnRule ret;
     int any; /* nonzero when any flag is off its default */
 } AetherExperiment;
 

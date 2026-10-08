@@ -4887,7 +4887,9 @@ static AST *parseStatementInner(AetherParser *p) {
          * (the rewriter maps `type`->`class`, which Rea also accepts in a body). */
         return parseTypeDecl(p);
     }
-    if (isAetherKeyword(&p->current, "ret")) {
+    if (isAetherKeyword(&p->current, "ret") ||
+        (aetherExperiment()->ret == AETHER_RETURN_ALIAS && isAetherKeyword(&p->current, "return"))) {
+        /* `return` under return=alias (D7 class 4 candidate): the same statement as `ret`. */
         return parseRet(p);
     }
     if (isAetherKeyword(&p->current, "loop")) {

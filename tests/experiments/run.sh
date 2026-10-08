@@ -76,6 +76,11 @@ check juxtapose.aether ""             0 "total=3"
 check juxtapose.aether "tail=reject"  1 "code:SYN-001"
 check juxtapose.aether "tail=ret"     0 "total=3"
 
+# D7: `return` as a class-4 synonym of `ret`.
+check return_alias.aether ""              1 "code:SYN-001"
+check return_alias.aether "return=reject" 1 "code:SYN-001"
+check return_alias.aether "return=alias"  0 "n=23"
+
 # A typo must not silently measure the default.
 (cd "$OUT" && AETHER_EXPERIMENT="div=nope" "$AETHER_BIN" --no-cache "$DIR/div_demand.aether" \
     >/dev/null 2>&1 </dev/null)
