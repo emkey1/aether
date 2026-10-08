@@ -24,7 +24,6 @@ new_sized_array	fails:SYN-001	W4-28	-	SYN-001 with a misleading empty-index hint
 cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped)
 ret_inside_fx	passes	ideas:Misleading `FLOW-001` on `ret` inside `fx`	full:309	ret inside fx compiles and runs, but the full guide still forbids it
 tail_expr_return	silent:2	W4-03	-	`a b` juxtaposition keeps a and drops b
-unterminated_string	silent:abc	W4-13	-	an unterminated string swallows the `;`
 chained_compare	silent:working age	W4-15	-	`18 <= age < 65` is (18 <= age) < 65
 let_self_init	silent:[]	W5-24	-	`let s = trim(s)` reads the new, empty slot
 duplicate_fn	silent:2	W4-23	-	a duplicate fn is silently last-wins

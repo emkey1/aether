@@ -1,0 +1,4 @@
+unterminated_string_stray_apostrophe_fail.aether:4: [SYN-001]
+unterminated string literal
+Text literals cannot span lines
+!SCOPE-001

@@ -1694,6 +1694,21 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
 /* Primary / call expressions (mirrors rea parseFactor primary cases)  */
 /* ------------------------------------------------------------------ */
 
+/* Is the current string token closed by its own quote? The shared lexer ends a
+ * `"` or `'` literal at a newline (or end of input) when no closing quote comes,
+ * and its token then has no closing quote, so stripping one byte from each end
+ * used to eat the last character (`"abc` gave ab) or a `;` and a backslash
+ * (`"C:\data\";`). The last byte must be the opening quote, preceded by an even
+ * number of backslashes (an odd number escapes it). */
+static bool aetherStringTokenIsTerminated(const ReaToken *t) {
+    if (!t || !t->start || t->length < 2) return false;
+    char quote = t->start[0];
+    if (t->start[t->length - 1] != quote) return false;
+    size_t backslashes = 0;
+    for (size_t i = t->length - 1; i > 1 && t->start[i - 1] == '\\'; i--) backslashes++;
+    return (backslashes % 2) == 0;
+}
+
 static AST *parseStringLiteral(AetherParser *p) {
     int startLine = p->current.line;
     size_t totalLen = 0;
@@ -1704,7 +1719,15 @@ static AST *parseStringLiteral(AetherParser *p) {
 
     while (p->current.type == REA_TOKEN_STRING) {
         size_t tokenLen = p->current.length;
-        if (tokenLen < 2) { free(buffer); return NULL; }
+        if (!aetherStringTokenIsTerminated(&p->current)) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                    "unterminated string literal: no closing quote on this line.",
+                    "Text literals cannot span lines; write \\n for a newline, and "
+                    "\\\\ for a literal backslash (`\\\"` escapes the quote).");
+            p->hadError = true;
+            free(buffer);
+            return NULL;
+        }
         size_t innerLen = tokenLen - 2;
         size_t unescapedLen = 0;
         char *segment = aetherUnescapeString(p->current.start + 1, innerLen, &unescapedLen);

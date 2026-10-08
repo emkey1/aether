@@ -1,0 +1,10 @@
+// W4-13: properly closed literals are untouched: an escaped backslash before
+// the closing quote, an escaped quote inside, a one-character '...' literal
+// and the empty literal.
+fn main() -> Void {
+    let a: Text = "ok\\";
+    let b: Text = "q\"x";
+    let c: Text = 'z';
+    let d: Text = "";
+    fx { println(a, b, c, d); }
+}

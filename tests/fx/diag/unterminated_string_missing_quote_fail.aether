@@ -1,0 +1,6 @@
+// W4-13: `"abc;` has no closing quote. The lexer ends it at the newline, and the
+// parser stripped the `;` as if it were the quote: it printed abc, exit 0.
+fn main() -> Void {
+    let s: Text = "abc;
+    fx { println(s); }
+}

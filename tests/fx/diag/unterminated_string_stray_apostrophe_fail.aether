@@ -1,0 +1,6 @@
+// W4-13: a stray ' opens a one-line literal; it used to delete the rest of its line as a statement.
+fn main() -> Void {
+    let n: Int = 3;
+    ' this was meant as a comment
+    fx { println(n); }
+}

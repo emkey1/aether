@@ -190,6 +190,16 @@ fn main() -> Void {
 }
 ```
 
+A literal with no closing quote on its line is rejected even when the rest of
+the line would parse (this one used to print `abc`):
+
+```aether @reject=SYN-001 id=L.lit.6
+fn main() -> Void {
+    let s: Text = "abc;
+    fx { println(s); }
+}
+```
+
 ---
 
 ## 2. Grammar

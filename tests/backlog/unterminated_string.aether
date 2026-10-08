@@ -1,6 +1,0 @@
-// Backlog probe (W4-13): an unterminated string swallows the `;`.
-// Correct behaviour: SYN-001.
-fn main() -> Void {
-    let s: Text = "abc;
-    fx { println(s); }
-}

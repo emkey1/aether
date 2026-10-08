@@ -1,0 +1,6 @@
+// W4-13: a literal with a raw newline used to be misdiagnosed as SCOPE-001 on the next line.
+fn main() -> Void {
+    let s: Text = "line one
+line two";
+    fx { println(s); }
+}

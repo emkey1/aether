@@ -1,0 +1,5 @@
+// W4-13: `"C:\data\";` -- the `\"` escapes the quote, so the literal never closes; it used to print C:\data" with the `;` swallowed.
+fn main() -> Void {
+    let p: Text = "C:\data\";
+    fx { println(p); }
+}

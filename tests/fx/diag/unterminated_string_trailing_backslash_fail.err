@@ -1,0 +1,4 @@
+unterminated_string_trailing_backslash_fail.aether:3: [SYN-001]
+unterminated string literal
+Text literals cannot span lines
+!SCOPE-001
