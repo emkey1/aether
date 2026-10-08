@@ -3507,7 +3507,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
 
         /* Inline object-method: `let x = T { f: v, ... }.method(args);`. The
          * rewriter hoists the inline object literal into a temp
-         * `__aether_obj_<line>`, assigns its fields, then binds x to
+         * `__aether_obj_<serial>`, assigns its fields, then binds x to
          * `temp.method(args)` (translate.c). Detect `IDENT { ... } .` (a known type
          * name, balanced braces, then a dot) and build that temp/splice. */
         if (p->current.type == REA_TOKEN_IDENTIFIER) {
@@ -3548,7 +3548,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                 p->current = save;
             }
             if (looksInlineObj && probeName) {
-                /* Build the temp object: __aether_obj_<line> = new T(); field = v; */
+                /* Build the temp object: __aether_obj_<serial> = new T(); field = v; */
                 Token *clsTok = copyNameToken(p);
                 aetherAdvance(p); /* consume type name */
                 VarType objVt = TYPE_UNKNOWN;
@@ -3558,7 +3558,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                 AST *objInits = parseRecordInitBlock(p);
 
                 char tempName[64];
-                snprintf(tempName, sizeof(tempName), "__aether_obj_%d", kwLine);
+                snprintf(tempName, sizeof(tempName), "__aether_obj_%d", p->nextObjLitId++);
                 /* Register the temp's type so its method call resolves. */
                 bindingTableSet(p->bindings, tempName, probeName);
 
@@ -3625,6 +3625,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                 setTypeAST(xDecl, xvt);
                 addChild(splice, xDecl);
 
+                aetherAlignSpliceLines(splice, tdecl);
                 free(probeName);
                 free(declaredTypeName);
                 if (typeNode) freeAST(typeNode);
@@ -3925,6 +3926,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             }
         }
         aetherFreeConcatOperands(chainOps, chainOpCount, false);
+        aetherAlignSpliceLines(outer, decl);
         return outer;
     }
     if (declIsArrayType && aetherArrayInitMayAlias(init)) {
@@ -3939,6 +3941,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         outer->i_val = 1; /* splice into the surrounding block */
         addChild(outer, decl);
         addChild(outer, buildArrayUnaliasStmt(var, kwLine));
+        aetherAlignSpliceLines(outer, decl);
         return outer;
     }
     return decl;

@@ -1606,8 +1606,8 @@ mode + summary; a couple of core-control-flow fixtures.
 Giant functions (`parseFnDecl` ~500 lines, `parseLetDeclAfterKeyword` ~320); the object-literal
 expansion duplicated 3×; the lexer save/restore backtracking block duplicated 4× (copies `ReaLexer` by
 value — fragile if the lexer grows heap state); unchecked `realloc` in the tuple-@post rewriter (~4417,
-~4425); temp names keyed by source line (`__aether_obj_%d`, ~2600) collide when two such constructs
-share a line; `bindingTableSet` casts away const at ~8 sites; contract expressions are captured as raw
+~4425); temp names keyed by source line (`__aether_obj_%d`) collided when two such constructs
+shared a line (fixed by W7-04: every synthesized temp takes the per-parse serial); `bindingTableSet` casts away const at ~8 sites; contract expressions are captured as raw
 line text and re-parsed (cannot span lines; inner nodes keep detached-buffer line numbers,
 `parseExprFromText` ~2109 restamps only the root).
 

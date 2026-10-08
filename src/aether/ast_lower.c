@@ -230,6 +230,57 @@ AST *buildArrayUnaliasStmt(const AST *target, int line) {
     return stmt;
 }
 
+/* The line pscal-core's compiler gives a VAR_DECL (compiler.c getLine): the
+ * node's own token, else its initializer's root token, else its first name. */
+int aetherDeclLine(const AST *decl) {
+    if (!decl) return 0;
+    if (decl->token && decl->token->line > 0) return decl->token->line;
+    if (decl->left && decl->left->token && decl->left->token->line > 0)
+        return decl->left->token->line;
+    if (decl->child_count > 0 && decl->children[0] && decl->children[0]->token &&
+        decl->children[0]->token->line > 0)
+        return decl->children[0]->token->line;
+    return 0;
+}
+
+static void aetherRaiseTreeLine(AST *node, int minLine) {
+    if (!node) return;
+    if (node->token && node->token->line < minLine) node->token->line = minLine;
+    aetherRaiseTreeLine(node->left, minLine);
+    aetherRaiseTreeLine(node->right, minLine);
+    aetherRaiseTreeLine(node->extra, minLine);
+    for (int i = 0; i < node->child_count; i++) aetherRaiseTreeLine(node->children[i], minLine);
+}
+
+/* A lowering that declares `anchor` and then references it from synthesized
+ * statements (an un-alias step, field assigns, a destructure's reads) must give
+ * those references a line no earlier than the declaration's. The compiler's
+ * declared-after-use rule (compiler.c, "getLine(local->decl_node) > line")
+ * treats an earlier-line reference to a local as a global, so a `let` wrapped
+ * before its initializer compiled clean and died with "Undefined global
+ * variable" at run time (W7-04). Raise every line in `outer` below the
+ * anchor's to the anchor's, except the anchor's own initializer, which keeps
+ * its source lines. The user's initializer tokens are not lowered to the
+ * keyword line: a hoisted `__aether_lit_N` temp referenced from them keeps its
+ * own (later) line, and lowering the reference would trip the same rule. */
+void aetherAlignSpliceLines(AST *outer, AST *anchor) {
+    int line = aetherDeclLine(anchor);
+    if (!outer || line <= 0) return;
+    if (outer == anchor) {
+        for (int i = 0; i < anchor->child_count; i++)
+            aetherRaiseTreeLine(anchor->children[i], line);
+        return;
+    }
+    for (int i = 0; i < outer->child_count; i++) {
+        AST *c = outer->children[i];
+        if (c == anchor) {
+            for (int j = 0; j < c->child_count; j++) aetherRaiseTreeLine(c->children[j], line);
+        } else {
+            aetherRaiseTreeLine(c, line);
+        }
+    }
+}
+
 /* Can an array-typed initializer/RHS expression yield a value that SHARES its
  * ArrayObj with another live variable? Variables, field reads, array-element
  * reads, and calls (a fn may `ret` a global or a record field's array) all
@@ -967,7 +1018,7 @@ static AST *buildSimpleAssign(const char *name, AST *value, int line) {
  * lowering (parseTupleReturn). fieldNames/fieldValues are parallel arrays of
  * length fieldCount; fieldValues ownership transfers to the returned AST.
  * `tempName` is the caller-chosen temp variable identifier (must be unique per
- * ret site -- callers use "__aether_retobj_<line>"). `guard`, if non-NULL,
+ * ret site -- callers use "__aether_retobj_<serial>"). `guard`, if non-NULL,
  * ownership transfers and is spliced in immediately before the final return
  * (a @post check must run before control leaves the function). Returns an
  * AST_COMPOUND splice (i_val==1). */
@@ -1062,9 +1113,9 @@ static char *aetherRewriteTupleResultRefs(const char *postExpr, const char *temp
 }
 
 /* ret (a, b, ...) ;  for a tuple-return function. Lowers to the reentrant
- * record-by-value shape: `__AetherTuple<id> __aether_retobj_<line> = new
- * __AetherTuple<id>(); __aether_retobj_<line>.item<k> = expr<k>; [@post guard;]
- * return __aether_retobj_<line>;` -- the same VM return-by-value path an
+ * record-by-value shape: `__AetherTuple<id> __aether_retobj_<serial> = new
+ * __AetherTuple<id>(); __aether_retobj_<serial>.item<k> = expr<k>; [@post guard;]
+ * return __aether_retobj_<serial>;` -- the same VM return-by-value path an
  * ordinary record-returning function already uses (see buildReturnObjectInit),
  * so recursion/par-sharing of the same tuple-returning function is structurally
  * reentrant (each call gets its own temp + stack-copied return value) rather
@@ -1114,7 +1165,7 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
     AST *typeNode = buildTypeNode(typeName, strlen(typeName), line, &vtype);
 
     char tempName[64];
-    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", line);
+    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", p->nextObjLitId++);
 
     const char *fieldNames[16];
     char fieldNameBufs[16][32];
@@ -1250,12 +1301,12 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
     AST *tmpTypeNode = buildTypeNode(typeName, strlen(typeName), kwLine, &tmpVtype);
 
     char tempName[64];
-    snprintf(tempName, sizeof(tempName), "__aether_tupdest_%d", kwLine);
+    snprintf(tempName, sizeof(tempName), "__aether_tupdest_%d", p->nextObjLitId++);
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
 
-    /* <SynthType> __aether_tupdest_<kwLine> = <call>; -- captures the callee's
+    /* <SynthType> __aether_tupdest_<serial> = <call>; -- captures the callee's
      * return-by-value record once. The VM deep-copies a record on return (see
      * returnFromCall/copyRecord in pscal-core), so this temp is an independent
      * snapshot: recursion or a concurrent `par` branch calling the same
@@ -1304,18 +1355,20 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
         bindingTableSet(p->bindings, names[i], sig->itemTypes[i]);
         free(names[i]);
     }
+    aetherAlignSpliceLines(outer, tmpDecl);
     return outer;
 }
 
 /* `ret T { f: v, ... } ;` -> the temp-object pattern the rewriter emits
  * (translate.c translateReturnObjectInitLine):
- *     T __aether_retobj_<line> = new T();
- *     __aether_retobj_<line>.f = v;   (one per field)
- *     return __aether_retobj_<line>;
+ *     T __aether_retobj_<serial> = new T();
+ *     __aether_retobj_<serial>.f = v;   (one per field)
+ *     return __aether_retobj_<serial>;
  * Returns an AST_COMPOUND splice (i_val==1) so parseBlock flattens it. The
  * current token is the type-name identifier (verified by the caller to be
- * followed by '{'). `line` is the source line of the `ret`, used for the temp
- * name (a naming convention kept from the retired rewriter). */
+ * followed by '{'). `line` is the source line of the `ret`. The temp takes the
+ * per-parse serial, not the line, so two such returns on one line cannot
+ * collide (W7-04). */
 static AST *buildReturnObjectInit(AetherParser *p, int line) {
     Token *clsTok = copyNameToken(p);
     if (!clsTok) return NULL;
@@ -1345,7 +1398,7 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
     }
 
     char tempName[64];
-    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", line);
+    snprintf(tempName, sizeof(tempName), "__aether_retobj_%d", p->nextObjLitId++);
     AST *outer = buildTempRecordReturn(clsTok->value, vtype, typeNode, tempName,
                                        fieldNames, fieldValues, fieldCount, NULL, line);
 
@@ -1358,9 +1411,9 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
 /* `ret src + other;` / `ret src + [items...];` -> bind the concatenation to a
  * temp, then return the temp:
  *
- *     let __aether_ret_concat_<line>: T[] = src;
+ *     let __aether_ret_concat_<serial>: T[] = src;
  *     <setlength + indexed-copy steps for `other`/`items`>
- *     return __aether_ret_concat_<line>;
+ *     return __aether_ret_concat_<serial>;
  *
  * Array `+` is not a VM operation: the front end lowers it into setlength plus
  * an indexed element-copy, and those are *statements*, so they need a statement
@@ -1437,14 +1490,14 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     }
 
     char tmpName[64];
-    snprintf(tmpName, sizeof(tmpName), "__aether_ret_concat_%d", concatLine);
+    snprintf(tmpName, sizeof(tmpName), "__aether_ret_concat_%d", p->nextObjLitId++);
     bindingTableSet(p->bindings, tmpName, tmpTypeName);
     free(tmpTypeName);
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
 
-    /* let __aether_ret_concat_<line>: T[] = <chain base>; */
+    /* let __aether_ret_concat_<serial>: T[] = <chain base>; */
     AST *tmpVar = buildVarRef(tmpName, tmpVt, concatLine);
     AST *decl = newASTNode(AST_VAR_DECL, NULL);
     addChild(decl, tmpVar);
@@ -1476,12 +1529,12 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     aetherFreeConcatOperands(ops, opCount, false);
 
     if (stageResultName) {
-        /* result = __aether_ret_concat_<line>;  (caller appends guard + return) */
+        /* result = __aether_ret_concat_<serial>;  (caller appends guard + return) */
         addChild(outer, buildSimpleAssign(stageResultName,
                                           buildVarRef(tmpName, tmpVt, concatLine),
                                           line));
     } else {
-        /* return __aether_ret_concat_<line>; */
+        /* return __aether_ret_concat_<serial>; */
         Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
         AST *ret = newASTNode(AST_RETURN, retTok);
         setLeft(ret, buildVarRef(tmpName, tmpVt, concatLine));

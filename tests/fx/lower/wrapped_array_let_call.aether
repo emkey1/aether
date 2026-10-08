@@ -1,0 +1,21 @@
+// W7-04: a `let` broken before its call initializer. The un-alias step the
+// lowering adds after the declaration used to carry the `let` line while the
+// declaration carried the call's line, so the compiler read `parts` as a global:
+// compile-clean, then "Undefined global variable 'parts'" at run time.
+fn words(s: Text) -> Text[] {
+    ret split(s, ",");
+}
+
+fn main() -> Void {
+    let parts: Text[] =
+        split("a,b,c", ",");
+    let more: Text[] =
+        words("x,y");
+    let joined: Text[] =
+        parts + more;
+    fx {
+        println(length(parts), " ", length(more), " ", length(joined));
+        println(joined[3]);
+    }
+    ret;
+}

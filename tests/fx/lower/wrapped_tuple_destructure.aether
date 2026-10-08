@@ -1,0 +1,19 @@
+// W7-04: `let (a, b) =` wrapped before its call. The destructure's temp record
+// was declared on the call's line and read on the `let` line, so the reads
+// compiled as globals ("Undefined global variable '__aether_tupdest_N'").
+fn divmod(a: Int, b: Int) -> (Int, Int) {
+    ret (a div b, a % b);
+}
+
+fn main() -> Void {
+    let (q, r) =
+        divmod(17, 5);
+    let (
+        q2, r2) = divmod(
+            23, 4);
+    fx {
+        println(q, " ", r);
+        println(q2, " ", r2);
+    }
+    ret;
+}

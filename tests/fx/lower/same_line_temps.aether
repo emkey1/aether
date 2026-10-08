@@ -1,0 +1,35 @@
+// W7-04: temps were named after their source line, so two destructures, two
+// inline-object method calls or two concat returns on one line collided
+// ("duplicate variable '__aether_tupdest_N' in this scope"). They now take the
+// per-parse serial.
+type Box {
+    w: Int;
+    h: Int;
+
+    fn area() -> Int {
+        ret myself.w * myself.h;
+    }
+}
+
+fn pair(n: Int) -> (Int, Int) {
+    ret (n, n * 10);
+}
+
+fn order(a: Int[], b: Int[], swap: Bool) -> Int[] {
+    if swap { ret b + a; } ret a + b;
+}
+
+fn main() -> Void {
+    let (a, b) = pair(1); let (c, d) = pair(2);
+    let x = Box { w: 2, h: 3 }.area(); let y = Box { w: 4, h: 5 }.area();
+    let z =
+        Box { w: 7, h: 1 }.area();
+    let s: Int[] = order([1], [2, 3], true);
+    let t: Int[] = order([1], [2, 3], false);
+    fx {
+        println(a, " ", b, " ", c, " ", d);
+        println(x, " ", y, " ", z);
+        println(s[0], s[1], s[2], " ", t[0], t[1], t[2]);
+    }
+    ret;
+}

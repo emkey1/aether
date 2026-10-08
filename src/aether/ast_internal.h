@@ -288,6 +288,8 @@ bool aetherIsLValueChain(const AST *node);
 bool aetherLValueEqual(const AST *a, const AST *b);
 bool aetherExprReadsLValue(const AST *expr, const AST *target);
 AST *buildArrayUnaliasStmt(const AST *target, int line);
+int aetherDeclLine(const AST *decl);
+void aetherAlignSpliceLines(AST *outer, AST *anchor);
 bool aetherArrayInitMayAlias(const AST *init);
 AST *buildArrayAppend(AST *assign, AST *target, AST **items, int itemCount, int line, AST *src);
 AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
