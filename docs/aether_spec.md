@@ -2,7 +2,7 @@
 
 *Audience: maintainers, and anyone who needs to know whether a program is
 Aether.* This document says what Aether accepts, what it rejects, and what an
-accepted program prints. It describes language `2026-10-07-1`.
+accepted program prints. It describes language `2026-10-08-1`.
 
 **Status.** §1 (lexical structure), §2 (grammar) and §6 (leniencies) are
 written. §3 to §5 are headed stubs that name the decision rows still open

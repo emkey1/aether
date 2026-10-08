@@ -12,6 +12,120 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-08-1
+
+**Release L1 (front end batch A, with batch B items W4-19, W4-22, W4-25, W4-32 and
+W4-47): the wrong priors models bring become coded errors, and several silent
+behaviours stop being silent.** Placeholders in `println`, methods on builtin
+types, `//` as division, chained comparisons, printing an array, `int()` of Text,
+case-insensitive name collisions, a `fn main` that never runs and unterminated
+strings all used to compile; most printed something plausible and exited 0. Each
+is now a coded error whose hint names the Aether form. No engine change: the pins
+stay at pscal-core `2cb751d` and rea `b1320cf`. Not in this release, because their
+decisions wait on measurement: rejecting discarded values and definite-return
+analysis (W4-03/W4-04, D39) and the `/` rule (W8-13, D4).
+
+### Entry points and bindings
+
+- **The entry-point rule (D16, ENTRY-001).** `fx { println("top"); } fn main() -> Void { ... }`
+  printed `top` and skipped main with exit 0; it is now `[ENTRY-001] fn main will not
+  run: this file also has top-level statements`. A file with nothing to run (no main
+  and no statements, only comments, or empty) and `fn main(args: Text[])` /
+  `fn main() -> Text` are ENTRY-001 too. Script mode (statements and no main), an
+  explicit `main();` call and a file that declares a `mod` stay legal (W4-05).
+- **A file-scope `let` with a non-literal initializer is in scope again.**
+  `let xs: Int[] = mk();` beside `fn main` was `[SCOPE-001] identifier 'xs' not in
+  scope` at every use since the 671882a pin; it now works, as do a file-scope record
+  literal and a file-scope `let (a, b) = pair();`, which ran nothing (W4-06).
+- **A main-program `let n: Int = 3.7;`** truncates with its NARROW-001 warning, as in
+  a fn, instead of aborting with an uncoded `Cannot assign REAL to INT64`. `t = r;`
+  from a Real binding is a NARROW-001 warning, not TYPE-001, and Int into a Real is
+  accepted (W4-08).
+- **`let n: Int = Int(x);`** (and `Real(...)`, `Bool(...)`) compiles; it was
+  SCOPE-001. `fn __init__` in a type is `[SYN-001] '__init__' is not a constructor`
+  naming `new T { field: value }`; it compiled as a method nothing called (W4-10).
+- **An unterminated string literal is SYN-001.** `"abc;` printed `abc` with the `;`
+  swallowed, `"C:\data\";` printed `C:\data"`, and a raw newline inside a literal was
+  reported as SCOPE-001 on the next line (W4-13).
+- **TOON Bool accessors print `true`/`false`** and are real Bools in `-> Bool` returns
+  and Bool[] literals; they printed `1`/`0` (W4-09).
+
+### Names and parsing
+
+- **No more "Undefined global variable" from wrapped code.** Wrapping a `let` or a
+  `let (a, b) =` before its initializer compiled clean and failed at run time; two
+  destructures, inline-object calls or concat returns on one line collided.
+  Synthesized temps now share their declaration's line and take the parse serial.
+  The reformat-invariance known list loses every "Undefined global" pair (W7-04).
+- **A contract clause is one whole expression.** `@pre x > 0, x < 100`, `@post a b`
+  and `@pre v in 0..100` enforced only their first part; they are ANN-001 with a fix
+  hint (W7-09).
+- **Comparisons do not chain (D32).** `0 <= i < n`, `a == b == c`, `a < b == c` and an
+  unparenthesised `not a == b` are PREC-001; `18 <= age < 65` computed
+  `(18 <= age) < 65`. Parenthesised forms are unchanged (W4-15).
+- **Methods no longer hijack builtins or free functions.** `f(obj)` calls a method
+  only for an extension method; a function or method named `length`, `setlength`,
+  `copy` or `halt`, and any identifier starting with `__`, is NAME-001 (W4-12).
+- **NAME-001 ignores case and covers more scopes (D17).** `let limit` beside
+  `const LIMIT` overwrote the const; a parameter `limit` answered to `LIMIT`; a loop
+  variable named like a visible `let` left the `let` at 0. Each, and a local or
+  parameter reusing a top-level or imported const or `let`, is NAME-001. Interim:
+  `let s = trim(s)` with an outer `s` is NAME-001 until the engine compiles the
+  initializer before the slot (W4-22). This reverses `tests/scoped_bindings_pass`.
+
+### Wrong priors
+
+- **FMT-001: no placeholders (D48).** `println("{} items", n)`, `{name}`, `{0}`,
+  `{:.2}`, `${}` and `%d`/`%.2f` with more arguments printed the placeholder
+  literally; they are compile errors naming `println("n = ", n)` and
+  `formatfloat(x, 2)`. `f"..."` is FMT-001 instead of SYN-001 (W6-04).
+- **`//` is never an operator (D45).** It always starts a comment. Directly after an
+  expression, `// 2` or `// (` is error DIV-002 and other expression-shaped text a
+  DIV-002 warning; `x // 2;` used to divide while the same line without `;` was a
+  comment (W8-14).
+- **Printing an array and `int()` of Text are TYPE-001 (D14).** An array argument to
+  print/println printed `ARRAY(dims:1,...)`; `int(Text)` was 0. The hints name the
+  element loop, `parse_int`/`parse_float` and `ord`. Reverses the 2026-07-19
+  docs-only decision (W8-15).
+- **A statically Real value into `%`, `div`, `shl`/`shr`, `int_to_text`, `chr`,
+  `copy` or a Text index is TYPE-001**; these stopped with uncoded VM errors. A Real
+  array index still truncates, pending the `/` decision (W4-19).
+- **A `File` cannot be a parameter, return value, record field or copied binding**
+  until File copies are reference-counted; it crashed with rc 139 or corrupted the
+  heap (D34, W4-32).
+- **Methods on builtin types (D7, D21).** `xs.push`, `.size()`, `s.contains`,
+  `n.toString()`, `s.toUpper()` and `t.pos(x)` are SCOPE-001 naming the Aether form;
+  they were codegen errors without a file, run-time "Undefined global" errors or
+  silently wrong output. `xs.length` / `s.length` lower to `length(...)`; builtins
+  whose first argument is the receiver keep working (`s.trim()`) (W6-05).
+- **The TYPE-001 "cannot infer" hint names the initializer's type** (`Text[]`,
+  `Real`, ...), never `let x: Int` for an array (D15, W6-06; inferring homogeneous
+  array literals stays scheduled for L2).
+- **Tuple annotations (D53).** `let t: (Int, Text) = f();` is accepted when it matches
+  the called tuple fn. A mismatched annotation (also on destructuring, which used to
+  swap fields silently), a tuple parameter, field or array element, and `(a, b) =
+  f();` are TUP-001 (W4-25).
+
+### Arrays in literals
+
+- **An array placed in a record literal's field or an array literal's element is a
+  copy (W4-47).** `new Box { data: xs }`, `Box { data: xs }`, `[xs]`, `g = g + [xs]`,
+  `ret [xs]` and `f(new Box { data: xs })` used to share storage with an `xs` built by
+  appending, so a later `b.data[0] = 99` silently changed `xs` (a literal-built `xs`
+  was unaffected). They now copy as `x = xs` already did, one level deep: the rows
+  of an `Int[][]` placed in a field stay shared with the source's rows, as in
+  assignment. Field-to-field assignment (`b.data = c.data`) still aliases; it needs
+  the typed pass and is tracked for L2.
+
+Census: every program in tests/, examples/ and the umbrella's corpus candidates was
+compared on its AST and diagnostics, exit status and stdout against b1a8bed, item by
+item. The only changes outside the new fixtures are the ones each item names, plus
+four corpus programs: two whose golden output was an array pointer dump (already
+non-canonical), `09_linked_list` (a `length()` method, NAME-001) and
+`61_module_const_import_quoted` (a local `greeting` beside an imported `Greeting`,
+NAME-001). The umbrella re-records or renames them. The 218 frozen replay programs
+are unchanged. The reformat-invariance known list falls from 90 to 62 entries.
+
 ## 2026-10-07-1
 
 **Release L0 (front end batch A, pscal-core core-0, rea r-0): eight silent-wrong
