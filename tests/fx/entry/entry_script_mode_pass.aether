@@ -1,4 +1,4 @@
 // W4-05 (D16): script mode -- top-level statements and no fn main -- stays legal.
-fn twice(n: Int) -> Int { ret n * 2; }
+fn twice(x: Int) -> Int { ret x * 2; }
 let n: Int = twice(21);
 fx { println(n); }
