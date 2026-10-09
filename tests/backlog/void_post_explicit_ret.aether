@@ -1,0 +1,17 @@
+// Backlog probe: a Void function's @post is checked at its natural end, not at an explicit `ret;`.
+// Correct behaviour: [CON-001] Aether @post failed in early, exit 1.
+let calls: Int = 0;
+
+@post calls < 0
+fn early(stop: Bool) -> Void {
+    calls = calls + 1;
+    if stop {
+        ret;
+    }
+}
+
+fn main() -> Void {
+    early(true);
+    fx { println("after ", calls); }
+    ret;
+}

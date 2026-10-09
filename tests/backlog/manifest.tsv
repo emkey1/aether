@@ -28,3 +28,4 @@ range_bound_reread	silent:5	W4-33	full:628	the range bound is re-read every pass
 result_shadow	silent:nil	W4-43	-	the backend's `result` local shadows the user's global
 text_index_store	uncoded-runtime	W4-40	-	`s[i] = t` with a Text variable is an uncoded VM error
 chr_high	silent:Θ	W5-18	-	chr(233) prints through CP437
+void_post_explicit_ret	silent:after 1	ideas:A Void function's `@post` is skipped at an explicit `ret;`	-	a Void @post fires at the natural end but not at `ret;`

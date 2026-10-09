@@ -842,6 +842,14 @@ A non-canonical form such as `@cost("O(n) ...")` (quoted string instead of
 comment — no error, no effect. It should emit an ANN-001-style diagnostic so the
 mistake is visible. (Verified 2026-06-27.)
 
+### A Void function's `@post` is skipped at an explicit `ret;` — *gap*
+`@post` on a `-> Void` function is checked when the body runs off its end, but
+not when it leaves through an explicit `ret;`: the guard before each return is
+missing on that path, so the program carries on and exits 0. A non-Void
+function's `@post` fires at every `ret <value>;`. Pinned by the backlog probe
+`void_post_explicit_ret`; fixing it changes what programs do, so it ships with
+its own `VERSION` bump. (Verified on 2026-10-08-1 and 2026-10-09-1.)
+
 ---
 
 ## In-flight (tracked elsewhere)
