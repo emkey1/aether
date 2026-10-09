@@ -436,8 +436,8 @@ parsed as no fields, which is what this section used to claim).
 ### 5.8 Contracts: what is enforced
 
 `@pre` and `@post` lower to real checks: an entry guard and a guard before each
-return, which stop the program with `Aether @pre failed in f` (or `@post`) on
-stdout and exit status 1. `@pure` is checked statically: a pure function may not
+return, which stop the program with `[CON-001] Aether @pre failed in f` (or `@post`)
+on stderr and exit status 1 (an uncoded stdout line before 2026-10-09-1). `@pure` is checked statically: a pure function may not
 contain an `fx` block or call an effectful builtin (ANN-001). The front end
 rejects an annotation it can recognise as malformed: `@pre` with no expression,
 `@pure noisy`, a `@cost` with a zero budget, an unknown unit or a duplicate, and

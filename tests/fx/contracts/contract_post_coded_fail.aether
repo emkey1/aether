@@ -1,0 +1,12 @@
+// A failed @post stops the program with a coded line on stderr: [CON-001].
+@post result > 10
+fn inc(x: Int) -> Int {
+    ret x + 1;
+}
+
+fn main() -> Void {
+    fx {
+        println(inc(1));
+    }
+    ret;
+}

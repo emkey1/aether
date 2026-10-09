@@ -1,0 +1,13 @@
+// Contracts that hold print nothing extra.
+@pre x > 0
+@post result > x
+fn inc(x: Int) -> Int {
+    ret x + 1;
+}
+
+fn main() -> Void {
+    fx {
+        println(inc(4));
+    }
+    ret;
+}

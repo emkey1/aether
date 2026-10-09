@@ -1,0 +1,13 @@
+// A failed @pre stops the program with a coded line on stderr: [CON-001].
+@pre x > 0
+fn inc(x: Int) -> Int {
+    ret x + 1;
+}
+
+fn main() -> Void {
+    fx {
+        println("before");
+        println(inc(0));
+    }
+    ret;
+}

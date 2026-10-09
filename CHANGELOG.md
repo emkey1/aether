@@ -12,6 +12,23 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-09-1
+
+**A failed contract is a coded error on stderr.** A `@pre` or `@post` that does not
+hold now stops the program with `[CON-001] Aether @pre failed in FN` (or `@post`) on
+stderr, exit status 1. It used to print `Aether @pre failed in FN` on stdout with no
+code, so a harness could not tell a contract violation from a program that printed
+the wrong answer and exited 1, and classifiers filed it with every other uncoded
+error. The guard writes through the `stderr` standard-stream global; no engine
+change, the pins stay at pscal-core `2cb751d` and rea `b1320cf`. Fixtures:
+`tests/fx/contracts/`. Not in this release: the guide line for CON-001 waits for the
+guide freeze (D3) to lift.
+
+Known, not changed here: under `--deny proc` the guard's own `halt(1)` is refused, so
+a failed contract prints a second line (`builtin 'halt' denied`) after the CON-001
+line, still exiting 1; and a Void function's `@post` is checked at its natural end
+but not at an explicit `ret;`.
+
 ## 2026-10-08-1
 
 **Release L1 (front end batch A, with batch B items W4-19, W4-22, W4-25, W4-32 and
