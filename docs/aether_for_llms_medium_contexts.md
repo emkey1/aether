@@ -1,10 +1,8 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-13-1*
+*Guide version: 2026-10-13-2*
 
-Everything needed to write correct Aether in one shot. Sized for a ~32K context:
-it should occupy about a third of your window, leaving room to reason, emit the
-program, and repair it once.
+Everything needed to write correct Aether in one shot.
 
 Sections are ordered by how often you need them. If this document reaches you
 truncated, what you lose first is the capability appendix (files, HTTP, sockets,
@@ -13,9 +11,6 @@ guessing a conversion's name or arity is the single most common way generated
 Aether fails.
 
 ## Highest-Value Rules
-
-Each rule is followed by the shape that violates it, because recognizing the
-wrong shape is what stops you writing it.
 
 1. **FX-001.** Every effectful builtin must sit inside `fx { ... }`: output
    (`print`, `println`), task helpers, `ai_chat`, and all host interaction —
@@ -122,10 +117,7 @@ which.
 - invented imports such as `use "helpers";`
 - `use module_name;` without quotes, or `export { ... }`
 - invented helpers not listed here (BUILT-001)
-- `toon_parse_string(text)` — the parser is `toon_parse(text)`. The `_file`
-  suffix on `toon_parse_file(path)` does **not** imply a `_string` sibling;
-  `toon_parse` already takes `Text`
-- `formatfloat(r, 0, prec)` — one or two arguments only (BUILT-002)
+- `toon_parse_string(text)` — the text parser is `toon_parse(text)`
 - anonymous functions, lambdas, or passing a function as a value (FUNC-001)
 - arithmetic on, or cross-assignment of, `ToonDoc` / `ToonNode` (TOON-001)
 - `let stream: Int = mstreamcreate();` — streams are `MStream` (MS-001)
@@ -252,11 +244,6 @@ fx {
 }
 ```
 
-More generally, an implicit `Real` → `Int` narrowing raises `[NARROW-001]`:
-`let n: Int = 3.7;` gives `3` and warns. It is only a warning, so the program
-still compiles — write `int(expr)` when you mean to truncate, which silences it
-and makes the intent visible.
-
 Each thread gets its own random stream, so `par` branches draw independent
 numbers. With no `randomize()` call a run is reproducible.
 
@@ -265,25 +252,17 @@ ordinary function — reach for this one. The wall-clock component readers are
 *procedures* that fill their arguments, like `val`:
 
 ```aether
-fn main() -> Void {
-    let hour: Int = 0;
-    let minute: Int = 0;
-    let second: Int = 0;
-    let centis: Int = 0;
-    let year: Int = 0;
-    let month: Int = 0;
-    let day: Int = 0;
-    let weekday: Int = 0;
-    fx {
-        let stamp: Int = realtimeclock();          // a function -- returns a value
-        gettime(hour, minute, second, centis);     // a procedure -- fills its arguments
-        getdate(year, month, day, weekday);
-        println("epoch ", stamp);
-        println(year, "-", month, "-", day, " ", hour, ":", minute, ":", second);
-    }
-    ret;
+let h: Int = 0;
+let m: Int = 0;
+let s: Int = 0;
+let cs: Int = 0;
+fx {
+    let stamp: Int = realtimeclock();   // a function -- returns a value
+    gettime(h, m, s, cs);               // a procedure -- fills its arguments
 }
 ```
+
+`getdate(year, month, day, weekday)` is the same shape.
 
 `let t: Int = gettime();` fails with *"Built-in procedure 'gettime' cannot be used as
 a function in an expression."* — it has no return value at all.
@@ -480,18 +459,15 @@ type Counter {
 
 - Methods live **inside** the `type` with an **implicit `self`**. Never give a
   method a `self` parameter.
-- A method's `@pre` / `@post` may reference `self.field`; a free-standing
-  `fn bump(self: Counter)` with such a contract fails `[SCOPE-001] identifier
-  'self' not in scope` — put the method and its contract inside the `type`.
+- A method's `@pre` / `@post` may reference `self.field`.
 - Fields may declare **literal** defaults (FIELD-003). `new Counter()` gives
   each field its declared default, otherwise the type zero: `Int` `0`, `Real`
   `0.0`, `Bool` `false`, `Text` empty.
 - Records are **pointer-backed**: a mutation made through a callee is visible to
   the caller. (Arrays are not — see **Dynamic arrays**.)
-- A top-level `fn bump(self: Counter) -> Int` acts as an extension method called
-  as `counter.bump()`, but it cannot carry a contract that names `self`.
-- Field and method names must not be Aether keywords or operator words (rule
-  list above). A field may hold an array of records (`items: Item[] = [];`).
+- A top-level `fn bump(self: Counter) -> Int` is callable as `counter.bump()`,
+  but a contract on it cannot name `self`. A field may hold an array of records
+  (`items: Item[] = [];`).
 
 ### Constructing records and typing bindings
 
@@ -518,13 +494,8 @@ A partial `new T { ... }` keeps every unset field's default. Bare
 `Point { x: 3, y: 4 }` and `Point(x: 3, y: 4)` are also accepted.
 
 **Always annotate an array literal:** `let xs = [1, 2, 3];` fails with `cannot
-infer the type of 'xs'`. `let c = new C();` infers `C`.
-
-### Safe inference
-
-Omit the type only for literals and for calls to functions or methods with
-declared return types. Annotate everything else, above all array literals and
-TOON extractions.
+infer the type of 'xs'`. `let c = new C();` infers `C`. Omit a type only for a
+literal or a call with a declared return type.
 
 ## Effects: `fx`
 
@@ -557,9 +528,6 @@ fx {
 exact output matters; width `0` means "precision only". That spec works **only
 inside `print`/`println`** — to build a `Text`, use `formatfloat`.
 
-Exact-output discipline: print exactly the labels requested, format percentages
-and averages explicitly, and add no extra headings, blank lines, or commentary.
-
 ## Text
 
 ```aether
@@ -585,9 +553,6 @@ the first character, `s[string_len(s) - 1]` the last, and `s[a..b]` is the
 substring from `a` up to but not including `b`; `s[i] = "x"` replaces one
 character. Visit each character with `loop ch in s { ... }`, or by index with
 `loop i in 0..string_len(s) { ... s[i] ... }`.
-
-`pos` returns `-1` when the needle is absent — `0` is a legitimate match at the
-first character, so test `pos(...) >= 0`, never `pos(...) > 0`.
 
 ## Dynamic arrays
 
@@ -860,8 +825,7 @@ every `ToonNode` derived from it, and `toon_close(doc)` releases the document an
 all remaining handles. For short programs, one `toon_close` at the end is enough;
 inside a large loop, `toon_free(node)` on temporaries avoids handle buildup.
 
-**Getters take a `ToonNode`, never the `ToonDoc`** — `toon_get_text(doc, "name")`
-is TOON-001; go through `toon_root(doc)` first:
+Getters take a `ToonNode` (TOON-001):
 
 ```aether
 let doc: ToonDoc = toon_parse("{\"name\":\"Aether\"}");
@@ -911,9 +875,7 @@ level was missing. (`toon_has_at` raises on a null node; test `i < toon_len(n)`.
 The body holds **direct call statements only** — no assignments, no loops, no
 inline `fx`. Wrap any work in a `fn` and call that.
 
-Results come back through pointer-backed records passed as arguments, **one
-record per branch**. Sharing a record across branches races and is rejected
-(PAR-001).
+Results come back through records passed as arguments, one per branch (PAR-001).
 
 ```aether
 type Tally {
@@ -953,11 +915,9 @@ fn normalize(score: Int) -> Int {
 }
 ```
 
-- Annotations sit directly above the function, never inside it, never bare.
 - `@post` may reference `result`.
 - `@cost 5ms` accepts units `ns us ms s op ops step steps`. It is syntax-checked
   but non-binding.
-- `@pure` forbids every effectful builtin, transitively.
 - On a collection return, a contract must compare a **property**, not the
   collection: `@post length(result) > 0`, never `@post result > 0`. Same for a
   `@pre` over an array parameter: `@pre length(xs) > 0`.

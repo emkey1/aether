@@ -171,6 +171,7 @@ tokenizers). One row per measured variant; the core/library split is o200k:
 | accuracy-only | small | 2026-10-13-1 | 11,644 | 12,385 | 9,939 | 1,705 |
 | accuracy-only | medium | 2026-10-13-1 | 14,584 | **15,497** | 13,519 | 1,065 |
 | accuracy-only | full | 2026-10-13-1 | 29,645 | 31,392 | 22,221 | 7,424 |
+| accuracy + named cuts | medium | 2026-10-13-2 | 14,071 | 14,958 | 13,006 | 1,065 |
 
 Accuracy-only removes 568 o200k tokens of false or stale text from medium and
 adds 264 for what the L1 compiler does (the wider NAME-001, the wrong-kind
@@ -181,6 +182,14 @@ medium **over** the 15,000 ceiling in Qwen3.5, so
 this variant passes the pre-G1 rule only (o200k ≤ 15,000) and cannot take the
 `STAGE = "g1"` flip by itself: the paired-cut ledger's cuts are what bring
 medium under.
+
+"Accuracy + named cuts" applies the ledger's dedup and verbosity cuts to the
+accuracy-only medium text and adds nothing: V1, V3, V4, P1 (to one line), D1 to
+D6 and D9 to D11, 513 o200k tokens. D7, D8 and V2 stay reserved, S4 is not a
+cut (the caveat is true) and S5's two sentences are corrected in the
+accuracy-only text, not cut. Medium is then 42
+tokens under the ceiling in Qwen3.5 (`--stage g1` passes), which is all the
+room there is: **the next addition still needs its own cut.**
 
 Because the medium guide now covers the 32K tier, **the full guide is free to
 grow**. It no longer has to be the document that fits everywhere, so prefer
@@ -331,7 +340,8 @@ guide's `home=` program print time- or host-dependent text) and one is `skip`
 programs import the `tests/guide_modules/` stubs and run like the rest. A
 socket program's port literal is rewritten to a free port in the temp copy. At
 the accuracy-only draft, 36 of the 37 complete programs run (34 to golden
-stdout, 2 rc-only). `CONTEXT` names its record `TallyRec`
+stdout, 2 rc-only); with the named cuts the medium guide's clock program is a
+fragment, so it is 35 of 36 (34 and 1). `CONTEXT` names its record `TallyRec`
 beside `fn tally` for the same reason.
 
 Blocks that *must* fail are listed in `EXPECT_FAIL` by a distinctive

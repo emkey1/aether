@@ -51,60 +51,56 @@
       "where": "aether_for_llms_and_others.md:1985",
       "stdout": "42\n"
     },
-    "500276b8d38dc5fb146405b8c5aa6636b01a62492ee16d47144d9298ee4832b8": {
-      "where": "aether_for_llms_medium_contexts.md:277",
-      "rc_only": "prints the current epoch and date"
-    },
     "86f9ccd51f532ff96080d8b510622f15945ae7306caca6f2925c236036a2edf2": {
-      "where": "aether_for_llms_medium_contexts.md:308",
+      "where": "aether_for_llms_medium_contexts.md:287",
       "stdout": "Hello from Aether\n"
     },
     "0b9b33ecba86d56640b975a490102f3f7701782827bc3fca4103daa076128902": {
-      "where": "aether_for_llms_medium_contexts.md:395",
+      "where": "aether_for_llms_medium_contexts.md:374",
       "stdout": "12\n"
     },
     "303b95acf23c01478dfedcff3e071ec0f35d44899ab0a751aceb427c53cb5850": {
-      "where": "aether_for_llms_medium_contexts.md:411",
+      "where": "aether_for_llms_medium_contexts.md:390",
       "stdout": "6 36\n7 49\n"
     },
     "99ed27797d274f35729e86d5c47ad913cbc9f590d2bd4659da19a1c8dba7a154": {
-      "where": "aether_for_llms_medium_contexts.md:501",
+      "where": "aether_for_llms_medium_contexts.md:477",
       "stdout": "3 3 2\n"
     },
     "2226c3be9dfc87c7edc5a10e6fefcc0a418580908d41c3f9058603a83c8b5f68": {
-      "where": "aether_for_llms_medium_contexts.md:565",
+      "where": "aether_for_llms_medium_contexts.md:533",
       "stdout": "6\n"
     },
     "2ec561e55b6ce2166a3bebd711d978eb1c4b55ec34b12cf13cb10610b55c4e53": {
-      "where": "aether_for_llms_medium_contexts.md:594",
+      "where": "aether_for_llms_medium_contexts.md:559",
       "stdout": "4 7 2\n"
     },
     "f3e8d82c4e5e854faeb72f7f286d6e4e762b4e4c0e691792b77d7546baa5c690": {
-      "where": "aether_for_llms_medium_contexts.md:616",
+      "where": "aether_for_llms_medium_contexts.md:581",
       "stdout": "99 rows=3 cols=4\n"
     },
     "9e1c50ae9b321cc180d463318955b94f67e5113a877aeed13ed1ce85af7da338": {
-      "where": "aether_for_llms_medium_contexts.md:918",
+      "where": "aether_for_llms_medium_contexts.md:880",
       "stdout": "a=100 b=200\n"
     },
     "d64858048a529a0e0c2d0373b700f2248cc5617cbce01aca34c19a447046e3f8": {
-      "where": "aether_for_llms_medium_contexts.md:975",
+      "where": "aether_for_llms_medium_contexts.md:935",
       "stdout": "100 ready\n"
     },
     "8c645c567e57b642751ed75b52a072843f2fbb04929a7c22e8246a003fb30be3": {
-      "where": "aether_for_llms_medium_contexts.md:1006",
+      "where": "aether_for_llms_medium_contexts.md:966",
       "stdout": "A -> ready\nB -> review\n"
     },
     "c6af9d5ffd19ef357eb78aac3f63d030e3264a25165c8778b90d19b1e2cb5126": {
-      "where": "aether_for_llms_medium_contexts.md:1081",
+      "where": "aether_for_llms_medium_contexts.md:1041",
       "stdout": "items=2 avg=6.88\n"
     },
     "c4b1663ca3d648a65cf5484b2cca13add43bef1fb556243603188587012ea041": {
-      "where": "aether_for_llms_medium_contexts.md:1114",
+      "where": "aether_for_llms_medium_contexts.md:1074",
       "stdout": "1/2 alpha\n2/2 beta\n"
     },
     "5f816f0c30746ca51ed98aceafb39c29a4cf1a62567ebefa24302640eb9b39f9": {
-      "where": "aether_for_llms_medium_contexts.md:1255",
+      "where": "aether_for_llms_medium_contexts.md:1215",
       "stdout": "first line\n"
     },
     "4ea740bc801b0a9a8af33fa0590e905518d1e86c54fe60b8639d63b86065dc79": {
