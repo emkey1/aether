@@ -87,24 +87,17 @@ RUN_TIMEOUT = 20
 # serves all three guides, so keep keys specific: a key broad enough to match a
 # good block in another guide would hide a real regression there.
 EXPECT_FAIL = {
-    'use "bench_support";': (
-        "imports a module that is not on disk here", {"SCOPE-001"}),
+    'let status: Text = label(score);': (
+        "negative example: guessed wrapper names instead of the module's exports",
+        {"SCOPE-001"}),
     'WRONG — free-standing method': (
         "deliberate WRONG/RIGHT contrast; the WRONG half must not compile", {"SCOPE-001"}),
-    'if status == "ready" { ... }': (
-        "prose block using ... elision, not real source", {"SYN-001"}),
     'let name: Text = toon_get_text(doc, "name");': (
         "negative example: getter on a ToonDoc", {"TOON-001"}),
     'xs = doubleAll(xs);': (
         "prose block mixing a declaration with a bare call statement", {"SCOPE-001"}),
     'let user: ToonNode = toon_at(root, i);': (
         "shows both root shapes side by side, so `root` is declared twice", {"NAME-001"}),
-    'export fn clampSupport(score: Int) -> Int { ... }': (
-        "module sketch using ... elision, not real source", {"SYN-001"}),
-    'let value: Int = answer();': (
-        "calls an export from a module that is not on disk here", {"SCOPE-001"}),
-    'if name == "Aether" { ... }': (
-        "prose block using ... elision, not real source", {"SYN-001"}),
 }
 
 # EXPECT_FAIL keys whose code check is reported, not enforced, with the reason.
@@ -118,17 +111,9 @@ CODE_CHECK_REPORT_ONLY = {
 
 # Fragments that compile only inside an fx block the guide does not show, keyed
 # by (guide, distinctive substring). They break rule 1 in exactly the shape a
-# model copies; the guide pass wraps them and deletes the fx retry with this list.
-FX_RESCUED = {
-    ("aether_for_llms_with_small_contexts.md",
-     'println("status: ", if ready { "ready" } else { "blocked" });'):
-        "bare println in the inline-if example",
-    ("aether_for_llms_with_small_contexts.md",
-     'loop i in 0..length(s) { print(s[i]); }   // every character, exactly once'):
-        "bare print in the per-character loop",
-    ("aether_for_llms_with_small_contexts.md", 'print(xs[i], " ");'):
-        "bare print/println in the array-printing loop",
-}
+# model copies. Empty since guide pass 1 wrapped the three small-guide blocks
+# that were listed here; a new entry needs a reason a reviewer accepts.
+FX_RESCUED = {}
 
 # Names the guides' prose fragments reference without declaring. Kept in one
 # place so a fragment that legitimately uses a new name is a one-line fix here

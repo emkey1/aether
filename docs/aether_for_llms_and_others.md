@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-06-1*
+*Guide version: 2026-10-13-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -11,7 +11,8 @@ If you only read one part of this document, read **Highest-Value Rules** and
 - **Canonical**: preferred style for new Aether, especially LLM-generated Aether.
 - **Accepted**: may compile, but generate only when preserving existing code.
 - **Avoid**: likely wrong, fragile, or misleading even if it sometimes works.
-- **LLM-critical**: high-value rule mirrored in the small-context guide.
+- **LLM-critical**: high-value rule, mirrored in the medium guide and folded
+  into rules in the small one.
 
 ## Highest-Value Rules
 
@@ -37,7 +38,8 @@ If you only read one part of this document, read **Highest-Value Rules** and
 7. **IMP-001.** Use verified modules only. Never invent imports such as
    `use "helpers";`.
 8. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
-   dynamic arrays.
+   dynamic arrays and `Text`. Crossing them is not caught at compile time: the
+   program stops at run time with an uncoded error.
 9. **TUP-001.** Tuples are narrow: destructure direct top-level helper
    returns (`let (a, b) = pair();`), or bind to one variable and read a
    single field with `.0`/`.1`/`.2` (`let t = pair(); t.0;`) -- but not
@@ -122,10 +124,8 @@ when unsure about a type, add it explicitly.
   construct with `new T { field: value }` (partial sets ok; unset fields keep
   their declared defaults), or `new T()` then assign fields, or a top-level
   factory `fn` (SYN-001)
-- an untyped `new` binding or array literal: `let c = new C();` (a later
-  `c.inc();` fails `POINTER but got VOID`) or `let xs = [1, 2, 3];` (cannot
-  infer) — annotate both: `let c: C = new C();`, `let xs: Int[] = [1, 2, 3];`
-  (TYPE-001)
+- an untyped array literal: `let xs = [1, 2, 3];` (cannot infer) — write
+  `let xs: Int[] = [1, 2, 3];` (TYPE-001)
 - `print` / `println` / task helpers / `ai_chat` outside `fx { ... }` (FX-001)
 - invented imports such as `use "helpers";` (IMP-001)
 - `use module_name;` or `export { ... }` in new code; use canonical
@@ -159,7 +159,6 @@ when unsure about a type, add it explicitly.
   `let n: Int = sqrt(2.0);`. The fractional part is discarded silently — this is
   a `[NARROW-001]` **warning**, so it still compiles. Write `int(...)` when the
   truncation is intended (NARROW-001)
-- mixed-type output that guesses `+` will stringify numbers
 - foreign object/JSON APIs such as `JsonDoc`, `JsonNode`, `json.parseFile(...)`,
   `root.get(...)`, `Int.MIN`, and `value.toString()`
 - Pascal-style `write(...)` / `writeln(...)` in new code; prefer
@@ -176,7 +175,7 @@ Generate the canonical form unless preserving existing code.
 | Loop keyword | `loop` (condition / range / foreach / infinite) | `while cond { }`, `for x in a..b { }`, `for x in xs { }` | inventing other loop syntax |
 | Logical operators | `&&`, `\|\|`, `!` | `and`, `or`, `not` (exact synonyms) | — |
 | Return | `ret value;` (`ret;` for Void) | — | `return value;` |
-| Output | variadic `println(a, b)` in `fx` | text-only `+` concatenation | `Text + Int` guessing |
+| Output | variadic `println(a, b)` in `fx` | `+` concatenation | — |
 | Text equality | `a == b` | `string_eq(a, b)` | inventing `.equals(...)` |
 | Text length | `string_len(t)` | `t.len` | inventing `strlen(...)` |
 | Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
@@ -187,18 +186,18 @@ Generate the canonical form unless preserving existing code.
 | Int → Text | `int_to_text(n)` | `itoa(n)`, `inttostr(n)` | inventing `n.toString()` |
 | Real type name | `Real` | `Float` | `Double`, `Number` (TYPE-002) |
 | Text type name | `Text` | `String` | `Str`, `Char` (TYPE-002) |
-| Real → Text | `formatfloat(r, prec)` — exactly 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (no width arg — runtime error); `r:0:prec` as a value (it is `println`-only) |
-| Numeric cast | `int(x)` (`Real` → `Int`, truncating) | `Int(x)`, `real(n)` / `Real(n)`, `bool(n)` / `Bool(n)` | `int(text)` (silently `0`; use `parse_int`) |
-| Char → Int code | `ord(ch)` | — | `int(ch)` (silently returns `0` for `Text`; it casts `Real`/`Bool`, not `Text`) |
+| Real → Text | `formatfloat(r, prec)` — 1 or 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (a width argument is `[BUILT-002]`); `r:0:prec` as a value (it is `println`-only) |
+| Numeric cast | `int(x)` (`Real` → `Int`, truncating) | `Int(x)`, `real(n)` / `Real(n)`, `bool(n)` / `Bool(n)` | `int(text)` (`TYPE-001`; use `parse_int`) |
+| Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001`: it casts `Real`/`Bool`, not `Text`) |
 | Int code → Char | `chr(code)` | — | inventing a lookup table |
 | Split text | `split(t, sep)` → `Text[]` | — | manual character scanning |
 | Dynamic array length | `length(xs)` | `len(xs)`, `xs.len` | `toon_len(xs)` |
 | TOON array length | `toon_len(node)` | — | `length(node)` |
-| Method call | `counter.bump()` | `bump(counter)` if receiver obvious | class syntax |
+| Method call | `counter.bump()` | `bump(counter)` for an extension method only | class syntax |
 | Concurrency target | `task_spawn("delay", "w", n)` (builtin name) | — | passing a closure / `fn(){...}` |
 | Transform a list | explicit `loop` building `xs + [v]` | — | `map(...)` / `filter(...)` with a lambda |
-| Record init | `Point { x: 3, y: 4 }` | `Point(x: 3, y: 4)` | — |
-| TOON nested lookup | bind and validate intermediates | nested calls when shape guaranteed | `_or` on missing intermediate |
+| Record init | `new Point { x: 3, y: 4 }` | `Point { x: 3, y: 4 }`, `Point(x: 3, y: 4)` | `fn new()` constructor |
+| TOON nested lookup | bind and validate intermediates | nested calls when shape guaranteed | a guessed flattened key |
 | Imports | verified `use "module";` | self-contained code | guessed modules |
 | Method context | pass loop/local context as params | helper computes its own label | implicit capture of outer `i` / `name` |
 | Field/local same name | `let valid = ...; if valid { self.valid = ...; }` | distinct local names | assuming bare `valid` means the field |
@@ -226,14 +225,12 @@ fn main() -> Void {
 **LLM-critical.** Generate in this order:
 
 1. Decide whether the program needs TOON.
-2. Define `type` blocks before functions that instantiate them.
-3. Define helper functions before callers.
-4. Give every function parameter an explicit type.
-5. Prefer explicit `let name: Type = ...` unless the initializer is trivial.
-6. Put all output, task helpers, and AI calls inside `fx`.
-7. Use `ret`, never `return`.
-8. Close every parsed `ToonDoc` with `toon_close(doc)`.
-9. Run the Validation Checklist before final output.
+2. Give every function parameter an explicit type.
+3. Prefer explicit `let name: Type = ...` unless the initializer is trivial.
+4. Put all output, task helpers, and AI calls inside `fx`.
+5. Use `ret`, never `return`.
+6. Close every parsed `ToonDoc` with `toon_close(doc)`.
+7. Run the Validation Checklist before final output.
 
 ## Lexical basics
 
@@ -249,7 +246,7 @@ fn main() -> Void {
 | Type | Literals | Notes |
 |---|---|---|
 | `Int` | `42`, `-1` | integer arithmetic |
-| `Real` | `3.5` | use a `Real` operand to force real division; `Float` is an accepted alias |
+| `Real` | `3.5` | `/` always yields a `Real`; `Float` is an accepted alias |
 | `Text` | `"hi"` | string type; `String` is an accepted alias |
 | `Bool` | `true`, `false` | `println(flag)` prints `true` or `false` |
 | `Void` | — | return type for procedures |
@@ -273,12 +270,12 @@ guessing conversion helpers or `Text + Int` coercions.
 
 | Category | Operators |
 |---|---|
-| Arithmetic | `+ - * /` on `Int`/`Real`; `Int / Int` is integer-style division |
+| Arithmetic | `+ - * /` on `Int`/`Real`; `/` always yields a `Real`; `a div b` is the integer quotient |
 | Modulo | `%` (example: `7 % 3` = `1`) |
 | Comparison | `== != < <= > >=` |
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
 | Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`) |
-| Text | `+` concatenation (text-compatible operands only); `==` equality |
+| Text | `+` concatenation (convert numbers with `int_to_text` / `formatfloat` first); `==` equality |
 | Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
 
 `&`/`|`/`^` are bitwise, not logical -- use `&&`/`||` for Bool conjunction/
@@ -306,8 +303,6 @@ Hard rules:
 - every function declares an explicit return type; procedures use `-> Void`
 - every parameter has an explicit type
 - use `ret value;`, or bare `ret;` in `Void` functions; never `return`
-- `ret` is not legal inside an `fx` block; return from the surrounding
-  function outside the effect block
 
 ```aether
 fn add(a: Int, b: Int) -> Int {
@@ -370,7 +365,7 @@ type Pair {
 }
 
 fn split_pair(s: Text) -> Pair {
-    ret Pair { first: 3, second: 7 };
+    ret new Pair { first: 3, second: 7 };
 }
 
 fn main() -> Void {
@@ -412,9 +407,8 @@ Omit the type only for these initializers:
 - calls to functions with known declared return types, including methods on
   known typed bindings and the TOON/string helpers in this document
 
-Everything else gets an explicit type — especially `new` instances and array
-literals (an inferred `let c = new C();` breaks a later method call, and
-`let xs = [1, 2, 3];` cannot be inferred at all — see **Constructing records
+Everything else gets an explicit type — especially array literals
+(`let xs = [1, 2, 3];` cannot be inferred at all — see **Constructing records
 and typing bindings**), TOON extractions with non-trivial shape, branchy
 results, and arithmetic such as `base + 1` where the operand types are not
 visible at a glance. When in doubt, annotate.
@@ -422,10 +416,10 @@ visible at a glance. When in doubt, annotate.
 Canonical loop-local example:
 
 ```aether
-loop i in 0..5 {
-    let square: Int = i * i;
+loop i in 1..4 {
+    let cube: Int = i * i * i;
     fx {
-        println(i, " => ", square);
+        println(i, " cubed is ", cube);
     }
 }
 ```
@@ -530,14 +524,10 @@ pointers or `nil`; they are backend details. Want a constructor with logic?
 Write a top-level factory `fn` with a non-reserved name
 (`fn makePoint(x: Int, y: Int) -> Point { ... }`).
 
-**Always annotate a binding that holds a `new` instance or an array literal**
-(TYPE-001) — inference is not enough for either:
-
-- `let c = new C();` then `c.inc();` fails with `argument 1 to 'c.inc' expects
-  type POINTER but got VOID`; a method call on an inferred `new` binding is
-  unsafe. Write `let c: C = new C();`.
-- `let xs = [1, 2, 3];` fails with `cannot infer the type of 'xs'`. Write
-  `let xs: Int[] = [1, 2, 3];`.
+**Always annotate a binding that holds an array literal** (TYPE-001):
+`let xs = [1, 2, 3];` fails with `cannot infer the type of 'xs'`. Write
+`let xs: Int[] = [1, 2, 3];`. `let c = new C();` infers `C`; writing
+`let c: C = new C();` is a matter of style.
 
 Record literals (`new T { ... }` or bare `T { ... }`) may appear directly
 inside an array literal: `let ps: Point[] = [new Point { x: 1, y: 2 }, new
@@ -622,7 +612,26 @@ loop {                      // infinite
 `loop item in items` iterates an array (`T[]`, giving each `T`), a `Text` (one
 character at a time, as a one-character `Text`), or a TOON array node
 (`ToonNode`, giving each element node). The collection may be a variable, a
-field, a call with a declared return type, or a slice; a row of a nested array
+call with a declared return type, or a slice — **not a field**:
+`loop x in o.items` is `[TYPE-001] cannot infer the type of the collection`.
+Bind the field to a typed local first, then loop over that:
+
+```aether
+type Order {
+    items: Int[] = [];
+}
+
+fn totalOf(o: Order) -> Int {
+    let items: Int[] = o.items;      // bind the field to a typed local first
+    let total: Int = 0;
+    loop x in items {                // `loop x in o.items` is TYPE-001
+        total = total + x;
+    }
+    ret total;
+}
+```
+
+A row of a nested array
 is bound by value, so writing to `item` never changes the collection. `step n`
 takes any `Int` expression: a literal step is inlined and a negative one counts
 down (`i > high`), any other step is evaluated once before the loop and its
@@ -669,7 +678,8 @@ work is effectful.
 ## Printing and formatting
 
 `print` / `println` are the Aether output builtins. For mixed types, use
-variadic arguments — never guess that `+` stringifies:
+variadic arguments; to build a `Text`, convert numbers with `int_to_text` /
+`formatfloat` before `+`:
 
 ```aether
 fx {
@@ -690,19 +700,17 @@ use `formatfloat(value, precision)` or `realtostr(value)` (always 6 decimals).
 | right-aligned | `value:10:2` | `     95.50` |
 | default | `value` | `3.141593` |
 
-Real division: `Int / Int` is integer-style; introduce a `Real` operand to
-force a real result:
+Division: `/` on two `Int`s gives a `Real` (`println(7 / 2)` prints
+`3.500000`). An `Int` binding, field, array element, parameter or `-> Int`
+`ret` truncates only the final value, so `a / 2 * 2` gives back `a`, and a
+quotient used where an `Int` is required — an operand of `%` or `div`, a
+`Text` index, `int_to_text` — is a `TYPE-001` error. Write `div` for an
+integer quotient (`7 div 2` is `3`, `-7 div 2` is `-3`: it truncates toward
+zero), and give `/` a `Real` operand for decimals:
 
 ```aether
 let successRate: Real = successful * 100.0 / total;
 ```
-
-The integer-style result applies through every `Int`-typed sink — a
-`let m: Int = ...` binding, record fields, array elements, `Int` parameters,
-and (since 2026-07-15-2) a `-> Int` function's `ret`, so
-`fn mean(...) -> Int { ret sum / n; }` returns a truncated `Int`, not a
-`Real`. Only a division printed directly with no typed sink anywhere (e.g.
-`println(7 / 2)`) shows the underlying real result (`3.500000`).
 
 ## Math builtins
 
@@ -735,8 +743,8 @@ reproducible.
 
 Numeric casts: `int(x)` truncates a `Real` (or `Bool`) to `Int`, `real(n)`
 widens an `Int` to `Real`, `bool(n)` is `n != 0`; the capitalized spellings
-`Int(x)`, `Real(n)`, `Bool(n)` are accepted too. `int(text)` returns `0` — parse
-text with `parse_int`.
+`Int(x)`, `Real(n)`, `Bool(n)` are accepted too. `int(text)` is a `TYPE-001`
+error — parse text with `parse_int`.
 
 ```aether
 let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);  // full Real precision
@@ -814,8 +822,8 @@ fn clamp(score: Int) -> Int {
 }
 ```
 
-- `@pure` functions reject effectful builtins and calls into known non-pure
-  Aether functions
+- `@pure` functions reject effectful builtins and calls to any function that
+  is not itself marked `@pure` — mark every helper a pure function calls
 - `@pre` / `@post` take expressions; `@post` may reference `result`
 - a method's `@pre`/`@post` may reference `self.field`, but only when the method
   is declared inside its `type` block (where `self` is implicit); the same
@@ -841,7 +849,7 @@ Core safe `Text` surface for generated code:
 
 ```aether
 let nameLen: Int = string_len(name);   // canonical; name.len accepted
-if status == "ready" { ... }           // canonical; string_eq(a,b) accepted
+let isReady: Bool = status == "ready"; // canonical; string_eq(a,b) accepted
 let s: Text = "ab" + "cd";             // concatenation of Text operands
 let label: Text = int_to_text(count);  // Int -> Text (canonical surface for IntToStr)
 ```
@@ -866,10 +874,9 @@ Additional verified `Text` builtins (all pure, no `fx` needed):
 
 Beyond these, do not invent string helpers: there is no `replace`, and no
 whole-string `to_upper`/`to_lower` (`upcase`/`toupper` change a single character
-only). If the prompt depends on more, use `builtin_info(...)` or prompt-supplied
-signatures and call the exact discovered names. For hand-rolled `replace`,
-`contains`, `startsWith`, and case conversion, copy the verified loops in
-**Writing what the surface does not give you**.
+only). For hand-rolled `replace`, `contains`, `startsWith`, and case
+conversion, copy the verified loops in **Writing what the surface does not give
+you**.
 
 ### Parsing text into scalars — `parse_*` fails silently, `val` does not
 
@@ -987,8 +994,8 @@ Guard at the call site with `if isAllDigits(raw) { ... }`, or let the contract
 carry the requirement as above. Note the predicate rejects a leading `-`, which
 `val` accepts; widen it if negative fields are in scope. Prefer `val` unless you
 specifically need the requirement expressed as a contract — it is one call, it
-already handles signs and surrounding whitespace, and it cannot drift out of
-sync with the parse it guards.
+already handles a sign and leading whitespace (trailing whitespace fails, so
+`trim` first), and it cannot drift out of sync with the parse it guards.
 
 ## Files and environment
 
@@ -1003,7 +1010,7 @@ Host access for automation. **All of these are effectful — call inside `fx`**
 | `getcurrentdir()` | `() -> Text` |
 | `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
 | `paramcount()` | `() -> Int` (CLI arg count) |
-| `paramstr(i)` | `(Int) -> Text` (`paramstr(0)` is the program) |
+| `paramstr(i)` | `(Int) -> Text` |
 
 ```aether
 fn main() -> Void {
@@ -1058,14 +1065,12 @@ fn main() -> Void {
 }
 ```
 
-`readln(f, line)` writing its result into `line` is a special case built into
-this one builtin — Aether does not have general by-reference parameters, so
-this pattern only works with the file builtins above, not with user-defined
-functions.
+`readln(f, line)` writing its result into `line` is built into a few builtins
+(`readln`, `val`, `valreal`, `gettime`, `getdate`) — Aether does not have
+general by-reference parameters, so user-defined functions cannot do this.
 
-Sockets (`socket*`), database (`sqlite*`), `random`/`randomize`, and the
-clock are also effectful but are not part of the curated surface; reach for
-them via `builtin_info(...)` discovery.
+Database builtins (`sqlite*`) are effectful too; they are outside the curated
+surface, and their signatures are in the appendix.
 
 ## HTTP requests and memory streams (MS-001)
 
@@ -1083,7 +1088,8 @@ an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 | `mstreamfromstring(text)` | `(Text) -> MStream` | no |
 | `mstreambuffer(ms)` | `(MStream) -> Text` (stream contents) | no |
 | `mstreamfree(ms)` | `(MStream) -> Void` | no |
-| `mstreamloadfromfile(ms, path)` / `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Bool` | yes (file I/O) |
+| `mstreamloadfromfile(ms, path)` | `(MStream, Text) -> Bool` (a file that cannot be opened is a run-time error) | yes (file I/O) |
+| `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Void` | yes (file I/O) |
 | `mstreamappendbyte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no (pure memory) |
 
 `mstreamappendbyte` writes a single byte at a time -- there is no
@@ -1148,9 +1154,9 @@ not exist. All `socket*` calls and `dnslookup` are effectful (FX-001, inside
 | `socketpeeraddr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
 | `socketsend(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
 | `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstreambuffer(...)` to read it |
-| `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Int` (`0`/`-1`) | flips a socket to non-blocking mode |
+| `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Void` | flips a socket to non-blocking mode |
 | `socketpoll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
-| `socketclose(socket)` | `(Int) -> Int` (`0`/`-1`) | |
+| `socketclose(socket)` | `(Int) -> Void` | |
 | `socketlasterror()` | `() -> Int` | last socket error code (errno/WSA), `0` if the last call succeeded |
 | `dnslookup(hostname)` | `(Text) -> Text` | forward lookup only (no reverse lookup); returns `""` on failure |
 
@@ -1278,12 +1284,11 @@ let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like lo
 - `xs == ys` / `xs != ys` compare structurally: equal when both have the same
   length and every element compares equal (nested arrays recurse; record
   elements compare by identity)
-- never `toon_len(xs)` on a dynamic array (LEN-001)
-- `println`/`print` do not stringify arrays. `println("data: ", xs)` compiles
-  and runs, but silently prints the array's internal representation
-  (`ARRAY(dims:1, base_type:INT64, elements_at:0x...)`) instead of its
-  elements -- there is no error to catch this. Loop and print each element:
-  `loop i in 0..length(xs) { print(xs[i], " "); } println("");`
+- never `toon_len(xs)` on a dynamic array, nor `length(node)` on a `ToonNode`
+  (LEN-001): both compile, and stop at run time with an uncoded error
+- `println`/`print` cannot print a whole array: `println("data: ", xs)` is a
+  `TYPE-001` error. Loop and print each element:
+  `fx { loop x in xs { print(x, " "); } println(""); }`
 
 **Arrays are value-copied where they cross a function boundary; records are
 pointer-backed and are not.** Passing `xs` into a function hands that
@@ -1492,8 +1497,8 @@ Golden shape rules:
   directly on `ToonDoc`
 - if the payload starts with `{`, inspect named keys on `root`; if it starts
   with `[`, iterate `root` directly
-- `_or` helpers only protect the final key lookup, not a missing intermediate
-  object
+- a missing intermediate object degrades to the `_or` fallback; it never
+  crashes (NEST-001)
 
 ### Helper surface (complete — BUILT-001)
 
@@ -1606,7 +1611,7 @@ if toon_has_key(row, "meta") {
 ```aether
 fn main() -> Void {
     if !has_toon() {
-        fx { println("yyjson unavailable"); }
+        fx { println("structured data support unavailable"); }
         ret;
     }
 
@@ -1681,20 +1686,24 @@ are a lower-level handle API over runtime builtins.
 ## Tasks and AI helpers
 
 Compact aliases over shared runtime helpers; all are effectful — call inside
-`fx` (FX-001). `task_spawn` / `task_queue` dispatch an allow-listed runtime
-*builtin* by name (for example `"delay"`), not a user-defined function; passing
-your own function name is an error. To parallelize your own functions, use
-`par` (above).
+`fx` (FX-001) — except the `has_*` probes, which are pure. `task_spawn` /
+`task_queue` dispatch an allow-listed runtime *builtin* by name (for example
+`"delay"`), not a user-defined function; passing your own function name is an
+error. To parallelize your own functions, use `par` (above).
 
 Core signatures:
 
 - `sleep(ms: Int) -> Void`
 - `task_spawn(target: Text, name: Text, arg) -> Int`
 - `task_queue(target: Text, name: Text, arg) -> Int`
-- `task_wait(handle: Int) -> Int`
+- `task_wait(handle: Int) -> Int` — joins the task; `0` when it succeeded. It
+  consumes the stored status
 - `task_lookup(name: Text) -> Int`
-- `task_status(handle: Int) -> Int`
-- `task_result(handle: Int) -> Int`
+- `task_status(handle: Int) -> Bool` — readable only once the task has finished
+  and before `task_wait`; on a running or an already-joined task it is a
+  run-time error
+- `task_result(handle: Int)` — the target builtin's own result (nothing for a
+  procedure such as `"delay"`); a run-time error while the task is still running
 - `task_stats() -> Array`
 - `task_stats_json() -> Text`
 - `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`
@@ -1741,42 +1750,51 @@ Hard rules:
   its names still do not exist
 - canonical import form is `use "module_name";` in new code
 - **MOD-001**: imported names must match exported names exactly; `use` does
-  not rename. If a module exports `classifySupport`, call
-  `classifySupport(...)` — never a guessed local like `classify(...)` unless
+  not rename. If a module exports `labelScore`, call
+  `labelScore(...)` — never a guessed local like `label(...)` unless
   you define the wrapper yourself
 - after import, exported constants and helpers may be called directly; prefer
-  direct calls like `answer()` and `Greeting` over guessed foreign object APIs
+  direct calls like `area(3, 4)` and `Sides` over guessed foreign object APIs
 - file naming: `mod PascalCaseName` lives in a snake_case file consumed as
   `use "pascal_case_name";` (e.g. `mod ModuleConsts` → `use "module_consts";`)
 - when combining purity with module export, write `@pure` above `export fn`
 - for generated code, assume modules export `const` and `fn`; do not generate
   exported `type` blocks
 - if the task provides a module, copy its export names exactly; do not invent
-  wrapper names such as `classify(...)`, `normalize(...)`, or `getAnswer()`
+  wrapper names such as `label(...)`, `normalize(...)`, or `getArea()`
 
 ```aether
-mod BenchSupport {
-    export const DefaultScore: Int = 50;
+mod ScoreUtils {
+    export const BaseScore: Int = 50;
+
     @pure
-    export fn clampSupport(score: Int) -> Int { ... }
+    export fn clampScore(score: Int) -> Int {
+        if score < 0 {
+            ret 0;
+        }
+        if score > 100 {
+            ret 100;
+        }
+        ret score;
+    }
 }
 ```
 
 ```aether
-use "bench_support";
+use "score_utils";
 
 fn summarize(job: ToonNode) -> Int {
-    let raw: Int = toon_get_int_or(job, "score", DefaultScore);
-    ret clampSupport(raw);
+    let raw: Int = toon_get_int_or(job, "score", BaseScore);
+    ret clampScore(raw);
 }
 ```
 
 Wrong:
 
 ```aether
-use "bench_support";
-let score: Int = normalize(raw);
-let status: Text = classify(score);
+use "score_utils";
+let score: Int = normalize(141);
+let status: Text = label(score);
 ```
 
 Real module examples: `Examples/aether/base/module_demo`,
@@ -1790,10 +1808,10 @@ Module recipe for generated code:
 4. Do not invent wrappers unless you define them yourself.
 
 ```aether
-use "bench_math";
+use "geometry";
 
 fn main() -> Void {
-    let value: Int = answer();
+    let value: Int = area(3, 4);
     fx {
         println(value);
     }
@@ -1807,7 +1825,7 @@ Failures report original Aether source lines (`file:line:` prefix in CLI
 mode), not lowered Rea lines; trust the Aether line first.
 `--diagnostics-json` / `--diagnostics-toon` emit structured failures.
 `--verbose-compat` (alias `--verbose-errors`) surfaces normally-quiet
-compatibility shims such as ignored missing imports and redundant `let mut`.
+compatibility shims such as ignored missing imports.
 
 ## Copyable templates
 
@@ -1844,7 +1862,7 @@ fn classify(score: Int) -> Text {
 
 fn main() -> Void {
     if !has_toon() {
-        fx { println("yyjson unavailable"); }
+        fx { println("structured data support unavailable"); }
         ret;
     }
 
@@ -1872,11 +1890,11 @@ fn main() -> Void {
 ```aether
 fn main() -> Void {
     if !has_toon() {
-        fx { println("yyjson unavailable"); }
+        fx { println("structured data support unavailable"); }
         ret;
     }
 
-    let doc: ToonDoc = toon_parse("{\"rows\":[{\"meta\":{\"code\":\"A1\"}},{\"meta\":{}},{\"broken\":true}]}");
+    let doc: ToonDoc = toon_parse("{\"rows\":[{\"meta\":{}},{\"meta\":{\"code\":\"K7\"}},{\"note\":\"x\"}]}");
     let root: ToonNode = toon_root(doc);
     let rows: ToonNode = toon_key(root, "rows");
     let missing: Int = 0;
@@ -1928,15 +1946,9 @@ One exception to the absorption rule: `toon_has_at(node, i)` raises on a null
 node rather than returning false. Take the length instead — `toon_len` is 0 on a
 null node, so `i < toon_len(node)` is the safe index test.
 
-What is never safe is a bare `toon_key` on a key that may be absent:
-
-```aether
-let gb: Int = toon_get_int_or(toon_key(row, "spec"), "cores", 0);   // unguarded
-```
-
 ### Large report recipe
 
-Use this shape for long benchmark-style programs:
+Use this shape for long report programs:
 
 1. `const` defaults first
 2. pure normalization / classification helpers next
@@ -2012,19 +2024,19 @@ type Audit {
 }
 ```
 
-Larger examples: `Examples/aether/showcase/agent_report`,
-`Examples/aether/showcase/release_board`.
+Larger example: `Examples/aether/showcase/agent_report`.
 
 ## Repair rules
 
-The compiler tags every rejection with a stable code in brackets, and on newer
-builds prints a `help: see <CODE> ...` line. Read the code, then apply the fix.
+The compiler tags most rejections with a stable code in brackets and usually a
+`help: see <CODE> ...` line. Read the code, then apply the fix.
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, MS-001, TYPE-001, TYPE-002, TUP-001, FLOW-001, FLOW-002,
-MUT-001, FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-001, BUILT-002,
-ARR-001, ARR-002, NARROW-001, and PREC-001; the finer rule names below map onto
-them. A code you receive that is not on this list does not exist — re-read the
-message rather than inventing a rule for it.
+FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-002, ARR-001, ARR-002,
+NARROW-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
+below map onto them. Run-time errors (ARR-003, `AETH-RUNTIME-*`) carry their
+own message and hint. A compile-time code you receive that is not on this list
+does not exist — re-read the message rather than inventing a rule for it.
 
 - **[FX-001]** an output, task helper, or `ai_chat` call outside an effect block
   → wrap it in `fx { ... }`.
@@ -2039,22 +2051,30 @@ message rather than inventing a rule for it.
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (METH-001)
-  - an **unknown type name in an annotation** — any position (binding, parameter,
-    return type, record field, tuple item) and any array depth, so `let v: Bogus[]`
-    and `fn f(p: Bogus)` fail exactly as `let v: Bogus = 1` does → fix the
-    spelling, or declare `type Bogus { ... }` (order does not matter; a type
-    defined later in the file resolves fine)
   - a genuinely undeclared / out-of-scope name → declare it earlier, pass it in,
     or rename the local you actually meant (SCOPE-001)
-- **[NAME-001]** a local redeclared in the same scope (`'...' is already
-  declared in this scope`) → pick a fresh name.
-- **[IMP-001]** an invented or malformed import → remove the `use` unless
-  verified, or write `use "module_name";` and call exports directly (MOD-002).
+- **[NAME-001]** a name declared twice → pick a fresh name, or assign without
+  `let`. Names ignore case, so this covers `let limit` beside `const LIMIT` (top
+  level or imported), a parameter named like a const, `x` beside `X`, a `let`
+  that redeclares a parameter, and a loop variable named like a variable
+  already in scope (the loop would get its own, leaving the outer one
+  unchanged). Also a method or function named `length`, `setlength`, `copy` or
+  `halt`, and any identifier starting with `__`.
+- **[IMP-001]** a malformed `use` → write `use "module_name";` and call exports
+  directly (MOD-002). A `use` of a module that does not exist is not reported
+  by itself; its names then fail with SCOPE-001.
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
-  array literal such as `let xs: Int[] = [1, 2, 3];`). Also covers
-  `toon_len(node)` for TOON arrays vs `length(xs)` for dynamic arrays (LEN-001).
-- **[TYPE-002]** a type *name* that does not exist — it is neither a builtin nor
-  a `type` you declared or imported. Distinct from TYPE-001, where the type is
+  array literal such as `let xs: Int[] = [1, 2, 3];`). Also a foreach over a
+  field, `loop x in o.items` (`cannot infer the type of the collection`) →
+  bind it first, `let items: Int[] = o.items;`, and loop over `items`. Also
+  a value of the wrong kind, where the message names the fix: `println` of
+  a whole array, `int()` of a `Text`, and a `Real` where an `Int` is required
+  (an operand of `%`, `div` or a shift, a `Text` index, `int_to_text`, `chr`,
+  `copy`).
+- **[TYPE-002]** a type *name* that does not exist, in any position (binding,
+  parameter, return type, record field, tuple item) and at any array depth — it
+  is neither a builtin nor a `type` you declared or imported; declaration order
+  does not matter. Distinct from TYPE-001, where the type is
   real and used wrongly: here the fix is the spelling. Use `Int`, `Real`, `Text`,
   `Bool`, `Void`, `T[]`, or one of your own `type` names. The message names the
   Aether spelling whenever one exists (`Double` → `Real`, `Integer` → `Int`,
@@ -2062,8 +2082,6 @@ message rather than inventing a rule for it.
   `Int`), and for `List` / `Map` / `Set` it names the shape instead:
   an array is `T[]`, and there is no map type at all. `Float` and `String` are
   the two foreign spellings that are *accepted*, as aliases of `Real` and `Text`.
-- **`expects type POINTER but got VOID`** on a method call (no bracketed code) →
-  the receiver is an inferred `new` binding; annotate it: `let c: C = new C();`.
 - **[TOON-001]** a `ToonDoc` / `ToonNode` handle misuse → check handle types; do
   not mix, do arithmetic on, or cross-assign them.
 - **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
@@ -2079,13 +2097,20 @@ message rather than inventing a rule for it.
   `flags & mask != 0` → `&`, `|` and `^` bind looser than `== != < <= > >=`, so
   this groups as `flags & (mask != 0)` and evaluates to an **Int**, not a Bool.
   It compiles and prints a number, so the test looks like it passes.
-  Parenthesize the mask: `(flags & mask) != 0`.
+  Parenthesize the mask: `(flags & mask) != 0`. As an **error**: comparisons do
+  not chain — `0 <= i < n`, `a == b == c` and an unparenthesised `not a == b` →
+  write `0 <= i && i < n`.
 - **[ARR-002]** a one-dimensional array indexed twice → the *declaration's* rank
   is wrong, not the indexing syntax. Nested arrays are real: declare `T[][]`,
   build each row as its own `T[]` (`row = row + [v];` then
   `table = table + [row];`), and bound inner loops with `length(table[r])` since
   rows may be jagged. Or keep one dimension and index with a computed offset,
   `table[r * width + c]`.
+- **`Length expects a string or array argument`** or **`YyjsonGetLength expects a
+  single value handle`** *(runtime, no bracketed code)* → `length` was handed a
+  `ToonNode`, or `toon_len` an array or a `Text` (LEN-001). Use
+  `toon_len(node)` for a `ToonNode` and `length(xs)` for an array or a `Text`.
+  Both mistakes compile; only running the program shows them.
 - **[ARR-003]** *(runtime)* an index outside the array's valid range. The message
   gives the offending index, which dimension it was in, and the valid range, and
   the `[Error Location]` line that follows gives the source line. Read the range
@@ -2113,14 +2138,29 @@ message rather than inventing a rule for it.
   `ret ...` on every reachable top-level path in the non-`Void` helper.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function (a `ret` with no value)
   → give the return a value (`ret <expr>;`), or declare the function `-> Void`.
-- **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
-  move `@pre`/`@post`/`@pure`/`@cost` directly above the function; keep effects out of pure code.
+- **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect or
+  a function that is not `@pure` → move `@pre`/`@post`/`@pure`/`@cost` directly
+  above the function; keep effects out of pure code and mark its helpers `@pure`.
 - **[TUP-001]** tuple misuse → destructure a direct top-level call
   (`let (a, b) = pair();`), or bind it and read one field (`let t = pair();
   t.0;`); an index past the arity or chained directly onto the call
   (`pair().0`) both fail here too. If the callee isn't a known top-level
   tuple-returning function, return a record instead and read its fields.
-- **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
+- **[BUILT-002]** a listed builtin called with the wrong number of arguments →
+  use the count in its signature (`formatfloat(r, 2)`, never a width slot).
+- **[ARR-001]** (warning) a `Void` function writes into an array parameter and
+  never returns it → return the array and reassign at the call site.
+- **[NARROW-001]** (warning) a `Real` stored in an `Int` target → the fraction
+  is discarded; use a `Real` target, or `int(...)` when truncating is intended.
+- **[FMT-001]** a placeholder in a `println` string — `"{}"`, `{name}`, `{0}`,
+  `{:.2}`, `${}`, `%d` / `%.2f`, or an `f"..."` literal → `println` has no
+  placeholders: pass the values as arguments (`println("n = ", n)`) and format
+  decimals with `formatfloat(x, 2)`.
+- **[DIV-002]** `x // 2` → `//` always starts a comment; integer division is
+  `x div 2`.
+- **[ENTRY-001]** `fn main` would not run — the file also has top-level
+  statements — or there is nothing to run, or `main` takes parameters or
+  returns `Text` → move the statements into `fn main() -> Void`.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` (an assignment, `fx`,
@@ -2146,8 +2186,8 @@ Before submitting Aether code, verify:
 - all `use "..."` imports reference real, verified modules; imported names are
   used exactly as exported (IMP-001, MOD-001)
 - all function parameters have explicit types; uncertain types are annotated;
-  `new` instances and array literals carry an explicit type (`let c: C = new
-  C();`, `let xs: Int[] = [1, 2, 3];`) (TYPE-001)
+  array literals carry an explicit type (`let xs: Int[] = [1, 2, 3];`)
+  (TYPE-001)
 - `ret` not `return`; `type` not `class` (SYN-001)
 - no field or method named after an Aether keyword or operator word (`new`,
   `for`, `loop`, `div`, `and`); no `fn new()`/`__init__` constructor method (SYN-001)

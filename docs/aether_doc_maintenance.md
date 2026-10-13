@@ -7,7 +7,7 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,898 o200k / 12,633 Qwen3.5 | ~16K context models |
+| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,644 o200k / 12,385 Qwen3.5 | ~16K context models |
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
@@ -163,6 +163,25 @@ serves; the gate warns about that now and enforces it from the first guide
 pass. Devstral's Tekken and DeepSeek-Coder counts are not measured: neither
 tokenizer was available to fetch.
 
+Guide pass 1 drafts, measured 2026-10-13 on language 2026-10-08-1 (same two
+tokenizers). One row per measured variant; the core/library split is o200k:
+
+| Variant | Guide | stamp | o200k | Qwen3.5 | core | library |
+|---|---|---|---|---|---|---|
+| accuracy-only | small | 2026-10-13-1 | 11,644 | 12,385 | 9,939 | 1,705 |
+| accuracy-only | medium | 2026-10-13-1 | 14,584 | **15,497** | 13,519 | 1,065 |
+| accuracy-only | full | 2026-10-13-1 | 29,645 | 31,392 | 22,221 | 7,424 |
+
+Accuracy-only removes 568 o200k tokens of false or stale text from medium and
+adds 264 for what the L1 compiler does (the wider NAME-001, the wrong-kind
+TYPE-001 cases, chained comparisons, repair entries for FMT-001, DIV-002 and
+ENTRY-001, and the uncoded run-time error a crossed `toon_len` / `length`
+really gives); two canonical-table cuts, N10 and N11, take 52 back. That leaves
+medium **over** the 15,000 ceiling in Qwen3.5, so
+this variant passes the pre-G1 rule only (o200k ≤ 15,000) and cannot take the
+`STAGE = "g1"` flip by itself: the paired-cut ledger's cuts are what bring
+medium under.
+
 Because the medium guide now covers the 32K tier, **the full guide is free to
 grow**. It no longer has to be the document that fits everywhere, so prefer
 adding depth there over compressing it. The builtin appendix is the first thing
@@ -243,14 +262,15 @@ copied `"yyjson unavailable"` template literal and for benchmark identifiers
 in `tools/bench_identifiers.txt`. That list is regenerated from the umbrella's
 task suites with `PSCAL_UMBRELLA=<checkout> python3 tools/audit_guides.py
 --refresh`, so the test never reads the umbrella. A per-guide `ALLOWLIST` keeps
-the deliberate hits: the Pascal naming mnemonics (`arctan` not `atan`), the
-Pascal-style `File` handle model, and the runtime-discovery sentences below.
-It runs in **report mode** until the first guide pass, which fixes today's
-hits and adds `--strict`; until then it prints its hit list and passes.
+the deliberate hits: the small guide's Pascal naming mnemonic (`arctan` not
+`atan`) and its Pascal-style `File` handle model. The guide pass 1 drafts have
+no hits (`--strict` exits 0); the CTest still runs it in **report mode** until
+the pass is adopted and adds `--strict`.
 
 Runtime-discovery advice is a special case: `builtin_info` / `builtins_json` are
-*runtime* calls a one-shot generator cannot make, so the medium guide states that
-plainly and never offers discovery as a fallback for an unlisted name.
+*runtime* calls a one-shot generator cannot make. Since guide pass 1 the medium
+guide does not name them at all, and no constrained guide offers discovery as a
+fallback for an unlisted name.
 
 ### Verifying the guides
 
@@ -284,11 +304,11 @@ appends a trivial `main` to declaration-only blocks, and runs `aether --no-run
 --diagnostics-json` over the lot. A fragment that fails is retried inside an
 `fx { }` block, but only to explain the failure: a fragment that compiles only
 that way is **UNEXPECTED**, because a model copies the block as written and a
-bare `println` at function scope is exactly what rule 1 forbids. Three
-small-guide blocks (the inline-if `println`, the per-character `print` loop and
-the array-printing loop) are allowlisted in `FX_RESCUED` and printed as notes
-until the first guide pass wraps them in `fx` and deletes the retry. Exit
-status is nonzero on any unexpected result, so it can gate.
+bare `println` at function scope is exactly what rule 1 forbids. Guide pass 1
+wrapped the three small-guide blocks that used to be allowlisted in
+`FX_RESCUED` (the inline-if `println`, the per-character `print` loop and the
+array-printing loop), so that list is empty; the retry remains only to explain
+a failure. Exit status is nonzero on any unexpected result, so it can gate.
 
 **It compiles; it does not run.** Because the sweep is `--no-run`, a snippet
 that compiles clean and then aborts at runtime passes the gate. That is not
@@ -307,10 +327,11 @@ re-blessed: run `python3 tools/verify_guide_snippets.py --run --update
 docs/aether_for_llms_*.md` and read the printed stdout before committing. Two
 entries are `rc_only` (the medium guide's epoch/date program and the full
 guide's `home=` program print time- or host-dependent text) and one is `skip`
-(the full guide's live HTTP GET). The three module-import programs are
-`EXPECT_FAIL` and are not run. A socket program's port literal is rewritten to
-a free port in the temp copy. At 2026-10-07-1, 33 of the 37 complete programs
-run (31 to golden stdout, 2 rc-only). `CONTEXT` names its record `TallyRec`
+(the full guide's live HTTP GET). Since guide pass 1 the three module-import
+programs import the `tests/guide_modules/` stubs and run like the rest. A
+socket program's port literal is rewritten to a free port in the temp copy. At
+the accuracy-only draft, 36 of the 37 complete programs run (34 to golden
+stdout, 2 rc-only). `CONTEXT` names its record `TallyRec`
 beside `fn tally` for the same reason.
 
 Blocks that *must* fail are listed in `EXPECT_FAIL` by a distinctive
@@ -324,13 +345,15 @@ holds the one block whose code check is printed but not yet enforced: the full
 guide's WRONG/RIGHT `self` contrast keeps both halves in one fence, so the
 RIGHT half's in-type `get` collides with the WRONG half's extension method and
 adds an uncoded "Duplicate method" record; it is enforced once the guide pass
-splits the fence. The blocks fall into three kinds: negative examples (a TOON
-getter handed a `ToonDoc`), prose sketches using `...` elision, and module
-examples whose module is not on disk. The last kind should go away: every file
-in `tests/guide_modules/` (today the stubs `score_utils` and `geometry`) is
-copied next to each compiled block, so an import example written against one
-of them compiles for real, and an unqualified call to an export the stub does
-not have fails with `SCOPE-001` exactly as it would for a model. (A qualified
+splits the fence. The blocks that remain fall into two kinds: negative examples
+(a TOON getter handed a `ToonDoc`, guessed wrapper names for a module's
+exports) and prose sketches that show two alternatives or a bare call in one
+fence. Guide pass 1 retired the other two kinds, `...` elisions and imports of
+modules that are not on disk: every file in `tests/guide_modules/` (today the
+stubs `score_utils` and `geometry`) is copied next to each compiled block, so
+an import example written against one of them compiles for real, and an
+unqualified call to an export the stub does not have fails with `SCOPE-001`
+exactly as it would for a model. (A qualified
 `Module.missing()` call fails with an uncoded record today; spec example
 `P.import.2` pins it.)
 

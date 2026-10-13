@@ -21,10 +21,9 @@ All three guides, the full one included, are checked for:
   bench       benchmark identifiers (task ids, module and data file names, mod
               and export names) listed in tools/bench_identifiers.txt
 
-ALLOWLIST keeps lines that hit a term but are deliberate, per guide: the Pascal
-naming mnemonics (`arctan` not `atan`), the Pascal-style File handle model, and
-the runtime-discovery sentences that must say a one-shot generator cannot run
-the compiler.
+ALLOWLIST keeps lines that hit a term but are deliberate, per guide: the small
+guide's Pascal naming mnemonic (`arctan` not `atan`) and its Pascal-style File
+handle model. Guide pass 1 reworded the other lines that used to be listed.
 
 The identifier list is regenerated from the umbrella's task suites, never read
 from it at test time:
@@ -79,13 +78,8 @@ LITERAL = re.compile(r"yyjson unavailable")
 
 # (guide, distinctive substring of the line) -> why the hit is kept.
 ALLOWLIST = {
-    ("medium", "Names follow Pascal conventions"): "naming mnemonic (`arctan` not `atan`)",
     ("small", "Pascal naming: **`arctan`** not `atan`"): "naming mnemonic",
     ("small", "(Pascal-style handle;"): "the assign/reset File model",
-    ("small", "Agentic only: you must run the compiler"):
-        "runtime-discovery advice must say a one-shot generator cannot run it",
-    ("small", "Cannot run the compiler? Stay within this guide"):
-        "runtime-discovery advice must say a one-shot generator cannot run it",
 }
 
 

@@ -1,23 +1,22 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-09-05-1*
+*Guide version: 2026-10-13-1*
 
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
    task helpers, `ai_chat`, and all host interaction — filesystem (`mkdir`,
-   `fileexists`), env (`getenv`), CLI (`paramstr`), `random`, clock (`gettime`),
+   `fileexists`), env (`getenv`), CLI (`paramstr`), `random`/`randomize`, clock (`gettime`),
    console input, `http*`/`socket*`, `sqlite*`. Pure math/string/conversion do
-   not need `fx`, and `@pure` functions may call none of the effectful ones.
+   not need `fx`; `@pure` functions may call only pure builtins and other
+   `@pure` functions.
 2. **SYN-001.** Aether syntax only: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`. Never `return`, `class`, `var`, `def`, `func`, `=>`.
-   `while cond { }` / `for x in a..b { }` compile (Pascal heritage, accepted)
+   `while cond { }` / `for x in a..b { }` compile (accepted)
    but `loop` is canonical and covers every form — prefer it.
-3. **BUILT-001.** The builtins named here are the supported surface. Do not
-   invent helpers (`substring`, `to_upper`, `replace`, ...) or guess names. More
-   exist, but `builtin_info(...)` is a *runtime* builtin — if you are writing a
-   source file in one shot you cannot call it, so never assume an unlisted name;
-   restructure to use a listed one instead.
+3. **BUILT-001.** Every builtin named here exists as shown. Prefer them; do
+   not invent helpers (`substring`, `to_upper`, `replace`, ...) or guess a name
+   beyond them.
    **BUILT-002:** right name, wrong argument count is its own error, caught at
    compile time for the fixed-arity conversion/math helpers. Most common:
    `formatfloat(r, 0, 2)` — it takes `(value, precision)`, and the width slot
@@ -31,8 +30,8 @@
 8. **ANN-001.** `@pre`, `@post`, `@pure`, `@cost` go directly above the
    function, never inside it, never bare (`@pre` with no expression).
 9. **MUT-001.** Plain `let` is already mutable. Never generate `let mut`.
-10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
-    arrays.
+10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for arrays
+    and `Text`; crossing them fails at run time.
 11. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
     top-level helper call only. To read one field instead, bind it first --
     `let t = pair(); t.0;` (zero-based) -- never `pair().0` directly on the
@@ -42,8 +41,7 @@
     `@post` checks must use positional slots like `result.0`, `result.1`.
     Recursive tuple-returning functions (direct or indirect) and concurrent
     `par`-branch calls to the same tuple-returning function are fully
-    supported (tuple returns lower to a record returned by value, reentrant
-    per call).
+    supported.
 12. **OUT-001.** Return raw Aether source only. No Markdown fences.
 13. **ROOT-001.** If the JSON starts with `{`, extract the named array with
     `toon_key(root, "...")` before iterating. Only iterate `root` directly
@@ -65,16 +63,16 @@
     reachable top-level path.
 20. **FMT-001.** If the prompt specifies exact output, match it exactly:
     spacing, casing, line order, and decimal precision.
-21. **NAME-001.** Do not redeclare a local name in the same scope. Pick fresh
-    names such as `values`, `count`, `sum`, `maxValue`.
+21. **NAME-001.** Names ignore case. Do not redeclare a local or parameter,
+    name a loop variable after a variable in scope, or name a local or
+    parameter after a `const` (`limit` beside `LIMIT`). Pick fresh names.
 22. **MOD-002.** Canonical import form is `use "module_name";`. After import,
     call exported names directly. Never guess `export { ... }` syntax or the
     foreign object/JSON APIs listed under **TOON rules**.
 23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
-    no lambdas, no closures, never pass a function as an argument.
-    `task_spawn`/`task_queue` take a builtin name as `Text`, not a function. No
+    no lambdas, no closures, never pass a function as an argument. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
-    use `par { f(); g(); }`, not `task_spawn`.
+    use `par { f(); g(); }`.
 24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
@@ -89,7 +87,7 @@ real logic, never hard-coded expected output; preserve provided export names
 exactly.
 
 Not every rule above is a *compiler* check: some are emitted as a stable
-`[CODE]` (with a `help:` line on newer builds), some are reported under a broader
+`[CODE]`, some are reported under a broader
 code (mostly SCOPE-001), and the rest are authoring rules the compiler cannot
 catch. The **Repair rules** section lists each emitted code with its fix and
 flags the authoring-only ones.
@@ -147,7 +145,7 @@ Inline `if ... else ...` expressions are allowed anywhere a value is expected
 
 ```aether
 let label: Text = if ready { "ready" } else { "blocked" };
-println("status: ", if ready { "ready" } else { "blocked" });
+fx { println("status: ", if ready { "ready" } else { "blocked" }); }
 let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 ```
 
@@ -180,9 +178,9 @@ type Counter {
   (`@pre self.value >= 0` above `fn bump`). A free-standing `fn bump(self: Counter)`
   with a `self`-referencing contract fails `[SCOPE-001] identifier 'self' not in
   scope`.
-- a field may declare a **constant** default: `value: Int = 0` (FIELD-003).
-  Only compile-time constants — no other field, `self`, or call; for a computed
-  value use `new T { field: value }`.
+- a field may declare a **literal** default: `value: Int = 0` (FIELD-003).
+  A literal only — no named `const`, other field, `self`, or call; for a
+  computed value use `new T { field: value }`.
 - `new Counter()` gives each field its declared default, else the type zero
   (Int `0`, Real `0.0`, Bool `false`, Text empty)
 - construct with values: `new Point { x: 3, y: 4 }` (partial sets ok; an unset
@@ -214,11 +212,9 @@ let q: Point = new Point();              // fields take defaults / type zeroes
 q.x = 3;                                 // or assign after allocation
 ```
 
-Always annotate a binding that holds a `new` instance or an array literal
-(TYPE-001): `let c = new C();` then `c.inc();` fails (`argument 1 to 'c.inc'
-expects type POINTER but got VOID`), and `let xs = [1, 2, 3];` fails (`cannot
-infer the type of 'xs'`). Write `let c: C = new C();` and
-`let xs: Int[] = [1, 2, 3];`. Record literals may nest directly in an array
+Always annotate an array literal (TYPE-001): `let xs = [1, 2, 3];` fails
+(`cannot infer the type of 'xs'`); write `let xs: Int[] = [1, 2, 3];`.
+`let c = new C();` infers `C`. Record literals may nest directly in an array
 literal: `let ps: Point[] = [new Point { x: 1, y: 2 }, new Point { x: 3, y: 4 }];`.
 Appending in a loop (`ps = ps + [p];`) also still works.
 
@@ -226,14 +222,13 @@ Appending in a loop (`ps = ps + [p];`) also still works.
 
 Omit the type only for: literals (`42`, `3.5`, `"text"`, `true`) and calls to
 functions/methods with known declared return types. Annotate everything else —
-`new` instances and array literals (see **Constructing records and typing
-bindings**), TOON extractions, branchy results, and arithmetic where operand
+array literals, TOON extractions, branchy results, and arithmetic where operand
 types aren't visible at a glance.
 
 ```aether
-loop i in 0..5 {
-    let square: Int = i * i;
-    fx { println(i, " => ", square); }
+loop i in 1..4 {
+    let cube: Int = i * i * i;
+    fx { println(i, " cubed is ", cube); }
 }
 ```
 
@@ -263,8 +258,8 @@ fx {
 ```
 
 `println(realValue)` defaults to 6 decimals; use `value:0:2` style when exact
-output matters. `Int / Int` is integer-style division; force a `Real` operand
-for decimals:
+output matters. Integer quotient: `a div b` (`7 div 2` is `3`), never `/`.
+For decimals use a `Real` operand:
 
 ```aether
 let pct: Real = ok * 100.0 / total;
@@ -279,7 +274,7 @@ Exact-output discipline:
 ## Text
 
 ```aether
-if name == "Aether" { ... }            // canonical; string_eq(a,b) accepted
+let same: Bool = name == "Aether";     // canonical; string_eq(a,b) accepted
 let nameLen: Int = string_len(name);   // canonical; name.len accepted
 
 // turning text into scalars — these exist, call them (do not inline):
@@ -304,7 +299,7 @@ inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes one
 or two arguments — never borrow the width slot from the `println` form:
 `formatfloat(r, 0, 2)` is a compile-time `[BUILT-002]`. `int(x)` is a numeric
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
-code point of `Text`; passing it a `Text` silently returns `0` (`Int(x)`,
+code point of `Text`; passing it a `Text` is a `TYPE-001` error (`Int(x)`,
 `real(n)`, `bool(n)` are accepted cast spellings). Use `parse_int` for numeric
 strings and `ord` for character codes.
 
@@ -326,7 +321,7 @@ substring from `a` up to but not including `b`; `s[i] = "x"` replaces one
 character and `loop ch in s { }` visits each. So one idiom covers both:
 
 ```aether
-loop i in 0..length(s) { print(s[i]); }   // every character, exactly once
+fx { loop i in 0..length(s) { print(s[i]); } }   // every character, exactly once
 ```
 
 ## Math
@@ -356,7 +351,7 @@ banned in `@pure` functions:
 - `fileexists(path) -> Bool`, `getcurrentdir() -> Text`
 - `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
 - `mkdir(path)`, `rmdir(path)`
-- `paramcount() -> Int`, `paramstr(i) -> Text` (`paramstr(0)` = program)
+- `paramcount() -> Int`, `paramstr(i) -> Text`
 - clock: `realtimeclock() -> Int` (Unix epoch seconds) is a function and is
   usually what you want. `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)`
   are **procedures** that fill var out-parameters — `let t = gettime();` fails.
@@ -381,20 +376,20 @@ fx {
     loop {
         if eof(f) { break; }
         let line: Text;
-        readln(f, line);   // writes into `line` -- a special case for this builtin only
+        readln(f, line);   // fills `line`
         println(line);
     }
     close(f);
 }
 ```
 
-Sockets (`socket*`), `sqlite*`, `random`, and the clock are also effectful;
-discover them via `builtin_info(...)`.
+Sockets (`socket*`), `sqlite*`, `random`/`randomize`, and the clock are also
+effectful.
 
 ## HTTP requests (MS-001)
 
-Needs a libcurl build (`AETHER_ENABLE_CURL=ON`); the `http*` calls are
-effectful (FX-001). The response body lands in an `MStream` out-buffer:
+The `http*` calls are effectful (FX-001). The response body lands in an
+`MStream` out-buffer:
 
 - `httpsession() -> Int`, `httpclose(session)`,
   `httpsetheader(session, name, value)`
@@ -429,14 +424,14 @@ Real BSD-socket-style API (`socket*`) and `dnslookup` — not `tcpsocket*`/
 - `socketconnect(socket, host, port) -> Int`,
   `socketbind(socket, port) -> Int` (all interfaces),
   `socketbindaddr(socket, host, port) -> Int` (one address),
-  `socketlisten(socket, backlog) -> Int`, `socketclose(socket) -> Int`
-  (all `0`/`-1`)
+  `socketlisten(socket, backlog) -> Int` (all `0`/`-1`);
+  `socketclose(socket)` returns nothing
 - `socketaccept(socket) -> Int` (new socket handle) **blocks** until a peer
   connects; `socketreceive(socket, maxlen) -> MStream` **blocks** until data
   arrives (`0`-length result = peer closed, not failure)
 - `socketsend(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
 - `socketpeeraddr(socket) -> Text`, `socketlasterror() -> Int`
-- `socketsetblocking(socket, blocking: Bool) -> Int`,
+- `socketsetblocking(socket, blocking: Bool)`,
   `socketpoll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
   `2`=writable, bitwise-or; `0` on timeout) — the non-blocking alternative to
   a bare `socketaccept`/`socketreceive`
@@ -511,7 +506,7 @@ let mid: Int[] = ys[0..2];  // slice: half-open range, elements 0 and 1 (a copy,
 the inner loop with `length(table[r])` (rows may be jagged). Declaring `Int[]`
 and indexing twice is `ARR-002`.
 
-Never `toon_len(xs)` on a dynamic array. `setlength(xs, n)` resizes in place
+`setlength(xs, n)` resizes in place
 (new slots take the type zero); `xs == ys` compares element by element.
 Indexed reads/writes and
 multi-element literals are supported. `xs = xs + [a, b, ...]` appends every
@@ -540,19 +535,19 @@ gets an `[ARR-001]` warning (compiles fine, but almost certainly not what you
 meant) -- this is exactly the array/record asymmetry above: the identical
 pattern on a record parameter works, because records are pointer-backed.
 
-Use distinct local names inside one scope. Do not redeclare `xs`, `count`, or
-other loop variables later in the same function.
+A loop variable is scoped to its loop, so a later loop may reuse the name; it
+may not reuse the name of a variable already in scope (NAME-001).
 
-`println`/`print` do not stringify arrays -- `println("data: ", xs)` silently
-prints the array's internal representation (`ARRAY(dims:1, base_type:...,
-elements_at:0x...)`), not its elements, and this is not an error. Loop over
-the array and print each element yourself:
+`println`/`print` cannot print a whole array -- `println("data: ", xs)` is a
+`TYPE-001` error. Loop over the array and print each element yourself:
 
 ```aether
-loop i in 0..length(xs) {
-    print(xs[i], " ");
+fx {
+    loop i in 0..length(xs) {
+        print(xs[i], " ");
+    }
+    println("");
 }
-println("");
 ```
 
 ## TOON rules
@@ -692,31 +687,24 @@ fx { println("a=", a.count, " b=", b.count); }
 
 ## Tasks and AI
 
-`sleep(ms: Int) -> Void`, `task_spawn(target: Text, name: Text, arg) -> Int`,
-`task_queue(target: Text, name: Text, arg) -> Int`,
-`task_wait(handle: Int) -> Int`, `task_lookup(name: Text) -> Int`,
-`task_status(handle: Int) -> Int`, `task_result(handle: Int) -> Int`,
-`task_stats() -> Array`, `task_stats_json() -> Text`,
+`sleep(ms: Int) -> Void`,
 `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`,
 probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`
 (true for extended *and* core builtins; a core builtin matches on the function
-name whatever category you pass)
-(true for extended *and* core builtins; a core builtin matches on the function
 name whatever category you pass).
-All are effectful and must stay inside `fx`. `sleep(ms)` is a blocking
-millisecond pause. `task_wait` waits on a task handle, not a duration.
-`task_spawn`/`task_queue` dispatch an allow-listed runtime builtin by name (for
-example `"delay"`), not a user-defined function; for user code use `par`.
+`sleep` and `ai_chat` are effectful and must stay inside `fx`; the `has_*`
+probes are pure. `sleep(ms)` is a blocking millisecond pause. To run your own
+code concurrently use `par`.
 
 Discovery (for builtins beyond this guide — deeper I/O, networking, DB, and
-host-registered **custom** builtins). Agentic only: you must run the compiler.
+host-registered **custom** builtins). Agentic only: these are run-time calls.
 - `builtins_json()` -> JSON list of all Aether-visible builtins
 - `builtins_json(true)` -> richer metadata (`signature`, `effectful`, ...)
 - `builtin_info(name)` -> metadata for one builtin
 - `aether --dump-ext-builtins` -> registered custom/extended builtins
 
 Discover the exact name, signature, and `effectful` flag, then call it (inside
-`fx` if effectful). Cannot run the compiler? Stay within this guide; never guess
+`fx` if effectful). Writing in one shot? Stay within this guide; never guess
 an unlisted name or its signature.
 
 ## Imports (IMP-001, MOD-001)
@@ -726,29 +714,27 @@ Imports are advanced; most generated Aether should be single-file.
 - only `use "..."` for real, verified modules; a missing import's symbols do
   not exist even if the line is silently ignored
 - **MOD-001**: imported names match exported names exactly — `use` does not
-  rename. Module exports `classifySupport` → call `classifySupport(...)`,
-  never a guessed `classify(...)`. Module exports `Answer` → use `Answer`,
-  not `APP_NAME`, `AetherName`, or another invented spelling.
-- if a task provides exports named `clampSupport`, `classifySupport`, or
-  `PassMark`, call those exact names
+  rename. Module exports `labelScore` → call `labelScore(...)`,
+  never a guessed `label(...)`. Module exports `BaseScore` → use `BaseScore`,
+  not `BASE_SCORE` or another invented spelling.
 - file naming: `mod ModuleConsts` → `use "module_consts";`
 - when combining purity with module export, write `@pure` above `export fn`
 - for generated code, assume modules export `const` and `fn`; do not generate
   exported `type` blocks
 
 ```aether
-use "bench_support";
-let score: Int = clampSupport(raw);
-let status: Text = classifySupport(score);
+use "score_utils";
+let score: Int = clampScore(141);
+let status: Text = labelScore(score);
 ```
 
 Minimal import recipe:
 
 ```aether
-use "bench_math";
+use "geometry";
 
 fn main() -> Void {
-    let value: Int = answer();
+    let value: Int = area(3, 4);
     fx {
         println(value);
     }
@@ -795,7 +781,7 @@ fn main() -> Void {
 ```aether
 fn main() -> Void {
     if !has_toon() {
-        fx { println("yyjson unavailable"); }
+        fx { println("structured data support unavailable"); }
         ret;
     }
 
@@ -815,11 +801,11 @@ fn main() -> Void {
 ```aether
 fn main() -> Void {
     if !has_toon() {
-        fx { println("yyjson unavailable"); }
+        fx { println("structured data support unavailable"); }
         ret;
     }
 
-    let doc: ToonDoc = toon_parse("{\"rows\":[{\"meta\":{\"code\":\"A1\"}},{\"meta\":{}},{\"broken\":true}]}");
+    let doc: ToonDoc = toon_parse("{\"rows\":[{\"meta\":{}},{\"meta\":{\"code\":\"K7\"}},{\"note\":\"x\"}]}");
     let root: ToonNode = toon_root(doc);
     let rows: ToonNode = toon_key(root, "rows");
     let missing: Int = 0;
@@ -862,8 +848,8 @@ Large-report recipe:
 
 ## Repair rules
 
-The compiler prints a stable code in brackets, and on newer builds a
-`help: see <CODE> ...` line. Read the code, then apply the fix:
+The compiler prints a stable code in brackets. Read the code, then apply the
+fix:
 
 - **[FX-001]** an output, task, or `ai_chat` call outside an effect block → wrap
   it in `fx { ... }`.
@@ -872,29 +858,25 @@ The compiler prints a stable code in brackets, and on newer builds a
   or method named after an Aether keyword or operator word** (`new`, `for`,
   `loop`, `div`, ...) → rename the member (see Records: `type`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
-  - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
+  - a helper not listed in this document → not available here; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
   - a method reaching an outer local → pass it in as a parameter (METH-001)
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (methods do not capture; METH-001)
-  - an **unknown type name in an annotation** — any position (binding, parameter,
-    return type, record field, tuple item) and any array depth, so `let v: Bogus[]`
-    and `fn f(p: Bogus)` fail exactly as `let v: Bogus = 1` does → fix the spelling,
-    or declare `type Bogus { ... }` (order does not matter)
   - a genuinely undeclared / out-of-scope name → declare it earlier or pass it in (SCOPE-001)
-- **[NAME-001]** a local redeclared in the same scope (`'...' is already
-  declared in this scope`) → pick a fresh name.
-- **[IMP-001]** an invented or malformed import → remove the `use`, or write
-  `use "module_name";` and call the exports directly (MOD-002).
+- **[NAME-001]** a name declared twice (names ignore case; a loop variable,
+  local or parameter may not reuse a visible variable or `const`) → pick a
+  fresh name, or assign without `let`.
+- **[IMP-001]** a malformed `use` → write `use "module_name";` and call the
+  exports directly (MOD-002).
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
-  array literal, `let xs: Int[] = [...]`). Also covers `toon_len(node)` for TOON
-  arrays vs `length(xs)` for dynamic arrays (LEN-001).
-- **[TYPE-002]** a type name that does not exist → use `Int`, `Real`, `Text`,
-  `Bool`, `Void`, `T[]`, or a `type` you declared. The message names the Aether
+  array literal, `let xs: Int[] = [...]`). Also `println` of a whole array,
+  `int()` of a `Text`, and a `Real` where an `Int` is needed (`%`, `div`).
+- **[TYPE-002]** a type name that does not exist, in any position (declaration
+  order does not matter) → use `Int`, `Real`, `Text`, `Bool`, `Void`, `T[]`, or
+  a `type` you declared. The message names the Aether
   spelling when there is one (`Double` → `Real`, `Integer` → `Int`, `Char` →
   `Text`, `int` → `Int`).
-- **`expects type POINTER but got VOID`** on a method call (no code) → the
-  receiver is an inferred `new` binding; annotate it (`let c: C = new C();`).
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
   `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
 - **[MS-001]** an `MStream` handle misuse → declare stream bindings `MStream`
@@ -913,8 +895,8 @@ The compiler prints a stable code in brackets, and on newer builds a
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function → give the return a
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
-  move `@pre`/`@post`/`@pure`/`@cost` directly above the function and keep effects out of pure code.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call, `let (a, b) = pair();`, or bind and read one field, `let t = pair(); t.0;` (never `pair().0` directly); otherwise return a record/object and read its fields. Recursion (direct or indirect) and concurrent `par`-branch calls through a tuple-returning function are fine — tuple returns are reentrant (lowered to a record returned by value).
+  move `@pre`/`@post`/`@pure`/`@cost` directly above the function, keep effects out of pure code, and mark its helpers `@pure`.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call, `let (a, b) = pair();`, or bind and read one field, `let t = pair(); t.0;` (never `pair().0` directly); otherwise return a record/object and read its fields. Recursion (direct or indirect) and concurrent `par`-branch calls through a tuple-returning function are fine.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int
   = 3.7;`, `n = random();`) → the fraction is discarded. Use a `Real` target, or
   `int(...)` if truncating is intended.
@@ -923,8 +905,18 @@ The compiler prints a stable code in brackets, and on newer builds a
   as its own `Int[]`, or index once with `dp[r * width + c]`.
 - **[PREC-001]** (warning) `flags & mask != 0` → `& | ^` bind looser than the
   comparisons, so this is `flags & (mask != 0)` and yields an Int, not a Bool.
-  Write `(flags & mask) != 0`.
-- **[MUT-001]** `let mut` → drop `mut`; a plain `let` is already mutable.
+  Write `(flags & mask) != 0`. As an error: `0 <= i < n` → `0 <= i && i < n`.
+- **`Length expects a string or array argument`** / **`... expects a single
+  value handle`** (runtime, no code) → `toon_len` and `length` are crossed
+  (LEN-001).
+- **[ARR-003]** (runtime) an index outside the array → the message gives the
+  valid range; `loop i in 0..n` ends at `n - 1`, and a row being built is not in
+  the table until it is appended.
+- **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
+  values as arguments: `println("n = ", n)`.
+- **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.
+- **[ENTRY-001]** top-level statements beside `fn main`, or a `main` with
+  parameters → put the statements in `fn main() -> Void`.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` → `par` bodies allow
@@ -940,11 +932,11 @@ FIELD-001). Re-read the prompt and match it exactly.
 ## Validation checklist
 
 - all output, task, and `ai_chat` calls inside `fx { ... }` (FX-001)
-- every called helper appears in this document (BUILT-001)
+- every called helper is named in this document, not guessed (BUILT-001)
 - imports verified; exported names used exactly (IMP-001, MOD-001)
-- all parameters typed; uncertain types annotated; `new` instances and array
-  literals typed (`let c: C = new C();`, `let xs: Int[] = [...]`) (TYPE-001)
-- `ret` not `return`; `type` not `class`; no `let mut` (SYN-001, MUT-001)
+- all parameters typed; uncertain types annotated; array literals typed
+  (`let xs: Int[] = [...]`) (TYPE-001)
+- `ret` not `return`; `type` not `class` (SYN-001)
 - field & method names are not Aether keywords or operator words (`new`/`for`/
   `loop`/`div`); no `fn new()`/`__init__` constructor method (SYN-001)
 - no arithmetic on / cross-assignment of TOON handles; docs closed (TOON-001)

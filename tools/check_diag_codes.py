@@ -10,8 +10,10 @@ mention: dead branches (MUT-001 in diagnostics.c) and codes sitting in comments
 or hint strings would otherwise count as emitted.
 
  1. Emitted set: the `[CODE]` tags printed (stdout and stderr, default flags)
-    by every tests/*_fail*.aether and tests/*_warn*_pass.aether fixture, run in
-    a scratch copy of tests/ so sibling modules resolve. A fixture that
+    by every tests/*_fail*.aether and tests/*_warn*_pass.aether fixture, and
+    by the same two patterns under tests/fx/ (the fixture-runner tree, where
+    release L1 put its fixtures), run in a scratch copy of tests/, each in its
+    own directory, so sibling modules resolve. A fixture that
     compiles is run (stdin from /dev/null, 20 s limit), so runtime codes count;
     one that calls http*/socket*/ai_* is only compiled. PROBES below stand in
     for codes no fixture covers yet; a code seen only in a probe is a finding
@@ -121,14 +123,18 @@ def emitted_codes(verbose):
         work = os.path.join(tmp, "tests")
         shutil.copytree(os.path.join(REPO, "tests"), work)
         fixtures = sorted(set(glob.glob(os.path.join(work, "*_fail*.aether")))
-                          | set(glob.glob(os.path.join(work, "*_warn*_pass.aether"))))
+                          | set(glob.glob(os.path.join(work, "*_warn*_pass.aether")))
+                          | set(glob.glob(os.path.join(work, "fx", "**", "*_fail*.aether"),
+                                          recursive=True))
+                          | set(glob.glob(os.path.join(work, "fx", "**", "*_warn*_pass.aether"),
+                                          recursive=True)))
         for name, src in PROBES.items():
             with open(os.path.join(work, name + ".aether"), "w", encoding="utf-8") as fh:
                 fh.write(src)
         for path in fixtures + [os.path.join(work, n + ".aether") for n in PROBES]:
             base = os.path.basename(path)
             is_probe = base[:-len(".aether")] in PROBES
-            ct, rt = codes_of(path, work)
+            ct, rt = codes_of(path, os.path.dirname(path))
             if verbose:
                 print(f"  {base}: compile {sorted(ct)} runtime {sorted(rt)}")
             for code in ct | rt:
