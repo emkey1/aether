@@ -1,14 +1,8 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-13-2*
+*Guide version: 2026-10-13-3*
 
 Everything needed to write correct Aether in one shot.
-
-Sections are ordered by how often you need them. If this document reaches you
-truncated, what you lose first is the capability appendix (files, HTTP, sockets,
-tasks) — not the conversion and math tables, which sit near the top because
-guessing a conversion's name or arity is the single most common way generated
-Aether fails.
 
 ## Highest-Value Rules
 
@@ -18,6 +12,8 @@ Aether fails.
    `random`/`randomize`, clock (`gettime`), console input, `http*`, `socket*`,
    `sqlite*`. Pure math, string, and conversion helpers do not need `fx`.
    ✗ `println("hi");` at function scope   ✓ `fx { println("hi"); }`
+   ✗ `let doc: ToonDoc = toon_parse_file(p);` — reading a file is an effect
+   ✓ `let doc: ToonDoc; fx { doc = toon_parse_file(p); }`
 2. **SYN-001.** Aether keywords only: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`, `new`, `par`, `fx`, `break`, `continue`.
    ✗ `return`, `class`, `var`, `def`, `func`, `=>`, Python-style colons.
@@ -62,11 +58,9 @@ Aether fails.
     is the local; `self.valid` is the field.
 16. **FIELD-002.** Field names must exist exactly as declared. Do not invent
     fields.
-17. **FIELD-003.** A field default must be a **literal** — `count: Int = 0`,
-    `on: Bool = true`, `name: Text = ""`, `xs: Int[] = []`. Not an expression,
-    not another field, not `self`, not a call — and **not a named `const`
-    either**: `limit: Int = MAX_SCORE;` is rejected just like
-    `limit: Int = MAX_SCORE + 1;`. For anything else, set it at construction:
+17. **FIELD-003.** A field default must be a **literal** (`0`, `true`, `""`,
+    `[]`) — not an expression, a call, another field, or a named `const`
+    (`limit: Int = MAX_SCORE;` is rejected). Set anything else at construction:
     `new T { limit: MAX_SCORE + 1 }`.
 18. **ARR-002.** A one-dimensional array indexed twice is a compile-time error.
     Aether has real nested arrays — declare the rank you actually want.
@@ -78,6 +72,7 @@ Aether fails.
 20. **NAME-001.** Names ignore case. Do not redeclare a local or parameter,
     name a loop variable after a variable in scope, or name a local or
     parameter after a `const` (`limit` beside `LIMIT`).
+    ✗ `loop i in 0..n { }` when `i` is already a variable
 21. **TUP-001.** Tuples are narrow. `let (a, b) = pair();` works on a direct
     top-level helper call. To read one field, bind first: `let t = pair(); t.0;`
     — never `pair().0` chained onto the call. If the producer is a method or an
@@ -99,10 +94,8 @@ Default stance: single-file programs; variadic `println("label = ", v)` rather
 than `+` concatenation; explicit types on TOON values and non-trivial results;
 real logic, never hard-coded expected output.
 
-Not every rule above is a compiler check. Some are emitted with a stable
-`[CODE]`, some are folded into a broader code (usually `SCOPE-001`), and the rest
-are authoring rules nothing can catch. **Repair rules** below marks which is
-which.
+Some rules above are compiler codes and some are authoring rules nothing
+checks; **Repair rules** lists the codes.
 
 ## Never Generate These
 
@@ -113,7 +106,8 @@ which.
 - `fn new()` / `fn __init__` as a constructor. Aether has none — use
   `new T { field: value }`, or `new T()` then assign, or a top-level factory `fn`
 - an untyped array literal (TYPE-001)
-- `print` / `println` / task helpers / `ai_chat` outside `fx` (FX-001)
+- `print` / `println` / `toon_parse_file` / task helpers / `ai_chat` outside
+  `fx` (FX-001)
 - invented imports such as `use "helpers";`
 - `use module_name;` without quotes, or `export { ... }`
 - invented helpers not listed here (BUILT-001)
@@ -148,11 +142,8 @@ which.
 | Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001` for a `Text`) |
 | Array / TOON length | `length(xs)` / `toon_len(node)` | `len(xs)`, `xs.len` | crossing the two |
 | Method call | `counter.bump()` | — | `bump(counter)`; class syntax |
-| Transform a list | explicit `loop` building `xs + [v]` | — | `map(...)` / `filter(...)` |
 | Record init | `new Point { x: 3, y: 4 }` | `Point(x: 3, y: 4)` | `fn new()` constructor |
 | TOON nested lookup | bind and validate intermediates | nested calls when shape guaranteed | a guessed flattened key |
-| Imports | verified `use "module";` | self-contained code | guessed modules |
-| Method context | pass loop/local context as parameters | helper computes its own label | implicit capture of outer `i` |
 
 ## Conversions, math, and exact arities
 
@@ -188,9 +179,8 @@ reports failure: `code` is `0` only when the *whole* string parsed, otherwise th
 1-based position of the first bad character. `valreal(t, r, code)` is the `Real`
 form. Both are pure — no `fx` needed, legal in a `@pure` function — and both
 leave the destination **unmodified** on failure, so check `code` before reading
-it. Note `val("12x", n, code)` fails where `parse_int("12x")` returns `12`; that
-strictness is the point. Use `val` for any field from a file, an argument, an
-environment variable, or a model. Declare both destinations first:
+it. Use `val` for any field from a file, an argument, an environment variable,
+or a model. Declare both destinations first:
 
 ```aether
 let n: Int = 0;
@@ -231,18 +221,9 @@ Arguments and results are `Real` unless noted.
 - random: `random()` → **`Real`** in `[0, 1)`; `random(n)` → **`Int`** in
   `[0, n)`; seed with `randomize()`. Both effectful.
 
-**`random` is two functions with different return types.** Assigning the
-no-argument form to an `Int` truncates `[0, 1)` to a constant `0`, so every
-"random" choice becomes the same choice — silently. When you want an index or a
-roll, pass the bound:
-
-```aether
-let idx: Int = 0;
-fx {
-    randomize();
-    idx = random(8);        // 0..7 -- correct
-}
-```
+**`random` is two functions.** Assigning `random()` to an `Int` truncates to a
+constant `0`; for an index or a roll pass the bound, inside `fx`:
+`idx = random(8);` gives `0..7`.
 
 Each thread gets its own random stream, so `par` branches draw independent
 numbers. With no `randomize()` call a run is reproducible.
@@ -277,7 +258,8 @@ operand, `let pct: Real = ok * 100.0 / total;`
 3. Give every function parameter an explicit type.
 4. Prefer explicit `let name: Type = ...` unless the initializer is a literal or
    a call with a declared return type.
-5. Put all output, task helpers, and AI calls inside `fx`.
+5. Put all output, file reads (`toon_parse_file`), task helpers, and AI calls
+   inside `fx`.
 6. Use `ret`, never `return`.
 7. Close every parsed `ToonDoc` with `toon_close(doc)`.
 8. Run the Validation Checklist before emitting.
@@ -295,8 +277,9 @@ fn main() -> Void {
 
 ## Core syntax
 
-- Comments: `// line comment`. Block comments compile, but generate `//`.
-- Text literals are double-quoted; escape an inner quote as `\"`.
+- Comments: `// line comment`; `//` is never division (write `div`). Block
+  comments compile, but generate `//`.
+- Text literals are double-quoted; escapes: `\"`, `\\`, `\n`, `\t`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true` / `false`), `Void`, plus the
   opaque handles `ToonDoc`, `ToonNode`, `MStream`, `File`. `Float` and `String`
   are accepted spellings of `Real` and `Text`. Every other foreign spelling —
@@ -305,6 +288,7 @@ fn main() -> Void {
 - `println(boolValue)` prints `true` or `false`.
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`/`not`, `&&`/`and`, `||`/`or`
   (short-circuit). Arrays compare element by element with `==` / `!=`.
+  `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
 - Bitwise / shift, `Int` only: `&`, `|`, `^` (`xor` is the same operator as `^`),
   `<<`, `>>`. `6 & 3` is `2`; `6 << 1` is `12`. These are not logical operators —
   use `&&` / `||` for `Bool`. **They bind looser than the comparisons**, so
@@ -317,7 +301,7 @@ Every `fn` declares a return type. Procedures use `-> Void` and a bare `ret;`.
 `fn helper(x: Int) { ... }` is invalid.
 
 ```aether
-const Name: Text = "Aether";
+const MAX_SCORE: Int = 100;
 
 fn add(a: Int, b: Int) -> Int {
     ret a + b;
@@ -348,9 +332,10 @@ let label: Text = if ready { "ready" } else { "blocked" };
 let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 ```
 
-**Loops.** `break` exits, `continue` skips, and a range is half-open. Prefer the
-range and foreach forms — both **declare their own loop variable**, so they
-need no `let`:
+**Loops.** `break` exits, `continue` skips, and a range is half-open: 1
+through `n` is `1..n + 1`, and -1, 0, 1 is `-1..2`. Prefer the range and
+foreach forms — both **declare their own loop variable**, so they need no
+`let`:
 
 ```aether
 loop i in 0..count { total = total + i; }   // range: 0 up to count - 1
@@ -383,9 +368,7 @@ fn main() -> Void {
 }
 ```
 
-A function may return a **tuple**, declared as `-> (T, U)`. Tuples are
-deliberately narrow — they exist for the "two results, no record needed" case
-and nothing more.
+A function may return a **tuple**, declared as `-> (T, U)`.
 
 ```aether
 fn pairSquares(n: Int) -> (Int, Int) {
@@ -458,7 +441,7 @@ type Counter {
 ```
 
 - Methods live **inside** the `type` with an **implicit `self`**. Never give a
-  method a `self` parameter.
+  method a `self` parameter. Call a sibling method as `self.other()`.
 - A method's `@pre` / `@post` may reference `self.field`.
 - Fields may declare **literal** defaults (FIELD-003). `new Counter()` gives
   each field its declared default, otherwise the type zero: `Int` `0`, `Real`
@@ -527,6 +510,9 @@ fx {
 `println(realValue)` defaults to six decimals. Use `value:width:precision` when
 exact output matters; width `0` means "precision only". That spec works **only
 inside `print`/`println`** — to build a `Text`, use `formatfloat`.
+
+`println(a, b)` puts **nothing** between its arguments — write
+`println(a, " ", b)` — and each requested output line is its own `println`.
 
 ## Text
 
@@ -597,9 +583,7 @@ fn main() -> Void {
 ```
 
 Bound the inner loop with `length(table[r])`, not the first row's width — rows
-are independent arrays, so a table may be jagged. Declaring `Int[]` and then
-writing `dp[i][j]` is `ARR-002`: the rank of the *declaration* is what is wrong,
-not the indexing syntax.
+are independent arrays, so a table may be jagged.
 
 **Arrays are value-copied at the call boundary; records are not.** Passing `xs`
 into a function gives that function its own copy, so mutating it there never
@@ -615,9 +599,7 @@ fn doubleAll(arr: Int[]) -> Int[] {
 ```
 
 A `Void` function that writes into an array parameter and never returns it draws
-an `[ARR-001]` warning. It compiles, but it is almost certainly a mistake — this
-is the same asymmetry: the identical pattern on a *record* parameter works,
-because records are pointer-backed.
+an `[ARR-001]` warning; the same pattern on a *record* parameter works.
 
 `println` cannot print a whole array (`TYPE-001`). Print the elements:
 `fx { loop x in xs { print(x, " "); } println(""); }`.
@@ -961,7 +943,8 @@ fn main() -> Void {
 }
 ```
 
-**TOON array classification.**
+**TOON array classification, from a file.** `scores.json` holds
+`[{"name":"A","score":95},{"name":"B","score":72}]`.
 
 ```aether
 @pure
@@ -981,7 +964,8 @@ fn main() -> Void {
         ret;
     }
 
-    let doc: ToonDoc = toon_parse("[{\"name\":\"A\",\"score\":95},{\"name\":\"B\",\"score\":72}]");
+    let doc: ToonDoc;
+    fx { doc = toon_parse_file("scores.json"); }   // reading a file is an effect
     let root: ToonNode = toon_root(doc);
 
     loop i in 0..toon_len(root) {
@@ -1090,7 +1074,8 @@ fn main() -> Void {
 }
 ```
 
-**Long report programs.** Shape them as: parse → `toon_root` → `toon_key` for the
+**Long report programs.** Shape them as: parse (a file: inside `fx`) →
+`toon_root` → `toon_key` for the
 item array → one pure normalize helper → one pure classify helper → one mutable
 totals `type` → one loop that extracts, classifies, updates totals, and prints →
 one final totals block → `toon_close(doc)`.
@@ -1099,8 +1084,8 @@ one final totals block → `toon_close(doc)`.
 
 The compiler prints a stable code in brackets. Read the code, then apply the fix.
 
-- **[FX-001]** output, task, or `ai_chat` call outside an effect block → wrap it
-  in `fx { ... }`.
+- **[FX-001]** an output, file-read (`toon_parse_file`), task, or `ai_chat` call
+  outside an effect block → wrap it in `fx { ... }` (rule 1 shows the shapes).
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`; drop
   `var`, `def`, `=>` (the message names the Aether form). Also a field or method
   named after an Aether keyword or operator word → rename the member.
@@ -1171,13 +1156,14 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 
 If the program *compiles* but the output is wrong, no code is printed. Those are
 authoring rules nothing can check: extra headings, wrong spacing or precision (an
-integer where decimals were wanted → add a `Real` operand such as `100.0`),
+integer where decimals were wanted → a `Real` target and a `Real` operand),
 guessed JSON keys, a fallback that hid a missing level, or iterating an object root.
 Re-read the prompt and match it exactly.
 
 ## Validation checklist
 
-- all output, task, and `ai_chat` calls inside `fx { ... }` (FX-001)
+- all output, `toon_parse_file`, task, and `ai_chat` calls inside `fx { ... }`
+  (FX-001)
 - every called helper is listed in this document, not guessed (BUILT-001), with
   the right argument count (BUILT-002)
 - imports verified; exported names used exactly (IMP-001, MOD-001)
@@ -1189,7 +1175,8 @@ Re-read the prompt and match it exactly.
 - object roots: named array extracted (ROOT-001); keys copied exactly (KEY-001);
   a missing intermediate handled deliberately (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)
-- a `Real` operand wherever decimals matter; no accidental `Real` → `Int` truncation
+- `div` for whole-number quotients; a `Real` operand wherever decimals matter;
+  no accidental `Real` → `Int` truncation
 - each `par` branch writes its own record (PAR-001)
 - functions return on every reachable path (FLOW-001)
 

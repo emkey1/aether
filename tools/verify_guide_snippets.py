@@ -101,13 +101,9 @@ EXPECT_FAIL = {
 }
 
 # EXPECT_FAIL keys whose code check is reported, not enforced, with the reason.
-CODE_CHECK_REPORT_ONLY = {
-    'WRONG — free-standing method': (
-        "the WRONG and RIGHT halves share one fence, so the RIGHT half's in-type `get` "
-        "collides with the WRONG half's extension method and adds an uncoded "
-        "'Duplicate method' record (code null, line 0); enforced once the guide pass "
-        "splits the fence"),
-}
+# Empty since guide pass 1 split the full guide's WRONG/RIGHT contrast into two
+# fences: the WRONG half now fails with exactly SCOPE-001.
+CODE_CHECK_REPORT_ONLY = {}
 
 # Fragments that compile only inside an fx block the guide does not show, keyed
 # by (guide, distinctive substring). They break rule 1 in exactly the shape a

@@ -7,7 +7,7 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,644 o200k / 12,385 Qwen3.5 | ~16K context models |
+| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,600 o200k / 12,352 Qwen3.5 | ~16K context models |
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
@@ -172,6 +172,9 @@ tokenizers). One row per measured variant; the core/library split is o200k:
 | accuracy-only | medium | 2026-10-13-1 | 14,584 | **15,497** | 13,519 | 1,065 |
 | accuracy-only | full | 2026-10-13-1 | 29,645 | 31,392 | 22,221 | 7,424 |
 | accuracy + named cuts | medium | 2026-10-13-2 | 14,071 | 14,958 | 13,006 | 1,065 |
+| full draft | small | 2026-10-13-2 | 11,600 | 12,352 | 9,879 | 1,721 |
+| full draft | medium | 2026-10-13-3 | 13,950 | 14,827 | 12,885 | 1,065 |
+| full draft | full | 2026-10-13-2 | 30,439 | 32,217 | 23,014 | 7,425 |
 
 Accuracy-only removes 568 o200k tokens of false or stale text from medium and
 adds 264 for what the L1 compiler does (the wider NAME-001, the wrong-kind
@@ -190,6 +193,16 @@ cut (the caveat is true) and S5's two sentences are corrected in the
 accuracy-only text, not cut. Medium is then 42
 tokens under the ceiling in Qwen3.5 (`--stage g1` passes), which is all the
 room there is: **the next addition still needs its own cut.**
+
+The full draft adds 284 o200k tokens to medium (the file-reading shapes, range
+ends, `//`, the loop-variable shape, the `println` separator, `%`, sibling
+calls, escapes) and pays with nine further named cuts, N1 to N9 (405), so it
+ends 121 below the cuts variant and 173 under the ceiling in Qwen3.5. In the
+small guide the additions (316) are paired with five dedup cuts, SC1 to SC5
+(377), and its host I/O moves to a trailing appendix, which is why its library
+share is unchanged while its core shrinks. The medium guide's file-reading
+template reads `tests/guide_modules/scores.json`, a data stub that sits beside
+the module stubs so that the program runs under the gate.
 
 Because the medium guide now covers the 32K tier, **the full guide is free to
 grow**. It no longer has to be the document that fits everywhere, so prefer
@@ -341,7 +354,8 @@ programs import the `tests/guide_modules/` stubs and run like the rest. A
 socket program's port literal is rewritten to a free port in the temp copy. At
 the accuracy-only draft, 36 of the 37 complete programs run (34 to golden
 stdout, 2 rc-only); with the named cuts the medium guide's clock program is a
-fragment, so it is 35 of 36 (34 and 1). `CONTEXT` names its record `TallyRec`
+fragment, so it is 35 of 36 (34 and 1); the full draft has 37 again (the small
+guide gains a tuple program) and runs 36 of them (35 and 1). `CONTEXT` names its record `TallyRec`
 beside `fn tally` for the same reason.
 
 Blocks that *must* fail are listed in `EXPECT_FAIL` by a distinctive
@@ -351,16 +365,17 @@ when any record is uncoded (`code` null) — a negative example has to fail for
 the reason the guide gives, not for any reason. A key that matches no block in
 any guide also fails (`aether_guide_snippet_keys`; the dict is shared by all
 three guides, so that check runs over all three). `CODE_CHECK_REPORT_ONLY`
-holds the one block whose code check is printed but not yet enforced: the full
-guide's WRONG/RIGHT `self` contrast keeps both halves in one fence, so the
-RIGHT half's in-type `get` collides with the WRONG half's extension method and
-adds an uncoded "Duplicate method" record; it is enforced once the guide pass
-splits the fence. The blocks that remain fall into two kinds: negative examples
-(a TOON getter handed a `ToonDoc`, guessed wrapper names for a module's
-exports) and prose sketches that show two alternatives or a bare call in one
+held the one block whose code check was printed but not enforced: the full
+guide's WRONG/RIGHT `self` contrast kept both halves in one fence, so the
+RIGHT half's in-type `get` collided with the WRONG half's extension method and
+added an uncoded "Duplicate method" record. The full draft splits the fence, so
+the list is empty and the WRONG half is held to exactly `SCOPE-001`. The
+blocks that remain fall into two kinds: negative examples (a TOON getter
+handed a `ToonDoc`, guessed wrapper names for a module's exports, the WRONG
+half) and prose sketches that show two alternatives or a bare call in one
 fence. Guide pass 1 retired the other two kinds, `...` elisions and imports of
 modules that are not on disk: every file in `tests/guide_modules/` (today the
-stubs `score_utils` and `geometry`) is copied next to each compiled block, so
+module stubs `score_utils` and `geometry`, and the data stub `scores.json`) is copied next to each compiled block, so
 an import example written against one of them compiles for real, and an
 unqualified call to an export the stub does not have fails with `SCOPE-001`
 exactly as it would for a model. (A qualified

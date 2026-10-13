@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-13-1*
+*Guide version: 2026-10-13-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -100,6 +100,16 @@ If you only read one part of this document, read **Highest-Value Rules** and
     declare the binding `Int` or `Text`. Extract contents with
     `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`. HTTP responses
     arrive in an `MStream` out-buffer (see **HTTP requests**).
+23. **NAME-001.** Value names ignore case, like type names, and one name means
+    one thing: do not redeclare a local or a parameter, name a loop variable
+    after a variable already in scope, or give a local or parameter the name
+    of a top-level or imported `const` (`limit` beside `LIMIT`).
+24. **MOD-001 / MOD-002.** The canonical import is `use "module_name";`, and
+    imported names are used exactly as exported — `use` does not rename.
+25. **FMT-001.** `println` has no placeholders: `println("{} items", n)` and
+    `f"..."` are compile errors, so pass the values as arguments. When the
+    prompt specifies exact output, match it exactly — spacing, casing, line
+    order, decimal precision.
 
 Fast failure checks: output outside `fx` is wrong; a guessed import is wrong;
 a helper not listed in this document is wrong; arithmetic on `ToonDoc` /
@@ -220,6 +230,11 @@ fn main() -> Void {
 }
 ```
 
+A program runs `fn main() -> Void`, or `fn main() -> Int`, whose value becomes
+the exit status. A file with both a `fn main` and top-level statements is
+`[ENTRY-001]`, because `main` would never run: put the statements inside
+`main`. To stop early with a status from anywhere, call `fx { halt(n); }`.
+
 ## Safe generation algorithm for LLMs
 
 **LLM-critical.** Generate in this order:
@@ -235,10 +250,12 @@ fn main() -> Void {
 ## Lexical basics
 
 - **Comments**: `// line comment` is canonical. `/* block comment */` is
-  accepted, but generated code should prefer `//`.
-- **Text literals**: double-quoted; escape embedded quotes as `\"`. Keep
-  generated strings simple and avoid escape-heavy text unless the prompt
-  explicitly requires it.
+  accepted, but generated code should prefer `//`. `//` always starts a
+  comment — it is never integer division: `x // 2` is `[DIV-002]`; write
+  `x div 2`.
+- **Text literals**: double-quoted. Escapes: `\"`, `\\`, `\n`, `\t`, `\r`,
+  `\xNN` and `\uNNNN`; `\0` ends the string, and an unknown escape stays as
+  written (`\q` prints `\q`).
 - **Statements** end with `;`. Blocks use `{ }`.
 
 ## Primitive types
@@ -271,7 +288,7 @@ guessing conversion helpers or `Text + Int` coercions.
 | Category | Operators |
 |---|---|
 | Arithmetic | `+ - * /` on `Int`/`Real`; `/` always yields a `Real`; `a div b` is the integer quotient |
-| Modulo | `%` (example: `7 % 3` = `1`) |
+| Modulo | `%` (example: `7 % 3` = `1`); the result takes the dividend's sign (`-7 % 3` = `-1`), so test odd with `n % 2 != 0` and wrap an index with `(i % n + n) % n` |
 | Comparison | `== != < <= > >=` |
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
 | Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`) |
@@ -346,6 +363,10 @@ fn main() -> Void {
 }
 ```
 
+The binding may carry the tuple's type — `let t: (Int, Int) = pairSquares(6);`
+— when it matches the called function; a mismatched annotation, and a tuple
+type on a parameter, a field or an array element, are `TUP-001`.
+
 An index at or past the tuple's arity is a compile-time `TUP-001` error
 ("tuple index .N is out of range"), not a runtime crash. `.N` only works on
 a variable -- chaining an index directly onto a call result
@@ -391,10 +412,15 @@ write bare `result` there.
 ## Variables and constants
 
 ```aether
-const Limit: Int = 42;
+const MAX_COUNT: Int = 42;
 let count: Int = 0;
 let label: Text = "Aether";
 ```
+
+Value names ignore case, exactly as type names do: `limit`, `Limit` and `LIMIT`
+are one name. A local or a parameter may therefore not be named like a
+top-level or imported `const` (NAME-001); writing constants in `UPPER_CASE`
+keeps them apart from locals.
 
 `let` bindings are mutable (MUT-001). `let mut` is accepted, redundant, and
 ignored; never generate it.
@@ -434,11 +460,18 @@ type JobSummary {
     fn isReady() -> Bool {
         ret self.score >= 90;
     }
+
+    fn label() -> Text {
+        if self.isReady() {            // a sibling method is called through self
+            ret self.name + ": ready";
+        }
+        ret self.name + ": waiting";
+    }
 }
 ```
 
 - use `type`, never `class`; fields are `name: Type;` (semicolons)
-- a field may carry a **constant** default: `name: Type = <const>`
+- a field may carry a **literal** default: `name: Type = <literal>`
   (`count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`).
   The default must be a **literal** — not an expression, not another field, not
   `self`, not a call, and not a named `const` (`= MAX_SCORE` fails just as
@@ -448,6 +481,8 @@ type JobSummary {
   text empty).
 - **define methods inside the `type` block; `self` is implicit — never give a
   method a `self` parameter.** Inside a method use lowercase `self`, never `Self`.
+  Members are not implicit: write `self.field` and `self.method()`; a bare call
+  to a sibling method is SCOPE-001.
 - **only a method declared inside the `type` binds `self`, so only its
   `@pre`/`@post` may reference `self.field`** (e.g. `@pre self.v >= 0`). A
   `self`-referencing contract on a top-level `fn` fails `[SCOPE-001] identifier
@@ -485,7 +520,9 @@ parameter plus a `self`-referencing contract does not compile:
 type C { v: Int; }
 @pre self.v >= 0
 fn get(self: C) -> Int { ret self.v; }
+```
 
+```aether
 // RIGHT — method inside the type; self is implicit; the contract may name self
 type C {
     v: Int;
@@ -586,6 +623,8 @@ let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 Prefer the range and foreach forms. Both **declare their own loop variable** —
 there is no separate `let` for `i` or `item`, and writing one is a
 redeclaration. Only the condition form needs a counter declared ahead of it.
+A range is half-open: `0..n` ends at `n - 1`, so 1 through `n` is `1..n + 1`
+and -1, 0, 1 is `-1..2`.
 
 ```aether
 loop i in 0..count {        // half-open range; i is Int, declared by the loop
@@ -693,6 +732,11 @@ output use `value:width:precision`; width `0` means "precision only". The
 `value:width:precision` spec works **only inside `print`/`println` arguments**.
 To capture a formatted Real as `Text` (to return from a helper or concatenate),
 use `formatfloat(value, precision)` or `realtostr(value)` (always 6 decimals).
+
+`println(a, b)` writes its arguments with **nothing between them**, then a
+newline: `println(1, 2)` prints `12`. Put the separators in yourself
+(`println(a, " ", b)`), and when values belong on separate lines give each
+line its own `println`.
 
 | Use case | Syntax | Output |
 |---|---|---|
@@ -997,239 +1041,6 @@ specifically need the requirement expressed as a contract — it is one call, it
 already handles a sign and leading whitespace (trailing whitespace fails, so
 `trim` first), and it cannot drift out of sync with the parse it guards.
 
-## Files and environment
-
-Host access for automation. **All of these are effectful — call inside `fx`**
-(FX-001), and they are rejected inside `@pure` functions.
-
-| Builtin | Signature |
-|---|---|
-| `fileexists(path)` | `(Text) -> Bool` |
-| `getenv(name)` | `(Text) -> Text` (empty if unset) |
-| `getenvint(name, fallback)` | `(Text, Int) -> Int` |
-| `getcurrentdir()` | `() -> Text` |
-| `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
-| `paramcount()` | `() -> Int` (CLI arg count) |
-| `paramstr(i)` | `(Int) -> Text` |
-
-```aether
-fn main() -> Void {
-    fx {
-        let home: Text = getenv("HOME");
-        if fileexists("/etc/hosts") { println("hosts present, home=", home); }
-    }
-    ret;
-}
-```
-
-### File content: read/write
-
-The table above only covers existence/metadata. To read or write a file's
-*contents*, declare a variable of type `File` (a Pascal-style line-oriented
-file handle) and use the classic `assign`/`reset`/`rewrite`/`readln`/
-`writeln`/`eof`/`close` sequence — same effect rules as above, all inside
-`fx`:
-
-| Builtin | Signature |
-|---|---|
-| `assign(f, path)` | `(File, Text) -> Void` — binds `f` to `path`, no I/O yet |
-| `rewrite(f)` | `(File) -> Void` — truncate/create for writing |
-| `reset(f)` | `(File) -> Void` — open for reading |
-| `append(f)` | `(File) -> Void` — open for writing at end-of-file |
-| `readln(f, line)` | `(File, Text) -> Void` — reads one line into `line` |
-| `writeln(f, ...)` | `(File, ...) -> Void` — writes args plus a newline |
-| `eof(f)` | `(File) -> Bool` — true once no more lines remain |
-| `close(f)` | `(File) -> Void` |
-| `erase(f)` | `(File) -> Void` — deletes the file named by a prior `assign` |
-| `rename(f, newPath)` | `(File, Text) -> Void` |
-
-```aether
-fn main() -> Void {
-    let f: File;
-    fx {
-        assign(f, "notes.txt");
-        rewrite(f);
-        writeln(f, "first line");
-        close(f);
-
-        reset(f);
-        loop {
-            if eof(f) { break; }
-            let line: Text;
-            readln(f, line);
-            println(line);
-        }
-        close(f);
-    }
-    ret;
-}
-```
-
-`readln(f, line)` writing its result into `line` is built into a few builtins
-(`readln`, `val`, `valreal`, `gettime`, `getdate`) — Aether does not have
-general by-reference parameters, so user-defined functions cannot do this.
-
-Database builtins (`sqlite*`) are effectful too; they are outside the curated
-surface, and their signatures are in the appendix.
-
-## HTTP requests and memory streams (MS-001)
-
-HTTP support needs a build with libcurl networking (`AETHER_ENABLE_CURL=ON`);
-without it the `http*` builtins fail at runtime. The response body arrives in
-an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
-
-| Builtin | Signature | fx? |
-|---|---|---|
-| `httpsession()` | `() -> Int` (session handle, `-1` on failure) | yes |
-| `httprequest(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
-| `httpsetheader(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
-| `httpclose(session)` | `(Int) -> Void` | yes |
-| `mstreamcreate()` | `() -> MStream` | no (pure memory) |
-| `mstreamfromstring(text)` | `(Text) -> MStream` | no |
-| `mstreambuffer(ms)` | `(MStream) -> Text` (stream contents) | no |
-| `mstreamfree(ms)` | `(MStream) -> Void` | no |
-| `mstreamloadfromfile(ms, path)` | `(MStream, Text) -> Bool` (a file that cannot be opened is a run-time error) | yes (file I/O) |
-| `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Void` | yes (file I/O) |
-| `mstreamappendbyte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no (pure memory) |
-
-`mstreamappendbyte` writes a single byte at a time -- there is no
-whole-string append. To push `Text`, loop over it and append each
-character's code:
-
-```aether
-fn appendText(ms: MStream, text: Text) -> Void {
-    let n: Int = length(text);
-    loop i in 0..n {
-        let ch: Text = copy(text, i, 1);
-        mstreamappendbyte(ms, ord(ch));
-    }
-    ret;
-}
-```
-
-Golden shape — a GET request end to end (all `http*` calls inside `fx`):
-
-```aether
-fn main() -> Void {
-    fx {
-        let session: Int = httpsession();
-        let out: MStream = mstreamcreate();
-        let status: Int = httprequest(session, "GET", "https://example.com/", "", out);
-        if status == 200 {
-            let body: Text = mstreambuffer(out);
-            println(body);
-        }
-        mstreamfree(out);
-        httpclose(session);
-    }
-    ret;
-}
-```
-
-- the `out` argument must be an initialized `MStream` (`mstreamcreate()`);
-  `httprequest` clears it before writing the response into it
-- `mstreambuffer(out)` is the ONLY way to get the body as `Text` — never
-  `print(out)` and never `let body: Int = ...`
-- `body` (arg 4) is the request payload — pass `""` for GET
-- a JSON response pairs naturally with TOON: `toon_parse(mstreambuffer(out))`
-- `MStream` handles are opaque: no arithmetic, no cross-assignment with
-  `ToonDoc`/`ToonNode`/`Int` (MS-001)
-
-## Sockets
-
-A real, working BSD-socket-style API — not the `tcpsocket*`/`udpsocket*`/
-`resolve` names a model might guess by analogy with other languages; those do
-not exist. All `socket*` calls and `dnslookup` are effectful (FX-001, inside
-`fx`). `socketreceive` returns its data in an `MStream` (MS-001), same as
-`http*` — never `Int`, never `Text` directly.
-
-| Builtin | Signature | Notes |
-|---|---|---|
-| `socketcreate(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`); `family`: `4` = IPv4 (default), `6` = IPv6 |
-| `socketconnect(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | resolves `host` (hostname or literal address) and connects |
-| `socketbind(socket, port)` | `(Int, Int) -> Int` (`0`/`-1`) | binds on all local interfaces (`INADDR_ANY`) |
-| `socketbindaddr(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | binds to one specific local address |
-| `socketlisten(socket, backlog)` | `(Int, Int) -> Int` (`0`/`-1`) | |
-| `socketaccept(socket)` | `(Int) -> Int` (new connected-socket handle, `-1` on failure) | **blocks** until a peer connects |
-| `socketpeeraddr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
-| `socketsend(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
-| `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstreambuffer(...)` to read it |
-| `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Void` | flips a socket to non-blocking mode |
-| `socketpoll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
-| `socketclose(socket)` | `(Int) -> Void` | |
-| `socketlasterror()` | `() -> Int` | last socket error code (errno/WSA), `0` if the last call succeeded |
-| `dnslookup(hostname)` | `(Text) -> Text` | forward lookup only (no reverse lookup); returns `""` on failure |
-
-The gotcha every generated socket example must handle: `socketaccept` and
-`socketreceive` **block the calling task indefinitely** until a peer shows up
-— call either one with no counterpart running concurrently and the program
-hangs forever. Two ways to avoid that:
-
-1. **Same-process client + server via `par`** (recommended for a
-   self-contained demo). Create, bind, and put the listening socket into
-   listen state *before* the `par` block — not inside one of its branches —
-   so the client branch can never race ahead of a not-yet-listening server;
-   `par` already joins (waits for both) before continuing (see
-   **Concurrency**).
-2. **Non-blocking + `socketpoll`.** Call `socketsetblocking(socket, false)`,
-   then loop on `socketpoll(socket, timeoutMs, 1)` until it reports readable
-   (or a deadline passes) before calling `socketaccept`/`socketreceive`.
-
-Golden shape — a same-process TCP echo, listener set up before `par`, verified
-to run to completion in well under a second:
-
-```aether
-type Message {
-    payload: Text;
-}
-
-fn server(listenSock: Int, out: Message) -> Void {
-    fx {
-        let conn: Int = socketaccept(listenSock);
-        let ms: MStream = socketreceive(conn, 256);
-        out.payload = mstreambuffer(ms);
-        println("server got: ", out.payload);
-        socketsend(conn, "pong");
-        mstreamfree(ms);
-        socketclose(conn);
-        socketclose(listenSock);
-    }
-    ret;
-}
-
-fn client(port: Int, out: Message) -> Void {
-    fx {
-        let sock: Int = socketcreate(0);
-        socketconnect(sock, "127.0.0.1", port);
-        socketsend(sock, "ping");
-        let ms: MStream = socketreceive(sock, 256);
-        out.payload = mstreambuffer(ms);
-        println("client got: ", out.payload);
-        mstreamfree(ms);
-        socketclose(sock);
-    }
-    ret;
-}
-
-fn main() -> Void {
-    let port: Int = 23557;
-    let listenSock: Int = 0;
-    let serverMsg: Message = new Message();
-    let clientMsg: Message = new Message();
-    fx {
-        listenSock = socketcreate(0);
-        socketbind(listenSock, port);
-        socketlisten(listenSock, 1);
-    }
-    par {
-        server(listenSock, serverMsg);
-        client(port, clientMsg);
-    }
-    fx { println("done"); }
-    ret;
-}
-```
-
 ## Dynamic arrays
 
 **Nested arrays are real.** A row is an `Int[]`, so a table is `Int[][]`, and
@@ -1284,6 +1095,10 @@ let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like lo
 - `xs == ys` / `xs != ys` compare structurally: equal when both have the same
   length and every element compares equal (nested arrays recurse; record
   elements compare by identity)
+- copying a nested array (`let b: Int[][] = a;`, or passing it) copies the outer
+  array only: rows that were built by appending stay shared, so `b[0][0] = 99`
+  also changes `a`. Clone row by row:
+  `loop row in a { let r: Int[] = row; deep = deep + [r]; }`
 - never `toon_len(xs)` on a dynamic array, nor `length(node)` on a `ToonNode`
   (LEN-001): both compile, and stop at run time with an uncoded error
 - `println`/`print` cannot print a whole array: `println("data: ", xs)` is a
@@ -2204,6 +2019,239 @@ Before submitting Aether code, verify:
   `.0`/`.1`/`.2` — never chained directly onto the call (TUP-001)
 - annotations sit above their functions (ANN-001)
 - canonical forms used unless preserving accepted-but-non-canonical source
+
+## Files and environment
+
+Host access for automation. **All of these are effectful — call inside `fx`**
+(FX-001), and they are rejected inside `@pure` functions.
+
+| Builtin | Signature |
+|---|---|
+| `fileexists(path)` | `(Text) -> Bool` |
+| `getenv(name)` | `(Text) -> Text` (empty if unset) |
+| `getenvint(name, fallback)` | `(Text, Int) -> Int` |
+| `getcurrentdir()` | `() -> Text` |
+| `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
+| `paramcount()` | `() -> Int` (CLI arg count) |
+| `paramstr(i)` | `(Int) -> Text` |
+
+```aether
+fn main() -> Void {
+    fx {
+        let home: Text = getenv("HOME");
+        if fileexists("/etc/hosts") { println("hosts present, home=", home); }
+    }
+    ret;
+}
+```
+
+### File content: read/write
+
+The table above only covers existence/metadata. To read or write a file's
+*contents*, declare a variable of type `File` (a Pascal-style line-oriented
+file handle) and use the classic `assign`/`reset`/`rewrite`/`readln`/
+`writeln`/`eof`/`close` sequence — same effect rules as above, all inside
+`fx`:
+
+| Builtin | Signature |
+|---|---|
+| `assign(f, path)` | `(File, Text) -> Void` — binds `f` to `path`, no I/O yet |
+| `rewrite(f)` | `(File) -> Void` — truncate/create for writing |
+| `reset(f)` | `(File) -> Void` — open for reading |
+| `append(f)` | `(File) -> Void` — open for writing at end-of-file |
+| `readln(f, line)` | `(File, Text) -> Void` — reads one line into `line` |
+| `writeln(f, ...)` | `(File, ...) -> Void` — writes args plus a newline |
+| `eof(f)` | `(File) -> Bool` — true once no more lines remain |
+| `close(f)` | `(File) -> Void` |
+| `erase(f)` | `(File) -> Void` — deletes the file named by a prior `assign` |
+| `rename(f, newPath)` | `(File, Text) -> Void` |
+
+```aether
+fn main() -> Void {
+    let f: File;
+    fx {
+        assign(f, "notes.txt");
+        rewrite(f);
+        writeln(f, "first line");
+        close(f);
+
+        reset(f);
+        loop {
+            if eof(f) { break; }
+            let line: Text;
+            readln(f, line);
+            println(line);
+        }
+        close(f);
+    }
+    ret;
+}
+```
+
+`readln(f, line)` writing its result into `line` is built into a few builtins
+(`readln`, `val`, `valreal`, `gettime`, `getdate`) — Aether does not have
+general by-reference parameters, so user-defined functions cannot do this.
+
+Database builtins (`sqlite*`) are effectful too; they are outside the curated
+surface, and their signatures are in the appendix.
+
+## HTTP requests and memory streams (MS-001)
+
+HTTP support needs a build with libcurl networking (`AETHER_ENABLE_CURL=ON`);
+without it the `http*` builtins fail at runtime. The response body arrives in
+an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
+
+| Builtin | Signature | fx? |
+|---|---|---|
+| `httpsession()` | `() -> Int` (session handle, `-1` on failure) | yes |
+| `httprequest(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
+| `httpsetheader(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
+| `httpclose(session)` | `(Int) -> Void` | yes |
+| `mstreamcreate()` | `() -> MStream` | no (pure memory) |
+| `mstreamfromstring(text)` | `(Text) -> MStream` | no |
+| `mstreambuffer(ms)` | `(MStream) -> Text` (stream contents) | no |
+| `mstreamfree(ms)` | `(MStream) -> Void` | no |
+| `mstreamloadfromfile(ms, path)` | `(MStream, Text) -> Bool` (a file that cannot be opened is a run-time error) | yes (file I/O) |
+| `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Void` | yes (file I/O) |
+| `mstreamappendbyte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no (pure memory) |
+
+`mstreamappendbyte` writes a single byte at a time -- there is no
+whole-string append. To push `Text`, loop over it and append each
+character's code:
+
+```aether
+fn appendText(ms: MStream, text: Text) -> Void {
+    let n: Int = length(text);
+    loop i in 0..n {
+        let ch: Text = copy(text, i, 1);
+        mstreamappendbyte(ms, ord(ch));
+    }
+    ret;
+}
+```
+
+Golden shape — a GET request end to end (all `http*` calls inside `fx`):
+
+```aether
+fn main() -> Void {
+    fx {
+        let session: Int = httpsession();
+        let out: MStream = mstreamcreate();
+        let status: Int = httprequest(session, "GET", "https://example.com/", "", out);
+        if status == 200 {
+            let body: Text = mstreambuffer(out);
+            println(body);
+        }
+        mstreamfree(out);
+        httpclose(session);
+    }
+    ret;
+}
+```
+
+- the `out` argument must be an initialized `MStream` (`mstreamcreate()`);
+  `httprequest` clears it before writing the response into it
+- `mstreambuffer(out)` is the ONLY way to get the body as `Text` — never
+  `print(out)` and never `let body: Int = ...`
+- `body` (arg 4) is the request payload — pass `""` for GET
+- a JSON response pairs naturally with TOON: `toon_parse(mstreambuffer(out))`
+- `MStream` handles are opaque: no arithmetic, no cross-assignment with
+  `ToonDoc`/`ToonNode`/`Int` (MS-001)
+
+## Sockets
+
+A real, working BSD-socket-style API — not the `tcpsocket*`/`udpsocket*`/
+`resolve` names a model might guess by analogy with other languages; those do
+not exist. All `socket*` calls and `dnslookup` are effectful (FX-001, inside
+`fx`). `socketreceive` returns its data in an `MStream` (MS-001), same as
+`http*` — never `Int`, never `Text` directly.
+
+| Builtin | Signature | Notes |
+|---|---|---|
+| `socketcreate(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`); `family`: `4` = IPv4 (default), `6` = IPv6 |
+| `socketconnect(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | resolves `host` (hostname or literal address) and connects |
+| `socketbind(socket, port)` | `(Int, Int) -> Int` (`0`/`-1`) | binds on all local interfaces (`INADDR_ANY`) |
+| `socketbindaddr(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | binds to one specific local address |
+| `socketlisten(socket, backlog)` | `(Int, Int) -> Int` (`0`/`-1`) | |
+| `socketaccept(socket)` | `(Int) -> Int` (new connected-socket handle, `-1` on failure) | **blocks** until a peer connects |
+| `socketpeeraddr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
+| `socketsend(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
+| `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstreambuffer(...)` to read it |
+| `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Void` | flips a socket to non-blocking mode |
+| `socketpoll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
+| `socketclose(socket)` | `(Int) -> Void` | |
+| `socketlasterror()` | `() -> Int` | last socket error code (errno/WSA), `0` if the last call succeeded |
+| `dnslookup(hostname)` | `(Text) -> Text` | forward lookup only (no reverse lookup); returns `""` on failure |
+
+The gotcha every generated socket example must handle: `socketaccept` and
+`socketreceive` **block the calling task indefinitely** until a peer shows up
+— call either one with no counterpart running concurrently and the program
+hangs forever. Two ways to avoid that:
+
+1. **Same-process client + server via `par`** (recommended for a
+   self-contained demo). Create, bind, and put the listening socket into
+   listen state *before* the `par` block — not inside one of its branches —
+   so the client branch can never race ahead of a not-yet-listening server;
+   `par` already joins (waits for both) before continuing (see
+   **Concurrency**).
+2. **Non-blocking + `socketpoll`.** Call `socketsetblocking(socket, false)`,
+   then loop on `socketpoll(socket, timeoutMs, 1)` until it reports readable
+   (or a deadline passes) before calling `socketaccept`/`socketreceive`.
+
+Golden shape — a same-process TCP echo, listener set up before `par`, verified
+to run to completion in well under a second:
+
+```aether
+type Message {
+    payload: Text;
+}
+
+fn server(listenSock: Int, out: Message) -> Void {
+    fx {
+        let conn: Int = socketaccept(listenSock);
+        let ms: MStream = socketreceive(conn, 256);
+        out.payload = mstreambuffer(ms);
+        println("server got: ", out.payload);
+        socketsend(conn, "pong");
+        mstreamfree(ms);
+        socketclose(conn);
+        socketclose(listenSock);
+    }
+    ret;
+}
+
+fn client(port: Int, out: Message) -> Void {
+    fx {
+        let sock: Int = socketcreate(0);
+        socketconnect(sock, "127.0.0.1", port);
+        socketsend(sock, "ping");
+        let ms: MStream = socketreceive(sock, 256);
+        out.payload = mstreambuffer(ms);
+        println("client got: ", out.payload);
+        mstreamfree(ms);
+        socketclose(sock);
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let port: Int = 23557;
+    let listenSock: Int = 0;
+    let serverMsg: Message = new Message();
+    let clientMsg: Message = new Message();
+    fx {
+        listenSock = socketcreate(0);
+        socketbind(listenSock, port);
+        socketlisten(listenSock, 1);
+    }
+    par {
+        server(listenSock, serverMsg);
+        client(port, clientMsg);
+    }
+    fx { println("done"); }
+    ret;
+}
+```
 
 ---
 

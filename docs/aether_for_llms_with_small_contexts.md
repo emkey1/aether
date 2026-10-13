@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-13-1*
+*Guide version: 2026-10-13-2*
 
 ## Highest-Value Rules
 
@@ -32,16 +32,12 @@
 9. **MUT-001.** Plain `let` is already mutable. Never generate `let mut`.
 10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for arrays
     and `Text`; crossing them fails at run time.
-11. **TUP-001.** Tuples are narrow: `let (a, b) = pair();` on a direct
-    top-level helper call only. To read one field instead, bind it first --
-    `let t = pair(); t.0;` (zero-based) -- never `pair().0` directly on the
-    call. If the producer is a method, undefined, or an expression, return a
-    record/object and read its fields instead. An index at or past the
-    tuple's arity is a compile-time TUP-001 error, not a crash. Tuple
-    `@post` checks must use positional slots like `result.0`, `result.1`.
-    Recursive tuple-returning functions (direct or indirect) and concurrent
-    `par`-branch calls to the same tuple-returning function are fully
-    supported.
+11. **TUP-001.** Tuples are narrow: destructure a direct top-level call,
+    `let (a, b) = pair();`, or bind it and read a field, `let t = pair(); t.0;`
+    (zero-based) -- never `pair().0` on the call. If the producer is a method
+    or an expression, return a record instead. An index past the arity is a
+    compile-time TUP-001. A tuple `@post` uses `result.0`, `result.1`.
+    Recursion through a tuple-returning function is fine.
 12. **OUT-001.** Return raw Aether source only. No Markdown fences.
 13. **ROOT-001.** If the JSON starts with `{`, extract the named array with
     `toon_key(root, "...")` before iterating. Only iterate `root` directly
@@ -94,17 +90,19 @@ flags the authoring-only ones.
 
 ## Core syntax
 
-- Comments: prefer `// line comment`. Block comments are accepted, but models
-  should still generate `//`. Text literals are double-quoted; escape `\"`.
+- Comments: prefer `// line comment`; `//` is never division (write `div`).
+  Block comments are accepted, but models should still generate `//`. Text
+  literals are double-quoted; escapes: `\"`, `\\`, `\n`, `\t`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true`/`false`), `Void`, plus opaque
   `ToonDoc`/`ToonNode`/`MStream`. `Float` and `String` are accepted spellings of
   `Real` and `Text`; every other foreign spelling (`Double`, `Integer`,
   `Boolean`, `Char`, `List`, `Map`, lowercase `int`) is a `TYPE-002` error.
-  `println(boolValue)` prints `true` or `false`. For mixed
-  output use variadic `println` (never `+`); to build a `Text`, use the
-  conversion helpers (`itoa`, `formatfloat`, `realtostr`, `parse_int/float/bool`).
+  `println(boolValue)` prints `true` or `false`. To print mixed values use
+  variadic `println`, not `+`; to build a `Text`, join `Text` with `+` after
+  converting numbers (`int_to_text`, `formatfloat`).
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit;
   `not` / `and` / `or` are exact synonyms). Arrays compare with `==` / `!=`.
+  `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
 - Bitwise/shift (Int only): `& | ^`/`xor` (`^` and `xor` are the same operator), `<< >>`.
   Example: `6 & 3` = `2`, `6 << 1` = `12`. Not logical -- use `&&`/`||` for Bool.
   They bind **looser than the comparisons**: `flags & mask != 0` is
@@ -119,10 +117,23 @@ fn add(a: Int, b: Int) -> Int {
 ```
 
 Every `fn` declares `-> ReturnType`; procedures use `-> Void` and bare `ret;`.
-`fn helper(x: Int) { ... }` is invalid.
+`fn helper(x: Int) { ... }` is invalid. Two results come back as a tuple:
 
 ```aether
-const Name: Text = "Aether";
+fn minMax(a: Int, b: Int) -> (Int, Int) {
+    ret (min(a, b), max(a, b));
+}
+
+fn main() -> Void {
+    let (lo, hi) = minMax(9, 4);     // destructure a direct call
+    let t = minMax(7, 5);            // or bind, then read t.0 / t.1
+    fx { println(lo, " ", hi, " ", t.1); }
+    ret;
+}
+```
+
+```aether
+const MAX_SCORE: Int = 100;
 let count: Int = 0;
 count = count + 1;
 ```
@@ -150,7 +161,8 @@ let grade: Text = if score > 90 { "A" } else if score > 80 { "B" } else { "C" };
 ```
 
 Loops (`break` exits, `continue` is supported). Prefer the range and foreach
-forms: they **declare their own loop variable**, so they need no `let`.
+forms: they **declare their own loop variable**, so they need no `let`. A range
+is half-open: 1 through `n` is `1..n + 1`, and -1, 0, 1 is `-1..2`.
 
 ```aether
 loop i in 0..count { fx { println(i); } }   // half-open: runs 0..count-1
@@ -170,11 +182,17 @@ type Counter {
         self.value = self.value + 1;   // lowercase self, never Self
         ret self.value;
     }
+
+    fn bumpTwice() -> Int {
+        self.bump();                   // a sibling method needs self. too
+        ret self.bump();
+    }
 }
 ```
 
-- methods live **inside** the `type` with an **implicit `self`** — never give one
-  a `self` parameter; a method's `@pre`/`@post` may reference `self.field`
+- methods live **inside** the `type`; `self` is implicit (never a parameter),
+  members are not: write `self.field`, `self.method()`. A method's
+  `@pre`/`@post` may reference `self.field`
   (`@pre self.value >= 0` above `fn bump`). A free-standing `fn bump(self: Counter)`
   with a `self`-referencing contract fails `[SCOPE-001] identifier 'self' not in
   scope`.
@@ -189,14 +207,11 @@ type Counter {
 - records are pointer-backed: mutations through a callee are visible to the
   caller
 - a top-level `fn bump(self: Counter) -> Int` is an extension method, called as
-  `counter.bump()` — but it cannot carry a `@pre`/`@post` that names `self` (put
-  the method and its contract inside the `type`)
+  `counter.bump()`
 - **field & method names must not be Aether keywords** (`new`, `for`, `if`,
-  `loop`, `ret`) **or operator words** (`div`, `mod`, `xor`, `and`, `or`, `not`);
-  that fails SYN-001 (`'<name>' is a reserved … and cannot be used as a
-  field/method name`). Other languages' words (`word`, `text`, `int`, `match`,
-  `class`) are ordinary names. `new` in particular is reserved — there is no
-  constructor method (see **Constructing records and typing bindings**).
+  `loop`, `ret`) **or operator words** (`div`, `mod`, `xor`, `and`, `or`, `not`)
+  (SYN-001). Other languages' words (`word`, `text`, `int`, `match`, `class`)
+  are ordinary names.
 
 ## Constructing records and typing bindings
 
@@ -268,6 +283,8 @@ let pct: Real = ok * 100.0 / total;
 Exact-output discipline:
 
 - print exactly the labels requested, for example `avg0=0`, not `avg0 = 0`
+- `println(a, b)` puts **nothing** between its arguments: write
+  `println(a, " ", b)`; each requested output line is its own `println`
 - for percentages and averages that must show decimals, format them explicitly
 - do not add extra headings, blank lines, or explanatory text
 
@@ -276,6 +293,7 @@ Exact-output discipline:
 ```aether
 let same: Bool = name == "Aether";     // canonical; string_eq(a,b) accepted
 let nameLen: Int = string_len(name);   // canonical; name.len accepted
+let tag: Text = name + "#" + int_to_text(count);   // `+` joins Text
 
 // turning text into scalars — these exist, call them (do not inline):
 let parts: Text[] = split("12,7,5", ",");  // Text -> Text[]  ["12","7","5"]
@@ -343,151 +361,6 @@ Args/results are `Real` unless noted.
 let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);
 ```
 
-## Files and environment
-
-Host access for automation. **All effectful — call inside `fx`** (FX-001), and
-banned in `@pure` functions:
-
-- `fileexists(path) -> Bool`, `getcurrentdir() -> Text`
-- `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
-- `mkdir(path)`, `rmdir(path)`
-- `paramcount() -> Int`, `paramstr(i) -> Text`
-- clock: `realtimeclock() -> Int` (Unix epoch seconds) is a function and is
-  usually what you want. `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)`
-  are **procedures** that fill var out-parameters — `let t = gettime();` fails.
-
-```aether
-fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }
-```
-
-To read/write file *contents*, declare a `File` variable (Pascal-style handle;
-distinct from `Text`) and use `assign`/`reset`/`rewrite`/`readln`/`writeln`/
-`eof`/`close`/`erase`/`rename`, all inside `fx`:
-
-```aether
-let f: File;
-fx {
-    assign(f, "notes.txt");
-    rewrite(f);
-    writeln(f, "first line");
-    close(f);
-
-    reset(f);
-    loop {
-        if eof(f) { break; }
-        let line: Text;
-        readln(f, line);   // fills `line`
-        println(line);
-    }
-    close(f);
-}
-```
-
-Sockets (`socket*`), `sqlite*`, `random`/`randomize`, and the clock are also
-effectful.
-
-## HTTP requests (MS-001)
-
-The `http*` calls are effectful (FX-001). The response body lands in an
-`MStream` out-buffer:
-
-- `httpsession() -> Int`, `httpclose(session)`,
-  `httpsetheader(session, name, value)`
-- `httprequest(session, method, url, body, out) -> Int` (HTTP status; `body`
-  is the request payload, `""` for GET; `out` is an initialized `MStream`)
-- `mstreamcreate() -> MStream`, `mstreambuffer(ms) -> Text`,
-  `mstreamfree(ms)` (all pure, no `fx`)
-
-```aether
-fx {
-    let session: Int = httpsession();
-    let out: MStream = mstreamcreate();
-    let status: Int = httprequest(session, "GET", url, "", out);
-    if status == 200 { println(mstreambuffer(out)); }
-    mstreamfree(out);
-    httpclose(session);
-}
-```
-
-`mstreambuffer(out)` is the only way to read the body — never `print(out)`,
-never `let stream: Int = ...`. JSON responses pair with TOON:
-`toon_parse(mstreambuffer(out))`.
-
-## Sockets
-
-Real BSD-socket-style API (`socket*`) and `dnslookup` — not `tcpsocket*`/
-`udpsocket*`/`resolve`, which do not exist. All effectful (FX-001).
-`socketreceive` returns an `MStream` (MS-001), never `Text`/`Int` directly.
-
-- `socketcreate(type[, family]) -> Int`: `type` `0`=TCP, `1`=UDP; `family`
-  `4`=IPv4 (default), `6`=IPv6
-- `socketconnect(socket, host, port) -> Int`,
-  `socketbind(socket, port) -> Int` (all interfaces),
-  `socketbindaddr(socket, host, port) -> Int` (one address),
-  `socketlisten(socket, backlog) -> Int` (all `0`/`-1`);
-  `socketclose(socket)` returns nothing
-- `socketaccept(socket) -> Int` (new socket handle) **blocks** until a peer
-  connects; `socketreceive(socket, maxlen) -> MStream` **blocks** until data
-  arrives (`0`-length result = peer closed, not failure)
-- `socketsend(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
-- `socketpeeraddr(socket) -> Text`, `socketlasterror() -> Int`
-- `socketsetblocking(socket, blocking: Bool)`,
-  `socketpoll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
-  `2`=writable, bitwise-or; `0` on timeout) — the non-blocking alternative to
-  a bare `socketaccept`/`socketreceive`
-- `dnslookup(hostname) -> Text` (forward only; `""` on failure)
-
-`socketaccept`/`socketreceive` hang forever with no peer. Either run a
-same-process client+server pair via `par` (create/bind/listen *before* the
-`par` block so the client can't race a not-yet-listening server; `par`
-joins), or use `socketsetblocking(s, false)` + poll `socketpoll` in a loop.
-
-```aether
-type Message {
-    payload: Text;
-}
-fn server(listenSock: Int, out: Message) -> Void {
-    fx {
-        let conn: Int = socketaccept(listenSock);
-        let ms: MStream = socketreceive(conn, 256);
-        out.payload = mstreambuffer(ms);
-        socketsend(conn, "pong");
-        mstreamfree(ms);
-        socketclose(conn);
-        socketclose(listenSock);
-    }
-    ret;
-}
-fn client(port: Int, out: Message) -> Void {
-    fx {
-        let sock: Int = socketcreate(0);
-        socketconnect(sock, "127.0.0.1", port);
-        socketsend(sock, "ping");
-        let ms: MStream = socketreceive(sock, 256);
-        out.payload = mstreambuffer(ms);
-        mstreamfree(ms);
-        socketclose(sock);
-    }
-    ret;
-}
-fn main() -> Void {
-    let port: Int = 23557;
-    let listenSock: Int = 0;
-    let serverMsg: Message = new Message();
-    let clientMsg: Message = new Message();
-    fx {
-        listenSock = socketcreate(0);
-        socketbind(listenSock, port);
-        socketlisten(listenSock, 1);
-    }
-    par {
-        server(listenSock, serverMsg);
-        client(port, clientMsg);
-    }
-    ret;
-}
-```
-
 ## Dynamic arrays
 
 ```aether
@@ -508,14 +381,8 @@ and indexing twice is `ARR-002`.
 
 `setlength(xs, n)` resizes in place
 (new slots take the type zero); `xs == ys` compares element by element.
-Indexed reads/writes and
-multi-element literals are supported. `xs = xs + [a, b, ...]` appends every
-element of a literal of any length. `xs = xs + ys` / `let zs: T[] = xs + ys`
-(`+` between two array-valued expressions, not necessarily literals)
-concatenates them -- the RHS is evaluated once, then every element is
-appended in order. `xs[a..b]` slices out a **copy** of elements `a` through
-`b - 1` (half-open, same convention as `loop i in a..b`) -- there is no
-first-class Range value, `a..b` is only meaningful directly inside `[...]`.
+`a..b` is half-open in a slice as in `loop i in a..b`, and means nothing
+outside `[...]` or a `loop` header.
 
 **Arrays are value-copied at the call boundary; records are not.** Passing
 `xs` into a function gives that function its own copy -- mutating it there
@@ -558,8 +425,8 @@ Helpers (complete surface): `has_toon()`, `toon_parse(text)`,
 `toon_at(node, i)`, `toon_len(node)`,
 `toon_get_text(node, key)`, `toon_get_int(node, key)`,
 `toon_get_real(node, key)`, `toon_get_bool(node, key)`, plus the
-`toon_get_*_or(node, key, fallback)` variants
-(`toon_get_int_or`, `toon_get_text_or`, ...);
+`toon_get_*_or(node, key, fallback)` variants (`toon_get_text_or`,
+`toon_get_int_or`, `toon_get_real_or`, `toon_get_bool_or`);
 `toon_text_value(node)`, `toon_int_value(node)`, `toon_real_value(node)`,
 `toon_bool_value(node)`, `toon_null_value(node)`; `toon_type(node)`,
 `toon_has_key(node, key)`, `toon_has_at(node, i)`;
@@ -576,16 +443,10 @@ Handle ownership:
 
 - `toon_parse_file(path)` is **effectful** (file I/O — call inside `fx`);
   `toon_parse(text)` and the node ops below are pure (call outside `fx`)
-- the text parser is `toon_parse(text)`. There is no `toon_parse_string` — the
-  `_file` suffix on `toon_parse_file` does not imply a `_string` sibling. (A
-  compatibility alias rewrites it, so it runs; write the canonical name anyway)
-- `ToonDoc` owns all `ToonNode` handles derived from it
-- `toon_root(...)`, `toon_key(...)`, and `toon_at(...)` create node handles
-- `toon_free(node)` releases one node handle early
-- `toon_close(doc)` releases the document and any remaining child handles
-- for short-lived documents, `toon_close(doc)` at the end is usually enough
-- in large loops, prefer `toon_free(...)` for temporary nodes to avoid
-  unnecessary handle buildup before document close
+- the text parser is `toon_parse(text)`, not `toon_parse_string`
+- `ToonDoc` owns every `ToonNode` made from it by `toon_root`, `toon_key` and
+  `toon_at`; `toon_close(doc)` releases the document and all of them
+- in large loops, `toon_free(node)` releases a temporary node early
 
 Root shape (ROOT-001):
 
@@ -684,28 +545,6 @@ par {
 }
 fx { println("a=", a.count, " b=", b.count); }
 ```
-
-## Tasks and AI
-
-`sleep(ms: Int) -> Void`,
-`ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`,
-probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`
-(true for extended *and* core builtins; a core builtin matches on the function
-name whatever category you pass).
-`sleep` and `ai_chat` are effectful and must stay inside `fx`; the `has_*`
-probes are pure. `sleep(ms)` is a blocking millisecond pause. To run your own
-code concurrently use `par`.
-
-Discovery (for builtins beyond this guide — deeper I/O, networking, DB, and
-host-registered **custom** builtins). Agentic only: these are run-time calls.
-- `builtins_json()` -> JSON list of all Aether-visible builtins
-- `builtins_json(true)` -> richer metadata (`signature`, `effectful`, ...)
-- `builtin_info(name)` -> metadata for one builtin
-- `aether --dump-ext-builtins` -> registered custom/extended builtins
-
-Discover the exact name, signature, and `effectful` flag, then call it (inside
-`fx` if effectful). Writing in one shot? Stay within this guide; never guess
-an unlisted name or its signature.
 
 ## Imports (IMP-001, MOD-001)
 
@@ -896,7 +735,9 @@ fix:
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function, keep effects out of pure code, and mark its helpers `@pure`.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call, `let (a, b) = pair();`, or bind and read one field, `let t = pair(); t.0;` (never `pair().0` directly); otherwise return a record/object and read its fields. Recursion (direct or indirect) and concurrent `par`-branch calls through a tuple-returning function are fine.
+- **[TUP-001]** tuple misuse → destructure a direct top-level call, or bind it
+  and read one field (`let t = pair(); t.0;`, never `pair().0`); otherwise return
+  a record and read its fields.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int
   = 3.7;`, `n = random();`) → the fraction is discarded. Use a `Real` target, or
   `int(...)` if truncating is intended.
@@ -923,8 +764,8 @@ fix:
   only direct call statements; wrap the work in a `fn` and call that inside `par`.
 
 If the program *compiles* but the output is wrong — extra headings, wrong
-spacing or precision (an integer where decimals are expected → add a `Real`
-operand such as `100.0`), wrong JSON keys, a fallback that hid a missing level, or
+spacing or precision (an integer where decimals are expected → a `Real`
+target and a `Real` operand), wrong JSON keys, a fallback that hid a missing level, or
 iterating an object root — no code is printed: these are authoring rules the
 compiler cannot check (FMT-001, OUT-001, KEY-001, NEST-001, ROOT-001,
 FIELD-001). Re-read the prompt and match it exactly.
@@ -947,3 +788,176 @@ FIELD-001). Re-read the prompt and match it exactly.
 - `Real` operand where decimals matter; `value:width:precision` for stable output
 - tuples destructured directly, or bound and read with `.0`/`.1`/`.2`, never
   chained onto the call (TUP-001); annotations above functions (ANN-001)
+
+---
+
+## Appendix: host capabilities
+
+Reach for these only when the task requires them.
+
+### Files and environment
+
+Host access for automation. **All effectful — call inside `fx`** (FX-001), and
+banned in `@pure` functions:
+
+- `fileexists(path) -> Bool`, `getcurrentdir() -> Text`
+- `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
+- `mkdir(path)`, `rmdir(path)`
+- `paramcount() -> Int`, `paramstr(i) -> Text`
+- clock: `realtimeclock() -> Int` (Unix epoch seconds) is a function and is
+  usually what you want. `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)`
+  are **procedures** that fill var out-parameters — `let t = gettime();` fails.
+
+```aether
+fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }
+```
+
+To read/write file *contents*, declare a `File` variable (Pascal-style handle;
+distinct from `Text`) and use `assign`/`reset`/`rewrite`/`readln`/`writeln`/
+`eof`/`close`/`erase`/`rename`, all inside `fx`:
+
+```aether
+let f: File;
+fx {
+    assign(f, "notes.txt");
+    rewrite(f);
+    writeln(f, "first line");
+    close(f);
+
+    reset(f);
+    loop {
+        if eof(f) { break; }
+        let line: Text;
+        readln(f, line);   // fills `line`
+        println(line);
+    }
+    close(f);
+}
+```
+
+Sockets (`socket*`), `sqlite*`, `random`/`randomize`, and the clock are also
+effectful.
+
+### HTTP requests (MS-001)
+
+The `http*` calls are effectful (FX-001). The response body lands in an
+`MStream` out-buffer:
+
+- `httpsession() -> Int`, `httpclose(session)`,
+  `httpsetheader(session, name, value)`
+- `httprequest(session, method, url, body, out) -> Int` (HTTP status; `body`
+  is the request payload, `""` for GET; `out` is an initialized `MStream`)
+- `mstreamcreate() -> MStream`, `mstreambuffer(ms) -> Text`,
+  `mstreamfree(ms)` (all pure, no `fx`)
+
+```aether
+fx {
+    let session: Int = httpsession();
+    let out: MStream = mstreamcreate();
+    let status: Int = httprequest(session, "GET", url, "", out);
+    if status == 200 { println(mstreambuffer(out)); }
+    mstreamfree(out);
+    httpclose(session);
+}
+```
+
+`mstreambuffer(out)` is the only way to read the body — never `print(out)`,
+never `let stream: Int = ...`. JSON responses pair with TOON:
+`toon_parse(mstreambuffer(out))`.
+
+### Sockets
+
+Real BSD-socket-style API (`socket*`) and `dnslookup` — not `tcpsocket*`/
+`udpsocket*`/`resolve`, which do not exist. All effectful (FX-001).
+`socketreceive` returns an `MStream` (MS-001), never `Text`/`Int` directly.
+
+- `socketcreate(type[, family]) -> Int`: `type` `0`=TCP, `1`=UDP; `family`
+  `4`=IPv4 (default), `6`=IPv6
+- `socketconnect(socket, host, port) -> Int`,
+  `socketbind(socket, port) -> Int` (all interfaces),
+  `socketbindaddr(socket, host, port) -> Int` (one address),
+  `socketlisten(socket, backlog) -> Int` (all `0`/`-1`);
+  `socketclose(socket)` returns nothing
+- `socketaccept(socket) -> Int` (new socket handle) **blocks** until a peer
+  connects; `socketreceive(socket, maxlen) -> MStream` **blocks** until data
+  arrives (`0`-length result = peer closed, not failure)
+- `socketsend(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
+- `socketpeeraddr(socket) -> Text`, `socketlasterror() -> Int`
+- `socketsetblocking(socket, blocking: Bool)`,
+  `socketpoll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
+  `2`=writable, bitwise-or; `0` on timeout) — the non-blocking alternative to
+  a bare `socketaccept`/`socketreceive`
+- `dnslookup(hostname) -> Text` (forward only; `""` on failure)
+
+`socketaccept`/`socketreceive` hang forever with no peer. Either run a
+same-process client+server pair via `par` (create/bind/listen *before* the
+`par` block so the client can't race a not-yet-listening server; `par`
+joins), or use `socketsetblocking(s, false)` + poll `socketpoll` in a loop.
+
+```aether
+type Message {
+    payload: Text;
+}
+fn server(listenSock: Int, out: Message) -> Void {
+    fx {
+        let conn: Int = socketaccept(listenSock);
+        let ms: MStream = socketreceive(conn, 256);
+        out.payload = mstreambuffer(ms);
+        socketsend(conn, "pong");
+        mstreamfree(ms);
+        socketclose(conn);
+        socketclose(listenSock);
+    }
+    ret;
+}
+fn client(port: Int, out: Message) -> Void {
+    fx {
+        let sock: Int = socketcreate(0);
+        socketconnect(sock, "127.0.0.1", port);
+        socketsend(sock, "ping");
+        let ms: MStream = socketreceive(sock, 256);
+        out.payload = mstreambuffer(ms);
+        mstreamfree(ms);
+        socketclose(sock);
+    }
+    ret;
+}
+fn main() -> Void {
+    let port: Int = 23557;
+    let listenSock: Int = 0;
+    let serverMsg: Message = new Message();
+    let clientMsg: Message = new Message();
+    fx {
+        listenSock = socketcreate(0);
+        socketbind(listenSock, port);
+        socketlisten(listenSock, 1);
+    }
+    par {
+        server(listenSock, serverMsg);
+        client(port, clientMsg);
+    }
+    ret;
+}
+```
+
+### Tasks and AI
+
+`sleep(ms: Int) -> Void`,
+`ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`,
+probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`
+(true for extended *and* core builtins; a core builtin matches on the function
+name whatever category you pass).
+`sleep` and `ai_chat` are effectful and must stay inside `fx`; the `has_*`
+probes are pure. `sleep(ms)` is a blocking millisecond pause. To run your own
+code concurrently use `par`.
+
+Discovery (for builtins beyond this guide — deeper I/O, networking, DB, and
+host-registered **custom** builtins). Agentic only: these are run-time calls.
+- `builtins_json()` -> JSON list of all Aether-visible builtins
+- `builtins_json(true)` -> richer metadata (`signature`, `effectful`, ...)
+- `builtin_info(name)` -> metadata for one builtin
+- `aether --dump-ext-builtins` -> registered custom/extended builtins
+
+Discover the exact name, signature, and `effectful` flag, then call it (inside
+`fx` if effectful). Writing in one shot? Stay within this guide; never guess
+an unlisted name or its signature.
