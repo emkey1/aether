@@ -1,0 +1,26 @@
+field len=3 [ 20 30 40 ]
+field text title
+nested len=2 [ 2 3 ]
+nested text inner
+element pq 2
+element text alpha
+field element len=2 [ 6 7 ]
+grid row len=2 [ 4 5 ]
+grid rows 1 3
+records 1 beta-item
+self len=2 [ 10 20 ]
+self nested len=3 [ 2 3 4 ]
+self text outer 1 alpha-item pq
+popped 50
+after pop len=4 [ 10 20 30 40 ]
+extension len=2 [ 30 40 ]
+argument 30
+indexed 20
+concat len=3 [ 10 3 4 ]
+inferred len=2 [ 10 20 ]
+field after write len=4 [ 10 20 30 40 ]
+method on field len=2 [ 2 3 ]
+method on element len=2 [ 1 2 ]
+assigned len=2 [ 20 30 ]
+element assigned len=1 [ 5 ]
+late type len=2 [ 8 9 ]

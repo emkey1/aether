@@ -1151,6 +1151,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->currentModuleName = NULL;
     p->bindings = bindings;
     p->funcReturns = NULL;
+    p->fieldTypes = NULL;
     p->tuples = NULL;
     p->nextTupleTypeId = NULL;
     p->classFields = NULL;
@@ -1181,6 +1182,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->exprAfterOpLine = 0;
     p->stmtStartAt = NULL;
     p->detachedText = false;
+    p->detachedLine = 0;
 }
 
 /* Record that the operator token `op` was just consumed, so a missing right
@@ -3515,11 +3517,14 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     sub.functionDepth = p->functionDepth;
     sub.currentClassName = p->currentClassName;
     sub.funcReturns = p->funcReturns;
+    sub.fieldTypes = p->fieldTypes;
     sub.tuples = p->tuples;
     sub.nextTupleTypeId = p->nextTupleTypeId;
     sub.classFields = p->classFields;
     sub.inMethodContract = inMethodContract;
     sub.detachedText = true;
+    sub.detachedLine = line;
+    sub.currentReturnTypeName = p->currentReturnTypeName; /* types a sliced `result` */
     aetherAdvance(&sub);
     AST *expr = parseExpr(&sub);
     if (!expr || sub.hadError) {
@@ -3550,6 +3555,7 @@ static bool aetherCheckContractClauseEnd(AetherParser *p, const char *kind,
     aetherParserInit(&sub, text, p->bindings);
     sub.currentClassName = p->currentClassName;
     sub.funcReturns = p->funcReturns;
+    sub.fieldTypes = p->fieldTypes;
     sub.tuples = p->tuples;
     sub.nextTupleTypeId = p->nextTupleTypeId;
     sub.classFields = p->classFields;
@@ -6437,8 +6443,21 @@ static AST *parseTypeDecl(AetherParser *p) {
                 aetherAdvance(p); /* consume ':' */
                 VarType fvtype = TYPE_UNKNOWN;
                 if (aetherRejectTupleTypeHere(p, "record field")) { freeToken(fieldTok); break; }
-                AST *ftypeNode = parseTypeWithArraySuffix(p, &fvtype, NULL);
-                if (!ftypeNode) { freeToken(fieldTok); p->hadError = true; break; }
+                char *fieldTypeName = NULL;
+                AST *ftypeNode = parseTypeWithArraySuffix(p, &fvtype, &fieldTypeName);
+                if (!ftypeNode) { free(fieldTypeName); freeToken(fieldTok); p->hadError = true; break; }
+                /* Record "Type.field" -> its declared type name: a slice whose
+                 * base is a field is typed from it (aetherInferSliceBaseTypeName). */
+                if (fieldTypeName && fieldTok->value && classNameTok->value && p->fieldTypes) {
+                    size_t keyLen = strlen(classNameTok->value) + 1 + strlen(fieldTok->value) + 1;
+                    char *key = (char *)malloc(keyLen);
+                    if (key) {
+                        snprintf(key, keyLen, "%s.%s", classNameTok->value, fieldTok->value);
+                        bindingTableSet(p->fieldTypes, key, fieldTypeName);
+                        free(key);
+                    }
+                }
+                free(fieldTypeName);
                 AST *fieldVar = newASTNode(AST_VARIABLE, fieldTok);
                 setTypeAST(fieldVar, fvtype);
                 AST *fieldDecl = newASTNode(AST_VAR_DECL, NULL);
@@ -6978,13 +6997,15 @@ static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tup
  * everything else (types are registered via insertType during their parse, which
  * is idempotent; top-level const folding is suppressed via forwardScan to avoid a
  * redefinition warning the real pass would trip). Shares the caller's
- * binding/return/tuple tables. */
+ * binding/return/field/tuple tables. */
 static void aetherRunForwardScan(const char *source, AetherBindingTable *bindings,
-                                 AetherBindingTable *funcReturns, AetherTupleTable *tuples,
+                                 AetherBindingTable *funcReturns,
+                                 AetherBindingTable *fieldTypes, AetherTupleTable *tuples,
                                  int *nextTupleTypeId, AST *decls) {
     AetherParser fp;
     aetherParserInit(&fp, source, bindings);
     fp.funcReturns = funcReturns;
+    fp.fieldTypes = fieldTypes;
     fp.tuples = tuples;
     fp.nextTupleTypeId = nextTupleTypeId;
     fp.forwardScan = true;
@@ -7155,6 +7176,10 @@ AST *parseAetherAst(const char *rawSource) {
     bindingTableInit(&bindings);
     AetherBindingTable funcReturns;
     bindingTableInit(&funcReturns);
+    /* Declared field types, filled by parseTypeDecl during the forward scan
+     * below, so every body sees every type's fields whatever the order. */
+    AetherBindingTable fieldTypes;
+    bindingTableInit(&fieldTypes);
     AetherTupleTable tuples;
     tupleTableInit(&tuples);
     int nextTupleTypeId = 0;
@@ -7162,6 +7187,7 @@ AST *parseAetherAst(const char *rawSource) {
     AetherParser p;
     aetherParserInit(&p, source, &bindings);
     p.funcReturns = &funcReturns;
+    p.fieldTypes = &fieldTypes;
     p.tuples = &tuples;
     p.nextTupleTypeId = &nextTupleTypeId;
     aetherAdvance(&p);
@@ -7183,6 +7209,7 @@ AST *parseAetherAst(const char *rawSource) {
     if (!aetherRegisterTupleGlobals(source, &tuples, &nextTupleTypeId, decls)) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
+        bindingTableFree(&fieldTypes);
         tupleTableFree(&tuples);
         freeAST(program);
         free(source);
@@ -7206,7 +7233,8 @@ AST *parseAetherAst(const char *rawSource) {
      * diagnostics are redundant with (and less precise than) the real pass below,
      * so emitting them here would double-report every signature-level error. */
     int savedStderr = aetherMuteStderr();
-    aetherRunForwardScan(source, &bindings, &funcReturns, &tuples, &nextTupleTypeId, decls);
+    aetherRunForwardScan(source, &bindings, &funcReturns, &fieldTypes, &tuples,
+                         &nextTupleTypeId, decls);
     aetherUnmuteStderr(savedStderr);
 
     /* From here on, every diagnostic is authoritative + visible. Reset the counter
@@ -7314,6 +7342,7 @@ AST *parseAetherAst(const char *rawSource) {
     if (p.hadError) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
+        bindingTableFree(&fieldTypes);
         tupleTableFree(&tuples);
         freeAST(program);
         free(source);
@@ -7321,6 +7350,7 @@ AST *parseAetherAst(const char *rawSource) {
     }
     bindingTableFree(&bindings);
     bindingTableFree(&funcReturns);
+    bindingTableFree(&fieldTypes);
     tupleTableFree(&tuples);
     free(source);
 

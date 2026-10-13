@@ -90,6 +90,12 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "array-copy") == 0) {
             return "TYPE-001";
         }
+        /* The slice sugar `v[a..b]` on a value that is not an array or a Text,
+         * or whose type cannot be named where the slice is written. A
+         * wrong-type-for-the-operation error like the copy() case above. */
+        if (strcmp(kind, "slice") == 0) {
+            return "TYPE-001";
+        }
         /* A one-dimensional array indexed twice (`let dp: Int[]; dp[i][j]`).
          * Distinct from TYPE-001 because the fix is specific and mechanical --
          * change the declaration's rank, or flatten to one index -- and worth

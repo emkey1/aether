@@ -1,0 +1,25 @@
+// An array slice hoists a temp and a copy loop into the enclosing statement,
+// and a contract clause has none: the guard used to fail with "[SCOPE-001]
+// identifier '__aether_slice_0' not in scope". A Text slice is a plain `copy`
+// call, so `tag`'s contract below is fine.
+type Bag {
+    data: Int[] = [];
+    name: Text = "bag-name";
+
+    @pre self.name[0..3] == "bag"
+    fn tag(self) -> Text {
+        ret self.name;
+    }
+
+    @pre length(self.data[0..1]) > 0
+    fn first(self) -> Int {
+        ret self.data[0];
+    }
+}
+
+fn main() -> Void {
+    let b: Bag = new Bag();
+    b.data = [4, 5, 6];
+    fx { println(b.tag(), " ", b.first()); }
+    ret;
+}

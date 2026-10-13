@@ -1,0 +1,4 @@
+slice_untyped_base_fail.aether:10:
+cannot infer the type of the value sliced with `[a..b]`
+bind it to a typed `let` first
+!__aether_

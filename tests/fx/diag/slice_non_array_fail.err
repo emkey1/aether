@@ -1,0 +1,4 @@
+slice_non_array_fail.aether:10:
+cannot slice a value of type Int with `[a..b]`
+a slice needs an array (`T[]`) or a `Text`
+!__aether_

@@ -1,0 +1,13 @@
+// A slice of a field the type does not declare is the field error, not a
+// complaint about the slice (and not "identifier '__aether_slice_0' not in
+// scope", which is what it used to print beside FIELD-002).
+type Bag {
+    data: Int[] = [];
+}
+
+fn main() -> Void {
+    let b: Bag = new Bag();
+    let f: Int[] = b.dta[0..2];
+    fx { println(length(f)); }
+    ret;
+}

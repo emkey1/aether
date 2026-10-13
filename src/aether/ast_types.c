@@ -253,6 +253,121 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
     return NULL;
 }
 
+/* The declared Aether type name of field `field` of record type `recType`, from
+ * the table parseTypeDecl fills ("Type.field" -> name), or NULL. With a NULL
+ * `field`: non-NULL when the table holds any field of `recType` at all. The
+ * field name compares exactly, as the backend's own field lookup does. */
+static const char *aetherFieldTypeName(const AetherParser *p, const char *recType,
+                                       const char *field) {
+    if (!p || !p->fieldTypes || !recType) return NULL;
+    size_t recLen = strlen(recType);
+    for (size_t i = 0; i < p->fieldTypes->count; i++) {
+        const char *key = p->fieldTypes->items[i].name;
+        if (strncasecmp(key, recType, recLen) != 0 || key[recLen] != '.') continue;
+        if (!field || strcmp(key + recLen + 1, field) == 0)
+            return p->fieldTypes->items[i].typeName;
+    }
+    return NULL;
+}
+
+/* The Aether type name of a slice's base (`base[lo..hi]`), or NULL.
+ *
+ * inferLetTypeName names a local, a parameter, a global and a call result, and
+ * it is asked first, so those bases keep the type they always had. What it
+ * cannot name is a base reached through a record: `o.f`, `o.inner.f`, `self.f`
+ * in a method, `items[i].f`, `o.inner.m()`. Those resolve here, from the
+ * receiver's type and the field's (or method's) declared type. Without a name
+ * the slice could not pick its lowering (a Text is `copy`, an array a hoisted
+ * temp), and the temp it declared had no type node, which rea's resolver reads
+ * as "no declaration": every use of the temp was "[SCOPE-001] identifier
+ * '__aether_slice_N' not in scope".
+ *
+ * Kept apart from inferLetTypeName on purpose: an inferred `let x = o.f;`, the
+ * `.length` property and the array un-alias steps all ask that function, and
+ * teaching it fields would change what they do. */
+char *aetherInferSliceBaseTypeName(AetherParser *p, AST *base) {
+    if (!p || !base) return NULL;
+    char *known = inferLetTypeName(p, base);
+    if (known) return known;
+    switch (base->type) {
+        case AST_VARIABLE:
+            /* `self` inside a `type` body has no binding of its own. */
+            if (base->token && base->token->value && p->currentClassName &&
+                (strcasecmp(base->token->value, "myself") == 0 ||
+                 strcasecmp(base->token->value, "my") == 0))
+                return strdup(p->currentClassName);
+            /* A `@post` clause's `result` has the function's return type (it is
+             * never in the binding table; see contractOperandTypeName). */
+            if (base->token && base->token->value && p->detachedText &&
+                p->currentReturnTypeName && strcmp(base->token->value, "result") == 0)
+                return strdup(p->currentReturnTypeName);
+            return NULL;
+        case AST_FIELD_ACCESS: {
+            if (!base->left || !base->token || !base->token->value) return NULL;
+            char *recv = aetherInferSliceBaseTypeName(p, base->left);
+            const char *ft = aetherFieldTypeName(p, recv, base->token->value);
+            free(recv);
+            return ft ? strdup(ft) : NULL;
+        }
+        case AST_ARRAY_ACCESS: {
+            /* An element of an array reached through a record: `o.rows[i]`. */
+            if (!base->left) return NULL;
+            char *arr = aetherInferSliceBaseTypeName(p, base->left);
+            if (arr && aetherTypeNameIsArray(arr)) {
+                arr[strlen(arr) - 2] = '\0';
+                return arr;
+            }
+            free(arr);
+            return NULL;
+        }
+        case AST_PROCEDURE_CALL: {
+            /* A method call on such a receiver (`o.inner.m()`, `items[i].m()`).
+             * parsePostfix mangles the callee to `Type.m` only for a plain
+             * variable receiver; here the receiver's type gives the same key. */
+            if (!base->left || !base->token || !base->token->value || !p->funcReturns ||
+                strchr(base->token->value, '.'))
+                return NULL;
+            char *recv = aetherInferSliceBaseTypeName(p, base->left);
+            const char *rt = NULL;
+            if (recv) {
+                size_t keyLen = strlen(recv) + 1 + strlen(base->token->value) + 1;
+                char *key = (char *)malloc(keyLen);
+                if (key) {
+                    snprintf(key, keyLen, "%s.%s", recv, base->token->value);
+                    rt = bindingTableGet(p->funcReturns, key, strlen(key));
+                    free(key);
+                }
+            }
+            free(recv);
+            return rt ? strdup(rt) : NULL;
+        }
+        default:
+            return NULL;
+    }
+}
+
+/* For the slice diagnostic: when `base` is `recv.field`, `recv` is a record
+ * type this program declares and the type has no such field, that type's name
+ * (malloc'd). NULL otherwise. */
+char *aetherSliceBaseMissingFieldOwner(AetherParser *p, AST *base) {
+    if (!p || !base || base->type != AST_FIELD_ACCESS || !base->left || !base->token ||
+        !base->token->value)
+        return NULL;
+    char *recv = aetherInferSliceBaseTypeName(p, base->left);
+    if (recv && aetherFieldTypeName(p, recv, NULL) &&
+        !aetherFieldTypeName(p, recv, base->token->value))
+        return recv;
+    free(recv);
+    return NULL;
+}
+
+/* For the slice diagnostic: is `name` a field of the type whose method is
+ * being parsed (so a bare `name[a..b]` was meant as `self.name[a..b]`)? */
+bool aetherIsEnclosingTypeField(AetherParser *p, const char *name) {
+    return p && name && p->currentClassName &&
+           aetherFieldTypeName(p, p->currentClassName, name) != NULL;
+}
+
 /* Is `name` (an Aether type name from the binding table, e.g. "Int[]") an
  * array type -- i.e. does it end in the "[]" suffix parseTypeWithArraySuffix /
  * buildTypeNodeFromName use? */

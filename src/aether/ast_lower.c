@@ -594,23 +594,104 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
         return NULL;
     }
 
+    /* The slice's type is its base's own type name (base is "Int[]" -> the
+     * slice is also "Int[]"): the inference `let x = e;` uses, plus a base
+     * reached through a record field (aetherInferSliceBaseTypeName; it only
+     * reads `base`). The name decides the lowering (Text or array) and types
+     * the hoisted temp, so a base with no name is an error here. It used to
+     * fall back to a temp declared with no type node, which rea's resolver
+     * does not count as a declaration: every such slice failed with
+     * "[SCOPE-001] identifier '__aether_slice_N' not in scope", naming a temp
+     * the author never wrote. */
+    VarType sliceVtype = TYPE_ARRAY;
+    AST *sliceTypeNode = NULL;
+    char *inferredName = aetherInferSliceBaseTypeName(p, base);
+    bool sliceIsText = inferredName && (strcmp(inferredName, "Text") == 0 ||
+                                        strcmp(inferredName, "str") == 0 ||
+                                        strcmp(inferredName, "String") == 0);
+    if (inferredName && !sliceIsText && aetherTypeNameIsArray(inferredName)) {
+        sliceTypeNode = buildTypeNodeFromName(inferredName, strlen(inferredName), line,
+                                              &sliceVtype);
+    }
+    /* Inside a contract clause (a detached sub-parser) report at the clause's
+     * line, not the sub-lexer's. */
+    int diagLine = (p->detachedText && p->detachedLine > 0) ? p->detachedLine : line;
+    if (!sliceIsText && !sliceTypeNode) {
+        if (!p->hadError) {
+            const char *path = aetherSemanticGetSourcePath();
+            const char *baseName = (base->type == AST_VARIABLE && base->token)
+                                       ? base->token->value : NULL;
+            char *fieldOwner = inferredName ? NULL : aetherSliceBaseMissingFieldOwner(p, base);
+            char detail[256];
+            if (inferredName) {
+                snprintf(detail, sizeof(detail),
+                         "cannot slice a value of type %s with `[a..b]`; a slice needs an "
+                         "array (`T[]`) or a `Text`.", inferredName);
+                reportAetherAstError(path, diagLine, "slice", detail,
+                                     "index one element with `[i]`, or slice the array or "
+                                     "Text that holds this value.");
+            } else if (fieldOwner) {
+                /* Not a "slice" error: the detail's wording codes it FIELD-002. */
+                snprintf(detail, sizeof(detail), "Unknown field '%s' on type '%s'.",
+                         base->token->value, fieldOwner);
+                reportAetherAstError(path, diagLine, "field", detail,
+                                     "check the field name against the `type` declaration.");
+            } else if (baseName && aetherIsEnclosingTypeField(p, baseName)) {
+                char hint[160];
+                snprintf(detail, sizeof(detail),
+                         "cannot infer the type of '%s', sliced here with `[a..b]`.", baseName);
+                snprintf(hint, sizeof(hint),
+                         "a field of the enclosing type is written `self.%s`: slice "
+                         "`self.%s[a..b]`.", baseName, baseName);
+                reportAetherAstError(path, diagLine, "slice", detail, hint);
+            } else if (baseName) {
+                char hint[160];
+                snprintf(detail, sizeof(detail),
+                         "cannot infer the type of '%s', sliced here with `[a..b]`.", baseName);
+                snprintf(hint, sizeof(hint),
+                         "declare it with its type before this line, for example "
+                         "`let %s: Int[] = ...;` (or `Text`).", baseName);
+                reportAetherAstError(path, diagLine, "slice", detail, hint);
+            } else {
+                reportAetherAstError(path, diagLine, "slice",
+                        "cannot infer the type of the value sliced with `[a..b]`.",
+                        "bind it to a typed `let` first, for example "
+                        "`let part: Int[] = ...;` (or `Text`), then slice `part[a..b]`.");
+            }
+            free(fieldOwner);
+        }
+        p->hadError = true;
+        free(inferredName);
+        freeAST(base);
+        freeAST(lo);
+        freeAST(hi);
+        return NULL;
+    }
+    /* An array slice hoists its temp and copy loop into the enclosing
+     * statement, and a contract clause has none: the sub-parser's hoists are
+     * dropped, so the guard used to fail with the same "'__aether_slice_N'
+     * not in scope". (A Text slice is a plain `copy` call and is fine there.) */
+    if (!sliceIsText && p->detachedText) {
+        if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), diagLine, "contract",
+                    "an array slice (`xs[a..b]`) cannot be used in a contract expression.",
+                    "test the array itself, for example `length(xs) >= b` or `xs[a] > 0`, "
+                    "or call a fn that takes the whole array.");
+        }
+        p->hadError = true;
+        free(inferredName);
+        freeAST(sliceTypeNode);
+        freeAST(base);
+        freeAST(lo);
+        freeAST(hi);
+        return NULL;
+    }
+
     char tempName[40];
     char idxName[40];
     snprintf(tempName, sizeof(tempName), "__aether_slice_%d", p->nextObjLitId);
     snprintf(idxName, sizeof(idxName), "__aether_slice_idx_%d", p->nextObjLitId);
     p->nextObjLitId++;
-
-    /* Infer the slice's declared type from the base array's own type name
-     * (e.g. base is "Int[]" -> the slice is also "Int[]"), reusing the same
-     * inference `let x = e;` uses. Falls back to an untyped decl (var_type
-     * TYPE_ARRAY, no type node -- same as an inferred `let x = [];` would
-     * produce) if inference fails; the backend still handles a dynamically
-     * typed empty array literal, just without the extra static-type info. */
-    VarType sliceVtype = TYPE_ARRAY;
-    AST *sliceTypeNode = NULL;
-    /* inferLetTypeName only reads its argument (it never takes ownership), so
-     * pass `base` directly -- the copy this used to make was leaked outright. */
-    char *inferredName = inferLetTypeName(p, base);
 
     /* `s[a..b]` where `s` is a Text -> `copy(s, a, b - a)`.
      *
@@ -624,8 +705,7 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
      * does -- including the `ret s[a..b];` position that has no statement slot.
      * (Before Text was 0-based this form was rejected outright with a coded
      * TYPE-001 pointing at copy(); the rejection is what this replaces.) */
-    if (inferredName && (strcmp(inferredName, "Text") == 0 ||
-                         strcmp(inferredName, "str") == 0)) {
+    if (sliceIsText) {
         free(inferredName);
         /* count = hi - lo, built before `lo` is handed to the call. */
         Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
@@ -643,13 +723,6 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
         return call;
     }
 
-    if (inferredName) {
-        sliceTypeNode = buildTypeNodeFromName(inferredName, strlen(inferredName), line, &sliceVtype);
-        if (!sliceTypeNode) {
-            sliceVtype = TYPE_ARRAY;
-        }
-    }
-
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
 
@@ -665,9 +738,7 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
     setRight(sliceDecl, sliceTypeNode);
     setTypeAST(sliceDecl, sliceVtype);
     addChild(outer, sliceDecl);
-    if (inferredName) {
-        bindingTableSet(p->bindings, tempName, inferredName);
-    }
+    bindingTableSet(p->bindings, tempName, inferredName);
     free(inferredName);
 
     /* HI - LO, built once and reused for both setlength's argument and the

@@ -160,6 +160,9 @@ typedef struct {
     AetherBindingTable *funcReturns;    /* fn/method (possibly-mangled) name ->   */
                                         /* Aether return-type name, for inferring */
                                         /* `let x = f(...)` / `x = recv.m(...)`.  */
+    AetherBindingTable *fieldTypes;     /* "Type.field" -> the field's declared   */
+                                        /* Aether type name, for typing a slice   */
+                                        /* whose base is a field (`o.f[a..b]`).   */
     /* Contract + tuple state (MILESTONE 3). */
     AetherTupleTable *tuples;           /* tuple-return fn signatures (global)     */
     int *nextTupleTypeId;               /* monotonically-increasing tuple type id  */
@@ -221,6 +224,9 @@ typedef struct {
     int exprAfterOpLine;
     const char *stmtStartAt;
     bool detachedText;
+    /* The source line a parseExprFromText sub-parser's text belongs to (its
+     * own lexer counts from 1), for a diagnostic raised inside it; else 0. */
+    int detachedLine;
     /* The token before `current` (line, text), for the D39 juxtaposition
      * arm (AETHER_EXPERIMENT=tail=reject). Set by aetherAdvance. */
     int prevLine;
@@ -326,6 +332,9 @@ VarType inferStringLiteralType(const char *text, size_t len);
 VarType resolveConditionalType(AST *thenExpr, AST *elseExpr);
 const char *aetherTypeNameForVarType(VarType vt);
 char *inferLetTypeName(AetherParser *p, AST *init);
+char *aetherInferSliceBaseTypeName(AetherParser *p, AST *base);
+char *aetherSliceBaseMissingFieldOwner(AetherParser *p, AST *base);
+bool aetherIsEnclosingTypeField(AetherParser *p, const char *name);
 bool aetherTypeNameIsArray(const char *name);
 int aetherTypeNameRank(const char *name);
 

@@ -1,0 +1,4 @@
+slice_bare_field_fail.aether:5:
+cannot infer the type of 'data', sliced here with `[a..b]`
+slice `self.data[a..b]`
+!__aether_

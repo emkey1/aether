@@ -1,0 +1,13 @@
+// A slice is typed from its base, and a base whose type the parser cannot name
+// (here a tuple item) has none. It used to fail with "[SCOPE-001] identifier
+// '__aether_slice_1' not in scope", naming a temp the author never wrote.
+fn pair() -> (Int[], Text) {
+    ret ([1, 2, 3], "hello world");
+}
+
+fn main() -> Void {
+    let t = pair();
+    let a: Int[] = t.0[0..2];
+    fx { println(length(a)); }
+    ret;
+}

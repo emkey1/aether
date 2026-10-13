@@ -1,0 +1,4 @@
+slice_in_contract_fail.aether:15:
+an array slice (`xs[a..b]`) cannot be used in a contract expression
+!__aether_
+!slice_in_contract_fail.aether:10:

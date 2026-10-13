@@ -1,0 +1,13 @@
+// A slice of a value that is neither an array nor a Text. A field used to fail
+// with "[SCOPE-001] identifier '__aether_slice_0' not in scope", and a local
+// with an uncoded "Type mismatch: Cannot assign ARRAY to integer".
+type Bag {
+    n: Int = 0;
+}
+
+fn main() -> Void {
+    let b: Bag = new Bag();
+    let f: Int[] = b.n[0..2];
+    fx { println(length(f)); }
+    ret;
+}

@@ -1,0 +1,15 @@
+// A field sliced inside a method without `self.`: the hint names the form.
+type Bag {
+    data: Int[] = [];
+    fn two(self) -> Int[] {
+        ret data[0..2];
+    }
+}
+
+fn main() -> Void {
+    let b: Bag = new Bag();
+    b.data = [4, 5, 6];
+    let f: Int[] = b.two();
+    fx { println(length(f)); }
+    ret;
+}
