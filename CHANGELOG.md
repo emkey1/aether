@@ -12,6 +12,43 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-13-1
+
+**A slice of a field compiles.** `o.f[a..b]`, a nested field, `self.f[a..b]` in a
+method or an extension method, a field of an array element (`items[i].tags[0..2]`),
+a row of a 2-D field and the result of a method called on a field were all
+`[SCOPE-001] identifier '__aether_slice_0' not in scope`: the slice's hoisted
+temporary was declared without a type whenever its base was reached through a
+record, and the resolver then refused it. Found on the B0 baseline boards, where
+it cost first attempts in three model families (`hard2_expr_eval`,
+`hard2_heap_sort`). Front end only; the pins stay at pscal-core `2cb751d` and rea
+`b1320cf`. Outside the L-series: one defect, shipped on its own.
+
+- **Typing.** The parser records each field's declared type; a slice base that is
+  a field, a field of an element, or a method result on such a receiver takes its
+  type from there. A slice of a Text field lowers to `copy` as a Text local does.
+  Let-inference for other expressions is unchanged.
+- **Diagnostics.** A slice the parser cannot type is `TYPE-001` at the slice
+  (tuple item `t.0[a..b]`, a field of a record type declared in a `use`d module, a
+  bare field name inside a method, with a hint to write `self.f[a..b]`), never an
+  internal name. An unknown field is `FIELD-002`; a slice of a non-array is
+  `TYPE-001` (it was an uncoded run-time error); an array slice inside `@pre` /
+  `@post` is `ANN-001`.
+- **Also changed:** a local declared `String` and sliced now behaves as a `Text`
+  (it died at run time with "Cannot assign ARRAY to string").
+
+Fixtures: `lower/slice_of_field_pass`, `diag/slice_{untyped_base,non_array,unknown_field,bare_field,in_contract}_fail`.
+
+Replay (hard_nontoon first attempts of the B0 baseline, 116 attempts, against
+2026-10-06-1): pass 53 -> 61; the 9 that move are `hard2_expr_eval` (8) and
+`hard2_heap_sort` (1), all from the SCOPE-001 above; nothing that passed on L1
+fails. One stored repair attempt moves from that SCOPE-001 to a wrong answer: its
+own range drops two elements per step (`xs[0..n - 2]`), which the compile error
+had been hiding.
+
+Known and not fixed here: a slice in a `loop` condition is evaluated once, before
+the loop; a call used as a slice base is called once per element copied.
+
 ## 2026-10-08-1
 
 **Release L1 (front end batch A, with batch B items W4-19, W4-22, W4-25, W4-32 and
