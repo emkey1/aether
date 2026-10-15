@@ -2472,7 +2472,9 @@ AST *parseLoopRange(AetherParser *p) {
     /* The upper bound is re-read before every pass (the test is `NAME < HIGH`),
      * so its hoists (an array slice or a record literal in it) run there too
      * (buildWhileWithHoists), not once ahead of the loop. The low bound and a
-     * step are evaluated once; theirs stay ahead of the loop. */
+     * step are evaluated once; theirs stay ahead of the loop. Backlog W4-33
+     * (tests/backlog/range_bound_reread) is the re-read itself: the fix that
+     * evaluates the bound once must move these hoists back ahead of the loop. */
     int highMark = p->pendingObjLitCount;
     AST *high = parseAdd(p);
     if (!high) {

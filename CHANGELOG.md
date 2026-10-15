@@ -12,6 +12,41 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-15-1
+
+**A foreach over a field compiles; a slice in a loop condition is rebuilt every
+pass.** `loop x in o.items` was `[TYPE-001] cannot infer the type of the
+collection`, and the full guide told models to bind the field to a typed local
+first. An array slice or a record literal in a loop condition was built once,
+before the loop, so `loop total(xs[i..n]) > 5 { i = i + 1; }` never ended. Front
+end only; the pins stay at pscal-core `2cb751d` and rea `b1320cf`. Outside the
+L-series: two defects, shipped together.
+
+- **Foreach over a field.** `loop x in o.items` (and `o.inner.f`, `self.f` in a
+  method or an extension method, `items[i].f`, a Text or String field, a row of a
+  2-D field, a method called on a field) is typed the way a slice's base is and
+  loops. Binding the field to a typed local first still works. An unknown field is
+  `FIELD-002`; a bare field name in a method is `TYPE-001` with a hint to write
+  `loop v in self.f`. A tuple item and a field of a type from a `use`d module still
+  need the typed local.
+- **Slices and record literals in conditions.** An array slice or a record literal
+  in a loop condition (`loop`, `loop while`, `while`) or in a range loop's upper
+  bound is now rebuilt before every test. In the right operand of `&&` / `||`, a
+  branch of `?:` or an if-expression, or an `else if` condition it is built only
+  when that part is evaluated, so `n <= length(xs) && total(xs[0..n]) > 0` is
+  false instead of an `ARR-003` out-of-bounds stop.
+- **Range upper bound.** A range loop re-reads its upper bound before every pass,
+  with or without a slice in it, and a slice there now follows that rule. Backlog
+  W4-33 records the re-read as the defect to fix: whoever makes the bound evaluate
+  once must move the bound's hoists back ahead of the loop with it (the
+  `aetherTakePendingHoists` call in `parseLoopRange`).
+
+Guide: the full guide is `2026-10-15-1` (a field is a loop collection); medium and
+small are unchanged.
+
+Fixtures: `lower/foreach_field_pass`, `lower/slice_in_condition_pass`,
+`diag/foreach_{unknown,bare}_field_fail`.
+
 ## 2026-10-13-1
 
 **A slice of a field compiles.** `o.f[a..b]`, a nested field, `self.f[a..b]` in a
