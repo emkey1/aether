@@ -1245,6 +1245,41 @@ void pushPendingObjLit(AetherParser *p, AST *hoisted) {
     p->pendingObjLits[p->pendingObjLitCount++] = hoisted;
 }
 
+/* The hoists queued since `mark`, taken off the pending list and flattened (an
+ * i_val==1 splice contributes its children, in order) into a new plain
+ * AST_COMPOUND; NULL when nothing was queued after `mark`.
+ *
+ * A hoist runs once, ahead of the statement its expression belongs to. That is
+ * right for an expression the statement evaluates exactly once, and wrong for
+ * one it evaluates on every pass (a loop condition, a range loop's upper
+ * bound) or only sometimes (the right of `&&`/`||`, a branch of `?:` or of an
+ * if-expression, an `else if` condition): a slice there was copied once before
+ * the loop, so `loop total(xs[i..n]) > 5 { i = i + 1; }` never saw `i` change,
+ * and a guarded slice was copied even when its guard was false. Those callers
+ * mark the pending count before parsing the sub-expression, take its hoists
+ * here, and put them where the sub-expression is evaluated. */
+AST *aetherTakePendingHoists(AetherParser *p, int mark) {
+    if (!p || mark < 0 || p->pendingObjLitCount <= mark) return NULL;
+    AST *list = newASTNode(AST_COMPOUND, NULL);
+    for (int i = mark; i < p->pendingObjLitCount; i++) {
+        AST *hoisted = p->pendingObjLits[i];
+        p->pendingObjLits[i] = NULL;
+        if (!hoisted) continue;
+        if (hoisted->type == AST_COMPOUND && hoisted->i_val == 1) {
+            for (int j = 0; j < hoisted->child_count; j++) {
+                if (hoisted->children[j]) addChild(list, hoisted->children[j]);
+                hoisted->children[j] = NULL;
+            }
+            hoisted->child_count = 0;
+            freeAST(hoisted);
+        } else {
+            addChild(list, hoisted);
+        }
+    }
+    p->pendingObjLitCount = mark;
+    return list;
+}
+
 /* True if the current token's text equals `kw` exactly. Aether keywords come
  * through the Rea lexer as identifiers, so we compare the lexeme span. */
 static bool tokTextIs(const ReaToken *t, const char *kw) {
@@ -2491,6 +2526,7 @@ static AST *parseIfExpr(AetherParser *p) {
         return NULL;
     }
     aetherAdvance(p); /* consume '{' */
+    int thenMark = p->pendingObjLitCount;
     AST *thenExpr = parseExpr(p);
     if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
     if (p->current.type == REA_TOKEN_RIGHT_BRACE) {
@@ -2512,6 +2548,7 @@ static AST *parseIfExpr(AetherParser *p) {
         return NULL;
     }
     aetherAdvance(p); /* consume 'else' */
+    int elseMark = p->pendingObjLitCount;
     AST *elseExpr = NULL;
     if (p->current.type == REA_TOKEN_IF) {
         /* Chained 'else if' in value position: recurse exactly like
@@ -2555,7 +2592,8 @@ static AST *parseIfExpr(AetherParser *p) {
     setRight(node, thenExpr);
     setExtra(node, elseExpr);
     setTypeAST(node, resolveConditionalType(thenExpr, elseExpr));
-    return node;
+    /* Only one branch runs: so do only its hoists (aetherDeferConditionalHoists). */
+    return aetherDeferConditionalHoists(p, node, thenMark, elseMark);
 }
 
 static AST *parsePrimary(AetherParser *p) {
@@ -3369,6 +3407,7 @@ static AST *parseLogicalAnd(AetherParser *p) {
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
+        int mark = p->pendingObjLitCount;
         AST *right = parseBitwiseOr(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_AND, "&&", op.line, 0);
@@ -3376,7 +3415,9 @@ static AST *parseLogicalAnd(AetherParser *p) {
         setLeft(bin, node);
         setRight(bin, right);
         setTypeAST(bin, TYPE_BOOLEAN);
-        node = bin;
+        /* The right operand runs only when the left is true: its hoists too. */
+        node = aetherDeferShortCircuitHoists(p, bin, mark, true);
+        if (!node) return NULL;
     }
     return node;
 }
@@ -3388,6 +3429,7 @@ static AST *parseLogicalOr(AetherParser *p) {
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
+        int mark = p->pendingObjLitCount;
         AST *right = parseLogicalAnd(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_OR, "||", op.line, 0);
@@ -3395,7 +3437,9 @@ static AST *parseLogicalOr(AetherParser *p) {
         setLeft(bin, node);
         setRight(bin, right);
         setTypeAST(bin, TYPE_BOOLEAN);
-        node = bin;
+        /* The right operand runs only when the left is false: its hoists too. */
+        node = aetherDeferShortCircuitHoists(p, bin, mark, false);
+        if (!node) return NULL;
     }
     return node;
 }
@@ -3412,6 +3456,7 @@ static AST *parseConditional(AetherParser *p) {
     ReaToken question = p->current;
     aetherAdvance(p); /* consume '?' */
     aetherNoteOperator(p, &question);
+    int thenMark = p->pendingObjLitCount;
     AST *thenBranch = parseExpr(p);
     if (!thenBranch) { p->hadError = true; freeAST(cond); return NULL; }
     if (p->current.type != REA_TOKEN_COLON) {
@@ -3424,6 +3469,7 @@ static AST *parseConditional(AetherParser *p) {
     ReaToken colon = p->current;
     aetherAdvance(p); /* consume ':' */
     aetherNoteOperator(p, &colon);
+    int elseMark = p->pendingObjLitCount;
     AST *elseBranch = parseExpr(p);
     if (!elseBranch) { p->hadError = true; freeAST(cond); freeAST(thenBranch); return NULL; }
     Token *tok = newToken(TOKEN_IF, "?", question.line, 0);
@@ -3432,7 +3478,8 @@ static AST *parseConditional(AetherParser *p) {
     setRight(node, thenBranch);
     setExtra(node, elseBranch);
     setTypeAST(node, resolveConditionalType(thenBranch, elseBranch));
-    return node;
+    /* Only one branch runs: so do only its hoists. */
+    return aetherDeferConditionalHoists(p, node, thenMark, elseMark);
 }
 
 /* Assignment is right-associative and only valid with an lvalue on the left
@@ -4526,7 +4573,17 @@ static AST *parseIfStmt(AetherParser *p) {
     if (p->current.type == REA_TOKEN_ELSE) {
         aetherAdvance(p);
         if (p->current.type == REA_TOKEN_IF) {
+            /* An `else if` condition is tested only when the conditions before
+             * it were false, so its hoists (aetherTakePendingHoists) open the
+             * else branch instead of running ahead of the whole `if`. (Its
+             * branches' statements flush their own hoists.) */
+            int mark = p->pendingObjLitCount;
             elseBranch = parseIfStmt(p);
+            AST *condHoists = p->detachedText ? NULL : aetherTakePendingHoists(p, mark);
+            if (condHoists) {
+                if (elseBranch) addChild(condHoists, elseBranch);
+                elseBranch = condHoists;
+            }
         } else if (p->current.type == REA_TOKEN_LEFT_BRACE) {
             elseBranch = parseBlock(p);
         } else {
@@ -4587,18 +4644,23 @@ static AST *parseLoop(AetherParser *p) {
         }
     }
 
-    /* Condition form: `loop EXPR { }` -> while (EXPR) { }. */
+    /* Condition form: `loop EXPR { }` -> while (EXPR) { }. The condition's
+     * hoists run before every test (buildWhileWithHoists), not once. */
+    int condLine = p->current.line;
+    int mark = p->pendingObjLitCount;
     AST *cond = parseExpr(p);
     if (!cond) { p->hadError = true; return NULL; }
+    AST *condHoists = p->detachedText ? NULL : aetherTakePendingHoists(p, mark);
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                 "expected '{' to open loop body.", NULL);
         p->hadError = true;
         freeAST(cond);
+        if (condHoists) freeAST(condHoists);
         return NULL;
     }
     AST *body = parseBlock(p);
-    return buildWhile(cond, body);
+    return buildWhileWithHoists(cond, condHoists, body, condLine);
 }
 
 /* `for NAME in LOW..HIGH { }` -- a spelling of the range loop. The rewriter
@@ -4612,17 +4674,21 @@ static AST *parseForLoop(AetherParser *p) {
  * `while (EXPR) { }`, identical to `loop EXPR`. */
 static AST *parseWhileLoop(AetherParser *p) {
     aetherAdvance(p); /* consume 'while' */
+    int condLine = p->current.line;
+    int mark = p->pendingObjLitCount;
     AST *cond = parseExpr(p);
     if (!cond) { p->hadError = true; return NULL; }
+    AST *condHoists = p->detachedText ? NULL : aetherTakePendingHoists(p, mark);
     if (p->current.type != REA_TOKEN_LEFT_BRACE) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                 "expected '{' to open while body.", NULL);
         p->hadError = true;
         freeAST(cond);
+        if (condHoists) freeAST(condHoists);
         return NULL;
     }
     AST *body = parseBlock(p);
-    return buildWhile(cond, body);
+    return buildWhileWithHoists(cond, condHoists, body, condLine);
 }
 
 /* Peek the token after `current` without consuming it (the same save/restore
@@ -5159,27 +5225,11 @@ AST *parseStatement(AetherParser *p) {
      * run after this statement's other hoists (they may reference them). */
     AST *argHoists = aetherHoistCallLiteralArgs(p, stmt);
     if (argHoists) pushPendingObjLit(p, argHoists);
-    if (p->pendingObjLitCount <= mark) {
+    AST *wrapper = aetherTakePendingHoists(p, mark);
+    if (!wrapper) {
         return stmt;
     }
-    AST *wrapper = newASTNode(AST_COMPOUND, NULL);
     wrapper->i_val = 1;
-    for (int i = mark; i < p->pendingObjLitCount; i++) {
-        AST *hoisted = p->pendingObjLits[i];
-        if (!hoisted) continue;
-        if (hoisted->type == AST_COMPOUND && hoisted->i_val == 1) {
-            for (int j = 0; j < hoisted->child_count; j++) {
-                if (hoisted->children[j]) addChild(wrapper, hoisted->children[j]);
-                hoisted->children[j] = NULL;
-            }
-            hoisted->child_count = 0;
-            freeAST(hoisted);
-        } else {
-            addChild(wrapper, hoisted);
-        }
-        p->pendingObjLits[i] = NULL;
-    }
-    p->pendingObjLitCount = mark;
     /* `stmt` may itself be a declaration-group splice (i_val==1) -- e.g. the
      * let-position concat/append/object-init expansions, which put the new
      * variable's decl inside that compound. Flatten it in rather than nesting

@@ -270,6 +270,7 @@ const AetherTupleSig *tupleTableGet(const AetherTupleTable *t, const char *name,
 void aetherTupleSyntheticTypeName(char *buf, size_t bufSize, int typeId);
 void aetherAdvance(AetherParser *p);
 void pushPendingObjLit(AetherParser *p, AST *hoisted);
+AST *aetherTakePendingHoists(AetherParser *p, int mark);
 bool isAetherKeyword(const ReaToken *t, const char *kw);
 bool aetherTokenIsIdentifierLike(const ReaToken *t);
 bool mapAetherType(const char *name, size_t len,
@@ -322,6 +323,9 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine);
 AST *parseRet(AetherParser *p);
 AST *parseLoopRange(AetherParser *p);
 AST *buildWhile(AST *cond, AST *body);
+AST *buildWhileWithHoists(AST *cond, AST *hoists, AST *body, int line);
+AST *aetherDeferShortCircuitHoists(AetherParser *p, AST *bin, int mark, bool isAnd);
+AST *aetherDeferConditionalHoists(AetherParser *p, AST *ternary, int thenMark, int elseMark);
 AST *parseParBlock(AetherParser *p);
 
 /* ---- Defined in ast_types.c ----------------------------------------- */

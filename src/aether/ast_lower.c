@@ -2469,6 +2469,11 @@ AST *parseLoopRange(AetherParser *p) {
     ReaToken dots = p->current;
     aetherAdvance(p); /* consume '..' */
     aetherNoteOperator(p, &dots);
+    /* The upper bound is re-read before every pass (the test is `NAME < HIGH`),
+     * so its hoists (an array slice or a record literal in it) run there too
+     * (buildWhileWithHoists), not once ahead of the loop. The low bound and a
+     * step are evaluated once; theirs stay ahead of the loop. */
+    int highMark = p->pendingObjLitCount;
     AST *high = parseAdd(p);
     if (!high) {
         if (!p->hadError) {
@@ -2480,6 +2485,7 @@ AST *parseLoopRange(AetherParser *p) {
         free(nameBuf);
         return NULL;
     }
+    AST *highHoists = p->detachedText ? NULL : aetherTakePendingHoists(p, highMark);
     if (high->var_type == TYPE_BOOLEAN) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "loop range bound must be numeric (Int/Real), not Bool -- "
@@ -2488,6 +2494,7 @@ AST *parseLoopRange(AetherParser *p) {
         p->hadError = true;
         freeAST(low);
         freeAST(high);
+        if (highHoists) freeAST(highHoists);
         free(nameBuf);
         return NULL;
     }
@@ -2509,6 +2516,7 @@ AST *parseLoopRange(AetherParser *p) {
             if (step) freeAST(step);
             freeAST(low);
             freeAST(high);
+            if (highHoists) freeAST(highHoists);
             free(nameBuf);
             return NULL;
         }
@@ -2520,6 +2528,7 @@ AST *parseLoopRange(AetherParser *p) {
                 freeAST(step);
                 freeAST(low);
                 freeAST(high);
+                if (highHoists) freeAST(highHoists);
                 free(nameBuf);
                 return NULL;
             }
@@ -2543,6 +2552,7 @@ AST *parseLoopRange(AetherParser *p) {
         if (step) freeAST(step);
         freeAST(low);
         freeAST(high);
+        if (highHoists) freeAST(highHoists);
         free(nameBuf);
         return NULL;
     }
@@ -2601,10 +2611,7 @@ AST *parseLoopRange(AetherParser *p) {
     AST *whileBody = newASTNode(AST_COMPOUND, NULL);
     addChild(whileBody, body);
     addChild(whileBody, postStmt);
-    AST *whileNode = newASTNode(AST_WHILE, NULL);
-    setLeft(whileNode, cond);
-    setRight(whileNode, whileBody);
-    addChild(outer, whileNode);
+    addChild(outer, buildWhileWithHoists(cond, highHoists, whileBody, idLine));
 
     free(nameBuf);
     return outer;
@@ -2617,6 +2624,176 @@ AST *buildWhile(AST *cond, AST *body) {
     setLeft(node, cond);
     setRight(node, body);
     return node;
+}
+
+/* A loop whose condition queued hoists (an array slice or a record literal in
+ * it; see aetherTakePendingHoists) runs them before every test, as the
+ * condition itself is evaluated before every pass:
+ *
+ *     while (true) {
+ *         HOISTS;
+ *         if (cond) { body } else { break; }
+ *     }
+ *
+ * Spliced ahead of the loop instead, they ran once, so the condition kept
+ * reading the first pass's copy. `continue` in `body` goes to the top, which
+ * re-runs the hoists and the test, as it re-tests the plain loop's condition
+ * (a range loop has already spliced its increment ahead of each `continue`);
+ * `break` leaves the same loop. With no hoists this is buildWhile. */
+AST *buildWhileWithHoists(AST *cond, AST *hoists, AST *body, int line) {
+    if (!hoists) return buildWhile(cond, body);
+    Token *trueTok = newToken(TOKEN_TRUE, "true", line, 0);
+    AST *always = newASTNode(AST_BOOLEAN, trueTok);
+    setTypeAST(always, TYPE_BOOLEAN);
+    always->i_val = 1;
+    AST *elseBlock = newASTNode(AST_COMPOUND, NULL);
+    addChild(elseBlock, newASTNode(AST_BREAK, NULL));
+    AST *test = newASTNode(AST_IF, NULL);
+    setLeft(test, cond);
+    setRight(test, body);
+    setExtra(test, elseBlock);
+    AST *whileBody = hoists; /* a plain compound: the hoists, then the test */
+    whileBody->i_val = 0;
+    addChild(whileBody, test);
+    return buildWhile(always, whileBody);
+}
+
+/* `NAME = value;` as an expression statement; `value` ownership transfers. */
+static AST *buildNameAssignStmt(const char *name, VarType vt, AST *value, int line) {
+    Token *assignTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+    AST *assign = newASTNode(AST_ASSIGN, assignTok);
+    setLeft(assign, buildVarRef(name, vt, line));
+    setRight(assign, value);
+    setTypeAST(assign, vt);
+    AST *stmt = newASTNode(AST_EXPR_STMT, assign->token);
+    setLeft(stmt, assign);
+    return stmt;
+}
+
+/* Detach and return `node`'s left (or right / extra) child. */
+static AST *aetherTakeLeft(AST *node) {
+    AST *c = node->left; node->left = NULL; if (c) c->parent = NULL; return c;
+}
+static AST *aetherTakeRight(AST *node) {
+    AST *c = node->right; node->right = NULL; if (c) c->parent = NULL; return c;
+}
+static AST *aetherTakeExtra(AST *node) {
+    AST *c = node->extra; node->extra = NULL; if (c) c->parent = NULL; return c;
+}
+
+/* `left && right` / `left || right` (`bin`) whose right operand queued hoists
+ * since `mark`. `&&` and `||` short-circuit, so those hoists may run only when
+ * the right operand is evaluated; spliced ahead of the statement they always
+ * ran, and `n <= length(xs) && total(xs[0..n]) > 0` copied the slice (and
+ * failed out of bounds) even when the guard was false. Queues instead
+ *
+ *     let __aether_cond_N: Bool = left;
+ *     if (__aether_cond_N) { HOISTS; __aether_cond_N = right; }          -- &&
+ *     if (__aether_cond_N) { } else { HOISTS; __aether_cond_N = right; } -- ||
+ *
+ * and returns `__aether_cond_N`. The left operand's own hoists were queued
+ * before `mark` and still run first. Returns `bin` itself when nothing was
+ * queued, and in a contract clause (its hoists are not spliced anywhere). */
+AST *aetherDeferShortCircuitHoists(AetherParser *p, AST *bin, int mark, bool isAnd) {
+    if (!p || !bin || p->detachedText || p->pendingObjLitCount <= mark) return bin;
+    AST *hoists = aetherTakePendingHoists(p, mark);
+    if (!hoists) return bin;
+    int line = bin->token ? bin->token->line : 0;
+    char name[48];
+    snprintf(name, sizeof(name), "__aether_cond_%d", p->nextObjLitId++);
+    AST *left = aetherTakeLeft(bin);
+    AST *right = aetherTakeRight(bin);
+    freeAST(bin);
+
+    AST *decl = buildTypedLetDecl(name, "Bool", left, line);
+    if (!decl) {
+        p->hadError = true;
+        freeAST(hoists);
+        freeAST(right);
+        return NULL;
+    }
+    if (p->bindings) bindingTableSet(p->bindings, name, "Bool");
+    AST *guarded = hoists; /* a plain compound: the hoists, then the assignment */
+    guarded->i_val = 0;
+    addChild(guarded, buildNameAssignStmt(name, TYPE_BOOLEAN, right, line));
+    AST *test = newASTNode(AST_IF, NULL);
+    setLeft(test, buildVarRef(name, TYPE_BOOLEAN, line));
+    if (isAnd) {
+        setRight(test, guarded);
+    } else {
+        setRight(test, newASTNode(AST_COMPOUND, NULL));
+        setExtra(test, guarded);
+    }
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, decl);
+    addChild(outer, test);
+    pushPendingObjLit(p, outer);
+    return buildVarRef(name, TYPE_BOOLEAN, line);
+}
+
+/* `cond ? a : b` / `if cond { a } else { b }` (`ternary`) whose branches queued
+ * hoists: `a`'s from `thenMark` to `elseMark`, `b`'s from `elseMark` on. Only
+ * one branch is evaluated, so each branch's hoists must run only with it.
+ * Queues
+ *
+ *     let __aether_cond_N: T;
+ *     if (cond) { A_HOISTS; __aether_cond_N = a; } else { B_HOISTS; __aether_cond_N = b; }
+ *
+ * and returns `__aether_cond_N`, where T is the expression's inferred type
+ * name. When T cannot be named the hoists go back on the queue and run ahead
+ * of the statement, as they always did. `cond`'s own hoists were queued before
+ * `thenMark` and still run first. */
+AST *aetherDeferConditionalHoists(AetherParser *p, AST *ternary, int thenMark, int elseMark) {
+    if (!p || !ternary || p->detachedText || p->pendingObjLitCount <= thenMark) return ternary;
+    /* A scalar result keeps the type resolveConditionalType gave the whole
+     * expression (an Int and a Real branch make a Real); an array or a record
+     * is named from a branch. */
+    const char *scalar = aetherTypeNameForVarType(ternary->var_type);
+    char *typeName = scalar ? strdup(scalar) : inferLetTypeName(p, ternary);
+    int line = ternary->token ? ternary->token->line : 0;
+    VarType vt = TYPE_UNKNOWN;
+    AST *probe = typeName ? buildTypeNodeFromName(typeName, strlen(typeName), line, &vt) : NULL;
+    if (!probe) {
+        free(typeName);
+        return ternary; /* untyped: the hoists stay queued, ahead of the statement */
+    }
+    freeAST(probe);
+    AST *elseHoists = aetherTakePendingHoists(p, elseMark);
+    AST *thenHoists = aetherTakePendingHoists(p, thenMark);
+    char name[48];
+    snprintf(name, sizeof(name), "__aether_cond_%d", p->nextObjLitId++);
+    AST *cond = aetherTakeLeft(ternary);
+    AST *thenExpr = aetherTakeRight(ternary);
+    AST *elseExpr = aetherTakeExtra(ternary);
+    freeAST(ternary);
+
+    AST *decl = buildTypedLetDecl(name, typeName, NULL, line);
+    if (!decl) {
+        p->hadError = true;
+        free(typeName);
+        freeAST(thenHoists); freeAST(elseHoists);
+        freeAST(cond); freeAST(thenExpr); freeAST(elseExpr);
+        return NULL;
+    }
+    if (p->bindings) bindingTableSet(p->bindings, name, typeName);
+    free(typeName);
+    AST *thenBlock = thenHoists ? thenHoists : newASTNode(AST_COMPOUND, NULL);
+    thenBlock->i_val = 0;
+    addChild(thenBlock, buildNameAssignStmt(name, vt, thenExpr, line));
+    AST *elseBlock = elseHoists ? elseHoists : newASTNode(AST_COMPOUND, NULL);
+    elseBlock->i_val = 0;
+    addChild(elseBlock, buildNameAssignStmt(name, vt, elseExpr, line));
+    AST *test = newASTNode(AST_IF, NULL);
+    setLeft(test, cond);
+    setRight(test, thenBlock);
+    setExtra(test, elseBlock);
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, decl);
+    addChild(outer, test);
+    pushPendingObjLit(p, outer);
+    return buildVarRef(name, vt, line);
 }
 
 /* `par { call1(); call2(); ... }` -> the spawn/join block the rewriter emits

@@ -127,9 +127,19 @@ those lowerings together; a new desugaring should reuse them, not invent a fourt
   position and is not given one is the classic failure: before 8ebf8e7,
   `ret a + b` had nowhere to put the copy loop, the raw array `+` reached the VM,
   and it died with "Got ARRAY and ARRAY".
+  A sub-expression the statement does not evaluate exactly once takes its own
+  hoists off the queue (`aetherTakePendingHoists`, from a mark set before it is
+  parsed) and puts them where it runs: a loop condition or a range loop's upper
+  bound becomes `while (true) { hoists; if (cond) { body } else { break; } }`
+  (`buildWhileWithHoists`); the right operand of `&&` or `||` and a branch of
+  `?:` or of an if-expression are computed into a `__aether_cond_<id>` temp
+  inside an `if`, so their hoists run only with them; an `else if` condition's
+  hoists open its `else` block. Flushed ahead of the statement, they ran once:
+  a slice in a `while` condition was copied before the loop and never again.
 - **Temps.** Synthesized locals are named `__aether_<kind>_...` and must be
   unique per program, not per line: `__aether_concat_other_<line>_<serial>`,
-  `__aether_slice_<id>` and `__aether_lit_<id>` (from `nextObjLitId`), and so on.
+  `__aether_slice_<id>`, `__aether_lit_<id>` and `__aether_cond_<id>` (from
+  `nextObjLitId`), and so on.
   Line-only names collide when one line holds two lowerings (`mk() + mk() + mk()`
   failed with "duplicate variable" until the concat temps gained a serial,
   CHANGELOG 2026-08-09-1). A lowering evaluates each operand once, into a temp,
