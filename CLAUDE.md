@@ -99,9 +99,10 @@ behaviour in the shared code sits behind `frontendIsAether()`.
 the benchmark's tier) and `..._with_small_contexts.md` (small) are the product.
 Read `docs/aether_doc_maintenance.md` before editing one: stamps and changelog
 rows, the medium guide's 15,000-token ceiling (measure, never estimate), the
-paired-cut rule, and the LLM-only content audit. A guide freeze is in effect
-until the current stamps have a benchmark baseline recorded (decision register
-D3).
+paired-cut rule, and the LLM-only content audit. The guide freeze of decision
+register D3 ended on 2026-10-13: the B0, B0-small and B0-full baselines are committed
+in the umbrella repo, and guide pass 1 (G1) was adopted after a paired A/B. A guide
+edit now follows the normal rules above; measure it before calling it an improvement.
 
 ## Doc map
 
