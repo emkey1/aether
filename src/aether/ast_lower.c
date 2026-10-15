@@ -2207,14 +2207,20 @@ static AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init,
  *
  * The element type comes from the collection's inferred Aether type, which is
  * why the collection must be something the parser can type: a typed binding,
- * a field, a call with a declared return type, or a literal. `continue` still
+ * a call with a declared return type, a literal, or a value reached through a
+ * record (`o.f`, `o.inner.f`, `self.f`, `items[i].f`, `o.inner.m()`), typed
+ * the way a slice's base is (aetherInferSliceBaseTypeName). `continue` still
  * advances the index (the post-statement is spliced ahead of it, as in the
  * range loop). A row of a nested array binds through the same un-alias step a
  * `let row: Int[] = table[i];` gets, so writing to the loop variable never
  * writes through to the collection. The variable's type is registered before
  * the body is parsed so `NAME.field` and `let x = NAME;` infer inside it. */
 static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line) {
-    char *collType = inferLetTypeName(p, coll);
+    /* The slice resolver: inferLetTypeName first, so every collection it typed
+     * keeps its type, then a field reached through a record. A field used to
+     * have no name here, so `loop x in o.items` was "cannot infer the type of
+     * the collection" while the same field bound to a typed local looped. */
+    char *collType = aetherInferSliceBaseTypeName(p, coll);
     char elemBuf[128];
     const char *elemType = NULL;
     bool isToon = false;
@@ -2242,11 +2248,36 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line)
                      collType, name);
             reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser", detail, NULL);
         } else {
-            snprintf(detail, sizeof(detail),
-                     "cannot infer the type of the collection in `loop %s in ...`.", name);
-            reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration", detail,
-                                 "bind it to a typed `let` first, for example "
-                                 "`let items: Int[] = ...;`, then loop over `items`.");
+            /* The two untyped bases a slice also names (buildArraySlice): a
+             * field the record type does not declare, and a bare field name
+             * in a method. */
+            char *fieldOwner = aetherSliceBaseMissingFieldOwner(p, coll);
+            const char *collName = (coll->type == AST_VARIABLE && coll->token)
+                                       ? coll->token->value : NULL;
+            if (fieldOwner) {
+                /* Not a "declaration" error: the detail's wording codes it FIELD-002. */
+                snprintf(detail, sizeof(detail), "Unknown field '%s' on type '%s'.",
+                         coll->token->value, fieldOwner);
+                reportAetherAstError(aetherSemanticGetSourcePath(), line, "field", detail,
+                                     "check the field name against the `type` declaration.");
+            } else if (collName && aetherIsEnclosingTypeField(p, collName)) {
+                char hint[160];
+                snprintf(detail, sizeof(detail),
+                         "cannot infer the type of the collection in `loop %s in %s`.",
+                         name, collName);
+                snprintf(hint, sizeof(hint),
+                         "a field of the enclosing type is written `self.%s`: write "
+                         "`loop %s in self.%s { ... }`.", collName, name, collName);
+                reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration",
+                                     detail, hint);
+            } else {
+                snprintf(detail, sizeof(detail),
+                         "cannot infer the type of the collection in `loop %s in ...`.", name);
+                reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration", detail,
+                                     "bind it to a typed `let` first, for example "
+                                     "`let items: Int[] = ...;`, then loop over `items`.");
+            }
+            free(fieldOwner);
         }
         p->hadError = true;
         free(collType);

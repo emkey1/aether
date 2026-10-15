@@ -1,0 +1,25 @@
+field 1
+field 2
+field 3
+nested 4
+nested 5
+records xy 2
+records z 0
+element field p
+element field q
+text field x
+text field y
+string field a
+string field b
+grid row 7
+grid row 8
+method on field 4
+method on field 5
+self 6 xy;z; extension 9
+row 2 0
+row 1 0
+grid after 7 9
+continue/break 1
+nested loops 2
+late type 10
+late type 20

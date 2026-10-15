@@ -1,0 +1,106 @@
+// A foreach whose collection is reached through a record: `loop x in o.f`, a
+// nested field, `self.f` in a method and in an extension method, a field of an
+// array element, a Text or String field (one character at a time), a row of a
+// 2-D field, and the result of a method called on a field. Each used to fail
+// with "[TYPE-001] cannot infer the type of the collection" while the same
+// field bound to a typed local looped: the collection is typed the way a
+// slice's base is, and a field had no type the parser could name.
+type Item {
+    name: Text = "";
+    tags: Text[] = [];
+}
+
+type Inner {
+    vals: Int[] = [];
+    grid: Int[][] = [];
+    fn all(self) -> Int[] { ret self.vals; }
+}
+
+type Outer {
+    title: String = "ab";
+    inner: Inner;
+    items: Item[] = [];
+    data: Int[] = [];
+
+    fn total(self) -> Int {
+        let t: Int = 0;
+        loop v in self.data {
+            t = t + v;
+        }
+        ret t;
+    }
+    fn names(self) -> Text {
+        let s: Text = "";
+        loop it in self.items {
+            s = s + it.name + ";";
+        }
+        ret s;
+    }
+}
+
+// An extension method: `self` is an ordinary typed parameter here.
+fn innerSum(self: Outer) -> Int {
+    let t: Int = 0;
+    loop v in self.inner.vals {
+        t = t + v;
+    }
+    ret t;
+}
+
+fn main() -> Void {
+    let o: Outer = new Outer();
+    o.inner = new Inner();
+    o.data = [1, 2, 3];
+    o.inner.vals = [4, 5];
+    o.inner.grid = [[7, 8], [9]];
+    o.items = [new Item { name: "xy", tags: ["p", "q"] }, new Item { name: "z", tags: [] }];
+    fx {
+        loop v in o.data { println("field ", v); }
+        loop v in o.inner.vals { println("nested ", v); }
+        loop it in o.items { println("records ", it.name, " ", length(it.tags)); }
+        loop tg in o.items[0].tags { println("element field ", tg); }
+        loop c in o.items[0].name { println("text field ", c); }
+        loop c in o.title { println("string field ", c); }
+        loop g in o.inner.grid[0] { println("grid row ", g); }
+        loop m in o.inner.all() { println("method on field ", m); }
+        println("self ", o.total(), " ", o.names(), " extension ", innerSum(o));
+    }
+
+    // A row of a 2-D field binds through the un-alias step: writing to the
+    // loop variable leaves the field alone.
+    loop row in o.inner.grid {
+        row[0] = 0;
+        fx { println("row ", length(row), " ", row[0]); }
+    }
+    fx { println("grid after ", o.inner.grid[0][0], " ", o.inner.grid[1][0]); }
+
+    // `continue` and `break` over a field.
+    let odd: Int = 0;
+    loop v in o.data {
+        if v == 2 { continue; }
+        if v == 3 { break; }
+        odd = odd + v;
+    }
+    fx { println("continue/break ", odd); }
+
+    // Nested foreach loops over fields of the outer loop's variable.
+    let count: Int = 0;
+    loop it in o.items {
+        loop tg in it.tags {
+            count = count + 1;
+        }
+    }
+    fx { println("nested loops ", count); }
+
+    // A type declared after its use: field types come from the forward scan.
+    let late: Late = new Late();
+    late.xs = [10, 20];
+    loop x in late.xs {
+        fx { println("late type ", x); }
+    }
+    ret;
+}
+
+type Late {
+    xs: Int[] = [];
+}

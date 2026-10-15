@@ -1,0 +1,4 @@
+foreach_bare_field_fail.aether:6:
+cannot infer the type of the collection in `loop v in data`
+`loop v in self.data { ... }`
+!__aether_

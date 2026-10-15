@@ -1,0 +1,18 @@
+// A field looped over inside a method without `self.`: the hint names the form.
+type Bag {
+    data: Int[] = [];
+    fn sum(self) -> Int {
+        let t: Int = 0;
+        loop v in data {
+            t = t + v;
+        }
+        ret t;
+    }
+}
+
+fn main() -> Void {
+    let b: Bag = new Bag();
+    b.data = [4, 5, 6];
+    fx { println(b.sum()); }
+    ret;
+}
