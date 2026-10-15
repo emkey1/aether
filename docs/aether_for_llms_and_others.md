@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-13-2*
+*Guide version: 2026-10-15-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -651,9 +651,10 @@ loop {                      // infinite
 `loop item in items` iterates an array (`T[]`, giving each `T`), a `Text` (one
 character at a time, as a one-character `Text`), or a TOON array node
 (`ToonNode`, giving each element node). The collection may be a variable, a
-call with a declared return type, or a slice — **not a field**:
-`loop x in o.items` is `[TYPE-001] cannot infer the type of the collection`.
-Bind the field to a typed local first, then loop over that:
+field (`o.items`, `self.items` in a method, `rows[i].items`), a call with a
+declared return type, or a slice. A tuple item (`t.0`) or a field of a type
+from a `use`d module is `[TYPE-001] cannot infer the type of the collection`:
+bind it to a typed local first (`let items: Int[] = t.0;`) and loop over that.
 
 ```aether
 type Order {
@@ -661,9 +662,8 @@ type Order {
 }
 
 fn totalOf(o: Order) -> Int {
-    let items: Int[] = o.items;      // bind the field to a typed local first
     let total: Int = 0;
-    loop x in items {                // `loop x in o.items` is TYPE-001
+    loop x in o.items {              // a field is a collection
         total = total + x;
     }
     ret total;
@@ -1880,8 +1880,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   by itself; its names then fail with SCOPE-001.
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
   array literal such as `let xs: Int[] = [1, 2, 3];`). Also a foreach over a
-  field, `loop x in o.items` (`cannot infer the type of the collection`) →
-  bind it first, `let items: Int[] = o.items;`, and loop over `items`. Also
+  tuple item or a field of a type from a `use`d module (`cannot infer the type
+  of the collection`) → bind it first, `let items: Int[] = t.0;`, and loop
+  over `items`. Also
   a value of the wrong kind, where the message names the fix: `println` of
   a whole array, `int()` of a `Text`, and a `Real` where an `Int` is required
   (an operand of `%`, `div` or a shift, a `Text` index, `int_to_text`, `chr`,
