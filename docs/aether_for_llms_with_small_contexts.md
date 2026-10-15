@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-13-2*
+*Guide version: 2026-10-15-1*
 
 ## Highest-Value Rules
 
@@ -753,6 +753,8 @@ fix:
 - **[ARR-003]** (runtime) an index outside the array → the message gives the
   valid range; `loop i in 0..n` ends at `n - 1`, and a row being built is not in
   the table until it is appended.
+- **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`) → a call broke
+  `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
   values as arguments: `println("n = ", n)`.
 - **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.

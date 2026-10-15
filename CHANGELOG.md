@@ -12,6 +12,17 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-15-2
+
+**A broken contract is coded CON-001, on stderr.** A failed `@pre` or `@post`
+printed `Aether @pre failed in f` as an ordinary line on **stdout**, with no code,
+and exited 1. A harness diffing stdout read it as wrong output, and nothing tied
+it to a guide section. It now prints `[CON-001] Aether @pre failed in f` (or
+`@post`) to **stderr** and still exits 1; stdout carries only what the program
+printed before the failure. The guard's `writeln` targets the VM's `stderr` file
+(`buildContractGuard`). All three guides gain a CON-001 repair bullet. Front end
+only; the pins stay at pscal-core `2cb751d` and rea `b1320cf`.
+
 ## 2026-10-15-1
 
 **A foreach over a field compiles; a slice in a loop condition is rebuilt every

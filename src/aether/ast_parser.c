@@ -3778,9 +3778,12 @@ static bool checkContractComparisons(AetherParser *p, AST *node,
 }
 
 /* Build the runtime contract guard the rewriter emits as text:
- *     if (!(EXPR)) { writeln("Aether @KIND failed in FN"); halt(1); }
+ *     if (!(EXPR)) { writeln(stderr, "[CON-001] Aether @KIND failed in FN"); halt(1); }
  * as an AST_IF whose condition is AST_UNARY_OP(NOT, EXPR), then-branch a
- * COMPOUND[ AST_WRITELN(message), halt(1) ]. `exprText` is the (already combined
+ * COMPOUND[ AST_WRITELN(stderr, message), halt(1) ]. The message carries the
+ * CON-001 code and goes to the VM's `stderr` file, like every other coded
+ * diagnostic: until 2026-10-15 it was an uncoded line on stdout, which a
+ * harness diffing stdout read as wrong output. `exprText` is the (already combined
  * + scoped) contract expression; it is parsed via parseExprFromText. Returns the
  * AST_IF, or NULL on error (p->hadError set). */
 AST *buildContractGuard(AetherParser *p, const char *exprText,
@@ -3803,12 +3806,12 @@ AST *buildContractGuard(AetherParser *p, const char *exprText,
     setLeft(notNode, cond);
     setTypeAST(notNode, TYPE_BOOLEAN);
 
-    /* writeln("Aether @KIND failed in FN") */
-    size_t mlen = strlen("Aether @") + strlen(kind ? kind : "") +
+    /* writeln(stderr, "[CON-001] Aether @KIND failed in FN") */
+    size_t mlen = strlen("[CON-001] Aether @") + strlen(kind ? kind : "") +
                   strlen(" failed in ") + strlen(fnName ? fnName : "") + 1;
     char *msg = (char *)malloc(mlen);
     if (!msg) { freeAST(notNode); p->hadError = true; return NULL; }
-    snprintf(msg, mlen, "Aether @%s failed in %s", kind ? kind : "", fnName ? fnName : "");
+    snprintf(msg, mlen, "[CON-001] Aether @%s failed in %s", kind ? kind : "", fnName ? fnName : "");
     Token *strTok = (Token *)malloc(sizeof(Token));
     if (!strTok) { free(msg); freeAST(notNode); p->hadError = true; return NULL; }
     strTok->type = TOKEN_STRING_CONST;
@@ -3821,7 +3824,13 @@ AST *buildContractGuard(AetherParser *p, const char *exprText,
     AST *strNode = newASTNode(AST_STRING, strTok);
     strNode->i_val = (int)strlen(msg);
     setTypeAST(strNode, TYPE_STRING);
+    /* The VM's global `stderr` file (insertStandardStreamSymbols); a TYPE_FILE
+     * first child makes the write target it. */
+    Token *errTok = newToken(TOKEN_IDENTIFIER, "stderr", line, 0);
+    AST *errNode = newASTNode(AST_VARIABLE, errTok);
+    setTypeAST(errNode, TYPE_FILE);
     AST *writelnNode = newASTNode(AST_WRITELN, NULL);
+    addChild(writelnNode, errNode);
     addChild(writelnNode, strNode);
     setTypeAST(writelnNode, TYPE_VOID);
 

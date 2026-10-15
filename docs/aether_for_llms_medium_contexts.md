@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-13-3*
+*Guide version: 2026-10-15-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -1141,6 +1141,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   is usually **not appended yet**: while building a table row by row, the current
   row is the local `row`, not `table[i]` — `table[i]` only exists after
   `table = table + [row];`. Earlier rows read fine as `table[i - 1][j]`.
+- **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`), exit 1 → a
+  call broke `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[PREC-001]** (warning) `flags & mask != 0` → `&`, `|` and `^` bind looser
   than the comparisons, so this groups as `flags & (mask != 0)` and yields an
   **Int**, not a Bool. Parenthesize: `(flags & mask) != 0`. As an error:

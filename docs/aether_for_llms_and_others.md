@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-15-1*
+*Guide version: 2026-10-15-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1849,7 +1849,7 @@ The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, MS-001, TYPE-001, TYPE-002, TUP-001, FLOW-001, FLOW-002,
 FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-002, ARR-001, ARR-002,
 NARROW-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
-below map onto them. Run-time errors (ARR-003, `AETH-RUNTIME-*`) carry their
+below map onto them. Run-time errors (ARR-003, CON-001, `AETH-RUNTIME-*`) carry their
 own message and hint. A compile-time code you receive that is not on this list
 does not exist — re-read the message rather than inventing a rule for it.
 
@@ -1950,6 +1950,10 @@ does not exist — re-read the message rather than inventing a rule for it.
   Previously-appended rows *are* readable as `table[i - 1][j]`. If the index is
   genuinely meant to be in range, the loop bound is what to fix — remember
   `loop i in 0..n` is half-open, so the last valid index is `n - 1`.
+- **[CON-001]** *(runtime)* `Aether @pre failed in f` (or `@post`) on stderr,
+  exit status 1: a call broke `f`'s contract. For `@pre` the caller passed a bad
+  argument; for `@post`, `f` computed the wrong `result`. Fix the code, not the
+  contract, unless the contract is what is wrong.
 - **[FLOW-001]** a fallthrough path with no return value → add an explicit final
   `ret ...` on every reachable top-level path in the non-`Void` helper.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function (a `ret` with no value)

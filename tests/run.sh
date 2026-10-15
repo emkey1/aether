@@ -1536,22 +1536,34 @@ if ! grep -q "@pure does not take arguments" $OUT/aether_contract_pure_trailing_
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_PRE_FIXTURE" >$OUT/aether_contract_fail_pre.out 2>&1; then
+# A broken contract prints its CON-001 line on stderr, never on stdout.
+if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_PRE_FIXTURE" >$OUT/aether_contract_fail_pre.out 2>$OUT/aether_contract_fail_pre.err; then
     echo "expected precondition failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether @pre failed in inc" $OUT/aether_contract_fail_pre.out; then
-    echo "missing precondition failure message" >&2
+if ! grep -q "^\[CON-001\] Aether @pre failed in inc$" $OUT/aether_contract_fail_pre.err; then
+    echo "missing CON-001 precondition failure message on stderr" >&2
+    cat $OUT/aether_contract_fail_pre.err >&2
+    exit 1
+fi
+if grep -q "failed in inc" $OUT/aether_contract_fail_pre.out; then
+    echo "precondition failure message leaked onto stdout" >&2
     cat $OUT/aether_contract_fail_pre.out >&2
     exit 1
 fi
 
-if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_POST_FIXTURE" >$OUT/aether_contract_fail_post.out 2>&1; then
+# A broken contract prints its CON-001 line on stderr, never on stdout.
+if "$AETHER_BIN" --no-cache "$CONTRACT_FAIL_POST_FIXTURE" >$OUT/aether_contract_fail_post.out 2>$OUT/aether_contract_fail_post.err; then
     echo "expected postcondition failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether @post failed in inc" $OUT/aether_contract_fail_post.out; then
-    echo "missing postcondition failure message" >&2
+if ! grep -q "^\[CON-001\] Aether @post failed in inc$" $OUT/aether_contract_fail_post.err; then
+    echo "missing CON-001 postcondition failure message on stderr" >&2
+    cat $OUT/aether_contract_fail_post.err >&2
+    exit 1
+fi
+if grep -q "failed in inc" $OUT/aether_contract_fail_post.out; then
+    echo "postcondition failure message leaked onto stdout" >&2
     cat $OUT/aether_contract_fail_post.out >&2
     exit 1
 fi
