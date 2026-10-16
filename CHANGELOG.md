@@ -12,6 +12,32 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-16-2
+
+**`val` gives the same answer on every platform.** On Linux, `val("", n, code)`
+reported a clean parse (`n = 0`, `code = 0`), while macOS reported `code 1` and
+left `n` alone, as the guide says. The builtin read success from libc's
+`strtoll`/`strtod` error reporting, which differs between glibc and Apple's
+libc. A checked parse therefore accepted the empty string on the Linux graders,
+and the reference for `tasks_frontier:val_checked_ledger` failed there.
+pscal-core `08e2941` now checks the syntax itself, with Pascal `Val` semantics:
+
+- `code` is 0 on success. Otherwise it is the 1-based position of the first bad
+  character, or one past the end when the text stops early: `""` → 1, `"-"` →
+  2, `"  "` → 3, `"1e"` → 3. `n` is left unchanged.
+- Leading blanks and tabs are skipped. Anything after the number is an error,
+  including trailing blanks.
+- An `Int` overflow reports the digit that leaves the range (it reported one
+  past the end).
+- A `Real` target still accepts `inf`, `infinity` and `nan`. It now rejects hex
+  floats (`"0x1p3"` → 2), and `"1e-400"` parses to 0 instead of failing.
+- `""` into a `Real` is now an error on macOS too; it used to give `0.0` with
+  `code 0`.
+
+Programs that stay on the documented cases (the guide's table) print the same
+output on macOS as before. Needs pscal-core `08e2941`; rea stays at `bdbf9ce`.
+Fixture: `tests/fx/basic/val_edges_pass`.
+
 ## 2026-10-16-1
 
 **`toon` is an ordinary name, and three TOON/MStream diagnostics name the real

@@ -1,0 +1,38 @@
+int [] n=5 code=1
+int [-] n=5 code=2
+int [+] n=5 code=2
+int [  ] n=5 code=3
+int [ 42] n=42 code=0
+int [	7] n=7 code=0
+int [42 ] n=5 code=3
+int [-13] n=-13 code=0
+int [+8] n=8 code=0
+int [007] n=7 code=0
+int [7x] n=5 code=2
+int [3.5] n=5 code=2
+int [--1] n=5 code=2
+int [- 1] n=5 code=2
+int [0x1F] n=5 code=2
+int [1e3] n=5 code=2
+int [9223372036854775807] n=9223372036854775807 code=0
+int [9223372036854775808] n=5 code=19
+int [-9223372036854775808] n=-9223372036854775808 code=0
+int [-9223372036854775809] n=5 code=20
+int [123456789012345678901234567890] n=5 code=20
+real [] r=5.000000 code=1
+real [-] r=5.000000 code=2
+real [.] r=5.000000 code=2
+real [1.] r=1.000000 code=0
+real [.5] r=0.500000 code=0
+real [ 2.5] r=2.500000 code=0
+real [2.5 ] r=5.000000 code=4
+real [1e3] r=1000.000000 code=0
+real [1e] r=5.000000 code=3
+real [1e+] r=5.000000 code=4
+real [-1.5e-2] r=-0.015000 code=0
+real [abc] r=5.000000 code=1
+real [3.5x] r=5.000000 code=4
+real [0x1p3] r=5.000000 code=2
+real [inf] r=inf code=0
+real [1e400] r=5.000000 code=6
+real [1e-400] r=0.000000 code=0
