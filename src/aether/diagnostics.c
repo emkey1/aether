@@ -1,4 +1,5 @@
 #include "aether/diagnostics.h"
+#include "aether/ast_prepasses.h"
 
 #include <stdio.h>
 #include <string.h>
@@ -316,6 +317,11 @@ const char *aetherUnknownIdentifierHint(const char *ident) {
 
     if (!ident) {
         return NULL;
+    }
+    /* A TOON getter called with the wrong argument count is already a
+     * BUILT-002; "" tells the engine not to add a SCOPE-001 for it. */
+    if (aetherAstPrepassReportedArity(ident)) {
+        return "";
     }
     for (i = 0; i < sizeof(kAetherNameHints) / sizeof(kAetherNameHints[0]); i++) {
         if (strcmp(ident, kAetherNameHints[i].wrong) == 0) {

@@ -2,6 +2,7 @@
 
 #include "aether/parser.h"
 #include "aether/diagnostics.h"
+#include "aether/ast_prepasses.h"
 #include "aether/semantic.h"
 #include "rea/state.h"
 #include "rea/frontend_hooks.h"
@@ -18,6 +19,7 @@ void aetherInvalidateGlobalState(void) {
      * calls (main program + imported modules) because semantic analysis runs
      * after all of them; this is the one place they are torn down. */
     aetherAstClearSemanticRegistries();
+    aetherAstPrepassClearReportedArity();
     reaInvalidateGlobalState();
 }
 

@@ -19,6 +19,13 @@ char *aetherAstPrepassToonBlocks(const char *source, const char *path);
  * Line structure preserved. */
 char *aetherAstPrepassBuiltins(const char *source);
 
+/* 1 when the builtin pre-pass has already reported a wrong argument count
+ * (BUILT-002) for a call to `name`, so the not-in-scope error the engine would
+ * add for the declined call is redundant. Cleared by
+ * aetherAstPrepassClearReportedArity (aetherInvalidateGlobalState). */
+int aetherAstPrepassReportedArity(const char *name);
+void aetherAstPrepassClearReportedArity(void);
+
 /* Lower the context-free `string_eq(a, b)` inline call alias to `(a == b)` as a
  * pure text transform. Returns a malloc'd copy (caller frees) or NULL. */
 char *aetherAstPrepassInlineEq(const char *source);

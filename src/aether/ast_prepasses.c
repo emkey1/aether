@@ -2675,6 +2675,46 @@ static int isToonScalarDefaultHelper(const char *nameStart, size_t nameLen) {
  * toon_get_text_or x6 "unknown identifier" failures that repair could never fix
  * (docs/aether_specialization_findings.md, cs-aug20). Say what is actually
  * wrong instead. */
+/* The getters reportToonScalarArity has reported. The declined call keeps its
+ * name, which rea would then report as "[SCOPE-001] identifier 'toon_get_text'
+ * not in scope." -- a second, wrong diagnostic for the same call. Rea asks
+ * aetherUnknownIdentifierHint about that name, which answers "already reported"
+ * from this list. Kept across parseAether calls (main program and imports;
+ * semantic analysis runs after all of them) and cleared with the other
+ * registries in aetherInvalidateGlobalState. At most the eight getters. */
+#define AETHER_TOON_ARITY_REPORTED_MAX 8
+static char g_toonArityReported[AETHER_TOON_ARITY_REPORTED_MAX][24];
+static int g_toonArityReportedCount = 0;
+
+static void noteToonArityReported(const char *name) {
+    int i;
+
+    for (i = 0; i < g_toonArityReportedCount; i++) {
+        if (strcmp(g_toonArityReported[i], name) == 0) {
+            return;
+        }
+    }
+    if (g_toonArityReportedCount < AETHER_TOON_ARITY_REPORTED_MAX &&
+        strlen(name) < sizeof(g_toonArityReported[0])) {
+        strcpy(g_toonArityReported[g_toonArityReportedCount++], name);
+    }
+}
+
+int aetherAstPrepassReportedArity(const char *name) {
+    int i;
+
+    for (i = 0; name && i < g_toonArityReportedCount; i++) {
+        if (strcmp(g_toonArityReported[i], name) == 0) {
+            return 1;
+        }
+    }
+    return 0;
+}
+
+void aetherAstPrepassClearReportedArity(void) {
+    g_toonArityReportedCount = 0;
+}
+
 static void reportToonScalarArity(const char *nameStart,
                                   size_t nameLen,
                                   int defaultHelper,
@@ -2686,6 +2726,7 @@ static void reportToonScalarArity(const char *nameStart,
 
     memcpy(name, nameStart, n);
     name[n] = '\0';
+    noteToonArityReported(name);
 
     if (defaultHelper) {
         snprintf(detail, sizeof(detail),

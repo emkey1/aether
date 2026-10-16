@@ -1,0 +1,12 @@
+// A TOON getter's wrong argument count does not hide an unrelated error in the
+// same program: BUILT-002 for the getter, SCOPE-001 for the unknown name, and
+// nothing about the getter's own name being out of scope.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"n\": 2}");
+    let root: ToonNode = toon_root(doc);
+    let n: Int = toon_get_int(root, "n");
+    fx { println(toon_get_int_or(root, "n")); }
+    fx { println(totl); }
+    toon_close(doc);
+    ret;
+}

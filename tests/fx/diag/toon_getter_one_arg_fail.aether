@@ -1,5 +1,6 @@
 // A one-argument field getter on an array element: the hint names the
-// node-value accessor, not the `_or` fallback form.
+// node-value accessor, not the `_or` fallback form, and BUILT-002 is the only
+// diagnostic (no SCOPE-001 for the call the rewrite declined).
 fn main() -> Void {
     let doc: ToonDoc = toon_parse("[\"a\", \"b\"]");
     let first: ToonNode = toon_at(toon_root(doc), 0);
