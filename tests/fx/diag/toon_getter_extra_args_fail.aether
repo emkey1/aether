@@ -1,0 +1,14 @@
+// A nested key spelled as separate arguments is BUILT-002 with the real count
+// and a dotted-path hint, for the `_or` getter and the plain one alike. (A
+// fourth argument used to be folded into the third, so the `_or` call compiled
+// and failed at run time with an uncoded "expects (node: ToonNode, key: Text,
+// fallback)".)
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"meta\":{\"code\":\"A1\"}}");
+    let root: ToonNode = toon_root(doc);
+    let code: Text = toon_get_text_or(root, "meta", "code", "EMPTY");
+    let n: Int = toon_get_int(root, "meta", "code", "n");
+    fx { println("code=", code, n); }
+    toon_close(doc);
+    ret;
+}

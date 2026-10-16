@@ -1,0 +1,8 @@
+:9: [BUILT-002]
+'toon_get_text_or' takes 3 arguments (node, key, fallback), but 4 were given
+'toon_get_text_or(node, "outer.inner", fallback)'
+:10: [BUILT-002]
+'toon_get_int' takes 2 arguments (node, key), but 4 were given
+'toon_get_int(node, "outer.inner")'
+!not in scope
+!Error Location

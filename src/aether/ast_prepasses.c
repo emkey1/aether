@@ -2732,14 +2732,23 @@ static void reportToonScalarArity(const char *nameStart,
         snprintf(detail, sizeof(detail),
                  "'%s' takes 3 arguments (node, key, fallback), but %d %s given.",
                  name, given, given == 1 ? "was" : "were");
-        snprintf(hint, sizeof(hint),
-                 "drop the fallback and use the 2-argument form without the `_or` suffix, "
-                 "or supply all three.");
+        if (given > 3) {
+            snprintf(hint, sizeof(hint),
+                     "a nested key is one dotted path: '%s(node, \"outer.inner\", fallback)'.",
+                     name);
+        } else {
+            snprintf(hint, sizeof(hint),
+                     "drop the fallback and use the 2-argument form without the `_or` suffix, "
+                     "or supply all three.");
+        }
     } else {
         snprintf(detail, sizeof(detail),
                  "'%s' takes 2 arguments (node, key), but %d %s given.",
                  name, given, given == 1 ? "was" : "were");
-        if (given == 1 && strncmp(name, "toon_get_", 9) == 0) {
+        if (given > 3) {
+            snprintf(hint, sizeof(hint),
+                     "a nested key is one dotted path: '%s(node, \"outer.inner\")'.", name);
+        } else if (given == 1 && strncmp(name, "toon_get_", 9) == 0) {
             /* One argument is a node whose own value is wanted, most often an
              * array element from toon_at: that is toon_<kind>_value(node). */
             snprintf(hint, sizeof(hint),
@@ -2869,6 +2878,7 @@ static int appendToonScalarAlias(Buffer *out,
     int inString = 0;
     char quote = '\0';
     int defaultHelper = isToonScalarDefaultHelper(nameStart, nameLen);
+    int extraArgs = 0;
 
     if (!getter || !openParen || *openParen != '(' || !outCursor) {
         return 0;
@@ -2920,6 +2930,10 @@ static int appendToonScalarAlias(Buffer *out,
         } else if (*cursor == ',' && depth == 0 && !arg2End) {
             arg2End = cursor;
             arg3Start = cursor + 1;
+        } else if (*cursor == ',' && depth == 0) {
+            /* A fourth argument and beyond (`toon_get_text_or(root, "meta",
+             * "code", "EMPTY")`, a nested path spelled as separate keys). */
+            extraArgs++;
         }
         cursor++;
     }
@@ -2935,7 +2949,11 @@ static int appendToonScalarAlias(Buffer *out,
         return 0;
     }
     if (!defaultHelper && arg3Start) {
-        reportToonScalarArity(nameStart, nameLen, defaultHelper, 3);
+        reportToonScalarArity(nameStart, nameLen, defaultHelper, 3 + extraArgs);
+        return 0;
+    }
+    if (defaultHelper && extraArgs > 0) {
+        reportToonScalarArity(nameStart, nameLen, defaultHelper, 3 + extraArgs);
         return 0;
     }
     jsonState->needed = 1;
