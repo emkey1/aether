@@ -694,7 +694,26 @@ static const char *findToonMarker(const char *lineStart, const char *lineEnd) {
             (cursor == lineStart || !isIdentifierChar((unsigned char)cursor[-1])) &&
             (cursor + 5 == lineEnd || isspace((unsigned char)cursor[5]) ||
              cursor[5] == '/' || cursor[5] == ';')) {
-            return cursor;
+            /* A block marker ends its line (a comment may follow). `toon:` with
+             * code after it is a name and its annotation or field value
+             * (`fn f(toon: Int)`, `Box { toon: 1 }`), so `toon` stays an
+             * identifier. After `=` it can only be a marker: keep it, so inline
+             * TOON content gets the "only whitespace" error. */
+            const char *rest = cursor + 5;
+            const char *before = cursor;
+
+            while (rest < lineEnd && isspace((unsigned char)*rest)) {
+                rest++;
+            }
+            if (rest == lineEnd || (rest + 1 < lineEnd && rest[0] == '/' && rest[1] == '/')) {
+                return cursor;
+            }
+            while (before > lineStart && isspace((unsigned char)before[-1])) {
+                before--;
+            }
+            if (before > lineStart && before[-1] == '=') {
+                return cursor;
+            }
         }
         cursor++;
     }
@@ -770,6 +789,9 @@ static char *preprocessToonBlocks(const char *source, const char *path) {
                 free(out.data);
                 return NULL;
             }
+            if (*lineEnd == '\n') {
+                line++;
+            }
             cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
             continue;
         }
@@ -795,7 +817,7 @@ static char *preprocessToonBlocks(const char *source, const char *path) {
                                              line,
                                              "TOON",
                                              "only whitespace or comments may follow 'toon:'.",
-                                             NULL);
+                                             "start the TOON block on the next line, indented past the 'toon:' line.");
                     free(out.data);
                     return NULL;
                 }
@@ -837,7 +859,7 @@ static char *preprocessToonBlocks(const char *source, const char *path) {
                                          line,
                                          "TOON",
                                          "'toon:' must be followed by an indented TOON block.",
-                                         NULL);
+                                         "indent the TOON lines past the 'toon:' line, or parse a Text with 'toon_parse(text)'.");
                 free(out.data);
                 return NULL;
             }
@@ -2658,8 +2680,17 @@ static void reportToonScalarArity(const char *nameStart,
         snprintf(detail, sizeof(detail),
                  "'%s' takes 2 arguments (node, key), but %d %s given.",
                  name, given, given == 1 ? "was" : "were");
-        snprintf(hint, sizeof(hint),
-                 "for a fallback value use '%s_or(node, key, fallback)'.", name);
+        if (given == 1 && strncmp(name, "toon_get_", 9) == 0) {
+            /* One argument is a node whose own value is wanted, most often an
+             * array element from toon_at: that is toon_<kind>_value(node). */
+            snprintf(hint, sizeof(hint),
+                     "to read a node's own value (an array element) use 'toon_%s_value(node)'; "
+                     "'%s' reads a key of an object node.",
+                     name + 9, name);
+        } else {
+            snprintf(hint, sizeof(hint),
+                     "for a fallback value use '%s_or(node, key, fallback)'.", name);
+        }
     }
     reportAetherRewriteError(aetherSemanticGetSourcePath(),
                              g_aetherPrepassAliasLine,

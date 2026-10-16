@@ -50,6 +50,7 @@ void aetherInstallFrontendHooks(void) {
         .inferDiagnosticCode = aetherInferDiagnosticCode,
         .setVerboseCompatibilityDiagnostics = aetherSetVerboseCompatibilityDiagnostics,
         .getVerboseCompatibilityDiagnostics = aetherGetVerboseCompatibilityDiagnostics,
+        .unknownIdentifierHint = aetherUnknownIdentifierHint,
     };
     reaSetFrontendHooks(&hooks);
 }

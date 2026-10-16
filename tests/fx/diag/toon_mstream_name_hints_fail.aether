@@ -1,0 +1,14 @@
+// Invented TOON and MStream helper names: each SCOPE-001 carries a hint that
+// names the real helper.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"a\": 1, \"b\": [2]}");
+    let root: ToonNode = toon_get_root(doc);
+    let a: ToonNode = toon_get_key(root, "a");
+    let b: ToonNode = toon_get_at(toon_key(root, "b"), 0);
+    let s: Text = toon_get_str(root, "a");
+    let n: Int = toon_int(a);
+    let ms: MStream = mstream_new();
+    let d2: ToonDoc;
+    fx { d2 = yyjson_parse_file("x.json"); }
+    ret;
+}

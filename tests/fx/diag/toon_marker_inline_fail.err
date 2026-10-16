@@ -1,0 +1,3 @@
+:4: [SYN-001]
+only whitespace or comments may follow 'toon:'
+!: Aether TOON parser error

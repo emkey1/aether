@@ -25,6 +25,11 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "import") == 0) {
             return "IMP-001";
         }
+        /* A malformed `toon:` block marker (ast_prepasses.c): a syntax
+         * error with its own "TOON" label. */
+        if (strcmp(kind, "TOON") == 0) {
+            return "SYN-001";
+        }
         if (strcmp(kind, "scope") == 0) {
             return "SCOPE-001";
         }
@@ -246,4 +251,76 @@ void aetherReportGuideHelp(const char *code) {
         return;
     }
     fprintf(stderr, "help: see %s in the Aether guide\n", code);
+}
+
+/* Repair hints for names models invent for the TOON and MStream helpers. The
+ * engine prints one under "[SCOPE-001] identifier 'x' not in scope." (rea's
+ * unknownIdentifierHint hook); without it the repair pass has only the name
+ * and guesses again. The entries are the wrong guesses the Qwen3.8 fine-tune
+ * pilot and the boards made (the full guide's "Structured data: TOON"). */
+typedef struct {
+    const char *wrong;
+    const char *hint;
+} AetherNameHint;
+
+#define AETHER_TOON_VALUE_HINT(kind) \
+    "did you mean 'toon_" kind "_value(node)'? A node's own value takes the " \
+    "'_value' suffix; a field of an object node is 'toon_get_" kind "(node, key)'."
+
+static const AetherNameHint kAetherNameHints[] = {
+    { "toon_get_root", "did you mean 'toon_root(doc)'? It returns the document's root ToonNode." },
+    { "toon_root_node", "did you mean 'toon_root(doc)'? It returns the document's root ToonNode." },
+    { "toon_get_key", "did you mean 'toon_key(node, key)'? It returns the field's ToonNode." },
+    { "toon_get_field", "did you mean 'toon_key(node, key)'? It returns the field's ToonNode." },
+    { "toon_get_node", "did you mean 'toon_key(node, key)'? It returns the field's ToonNode." },
+    { "toon_get_at", "did you mean 'toon_at(node, i)'? It returns the array element's ToonNode." },
+    { "toon_get_index", "did you mean 'toon_at(node, i)'? It returns the array element's ToonNode." },
+    { "toon_get_item", "did you mean 'toon_at(node, i)'? It returns the array element's ToonNode." },
+    { "toon_index", "did you mean 'toon_at(node, i)'? It returns the array element's ToonNode." },
+    { "toon_get_str", "did you mean 'toon_get_text(node, key)'? TOON strings are Text." },
+    { "toon_get_string", "did you mean 'toon_get_text(node, key)'? TOON strings are Text." },
+    { "toon_get_float", "did you mean 'toon_get_real(node, key)'?" },
+    { "toon_get_double", "did you mean 'toon_get_real(node, key)'?" },
+    { "toon_get_number", "did you mean 'toon_get_real(node, key)'?" },
+    { "toon_get_boolean", "did you mean 'toon_get_bool(node, key)'?" },
+    { "toon_int", AETHER_TOON_VALUE_HINT("int") },
+    { "toon_text", AETHER_TOON_VALUE_HINT("text") },
+    { "toon_str", AETHER_TOON_VALUE_HINT("text") },
+    { "toon_string", AETHER_TOON_VALUE_HINT("text") },
+    { "toon_bool", AETHER_TOON_VALUE_HINT("bool") },
+    { "toon_real", AETHER_TOON_VALUE_HINT("real") },
+    { "toon_float", AETHER_TOON_VALUE_HINT("real") },
+    { "toon_length", "did you mean 'toon_len(node)'?" },
+    { "toon_size", "did you mean 'toon_len(node)'?" },
+    { "toon_count", "did you mean 'toon_len(node)'?" },
+    { "toon_free", "did you mean 'toon_close(doc)'?" },
+    { "has_toon_parser", "did you mean 'has_toon()'?" },
+    { "yyjson_parse_file", "did you mean 'toon_parse_file(path)'? TOON helpers read JSON; it returns a ToonDoc." },
+    { "yyjson_read_file", "did you mean 'toon_parse_file(path)'? TOON helpers read JSON; it returns a ToonDoc." },
+    { "json_parse_file", "did you mean 'toon_parse_file(path)'? TOON helpers read JSON; it returns a ToonDoc." },
+    { "yyjson_parse", "did you mean 'toon_parse(text)'? TOON helpers read JSON; it returns a ToonDoc." },
+    { "yyjson_read", "did you mean 'toon_parse(text)'? TOON helpers read JSON; it returns a ToonDoc." },
+    { "mstream_new", "did you mean 'mstreamcreate()'? MStream helpers have no underscores." },
+    { "mstream_create", "did you mean 'mstreamcreate()'? MStream helpers have no underscores." },
+    { "mstreamnew", "did you mean 'mstreamcreate()'?" },
+    { "mstream_from_string", "did you mean 'mstreamfromstring(text)'? MStream helpers have no underscores." },
+    { "mstream_buffer", "did you mean 'mstreambuffer(ms)'? MStream helpers have no underscores." },
+    { "mstream_free", "did you mean 'mstreamfree(ms)'? MStream helpers have no underscores." },
+    { "mstream_append_byte", "did you mean 'mstreamappendbyte(ms, byte)'? MStream helpers have no underscores." },
+    { "mstream_load_from_file", "did you mean 'mstreamloadfromfile(ms, path)'? MStream helpers have no underscores." },
+    { "mstream_save_to_file", "did you mean 'mstreamsavetofile(ms, path)'? MStream helpers have no underscores." },
+};
+
+const char *aetherUnknownIdentifierHint(const char *ident) {
+    size_t i;
+
+    if (!ident) {
+        return NULL;
+    }
+    for (i = 0; i < sizeof(kAetherNameHints) / sizeof(kAetherNameHints[0]); i++) {
+        if (strcmp(ident, kAetherNameHints[i].wrong) == 0) {
+            return kAetherNameHints[i].hint;
+        }
+    }
+    return NULL;
 }

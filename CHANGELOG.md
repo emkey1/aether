@@ -12,6 +12,37 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-16-1
+
+**`toon` is an ordinary name, and three TOON/MStream diagnostics name the real
+helper.** The Qwen3.8-27B fine-tune pilot (2026-10-15) tripped on all three.
+Needs rea `bdbf9ce`; pscal-core stays at `2cb751d`.
+
+- **`toon` as a name.** Any `toon:` followed by whitespace was taken for the
+  start of an embedded TOON block, so `fn count(toon: Int)`, `let toon: Int = 3;`
+  and `Box { toon: 1 }` failed with an uncoded `Aether TOON parser error: only
+  whitespace or comments may follow 'toon:'` — at line 1, because the block
+  pass never counted the lines before a marker. A block marker now has to end
+  its line (a `//` comment may follow); `toon:` with code after it is a name and
+  compiles. After `=` it is still a marker, so inline TOON content
+  (`let p: Text = toon: a: 1`) keeps that error, now `[SYN-001]` at the right
+  line with a hint, as is `'toon:' must be followed by an indented TOON block`.
+- **One-argument field getter.** `toon_get_text(node)` (likewise `_int`,
+  `_real`, `_bool`) is still `[BUILT-002]`, but its hint now names the node-value
+  accessor, `toon_text_value(node)`, instead of the `_or` fallback form: one
+  argument almost always means an array element read with a field getter.
+- **Invented helper names.** `[SCOPE-001] identifier 'x' not in scope.` is
+  followed by `hint: did you mean ...?` for the common wrong guesses:
+  `toon_get_root` → `toon_root`, `toon_get_key` → `toon_key`, `toon_get_at` →
+  `toon_at`, `toon_get_str` → `toon_get_text`, the bare `toon_int`/`toon_text`/
+  `toon_bool`/`toon_real` → the `_value` accessors, `toon_length` → `toon_len`,
+  `has_toon_parser` → `has_toon`, `yyjson_parse_file` → `toon_parse_file`, and
+  `mstream_new`/`mstream_create` (and the underscored spellings of the other
+  MStream helpers) → `mstreamcreate` and friends. The table is
+  `aetherUnknownIdentifierHint` (`diagnostics.c`); rea prints it through its new
+  `unknownIdentifierHint` front-end hook. The diagnostic's first line is
+  unchanged.
+
 ## 2026-10-15-2
 
 **A broken contract is coded CON-001, on stderr.** A failed `@pre` or `@post`

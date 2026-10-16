@@ -1,0 +1,14 @@
+// `toon` is an ordinary name: only a line that ends in `toon:` opens a TOON
+// block. A parameter, a local and a field named `toon` compile.
+type Box { toon: Int; }
+
+fn count(toon: Int) -> Int {
+    let b: Box = Box { toon: toon };
+    ret toon + b.toon + 1;
+}
+
+fn main() -> Void {
+    let toon: Int = 3;
+    fx { println(count(toon)); }
+    ret;
+}

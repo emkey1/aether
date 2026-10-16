@@ -3,5 +3,6 @@
 
 const char *aetherInferDiagnosticCode(const char *kind, const char *detail);
 void aetherReportGuideHelp(const char *code);
+const char *aetherUnknownIdentifierHint(const char *ident);
 
 #endif

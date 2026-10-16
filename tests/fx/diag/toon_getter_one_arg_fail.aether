@@ -1,0 +1,9 @@
+// A one-argument field getter on an array element: the hint names the
+// node-value accessor, not the `_or` fallback form.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[\"a\", \"b\"]");
+    let first: ToonNode = toon_at(toon_root(doc), 0);
+    fx { println(toon_get_text(first)); }
+    toon_close(doc);
+    ret;
+}

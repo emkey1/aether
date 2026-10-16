@@ -1,0 +1,3 @@
+'toon_get_text' takes 2 arguments
+use 'toon_text_value(node)'
+!toon_get_text_or

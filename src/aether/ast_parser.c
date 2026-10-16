@@ -4398,9 +4398,14 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                     char unknownHint[256];
                     snprintf(scopeDetail, sizeof(scopeDetail),
                              "identifier '%s' not in scope.", callee);
-                    snprintf(unknownHint, sizeof(unknownHint),
-                             "'%s' is not a builtin or a function in this program: check the "
-                             "spelling, or define it with `fn`.", callee);
+                    const char *nameHint = aetherUnknownIdentifierHint(callee);
+                    if (nameHint) {
+                        snprintf(unknownHint, sizeof(unknownHint), "%s", nameHint);
+                    } else {
+                        snprintf(unknownHint, sizeof(unknownHint),
+                                 "'%s' is not a builtin or a function in this program: check the "
+                                 "spelling, or define it with `fn`.", callee);
+                    }
                     reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "scope",
                             scopeDetail,
                             unknownHint);

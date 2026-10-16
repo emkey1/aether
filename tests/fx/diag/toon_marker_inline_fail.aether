@@ -1,0 +1,7 @@
+// TOON content on the `= toon:` line itself is a coded SYN-001 at that line.
+fn main() -> Void {
+    let n: Int = 1;
+    let payload: Text = toon: name: Ada
+    fx { println(payload); }
+    ret;
+}
