@@ -1,9 +1,8 @@
-// W4-47 copies a literal's array parts at depth 1, the same depth as `x = xs`:
-// the outer array placed in a field or element is fresh, but a loop-built
-// grid's rows stay shared with the source's rows, so a nested write through a
-// row still reaches the source grid. This prints the same before and after the
-// fix; the deep copy waits for V-strict (L2), which pairs it with the
-// nested-write error.
+// W4-47 copies a literal's array parts, and since 2026-10-16-4 it copies
+// them with their rows, as `x = xs` does: a loop-built grid placed in a field,
+// an array literal or a record-literal argument is a full copy, so no nested
+// write through it reaches the source grid. (Until then the rows stayed
+// shared and this printed "99 2 97 98".)
 type Grid { cells: Int[][]; }
 fn mark(g: Grid) -> Void { g.cells[1][0] = 97; ret; }
 fn main() -> Void {

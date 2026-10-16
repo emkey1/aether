@@ -236,6 +236,87 @@ AST *buildArrayUnaliasStmt(const AST *target, int line) {
     return stmt;
 }
 
+static AST *buildIndexLoop(const char *name, AST *low, AST *high, AST *body, int line);
+
+/* buildArrayUnaliasStmt at every level of a nested array: the top-level copy,
+ * then, when `rank` (target's static array rank) is 2 or more, one un-alias
+ * per row, recursively:
+ *     setlength(t, length(t));
+ *     int __aether_unalias_i_<line>_<n> = 0;
+ *     while (i < length(t)) { <the same for t[i] at rank - 1>; i = i + 1; }
+ * The top-level step copies its elements with makeCopyOfValue, which deep-
+ * copies a literal-built (static) row but only retains a dynamic one, so
+ * without the row loop the rows of a copied Int[][] stayed shared when they
+ * had been built by appending and were copies when they came from a literal.
+ * A rank of 1 or less (or unknown, -1) emits the single top-level step. */
+AST *buildArrayUnaliasStmtRank(const AST *target, int rank, int line) {
+    AST *top = buildArrayUnaliasStmt(target, line);
+    if (rank < 2) return top;
+    static int unaliasSerial = 0;
+    char idxName[64];
+    snprintf(idxName, sizeof(idxName), "__aether_unalias_i_%d_%d", line, ++unaliasSerial);
+    AST *row = newASTNode(AST_ARRAY_ACCESS, NULL);
+    setLeft(row, copyAST((AST *)target));
+    addChild(row, buildVarRef(idxName, TYPE_INT64, line));
+    setTypeAST(row, TYPE_UNKNOWN);
+    AST *body = buildArrayUnaliasStmtRank(row, rank - 1, line);
+    freeAST(row);
+    AST *loop = buildIndexLoop(idxName, buildIntLiteral(0, line),
+                               buildLengthCall(target, line), body, line);
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    addChild(outer, top);
+    addChild(outer, loop);
+    return outer;
+}
+
+/* The variable an lvalue chain stores into, and how many indices deep:
+ * `t[i][j]` and `t[i][j].f` are `t` at depth 2. NULL for any other root. */
+static const AST *aetherLValueIndexRoot(const AST *lv, int *depth) {
+    *depth = 0;
+    while (lv) {
+        if (lv->type == AST_ARRAY_ACCESS) {
+            *depth += lv->child_count > 0 ? lv->child_count : 1;
+            lv = lv->left;
+        } else if (lv->type == AST_FIELD_ACCESS) {
+            lv = lv->left;
+        } else {
+            break;
+        }
+    }
+    return (lv && lv->type == AST_VARIABLE && lv->token && lv->token->value) ? lv : NULL;
+}
+
+static bool aetherStoresIntoRow(const AST *lv, const char *name) {
+    int depth = 0;
+    const AST *root = aetherLValueIndexRoot(lv, &depth);
+    return root && depth >= 2 && strcasecmp(root->token->value, name) == 0;
+}
+
+/* Does `n` store through two or more indices of array `name` -- an assignment
+ * to `t[i][j]` (or deeper), or `t[i][j]` passed to a builtin that writes its
+ * argument? Such a store reaches a row, which the parameter prologue's top-
+ * level copy leaves shared with the caller's. Arguments of user functions are
+ * values, so `f(t[i][j])` is a read. */
+bool aetherBodyWritesNested(const AST *n, const char *name) {
+    if (!n || !name) return false;
+    if (n->type == AST_ASSIGN && aetherStoresIntoRow(n->left, name)) return true;
+    if (n->type == AST_PROCEDURE_CALL && n->token && n->token->value) {
+        static const char *const writers[] = {"setlength", "val", "readln", "read", "inc",
+                                              "dec", "insert", "delete", "str", NULL};
+        for (int w = 0; writers[w]; w++) {
+            if (strcasecmp(n->token->value, writers[w]) != 0) continue;
+            for (int i = 0; i < n->child_count; i++)
+                if (aetherStoresIntoRow(n->children[i], name)) return true;
+        }
+    }
+    if (aetherBodyWritesNested(n->left, name) || aetherBodyWritesNested(n->right, name) ||
+        aetherBodyWritesNested(n->extra, name))
+        return true;
+    for (int i = 0; i < n->child_count; i++)
+        if (aetherBodyWritesNested(n->children[i], name)) return true;
+    return false;
+}
+
 /* Array rank of field `fieldName` of record type `className`, from the
  * registered record's field declaration: 0 not an array, -1 unknown (no such
  * type or field yet). */
@@ -275,9 +356,8 @@ static bool aetherIsCompositeLiteral(const AST *v) {
  * been stored at `dest`, emit into `outer` one un-alias step per field or
  * element that holds an array which may alias: `setlength(dest.f, ...)`,
  * `setlength(dest[i], ...)`. A nested literal recurses with its own dest
- * path, so every literal copies its direct parts at depth 1 and no deeper:
- * the rows of an array placed in a field stay shared, as they do after
- * `x = xs` (the deep copy waits for V-strict). `destRank` is dest's array
+ * path. A part whose rank is known to be 2 or more is copied at every level
+ * (buildArrayUnaliasStmtRank), as `x = xs` is. `destRank` is dest's array
  * rank when known (0 not an array, -1 unknown). */
 void aetherEmitLiteralUnalias(AetherParser *p, AST *outer, const AST *dest,
                               const AST *value, int destRank, int line) {
@@ -327,9 +407,10 @@ void aetherEmitStoreUnalias(AetherParser *p, AST *outer, const AST *dest,
     if (!isArray && p) {
         char *tn = inferLetTypeName(p, (AST *)value);
         isArray = aetherTypeNameIsArray(tn);
+        if (isArray) destRank = aetherTypeNameRank(tn);
         free(tn);
     }
-    if (isArray) addChild(outer, buildArrayUnaliasStmt(dest, line));
+    if (isArray) addChild(outer, buildArrayUnaliasStmtRank(dest, destRank, line));
 }
 
 /* The Aether type name of a composite literal, for a temp that holds it:
@@ -598,6 +679,10 @@ AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, in
         items[i] = aetherHoistAppendItem(p, outer, target, items[i], line);
     }
     if (copyStmt) addChild(outer, copyStmt);
+    /* The first setlength below copies `target` at the top level only, so the
+     * rows it took from a nested `src` need their own copy. */
+    if (copyStmt && targetRank >= 2 && aetherArrayInitMayAlias(src))
+        addChild(outer, buildArrayUnaliasStmtRank(target, targetRank, line));
     for (int i = 0; i < itemCount; i++) {
         AST *setlenStmt = NULL, *idxAssign = NULL;
         buildArrayAppendSteps(target, items[i], line, &setlenStmt, &idxAssign);
@@ -659,6 +744,7 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
     bool sliceIsText = inferredName && (strcmp(inferredName, "Text") == 0 ||
                                         strcmp(inferredName, "str") == 0 ||
                                         strcmp(inferredName, "String") == 0);
+    int sliceRank = (inferredName && !sliceIsText) ? aetherTypeNameRank(inferredName) : -1;
     if (inferredName && !sliceIsText && aetherTypeNameIsArray(inferredName)) {
         sliceTypeNode = buildTypeNodeFromName(inferredName, strlen(inferredName), line,
                                               &sliceVtype);
@@ -891,6 +977,9 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
 
     AST *whileBody = newASTNode(AST_COMPOUND, NULL);
     addChild(whileBody, copyStmt);
+    /* A nested base's rows: the slice gets copies, not the base's rows. */
+    if (!sliceIsText && sliceRank >= 2)
+        addChild(whileBody, buildArrayUnaliasStmtRank(lhsAccess, sliceRank - 1, line));
     addChild(whileBody, postStmt);
     AST *whileNode = newASTNode(AST_WHILE, NULL);
     setLeft(whileNode, cond);
@@ -1018,6 +1107,7 @@ static AST *buildIndexLoop(const char *name, AST *low, AST *high, AST *body, int
  * must already be detached from its original parent. */
 static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *other,
                                   char *otherTypeName, int line) {
+    int otherRank = aetherTypeNameRank(otherTypeName);
     VarType otherVt = TYPE_UNKNOWN;
     AST *otherTypeNode = buildTypeNodeFromName(otherTypeName, strlen(otherTypeName), line, &otherVt);
     free(otherTypeName);
@@ -1094,6 +1184,9 @@ static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *
     setLeft(elemStmt, elemAssign);
     AST *loopBody = newASTNode(AST_COMPOUND, NULL);
     addChild(loopBody, elemStmt);
+    /* A row copied in from a nested `other` is shared with other's row. */
+    if (otherRank >= 2)
+        addChild(loopBody, buildArrayUnaliasStmtRank(targetIdx, otherRank - 1, line));
 
     AST *loop = buildIndexLoop(idxName, buildIntLiteral(0, line),
                                 buildLengthCallByName(otherName, otherVt, line),
@@ -1161,6 +1254,9 @@ AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *other,
     }
 
     if (copyStmt) addChild(outer, copyStmt);
+    int targetRank = aetherAppendTargetRank(p, target);
+    if (copyStmt && targetRank >= 2 && aetherArrayInitMayAlias(src))
+        addChild(outer, buildArrayUnaliasStmtRank(target, targetRank, line));
     if (!buildArrayConcatSteps(p, outer, target, other, otherTypeName, line)) {
         freeAST(assign);
         freeAST(outer);
@@ -1858,6 +1954,7 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     char tmpName[64];
     snprintf(tmpName, sizeof(tmpName), "__aether_ret_concat_%d", p->nextObjLitId++);
     bindingTableSet(p->bindings, tmpName, tmpTypeName);
+    int tmpRank = aetherTypeNameRank(tmpTypeName);
     free(tmpTypeName);
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
@@ -1879,8 +1976,9 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     for (int i = 0; i < opCount; i++) {
         if (ops[i].other || ops[i].itemCount > 0) { emitsAnyStep = true; break; }
     }
-    if (!emitsAnyStep && aetherArrayInitMayAlias(base)) {
-        addChild(outer, buildArrayUnaliasStmt(tmpVar, concatLine));
+    /* ... and a nested base's rows always need their own copy. */
+    if (aetherArrayInitMayAlias(base) && (!emitsAnyStep || tmpRank >= 2)) {
+        addChild(outer, buildArrayUnaliasStmtRank(tmpVar, tmpRank, concatLine));
     }
 
     /* `tmpVar` is only read (copied) by the step builders, exactly as in the
@@ -2402,7 +2500,7 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line)
     addChild(innerBody, elemDecl);
     if (aetherTypeNameIsArray(elemType)) {
         AST *elemRef = buildVarRef(name, TYPE_UNKNOWN, line);
-        addChild(innerBody, buildArrayUnaliasStmt(elemRef, line));
+        addChild(innerBody, buildArrayUnaliasStmtRank(elemRef, aetherTypeNameRank(elemType), line));
         freeAST(elemRef);
     }
     addChild(innerBody, body);

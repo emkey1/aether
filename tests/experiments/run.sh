@@ -64,7 +64,8 @@ check arr_params.aether ""               0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
 check arr_params.aether "arrays=value"   0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
 check arr_params.aether "arrays=vstrict" 0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
 check arr_params.aether "arrays=ref"     0 "1358 g=1 a=5 b=5 s0=0 a0=1 t=6"
-check_warn arr_params.aether ""               ARR-001 0
+# The shipped ARR-001 flags mark()'s nested write (2026-10-16-5).
+check_warn arr_params.aether ""               ARR-001 1
 check_warn arr_params.aether "arrays=vstrict" ARR-001 5
 
 # D39: discarded values and tail expressions (W4-03 arms).

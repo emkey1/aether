@@ -1,0 +1,18 @@
+// ARR-001 covers a write through two indices too: a nested array parameter is
+// copied with its rows, so the Void helper's write never reaches the caller,
+// whether the grid's rows were built by appending or written as a literal.
+fn mark(seen: Bool[][], r: Int, c: Int) -> Void {
+    seen[r][c] = true;
+    ret;
+}
+fn main() -> Void {
+    let seen: Bool[][] = [];
+    loop i in 0..2 {
+        let row: Bool[] = [];
+        loop j in 0..2 { row = row + [false]; }
+        seen = seen + [row];
+    }
+    mark(seen, 1, 1);
+    fx { println(seen[1][1]); }
+    ret;
+}

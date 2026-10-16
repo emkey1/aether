@@ -3450,8 +3450,8 @@ static void aetherWalkNarrowing(const AST *node) {
  * points readers toward.
  * -------------------------------------------------------------------------- */
 
-/* Recursively scans `node` for AST_ASSIGN nodes writing into `xs[i]` where
- * `xs` is one of `paramNames` (`paramCount` entries), warning ARR-001 at
+/* Recursively scans `node` for AST_ASSIGN nodes writing into `xs[i]` (or
+ * `xs[i][j]`, any depth) where `xs` is one of `paramNames` (`paramCount` entries), warning ARR-001 at
  * each site. Runs within a single function's body, so no function-boundary
  * special case is needed here (aetherWalkArrayParamMutation below handles
  * finding/entering function bodies). */
@@ -3460,11 +3460,13 @@ static void aetherScanArrayParamMutation(const AST *node, const char **paramName
     if (!node) {
         return;
     }
-    if (node->type == AST_ASSIGN && node->left &&
-        node->left->type == AST_ARRAY_ACCESS && node->left->left &&
-        node->left->left->type == AST_VARIABLE && node->left->left->token &&
-        node->left->left->token->value) {
-        const char *base = node->left->left->token->value;
+    /* The store's root through any number of indices: `xs[i] = v` and, since
+     * nested copies became deep, `grid[r][c] = v` too. */
+    const AST *root = (node->type == AST_ASSIGN) ? node->left : NULL;
+    if (root && root->type != AST_ARRAY_ACCESS) root = NULL;
+    while (root && root->type == AST_ARRAY_ACCESS) root = root->left;
+    if (root && root->type == AST_VARIABLE && root->token && root->token->value) {
+        const char *base = root->token->value;
         for (i = 0; i < paramCount; i++) {
             if (paramNames[i] && strcmp(paramNames[i], base) == 0) {
                 char detail[224];

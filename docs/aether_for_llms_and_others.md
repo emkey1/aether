@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-16-2*
+*Guide version: 2026-10-16-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1095,10 +1095,9 @@ let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like lo
 - `xs == ys` / `xs != ys` compare structurally: equal when both have the same
   length and every element compares equal (nested arrays recurse; record
   elements compare by identity)
-- copying a nested array (`let b: Int[][] = a;`, or passing it) copies the outer
-  array only: rows that were built by appending stay shared, so `b[0][0] = 99`
-  also changes `a`. Clone row by row:
-  `loop row in a { let r: Int[] = row; deep = deep + [r]; }`
+- copying a nested array (`let b: Int[][] = a;`, passing it, or placing it in a
+  literal) copies its rows too, however they were built: `b[0][0] = 99` never
+  changes `a`
 - never `toon_len(xs)` on a dynamic array, nor `length(node)` on a `ToonNode`
   (LEN-001): both compile, and stop at run time with an uncoded error
 - `println`/`print` cannot print a whole array: `println("data: ", xs)` is a
@@ -1121,8 +1120,9 @@ fn doubleAll(arr: Int[]) -> Int[] {
 xs = doubleAll(xs);
 ```
 
-A `Void` function that indexes into an array parameter to assign a value,
-and never returns that array, gets a compile-time `[ARR-001]` warning (the
+A `Void` function that indexes into an array parameter to assign a value
+(`arr[i] = v`, or `grid[r][c] = v` on a nested one), and never returns that
+array, gets a compile-time `[ARR-001]` warning (the
 build still succeeds -- it's a warning, not an error -- but the diagnostic is
 almost always pointing at a real bug: the mutation the code appears to
 intend can never be observed by the caller).
@@ -1927,7 +1927,8 @@ does not exist — re-read the message rather than inventing a rule for it.
   build each row as its own `T[]` (`row = row + [v];` then
   `table = table + [row];`), and bound inner loops with `length(table[r])` since
   rows may be jagged. Or keep one dimension and index with a computed offset,
-  `table[r * width + c]`.
+  `table[r * width + c]`. A `Text[]` is the exception: `lines[i][0]` is the
+  first character of `lines[i]`, not a second dimension.
 - **`Length expects a string or array argument`** or **`YyjsonGetLength expects a
   single value handle`** *(runtime, no bracketed code)* → `length` was handed a
   `ToonNode`, or `toon_len` an array or a `Text` (LEN-001). Use
@@ -1974,8 +1975,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   tuple-returning function, return a record instead and read its fields.
 - **[BUILT-002]** a listed builtin called with the wrong number of arguments →
   use the count in its signature (`formatfloat(r, 2)`, never a width slot).
-- **[ARR-001]** (warning) a `Void` function writes into an array parameter and
-  never returns it → return the array and reassign at the call site.
+- **[ARR-001]** (warning) a `Void` function writes into an array parameter
+  (`xs[i] = v`, `grid[r][c] = v`) and never returns it → return the array and
+  reassign at the call site.
 - **[NARROW-001]** (warning) a `Real` stored in an `Int` target → the fraction
   is discarded; use a `Real` target, or `int(...)` when truncating is intended.
 - **[FMT-001]** a placeholder in a `println` string — `"{}"`, `{name}`, `{0}`,

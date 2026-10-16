@@ -1,0 +1,69 @@
+// Every copy site copies a nested array's rows, for rows built by appending
+// (the case that used to share them) and from literals alike: let,
+// assignment, concatenation (either operand), slices, record and array
+// literals, appends, `loop row in`, a returned parameter, and a parameter the
+// body writes through two indices (also through `val`). Each write below lands
+// in a copy, so `a` still prints its original cells.
+type Box { data: Int[][]; }
+fn poke(t: Int[][]) -> Int { t[0][0] = 77; ret 0; }
+fn pokeVal(t: Int[][]) -> Int { let code: Int = 0; val("77", t[0][0], code); ret 0; }
+fn poke3(t: Int[][][]) -> Int { t[0][0][0] = 77; ret 0; }
+fn ident(t: Int[][]) -> Int[][] { ret t; }
+fn grow(t: Int[][]) -> Int[][] { ret t + [[5]]; }
+fn mk(lit: Bool) -> Int[][] {
+    let g: Int[][] = [];
+    if lit { g = [[1, 2], [3, 4]]; ret g; }
+    loop i in 0..2 {
+        let r: Int[] = [];
+        loop j in 0..2 { r = r + [i * 2 + j + 1]; }
+        g = g + [r];
+    }
+    ret g;
+}
+fn show(label: Text, a: Int[][]) -> Void {
+    fx { println(label, ": ", a[0][0], " ", a[0][1], " ", a[1][0], " ", a[1][1]); }
+    ret;
+}
+fn check(lit: Bool) -> Void {
+    let a: Int[][] = mk(lit);
+    let x: Int = poke(a);
+    x = pokeVal(a);
+    let b: Int[][] = a;
+    b[0][0] = 9;
+    let c: Int[][] = [];
+    c = a;
+    c[0][1] = 9;
+    let d: Int[][] = a + [[3]];
+    d[1][0] = 9;
+    let e: Int[][] = [];
+    e = a + [[3]];
+    e[1][1] = 9;
+    let f: Int[][] = [];
+    f = f + a;
+    f[0][0] = 9;
+    let a2: Int[][] = a + a;
+    a2[3][0] = 9;
+    let s: Int[][] = a[0..1];
+    s[0][0] = 9;
+    let h: Int[][] = ident(a);
+    h[0][0] = 9;
+    let k: Int[][] = grow(a);
+    k[1][1] = 9;
+    let m: Int[][][] = [a];
+    m[0][0][0] = 9;
+    loop row in m { row[0][0] = 9; }
+    let n: Int[][][] = [];
+    n = n + [a];
+    n[0][1][1] = 9;
+    x = poke3(n);
+    let bx: Box = new Box { data: a };
+    bx.data[0][0] = 9;
+    if lit { show("literal rows", a); } else { show("appended rows", a); }
+    show("n[0]", n[0]);
+    ret;
+}
+fn main() -> Void {
+    check(false);
+    check(true);
+    ret;
+}

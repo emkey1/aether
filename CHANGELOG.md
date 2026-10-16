@@ -12,6 +12,61 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-16-5
+
+**A copy of a nested array copies its rows, however they were built; ARR-001
+flags a nested write; a `Text[]` element can be indexed by character.**
+Reported against `2026-10-16-3` (aether `96f099f`) while writing 2-D DP
+training data. Front end only: pscal-core stays at `632f4d1`, rea at `a0fae25`.
+
+- **Nested copies are deep (owner decision 2026-10-16, ahead of the rest of
+  D8).** Copying an `Int[][]` used to copy the outer array only. A row written
+  as a literal is a static array and was copied with it; a row built by
+  appending is a dynamic array and stayed shared. So whether a write through a
+  copy reached the original depended on how the row was made:
+  `fn poke(t: Int[][]) -> Int { t[0][0] = 77; ret 0; }` left `[lit]` alone and
+  changed `[built]`, and `let b2: Int[][] = a2; b2[0][0] = 99;` changed `a2`
+  only when its rows were appended. Every copy site now copies each row (each
+  level of an `Int[][][]`): `let` and assignment, a call result, concatenation
+  (`a + [[3]]`, `f + a`, `a + a`, `ret t + [...]`), slices (`a[0..1]`), record
+  and array literals and appends (W4-47, which copied "at depth 1"), and
+  `loop row in m` over an `Int[][][]`. At the call boundary a nested parameter
+  is copied with its rows when the body writes through two indices
+  (`t[r][c] = v`, also `val(s, t[r][c], code)` and the other builtins that
+  write an argument); a parameter the body only reads keeps the top-level copy,
+  so a read-only grid helper costs what it did. The cost is O(cells) per copy:
+  a helper that writes `dp[i][j]` and returns `dp`, called 300 times on a
+  150x150 grid, went from 0.33 s to 2.0 s (Debug build), because it used to
+  write the caller's rows in place. Lowering: `buildArrayUnaliasStmtRank` and
+  `aetherBodyWritesNested` in `src/aether/ast_lower.c`. The rest of D8 (V-strict
+  turning ARR-001 into an error, or by-ref) is still pending.
+- **ARR-001 covers a write through two indices.** `fn mark(seen: Bool[][], r:
+  Int, c: Int) -> Void { seen[r][c] = true; }` used to work on a loop-built
+  grid only because its rows were shared, and drew no warning; the write is now
+  lost like any other write to an array parameter, and ARR-001 says so.
+- **ARR-002 lets a `Text[]` element be indexed by character.** `let lines:
+  Text[] = ["ab", "cd"]; println(lines[1][0]);` was rejected ("'lines' is
+  declared 'Text[]', a one-dimensional array, but is indexed twice here"). The
+  second index on a `Text[]` is character access, read or written; an `Int[]`
+  indexed twice is still ARR-002.
+
+Census: the replay lap (218 cases), every `.aether` program under
+`components/aether/tests`, `examples/` and the umbrella's `Tests/` (1,003
+programs, run against `2026-10-16-3` and this change, stdout and exit status)
+and the specialization dataset gates: nothing changes except
+`lower/lit_alias_depth1_pass`, which pinned the depth-1 copy and is now
+`lower/lit_alias_deep_pass` (`99 2 97 98` → `1 2 3 4`). Nine other programs
+differ between runs of the old binary too (random, wall-clock, `par` order).
+
+Docs: the full guide drops its interim caveat that appended rows stay shared on
+copy, and its ARR-001 and ARR-002 entries name the nested write and the `Text[]`
+case (full guide `2026-10-16-3`; medium and small state only the value-copy
+rule, which now holds for every row).
+
+Fixtures: `lower/nested_copy_param_pass`, `lower/nested_copy_sites_pass`,
+`lower/lit_alias_deep_pass`, `diag/arr001_nested_write_warn_pass`,
+`diag/text_array_char_index_pass`.
+
 ## 2026-10-16-4
 
 **A self-append sees the array before it grows, a function named like a builtin

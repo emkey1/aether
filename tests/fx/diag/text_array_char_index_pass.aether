@@ -1,0 +1,15 @@
+// A second index on an element of a Text[] is character access, not a second
+// dimension: ARR-002 used to reject `lines[1][0]` ("'lines' is declared
+// 'Text[]', a one-dimensional array, but is indexed twice here").
+fn firstChar(xs: Text[], i: Int) -> Text { ret xs[i][0]; }
+fn main() -> Void {
+    let lines: Text[] = ["ab", "cd"];
+    lines[0][1] = "x";
+    fx {
+        println(lines[1][0]);
+        println(lines[0], " ", firstChar(lines, 1));
+        loop i in 0..length(lines) { println(lines[i][length(lines[i]) - 1]); }
+        if lines[1][1] == "d" { println("ok"); }
+    }
+    ret;
+}

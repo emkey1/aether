@@ -1594,7 +1594,8 @@ fn main() -> Void {
 To be written: evaluation order, the value model, integers, Text, printing and
 run-time errors. Open rows:
 
-- **D8**, array semantics (value copies today; V-strict vs by-ref pending).
+- **D8**, array semantics (value copies today, deep for nested arrays since
+  `2026-10-16-5`; V-strict vs by-ref pending).
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
 - **D24**, record and tuple `==`: REC-001 from W4. Today `==` on two records
   compares identity.

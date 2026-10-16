@@ -415,8 +415,11 @@ typedef struct {
 static void arrReport(const ArrCtx *c, const ArrParam *p, const char *kind, int line) {
     logRow("arr", line, p->name, kind, c->fnKind, p->returned ? "returned" : "lost");
     if (c->rule != AETHER_ARRAYS_VSTRICT || p->returned) return;
-    /* The shipped ARR-001 already warns on a direct index write in a Void fn. */
-    if (strcmp(c->fnKind, "void") == 0 && strcmp(kind, "index") == 0) return;
+    /* The shipped ARR-001 already warns on an index write, direct or nested
+     * (`g[r][c] = v`, since 2026-10-16-5), in a Void fn. */
+    if (strcmp(c->fnKind, "void") == 0 &&
+        (strcmp(kind, "index") == 0 || strcmp(kind, "nested") == 0))
+        return;
     char detail[320];
     snprintf(detail, sizeof(detail),
              "array parameter '%s' is written here (%s) but never returned, so the caller "

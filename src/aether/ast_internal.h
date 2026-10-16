@@ -302,6 +302,8 @@ bool aetherExprReadsLValue(const AST *expr, const AST *target);
 AST *aetherHoistAppendItem(AetherParser *p, AST *dest, const AST *target, AST *item,
                            int line);
 AST *buildArrayUnaliasStmt(const AST *target, int line);
+AST *buildArrayUnaliasStmtRank(const AST *target, int rank, int line);
+bool aetherBodyWritesNested(const AST *n, const char *name);
 void aetherEmitLiteralUnalias(AetherParser *p, AST *outer, const AST *dest,
                               const AST *value, int destRank, int line);
 AST *aetherHoistCallLiteralArgs(AetherParser *p, AST *stmt);

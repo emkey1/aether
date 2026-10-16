@@ -4522,8 +4522,9 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         for (int i = 0; i < chainOpCount; i++) {
             if (chainOps[i].other || chainOps[i].itemCount > 0) { emitsAnyStep = true; break; }
         }
-        if (!emitsAnyStep && aetherArrayInitMayAlias(init)) {
-            addChild(outer, buildArrayUnaliasStmt(var, appendLine));
+        /* A nested source's rows need their own copy either way. */
+        if (aetherArrayInitMayAlias(init) && (!emitsAnyStep || declRank >= 2)) {
+            addChild(outer, buildArrayUnaliasStmtRank(var, declRank, appendLine));
         }
         /* W4-47: `let x = [xs] + ...;` -- the innermost literal's parts. */
         aetherEmitLiteralUnalias(p, outer, var, init, declRank, kwLine);
@@ -4550,7 +4551,7 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
         AST *outer = newASTNode(AST_COMPOUND, NULL);
         outer->i_val = 1; /* splice into the surrounding block */
         addChild(outer, decl);
-        addChild(outer, buildArrayUnaliasStmt(var, kwLine));
+        addChild(outer, buildArrayUnaliasStmtRank(var, declRank, kwLine));
         aetherAlignSpliceLines(outer, decl);
         return outer;
     }
@@ -5197,11 +5198,14 @@ static AST *parseStatementInner(AetherParser *p) {
              * never assigns an array-valued RHS to a non-array lvalue. */
             char *lhsTypeName = inferLetTypeName(p, target);
             bool isArrayAssign;
+            int assignRank = -1;
             if (lhsTypeName) {
                 isArrayAssign = aetherTypeNameIsArray(lhsTypeName);
+                if (isArrayAssign) assignRank = aetherTypeNameRank(lhsTypeName);
             } else {
                 char *rhsTypeName = inferLetTypeName(p, rhs);
                 isArrayAssign = rhsTypeName && aetherTypeNameIsArray(rhsTypeName);
+                if (isArrayAssign) assignRank = aetherTypeNameRank(rhsTypeName);
                 free(rhsTypeName);
             }
             free(lhsTypeName);
@@ -5210,7 +5214,7 @@ static AST *parseStatementInner(AetherParser *p) {
                 AST *outer = newASTNode(AST_COMPOUND, NULL);
                 outer->i_val = 1; /* splice into the surrounding block */
                 addChild(outer, expr);
-                addChild(outer, buildArrayUnaliasStmt(target, line));
+                addChild(outer, buildArrayUnaliasStmtRank(target, assignRank, line));
                 return outer;
             }
         }
@@ -6160,7 +6164,8 @@ static AST *parseFnDecl(AetherParser *p) {
      * write, but a concat-/setlength-built argument arrives aliased, so
      * `v[i] = x` inside the body would silently mutate the caller's array.
      * Prepend one un-alias step per array-typed parameter (see
-     * buildArrayUnaliasStmt) so both construction styles behave identically.
+     * buildArrayUnaliasStmtRank) so both construction styles behave
+     * identically.
      * Runs after the FLOW-001 check above (a synthesized statement must not
      * turn an empty non-Void body into a "fallthrough path") and before the
      * @pre injection below (the guard still lands at children[0]; copies
@@ -6183,7 +6188,16 @@ static AST *parseFnDecl(AetherParser *p) {
                 paramDecl->children[0]->type != AST_VARIABLE ||
                 !paramDecl->children[0]->token || !paramDecl->children[0]->token->value)
                 continue;
-            AST *copyStmt = buildArrayUnaliasStmt(paramDecl->children[0], fnLine);
+            /* A nested parameter the body writes through its rows (`t[i][j] =
+             * v`) is copied at every level; one it only reads keeps the
+             * top-level copy, so a read-only grid helper stays O(rows). */
+            int paramRank = 0;
+            for (const AST *t = paramDecl->right; t && t->type == AST_ARRAY_TYPE; t = t->right)
+                paramRank++;
+            if (paramRank < 2 ||
+                !aetherBodyWritesNested(block, paramDecl->children[0]->token->value))
+                paramRank = 1;
+            AST *copyStmt = buildArrayUnaliasStmtRank(paramDecl->children[0], paramRank, fnLine);
             addChild(block, NULL); /* grow capacity by one slot */
             for (int i = block->child_count - 1; i > 0; i--) {
                 block->children[i] = block->children[i - 1];

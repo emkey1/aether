@@ -1,0 +1,24 @@
+// A copy of a nested array copies its rows too, however the rows were built
+// (2026-10-16-4). A literal-built row (static) always copied; a row built by
+// appending (dynamic) used to stay shared, so the write through the copy
+// reached `b` and `g2` but not `a` and `a2`: this printed "1 77" and "1 99".
+fn poke(t: Int[][]) -> Int { t[0][0] = 77; ret 0; }
+fn main() -> Void {
+    let lit: Int[] = [1, 2];
+    let built: Int[] = [];
+    built = built + [1, 2];
+    let a: Int[][] = [lit];
+    let b: Int[][] = [built];
+    let x: Int = poke(a);
+    let y: Int = poke(b);
+    fx { println(a[0][0], " ", b[0][0]); }
+    let a2: Int[][] = [[1, 2]];
+    let g2: Int[][] = [];
+    g2 = g2 + [built];
+    let b2: Int[][] = a2;
+    b2[0][0] = 99;
+    let c2: Int[][] = g2;
+    c2[0][0] = 99;
+    fx { println(a2[0][0], " ", g2[0][0], " ", b2[0][0], " ", c2[0][0]); }
+    ret;
+}

@@ -20,7 +20,8 @@
  * Only fires when the base is a plain variable whose declared type
  * name is known and has exactly one `[]`. A slice (`xs[a..b][i]`)
  * lowers to a temp variable before reaching here, and a field base
- * (`self.rows[i][j]`) is not AST_VARIABLE, so neither is judged.
+ * (`self.rows[i][j]`) is not AST_VARIABLE, so neither is judged. A
+ * `Text[]` is exempt: its second index is character access.
  *
  * Called from parsePostfix with `node` the array access about to be indexed
  * again. Reports the error, sets p->hadError and returns true when the index
@@ -32,7 +33,10 @@ bool aetherCheckArrayRankIndex(AetherParser *p, AST *node, int openLine) {
         const char *baseName = node->left->token->value;
         const char *declared = bindingTableGet(p->bindings, baseName,
                                                strlen(baseName));
-        if (declared && aetherTypeNameRank(declared) == 1) {
+        /* `lines[i][j]` on a `Text[]` is a character of element i, not a
+         * second dimension. */
+        bool textElems = declared && strncasecmp(declared, "Text[", 5) == 0;
+        if (declared && !textElems && aetherTypeNameRank(declared) == 1) {
             char detail[256];
             char hint[256];
             snprintf(detail, sizeof(detail),
