@@ -365,7 +365,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"ceil", AETHER_T_INT, NULL}, {"parse_int", AETHER_T_INT, NULL}, {"int", AETHER_T_INT, NULL},
     {"toint", AETHER_T_INT, NULL}, {"getenvint", AETHER_T_INT, NULL},
     {"paramcount", AETHER_T_INT, NULL}, {"yyjsongetlength", AETHER_T_INT, NULL},
-    {"yyjsongetint", AETHER_T_INT, NULL}, {"httpsession", AETHER_T_INT, NULL},
+    {"yyjsongetint", AETHER_T_INT, NULL}, {"yyjsongetintor", AETHER_T_INT, NULL}, {"httpsession", AETHER_T_INT, NULL},
     {"httprequest", AETHER_T_INT, NULL}, {"waitforthread", AETHER_T_INT, NULL},
     {"thread_spawn_named", AETHER_T_INT, NULL}, {"thread_pool_submit", AETHER_T_INT, NULL},
     {"thread_lookup", AETHER_T_INT, NULL}, {"thread_get_status", AETHER_T_INT, NULL},
@@ -383,7 +383,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"tanh", AETHER_T_REAL, NULL}, {"pow", AETHER_T_REAL, NULL}, {"power", AETHER_T_REAL, NULL},
     {"real", AETHER_T_REAL, NULL}, {"double", AETHER_T_REAL, NULL}, {"todouble", AETHER_T_REAL, NULL},
     {"float", AETHER_T_REAL, NULL}, {"tofloat", AETHER_T_REAL, NULL},
-    {"parse_float", AETHER_T_REAL, NULL}, {"yyjsongetnumber", AETHER_T_REAL, NULL},
+    {"parse_float", AETHER_T_REAL, NULL}, {"yyjsongetnumber", AETHER_T_REAL, NULL}, {"yyjsongetnumberor", AETHER_T_REAL, NULL},
     {"realtimeclock", AETHER_T_REAL, NULL},
     /* Text */
     {"inttostr", AETHER_T_TEXT, NULL}, {"itoa", AETHER_T_TEXT, NULL}, {"copy", AETHER_T_TEXT, NULL},
@@ -391,7 +391,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"realtostr", AETHER_T_TEXT, NULL}, {"stringofchar", AETHER_T_TEXT, NULL},
     {"getenv", AETHER_T_TEXT, NULL}, {"paramstr", AETHER_T_TEXT, NULL},
     {"getcurrentdir", AETHER_T_TEXT, NULL}, {"mstreambuffer", AETHER_T_TEXT, NULL},
-    {"yyjsongetstring", AETHER_T_TEXT, NULL}, {"yyjsongettype", AETHER_T_TEXT, NULL},
+    {"yyjsongetstring", AETHER_T_TEXT, NULL}, {"yyjsongetstringor", AETHER_T_TEXT, NULL}, {"yyjsongettype", AETHER_T_TEXT, NULL},
     {"aetherbuiltinsjson", AETHER_T_TEXT, NULL}, {"aetherbuiltininfo", AETHER_T_TEXT, NULL},
     {"openaichatcompletions", AETHER_T_TEXT, NULL}, {"threadstatsjson", AETHER_T_TEXT, NULL},
     {"httplasterror", AETHER_T_TEXT, NULL}, {"httpgetheader", AETHER_T_TEXT, NULL},
@@ -401,7 +401,8 @@ static const BuiltinRet kBuiltinReturns[] = {
     /* Bool */
     {"hasextbuiltin", AETHER_T_BOOL, NULL}, {"yyjsonhaskey", AETHER_T_BOOL, NULL},
     {"yyjsonhasindex", AETHER_T_BOOL, NULL}, {"yyjsongetbool", AETHER_T_BOOL, NULL},
-    {"yyjsonisnull", AETHER_T_BOOL, NULL}, {"fileexists", AETHER_T_BOOL, NULL},
+    {"yyjsonisnull", AETHER_T_BOOL, NULL}, {"yyjsongetboolor", AETHER_T_BOOL, NULL},
+    {"fileexists", AETHER_T_BOOL, NULL},
     {"eof", AETHER_T_BOOL, NULL}, {"parse_bool", AETHER_T_BOOL, NULL}, {"odd", AETHER_T_BOOL, NULL},
     {"httpisdone", AETHER_T_BOOL, NULL},
     /* Handles */

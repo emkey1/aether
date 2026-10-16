@@ -2639,6 +2639,24 @@ static const char *toonScalarGetterForName(const char *nameStart, size_t nameLen
     return NULL;
 }
 
+/* The `_or` getters lower to one native call that returns the fallback for a
+ * missing key, a JSON null and a wrong-typed value alike. */
+static const char *toonScalarDefaultGetterForName(const char *nameStart, size_t nameLen) {
+    if (nameLen == 16 && strncmp(nameStart, "toon_get_text_or", nameLen) == 0) {
+        return "YyjsonGetStringOr";
+    }
+    if (nameLen == 15 && strncmp(nameStart, "toon_get_int_or", nameLen) == 0) {
+        return "YyjsonGetIntOr";
+    }
+    if (nameLen == 16 && strncmp(nameStart, "toon_get_real_or", nameLen) == 0) {
+        return "YyjsonGetNumberOr";
+    }
+    if (nameLen == 16 && strncmp(nameStart, "toon_get_bool_or", nameLen) == 0) {
+        return "YyjsonGetBoolOr";
+    }
+    return NULL;
+}
+
 static int isToonScalarDefaultHelper(const char *nameStart, size_t nameLen) {
     return (nameLen == 16 && strncmp(nameStart, "toon_get_text_or", nameLen) == 0) ||
            (nameLen == 15 && strncmp(nameStart, "toon_get_int_or", nameLen) == 0) ||
@@ -2881,17 +2899,12 @@ static int appendToonScalarAlias(Buffer *out,
     }
     jsonState->needed = 1;
     if (defaultHelper) {
-        if (!bufferAppend(out, "(YyjsonHasKey(") ||
+        if (!bufferAppend(out, toonScalarDefaultGetterForName(nameStart, nameLen)) ||
+            !bufferAppend(out, "(") ||
             !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
             !bufferAppend(out, ", ") ||
             !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
-            !bufferAppend(out, ") ? ") ||
-            !bufferAppend(out, getter) ||
-            !bufferAppend(out, "(YyjsonGetKey(") ||
-            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
             !bufferAppend(out, ", ") ||
-            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
-            !bufferAppend(out, ")) : ") ||
             !appendAliasedTrimmedRange(out, arg3Start, arg3End, jsonState, toonTable) ||
             !bufferAppend(out, ")")) {
             return 0;

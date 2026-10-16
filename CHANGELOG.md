@@ -12,6 +12,52 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-16-3
+
+**Two TOON false positives are gone, and the `_or` getters and `toon_len` do
+what the guides say.** Reported against `2026-10-15-2`. Needs pscal-core
+`e48ce37` (the native `_or` getters, `toon_len` on an absent node); rea
+stays at `bdbf9ce`.
+
+- **A field named like a TOON handle.** With a `ToonNode` local `orders` in
+  scope, `b.orders = b.orders + 1` was `[TOON-001] opaque TOON handle 'orders'
+  cannot be used in arithmetic expressions`; a `Text` local of the same name
+  compiled. A name right after `.` is a field and is no longer looked up as a
+  handle; `0..orders` is still a range bound, and a bare `orders` in the same
+  expression is still TOON-001 (reported once, not twice).
+- **A scalar getter inside a larger expression.** `let v: Real =
+  toon_int_value(cell) * 1.0;`, `let big: Bool = toon_int_value(cell) > 2;` and
+  `let c: Real = toon_get_int_or(root, "k", 0) * 1.0;` were `[TYPE-001] binding
+  for 'v' must use Int when initialized from 'toon_int_value'`: the check read
+  the first identifier on the right, not the whole expression. It now applies
+  only when the getter call is the whole right-hand side; anything else is typed
+  by the engine like any other expression. An Int getter also initializes or
+  assigns a `Real` binding (`let w: Real = toon_int_value(cell);`, `r =
+  toon_int_value(cell);`), as `let x: Real = n;` with `n: Int` already did. A
+  `Text` or `Bool` binding from an Int getter is still TYPE-001.
+- **`_or` getters fall back on null and on a wrong type.** `toon_get_int_or`,
+  `toon_get_text_or`, `toon_get_real_or` and `toon_get_bool_or` returned the
+  type's zero value when the key was present but null or of another type
+  (`toon_get_int_or(root, "b", -1)` with `b: 2.5` was 0; `toon_get_text_or(root,
+  "a", "fb")` with `a: 3` was `""`). They now return the fallback for a missing
+  key, a null and a wrong-typed value alike; an Int still satisfies
+  `toon_get_real_or`, and an Int fallback to it is a Real (`2.000000`, it printed
+  `2`). Each lowers to one native call (`YyjsonGet{String,Int,Number,Bool}Or`)
+  instead of `YyjsonHasKey(...) ? Getter(YyjsonGetKey(...)) : fallback`, so it
+  resolves the key once and allocates no node handle.
+- **`toon_len` on an absent node is 0.** `toon_len(toon_key(root, "zzz"))`, a
+  dotted miss and `toon_at` past the end returned -1; they now return 0, as a
+  null node does and as the guides' NEST-001 paragraph says. This closes
+  W5-09: the backend conformance probe `toon_len_absent` is now `pass`.
+
+Docs: `mstreamloadfromfile` is `-> Bool` in the builtin registry and the full
+guide's appendix (the runtime always returned Bool); `toon_null_value` is noted
+as Bool. Guides (their own stamps): full, medium and small are
+`2026-10-16-1` (the `_or` rule; medium and small pay for it with cuts).
+
+Fixtures: `diag/toon_handle_field_name_pass`, `diag/toon_handle_beside_field_fail`,
+`diag/scalar_call_in_expr_pass`, `basic/toon_or_fallback_pass`.
+
 ## 2026-10-16-2
 
 **`val` gives the same answer on every platform.** On Linux, `val("", n, code)`

@@ -1,0 +1,22 @@
+// A record field that shares its name with a ToonNode local is the field:
+// `b.orders + 1` is Int arithmetic, not arithmetic on the handle `orders`.
+type Bucket { orders: Int = 0; total: Real = 0.0; }
+
+fn bump(b: Bucket, orders: ToonNode) -> Int {
+    b.orders = b.orders + toon_len(orders);
+    ret b.orders * 2;
+}
+
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1, 2, 3]");
+    let orders: ToonNode = toon_root(doc);
+    let total: ToonNode = toon_at(orders, 0);
+    let b: Bucket = new Bucket();
+    b.orders = b.orders + 1;
+    b.orders = 10 - b.orders;
+    b.total = b.total + toon_real_value(total) / 2.0;
+    let twice: Int = bump(b, orders);
+    fx { println(b.orders, " ", b.total, " ", twice, " ", toon_len(orders)); }
+    toon_close(doc);
+    ret;
+}

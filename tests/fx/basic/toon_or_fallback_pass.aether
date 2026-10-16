@@ -1,0 +1,28 @@
+// The `_or` getters return the fallback for a missing key, a JSON null and a
+// wrong-typed value alike; an Int satisfies toon_get_real_or. toon_len is 0
+// for an absent node, as it is for null.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"a\": 3, \"b\": 2.5, \"d\": null, \"s\": \"x\", \"t\": true, \"o\": {\"p\": {\"q\": 5}}, \"arr\": [1, 2]}");
+    let root: ToonNode = toon_root(doc);
+    let arr: ToonNode = toon_key(root, "arr");
+    fx {
+        println("int: ", toon_get_int_or(root, "a", -1), " ", toon_get_int_or(root, "b", -1), " ",
+                toon_get_int_or(root, "d", -1), " ", toon_get_int_or(root, "zz", -1), " ",
+                toon_get_int_or(root, "o.p.q", -1), " ", toon_get_int_or(root, "o.zz.q", -1));
+        println("text: [", toon_get_text_or(root, "s", "fb"), "] [", toon_get_text_or(root, "a", "fb"), "] [",
+                toon_get_text_or(root, "d", "fb"), "] [", toon_get_text_or(root, "zz", "fb"), "]");
+        println("real: ", toon_get_real_or(root, "b", -1.0), " ", toon_get_real_or(root, "a", -1.0), " ",
+                toon_get_real_or(root, "s", -1.0), " ", toon_get_real_or(root, "d", -1.0), " ",
+                toon_get_real_or(root, "zz", 2));
+        println("bool: ", toon_get_bool_or(root, "t", false), " ", toon_get_bool_or(root, "a", true), " ",
+                toon_get_bool_or(root, "d", true), " ", toon_get_bool_or(root, "zz", false));
+        println("absent node: ", toon_get_int_or(toon_key(root, "nope"), "q", -9));
+        println("len: ", toon_len(toon_key(root, "zzz")), " ", toon_len(toon_key(root, "o.zz")), " ",
+                toon_len(toon_at(arr, 99)), " ", toon_len(toon_null()), " ", toon_len(toon_key(root, "d")), " ",
+                toon_len(arr));
+        loop i in 0..toon_len(toon_key(root, "missing")) { println("never"); }
+        println("null value: ", toon_null_value(toon_key(root, "d")), " ", toon_null_value(arr));
+    }
+    toon_close(doc);
+    ret;
+}

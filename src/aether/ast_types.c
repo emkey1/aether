@@ -142,7 +142,7 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         /* HTTP surface: session handles and response status are plain Ints. */
         { "httpsession", "Int" }, { "httprequest", "Int" },
         /* Text-returning. */
-        { "YyjsonGetString", "Text" }, { "ai_chat", "Text" },
+        { "YyjsonGetString", "Text" }, { "YyjsonGetStringOr", "Text" }, { "ai_chat", "Text" },
         { "openaichatcompletions", "Text" },
         { "aetherbuiltinsjson", "Text" }, { "aetherbuiltininfo", "Text" },
         { "inttostr", "Text" },
@@ -151,13 +151,14 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "copy", "Text" }, { "trim", "Text" },
         /* Int-returning. */
         { "length", "Int" }, { "YyjsonGetInt", "Int" }, { "YyjsonGetLength", "Int" },
+        { "YyjsonGetIntOr", "Int" },
         /* Real-returning. */
-        { "YyjsonGetNumber", "Real" },
+        { "YyjsonGetNumber", "Real" }, { "YyjsonGetNumberOr", "Real" },
         /* Math: pow/power -> Real. (int^int may be exact-Int at runtime, but Real is
          * the safe inferred type; matches pscal-core's builtin-return type list.) */
         { "pow", "Real" }, { "power", "Real" },
         /* Bool-returning. */
-        { "hasextbuiltin", "Bool" },
+        { "hasextbuiltin", "Bool" }, { "YyjsonGetBoolOr", "Bool" },
         { "YyjsonGetBool", "Bool" }, { "YyjsonIsNull", "Bool" },
         { "YyjsonHasKey", "Bool" }, { "YyjsonHasIndex", "Bool" },
     };

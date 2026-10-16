@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-15-1*
+*Guide version: 2026-10-16-1*
 
 ## Highest-Value Rules
 
@@ -426,7 +426,8 @@ Helpers (complete surface): `has_toon()`, `toon_parse(text)`,
 `toon_get_text(node, key)`, `toon_get_int(node, key)`,
 `toon_get_real(node, key)`, `toon_get_bool(node, key)`, plus the
 `toon_get_*_or(node, key, fallback)` variants (`toon_get_text_or`,
-`toon_get_int_or`, `toon_get_real_or`, `toon_get_bool_or`);
+`toon_get_int_or`, `toon_get_real_or`, `toon_get_bool_or`: the fallback when
+the key is missing, null or of another type);
 `toon_text_value(node)`, `toon_int_value(node)`, `toon_real_value(node)`,
 `toon_bool_value(node)`, `toon_null_value(node)`; `toon_type(node)`,
 `toon_has_key(node, key)`, `toon_has_at(node, i)`;
@@ -444,8 +445,7 @@ Handle ownership:
 - `toon_parse_file(path)` is **effectful** (file I/O — call inside `fx`);
   `toon_parse(text)` and the node ops below are pure (call outside `fx`)
 - the text parser is `toon_parse(text)`, not `toon_parse_string`
-- `ToonDoc` owns every `ToonNode` made from it by `toon_root`, `toon_key` and
-  `toon_at`; `toon_close(doc)` releases the document and all of them
+- `toon_close(doc)` releases the document and every `ToonNode` made from it
 - in large loops, `toon_free(node)` releases a temporary node early
 
 Root shape (ROOT-001):
@@ -505,7 +505,7 @@ toon_close(doc);
 ```
 
 Key fidelity (KEY-001): copy JSON keys exactly; never flatten nested objects
-into guessed keys (`"appName"`, `"logLevel"`). A dotted key walks nested
+into guessed keys (`"appName"`). A dotted key walks nested
 *objects* (never an array index) in `toon_key`, `toon_has_key` and every getter:
 
 ```aether

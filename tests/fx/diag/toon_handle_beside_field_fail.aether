@@ -1,0 +1,12 @@
+// The field is fine; the bare handle in the same expression is still TOON-001.
+type Bucket { orders: Int = 0; }
+
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1]");
+    let orders: ToonNode = toon_root(doc);
+    let b: Bucket = new Bucket();
+    let n: Int = b.orders + orders;
+    fx { println(n); }
+    toon_close(doc);
+    ret;
+}

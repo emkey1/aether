@@ -1730,6 +1730,41 @@ static void validateOpaqueReturnBindingLine(const char *body, const char *lineEn
     }
 }
 
+/* True when the call that starts at `nameEnd` (a callee name, then its
+ * argument list) is the whole right-hand side: only `;`, a `//` comment or the
+ * end of the line follows it. `toon_int_value(c) * 1.0` is not, so its type is
+ * the expression's, which this line scan cannot know; the AST checks own it. */
+static int scalarCallIsWholeRhs(const char *nameEnd, const char *lineEnd) {
+    const char *scan = skipInlineSpaces(nameEnd, lineEnd);
+    int depth = 0;
+
+    if (scan < lineEnd && *scan == '(') {
+        while (scan < lineEnd) {
+            if (*scan == '"' || *scan == '\'') {
+                int ignoredLine = 0;
+                scan = skipQuotedString(scan, &ignoredLine);
+                if (scan > lineEnd) {
+                    return 0;
+                }
+                continue;
+            }
+            if (*scan == '(') {
+                depth++;
+            } else if (*scan == ')' && --depth == 0) {
+                scan++;
+                break;
+            }
+            scan++;
+        }
+        if (depth != 0) {
+            return 0;
+        }
+        scan = skipInlineSpaces(scan, lineEnd);
+    }
+    return scan >= lineEnd || *scan == ';' ||
+           (*scan == '/' && scan + 1 < lineEnd && scan[1] == '/');
+}
+
 static void validateScalarReturnBindingLine(const char *body,
                                             const char *lineEnd,
                                             int line,
@@ -1808,7 +1843,12 @@ check_rhs:
         return;
     }
     expectedType = expectedScalarReturnTypeName(rhsStart, (size_t)(rhsEnd - rhsStart));
-    if (!expectedType) {
+    if (!expectedType || !scalarCallIsWholeRhs(rhsEnd, lineEnd)) {
+        return;
+    }
+    /* An Int result widens into a Real binding, as `let x: Real = n;` does. */
+    if ((size_t)(typeEnd - typeStart) == 4 && strncmp(typeStart, "Real", 4) == 0 &&
+        strcmp(expectedType, "Int") == 0) {
         return;
     }
     if ((size_t)(typeEnd - typeStart) != strlen(expectedType) ||
@@ -2337,8 +2377,13 @@ static void validateAetherSource(const char *source,
                                                   scalarBindings);
                 }
 
-                if (findOpaqueBinding(opaqueBindings, start, nameLen) != NULL) {
-                    const char *prevSig = previousSignificantChar(lineStart, start);
+                /* `b.orders` names a field, not the local handle `orders`;
+                 * `0..orders` is a range bound and still checked. */
+                const char *prevSig = previousSignificantChar(lineStart, start);
+                int isFieldName = prevSig && *prevSig == '.' &&
+                                  !(prevSig > lineStart && prevSig[-1] == '.');
+
+                if (!isFieldName && findOpaqueBinding(opaqueBindings, start, nameLen) != NULL) {
                     const char *nextSig = nextSignificantChar(scan, lineEnd);
                     char detail[256];
 

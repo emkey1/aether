@@ -1,0 +1,21 @@
+// A TOON scalar getter inside a larger right-hand side: the binding takes the
+// type of the whole expression, not of the getter's return type. An Int result
+// also widens into a Real binding, as `let x: Real = n;` does.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"k\": 3, \"r\": 2.5, \"name\": \"ab\"}");
+    let root: ToonNode = toon_root(doc);
+    let cell: ToonNode = toon_key(root, "k");
+    let v: Real = toon_int_value(cell) * 1.0;
+    let c: Real = toon_get_int_or(root, "k", 0) * 1.0;
+    let w: Real = toon_int_value(cell);
+    let big: Bool = toon_int_value(cell) > 2;
+    let half: Int = toon_get_int(root, "k") / 2;
+    let len: Int = length(toon_get_text(root, "name")) + 1;
+    let r: Real = 0.0;
+    r = toon_int_value(cell);
+    let rr: Real = r + toon_get_real_or(root, "r", 0.0);
+    v = toon_get_int_or(root, "k", 0) + 0.5;
+    fx { println(v, " ", c, " ", w, " ", big, " ", half, " ", len, " ", r, " ", rr); }
+    toon_close(doc);
+    ret;
+}

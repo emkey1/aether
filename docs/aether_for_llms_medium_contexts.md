@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-15-1*
+*Guide version: 2026-10-16-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -790,9 +790,10 @@ Complete helper surface:
 - field getters: `toon_get_text(node, key)`, `toon_get_int(node, key)`,
   `toon_get_real(node, key)`, `toon_get_bool(node, key)`
 - defaulted getters: `toon_get_text_or(node, key, fallback)`, and the matching
-  `toon_get_int_or`, `toon_get_real_or`, `toon_get_bool_or`
+  `toon_get_int_or`, `toon_get_real_or`, `toon_get_bool_or`: the fallback when
+  the key is missing, null or of another type
 - node values: `toon_text_value(node)`, `toon_int_value(node)`,
-  `toon_real_value(node)`, `toon_bool_value(node)`, `toon_null_value(node)`
+  `toon_real_value(node)`, `toon_bool_value(node)`, `toon_null_value(node)` (Bool)
 - presence and shape: `toon_type(node)`, `toon_has_key(node, key)`,
   `toon_has_at(node, i)`, `toon_is_text`, `toon_is_int`, `toon_is_real`,
   `toon_is_bool`, `toon_is_null`, `toon_is_arr`, `toon_is_obj`
@@ -835,7 +836,7 @@ into a guessed key (`"appName"`). A dotted key walks nested *objects* (never an
 array index) in `toon_key`, `toon_has_key` and every getter:
 
 ```aether
-let port: Int = toon_get_int_or(root, "server.port", 0);   // toon_key(root, "server"), then "port"
+let port: Int = toon_get_int_or(root, "server.port", 0);
 ```
 
 **Nested lookup safety (NEST-001).** A missing intermediate never crashes: an
@@ -844,7 +845,7 @@ absent node degrades in every accessor (`_or` fallback, `false`, zero value,
 path of any depth total with no `if`:
 
 ```aether
-let gb: Int = toon_get_int_or(row, "spec.mem.gb", 0);           // 0 if spec or mem is absent
+let gb: Int = toon_get_int_or(row, "spec.mem.gb", 0);
 let spec: ToonNode = toon_key_or(row, "spec", toon_null());
 ```
 
