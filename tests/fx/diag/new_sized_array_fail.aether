@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let grid: Int[][] = [];
+    grid = grid + [new Int[4]];
+    fx { println(grid[0][0]); }
+    ret;
+}

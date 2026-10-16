@@ -531,6 +531,53 @@ static int aetherAppendTargetRank(AetherParser *p, const AST *target) {
     return rank;
 }
 
+static AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init, int line);
+
+/* The variable an lvalue chain is rooted at: `xs` for `xs`, `o.xs`, `g[i].xs`. */
+static const AST *aetherLValueRoot(const AST *lv) {
+    while (lv && (lv->type == AST_FIELD_ACCESS || lv->type == AST_ARRAY_ACCESS)) lv = lv->left;
+    return (lv && lv->type == AST_VARIABLE) ? lv : NULL;
+}
+
+/* An appended element must see the target as it was BEFORE the append, but the
+ * append steps grow the target first and evaluate the element after:
+ * `t = t + [length(t)]` stored the new length, and `s = s + [s[length(s) - 1]]`
+ * read the freshly zeroed slot (`7 0`, not `7 7`), silently. So an element that
+ * reads the target's root variable, or makes a call (which may), is evaluated
+ * into `let __aether_app_N: Elem = item;` ahead of every append step (and ahead
+ * of the `target = src` copy). Plain elements stay inline: `xs = xs + [i * 2]`
+ * is unchanged. Returns the element to store (the temp, or `item` itself);
+ * `item` ownership transfers either way. Without a nameable element type the
+ * element stays inline (the old behaviour). */
+AST *aetherHoistAppendItem(AetherParser *p, AST *dest, const AST *target, AST *item,
+                           int line) {
+    if (!item || !dest || !target) return item;
+    const AST *root = aetherLValueRoot(target);
+    bool reads = root ? aetherExprReadsLValue(item, root) : aetherExprReadsLValue(item, target);
+    if (!reads && !aetherExprHasCall(item)) return item;
+
+    char *elemType = inferLetTypeName(p, (AST *)target);
+    size_t n = elemType ? strlen(elemType) : 0;
+    if (n > 2 && strcmp(elemType + n - 2, "[]") == 0) {
+        elemType[n - 2] = '\0';
+    } else {
+        free(elemType);
+        elemType = NULL;
+    }
+    if (!elemType) elemType = inferLetTypeName(p, item);
+    if (!elemType) return item;
+
+    static int appSerial = 0;
+    char name[64];
+    snprintf(name, sizeof(name), "__aether_app_%d_%d", line, ++appSerial);
+    AST *decl = buildTypedLetDecl(name, elemType, item, line);
+    free(elemType);
+    if (!decl) return NULL; /* item was freed; malloc-only failure */
+    VarType vt = decl->var_type;
+    addChild(dest, decl);
+    return buildVarRef(name, vt, line);
+}
+
 AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, int itemCount,
                       int line, AST *src) {
     AST *copyStmt = NULL;
@@ -547,6 +594,9 @@ AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, in
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
+    for (int i = 0; i < itemCount; i++) {
+        items[i] = aetherHoistAppendItem(p, outer, target, items[i], line);
+    }
     if (copyStmt) addChild(outer, copyStmt);
     for (int i = 0; i < itemCount; i++) {
         AST *setlenStmt = NULL, *idxAssign = NULL;

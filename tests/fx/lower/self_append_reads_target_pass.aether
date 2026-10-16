@@ -1,0 +1,62 @@
+// The appended elements see the array as it was before the append
+// (2026-10-16-4): `t = t + [length(t)]` stored the new length and
+// `s = s + [s[length(s) - 1]]` read the freshly zeroed slot.
+type Bag { xs: Int[]; }
+
+fn lastOf(v: Int[]) -> Int { ret v[length(v) - 1]; }
+
+fn main() -> Void {
+    let t: Int[] = [7];
+    t = t + [length(t)];
+    let s: Int[] = [7];
+    s = s + [s[length(s) - 1]];
+
+    let sums: Int[] = [0];
+    let xs: Int[] = [4, 0, 12];
+    loop x in xs {
+        sums = sums + [sums[length(sums) - 1] + x];
+    }
+
+    let b: Bag = new Bag { xs: [5] };
+    b.xs = b.xs + [b.xs[length(b.xs) - 1] + 1];
+
+    let g: Int[][] = [[1], [2]];
+    g[0] = g[0] + [g[0][length(g[0]) - 1] * 10];
+
+    let c: Int[] = [3];
+    c = c + [length(c), length(c)] + [length(c)];
+
+    let a: Int[] = [9];
+    let d: Int[] = [1, 2, 3];
+    d = a + [length(d), d[2]];
+
+    let e: Int[] = [4];
+    e = e + [lastOf(e)];
+
+    let ts: Text[] = ["a"];
+    ts = ts + [ts[length(ts) - 1] + "b"];
+
+    let rs: Real[] = [1.5];
+    rs = rs + [rs[length(rs) - 1] * 2.0];
+
+    let plain: Int[] = [];
+    loop i in 0..3 { plain = plain + [i * 2]; }
+
+    fx {
+        println(t[1], " ", s[0], " ", s[1]);
+        loop v in sums { print(v, " "); }
+        println("");
+        println(b.xs[0], " ", b.xs[1]);
+        println(g[0][0], " ", g[0][1]);
+        loop v in c { print(v, " "); }
+        println("");
+        loop v in d { print(v, " "); }
+        println("");
+        println(e[0], " ", e[1]);
+        println(ts[1]);
+        println(rs[1]);
+        loop v in plain { print(v, " "); }
+        println("");
+    }
+    ret;
+}

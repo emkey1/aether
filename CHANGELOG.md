@@ -12,6 +12,55 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-16-4
+
+**A self-append sees the array before it grows, a function named like a builtin
+is the one called, and `new Int[n]` is a compile-time error.** Reported against
+`2026-10-16-3` (aether `96f099f`). Needs pscal-core `632f4d1` (a user routine
+keeps its own parameter modes); rea stays at `a0fae25`.
+
+- **Silent wrong result: the appended element saw the grown array.** `t = t +
+  [length(t)]` stored 2 for a one-element `t`, and `s = s + [s[length(s) - 1]]`
+  appended 0, not the last element: the append grows the target first and then
+  evaluates the element into the new slot. So the prefix-sum idiom `sums = sums
+  + [sums[length(sums) - 1] + x]` over 4, 0, 12 gave `0 4 0 12`, not `0 4 4 16`,
+  with exit 0. An element that reads the target's variable, or makes a call, is
+  now evaluated into a temp before any append step (and before the copy in `b =
+  a + [..b..]`); this covers fields (`o.xs = o.xs + [..]`), rows (`g[0] = g[0] +
+  [..]`) and chains (`c = c + [length(c)] + [length(c)]` appends the old length
+  twice). An element that does neither (`xs = xs + [i * 2]`) lowers as before.
+- **A function named like a builtin.** `fn rename(xs: Int[]) -> Void` called as
+  the statement `rename(a);` failed with "SetLength expects a string or dynamic
+  array target" (exit 1): the compiler passed `a` by address, as the builtin's
+  file parameter is. The same held for `inc`, `dec`, `close`, `reset`,
+  `rewrite`, `append`, `assign`, `erase`, `read`, `readln`, `eof`, `readkey`,
+  `dispose`, `blockread`, `getdate`, `gettime` and `getmousestate`. The engine's
+  table of builtin VAR parameters now applies only when the call reaches the
+  builtin, so the user function is called with its own parameter modes. A user
+  `fn pow(b: Int, e: Int) -> Int` (or `sqrt`, `sin`, `exp`, ...) no longer draws
+  the NARROW-001 warning meant for the Real-valued builtin.
+- **NAME-001 for a builtin the compiler handles by name.** A function named
+  `print`, `println`, `printf`, `write`, `writeln`, `assignfile`, `closefile`,
+  `createthread`, `waitforthread`, `lock`, `unlock`, `destroy`, `mutex`,
+  `rcmutex` or one of four `yyjson*` predicates, or like a TOON or memory-stream
+  getter the type checks read by name (`toon_get_text`, `toon_key`,
+  `mstreamcreate`, ...), is `[NAME-001] a function named 'X' collides with the
+  builtin `X``. These compiled before and failed far from the cause: `printf`
+  silently returned 0, `lock(xs)` was "Mutex id must be integer", and
+  `toon_get_text` was a TYPE-001 against the builtin's return type. A method of
+  any of these names is unaffected.
+- **`new Int[4]` is SYN-001.** It compiled as `(new Int)[4]` and failed at run
+  time with the uncoded `VM Error: Pointer does not point to an array for
+  element access`. It is now `[SYN-001] `new Int[...]`: Aether has no sized array
+  constructor`, with a hint to start from `[]` and grow the row in a loop.
+
+Guides: the full guide is `2026-10-16-2` (the NAME-001 and SYN-001 lines);
+medium and small are unchanged.
+
+Fixtures: `lower/self_append_reads_target_pass`, `diag/new_sized_array_fail`,
+`names/builtin_named_fn_pass`, `names/builtin_handled_by_name_fail`,
+`names/toon_builtin_named_fn_fail`.
+
 ## 2026-10-16-3
 
 **Two TOON false positives are gone, and the `_or` getters and `toon_len` do

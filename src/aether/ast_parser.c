@@ -2496,6 +2496,21 @@ static AST *parseNew(AetherParser *p) {
     Token *clsTok = copyNameToken(p);
     if (!clsTok) return NULL;
     aetherAdvance(p); /* consume class name */
+    /* `new Int[4]` (Java/C#'s sized array) used to compile as `(new Int)[4]`
+     * and fail at run time with an uncoded "Pointer does not point to an array
+     * for element access". */
+    if (p->current.type == REA_TOKEN_LEFT_BRACKET) {
+        char detail[200];
+        snprintf(detail, sizeof(detail),
+                 "`new %s[...]`: Aether has no sized array constructor.",
+                 clsTok->value ? clsTok->value : "T");
+        reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
+                                     "start from `[]` and grow it in a loop: `let row: Int[] = []; "
+                                     "loop i in 0..n { row = row + [0]; }`.");
+        p->hadError = true;
+        freeToken(clsTok);
+        return NULL;
+    }
     AST *node = newASTNode(AST_NEW, clsTok);
     if (p->current.type == REA_TOKEN_LEFT_PAREN) {
         AST *args = parseArgList(p);
@@ -3893,6 +3908,8 @@ static bool aetherLetInitMayBeReal(AetherParser *p, AST *e, int depth) {
     if (e->type == AST_UNARY_OP) return aetherLetInitMayBeReal(p, e->left, depth + 1);
     if (e->type == AST_PROCEDURE_CALL && e->token && e->token->value) {
         const char *fn = e->token->value;
+        int userReal = 0;
+        if (aetherAstLookupFunctionReturnsReal(fn, &userReal)) return userReal != 0;
         if (aetherIsAlwaysRealBuiltin(fn)) return true;
         if (strcmp(fn, "random") == 0 && e->child_count == 0) return true;
     }
@@ -5066,6 +5083,12 @@ static AST *parseStatementInner(AetherParser *p) {
                  * the copy below overwrites it -- see aetherExprReadsLValue. The
                  * base is safe: `target = base` reads it before assigning. */
                 for (int i = 0; i < opCount; i++) {
+                    /* Appended elements likewise see the destination before any
+                     * operand grows it (aetherHoistAppendItem). */
+                    for (int k = 0; k < ops[i].itemCount; k++) {
+                        ops[i].items[k] = aetherHoistAppendItem(p, outer, target,
+                                                                ops[i].items[k], line);
+                    }
                     if (!ops[i].other || !aetherExprReadsLValue(ops[i].other, target)) continue;
                     VarType preVt = TYPE_UNKNOWN;
                     AST *preTypeNode = buildTypeNodeFromName(ops[i].otherTypeName,
@@ -5625,6 +5648,37 @@ static AST *parseFnDecl(AetherParser *p) {
             snprintf(hint, sizeof(hint), "rename it, for example `size`, `count` or `%s_of`.",
                      kCompilerCalls[i]);
             reportAetherAstErrorWithCode(p->current.line, "NAME-001", detail, hint);
+            p->hadError = true;
+            freeToken(nameTok);
+            return NULL;
+        }
+    }
+    /* A function may share a builtin's name (`fn rename(xs: Int[])`, `fn
+     * pow(b: Int, e: Int) -> Int`): calls then reach the function. These names
+     * are the exception, because the toolchain handles a call to them by name
+     * whatever is declared: the compiler turns them into dedicated operations
+     * (`printf` silently returned 0; `lock(xs)` failed with "Mutex id must be
+     * integer"), or the TOON / MStream checks type the call from the builtin's
+     * signature. A method is reached through its receiver and is not affected. */
+    if (!p->forwardScan && nameTok->value && !p->currentClassName) {
+        static const char *const kHandledByName[] = {
+            "print", "println", "printf", "write", "writeln", "assignfile", "closefile",
+            "createthread", "waitforthread", "lock", "unlock", "destroy", "mutex",
+            "rcmutex", "yyjsongetbool", "yyjsonhasindex", "yyjsonhaskey", "yyjsonisnull",
+        };
+        bool handled = aetherIsNameTypedBuiltin(nameTok->value) != 0;
+        for (size_t i = 0; !handled && i < sizeof(kHandledByName) / sizeof(kHandledByName[0]); i++) {
+            handled = strcasecmp(nameTok->value, kHandledByName[i]) == 0;
+        }
+        if (handled) {
+            char detail[240];
+            snprintf(detail, sizeof(detail),
+                     "a function named '%s' collides with the builtin `%s`, which the "
+                     "compiler handles by name, so calls would not reach the function.",
+                     nameTok->value, nameTok->value);
+            reportAetherAstErrorWithCode(p->current.line, "NAME-001", detail,
+                                         "rename the function, for example with a `my_` prefix "
+                                         "or a name that says what it does.");
             p->hadError = true;
             freeToken(nameTok);
             return NULL;

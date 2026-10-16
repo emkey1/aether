@@ -299,6 +299,8 @@ AST *buildObjectInitDecl(AetherParser *p, Token *nameTok, AST *typeNode, VarType
 bool aetherIsLValueChain(const AST *node);
 bool aetherLValueEqual(const AST *a, const AST *b);
 bool aetherExprReadsLValue(const AST *expr, const AST *target);
+AST *aetherHoistAppendItem(AetherParser *p, AST *dest, const AST *target, AST *item,
+                           int line);
 AST *buildArrayUnaliasStmt(const AST *target, int line);
 void aetherEmitLiteralUnalias(AetherParser *p, AST *outer, const AST *dest,
                               const AST *value, int destRank, int line);

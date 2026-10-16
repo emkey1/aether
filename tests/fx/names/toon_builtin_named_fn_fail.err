@@ -1,0 +1,3 @@
+toon_builtin_named_fn_fail.aether:1:
+collides with the builtin `toon_get_text`
+!must use Text

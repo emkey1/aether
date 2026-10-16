@@ -1,0 +1,4 @@
+new_sized_array_fail.aether:3:
+no sized array constructor
+row = row + [0]
+!Pointer does not point

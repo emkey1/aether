@@ -1431,6 +1431,16 @@ static const char *expectedScalarReturnTypeName(const char *name, size_t len) {
     return NULL;
 }
 
+/* A builtin whose result type the source-level handle and scalar checks
+ * above read off its name, without looking for a user function of that name. */
+int aetherIsNameTypedBuiltin(const char *name) {
+    int kind = 0;
+    if (!name) return 0;
+    size_t len = strlen(name);
+    return expectedOpaqueReturnKind(name, len, &kind) ||
+           expectedScalarReturnTypeName(name, len) != NULL;
+}
+
 static const char *expectedTertiaryArgTypeName(const char *name, size_t len) {
     if (len == 16 && strncmp(name, "toon_get_text_or", len) == 0) {
         return "Text";
@@ -3320,16 +3330,19 @@ static const char *aetherRealValuedReason(const AST *node, int depth) {
             if (strcmp(name, "random") == 0) {
                 return node->child_count == 0 ? "random() -- the no-argument form returns a Real in [0, 1)" : NULL;
             }
-            if (aetherIsAlwaysRealBuiltin(name)) {
-                return "a Real-returning builtin";
-            }
             {
                 /* The call node's own var_type is still 0 here, so consult the
-                 * declared return type recorded when the function was parsed. */
+                 * declared return type recorded when the function was parsed.
+                 * A user function wins over a builtin of the same name: `fn
+                 * pow(b: Int, e: Int) -> Int` is Int, not "a Real-returning
+                 * builtin". */
                 int returnsReal = 0;
-                if (aetherAstLookupFunctionReturnsReal(name, &returnsReal) && returnsReal) {
-                    return "a function declared to return Real";
+                if (aetherAstLookupFunctionReturnsReal(name, &returnsReal)) {
+                    return returnsReal ? "a function declared to return Real" : NULL;
                 }
+            }
+            if (aetherIsAlwaysRealBuiltin(name)) {
+                return "a Real-returning builtin";
             }
             return NULL;
         }

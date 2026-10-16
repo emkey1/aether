@@ -1,0 +1,8 @@
+fn toon_get_text(xs: Int[]) -> Int { ret length(xs); }
+
+fn main() -> Void {
+    let a: Int[] = [5, 6];
+    let n: Int = toon_get_text(a);
+    fx { println(n); }
+    ret;
+}

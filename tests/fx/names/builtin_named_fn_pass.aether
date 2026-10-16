@@ -1,0 +1,34 @@
+// A user function may share a builtin's name; calls reach the function
+// (2026-10-16-4). `rename(a);` passed `a` by address, as the builtin's file
+// parameter is, and failed with "SetLength expects a string or dynamic array
+// target"; `fn pow(...) -> Int` drew a NARROW-001 warning meant for the
+// Real-valued builtin.
+fn rename(xs: Int[]) -> Void { fx { println("rename ", xs[0], " ", length(xs)); } ret; }
+fn inc(xs: Int[]) -> Void { fx { println("inc ", xs[1]); } ret; }
+fn close(xs: Int[]) -> Void { fx { println("close ", length(xs)); } ret; }
+fn eof(xs: Int[]) -> Bool { ret length(xs) == 0; }
+fn swap(xs: Int[], i: Int, j: Int) -> Int[] {
+    let out: Int[] = xs;
+    let tmp: Int = out[i];
+    out[i] = out[j];
+    out[j] = tmp;
+    ret out;
+}
+fn pow(b: Int, e: Int) -> Int {
+    let r: Int = 1;
+    loop k in 0..e { r = r * b; }
+    ret r;
+}
+
+fn main() -> Void {
+    let a: Int[] = [5, 6];
+    rename(a);
+    inc(a);
+    close(a);
+    let s: Int[] = swap(a, 0, 1);
+    let p: Int = pow(2, 10);
+    fx {
+        println(eof(a), " ", s[0], " ", s[1], " ", a[0], " ", p);
+    }
+    ret;
+}

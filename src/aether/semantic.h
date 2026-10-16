@@ -15,6 +15,8 @@ void aetherSemanticResetState(void);
 
 /* A builtin verified to always return Real (the NARROW-001 table). */
 int aetherIsAlwaysRealBuiltin(const char *name);
+/* A TOON / MStream builtin the source-level checks type by name. */
+int aetherIsNameTypedBuiltin(const char *name);
 /* A coded diagnostic from outside semantic.c (the experiment arms). An error
  * increments the semantic error count; a warning does not. */
 void aetherSemanticReportCoded(const char *code, const char *kind, int line,

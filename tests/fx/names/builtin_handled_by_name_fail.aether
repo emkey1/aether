@@ -1,0 +1,8 @@
+fn printf(xs: Int[]) -> Int { ret length(xs); }
+
+fn main() -> Void {
+    let a: Int[] = [5, 6];
+    let n: Int = printf(a);
+    fx { println(n); }
+    ret;
+}

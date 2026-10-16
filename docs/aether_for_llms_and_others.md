@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-16-1*
+*Guide version: 2026-10-16-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1860,6 +1860,8 @@ does not exist — re-read the message rather than inventing a rule for it.
   the Aether form (`'return' is not Aether syntax` … `write ret value;`). Also a
   **field or method named after an Aether keyword or operator word** (`new`,
   `for`, `loop`, `div`, `and`, ...) → rename the member (see Records: `type`).
+  And `new Int[n]`: there is no sized array constructor → start from `[]` and
+  grow it in a loop (`row = row + [0];`).
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
@@ -1874,7 +1876,11 @@ does not exist — re-read the message rather than inventing a rule for it.
   that redeclares a parameter, and a loop variable named like a variable
   already in scope (the loop would get its own, leaving the outer one
   unchanged). Also a method or function named `length`, `setlength`, `copy` or
-  `halt`, and any identifier starting with `__`.
+  `halt`, a function named like a builtin the compiler handles by name (`print`,
+  `println`, `printf`, `write`, `writeln`, `lock`, `unlock`, `destroy`, `mutex`,
+  the TOON and memory-stream getters), and any identifier starting with `__`.
+  Any other builtin name (`rename`, `swap`, `pow`) is fine for a function:
+  calls reach the function.
 - **[IMP-001]** a malformed `use` → write `use "module_name";` and call exports
   directly (MOD-002). A `use` of a module that does not exist is not reported
   by itself; its names then fail with SCOPE-001.
