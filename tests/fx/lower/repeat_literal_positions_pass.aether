@@ -1,0 +1,56 @@
+// `[v; n]` (D7, language 2026-10-17-4): n copies of v in every expression
+// position the lowering contract lists -- let, assignment, ret, call argument,
+// guard, else-if, loop condition, tuple item, record field, if-expression,
+// foreach collection, an operand of `+` -- with v and n evaluated once each,
+// nested rows independent, n <= 0 empty, and the inferred type of `let`.
+type Board { cells: Int[]; label: Text; }
+
+type Counter { calls: Int; }
+
+fn tick(c: Counter, v: Int) -> Int {
+    c.calls = c.calls + 1;
+    ret v;
+}
+
+fn zeros(n: Int) -> Int[] {
+    ret [0; n];
+}
+
+fn pair(n: Int) -> (Int[], Int) {
+    ret ([1; n], n);
+}
+
+fn total(xs: Int[]) -> Int {
+    ret sum(xs);
+}
+
+fn main() -> Void {
+    let a = [7; 3];
+    let b: Text[] = ["ab"; 2];
+    let c: Counter = new Counter { calls: 0 };
+    a = [tick(c, 5); tick(c, 4)];
+    let grid: Int[][] = [[0; 3]; 2];
+    grid[1][2] = 9;
+    let (row, n) = pair(2);
+    let bd: Board = new Board { cells: [1; 4], label: "b" };
+    let picked: Int[] = if n > 1 { [2; 2] } else { [3; 3] };
+    let i: Int = 0;
+    let guard: Text = "";
+    if length([0; 2]) == 2 {
+        guard = "if";
+    } else if length([0; 3]) == 3 {
+        guard = "else-if";
+    }
+    loop length([0; i]) < 3 {
+        i = i + 1;
+    }
+    let both: Int[] = [1; 2] + [2; 1];
+    fx {
+        println(length(a), " ", a[3], " calls=", c.calls, " ", b[1]);
+        println(grid[0][2], grid[1][2], " ", length(row), row[1], n);
+        println(length(bd.cells), " ", length(picked), picked[0], " ", guard, " ", i);
+        println(length(zeros(0)), length(zeros(-1)), length(zeros(4)), " ", total([3; 3]));
+        loop v in [8; 2] { print(v); }
+        println(" ", length(both), both[2]);
+    }
+}

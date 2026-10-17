@@ -1,0 +1,6 @@
+// `[v; n]` takes one value and one count; a list after the `;` is SYN-001
+// with a hint naming the comma form.
+fn main() -> Void {
+    let xs: Int[] = [0; 3, 4];
+    fx { println(length(xs)); }
+}

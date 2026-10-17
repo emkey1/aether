@@ -1,0 +1,9 @@
+// `[v; n]` with a record value would put the same record in every slot (a
+// record is pointer-backed), so a write through one slot would show in all.
+// TYPE-001 names the loop that builds n distinct records.
+type P { n: Int; }
+fn main() -> Void {
+    let ps: P[] = [new P { n: 0 }; 3];
+    ps[0].n = 1;
+    fx { println(ps[2].n); }
+}

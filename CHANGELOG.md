@@ -12,6 +12,37 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-17-4
+
+**`[v; n]`: n copies of v** (decision D7, class 1; registry `repeat_literal`
+holds). Language 2026-10-17-3 removed `setlength`, which left presizing an
+array to a loop. pscal-core gains `aether_repeat_array` (in
+`src/ext_builtins/strings/stdlib.c`); rea is unchanged.
+
+- **Lowering.** The parser turns `[v; n]` into a call of
+  `aether_repeat_array(v, n)`, so it is an ordinary expression in every
+  position (let, assignment, `ret`, call argument, guard, `else if`, loop
+  condition, tuple item, record field, if-expression, foreach collection, an
+  operand of `+`; fixture `tests/fx/lower/repeat_literal_positions_pass`), and
+  v and n are evaluated once each. A nested array value is copied per element,
+  so `[[0; cols]; rows]` gives independent rows; n <= 0 gives `[]`; an Int
+  element is 64-bit and a one-character literal is Text. Inferred `let`s type
+  through it (`let ys = [0; 4];` is an `Int[]`).
+- **A record value is TYPE-001** (`repeat_literal_record_fail`, registry
+  `repeat_literal_record`): one record would fill every slot, so a write
+  through one would show in all, a silent wrong answer. The hint names the
+  loop; the engine refuses it at run time where the type is not known.
+- **`[1, 2; 3]` and `[0; 3, 4]`** stay SYN-001 (`repeat_literal_list_fail`
+  names the comma form).
+- **`new Int[n]`**'s SYN-001 hint now names `[0; n]` (registry
+  `new_sized_array`).
+- **`reversed(xs)`** of a nested array copies the rows too (it shared them).
+- **Spec:** the `ArrayLit` production gains `"[" Expr ";" Expr "]"`;
+  `G.ArrayLit.3` flips from `@bug=D7` to `@ok`.
+- **Migration:** the presizing loops written by the 2026-10-17-3 migration
+  are `[0; n]` again in 6 bench reference solutions (tasks_scale, trap
+  `trap_toplevel_init`) and 5 seed instruction pairs (stdout unchanged).
+
 ## 2026-10-17-3
 
 **The modern standard surface, Release A: the Pascal-era forms are removed and a

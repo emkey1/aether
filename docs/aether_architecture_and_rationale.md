@@ -420,8 +420,9 @@ meaning costs nothing. Decision **D7** replaced it with four classes:
    operators, `Float`/`String`, `upcase`/`toupper` (whole-string `upper`), `len`/`.len`, bare `T { ... }` (with
    `new T { ... }` canonical), Text + number (left-to-right stringify),
    `+= -= *= /= %=`, `Int()`/`Real()`/`Bool()` casts, `exit(n)`, `xs.length` on
-   an array or Text (W6-05), a matching tuple annotation (W4-25); and, decided
-   but not shipped yet, `..=`, `[v; n]` and `x:.2`.
+   an array or Text (W6-05), a matching tuple annotation (W4-25), `[v; n]`
+   (language 2026-10-17-4; a record value is TYPE-001); and, decided but not
+   shipped yet, `..=` and `x:.2`.
 2. **Rejected with a coded diagnostic that names the Aether form.** `elif`,
    `foreach`, `match`/`switch`, `return`/`class`/`import`, comma-separated
    fields, `Int[N]`, `fn new`, methods on builtin types (`.push`, `.size`,

@@ -211,6 +211,17 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
             bool sameAsArg = strcmp(fn, "aether_sorted") == 0 || strcmp(fn, "aether_sorted_desc") == 0 ||
                              strcmp(fn, "aether_sorted_by") == 0 || strcmp(fn, "aether_sorted_by_desc") == 0 ||
                              strcmp(fn, "aether_reversed") == 0;
+            if (strcmp(fn, "aether_repeat_array") == 0) {
+                char *et = inferLetTypeName(p, init->children[0]);
+                if (!et) return NULL;
+                size_t n = strlen(et);
+                char *arr = (char *)malloc(n + 3);
+                if (!arr) { free(et); return NULL; }
+                memcpy(arr, et, n);
+                memcpy(arr + n, "[]", 3);
+                free(et);
+                return arr;
+            }
             bool elemOfArg = strcmp(fn, "aether_sum") == 0 || strcmp(fn, "aether_min_of") == 0 ||
                              strcmp(fn, "aether_max_of") == 0;
             if (sameAsArg || elemOfArg) {

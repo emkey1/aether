@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-17-2*
+*Guide version: 2026-10-17-3*
 
 ## Highest-Value Rules
 
@@ -356,7 +356,6 @@ Args/results are `Real` unless noted.
   `factorial(n)`, `fibonacci(n)`, `randomize()`, and **two different `random`s**:
   `random()` returns a **Real** in `[0,1)`, `random(n)` an **Int** in `[0,n)`.
   Assigning `random()` to an `Int` truncates to a constant `0` -- `[NARROW-001]`.
-  Each thread has its own stream, so `par` branches draw independently.
 
 ```aether
 let pi: Real = 16.0 * arctan(1.0 / 5.0) - 4.0 * arctan(1.0 / 239.0);
@@ -380,11 +379,12 @@ let mid: Int[] = ys[0..2];  // slice: half-open range, elements 0 and 1 (a copy,
 the inner loop with `length(table[r])` (rows may be jagged). Declaring `Int[]`
 and indexing twice is `ARR-002`.
 
-Array helpers (pure; each returns a new value): `sum(xs)`, `min_of(xs)`,
+Array helpers (pure, new values): `sum(xs)`, `min_of(xs)`,
 `max_of(xs)`, `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
 `index_of(xs, v)`, `count(xs, v)`, and for records
-`sorted_by(rs, "field")` / `sorted_by_desc` (a literal field name). Shrink with a
-slice (`xs = xs[..n];`); `xs == ys` compares element by element.
+`sorted_by(rs, "field")` / `sorted_by_desc` (a literal field name). `[0; n]` is
+n zeros; shrink with a slice (`xs = xs[..n];`); `xs == ys`
+compares element by element.
 `a..b` is half-open in a slice as in `loop i in a..b`, and means nothing
 outside `[...]` or a `loop` header. A slice may drop a bound: `xs[a..]` runs to
 the end (`queue = queue[1..];`), `xs[..b]` starts at 0 (`Text` too).

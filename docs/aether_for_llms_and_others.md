@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-17-2*
+*Guide version: 2026-10-17-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1127,6 +1127,10 @@ let rest: Int[] = ys[1..]; // open end: elements 1 to the end; ys[..2] is ys[0..
   value -- `a..b` has no meaning outside `[...]`, and a `loop` range still needs
   both bounds
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
+- `[v; n]` is n copies of v: `let counts: Int[] = [0; 26];`, a table
+  `let grid: Int[][] = [[0; cols]; rows];` (each row its own copy); v and n are
+  evaluated once, and n <= 0 gives `[]`. A record value is `TYPE-001` (one
+  record would fill every slot): build records in a loop
 - there is no resize call: grow with `xs = xs + [v];`, shrink with a slice
   (`xs = xs[..n];`, `stack = stack[..length(stack) - 1];` pops)
 - `xs == ys` / `xs != ys` compare structurally: equal when both have the same
@@ -1826,8 +1830,7 @@ does not exist — re-read the message rather than inventing a rule for it.
   the Aether form (`'return' is not Aether syntax` … `write ret value;`). Also a
   **field or method named after an Aether keyword or operator word** (`new`,
   `for`, `loop`, `div`, `and`, ...) → rename the member (see Records: `type`).
-  And `new Int[n]`: there is no sized array constructor → start from `[]` and
-  grow it in a loop (`row = row + [0];`).
+  And `new Int[n]`: there is no sized array constructor → write `[0; n]`.
 - **[SCOPE-001]** a name/scope problem — the catch-all. It is one of:
   - a helper not listed in this document → it does not exist; inline the logic (BUILT-001)
   - an export called by a guessed name → use the exact exported name (MOD-001)
@@ -1994,7 +1997,7 @@ replacement:
 | `readln(x)`, `read(x)`, `eof()` on stdin | `x = read_line();`, `read_all_stdin()` |
 | `paramcount()`, `paramstr(i)` | `length(args())`, `args()[i - 1]` |
 | `gettime(h, m, s, cs)`, `getdate(y, m, d, wd)` | `clock_ms()`, `now_text()` |
-| `setlength(xs, n)` | `xs = xs[..n];` to shrink, `xs = xs + [v];` to grow |
+| `setlength(xs, n)` | `[0; n]` for a fresh array, `xs = xs[..n];` to shrink, `xs = xs + [v];` to grow |
 | `mstreamcreate`, `mstreamfromstring`, `mstreambuffer`, `mstreamappendbyte`, `mstreamloadfromfile`, `mstreamsavetofile`, `mstreamfree` | `mstream_new`, `mstream_from_text`, `mstream_text`, `mstream_append_byte`, `mstream_load(path)`, `mstream_save`, `mstream_free` |
 
 A program may still declare its own function with one of these names

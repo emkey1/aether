@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-17-2*
+*Guide version: 2026-10-17-3*
 
 Everything needed to write correct Aether in one shot.
 
@@ -507,7 +507,7 @@ The Text helpers, all pure (positions are 0-based, `-1` when absent):
   `index_of(s, x)`, `count(s, x)`
 - build: `upper(s)`, `lower(s)`, `trim(s)`, `replace(s, old, new)` (every
   occurrence), `repeat(s, n)`, `reversed(s)`, `join(parts, sep)`,
-  `split(t, sep)`; codes: `ord` / `chr`
+  `split(t, sep)`
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
 the first character, `s[string_len(s) - 1]` the last, `s[a..b]` slices like an
@@ -535,8 +535,9 @@ fn main() -> Void {
 (`queue = queue[1..];`) and `xs[..b]` starts at 0, for `Text` too. There is no
 first-class Range value — `a..b` is meaningful only inside `[...]` or a `loop`
 header.
-Shrink with a slice (`xs = xs[..n];`); `xs == ys` compares element by element,
-nested arrays included.
+`[v; n]` is n copies of v (`[0; 26]`, a table `[[0; cols]; rows]` with
+independent rows); shrink with a slice (`xs = xs[..n];`). `xs == ys` compares
+element by element, nested arrays included.
 
 **Nested arrays are real.** A row is just an `Int[]`, so a table is `Int[][]`:
 
@@ -583,7 +584,7 @@ an `[ARR-001]` warning; the same pattern on a *record* parameter works.
 ## Array helpers
 
 For `Int[]`, `Real[]` and `Text[]`, all pure; each returns a new value and
-leaves `xs` unchanged (`BUILT-001`: these exist, do not hand-roll them):
+leaves `xs` unchanged:
 
 | Helper | Result |
 |---|---|
@@ -607,8 +608,6 @@ fn main() -> Void {
     ret;
 }
 ```
-
-There is no comparator and no `map`/`filter` (FUNC-001).
 
 **Filter and map.** No `filter`, no `map` — build a new array in a loop:
 

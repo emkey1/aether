@@ -359,6 +359,7 @@ static const AST *lookupCallee(const AST *call, const AetherTypeEnv *env);
 #define RET_TEXT_ARRAY ((AetherTypeKind)102)
 #define RET_ARG0 ((AetherTypeKind)103)  /* the first argument's type */
 #define RET_ELEM0 ((AetherTypeKind)104) /* the first argument's element type */
+#define RET_ARRAY_OF_ARG0 ((AetherTypeKind)105) /* `[v; n]`: an array of v's type */
 typedef struct { const char *name; AetherTypeKind ret; const char *handle; } BuiltinRet;
 static const BuiltinRet kBuiltinReturns[] = {
     /* Int */
@@ -436,6 +437,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"aether_sorted", RET_ARG0, NULL}, {"aether_sorted_desc", RET_ARG0, NULL},
     {"aether_sorted_by", RET_ARG0, NULL}, {"aether_sorted_by_desc", RET_ARG0, NULL},
     {"aether_reversed", RET_ARG0, NULL},
+    {"aether_repeat_array", RET_ARRAY_OF_ARG0, NULL},
     {"aether_sum", RET_ELEM0, NULL}, {"aether_min_of", RET_ELEM0, NULL}, {"aether_max_of", RET_ELEM0, NULL},
     /* Void */
     {"setlength", AETHER_T_VOID, NULL}, {"halt", AETHER_T_VOID, NULL},
@@ -648,6 +650,21 @@ static AetherType typeOfCall(const AST *e, const AetherTypeEnv *env) {
     }
     if (b->ret == RET_RANDOM)
         return e->child_count == 0 ? mk(AETHER_T_REAL) : mk(AETHER_T_INT);
+    if (b->ret == RET_ARRAY_OF_ARG0) {
+        AetherType a = e->child_count >= 1 ? aetherTypeOf(e->children[0], env)
+                                           : mk(AETHER_T_UNKNOWN);
+        if (a.kind == AETHER_T_UNKNOWN) return a;
+        AetherType t = mk(AETHER_T_ARRAY);
+        if (a.kind == AETHER_T_ARRAY) {
+            t.elem = a.elem;
+            t.rank = a.rank + 1;
+        } else {
+            t.elem = a.kind;
+            t.rank = 1;
+        }
+        t.name = a.name;
+        return t;
+    }
     if (b->ret == RET_ARG0)
         return e->child_count >= 1 ? aetherTypeOf(e->children[0], env) : mk(AETHER_T_UNKNOWN);
     if (b->ret == RET_ELEM0) {

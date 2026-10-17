@@ -3054,6 +3054,7 @@ static const AetherBuiltinArity kAetherBuiltinArity[] = {
     {"split",        5, 2, 2},
     /* The modern standard surface (D56-D61): arities of pscal-core's
      * ext_builtins/strings/stdlib.c and of the aliased mstream/file builtins. */
+    {"aether_repeat_array", 19, 2, 2},
     {"aether_upper", 12, 1, 1},
     {"aether_lower", 12, 1, 1},
     {"aether_replace", 14, 3, 3},

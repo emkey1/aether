@@ -189,9 +189,20 @@
    "fixture": "fixtures/repeat_literal.aether",
    "twin": "fixtures/repeat_literal.canon.aether",
    "decided": "D7",
-   "status": "pending",
-   "today": "SYN-001",
-   "owner": "W8-17"
+   "status": "holds",
+   "note": "shipped in language 2026-10-17-4: lowered to the engine builtin aether_repeat_array; v and n evaluated once, nested rows copied"
+  },
+  {
+   "id": "repeat_literal_record",
+   "class": 2,
+   "spelling": "[new T { ... }; n]",
+   "canonical_form": "a loop appending n new records",
+   "fixture": "fixtures/repeat_literal_record.aether",
+   "code": "TYPE-001",
+   "decided": "D7",
+   "status": "holds",
+   "hint": "build the records in a loop",
+   "note": "one record shared by every slot would be a silent wrong answer"
   },
   {
    "id": "exit_status",
@@ -395,13 +406,13 @@
    "id": "new_sized_array",
    "class": 2,
    "spelling": "new Int[n]",
-   "canonical_form": "Int[] built with a loop",
+   "canonical_form": "[0; n]",
    "fixture": "fixtures/new_sized_array.aether",
    "code": "SYN-001",
    "decided": "D5",
    "status": "holds",
-   "note": "SYN-001 naming the missing constructor since 2026-10-16-4 (was a VM error at run time)",
-   "hint": "no sized array constructor"
+   "note": "SYN-001 naming the missing constructor since 2026-10-16-4 (was a VM error at run time); the hint names `[v; n]` since 2026-10-17-4",
+   "hint": "[0; n]"
   },
   {
    "id": "list_repeat_mul",

@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-17-1*
+*Card version: 2026-10-17-2*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -139,7 +139,7 @@ fn main() -> Void {
 5 16 1 3
 ```
 
-Append with `xs = xs + [v];`. Indexes are 0-based; `a..b` is half-open in
+Append with `xs = xs + [v];`; `[0; n]` is n zeros. Indexes are 0-based; `a..b` is half-open in
 slices and loops. `println` does not print a whole array; loop over it.
 Helpers return new values: `sum(xs)`, `min_of(xs)`, `max_of(xs)`,
 `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,

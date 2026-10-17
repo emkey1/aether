@@ -1078,7 +1078,7 @@ Primary    = Literal | Ident | Call | "(" Expr ")" | ArrayLit | RecordLit
 Call       = Ident "(" [ Args ] ")" ;
 Args       = Arg { "," Arg } ;
 Arg        = Expr [ ":" Expr [ ":" Expr ] ] ;
-ArrayLit   = "[" [ Expr { "," Expr } ] "]" ;
+ArrayLit   = "[" [ Expr { "," Expr } ] "]" | "[" Expr ";" Expr "]" ;
 RecordLit  = Ident "{" [ Ident ":" Expr { "," Ident ":" Expr } ] "}" ;
 NewExpr    = "new" Ident ( "(" ")" | "{" [ Ident ":" Expr { "," Ident ":" Expr } ] "}" ) ;
 TupleLit   = "(" Expr "," Expr { "," Expr } ")" ;
@@ -1501,12 +1501,21 @@ fn main() -> Void {
 }
 ```
 
-Decision D7 accepts `[v; n]` (n copies of v); today it is rejected:
+`[v; n]` is n copies of v (decision D7, language 2026-10-17-4); v and n are
+evaluated once, a nested array value is copied per element, n <= 0 gives an
+empty array, and a record value is TYPE-001 (one record would fill every slot):
 
-```aether @bug=D7 now=SYN-001 id=G.ArrayLit.3
+```aether @ok id=G.ArrayLit.3
 fn main() -> Void {
     let xs: Int[] = [0; 3];
+    let grid: Int[][] = [[0; 2]; 2];
+    grid[0][1] = 5;
+    fx { println(length(xs), " ", grid[1][1], grid[0][1]); }
 }
+```
+
+```text
+3 05
 ```
 
 ```aether @ok id=G.RecordLit.1

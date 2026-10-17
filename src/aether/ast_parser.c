@@ -2578,8 +2578,8 @@ static AST *parseNew(AetherParser *p) {
                  "`new %s[...]`: Aether has no sized array constructor.",
                  clsTok->value ? clsTok->value : "T");
         reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
-                                     "start from `[]` and grow it in a loop: `let row: Int[] = []; "
-                                     "loop i in 0..n { row = row + [0]; }`.");
+                                     "write `[v; n]` for n copies of a value: `let row: Int[] = [0; n];` "
+                                     "(for records, grow `[]` in a loop).");
         p->hadError = true;
         freeToken(clsTok);
         return NULL;
@@ -2754,6 +2754,70 @@ static AST *parsePrimary(AetherParser *p) {
                 aetherReportMissingExpr(p, "as an array element");
                 freeAST(literal);
                 return NULL;
+            }
+            /* `[v; n]` (D7): n copies of v, lowered to a call of the engine's
+             * aether_repeat_array(v, n), so it is an ordinary expression in
+             * every position and evaluates v and n once each. A nested array
+             * value is copied per element; a record element is rejected (it
+             * would be one record shared n times). Only directly after the
+             * first element: `[1, 2; 3]` stays the unclosed-literal SYN-001. */
+            if (literal->child_count == 0 && p->current.type == REA_TOKEN_SEMICOLON) {
+                int semiLine = p->current.line;
+                aetherAdvance(p); /* consume ';' */
+                AST *count = parseExpr(p);
+                if (!count) {
+                    aetherReportMissingExpr(p, "as the count of `[v; n]`");
+                    freeAST(element);
+                    freeAST(literal);
+                    return NULL;
+                }
+                if (p->current.type != REA_TOKEN_RIGHT_BRACKET) {
+                    reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                            "Expected ']' to close `[v; n]`.",
+                            "`[v; n]` is n copies of one value; list several values with commas: `[a, b, c]`");
+                    p->hadError = true;
+                    freeAST(element);
+                    freeAST(count);
+                    freeAST(literal);
+                    return NULL;
+                }
+                aetherAdvance(p); /* consume ']' */
+                /* A record would be the SAME record n times (records are
+                 * pointer-backed), so a write through one slot shows in all:
+                 * a silent wrong answer. Reject it where the type is known;
+                 * the engine refuses it at run time otherwise. */
+                char *et = inferLetTypeName(p, element);
+                if (et) {
+                    VarType vt = TYPE_UNKNOWN;
+                    const char *reaName = NULL;
+                    size_t etn = strlen(et);
+                    bool isArray = etn >= 2 && strcmp(et + etn - 2, "[]") == 0;
+                    bool scalar = mapAetherType(et, etn, &reaName, &vt);
+                    if (!isArray && !scalar && strcmp(et, "TOON") != 0) {
+                        char detail[256];
+                        snprintf(detail, sizeof(detail),
+                                 "`[v; n]` would put the same %.64s record in every slot, so a "
+                                 "change through one would show in all.", et);
+                        reportAetherAstErrorWithCode(semiLine, "TYPE-001", detail,
+                                "build the records in a loop: `loop i in 0..n { xs = xs + [new T { ... }]; }`");
+                        p->hadError = true;
+                        free(et);
+                        freeAST(element);
+                        freeAST(count);
+                        freeAST(literal);
+                        return NULL;
+                    }
+                    free(et);
+                }
+                freeAST(literal);
+                Token *fnTok = newToken(TOKEN_IDENTIFIER, "aether_repeat_array", semiLine, 0);
+                AST *call = newASTNode(AST_PROCEDURE_CALL, fnTok);
+                freeToken(fnTok);
+                addChild(call, element);
+                addChild(call, count);
+                setTypeAST(call, TYPE_ARRAY);
+                aetherAstRegisterCallSurfaceName(call, "[v; n]");
+                return parsePostfix(p, call);
             }
             addChild(literal, element);
             if (p->current.type == REA_TOKEN_COMMA) {
