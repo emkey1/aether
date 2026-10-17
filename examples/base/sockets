@@ -33,10 +33,10 @@ fn server(listenSock: Int, out: Exchange) -> Void {
     fx {
         let conn: Int = socketaccept(listenSock);   // blocks until the client connects
         let ms: MStream = socketreceive(conn, BUF); // blocks until data arrives
-        out.got = mstreambuffer(ms);
+        out.got = mstream_text(ms);
         out.bytes = string_len(out.got);
         out.ok = out.bytes > 0;
-        mstreamfree(ms);
+        mstream_free(ms);
 
         socketsend(conn, "pong:" + out.got);
         socketclose(conn);
@@ -50,10 +50,10 @@ fn client(serverPort: Int, out: Exchange) -> Void {
         if socketconnect(sock, "127.0.0.1", serverPort) == 0 {
             socketsend(sock, "ping");
             let ms: MStream = socketreceive(sock, BUF);
-            out.got = mstreambuffer(ms);
+            out.got = mstream_text(ms);
             out.bytes = string_len(out.got);
             out.ok = out.bytes > 0;
-            mstreamfree(ms);
+            mstream_free(ms);
         }
         socketclose(sock);
     }

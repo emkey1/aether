@@ -1,12 +1,12 @@
-// readln from a piped stdin into a piped stdout (B-backend-coupling-4). Each
+// A line of piped stdin into a piped stdout (B-backend-coupling-4). Each
 // stdin readln used to write ESC[?25h (show cursor) to stdout even when it was
-// not a terminal, so piped output began with an escape sequence. The expected
-// stdout is byte-exact. Fixed by W5-12a; whitespace stripping and the long-line
-// split are still open (stdin_pipe).
+// not a terminal, so piped output began with an escape sequence (fixed by
+// W5-12a). read_line (D60) shares readln's reader. The expected stdout is
+// byte-exact.
 fn main() -> Void {
     let a: Text = "";
     fx {
-        readln(a);
+        a = read_line();
         println("got[", a, "]");
     }
     ret;

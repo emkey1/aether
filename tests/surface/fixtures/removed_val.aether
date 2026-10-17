@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let n: Int = 0;
+    let code: Int = 0;
+    val("42", n, code);
+    fx { println(n); }
+}

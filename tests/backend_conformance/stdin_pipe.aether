@@ -1,15 +1,15 @@
-// readln from a piped stdin into a piped stdout (B-backend-coupling-4). Today
-// a stdin readln strips the leading whitespace of the line and splits a line
-// longer than 1023 bytes. The expected stdout is byte-exact. Fixed by W5-12;
-// the cursor escape it also wrote is gone (W5-12a, stdin_pipe_no_escape).
+// A line of piped stdin into a piped stdout (B-backend-coupling-4). A stdin
+// readln once stripped the line's leading whitespace and split a line longer
+// than 1023 bytes (fixed by W5-12); readln's replacement read_line (D60) keeps
+// both. The expected stdout is byte-exact.
 fn main() -> Void {
     let a: Text = "";
     let b: Text = "";
     let c: Text = "";
     fx {
-        readln(a);
-        readln(b);
-        readln(c);
+        a = read_line();
+        b = read_line();
+        c = read_line();
         println("[", a, "]");
         println("[", b, "]");
         println(length(c));

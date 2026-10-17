@@ -357,6 +357,8 @@ static const AST *lookupCallee(const AST *call, const AetherTypeEnv *env);
 #define RET_POLY ((AetherTypeKind)100)
 #define RET_RANDOM ((AetherTypeKind)101)
 #define RET_TEXT_ARRAY ((AetherTypeKind)102)
+#define RET_ARG0 ((AetherTypeKind)103)  /* the first argument's type */
+#define RET_ELEM0 ((AetherTypeKind)104) /* the first argument's element type */
 typedef struct { const char *name; AetherTypeKind ret; const char *handle; } BuiltinRet;
 static const BuiltinRet kBuiltinReturns[] = {
     /* Int */
@@ -397,7 +399,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"httplasterror", AETHER_T_TEXT, NULL}, {"httpgetheader", AETHER_T_TEXT, NULL},
     {"httpgetlastheaders", AETHER_T_TEXT, NULL},
     /* Char */
-    {"chr", AETHER_T_CHAR, NULL}, {"upcase", AETHER_T_CHAR, NULL}, {"readkey", AETHER_T_CHAR, NULL},
+    {"chr", AETHER_T_CHAR, NULL}, {"upcase", AETHER_T_TEXT, NULL}, {"readkey", AETHER_T_CHAR, NULL},
     /* Bool */
     {"hasextbuiltin", AETHER_T_BOOL, NULL}, {"yyjsonhaskey", AETHER_T_BOOL, NULL},
     {"yyjsonhasindex", AETHER_T_BOOL, NULL}, {"yyjsongetbool", AETHER_T_BOOL, NULL},
@@ -412,7 +414,29 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"mstreamcreate", AETHER_T_HANDLE, "MStream"}, {"mstreamfromstring", AETHER_T_HANDLE, "MStream"},
     {"socketreceive", AETHER_T_HANDLE, "MStream"},
     /* Text[] */
-    {"split", RET_TEXT_ARRAY, NULL},
+    {"split", RET_TEXT_ARRAY, NULL}, {"aether_read_lines", RET_TEXT_ARRAY, NULL},
+    {"aether_args", RET_TEXT_ARRAY, NULL},
+    /* The modern standard surface (pscal-core ext_builtins/strings/stdlib.c) */
+    {"aether_upper", AETHER_T_TEXT, NULL}, {"aether_lower", AETHER_T_TEXT, NULL},
+    {"aether_replace", AETHER_T_TEXT, NULL}, {"aether_repeat", AETHER_T_TEXT, NULL},
+    {"aether_join", AETHER_T_TEXT, NULL}, {"aether_read_file", AETHER_T_TEXT, NULL},
+    {"aether_read_line", AETHER_T_TEXT, NULL}, {"aether_read_all_stdin", AETHER_T_TEXT, NULL},
+    {"aether_now_text", AETHER_T_TEXT, NULL},
+    {"aether_contains", AETHER_T_BOOL, NULL}, {"aether_starts_with", AETHER_T_BOOL, NULL},
+    {"aether_ends_with", AETHER_T_BOOL, NULL}, {"aether_delete_file", AETHER_T_BOOL, NULL},
+    {"aether_rename_file", AETHER_T_BOOL, NULL}, {"aetherparseintok", AETHER_T_BOOL, NULL},
+    {"aetherparserealok", AETHER_T_BOOL, NULL},
+    {"aether_index_of", AETHER_T_INT, NULL}, {"aether_count", AETHER_T_INT, NULL},
+    {"aether_clock_ms", AETHER_T_INT, NULL}, {"aether_mstream_length", AETHER_T_INT, NULL},
+    {"aetherparseintvalue", AETHER_T_INT, NULL},
+    {"aether_round_to", AETHER_T_REAL, NULL}, {"aetherparserealvalue", AETHER_T_REAL, NULL},
+    {"aether_mstream_load", AETHER_T_HANDLE, "MStream"},
+    {"aether_write_file", AETHER_T_VOID, NULL}, {"aether_append_file", AETHER_T_VOID, NULL},
+    {"aether_mstream_append_text", AETHER_T_VOID, NULL},
+    {"aether_sorted", RET_ARG0, NULL}, {"aether_sorted_desc", RET_ARG0, NULL},
+    {"aether_sorted_by", RET_ARG0, NULL}, {"aether_sorted_by_desc", RET_ARG0, NULL},
+    {"aether_reversed", RET_ARG0, NULL},
+    {"aether_sum", RET_ELEM0, NULL}, {"aether_min_of", RET_ELEM0, NULL}, {"aether_max_of", RET_ELEM0, NULL},
     /* Void */
     {"setlength", AETHER_T_VOID, NULL}, {"halt", AETHER_T_VOID, NULL},
     {"yyjsondocfree", AETHER_T_VOID, NULL}, {"yyjsonfreevalue", AETHER_T_VOID, NULL},
@@ -624,6 +648,16 @@ static AetherType typeOfCall(const AST *e, const AetherTypeEnv *env) {
     }
     if (b->ret == RET_RANDOM)
         return e->child_count == 0 ? mk(AETHER_T_REAL) : mk(AETHER_T_INT);
+    if (b->ret == RET_ARG0)
+        return e->child_count >= 1 ? aetherTypeOf(e->children[0], env) : mk(AETHER_T_UNKNOWN);
+    if (b->ret == RET_ELEM0) {
+        AetherType a = e->child_count >= 1 ? aetherTypeOf(e->children[0], env)
+                                           : mk(AETHER_T_UNKNOWN);
+        if (a.kind == AETHER_T_ARRAY && a.rank == 1 &&
+            (a.elem == AETHER_T_INT || a.elem == AETHER_T_REAL || a.elem == AETHER_T_TEXT))
+            return mk(a.elem);
+        return mk(AETHER_T_UNKNOWN);
+    }
     if (b->ret == RET_POLY) {
         int anyReal = 0, allInt = e->child_count > 0;
         for (int i = 0; i < e->child_count; i++) {

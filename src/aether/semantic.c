@@ -1294,8 +1294,16 @@ static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsKind)
         *expectsKind = AETHER_HANDLE_DOC;
         return 1;
     }
-    /* Memory-stream consumers: first argument must be an MStream handle. */
-    if ((len == 13 && strncasecmp(name, "mstreambuffer", len) == 0) ||
+    /* Memory-stream consumers: first argument must be an MStream handle.
+     * The snake_case names are the Aether surface (D61); the engine
+     * spellings stay so a raw lowering is still checked. */
+    if ((len == 12 && strncmp(name, "mstream_text", len) == 0) ||
+        (len == 12 && strncmp(name, "mstream_free", len) == 0) ||
+        (len == 12 && strncmp(name, "mstream_save", len) == 0) ||
+        (len == 14 && strncmp(name, "mstream_length", len) == 0) ||
+        (len == 19 && strncmp(name, "mstream_append_text", len) == 0) ||
+        (len == 19 && strncmp(name, "mstream_append_byte", len) == 0) ||
+        (len == 13 && strncasecmp(name, "mstreambuffer", len) == 0) ||
         (len == 11 && strncasecmp(name, "mstreamfree", len) == 0) ||
         (len == 17 && strncasecmp(name, "mstreamsavetofile", len) == 0) ||
         (len == 19 && strncasecmp(name, "mstreamloadfromfile", len) == 0)) {
@@ -1386,7 +1394,10 @@ static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsKi
     }
     /* Memory-stream constructors are the raw vm builtin names; VM lookup is
      * case-insensitive, so match them case-insensitively here too. */
-    if ((len == 13 && strncasecmp(name, "mstreamcreate", len) == 0) ||
+    if ((len == 11 && strncmp(name, "mstream_new", len) == 0) ||
+        (len == 17 && strncmp(name, "mstream_from_text", len) == 0) ||
+        (len == 12 && strncmp(name, "mstream_load", len) == 0) ||
+        (len == 13 && strncasecmp(name, "mstreamcreate", len) == 0) ||
         (len == 17 && strncasecmp(name, "mstreamfromstring", len) == 0) ||
         (len == 13 && strncasecmp(name, "socketreceive", len) == 0)) {
         *returnsKind = AETHER_HANDLE_MSTREAM;
@@ -3041,6 +3052,48 @@ static const AetherBuiltinArity kAetherBuiltinArity[] = {
     {"parse_float", 11, 1, 1},
     {"parse_bool",  10, 1, 1},
     {"split",        5, 2, 2},
+    /* The modern standard surface (D56-D61): arities of pscal-core's
+     * ext_builtins/strings/stdlib.c and of the aliased mstream/file builtins. */
+    {"aether_upper", 12, 1, 1},
+    {"aether_lower", 12, 1, 1},
+    {"aether_replace", 14, 3, 3},
+    {"aether_contains", 15, 2, 2},
+    {"aether_starts_with", 18, 2, 2},
+    {"aether_ends_with", 16, 2, 2},
+    {"aether_index_of", 15, 2, 2},
+    {"aether_repeat", 13, 2, 2},
+    {"aether_join", 11, 2, 2},
+    {"aether_sum", 10, 1, 1},
+    {"aether_min_of", 13, 1, 1},
+    {"aether_max_of", 13, 1, 1},
+    {"aether_sorted", 13, 1, 1},
+    {"aether_sorted_desc", 18, 1, 1},
+    {"aether_reversed", 15, 1, 1},
+    {"aether_count", 12, 2, 2},
+    {"aether_sorted_by", 16, 2, 2},
+    {"aether_sorted_by_desc", 21, 2, 2},
+    {"aether_round_to", 15, 2, 2},
+    {"aether_read_file", 16, 1, 1},
+    {"aether_read_lines", 17, 1, 1},
+    {"aether_write_file", 17, 2, 2},
+    {"aether_append_file", 18, 2, 2},
+    {"aether_delete_file", 18, 1, 1},
+    {"aether_rename_file", 18, 2, 2},
+    {"fileexists", 10, 1, 1},
+    {"aether_read_line", 16, 0, 0},
+    {"aether_read_all_stdin", 21, 0, 0},
+    {"aether_args", 11, 0, 0},
+    {"aether_clock_ms", 15, 0, 0},
+    {"aether_now_text", 15, 0, 0},
+    {"mstreamcreate", 13, 0, 0},
+    {"mstreamfromstring", 17, 1, 1},
+    {"mstreambuffer", 13, 1, 1},
+    {"mstreamappendbyte", 17, 2, 2},
+    {"mstreamsavetofile", 17, 2, 2},
+    {"mstreamfree", 11, 1, 1},
+    {"aether_mstream_append_text", 26, 2, 2},
+    {"aether_mstream_length", 21, 1, 1},
+    {"aether_mstream_load", 19, 1, 1},
 };
 
 static void aetherCheckBuiltinArity(const AST *node,
@@ -3599,7 +3652,6 @@ static const char *aetherSuggestedTypeName(const char *name) {
         { "bool",      "Bool" },
         { "void",      "Void" },
         { "mstream",   "MStream" },
-        { "file",      "File" },
         { "toondoc",   "ToonDoc" },
         { "toonnode",  "ToonNode" },
     };
@@ -3623,6 +3675,13 @@ static const char *aetherCollectionTypeAdvice(const char *name) {
         if (strcasecmp(name, arrayNames[i]) == 0) {
             return "an array is spelled with the element type, e.g. `Int[]` or `Text[]`.";
         }
+    }
+    /* D55/D60: the File handle type is gone with assign/reset/readln(f). */
+    if (strcasecmp(name, "File") == 0 || strcasecmp(name, "Text_File") == 0 ||
+        strcasecmp(name, "TextFile") == 0) {
+        return "Aether has no file handles: read a whole file with `read_file(path)` (Text) "
+               "or `read_lines(path)` (Text[]); write with `write_file(path, text)` or "
+               "`append_file(path, text)`.";
     }
     for (i = 0; i < sizeof(mapNames) / sizeof(mapNames[0]); i++) {
         if (strcasecmp(name, mapNames[i]) == 0) {

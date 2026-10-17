@@ -8,9 +8,7 @@ div_range_bound	silent:4	W4-42	full:693	`0..7 / 2` runs 4 times: the bound is 3.
 const_case_alias	fails:NAME-001	W4-22	-	names ignore case: `let limit` overwrote `const LIMIT` before W4-22
 param_case_shadow	fails:NAME-001	W4-22	-	parameter `limit` answered to `LIMIT` before W4-22
 loop_var_outer	fails:NAME-001	W4-22	-	a loop variable named like a let left the let at 0 before W4-22
-upcase_text	silent:R	W4-45	full:868	upcase takes the first code point
 record_eq	silent:differ	W4-20	medium:339,full:282	record == compares identity
-eof_always_true	silent:0	W5-29	-	eof() with no argument is always true
 ret_text_from_int	silent:bob	W4-17	-	`ret` is not checked against the declared type
 bool_from_int	silent:true	W4-17	-	`let b: Bool = 5` is accepted
 bool_from_int_ret	silent:7	W4-17	-	`ret 7` from -> Bool prints 7

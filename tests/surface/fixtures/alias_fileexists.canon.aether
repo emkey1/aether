@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(file_exists("no_such_file.txt")); }
+}

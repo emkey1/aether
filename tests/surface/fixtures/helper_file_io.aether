@@ -1,0 +1,8 @@
+fn main() -> Void {
+    fx {
+        write_file("reg_io.txt", "a\n");
+        append_file("reg_io.txt", "b\n");
+        println(length(read_lines("reg_io.txt")), " ", length(read_file("reg_io.txt")));
+        println(rename_file("reg_io.txt", "reg_io2.txt"), " ", delete_file("reg_io2.txt"), " ", file_exists("reg_io2.txt"));
+    }
+}

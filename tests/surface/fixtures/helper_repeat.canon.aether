@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let out: Text = "";
+    loop i in 0..3 { out = out + "ab"; }
+    fx { println("[", out, "][", "", "][", "", "]"); }
+}

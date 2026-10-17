@@ -1,0 +1,11 @@
+fn main() -> Void {
+    let ms: MStream = mstream_new();
+    mstream_append_text(ms, "ab");
+    mstream_append_byte(ms, 67);
+    let t: Text = mstream_text(ms);
+    let n: Int = mstream_length(ms);
+    mstream_free(ms);
+    let m2: MStream = mstream_from_text("xyz");
+    fx { println(t, " ", n, " ", mstream_length(m2)); }
+    mstream_free(m2);
+}

@@ -1,0 +1,5 @@
+// D21/D56 (2026-10-17): upcase is an alias of the whole-string upper. It used
+// to take the first code point, so this printed R (backlog probe W4-45).
+fn main() -> Void {
+    fx { println(upcase("red"), " ", upper("red"), " ", lower("RED"), " ", toupper("ok")); }
+}

@@ -1,0 +1,11 @@
+fn main() -> Void {
+    let xs: Int[] = [5, 3, 9, 3, 1];
+    let ys: Int[] = xs;
+    loop i in 1..length(ys) {
+        let v: Int = ys[i];
+        let j: Int = i - 1;
+        while j >= 0 && ys[j] > v { ys[j + 1] = ys[j]; j = j - 1; }
+        ys[j + 1] = v;
+    }
+    fx { loop y in ys { print(y, " "); } println(xs[0]); }
+}

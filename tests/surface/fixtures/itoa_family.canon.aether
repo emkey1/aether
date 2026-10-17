@@ -1,3 +1,0 @@
-fn main() -> Void {
-    fx { println(int_to_text(5), int_to_text(6), int_to_text(7)); }
-}

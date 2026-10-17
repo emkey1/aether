@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let xs: Int[] = [4, -2, 9, 1];
+    let rs: Real[] = [1.5, 2.25];
+    let ws: Text[] = ["pear", "apple"];
+    fx { println(sum(xs), " ", min_of(xs), " ", max_of(xs), " ", sum(rs), " ", min_of(ws), " ", max_of(ws)); }
+}

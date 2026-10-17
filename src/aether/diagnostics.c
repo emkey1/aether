@@ -88,17 +88,9 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "array-mutation") == 0) {
             return "ARR-001";
         }
-        /* copy() (the Text substring builtin) handed an array, where the slice
-         * sugar `arr[lo..hi]` is meant. A wrong-type-for-the-operation error,
-         * so it points at the TYPE-001 guide section. (The mirror case,
-         * `s[a..b]` on a Text, was briefly a diagnostic too; it is now a
-         * supported form that lowers to copy(), so it needs no code.) */
-        if (strcmp(kind, "array-copy") == 0) {
-            return "TYPE-001";
-        }
         /* The slice sugar `v[a..b]` on a value that is not an array or a Text,
          * or whose type cannot be named where the slice is written. A
-         * wrong-type-for-the-operation error like the copy() case above. */
+         * wrong-type-for-the-operation error. */
         if (strcmp(kind, "slice") == 0) {
             return "TYPE-001";
         }
@@ -307,15 +299,61 @@ static const AetherNameHint kAetherNameHints[] = {
     { "json_parse_file", "did you mean 'toon_parse_file(path)'? TOON helpers read JSON; it returns a ToonDoc." },
     { "yyjson_parse", "did you mean 'toon_parse(text)'? TOON helpers read JSON; it returns a ToonDoc." },
     { "yyjson_read", "did you mean 'toon_parse(text)'? TOON helpers read JSON; it returns a ToonDoc." },
-    { "mstream_new", "did you mean 'mstreamcreate()'? MStream helpers have no underscores." },
-    { "mstream_create", "did you mean 'mstreamcreate()'? MStream helpers have no underscores." },
-    { "mstreamnew", "did you mean 'mstreamcreate()'?" },
-    { "mstream_from_string", "did you mean 'mstreamfromstring(text)'? MStream helpers have no underscores." },
-    { "mstream_buffer", "did you mean 'mstreambuffer(ms)'? MStream helpers have no underscores." },
-    { "mstream_free", "did you mean 'mstreamfree(ms)'? MStream helpers have no underscores." },
-    { "mstream_append_byte", "did you mean 'mstreamappendbyte(ms, byte)'? MStream helpers have no underscores." },
-    { "mstream_load_from_file", "did you mean 'mstreamloadfromfile(ms, path)'? MStream helpers have no underscores." },
-    { "mstream_save_to_file", "did you mean 'mstreamsavetofile(ms, path)'? MStream helpers have no underscores." },
+    /* MStream: invented spellings of the snake_case family (D61). */
+    { "mstream_create", "did you mean 'mstream_new()'?" },
+    { "mstreamnew", "did you mean 'mstream_new()'?" },
+    { "mstream_from_string", "did you mean 'mstream_from_text(text)'?" },
+    { "mstream_buffer", "did you mean 'mstream_text(ms)'? It returns the stream's bytes as Text." },
+    { "mstream_to_text", "did you mean 'mstream_text(ms)'?" },
+    { "mstream_append", "did you mean 'mstream_append_text(ms, text)' or 'mstream_append_byte(ms, b)'?" },
+    { "mstream_append_bytes", "did you mean 'mstream_append_text(ms, text)'?" },
+    { "mstreamappendbytes", "did you mean 'mstream_append_text(ms, text)'?" },
+    { "mstreamappendtext", "did you mean 'mstream_append_text(ms, text)'?" },
+    { "mstreamlength", "did you mean 'mstream_length(ms)'?" },
+    { "mstream_size", "did you mean 'mstream_length(ms)'?" },
+    { "mstream_len", "did you mean 'mstream_length(ms)'?" },
+    { "mstream_load_from_file", "did you mean 'mstream_load(path)'? It returns a new MStream." },
+    { "mstream_load_file", "did you mean 'mstream_load(path)'? It returns a new MStream." },
+    { "mstreamloadfile", "did you mean 'mstream_load(path)'? It returns a new MStream." },
+    { "mstream_save_to_file", "did you mean 'mstream_save(ms, path)'?" },
+    { "mstream_close", "did you mean 'mstream_free(ms)'?" },
+    /* Files, stdin, arguments and the clock (D60). */
+    { "create_file", "did you mean 'write_file(path, text)'?" },
+    { "write_text", "did you mean 'write_file(path, text)'?" },
+    { "read_text", "did you mean 'read_file(path)'?" },
+    { "file_read", "did you mean 'read_file(path)'?" },
+    { "file_write", "did you mean 'write_file(path, text)'?" },
+    { "remove_file", "did you mean 'delete_file(path)'?" },
+    { "exists", "did you mean 'file_exists(path)'?" },
+    { "path_exists", "did you mean 'file_exists(path)'?" },
+    { "input", "did you mean 'read_line()'? It returns the next stdin line, \"\" at the end." },
+    { "readline", "did you mean 'read_line()'?" },
+    { "read_input", "did you mean 'read_line()' or 'read_all_stdin()'?" },
+    { "read_stdin", "did you mean 'read_all_stdin()'?" },
+    { "argv", "did you mean 'args()'? It is a Text[] of the arguments after the program." },
+    { "get_args", "did you mean 'args()'?" },
+    { "now", "did you mean 'now_text()' or 'clock_ms()'?" },
+    { "time_ms", "did you mean 'clock_ms()'?" },
+    { "current_time_ms", "did you mean 'clock_ms()'?" },
+    /* Text and arrays (D56, D57). */
+    { "to_upper", "did you mean 'upper(s)'?" },
+    { "to_lower", "did you mean 'lower(s)'?" },
+    { "uppercase", "did you mean 'upper(s)'?" },
+    { "lowercase", "did you mean 'lower(s)'?" },
+    { "tolower", "did you mean 'lower(s)'?" },
+    { "startswith", "did you mean 'starts_with(s, p)'?" },
+    { "endswith", "did you mean 'ends_with(s, p)'?" },
+    { "indexof", "did you mean 'index_of(s, x)'? -1 when absent." },
+    { "find", "did you mean 'index_of(s, x)'? -1 when absent." },
+    { "substring", "take a slice: `s[a..b]` (from a, up to but not including b)." },
+    { "substr", "take a slice: `s[a..b]` (from a, up to but not including b)." },
+    { "sort", "did you mean 'sorted(xs)'? It returns a new array." },
+    { "reverse", "did you mean 'reversed(xs)'? It returns a new array." },
+    { "minimum", "did you mean 'min_of(xs)'?" },
+    { "maximum", "did you mean 'max_of(xs)'?" },
+    { "parse_int_checked", "did you mean 'try_parse_int(t)'? It returns (value, ok)." },
+    { "try_parse_float", "did you mean 'try_parse_real(t)'? It returns (value, ok)." },
+    { "round_half_up", "did you mean 'round_to(x, digits)'? It rounds half away from zero." },
 };
 
 const char *aetherUnknownIdentifierHint(const char *ident) {

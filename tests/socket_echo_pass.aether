@@ -11,10 +11,10 @@ fn server(listenSock: Int, out: Message) -> Void {
     fx {
         let conn: Int = socketaccept(listenSock);
         let ms: MStream = socketreceive(conn, 256);
-        out.payload = mstreambuffer(ms);
+        out.payload = mstream_text(ms);
         println("server got: ", out.payload);
         socketsend(conn, "pong");
-        mstreamfree(ms);
+        mstream_free(ms);
         socketclose(conn);
         socketclose(listenSock);
     }
@@ -27,9 +27,9 @@ fn client(port: Int, out: Message) -> Void {
         socketconnect(sock, "127.0.0.1", port);
         socketsend(sock, "ping");
         let ms: MStream = socketreceive(sock, 256);
-        out.payload = mstreambuffer(ms);
+        out.payload = mstream_text(ms);
         println("client got: ", out.payload);
-        mstreamfree(ms);
+        mstream_free(ms);
         socketclose(sock);
     }
     ret;

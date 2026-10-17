@@ -162,24 +162,61 @@ static const char *foreignMethodHint(const char *recvType, const char *m, char *
     bool isText = strcmp(recvType, "Text") == 0 || strcmp(recvType, "String") == 0;
     bool isInt = strcmp(recvType, "Int") == 0;
     bool isReal = strcmp(recvType, "Real") == 0 || strcmp(recvType, "Float") == 0;
-    static const AetherForeignMethod table[] = {
+    /* Array-only advice first; a scalar receiver falls through to the rest. The
+     * modern surface (D56, D57) has a function for most of these: the hint
+     * names it, since a method spelling stays SCOPE-001 (W6-05). */
+    static const AetherForeignMethod arrayTable[] = {
         {" push append add push_back pushback extend ", "append with `xs = xs + [v];`"},
         {" pop remove clear insert splice shift unshift removeat delete ",
          "build the new array with a loop, or take a slice `xs[a..b]`"},
-        {" sort sorted ", "there is no sort builtin: sort with a loop (an insertion sort)"},
-        {" reverse reversed ", "reverse with a loop from `length(xs) - 1` down to 0"},
-        {" join ", "there is no join: build the Text in a loop, adding the separator between items"},
+        {" sort ", "write `sorted(xs)` (a new array, ascending) or `sorted_desc(xs)`; "
+                   "records: `sorted_by(xs, \"field\")`"},
+        {" sorted ", "write `sorted(xs)` (a new array, ascending) or `sorted_desc(xs)`"},
+        {" reverse reversed ", "write `reversed(xs)` (a new array)"},
+        {" join ", "write `join(xs, sep)`"},
+        {" sum ", "write `sum(xs)`"},
+        {" min ", "write `min_of(xs)`"},
+        {" max ", "write `max_of(xs)`"},
+        {NULL, NULL}};
+    static const AetherForeignMethod table[] = {
         {" map filter foreach each reduce any all ",
          "there are no closures: write a `loop x in xs { ... }`"},
-        {" upper lower toupper tolower touppercase tolowercase uppercase lowercase capitalize ",
-         "there is no whole-string case builtin yet: map each character with ord/chr in a loop"},
         {NULL, NULL}};
     char key[72];
     snprintf(key, sizeof(key), " %s ", m);
     for (char *k = key; *k; k++) *k = (char)tolower((unsigned char)*k);
-    if (strstr(" contains includes indexof index find startswith endswith has ", key)) {
-        return isText ? "use `pos(needle, s)`: -1 when absent, 0 when s starts with it"
-                      : "search with a `loop x in xs { ... }`";
+    if (isText || isArray) {
+        const char *what = isText ? "s" : "xs";
+        const char *arg = isText ? "x" : "v";
+        if (strstr(" contains includes has ", key)) {
+            snprintf(buf, n, "write `contains(%s, %s)`", what, arg);
+            return buf;
+        }
+        if (strstr(" indexof index find findindex pos ", key)) {
+            snprintf(buf, n, "write `index_of(%s, %s)`: -1 when absent", what, arg);
+            return buf;
+        }
+        if (strstr(" count ", key)) {
+            snprintf(buf, n, "write `count(%s, %s)` for how many times %s occurs, `length(%s)` "
+                     "for the size", what, arg, arg, what);
+            return buf;
+        }
+    }
+    if (isText) {
+        if (strstr(" startswith starts_with hasprefix ", key)) return "write `starts_with(s, p)`";
+        if (strstr(" endswith ends_with hassuffix ", key)) return "write `ends_with(s, p)`";
+        if (strstr(" lower tolower tolowercase lowercase downcase ", key)) return "write `lower(s)`";
+        if (strstr(" upper toupper touppercase uppercase upcase ", key)) return "write `upper(s)`";
+        if (strstr(" capitalize ", key)) return "write `upper(s[..1]) + s[1..]`";
+        if (strstr(" replace replaceall replace_all ", key)) return "write `replace(s, old, new)`";
+        /* `s.trim()` and `s.split(sep)` stay UFCS calls of the builtins
+         * (fixtures diag/ufcs_builtin_pass); only the foreign spelling is a
+         * hint. */
+        if (strstr(" strip ", key)) return "write `trim(s)`";
+        if (strstr(" repeat ", key)) return "write `repeat(s, n)`";
+        if (strstr(" reverse reversed ", key)) return "write `reversed(s)`";
+        if (strstr(" join ", key)) return "write `join(xs, sep)`: the Text[] comes first";
+        if (strstr(" substring substr slice ", key)) return "take a slice: `s[a..b]`";
     }
     if (strstr(" tostring to_string str tostr totext to_text ", key)) {
         if (isInt) return "write `int_to_text(n)`";
@@ -187,19 +224,20 @@ static const char *foreignMethodHint(const char *recvType, const char *m, char *
         return "write `int_to_text(n)` for an Int, `formatfloat(x, 2)` for a Real";
     }
     if (strstr(" toint to_int parseint tointeger ", key)) {
-        return isText ? "write `parse_int(t)`" : "write `trunc(x)` or `round(x)`";
+        return isText ? "write `parse_int(t)`, or `try_parse_int(t)` to check it"
+                      : "write `trunc(x)` or `round(x)`";
     }
     if (strstr(" tofloat toreal parsefloat todouble ", key)) return "write `parse_float(t)`";
-    if (strstr(" size count ", key) && (isArray || isText))
+    if (strstr(" size ", key) && (isArray || isText))
         return isText ? "write `length(s)`" : "write `length(xs)`";
-    for (int i = 0; table[i].names; i++) {
-        if (strstr(table[i].names, key)) {
-            if (!isArray && i <= 5) break; /* array advice on a scalar: generic */
-            return table[i].hint;
+    if (isArray) {
+        for (int i = 0; arrayTable[i].names; i++) {
+            if (strstr(arrayTable[i].names, key)) return arrayTable[i].hint;
         }
     }
-    (void)buf;
-    (void)n;
+    for (int i = 0; table[i].names; i++) {
+        if (strstr(table[i].names, key)) return table[i].hint;
+    }
     return NULL;
 }
 
@@ -208,9 +246,6 @@ bool aetherCheckBuiltinMethod(AetherParser *p, const char *recvType, const char 
     if (!aetherIsBuiltinValueTypeName(recvType) || !method) return false;
     char buf[160];
     const char *hint = foreignMethodHint(recvType, method, buf, sizeof(buf));
-    if (!hint && isCall && strcasecmp(method, "pos") == 0 &&
-        (strcmp(recvType, "Text") == 0 || strcmp(recvType, "String") == 0))
-        hint = "write `pos(needle, s)`: the needle comes first";
     if (!hint && isCall && knownCallable) return false; /* UFCS: f(recv, args) */
     if (!hint && isCall)
         hint = "Aether types have no methods: call a function with the value as an argument";

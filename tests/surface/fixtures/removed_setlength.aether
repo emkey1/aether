@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    setlength(xs, 2);
+    fx { println(length(xs)); }
+}

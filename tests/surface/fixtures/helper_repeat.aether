@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println("[", repeat("ab", 3), "][", repeat("x", 0), "][", repeat("x", -2), "]"); }
+}

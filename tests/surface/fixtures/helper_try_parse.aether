@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let (n, ok) = try_parse_int(" 42");
+    let (m, bad) = try_parse_int("12x");
+    let (x, xok) = try_parse_real("-1.5");
+    fx { println(n, ok, " ", m, bad, " ", x, xok); }
+}

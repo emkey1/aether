@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let line: Text = "";
+    fx { readln(line); }
+}

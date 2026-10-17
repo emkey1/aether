@@ -1,0 +1,27 @@
+// try_parse_int / try_parse_real (D59, 2026-10-17) return (value, ok). The
+// text may carry surrounding whitespace and one sign; anything else (an empty
+// text, a stray character, hex, inf/nan, a value out of range) is ok = false
+// with value 0. The parsing is the engine's own, not the libc's, so Linux and
+// macOS agree: val("") once succeeded on Linux only (glibc's strtoll does not
+// flag an empty conversion).
+fn tryInt(s: Text) -> Void {
+    let (n, ok) = try_parse_int(s);
+    fx { println("int [", s, "] n=", n, " ok=", ok); }
+}
+
+fn tryReal(s: Text) -> Void {
+    let (r, ok) = try_parse_real(s);
+    fx { println("real [", s, "] r=", formatfloat(r, 6), " ok=", ok); }
+}
+
+fn main() -> Void {
+    let ints: Text[] = ["", "-", "+", "  ", " 42", "\t7", "42 ", "-13", "+8", "007", "7x", "3.5",
+                        "--1", "- 1", "0x1F", "1e3", " 7",
+                        "9223372036854775807", "9223372036854775808",
+                        "-9223372036854775808", "-9223372036854775809",
+                        "123456789012345678901234567890"];
+    loop i in 0..length(ints) { tryInt(ints[i]); }
+    let reals: Text[] = ["", "-", ".", "1.", ".5", " 2.5", "2.5 ", "1e3", "1e", "1e+", "-1.5e-2",
+                         "abc", "3.5x", "0x1p3", "inf", "nan", "1e400", "1e-400", "12x", "-3"];
+    loop i in 0..length(reals) { tryReal(reals[i]); }
+}

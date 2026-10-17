@@ -1,2 +1,2 @@
-a File cannot be a return value yet
-a File cannot be copied into a `let` yet
+unknown type 'File'
+write_file(path, text)

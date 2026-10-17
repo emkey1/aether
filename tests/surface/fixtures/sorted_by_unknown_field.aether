@@ -1,0 +1,6 @@
+type P { name: Text; age: Int; }
+fn main() -> Void {
+    let ps: P[] = [new P { name: "a", age: 3 }];
+    let q: P[] = sorted_by(ps, "agee");
+    fx { println(length(q)); }
+}

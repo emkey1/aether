@@ -1,0 +1,10 @@
+fn main() -> Void {
+    let ms: MStream = mstream_from_text("bytes");
+    fx {
+        mstream_save(ms, "reg_ms.bin");
+        let back: MStream = mstream_load("reg_ms.bin");
+        println(mstream_text(back), " ", delete_file("reg_ms.bin"));
+        mstream_free(back);
+    }
+    mstream_free(ms);
+}

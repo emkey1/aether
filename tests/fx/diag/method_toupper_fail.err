@@ -1,4 +1,4 @@
 Text has no method 'toUpper'
-ord/chr
+upper(s)
 !L3:
 !Runtime

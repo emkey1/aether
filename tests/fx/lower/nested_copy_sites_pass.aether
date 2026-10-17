@@ -2,11 +2,10 @@
 // (the case that used to share them) and from literals alike: let,
 // assignment, concatenation (either operand), slices, record and array
 // literals, appends, `loop row in`, a returned parameter, and a parameter the
-// body writes through two indices (also through `val`). Each write below lands
+// body writes through two indices. Each write below lands
 // in a copy, so `a` still prints its original cells.
 type Box { data: Int[][]; }
 fn poke(t: Int[][]) -> Int { t[0][0] = 77; ret 0; }
-fn pokeVal(t: Int[][]) -> Int { let code: Int = 0; val("77", t[0][0], code); ret 0; }
 fn poke3(t: Int[][][]) -> Int { t[0][0][0] = 77; ret 0; }
 fn ident(t: Int[][]) -> Int[][] { ret t; }
 fn grow(t: Int[][]) -> Int[][] { ret t + [[5]]; }
@@ -27,7 +26,6 @@ fn show(label: Text, a: Int[][]) -> Void {
 fn check(lit: Bool) -> Void {
     let a: Int[][] = mk(lit);
     let x: Int = poke(a);
-    x = pokeVal(a);
     let b: Int[][] = a;
     b[0][0] = 9;
     let c: Int[][] = [];

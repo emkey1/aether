@@ -1,30 +1,22 @@
-// Regression: Aether's own `File` type (lowers to rea's `text` keyword /
-// pscal-core's TYPE_FILE) satisfies the assign/rewrite/writeln/reset/readln/
-// eof/close/erase builtins' "must be a file variable" runtime check. Exercises
-// both the write and read paths plus erase, matching rea's own
-// `text f; assign(f, path); ...` idiom (examples/base/hangman5).
+// Regression: the one-call file helpers (D60, 2026-10-17) that replaced the
+// Pascal File sequence (assign/rewrite/writeln/reset/readln/eof/close/erase).
+// write_file creates or truncates, append_file adds, read_lines splits on line
+// breaks without keeping them, read_file returns the bytes as Text, and
+// delete_file / rename_file / file_exists report what happened.
 fn main() -> Void {
-    let f: File;
     fx {
-        assign(f, "aether_file_io_pass_tmp.txt");
-        rewrite(f);
-        writeln(f, "alpha");
-        writeln(f, "beta");
-        close(f);
-
-        reset(f);
-        let count: Int = 0;
-        loop {
-            if eof(f) { break; }
-            let line: Text;
-            readln(f, line);
-            count = count + 1;
-            println("read ", count, ": ", line);
+        write_file("aether_file_io_pass_tmp.txt", "alpha\n");
+        append_file("aether_file_io_pass_tmp.txt", "beta\n");
+        let lines: Text[] = read_lines("aether_file_io_pass_tmp.txt");
+        loop i in 0..length(lines) {
+            println("read ", i + 1, ": ", lines[i]);
         }
-        close(f);
-
-        erase(f);
-        println("exists_after_erase=", fileexists("aether_file_io_pass_tmp.txt"));
+        let all: Text = read_file("aether_file_io_pass_tmp.txt");
+        println("bytes=", length(all));
+        println("renamed=", rename_file("aether_file_io_pass_tmp.txt", "aether_file_io_pass_tmp2.txt"));
+        println("deleted=", delete_file("aether_file_io_pass_tmp2.txt"));
+        println("exists_after_erase=", file_exists("aether_file_io_pass_tmp2.txt"));
+        println("delete_again=", delete_file("aether_file_io_pass_tmp2.txt"));
     }
     ret;
 }

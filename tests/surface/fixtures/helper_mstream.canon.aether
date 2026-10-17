@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println("abC", " ", 3, " ", 3); }
+}

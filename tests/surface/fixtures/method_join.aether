@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Text[] = ["a", "b"];
+    fx { println(xs.join(",")); }
+}

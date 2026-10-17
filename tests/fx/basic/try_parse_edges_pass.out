@@ -1,0 +1,42 @@
+int [] n=0 ok=false
+int [-] n=0 ok=false
+int [+] n=0 ok=false
+int [  ] n=0 ok=false
+int [ 42] n=42 ok=true
+int [	7] n=7 ok=true
+int [42 ] n=42 ok=true
+int [-13] n=-13 ok=true
+int [+8] n=8 ok=true
+int [007] n=7 ok=true
+int [7x] n=0 ok=false
+int [3.5] n=0 ok=false
+int [--1] n=0 ok=false
+int [- 1] n=0 ok=false
+int [0x1F] n=0 ok=false
+int [1e3] n=0 ok=false
+int [ 7] n=7 ok=true
+int [9223372036854775807] n=9223372036854775807 ok=true
+int [9223372036854775808] n=0 ok=false
+int [-9223372036854775808] n=-9223372036854775808 ok=true
+int [-9223372036854775809] n=0 ok=false
+int [123456789012345678901234567890] n=0 ok=false
+real [] r=0.000000 ok=false
+real [-] r=0.000000 ok=false
+real [.] r=0.000000 ok=false
+real [1.] r=1.000000 ok=true
+real [.5] r=0.500000 ok=true
+real [ 2.5] r=2.500000 ok=true
+real [2.5 ] r=2.500000 ok=true
+real [1e3] r=1000.000000 ok=true
+real [1e] r=0.000000 ok=false
+real [1e+] r=0.000000 ok=false
+real [-1.5e-2] r=-0.015000 ok=true
+real [abc] r=0.000000 ok=false
+real [3.5x] r=0.000000 ok=false
+real [0x1p3] r=0.000000 ok=false
+real [inf] r=0.000000 ok=false
+real [nan] r=0.000000 ok=false
+real [1e400] r=0.000000 ok=false
+real [1e-400] r=0.000000 ok=true
+real [12x] r=0.000000 ok=false
+real [-3] r=-3.000000 ok=true

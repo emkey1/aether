@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(lower("Mixed Case 9!")); }
+}

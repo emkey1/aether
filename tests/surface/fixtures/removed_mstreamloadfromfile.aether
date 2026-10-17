@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let ms: MStream = mstream_new();
+    fx { let ok: Bool = mstreamloadfromfile(ms, "x.bin"); }
+}

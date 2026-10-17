@@ -74,6 +74,26 @@ END = "<!-- END GENERATED BUILTIN INVENTORY -->"
 # should have been doing all along, not a new exclusion.
 SKIP_CATEGORIES = {"3d", "user", "graphics"}
 
+# The engine keeps the Pascal-era builtins for its other front ends; in Aether
+# they are class 2 (D55), so the inventory must not list them. The spellings are
+# read from the surface registry's `removed_*` entries, the one list of them.
+REGISTRY = os.path.join(REPO, "tests", "surface", "registry.json")
+
+
+def removed_names():
+    with open(REGISTRY, encoding="utf-8") as fh:
+        reg = json.load(fh)
+    names = set()
+    for e in reg["entries"]:
+        if e.get("class") == 2 and e.get("id", "").startswith("removed_"):
+            names.update(n.lower() for n in re.findall(r"([A-Za-z_][A-Za-z0-9_]*)\(", e["spelling"]))
+    return names
+
+
+# Front-end internals: try_parse_int / try_parse_real are declared over the
+# aetherparse* builtins, and the helpers' engine names are aether_<name>.
+HIDDEN_PREFIXES = ("aetherparse", "aether_")
+
 # Friendlier headings than the raw category strings.
 CATEGORY_TITLES = {
     "toon": "TOON (structured data)",
@@ -123,11 +143,14 @@ def build_sections(entries, in_prose):
     # spelling of an Aether-facing alias; the alias is what should be written.
     backend_names = {e["backend_name"] for e in entries if e.get("backend_name")}
 
+    removed = removed_names()
     best = {}
     for e in entries:
         if (e.get("category") or "") in SKIP_CATEGORIES:
             continue
         name = e["name"]
+        if name.lower() in removed or name.lower().startswith(HIDDEN_PREFIXES):
+            continue
         if name in backend_names and name not in {x.get("backend_name") for x in [e]}:
             pass
         if name in backend_names:

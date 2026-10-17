@@ -64,7 +64,10 @@ def check_builtins():
     items = json.loads(out)
     expect = {"Int": "AETHER_T_INT", "Real": "AETHER_T_REAL", "Text": "AETHER_T_TEXT",
               "Bool": "AETHER_T_BOOL", "Void": "AETHER_T_VOID", "ToonDoc": "AETHER_T_HANDLE",
-              "ToonNode": "AETHER_T_HANDLE", "MStream": "AETHER_T_HANDLE"}
+              "ToonNode": "AETHER_T_HANDLE", "MStream": "AETHER_T_HANDLE",
+              # Argument-typed helpers (D57): "T[]"/"R[]" is the first argument's
+              # array type, "T" its element type; "Text[]" is split's kind.
+              "Text[]": "RET_TEXT_ARRAY", "T[]": "RET_ARG0", "R[]": "RET_ARG0", "T": "RET_ELEM0"}
     bad = 0
     checked = 0
     for it in items:

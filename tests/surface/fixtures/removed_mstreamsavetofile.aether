@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let ms: MStream = mstream_new();
+    fx { mstreamsavetofile(ms, "x.bin"); }
+}

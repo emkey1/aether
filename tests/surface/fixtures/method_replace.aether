@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let s: Text = "ab";
+    fx { println(s.replace("a", "b")); }
+}

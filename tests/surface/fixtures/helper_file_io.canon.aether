@@ -1,0 +1,6 @@
+fn main() -> Void {
+    fx {
+        println(2, " ", 4);
+        println(true, " ", true, " ", false);
+    }
+}

@@ -1,14 +1,9 @@
-// W4-32 (D34): a File parameter crashed with rc 139 and no output (File copies
-// are not retained). A coded stopgap until W5's File retain lands.
+// D55 (2026-10-17): Aether has no File type. A File parameter (W4-32 crashed
+// with rc 139, then got a coded stopgap) is now an unknown type whose message
+// names the one-call helpers.
 fn writeAll(f: File, msg: Text) -> Void {
-    fx { writeln(f, msg); }
+    fx { println(msg); }
 }
 fn main() -> Void {
-    let f: File;
-    fx {
-        assign(f, "file_param_fail_tmp.txt");
-        rewrite(f);
-    }
-    writeAll(f, "hi");
-    fx { close(f); }
+    fx { write_file("file_param_fail_tmp.txt", "hi\n"); }
 }

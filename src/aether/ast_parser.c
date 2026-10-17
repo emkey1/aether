@@ -1410,6 +1410,54 @@ static const char *aliasBuiltinName(const char *name) {
          * Exit(value), which returns n from the enclosing function and lets
          * the program carry on (exit 0). */
         { "exit",            "halt" },
+        /* The modern surface (D56, D60, D61): snake_case names over the
+         * engine's existing builtins. The engine spellings themselves are
+         * removed from Aether (ast_stdlib.c). `upcase`/`toupper` (D21) are
+         * whole-string now: they changed only the first character. */
+        { "file_exists",         "fileexists" },
+        { "mstream_new",         "mstreamcreate" },
+        { "mstream_from_text",   "mstreamfromstring" },
+        { "mstream_text",        "mstreambuffer" },
+        { "mstream_append_byte", "mstreamappendbyte" },
+        { "mstream_save",        "mstreamsavetofile" },
+        { "mstream_free",        "mstreamfree" },
+        { "upcase",              "aether_upper" },
+        { "toupper",             "aether_upper" },
+        /* The helpers of pscal-core ext_builtins/strings/stdlib.c, registered
+         * under Aether-private engine names so no other front end sees them. */
+        { "upper", "aether_upper" },
+        { "lower", "aether_lower" },
+        { "replace", "aether_replace" },
+        { "starts_with", "aether_starts_with" },
+        { "ends_with", "aether_ends_with" },
+        { "repeat", "aether_repeat" },
+        { "join", "aether_join" },
+        { "contains", "aether_contains" },
+        { "index_of", "aether_index_of" },
+        { "count", "aether_count" },
+        { "reversed", "aether_reversed" },
+        { "sum", "aether_sum" },
+        { "min_of", "aether_min_of" },
+        { "max_of", "aether_max_of" },
+        { "sorted", "aether_sorted" },
+        { "sorted_desc", "aether_sorted_desc" },
+        { "sorted_by", "aether_sorted_by" },
+        { "sorted_by_desc", "aether_sorted_by_desc" },
+        { "round_to", "aether_round_to" },
+        { "read_file", "aether_read_file" },
+        { "read_lines", "aether_read_lines" },
+        { "write_file", "aether_write_file" },
+        { "append_file", "aether_append_file" },
+        { "delete_file", "aether_delete_file" },
+        { "rename_file", "aether_rename_file" },
+        { "args", "aether_args" },
+        { "clock_ms", "aether_clock_ms" },
+        { "now_text", "aether_now_text" },
+        { "mstream_append_text", "aether_mstream_append_text" },
+        { "mstream_length", "aether_mstream_length" },
+        { "mstream_load", "aether_mstream_load" },
+        { "read_line", "aether_read_line" },
+        { "read_all_stdin", "aether_read_all_stdin" },
     };
     if (!name) return name;
     for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); i++) {
@@ -1491,15 +1539,8 @@ bool mapAetherType(const char *name, size_t len,
          * it lowers to rea's `mstream` keyword / TYPE_MEMORYSTREAM so the
          * backend assigns the real MEMORY_STREAM value. */
         { "MStream", "mstream", TYPE_MEMORYSTREAM },
-        /* Pascal-style file handle for the assign/reset/rewrite/append/read/
-         * readln/write/writeln/close/eof/erase/rename builtins (real vm_builtins,
-         * confirmed via builtins_json(true)). Lowers to rea's `text` keyword /
-         * TYPE_FILE -- rea's own `text f; assign(f, path); ...` idiom (see
-         * external/rea/examples/base/hangman5) already exercises this exact
-         * VarType end to end, so File just gives Aether source the same
-         * declaration surface. Note rea's `text` is this file handle, NOT a
-         * string -- Aether's string type is "Text", spelled distinctly. */
-        { "File",    "text",  TYPE_FILE },
+        /* No `File`: the Pascal file-handle sequence is not Aether (D55);
+         * semantic.c's TYPE-002 names read_file/write_file. */
     };
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         size_t alen = strlen(table[i].aether);
@@ -2878,6 +2919,11 @@ static AST *parsePrimary(AetherParser *p) {
              * (e.g. FX-001 must say 'println', not 'writeln'). */
             char *surfaceAlias = NULL;
             const char *raw = tok->value ? tok->value : "";
+            /* D55: a Pascal-era builtin, by the spelling written. */
+            if (aetherCheckRemovedBuiltin(p, raw, idLine)) {
+                freeToken(tok);
+                return NULL;
+            }
             /* A user's own top-level `fn NAME` shadows an aliased builtin: the
              * text pre-pass leaves such a name verbatim (505cd44), so aliasing
              * it here would call the builtin instead of the user's function. */
@@ -2967,32 +3013,9 @@ static AST *parsePrimary(AetherParser *p) {
                 aetherAstRegisterCallSurfaceName(call, surfaceAlias);
                 free(surfaceAlias);
             }
-            /* `copy(arr, lo, n)` on an array. `copy` is the *string* substring
-             * builtin; handed an array it failed at runtime with the uncoded
-             * "Copy expects (String/Char, Integer, Integer)." -- a message that
-             * never mentions that Aether does have a subarray form, the slice
-             * sugar `arr[lo..hi]`. Name the right spelling instead.
-             *
-             * Note the bases now agree: `arr[a..b]`, `s[a..b]` and copy()'s
-             * `start` are all 0-based, so the translation below is a pure
-             * respelling with no index fixup. */
-            if (call->type == AST_PROCEDURE_CALL && call->token &&
-                call->token->value && strcasecmp(call->token->value, "copy") == 0 &&
-                call->child_count >= 1 && call->children[0]) {
-                char *baseTypeName = inferLetTypeName(p, call->children[0]);
-                if (baseTypeName && aetherTypeNameIsArray(baseTypeName)) {
-                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "array-copy",
-                            "copy() is the substring builtin for Text; it does not "
-                            "take an array.",
-                            "use the slice form for a subarray: `arr[lo..hi]` "
-                            "(half-open and 0-based, so copy(arr, start, count) "
-                            "becomes arr[start..start + count]).");
-                    p->hadError = true;
-                    free(baseTypeName);
-                    freeAST(call);
-                    return NULL;
-                }
-                free(baseTypeName);
+            if (!aetherLowerStdlibCall(p, call, idLine)) {
+                freeAST(call);
+                return NULL;
             }
             return parsePostfix(p, call);
         }
@@ -6637,6 +6660,11 @@ static AST *parseTypeDecl(AetherParser *p) {
                         bindingTableSet(p->fieldTypes, key, fieldTypeName);
                         free(key);
                     }
+                    /* "Type.field#slot" -> its record slot (slot 0 is the hidden
+                     * __vtable): sorted_by(xs, "field") passes the slot to the
+                     * engine, whose records carry no field names. */
+                    aetherRecordFieldSlot(p, classNameTok->value, fieldTok->value,
+                                          (int)fields.count);
                 }
                 free(fieldTypeName);
                 AST *fieldVar = newASTNode(AST_VARIABLE, fieldTok);
@@ -7313,6 +7341,30 @@ static bool aetherSubtreeCallsMain(const AST *n) {
     return false;
 }
 
+/* The stdlib prelude (ast_stdlib.c): fn declarations parsed from their own
+ * text with the program's tables, so they join the program's declarations
+ * without editing the user's source. The text is fixed and valid. */
+static void aetherParsePreludeDecls(const char *text, AetherBindingTable *bindings,
+                                    AetherBindingTable *funcReturns,
+                                    AetherBindingTable *fieldTypes, AetherTupleTable *tuples,
+                                    int *nextTupleTypeId, AST *decls, AST *stmts) {
+    AetherParser pp;
+    aetherParserInit(&pp, text, bindings);
+    pp.funcReturns = funcReturns;
+    pp.fieldTypes = fieldTypes;
+    pp.tuples = tuples;
+    pp.nextTupleTypeId = nextTupleTypeId;
+    aetherAdvance(&pp);
+    while (pp.current.type != REA_TOKEN_EOF && !pp.hadError) {
+        collectPendingAnnotations(&pp);
+        if (pp.hadError || !isAetherKeyword(&pp.current, "fn")) break;
+        AST *fn = parseFnDecl(&pp);
+        if (!fn) break;
+        appendTopLevelDecl(decls, stmts, fn);
+    }
+    aetherFreePending(&pp.pending);
+}
+
 #define AETHER_ENTRY_NOTHING_HINT \
     "add `fn main() -> Void { ... }`: a file run as a program needs an entry point."
 
@@ -7352,6 +7404,9 @@ AST *parseAetherAst(const char *rawSource) {
     char *source = aetherAstPrepassInlineEq(builtinSource);
     free(builtinSource);
     if (!source) return NULL;
+    /* try_parse_int / try_parse_real are declared fns (ast_stdlib.c, D59),
+     * parsed from their own text below when the source calls them. */
+    char *prelude = aetherStdlibPrelude(source);
 
     AetherBindingTable bindings;
     bindingTableInit(&bindings);
@@ -7387,13 +7442,15 @@ AST *parseAetherAst(const char *rawSource) {
     /* Tuple forward decls: register tuple-return signatures + emit per-slot
      * globals before parsing bodies, so `fn ... -> (T,U)`, `ret (a,b)` and
      * `let (a,b) = call()` all resolve regardless of declaration order. */
-    if (!aetherRegisterTupleGlobals(source, &tuples, &nextTupleTypeId, decls)) {
+    if (!aetherRegisterTupleGlobals(source, &tuples, &nextTupleTypeId, decls) ||
+        (prelude && !aetherRegisterTupleGlobals(prelude, &tuples, &nextTupleTypeId, decls))) {
         bindingTableFree(&bindings);
         bindingTableFree(&funcReturns);
         bindingTableFree(&fieldTypes);
         tupleTableFree(&tuples);
         freeAST(program);
         free(source);
+        free(prelude);
         return NULL;
     }
 
@@ -7416,7 +7473,17 @@ AST *parseAetherAst(const char *rawSource) {
     int savedStderr = aetherMuteStderr();
     aetherRunForwardScan(source, &bindings, &funcReturns, &fieldTypes, &tuples,
                          &nextTupleTypeId, decls);
+    if (prelude) {
+        aetherRunForwardScan(prelude, &bindings, &funcReturns, &fieldTypes, &tuples,
+                             &nextTupleTypeId, decls);
+    }
     aetherUnmuteStderr(savedStderr);
+    if (prelude) {
+        aetherParsePreludeDecls(prelude, &bindings, &funcReturns, &fieldTypes, &tuples,
+                                &nextTupleTypeId, decls, stmts);
+        free(prelude);
+        prelude = NULL;
+    }
 
     /* From here on, every diagnostic is authoritative + visible. Reset the counter
      * so the silent-failure backstop (after the loop) can tell whether this real

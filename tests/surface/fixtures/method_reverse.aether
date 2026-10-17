@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let xs: Int[] = [2, 1];
+    xs.reverse();
+    fx { println(xs[0]); }
+}

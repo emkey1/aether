@@ -445,7 +445,7 @@ Method     = { Annotation } "fn" Ident "(" [ "self" { "," Param } | Params ] ")"
 ConstDecl  = "const" Ident [ ":" TypeName ] "=" Expr ";" ;
 Type       = TypeName { "[" "]" } ;
 TypeName   = "Int" | "Real" | "Text" | "Bool" | "Void" | "ToonDoc" | "ToonNode"
-           | "MStream" | "File" | Ident ;
+           | "MStream" | Ident ;
 ```
 
 A record type's fields are `name: Type;`, one per declaration, with an optional
@@ -1801,7 +1801,9 @@ bug. The surface registry (W8-11) will assign each one its synonym class.
 | `T(f: v, ...)` as a `let` initializer | `new T { f: v, ... }` |
 | `use name;` without quotes | `use "name";` |
 | `xs.len`, `xs.len()`, `xs.length()` | `length(xs)` |
-| `itoa(n)`, `realtostr(r)` | `int_to_text(n)`, six-decimal Real text |
+| `realtostr(r)` | six-decimal Real text |
+| `upcase(s)`, `toupper(s)` | `upper(s)` (whole-string since 2026-10-17-3, D21) |
+| `fileexists(p)` | `file_exists(p)` |
 
 ```aether @ok id=LEN.semicolon.1
 fn main() -> Void {
@@ -1884,12 +1886,48 @@ fn main() -> Void { fx { println(Geometry.perimeter(2, 3)); } }
 fn main() -> Void {
     let xs: Int[] = [1, 2];
     let s: Text = "abc";
-    fx { println(xs.len, xs.len(), xs.length(), s.len, " ", itoa(8), " ", realtostr(1.5)); }
+    fx { println(xs.len, xs.len(), xs.length(), s.len, " ", upcase("ab"), " ", realtostr(1.5)); }
 }
 ```
 
 ```text
-2223 8 1.500000
+2223 AB 1.500000
+```
+
+### 6.1 Removed forms
+
+The Pascal-era builtins the shared engine keeps for its other front ends are not
+Aether (D55, language 2026-10-17-3). A call to `copy`, `pos`, `stringofchar`,
+`val`, `valreal`, `itoa`, `inttostr`, `assign`, `reset`, `rewrite`, `append`,
+`close`, `eof`, `erase`, `rename`, `readln`, `read`, `paramcount`, `paramstr`,
+`gettime`, `getdate`, `setlength` or an unprefixed `mstream*` name is SCOPE-001,
+with a hint naming the modern form, unless the program declares a function of
+that name itself; the type `File` is TYPE-002. Each spelling has an entry in
+`tests/surface/registry.json`.
+
+```aether @reject=SCOPE-001 id=REM.copy.1
+fn main() -> Void {
+    let s: Text = "hello";
+    fx { println(copy(s, 1, 3)); }
+}
+```
+
+```aether @ok id=REM.own.1
+fn rename(s: Text) -> Text { ret "new " + s; }
+fn main() -> Void {
+    fx { println(rename("name")); }
+}
+```
+
+```text
+new name
+```
+
+```aether @reject=TYPE-002 id=REM.file.1
+fn main() -> Void {
+    let f: File;
+    fx { println(1); }
+}
 ```
 
 ---

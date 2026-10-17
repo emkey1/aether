@@ -1,0 +1,4 @@
+type P { name: Text; age: Int; }
+fn main() -> Void {
+    fx { println("bac acb"); }
+}

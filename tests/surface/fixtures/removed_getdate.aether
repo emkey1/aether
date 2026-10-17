@@ -1,0 +1,7 @@
+fn main() -> Void {
+    let y: Int = 0;
+    let m: Int = 0;
+    let d: Int = 0;
+    let w: Int = 0;
+    fx { getdate(y, m, d, w); }
+}

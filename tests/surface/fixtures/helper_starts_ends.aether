@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(starts_with("hello", "he"), starts_with("he", "hello"), ends_with("hello", "lo"), ends_with("hello", "")); }
+}

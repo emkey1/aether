@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let ms: MStream = mstream_new();
+    let t: Text = mstreambuffer(ms);
+}

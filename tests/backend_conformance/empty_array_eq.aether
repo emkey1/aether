@@ -1,6 +1,7 @@
 // `==` on empty arrays (A-guide-accuracy-small-10). An empty array that went
-// through setlength (a call's un-alias copy, a parameter copy, a slice, an
-// explicit setlength) compares unequal to one that did not. Fixed by W5-08.
+// through the engine's setlength (a call's un-alias copy, a parameter copy, a
+// slice; before D55 also an explicit setlength) compares unequal to one that
+// did not. Fixed by W5-08.
 fn evens(xs: Int[]) -> Int[] {
     let out: Int[] = [];
     loop i in 0..length(xs) {
@@ -15,7 +16,7 @@ fn main() -> Void {
     let r: Int[] = evens([1, 3, 5]);
     let e: Int[] = [];
     let xs: Int[] = [4, 5];
-    setlength(xs, 0);
+    xs = xs[..0];
     fx {
         println(evens([1, 3, 5]) == []);
         println(r == []);

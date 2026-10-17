@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(contains("hello", "ell"), contains("hello", "z"), contains("", "")); }
+}

@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let s: Text = "hello";
+    fx { println(s[..2] == "he", false, s[3..] == "lo", true); }
+}

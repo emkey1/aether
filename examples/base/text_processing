@@ -37,7 +37,7 @@ fn upper(s: Text) -> Text {
 
 @pure
 fn contains(haystack: Text, needle: Text) -> Bool {
-    ret pos(needle, haystack) >= 0;     // >= 0, because 0 is a real match
+    ret index_of(haystack, needle) >= 0;     // >= 0, because 0 is a real match
 }
 
 // Split one "key=value" pair. Returns the key; the value comes back through
@@ -52,7 +52,7 @@ type Field {
 fn parseField(raw: Text) -> Field {
     let f: Field = new Field();
     let trimmed: Text = trim(raw);
-    let at: Int = pos(KV_SEP, trimmed);
+    let at: Int = index_of(trimmed, KV_SEP);
     if at < 0 {
         ret f;                          // no '=' -- leave valid false
     }
@@ -64,7 +64,7 @@ fn parseField(raw: Text) -> Field {
 
 fn rule(width: Int) -> Void {
     fx {
-        println(stringofchar("-", width));
+        println(repeat("-", width));
     }
     ret;
 }
@@ -107,16 +107,16 @@ fn main() -> Void {
 
     // Two spellings of the same substring, and the search that finds it.
     let sentence: Text = "the quick brown fox";
-    let at: Int = pos("brown", sentence);
+    let at: Int = index_of(sentence, "brown");
     fx {
         println("");
         println("pos(\"brown\", s) = ", at);
-        println("pos(s, \"brown\") = ", pos(sentence, "brown"), "  <- arguments reversed");
-        println("copy(s, ", at, ", 5) = ", copy(sentence, at, 5));
+        println("pos(s, \"brown\") = ", index_of("brown", sentence), "  <- arguments reversed");
+        println("copy(s, ", at, ", 5) = ", sentence[at..at + 5]);
         println("s[", at, "..", at + 5, "]   = ", sentence[at..at + 5]);
         println("");
         println("first char is at index 0, so a hit there returns 0:");
-        println("  pos(\"the\", s) = ", pos("the", sentence),
+        println("  pos(\"the\", s) = ", index_of(sentence, "the"),
                 "   -- `> 0` would call this a miss");
         println("  contains(s, \"the\")  = ", contains(sentence, "the"));
         println("  contains(s, \"zebra\") = ", contains(sentence, "zebra"));

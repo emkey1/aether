@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let x: Real = 0.0;
+    let code: Int = 0;
+    valreal("4.5", x, code);
+    fx { println(x); }
+}

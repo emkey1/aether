@@ -22,8 +22,7 @@ All three guides, the full one included, are checked for:
               and export names) listed in tools/bench_identifiers.txt
 
 ALLOWLIST keeps lines that hit a term but are deliberate, per guide: the small
-guide's Pascal naming mnemonic (`arctan` not `atan`) and its Pascal-style File
-handle model. Guide pass 1 reworded the other lines that used to be listed.
+guide's Pascal naming mnemonic (`arctan` not `atan`). Guide pass 1 reworded the other lines that used to be listed.
 
 The identifier list is regenerated from the benchmark's task suites (bench/,
 in the PBuild umbrella until 2026-10-17), never read from them at test time:
@@ -79,7 +78,6 @@ LITERAL = re.compile(r"yyjson unavailable")
 # (guide, distinctive substring of the line) -> why the hit is kept.
 ALLOWLIST = {
     ("small", "Pascal naming: **`arctan`** not `atan`"): "naming mnemonic",
-    ("small", "(Pascal-style handle;"): "the assign/reset File model",
 }
 
 

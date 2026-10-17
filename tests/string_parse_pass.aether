@@ -9,7 +9,7 @@ fn main() -> Void {
     fx {
         println(a + b);
         println(flag);
-        println(itoa(99));
+        println(int_to_text(99));
     }
     ret;
 }

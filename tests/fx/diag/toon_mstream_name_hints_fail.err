@@ -3,5 +3,5 @@ did you mean 'toon_key(node, key)'?
 did you mean 'toon_at(node, i)'?
 did you mean 'toon_get_text(node, key)'?
 did you mean 'toon_int_value(node)'?
-did you mean 'mstreamcreate()'?
+did you mean 'mstream_new()'?
 did you mean 'toon_parse_file(path)'?

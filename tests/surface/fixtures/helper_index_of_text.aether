@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(index_of("héllo", "l"), " ", index_of("hello", "z"), " ", index_of("hello", "h")); }
+}

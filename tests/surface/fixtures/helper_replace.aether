@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(replace("a-b-c", "-", "+"), replace("aaa", "aa", "b"), replace("x", "", "y")); }
+}

@@ -370,4 +370,12 @@ bool aetherIsBuiltinValueTypeName(const char *t);
 bool aetherCheckBuiltinMethod(AetherParser *p, const char *recvType, const char *method,
                               bool isCall, bool knownCallable, int line);
 
+/* ---- Defined in ast_stdlib.c (the modern surface, D55-D61) ---------- */
+
+const char *aetherRemovedBuiltinHint(const char *name);
+bool aetherCheckRemovedBuiltin(AetherParser *p, const char *raw, int line);
+void aetherRecordFieldSlot(AetherParser *p, const char *typeName, const char *field, int slot);
+bool aetherLowerStdlibCall(AetherParser *p, AST *call, int line);
+char *aetherStdlibPrelude(const char *source);
+
 #endif /* AETHER_AST_INTERNAL_H */

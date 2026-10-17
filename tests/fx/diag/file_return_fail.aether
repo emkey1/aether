@@ -1,4 +1,4 @@
-// W4-32 (D34): returning a File, or copying it into a second binding.
+// D55 (2026-10-17): returning a File, or binding one, is an unknown type.
 fn openLog() -> File {
     let f: File;
     ret f;

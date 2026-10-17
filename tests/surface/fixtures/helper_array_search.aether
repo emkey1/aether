@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 3];
+    fx { println(contains(xs, 1), " ", index_of(xs, 3), " ", index_of(xs, 7), " ", count(xs, 3), " ", count("banana", "an")); }
+}

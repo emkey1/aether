@@ -7,7 +7,7 @@ fn main() -> Void {
     let b: ToonNode = toon_get_at(toon_key(root, "b"), 0);
     let s: Text = toon_get_str(root, "a");
     let n: Int = toon_int(a);
-    let ms: MStream = mstream_new();
+    let ms: MStream = mstream_create();
     let d2: ToonDoc;
     fx { d2 = yyjson_parse_file("x.json"); }
     ret;

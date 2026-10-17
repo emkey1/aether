@@ -1,8 +1,8 @@
-// copy() is the *string* substring builtin. Handed an array it used to fail at
-// runtime with the uncoded "Copy expects (String/Char, Integer, Integer)." --
-// a message that never mentions Aether's actual subarray form, the slice sugar
-// arr[lo..hi]. The mirror of tests/string_slice_fail.aether (a slice applied to
-// a Text); both must be coded [TYPE-001] diagnostics naming the right spelling.
+// copy() was the Pascal substring builtin. Handed an array it used to fail at
+// runtime with the uncoded "Copy expects (String/Char, Integer, Integer).", and
+// later with a TYPE-001 naming the slice form. Since D55 (2026-10-17) copy is
+// not Aether at all: any call is SCOPE-001 with a hint naming the slice
+// `xs[a..b]`.
 fn main() -> Void {
     let xs: Int[] = [5, 3, 8, 1];
     let half: Int[] = copy(xs, 1, 2);

@@ -12,6 +12,98 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-17-3
+
+**The modern standard surface, Release A: the Pascal-era forms are removed and a
+small standard library ships in the same release** (decisions D55, D56, D57,
+D59, D60, D61 and D63; the accepted proposal
+[`docs/proposals/2026-10-17-modern-surface.md`](docs/proposals/2026-10-17-modern-surface.md)).
+Owner decisions are final: `try_parse_int`/`try_parse_real`, `min_of`/`max_of`,
+`sorted_by(xs, "field")` with a literal field name, and no transition period.
+Engine: pscal-core gains `src/ext_builtins/strings/stdlib.c` and the stdin
+readers in `builtin.c`, registered under Aether-private engine names
+(`aether_upper`, `aether_count`, ...) that the Aether front end aliases its
+surface names to: plain names would enter every front end's namespace, and
+Pascal resolves a builtin's name ahead of a program's own `count` or `sum`
+variable (two Pascal tests broke that way before the rename). rea is unchanged. Release B (quantifiers D58, nested
+functions D62) is separate.
+
+- **New helpers, class 1 (taught).** Text: `upper`, `lower` (whole string;
+  `upcase`/`toupper` are now aliases of `upper`, shipping D21), `replace` (every
+  occurrence), `contains`, `starts_with`, `ends_with`, `index_of` (zero-based
+  code point, `-1` when absent), `count`, `repeat`, `reversed`, `join(Text[],
+  sep)`. Arrays (`Int[]`, `Real[]`, `Text[]`; each returns a new value):
+  `sum`, `min_of`, `max_of`, `sorted`, `sorted_desc` (stable), `reversed`,
+  `contains`, `index_of`, `count`; records: `sorted_by(xs, "field")` /
+  `sorted_by_desc` with a string-literal field name checked at compile time
+  against the element type's `Int`/`Real`/`Text` fields (FIELD-002 otherwise)
+  and lowered to the field's record slot. Checked parsing: `try_parse_int(t) ->
+  (Int, Bool)` and `try_parse_real(t) -> (Real, Bool)` (surrounding whitespace
+  and one sign allowed; `""`, `"12x"`, hex, inf/nan and out-of-range values are
+  `(0, false)`), declared fns over four hidden pure builtins, parsed into a
+  program that calls them; the parse is the engine's own, so Linux and macOS
+  agree. `round_to(x, digits)` rounds half away from zero (2.675 -> 2.68).
+  I/O, all effectful (FX-001, rejected in `@pure`, covered by `--deny`):
+  `read_file`, `read_lines`, `write_file`, `append_file`, `delete_file`,
+  `rename_file`, `file_exists` (alias of `fileexists`), `read_line`,
+  `read_all_stdin`, `args`, `clock_ms`, `now_text`. MStream: `mstream_new`,
+  `mstream_from_text`, `mstream_text`, `mstream_append_byte`, `mstream_save`,
+  `mstream_free` (aliases), and new `mstream_append_text`, `mstream_length`,
+  `mstream_load(path) -> MStream`. Inferred `let`s type through them
+  (`let ys = sorted(xs);` is an `Int[]`, `let parts = split(t, ",");` a
+  `Text[]`).
+- **Removed, class 2.** `copy`, `pos`, `stringofchar`, `val`, `valreal`,
+  `itoa`, `inttostr`/`IntToStr`, `assign`, `assignfile`, `reset`, `rewrite`,
+  `append`, `close`, `closefile`, `eof`, `erase`, `rename`, `readln`, `read`,
+  `paramcount`, `paramstr`, `gettime`, `getdate`, `setlength` and the
+  unprefixed `mstreamcreate`/`mstreamfromstring`/`mstreambuffer`/
+  `mstreamappendbyte`/`mstreamloadfromfile`/`mstreamsavetofile`/`mstreamfree`
+  are SCOPE-001 at the call, with a hint naming the modern form (a program's own
+  `fn rename(...)` still wins); the type `File` is TYPE-002 naming
+  `read_file`/`write_file`. `writeln(f, ...)`/`readln(f, ...)` need a `File`,
+  so they end there. Method spellings on builtin types (`s.upper()`,
+  `s.contains(x)`, `xs.sort()`, `xs.join(",")`, `xs.sum()`, ...) stay SCOPE-001
+  and the hint now names the function; `s.trim()`/`s.split(sep)` remain UFCS
+  calls. Unknown-name hints point at the snake_case MStream family and the new
+  file helpers.
+- **Engine fixes riding along.** `parse_int` returns a 64-bit Int (it truncated
+  through `makeInt` to 32 bits: `parse_int("3000000000")` was `-1294967296`;
+  trap `trap_parse_int_big` now passes). `getBuiltinReturnType` knows the new
+  Text helpers, so `upper(t)[0]` indexes a Text.
+- **Registry:** 63 new entries (one per removed spelling, the method hints, a
+  class-1 entry with a hand-written twin per helper, `fileexists` and
+  `toupper` class 4); `itoa_family` became `removed_itoa`/`removed_inttostr`
+  and `upcase_single_char` flipped to class 1 (holds). 122 entries.
+- **Spec:** `File` leaves the `TypeName` production; the leniency table drops
+  `itoa(n)` and adds `upcase`/`toupper` and `fileexists`; `LEN.len.1` prints
+  `upcase("ab")` (`AB`) instead of `itoa(8)`; new section 6.1 with
+  `REM.copy.1` (`@reject=SCOPE-001`), `REM.own.1` (`@ok`, a user `fn rename`)
+  and `REM.file.1` (`@reject=TYPE-002`).
+- **Migration, same release.** `tools/modernize_surface.py` rewrites the
+  mechanical cases (`copy` -> slice, `pos` -> `index_of`, `itoa`/`inttostr` ->
+  `int_to_text`, `stringofchar` -> `repeat`, `paramcount`/`paramstr` ->
+  `args()`, the MStream names) and lists the rest for a hand edit. Applied to
+  the examples (`base/file_io` rewritten on the one-call helpers), tests, the
+  guides, 64 corpus programs (manifest sha256s refreshed; every one prints its
+  manifest stdout, or, for the environment-dependent ones, exactly what the old
+  program printed), 25 seed instruction pairs (prompts too), 1 distilled pair,
+  the drill fixed sources, and 21 bench reference solutions (not a grading
+  field: `tasks_version` unchanged; every reference prints its expected stdout,
+  212/212 including the slow suite). Drill `repair_mstream_new_name` taught the
+  inverse of D61 and is repointed as `repair_mstream_engine_names`
+  (`mstreamcreate` -> `mstream_new`); `repair_array_slice` re-pinned to
+  SCOPE-001; four drills added (`itoa`, `pos`, `val`, the File sequence).
+- **Fixtures:** `tests/file_io_pass` and `readln_no_alias_pass` use the
+  one-call helpers; `fx/basic/val_edges_pass` became `try_parse_edges_pass`;
+  `fx/diag/file_{param,return,field}_fail` are TYPE-002 class-2 fixtures and
+  `file_global_helper_pass` passes a path; `fx/basic/upcase_whole_text_pass`
+  is the backlog probe `upcase_text` (W4-45) moved into tests; probe
+  `eof_always_true` (W5-29) is retired with `eof`; backend conformance
+  `stdin_pipe` (W5-12) passes through `read_line` and is `pass`.
+- **Replay:** the 33 archived programs that call a removed form (26 `itoa`,
+  4 `copy`, one each `assign`, `val`, `mstreamfromstring`) are waived as one
+  class in `tests/replay/WAIVED`.
+
 ## 2026-10-17-2
 
 **`toon_parse(raw)` reads `raw`; a TOON getter can be passed to a Void fn.**
@@ -798,7 +890,6 @@ is still rejected, imported modules are still walked with each diagnostic
 attributed to the module's own file, and the three `unknown_type_*` fixtures now
 assert `TYPE-002`. What the code adds is the distinct code, the "did you mean"
 suggestion, and the stage that runs before rea's pass (above).
-
 
 **`TYPE-002`: a type name that does not resolve is now an error, and `Float` /
 `String` are accepted aliases.**

@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Int[] = [2, 1];
+    fx { println(xs.sum()); }
+}

@@ -1,4 +1,4 @@
-// W4-32 (D34): a File stored in a record field.
+// D55 (2026-10-17): a File stored in a record field is an unknown type.
 type Log {
     out: File;
     lines: Int;

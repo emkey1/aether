@@ -298,6 +298,14 @@ to the PSCAL backend spelling.
   return-type inference in `src/aether/ast_parser.c`).
 - `has_toon()`, `toon_*`, `task_spawn`, `ai_chat(...)` — compact source helpers
   in place of raw backend/extension builtin identifiers.
+- The modern standard surface (decisions D55-D61, D63; language 2026-10-17-3):
+  `upper`, `replace`, `join`, `sorted`, `sorted_by(xs, "field")`,
+  `try_parse_int`, `read_file`, `mstream_new`, ... are the names; the engine's
+  Pascal-era spellings they replace (`copy`, `pos`, `val`, `itoa`, the `File`
+  sequence, `paramstr`, `mstreamcreate`, ...) are not Aether at all
+  (`src/aether/ast_stdlib.c` rejects them at the call). New engine helpers
+  live in pscal-core's `src/ext_builtins/strings/stdlib.c`; the snake_case
+  MStream and `file_exists` names are aliases in `aliasBuiltinName`.
 
 The rationale is always the same: a model emits the name it learned elsewhere; if
 that name compiles and does the obvious thing, the `none` score goes up and the
@@ -409,7 +417,7 @@ that the no-guide tier does not have, and an accepted synonym with an exact
 meaning costs nothing. Decision **D7** replaced it with four classes:
 
 1. **Accepted with exact meaning; may be taught.** `while`/`for`, the word
-   operators, `Float`/`String`, `itoa`, `len`/`.len`, bare `T { ... }` (with
+   operators, `Float`/`String`, `upcase`/`toupper` (whole-string `upper`), `len`/`.len`, bare `T { ... }` (with
    `new T { ... }` canonical), Text + number (left-to-right stringify),
    `+= -= *= /= %=`, `Int()`/`Real()`/`Bool()` casts, `exit(n)`, `xs.length` on
    an array or Text (W6-05), a matching tuple annotation (W4-25); and, decided
@@ -419,7 +427,10 @@ meaning costs nothing. Decision **D7** replaced it with four classes:
    fields, `Int[N]`, `fn new`, methods on builtin types (`.push`, `.size`,
    `.contains`, `.toString`, ...: SCOPE-001 with the Aether form, W6-05); still
    owed a code or a hint: `++`, the bitwise compound assignments, `new Int[n]`,
-   lambdas.
+   lambdas. The Pascal-era builtins removed by D55 (`copy`, `pos`, `val`,
+   `itoa`, the `File` sequence, `paramstr`, `gettime`, `setlength`, the
+   unprefixed `mstream*` names) are class 2 too: SCOPE-001 with a hint naming
+   the modern form (`File`: TYPE-002).
 3. **Never accepted, because it means something different in another
    language.** `//` as division, chained comparisons, `not X == Y`, `{}`/`%d`
    placeholders, `int(Text)`, record `==`, each with its decision row (D45, D32,
@@ -595,6 +606,21 @@ dispatch table and the return-type list and *still* failed until it was also
 registered in `populateBuiltinRegistry` (where `max`/`min` live as `"Max"`/`"Min"`
 — note the capitalization; lookups canonicalize to lowercase, so surface `clamp`
 matches a `"clamp"` or `"Clamp"` registration equally).
+
+A builtin added from an `ext_builtins` category with `registerVmBuiltin(name,
+handler, kind, display, effect_mask)` (the modern helpers in
+`src/ext_builtins/strings/stdlib.c`) gets sites 3 and 4 and its `--deny`/FX-001
+effect class from that one call, and needs no header declaration; it still
+needs site 5 when a front end indexes or slices its result (`upper(t)[0]`
+indexed a Text only after `getBuiltinReturnType` named it), and Aether's own
+type tables (`types.c` `kBuiltinReturns`, `ast_types.c`, the BUILT-002 arity
+table in `semantic.c`), and a curated signature in `query_builtin.c` for the
+guide appendix. Return Int results with `makeInt64`: `makeInt` makes a 32-bit
+value. And mind the namespace: `registerVmBuiltin`'s *display* name is what the
+compilers resolve, for every front end, so a plain `count` or `sum` there turns
+a Pascal program's own `count` variable into a call. Aether's helpers register
+as `aether_<name>` with a NULL display name and are reached through
+`aliasBuiltinName`; every Aether table keys on that engine name.
 
 Checklist for the next builtin: **define → declare → dispatch → register →
 infer-type → rebuild → test a typed binding** (`let n: Int = clamp(105,0,100);`,

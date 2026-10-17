@@ -1,0 +1,9 @@
+fn main() -> Void {
+    let s: Text = "Mixed Case 9!";
+    let out: Text = "";
+    loop i in 0..length(s) {
+        let c: Int = ord(s[i]);
+        if c >= 65 && c <= 90 { out = out + chr(c + 32); } else { out = out + s[i]; }
+    }
+    fx { println(out); }
+}

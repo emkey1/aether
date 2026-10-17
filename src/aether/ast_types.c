@@ -157,6 +157,16 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         /* Math: pow/power -> Real. (int^int may be exact-Int at runtime, but Real is
          * the safe inferred type; matches pscal-core's builtin-return type list.) */
         { "pow", "Real" }, { "power", "Real" },
+        /* The modern standard surface (D56-D61). */
+        { "aether_upper", "Text" }, { "aether_lower", "Text" }, { "aether_replace", "Text" },
+        { "aether_repeat", "Text" }, { "aether_join", "Text" }, { "aether_read_file", "Text" },
+        { "aether_read_line", "Text" }, { "aether_read_all_stdin", "Text" }, { "aether_now_text", "Text" },
+        { "aether_contains", "Bool" }, { "aether_starts_with", "Bool" }, { "aether_ends_with", "Bool" },
+        { "aether_delete_file", "Bool" }, { "aether_rename_file", "Bool" }, { "fileexists", "Bool" },
+        { "aether_index_of", "Int" }, { "aether_count", "Int" }, { "aether_clock_ms", "Int" },
+        { "aether_mstream_length", "Int" }, { "aether_round_to", "Real" },
+        { "split", "Text[]" }, { "aether_read_lines", "Text[]" }, { "aether_args", "Text[]" },
+        { "aether_mstream_load", "MStream" },
         /* Bool-returning. */
         { "hasextbuiltin", "Bool" }, { "YyjsonGetBoolOr", "Bool" },
         { "YyjsonGetBool", "Bool" }, { "YyjsonIsNull", "Bool" },
@@ -194,6 +204,29 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
         if (rt) return strdup(rt);
         rt = inferBuiltinReturnTypeName(init->token->value);
         if (rt) return strdup(rt);
+        /* Argument-typed helpers: sorted(xs) is an xs, sum(xs) an element. */
+        if (!init->left && init->child_count >= 1 &&
+            !aetherAstIsTopLevelUserFunction(init->token->value)) {
+            const char *fn = init->token->value;
+            bool sameAsArg = strcmp(fn, "aether_sorted") == 0 || strcmp(fn, "aether_sorted_desc") == 0 ||
+                             strcmp(fn, "aether_sorted_by") == 0 || strcmp(fn, "aether_sorted_by_desc") == 0 ||
+                             strcmp(fn, "aether_reversed") == 0;
+            bool elemOfArg = strcmp(fn, "aether_sum") == 0 || strcmp(fn, "aether_min_of") == 0 ||
+                             strcmp(fn, "aether_max_of") == 0;
+            if (sameAsArg || elemOfArg) {
+                char *at = inferLetTypeName(p, init->children[0]);
+                if (at && elemOfArg) {
+                    size_t n = strlen(at);
+                    if (n >= 2 && strcmp(at + n - 2, "[]") == 0 && aetherTypeNameRank(at) == 1) {
+                        at[n - 2] = '\0';
+                    } else {
+                        free(at);
+                        at = NULL;
+                    }
+                }
+                if (at) return at;
+            }
+        }
     }
     /* Ternary `(c ? a : b)` -> infer from a branch (the shape the builtin pre-pass
      * emits for `toon_get_*_or(...)`: `(YyjsonHasKey(...) ? YyjsonGet*(...) : def)`).

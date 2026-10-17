@@ -2574,7 +2574,7 @@ if ! printf 'Ada 91\n' | cmp -s - $OUT/aether_toon_nested_helpers_pass.out; then
 fi
 
 # MStream is a first-class opaque handle type (MS-001): declarations,
-# inference, and mstreambuffer -> Text extraction must run end to end.
+# inference, and mstream_text -> Text extraction must run end to end.
 "$AETHER_BIN" --no-cache "$MSTREAM_HANDLE_PASS_FIXTURE" >$OUT/aether_mstream_handle_pass.out
 printf 'aether streams\nempty ok\n' >$OUT/aether_mstream_handle_expected.out
 if ! cmp -s $OUT/aether_mstream_handle_expected.out $OUT/aether_mstream_handle_pass.out; then
@@ -2583,13 +2583,13 @@ if ! cmp -s $OUT/aether_mstream_handle_expected.out $OUT/aether_mstream_handle_p
     exit 1
 fi
 
-# `let stream: Int = mstreamfromstring(...)` must be a COMPILE-time MS-001,
+# `let stream: Int = mstream_from_text(...)` must be a COMPILE-time MS-001,
 # not the runtime VM crash "Cannot assign MEMORY_STREAM to integer".
 if "$AETHER_BIN" --no-cache "$MSTREAM_DECL_INT_FAIL_FIXTURE" >$OUT/aether_mstream_decl_int_fail.out 2>&1; then
     echo "expected MStream Int-declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'stream' must use MStream when initialized from 'mstreamfromstring'" $OUT/aether_mstream_decl_int_fail.out; then
+if ! grep -q "binding for 'stream' must use MStream when initialized from 'mstream_from_text'" $OUT/aether_mstream_decl_int_fail.out; then
     echo "missing MStream Int-declaration failure message" >&2
     cat $OUT/aether_mstream_decl_int_fail.out >&2
     exit 1
@@ -2619,7 +2619,7 @@ if "$AETHER_BIN" --no-cache "$MSTREAM_CROSS_KIND_FAIL_FIXTURE" >$OUT/aether_mstr
     echo "expected MStream cross-kind declaration failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "binding for 'doc' must use MStream when initialized from 'mstreamcreate'" $OUT/aether_mstream_cross_kind_fail.out; then
+if ! grep -q "binding for 'doc' must use MStream when initialized from 'mstream_new'" $OUT/aether_mstream_cross_kind_fail.out; then
     echo "missing MStream cross-kind declaration failure message" >&2
     cat $OUT/aether_mstream_cross_kind_fail.out >&2
     exit 1
@@ -2947,9 +2947,9 @@ rm -f "$socket_journal"
 # $OUT: the fixture writes and erases a cwd-relative file, which must not land
 # in the checkout or collide with a concurrent run of the same checkout.
 (cd "$OUT" && "$AETHER_BIN" --no-cache "$TESTS_DIR/file_io_pass.aether") >$OUT/aether_file_io_pass.out
-printf 'read 1: alpha\nread 2: beta\nexists_after_erase=false\n' >$OUT/aether_file_io_pass_expected.out
+printf 'read 1: alpha\nread 2: beta\nbytes=11\nrenamed=true\ndeleted=true\nexists_after_erase=false\ndelete_again=false\n' >$OUT/aether_file_io_pass_expected.out
 if ! cmp -s $OUT/aether_file_io_pass_expected.out $OUT/aether_file_io_pass.out; then
-    echo "unexpected File type output (assign/rewrite/writeln/reset/readln/eof/close/erase)" >&2
+    echo "unexpected one-call file I/O output (write_file/append_file/read_lines/read_file/rename_file/delete_file)" >&2
     cat $OUT/aether_file_io_pass.out >&2
     exit 1
 fi
@@ -3210,20 +3210,19 @@ if ! cmp -s $OUT/aether_text_zero_based_expected.out $OUT/aether_text_zero_based
     exit 1
 fi
 
-# TYPE-001: copy() (the Text substring builtin) handed an array. Used to fail at
-# runtime with the uncoded "Copy expects (String/Char, Integer, Integer)." with
-# no mention of the slice sugar arr[lo..hi]. Mirror of the string_slice case.
+# SCOPE-001 (D55): copy() is removed; on an array (or a Text) the hint names the
+# slice form.
 if "$AETHER_BIN" --no-cache "$TESTS_DIR/array_copy_fail.aether" >$OUT/aether_array_copy_fail.out 2>&1; then
-    echo "expected TYPE-001 for copy() applied to an array but program succeeded" >&2
+    echo "expected SCOPE-001 for the removed copy() but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[TYPE-001\] Aether array-copy parser error: copy() is the substring builtin for Text" $OUT/aether_array_copy_fail.out; then
-    echo "missing TYPE-001 array-copy diagnostic (uncoded runtime 'Copy expects' regressed?)" >&2
+if ! grep -q "\[SCOPE-001\] Aether scope parser error: identifier 'copy' not in scope." $OUT/aether_array_copy_fail.out; then
+    echo "missing SCOPE-001 for the removed copy()" >&2
     cat $OUT/aether_array_copy_fail.out >&2
     exit 1
 fi
-if ! grep -q "arr\[lo..hi\]" $OUT/aether_array_copy_fail.out; then
-    echo "TYPE-001 array-copy diagnostic lost its slice-form replacement hint" >&2
+if ! grep -q "s\[a..b\]" $OUT/aether_array_copy_fail.out; then
+    echo "SCOPE-001 for copy() lost its slice-form hint" >&2
     cat $OUT/aether_array_copy_fail.out >&2
     exit 1
 fi
@@ -3342,7 +3341,7 @@ fi
 (cd "$OUT" && "$AETHER_BIN" --no-cache "$TESTS_DIR/readln_no_alias_pass.aether") >$OUT/aether_readln_alias.out 2>&1
 printf 'one two three\none two three \n' >$OUT/aether_readln_alias_expected.out
 if ! cmp -s $OUT/aether_readln_alias_expected.out $OUT/aether_readln_alias.out; then
-    echo "readln aliased a saved Text copy (in-place StringObj mutation regressed?)" >&2
+    echo "a line read into a Text aliased a later one (in-place StringObj mutation regressed?)" >&2
     cat $OUT/aether_readln_alias.out >&2
     exit 1
 fi

@@ -1,0 +1,7 @@
+fn main() -> Void {
+    let h: Int = 0;
+    let m: Int = 0;
+    let s: Int = 0;
+    let c: Int = 0;
+    fx { gettime(h, m, s, c); }
+}

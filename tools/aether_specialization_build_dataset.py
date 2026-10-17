@@ -120,6 +120,9 @@ def infer_support_files(source: str, fixtures_dir: pathlib.Path) -> dict[str, st
     fixture_names = set()
     fixture_names.update(re.findall(r'toon_parse_file\("([^"]+)"\)', source))
     fixture_names.update(re.findall(r'fileexists\("([^"]+)"\)', source))
+    # The one-call file helpers (D60) read their fixture by path too.
+    fixture_names.update(re.findall(
+        r'\b(?:file_exists|read_file|read_lines|mstream_load)\("([^"]+)"\)', source))
     for fixture_name in sorted(fixture_names):
         # Absolute paths and traversal are host filesystem probes (e.g. a
         # host-awareness example checking "/etc/hosts"), not bundled corpus

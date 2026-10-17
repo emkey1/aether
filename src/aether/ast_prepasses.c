@@ -1231,12 +1231,16 @@ static const char *inferHelperReturnTypeName(const char *nameStart, size_t nameL
         (nameLen == 7 && strncmp(nameStart, "toon_at", 7) == 0)) {
         return "ToonNode";
     }
-    if ((nameLen == 13 && strncmp(nameStart, "mstreamcreate", 13) == 0) ||
+    if ((nameLen == 11 && strncmp(nameStart, "mstream_new", 11) == 0) ||
+        (nameLen == 17 && strncmp(nameStart, "mstream_from_text", 17) == 0) ||
+        (nameLen == 12 && strncmp(nameStart, "mstream_load", 12) == 0) ||
+        (nameLen == 13 && strncmp(nameStart, "mstreamcreate", 13) == 0) ||
         (nameLen == 17 && strncmp(nameStart, "mstreamfromstring", 17) == 0) ||
         (nameLen == 13 && strncmp(nameStart, "socketreceive", 13) == 0)) {
         return "MStream";
     }
-    if (nameLen == 13 && strncmp(nameStart, "mstreambuffer", 13) == 0) {
+    if ((nameLen == 13 && strncmp(nameStart, "mstreambuffer", 13) == 0) ||
+        (nameLen == 12 && strncmp(nameStart, "mstream_text", 12) == 0)) {
         return "Text";
     }
     if ((nameLen == 9 && strncmp(nameStart, "toon_type", 9) == 0) ||
@@ -2223,9 +2227,9 @@ static int appendAetherBuiltinAlias(Buffer *out, const char *nameStart, size_t n
     if (nameLen == 7 && strncmp(nameStart, "println", nameLen) == 0) {
         return aetherAliasAppendRecorded(out, nameStart, nameLen, "writeln");
     }
-    if (nameLen == 11 && strncmp(nameStart, "int_to_text", nameLen) == 0) {
-        return aetherAliasAppendRecorded(out, nameStart, nameLen, "IntToStr");
-    }
+    /* int_to_text is aliased by the parser (aliasBuiltinName), not here: a
+     * text rewrite to IntToStr would trip the D55 check on the removed
+     * inttostr spelling. */
     if (nameLen == 5 && strncmp(nameStart, "sleep", nameLen) == 0) {
         return aetherAliasAppendRecorded(out, nameStart, nameLen, "delay");
     }

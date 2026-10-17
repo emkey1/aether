@@ -2,20 +2,20 @@
 // inference from mstreamcreate/mstreamfromstring, and Text extraction via
 // mstreambuffer must all compile and run (pure in-memory ops need no fx).
 fn main() -> Void {
-    let s: MStream = mstreamfromstring("aether streams");
-    let t: Text = mstreambuffer(s);
+    let s: MStream = mstream_from_text("aether streams");
+    let t: Text = mstream_text(s);
     fx {
         println(t);
     }
-    mstreamfree(s);
+    mstream_free(s);
 
-    let inferred = mstreamcreate();
-    let empty: Text = mstreambuffer(inferred);
+    let inferred = mstream_new();
+    let empty: Text = mstream_text(inferred);
     fx {
         if empty == "" {
             println("empty ok");
         }
     }
-    mstreamfree(inferred);
+    mstream_free(inferred);
     ret;
 }

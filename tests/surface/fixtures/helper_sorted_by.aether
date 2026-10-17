@@ -1,0 +1,5 @@
+type P { name: Text; age: Int; }
+fn main() -> Void {
+    let ps: P[] = [new P { name: "a", age: 30 }, new P { name: "b", age: 20 }, new P { name: "c", age: 30 }];
+    fx { loop p in sorted_by(ps, "age") { print(p.name); } print(" "); loop p in sorted_by_desc(ps, "age") { print(p.name); } println(""); }
+}

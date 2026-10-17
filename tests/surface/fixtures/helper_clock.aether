@@ -1,0 +1,3 @@
+fn main() -> Void {
+    fx { println(clock_ms() > 1700000000000, " ", length(now_text()), " ", now_text()[4] == "-"); }
+}

@@ -23,8 +23,8 @@ int64_literal           stdout  pass         literal-derived Int arithmetic past
 int64_paths             stdout  xfail:W5-04  parse_int past 2^31 and `<<` still wrap at 32 bits
 int64_overflow_trap     stdout  pass         fact(25) from a literal traps with exit 1
 leak_guard              rss     pass         no ArrayObj leaked per indexed access
-stdin_pipe_no_escape    stdout  pass         readln writes no cursor escape to a piped stdout
-stdin_pipe              stdout  xfail:W5-12  readln strips leading whitespace and splits a line over 1023 bytes
+stdin_pipe_no_escape    stdout  pass         read_line (readln before D55) writes no cursor escape to a piped stdout
+stdin_pipe              stdout  pass         read_line keeps leading whitespace and a line over 1023 bytes (W5-12, by D60)
 width_spec_numeric      stdout  pass         width on a literal, an Int and a Real with precision
 width_spec              stdout  xfail:W5-13  width on a Text local or field prints ?, a Bool prints TRUE
 toon_len_absent         stdout  pass         toon_len of an absent key is 0, as for null (W5-09, pscal-core e48ce37)

@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let xs: Text[] = ["a", "b", "c"];
+    let none: Text[] = [];
+    fx { println(join(xs, ", "), "|", join(none, ","), "|"); }
+}

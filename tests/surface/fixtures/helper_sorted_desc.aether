@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let ws: Text[] = ["b", "c", "a"];
+    fx { loop w in sorted_desc(ws) { print(w); } println(""); }
+}

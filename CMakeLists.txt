@@ -124,6 +124,7 @@ set(AETHER_SOURCES
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_lower.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_types.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_checks.c
+    ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/ast_stdlib.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/semantic.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/state.c
     ${CMAKE_CURRENT_SOURCE_DIR}/src/aether/experiment.c

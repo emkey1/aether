@@ -1,81 +1,59 @@
 // Reading and writing file contents.
 //
-// A `File` is a handle type, distinct from `Text`, and it is the one binding in
-// Aether you declare **without an initializer**:
+// Each file operation is one call on a path (Text); there is no handle to
+// open or close:
 //
-//     let f: File;                 // correct -- there is nothing to assign yet
-//     let f: File = "notes.txt";   // wrong -- a path is Text, not a handle
+//     write_file(path, text)    create or truncate, then write `text`
+//     append_file(path, text)   add `text` at the end (creating the file)
+//     read_file(path)           the whole file as Text
+//     read_lines(path)          its lines as Text[], without the line breaks
+//     file_exists(path)         Bool
+//     delete_file(path)         Bool: true when it was deleted
+//     rename_file(from, to)     Bool: true when it was renamed
 //
-// `assign` attaches a path to the handle; it does not open anything. Opening is
-// a separate call and the mode is chosen by *which* call you make:
-//
-//     rewrite(f)   open for writing, truncating any existing contents
-//     reset(f)     open for reading (the file must already exist)
-//     append(f)    open for writing, positioned at the end
-//
-// `writeln` and `readln` take the handle as their first argument, which is what
-// distinguishes them from console output. `readln(f, line)` is unusual: it
-// writes *into* `line` rather than returning it -- one of only two places in
-// Aether that uses an out-parameter (the clock readers are the other).
+// The text you write is written as is: end each line with "\n" yourself.
+// Reading a file that does not exist is a run-time error, so check
+// file_exists first when it may be missing.
 //
 // All of it is effectful, so all of it lives inside `fx`.
 
 const DATA_PATH: Text = "file_io_demo.txt";
 
 fn main() -> Void {
-    let f: File;
-    let line: Text = "";
     let count: Int = 0;
     let longest: Text = "";
 
     fx {
-        // Write. rewrite() truncates, so this always starts from empty.
-        assign(f, DATA_PATH);
-        rewrite(f);
-        writeln(f, "alpha");
-        writeln(f, "beta");
-        writeln(f, "gamma");
-        close(f);
+        // Write. write_file truncates, so this always starts from empty.
+        write_file(DATA_PATH, "alpha\nbeta\ngamma\n");
         println("wrote 3 lines to ", DATA_PATH);
 
-        // Append. Same handle, reattached; append() keeps what is there.
-        assign(f, DATA_PATH);
-        append(f);
-        writeln(f, "delta");
-        close(f);
+        // Append keeps what is there.
+        append_file(DATA_PATH, "delta\n");
         println("appended 1 more");
         println("");
     }
 
     fx {
-        // Read. The eof() test goes at the TOP of the loop -- checking after a
-        // read processes a phantom empty line at the end of the file.
-        assign(f, DATA_PATH);
-        reset(f);
-        loop {
-            if eof(f) {
-                break;
-            }
-            readln(f, line);          // fills `line`; does not return it
+        // Read: one Text per line, the line breaks removed.
+        loop line in read_lines(DATA_PATH) {
             count = count + 1;
-            if string_len(line) > string_len(longest) {
+            if length(line) > length(longest) {
                 longest = line;
             }
             println("  line ", count, ": ", line);
         }
-        close(f);
     }
 
     fx {
         println("");
         println("lines read : ", count);
         println("longest    : ", longest);
-        println("exists     : ", fileexists(DATA_PATH));
+        println("exists     : ", file_exists(DATA_PATH));
 
-        // erase() deletes the file the handle is attached to. Leave the
-        // directory as we found it.
-        erase(f);
-        println("after erase: ", fileexists(DATA_PATH));
+        // Leave the directory as we found it.
+        let removed: Bool = delete_file(DATA_PATH);
+        println("after erase: ", file_exists(DATA_PATH));
     }
     ret;
 }
