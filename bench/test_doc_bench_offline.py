@@ -831,15 +831,20 @@ def test_repair_attempt_records_truncation_end_to_end():
 # --------------------------------------------------------------------------- #
 
 # Synthetic guides sized like the real tiers in measured tokens (~29K full,
-# ~15.9K medium, ~11.9K small; chars/3.4 when tiktoken is not installed).
-GUIDE_CHARS = {"full": 29000 * 34 // 10, "medium": 15913 * 34 // 10, "small": 11898 * 34 // 10}
+# ~15.9K medium, ~11.9K small). The filler is sized by the harness's own
+# counter, so the tiers measure the same under tiktoken o200k (one token per
+# "word ") and under the chars/3.4 fallback (about 1.47 tokens per "word ").
+GUIDE_TOKENS = {"full": 29000, "medium": 15913, "small": 11898}
 
 
 def _synthetic_guides(tmp: pathlib.Path) -> dict:
+    sample_words = 1000
+    tokens_per_word = adb.count_prompt_tokens("word " * sample_words)[0] / sample_words
     variants = {}
-    for name, chars in GUIDE_CHARS.items():
+    for name, tokens in GUIDE_TOKENS.items():
         path = tmp / f"{name}.md"
-        path.write_text(f"*Guide version: 2026-09-05-1*\n" + ("word " * (chars // 5)), encoding="utf-8")
+        words = int(tokens / tokens_per_word)
+        path.write_text(f"*Guide version: 2026-09-05-1*\n" + ("word " * words), encoding="utf-8")
         variants[name] = path
     variants["none"] = None
     return variants
