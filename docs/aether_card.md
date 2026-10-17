@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-07-1*
+*Card version: 2026-10-17-1*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -12,8 +12,9 @@ Aether is a small statically typed language. Emit raw Aether source only.
   `fn add(a: Int, b: Int) -> Int`. Return with `ret value;`, or `ret;` in a
   `-> Void` function.
 - **Effects.** `print`, `println` and every host call (random numbers, clock,
-  files) must sit inside `fx { ... }`, which may hold `let`, `if` and `loop`.
-  Plain computation needs no `fx`.
+  files: `read_file(p)`, `read_lines(p)`, `write_file(p, t)`, stdin:
+  `read_line()`) must sit inside `fx { ... }`, which may hold `let`, `if` and
+  `loop`. Plain computation needs no `fx`.
 
 ## Values
 
@@ -85,7 +86,7 @@ fn main() -> Void {
 Destructure a direct call, or bind it and read `t.0`; never `f(x).0`. A
 `@pure` function may not use `fx` and calls only pure builtins and other
 `@pure` functions. Functions are not values (no lambdas), and there is no
-`map`, `filter`, `sort`, `join` or `replace`: write a `loop`.
+`map` or `filter`: write a `loop`.
 
 ## Records and methods
 
@@ -140,6 +141,10 @@ fn main() -> Void {
 
 Append with `xs = xs + [v];`. Indexes are 0-based; `a..b` is half-open in
 slices and loops. `println` does not print a whole array; loop over it.
+Helpers return new values: `sum(xs)`, `min_of(xs)`, `max_of(xs)`,
+`sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
+`index_of(xs, v)` (`-1` if absent), `count(xs, v)`; records:
+`sorted_by(xs, "field")`.
 
 ## Text
 
@@ -150,7 +155,7 @@ fn main() -> Void {
     let n: Int = parse_int("41") + 1;
     fx {
         println(s[0], " ", s[0..5], " ", length(s), " ", s == "hello world");
-        println(copy(s, 6, 5), " ", pos("o", s), " ", pos("z", s));
+        println(s[6..], " ", index_of(s, "o"), " ", upper(s[..5]), " ", replace(s, "l", "L"));
         println(words[1], trim("  !  "), " n=" + int_to_text(n));
     }
     ret;
@@ -159,14 +164,16 @@ fn main() -> Void {
 
 ```text
 h hello 11 true
-world 4 -1
+world 4 HELLO heLLo worLd
 world! n=42
 ```
 
-`s[i]` is a one-character `Text`; `copy(s, start, count)` is a substring;
-`pos(needle, s)` is the first index or `-1`. `+` joins `Text`; convert with
-`int_to_text(n)` or `formatfloat(r, digits)`. `parse_int` gives `0` for
-non-numeric text.
+`s[i]` is a one-character `Text`; `s[a..b]` is a substring (`s[a..]`,
+`s[..b]`); `index_of(s, x)` is the first index or `-1`. Also `contains`,
+`starts_with`, `ends_with`, `upper`, `lower`, `trim`, `repeat(s, n)`,
+`join(parts, sep)`. `+` joins `Text`; convert with `int_to_text(n)` or
+`formatfloat(r, digits)`. `parse_int` gives `0` for non-numeric text; check
+with `let (n, ok) = try_parse_int(t);`.
 
 ## Printing
 
@@ -184,10 +191,10 @@ Most errors carry a code in brackets.
 |---|---|---|
 | FX-001 | effectful call outside `fx` | wrap it in `fx { ... }` |
 | SYN-001 | `return`, `class`, `var`, an untyped parameter, no `-> T` | `ret`, `type`, `let`, `name: Type`, `-> Void` |
-| SCOPE-001 | unknown name or invented builtin | declare it first, or write it as a loop |
+| SCOPE-001 | unknown name or invented builtin | declare it first, or use the helper the hint names |
 | TYPE-001 | type cannot be inferred | annotate: `let xs: Int[] = [];` |
 | TYPE-002 | unknown type such as `Integer` | a type listed under Values |
-| BUILT-002 | wrong argument count | `formatfloat(r, 2)`, `copy(s, start, count)` |
+| BUILT-002 | wrong argument count | `formatfloat(r, 2)`, `replace(s, old, new)` |
 | NAME-001 | local declared twice | assign without `let`, or rename |
 | TUP-001 | `f().0`, or destructuring a non-call | bind first: `let t = f();` |
 | ARR-002 | a `T[]` indexed twice | declare it `T[][]` |

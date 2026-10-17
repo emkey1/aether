@@ -250,10 +250,10 @@ stick rather than merely be stated:
   bearing, see below
 - worked, self-contained examples for TOON classification, nested extraction, a
   record with methods, and a method taking caller context
-- **Writing what the surface does not give you** — the canonical loops for sort,
-  join, case conversion, contains/starts-with/replace, filter/map, sum/mean, and
-  a lookup table. `BUILT-001` forbids inventing helpers; this section is where a
-  model is sent instead, and its absence is what drives helper invention.
+- **Array helpers** and the Text helper list — `sum`, `sorted`, `sorted_by`,
+  `join`, `upper`, `replace`, `contains`, ... exist since language 2026-10-17-3
+  (D56, D57), and naming them near the top is what stops helper invention; the
+  loops that remain hand-written are filter/map and a lookup table.
 
 ### Two invariants for the medium guide
 
@@ -285,7 +285,7 @@ in `tools/bench_identifiers.txt`. That list is regenerated from the task
 suites in `bench/` with `python3 tools/audit_guides.py --refresh`, so the test
 never reads the suites themselves. A per-guide `ALLOWLIST` keeps
 the deliberate hits: the small guide's Pascal naming mnemonic (`arctan` not
-`atan`) and its Pascal-style `File` handle model. The guide pass 1 drafts have
+`atan`). The guide pass 1 drafts have
 no hits (`--strict` exits 0); the CTest still runs it in **report mode** until
 the pass is adopted and adds `--strict`.
 

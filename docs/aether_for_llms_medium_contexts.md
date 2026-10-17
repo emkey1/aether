@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-17-1*
+*Guide version: 2026-10-17-2*
 
 Everything needed to write correct Aether in one shot.
 
@@ -8,9 +8,9 @@ Everything needed to write correct Aether in one shot.
 
 1. **FX-001.** Every effectful builtin must sit inside `fx { ... }`: output
    (`print`, `println`), task helpers, `ai_chat`, and all host interaction —
-   filesystem (`mkdir`, `fileexists`), env (`getenv`), CLI (`paramstr`),
-   `random`/`randomize`, clock (`gettime`), console input, `http*`, `socket*`,
-   `sqlite*`. Pure math, string, and conversion helpers do not need `fx`.
+   files (`read_file`, `write_file`, `file_exists`), stdin (`read_line`), env
+   (`getenv`), CLI (`args`), `random`/`randomize`, clock (`clock_ms`), `http*`,
+   `socket*`, `sqlite*`. Pure math, Text, array and conversion helpers do not need `fx`.
    ✗ `println("hi");` at function scope   ✓ `fx { println("hi"); }`
    ✗ `let doc: ToonDoc = toon_parse_file(p);` — reading a file is an effect
    ✓ `let doc: ToonDoc; fx { doc = toon_parse_file(p); }`
@@ -21,7 +21,7 @@ Everything needed to write correct Aether in one shot.
    and covers every form they do.
 3. **BUILT-001.** Every builtin listed in this document exists with the
    signature shown. Prefer them, and do not guess a name beyond them.
-   ✗ `substring(s, 0, 3)`, `to_upper(s)`, `replace(s, a, b)`
+   ✗ `substring(s, 0, 3)`, `to_upper(s)`, `s.upper()` — write `s[0..3]`, `upper(s)`
 4. **BUILT-002.** Right name, wrong argument count is its own compile-time error
    for the fixed-arity conversion and math helpers.
    ✗ `formatfloat(r, 0, 2)` — it takes `(value, precision)`; the width slot
@@ -83,10 +83,9 @@ Everything needed to write correct Aether in one shot.
     Never invent an import. Imported names match exported names *exactly* — `use`
     does not rename, so an export called `labelScore` is called
     `labelScore`, never a guessed `label`.
-23. **MS-001.** `MStream` is the memory-stream handle type. `mstreamcreate()`
-    and `mstreamfromstring(text)` return `MStream`, never `Int` or `Text`; read
-    contents with `mstreambuffer(ms) -> Text`. To build a stream that already
-    holds text, call `mstreamfromstring(text)` — there is no `mstreamwrite`.
+23. **MS-001.** `MStream` is the memory-stream handle type. `mstream_new()`
+    and `mstream_from_text(text)` return `MStream`, never `Int` or `Text`; read
+    contents with `mstream_text(ms) -> Text`.
 24. **FMT-001.** If the prompt specifies exact output, match it exactly —
     spacing, casing, line order, decimal precision. Print `avg0=0`, not
     `avg0 = 0`.
@@ -115,7 +114,10 @@ checks; **Repair rules** lists the codes.
 - invented helpers not listed here (BUILT-001)
 - `toon_parse_string(text)` — the text parser is `toon_parse(text)`
 - arithmetic on, or cross-assignment of, `ToonDoc` / `ToonNode` (TOON-001)
-- `let stream: Int = mstreamcreate();` — streams are `MStream` (MS-001)
+- `let stream: Int = mstream_new();` — streams are `MStream` (MS-001)
+- `copy`, `pos`, `val`, `itoa`, `File` / `assign` / `readln` / `eof`,
+  `paramstr`, `gettime`, `setlength`, unprefixed `mstream*`: not Aether
+  (SCOPE-001 names the replacement)
 - annotations inside a function body (ANN-001)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. It is a `[NARROW-001]` warning, so it compiles —
@@ -137,7 +139,7 @@ checks; **Repair rules** lists the codes.
 | Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
-| Int → Text | `int_to_text(n)` | `itoa(n)` | inventing `n.toString()` |
+| Int → Text | `int_to_text(n)` | — | `n.toString()`, `itoa(n)` |
 | Real → Text | `formatfloat(r, prec)` — 1 or 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)`; `r:0:prec` as a value |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001` for a `Text`) |
 | Array / TOON length | `length(xs)` / `toon_len(node)` | `len(xs)`, `xs.len` | crossing the two |
@@ -155,12 +157,14 @@ let parts: Text[] = split("12,7,5", ",");  // Text  -> Text[]  ["12","7","5"]
 let n: Int = parse_int(parts[0]);          // Text  -> Int
 let r: Real = parse_float("3.5");          // Text  -> Real
 let ok: Bool = parse_bool("true");         // Text  -> Bool
-let s: Text = int_to_text(99);             // Int   -> Text    (itoa also accepted)
+let s: Text = int_to_text(99);             // Int   -> Text
 let f: Text = formatfloat(3.14159, 2);     // Real  -> Text    "3.14"
 let g: Text = realtostr(3.14159);          // Real  -> Text    always 6 dp
 let code: Int = ord("A");                  // 1-char Text -> Int  65
 let ch: Text = chr(65);                    // Int -> 1-char Text  "A"
 let t: Int = int(3.7);                     // Real/Bool -> Int, truncating
+let (v, valid) = try_parse_int(" 42");     // checked: (42, true); "12x" -> (0, false)
+let cents: Real = round_to(2.675, 2);      // 2.68: half away from zero
 ```
 
 `int(x)` casts `Real`/`Bool` only (`Int(x)`, `real(n)`, `bool(n)` are accepted
@@ -174,22 +178,13 @@ only, the rest discarded), `parse_float("zz")` is `0.0`, and `parse_bool` is
 for `"0"`, `"abc"`, and `""` alike — never treat the result as its own validity
 check.
 
-**`val` is the checked parse.** There is no `try_parse`, but `val(t, n, code)`
-reports failure: `code` is `0` only when the *whole* string parsed, otherwise the
-1-based position of the first bad character. `valreal(t, r, code)` is the `Real`
-form. Both are pure — no `fx` needed, legal in a `@pure` function — and both
-leave the destination **unmodified** on failure, so check `code` before reading
-it. Use `val` for any field from a file, an argument, an environment variable,
-or a model. Declare both destinations first:
+**`try_parse_int(t)` / `try_parse_real(t)` are the checked parses.** They return
+`(value, ok)`: `ok` is `true` only when the whole text (surrounding spaces
+allowed) is a number, and `value` is `0` otherwise. Both are pure. Use them for
+any field from a file, an argument, stdin, or a model.
 
-```aether
-let n: Int = 0;
-let code: Int = 0;
-val(raw, n, code);
-if code != 0 {
-    n = -1;
-}
-```
+`formatfloat` rounds the stored binary value (`formatfloat(2.675, 2)` is `"2.67"`);
+when a spec says round half up, use `round_to(x, digits)` first.
 
 **Arity traps.** These are caught at compile time as `BUILT-002`, but write them
 right the first time:
@@ -201,8 +196,7 @@ right the first time:
 | `clamp(x, lo, hi)` | 3 | |
 | `min(a, b)` / `max(a, b)` | 2 | |
 | `ord(ch)` / `chr(n)` / `trim(s)` | 1 | |
-| `copy(s, start, count)` | 3 | `start` is 0-based |
-| `pos(needle, s)` | 2 | 0-based; `-1` when absent |
+| `replace(s, old, new)` | 3 | every occurrence |
 | `split(t, sep)` | 2 | |
 | `parse_int` / `parse_float` / `parse_bool` | 1 | |
 
@@ -228,25 +222,8 @@ constant `0`; for an index or a roll pass the bound, inside `fx`:
 Each thread gets its own random stream, so `par` branches draw independent
 numbers. With no `randomize()` call a run is reproducible.
 
-**Clock.** `realtimeclock() -> Int` returns Unix epoch seconds and is an
-ordinary function — reach for this one. The wall-clock component readers are
-*procedures* that fill their arguments, like `val`:
-
-```aether
-let h: Int = 0;
-let m: Int = 0;
-let s: Int = 0;
-let cs: Int = 0;
-fx {
-    let stamp: Int = realtimeclock();   // a function -- returns a value
-    gettime(h, m, s, cs);               // a procedure -- fills its arguments
-}
-```
-
-`getdate(year, month, day, weekday)` is the same shape.
-
-`let t: Int = gettime();` fails with *"Built-in procedure 'gettime' cannot be used as
-a function in an expression."* — it has no return value at all.
+**Clock.** `clock_ms() -> Int` (milliseconds since 1970, for timing) and
+`now_text() -> Text` (`"YYYY-MM-DD HH:MM:SS"`, local time); both effectful.
 
 Integer quotient: `a div b` (`7 div 2` is `3`), never `/`. Decimals: a `Real`
 operand, `let pct: Real = ok * 100.0 / total;`
@@ -281,7 +258,7 @@ fn main() -> Void {
   comments compile, but generate `//`.
 - Text literals are double-quoted; escapes: `\"`, `\\`, `\n`, `\t`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true` / `false`), `Void`, plus the
-  opaque handles `ToonDoc`, `ToonNode`, `MStream`, `File`. `Float` and `String`
+  opaque handles `ToonDoc`, `ToonNode`, `MStream`. `Float` and `String`
   are accepted spellings of `Real` and `Text`. Every other foreign spelling —
   `Double`, `Integer`, `Boolean`, `Char`, `List`, `Map`, lowercase `int` — is a
   `TYPE-002` error.
@@ -524,12 +501,13 @@ fn main() -> Void {
 }
 ```
 
-The complete safe surface: `string_eq`, `string_len`, `split`, `parse_int`,
-`parse_float`, `parse_bool`, `itoa` / `int_to_text`, `formatfloat` /
-`realtostr`, `ord` / `chr`, `copy(s, start, count)` (substring),
-`pos(needle, s)`, `trim(s)`, `stringofchar(ch, n)`. There is no `replace` and no
-whole-string `to_upper` — build them with a loop over `ord` / `chr` if a task
-demands one.
+The Text helpers, all pure (positions are 0-based, `-1` when absent):
+
+- search: `contains(s, x)`, `starts_with(s, p)`, `ends_with(s, p)`,
+  `index_of(s, x)`, `count(s, x)`
+- build: `upper(s)`, `lower(s)`, `trim(s)`, `replace(s, old, new)` (every
+  occurrence), `repeat(s, n)`, `reversed(s)`, `join(parts, sep)`,
+  `split(t, sep)`; codes: `ord` / `chr`
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
 the first character, `s[string_len(s) - 1]` the last, `s[a..b]` slices like an
@@ -557,8 +535,8 @@ fn main() -> Void {
 (`queue = queue[1..];`) and `xs[..b]` starts at 0, for `Text` too. There is no
 first-class Range value — `a..b` is meaningful only inside `[...]` or a `loop`
 header.
-`setlength(xs, n)` resizes in place (new slots take the type zero); `xs == ys`
-compares element by element, nested arrays included.
+Shrink with a slice (`xs = xs[..n];`); `xs == ys` compares element by element,
+nested arrays included.
 
 **Nested arrays are real.** A row is just an `Int[]`, so a table is `Int[][]`:
 
@@ -602,130 +580,35 @@ an `[ARR-001]` warning; the same pattern on a *record* parameter works.
 `println` cannot print a whole array (`TYPE-001`). Print the elements:
 `fx { loop x in xs { print(x, " "); } println(""); }`.
 
-## Writing what the surface does not give you
+## Array helpers
 
-`BUILT-001` forbids inventing helpers; when a task needs one that does not
-exist, write the loop. Copy these canonical shapes rather than guessing a name.
+For `Int[]`, `Real[]` and `Text[]`, all pure; each returns a new value and
+leaves `xs` unchanged (`BUILT-001`: these exist, do not hand-roll them):
 
-**Sum, mean, and extremes over an `Int[]`.** There is no `sum` or `mean`.
+| Helper | Result |
+|---|---|
+| `sum(xs)` | `Int` or `Real`; `0` when empty |
+| `min_of(xs)` / `max_of(xs)` | an element; a run-time error when empty |
+| `sorted(xs)` / `sorted_desc(xs)` | a new array, stable |
+| `reversed(xs)` | a new array |
+| `contains(xs, v)` / `index_of(xs, v)` / `count(xs, v)` | `Bool` / first index or `-1` / `Int` |
+| `sorted_by(rs, "field")` / `sorted_by_desc(rs, "field")` | records by an `Int`, `Real` or `Text` field, named by a string literal (FIELD-002 otherwise) |
 
 ```aether
-@pure
-fn total(xs: Int[]) -> Int {
-    let acc: Int = 0;
-    loop i in 0..length(xs) {
-        acc = acc + xs[i];
-    }
-    ret acc;
-}
+type Player { name: Text; score: Int; }
 
-@pure
-fn mean(xs: Int[]) -> Real {
-    if length(xs) == 0 {
-        ret 0.0;
-    }
-    ret total(xs) * 1.0 / length(xs);
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 2];
+    let ys: Int[] = sorted(xs);                      // [1, 2, 3]; xs unchanged
+    let mean: Real = sum(xs) * 1.0 / length(xs);
+    let ps: Player[] = [new Player { name: "a", score: 5 }, new Player { name: "b", score: 9 }];
+    let ranked: Player[] = sorted_by_desc(ps, "score");
+    fx { println(ys[0], " ", xs[0], " ", mean, " ", ranked[0].name); }
+    ret;
 }
 ```
 
-For the extremes, seed from element `0` and fold with `min` / `max`, which do
-exist:
-
-```aether
-@pre length(xs) > 0
-@pure
-fn largest(xs: Int[]) -> Int {
-    let best: Int = xs[0];
-    loop i in 1..length(xs) {
-        best = max(best, xs[i]);
-    }
-    ret best;
-}
-```
-
-**Sort.** There is no `sort` and no comparator, because functions are not values
-(FUNC-001). Write an insertion sort over a copy:
-
-```aether
-@pure
-fn sorted(xs: Int[]) -> Int[] {
-    let out: Int[] = xs;               // arrays copy by value, so this is a clone
-    loop i in 1..length(out) {
-        let v: Int = out[i];
-        let j: Int = i - 1;
-        loop j >= 0 {
-            if out[j] <= v {
-                break;
-            }
-            out[j + 1] = out[j];
-            j = j - 1;
-        }
-        out[j + 1] = v;
-    }
-    ret out;                           // must return it -- see Dynamic arrays
-}
-```
-
-**Join.** There is no `join`; build the `Text` with a separator guard:
-
-```aether
-@pure
-fn joinText(parts: Text[], sep: Text) -> Text {
-    let out: Text = "";
-    loop i in 0..length(parts) {
-        if i > 0 {
-            out = out + sep;
-        }
-        out = out + parts[i];
-    }
-    ret out;
-}
-```
-
-**Case conversion.** There is no `to_upper`. Map code points with `ord` / `chr`:
-
-```aether
-@pure
-fn upper(s: Text) -> Text {
-    let out: Text = "";
-    loop i in 0..string_len(s) {
-        let c: Int = ord(s[i]);
-        if c >= 97 && c <= 122 {
-            out = out + chr(c - 32);
-        } else {
-            out = out + s[i];
-        }
-    }
-    ret out;
-}
-```
-
-**Contains, starts-with, replace.** `pos` gives you the first two directly;
-remember it returns `-1` when absent, so compare against `>= 0`.
-
-```aether
-@pure
-fn contains(haystack: Text, needle: Text) -> Bool {
-    ret pos(needle, haystack) >= 0;
-}
-
-@pure
-fn startsWith(s: Text, prefix: Text) -> Bool {
-    if string_len(prefix) > string_len(s) {
-        ret false;
-    }
-    ret s[0..string_len(prefix)] == prefix;
-}
-
-@pure
-fn replaceFirst(s: Text, from: Text, to: Text) -> Text {
-    let at: Int = pos(from, s);
-    if at < 0 {
-        ret s;
-    }
-    ret s[0..at] + to + s[at + string_len(from)..string_len(s)];
-}
-```
+There is no comparator and no `map`/`filter` (FUNC-001).
 
 **Filter and map.** No `filter`, no `map` — build a new array in a loop:
 
@@ -739,25 +622,6 @@ fn evensDoubled(xs: Int[]) -> Int[] {
         }
     }
     ret out;
-}
-```
-
-**Validating before a parse.** The `parse_*` family cannot report failure, so
-when a field must be entirely numeric, check it first:
-
-```aether
-@pure
-fn isAllDigits(s: Text) -> Bool {
-    if string_len(s) == 0 {
-        ret false;
-    }
-    loop i in 0..string_len(s) {
-        let c: Int = ord(s[i]);
-        if c < 48 || c > 57 {
-            ret false;
-        }
-    }
-    ret true;
 }
 ```
 
@@ -1089,7 +953,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   `var`, `def`, `=>` (the message names the Aether form). Also a field or method
   named after an Aether keyword or operator word → rename the member.
 - **[SCOPE-001]** the catch-all. It is one of:
-  - a helper not listed in this document → it does not exist; inline the logic
+  - a helper not listed in this document → it does not exist; the hint names
+    the one to use (`pos` → `index_of`, `val` → `try_parse_int`)
   - an export called by a guessed name → use the exact exported name
   - a method reaching an outer local → pass it in as a parameter
   - `method '<m>' is not defined on type '<T>'` → define it inside the `type`
@@ -1111,7 +976,7 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[TOON-001]** handle misuse → go through `toon_root(doc)`; never do arithmetic
   on, or cross-assign, handles.
 - **[MS-001]** stream misuse → declare stream bindings `MStream`, read with
-  `mstreambuffer(ms)`.
+  `mstream_text(ms)`.
 - **[FIELD-002]** `Unknown field` → use the exact declared name.
 - **[FIELD-003]** a non-literal field default → use a literal, or set the value
   at construction with `new T { field: value }`. A *type*-mismatched default is
@@ -1172,7 +1037,7 @@ Re-read the prompt and match it exactly.
 - `ret` not `return`; `type` not `class` (SYN-001)
 - no field or method named after an Aether keyword; no constructor method
 - no arithmetic on or cross-assignment of TOON handles; every doc closed
-- stream bindings declared `MStream`; bodies read via `mstreambuffer` (MS-001)
+- stream bindings declared `MStream`; bodies read via `mstream_text` (MS-001)
 - object roots: named array extracted (ROOT-001); keys copied exactly (KEY-001);
   a missing intermediate handled deliberately (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)
@@ -1191,32 +1056,21 @@ Reach for these only when the task requires them.
 
 All effectful — inside `fx`, and banned in `@pure`.
 
-- `fileexists(path) -> Bool`, `getcurrentdir() -> Text`
-- `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
-- `mkdir(path)`, `rmdir(path)`
-- `paramcount() -> Int`, `paramstr(i) -> Text`
-
-For file *contents*, declare a `File` variable — a handle type distinct from
-`Text` — and use `assign` / `reset` / `rewrite` / `readln` / `writeln` / `eof` /
-`close` / `erase` / `rename`:
+- `read_file(path) -> Text`, `read_lines(path) -> Text[]` (no line breaks)
+- `write_file(path, text)` (create or truncate), `append_file(path, text)`;
+  end each line with `"\n"` yourself
+- `file_exists(path) -> Bool`, `delete_file(path) -> Bool`,
+  `rename_file(from, to) -> Bool`, `getcurrentdir() -> Text`, `mkdir(path)`
+- `read_line() -> Text` (next stdin line, `""` at the end),
+  `read_all_stdin() -> Text`
+- `args() -> Text[]` (the arguments after the program), `getenv(name) -> Text`
 
 ```aether
 fn main() -> Void {
-    let f: File;
     fx {
-        assign(f, "notes.txt");
-        rewrite(f);
-        writeln(f, "first line");
-        close(f);
-
-        reset(f);
-        loop {
-            if eof(f) { break; }
-            let line: Text;
-            readln(f, line);   // fills `line`
-            println(line);
-        }
-        close(f);
+        write_file("notes.txt", "first line\n");
+        append_file("notes.txt", "second line\n");
+        loop line in read_lines("notes.txt") { println(line); }
     }
     ret;
 }
@@ -1233,27 +1087,29 @@ in an `MStream` out-buffer.
 - `httprequest(session, method, url, body, out) -> Int` — returns the HTTP
   status; `body` is the request payload (`""` for GET); `out` is an initialized
   `MStream`
-- `mstreamcreate() -> MStream`, `mstreamfromstring(text) -> MStream`,
-  `mstreambuffer(ms) -> Text`, `mstreamfree(ms)` — all pure.
+- `mstream_new() -> MStream`, `mstream_from_text(text) -> MStream`,
+  `mstream_text(ms) -> Text`, `mstream_append_text(ms, t)`,
+  `mstream_length(ms) -> Int`, `mstream_free(ms)` — all pure;
+  `mstream_load(path) -> MStream` and `mstream_save(ms, path)` touch files.
 
 ```aether
 fn fetch(url: Text) -> Void {
     fx {
         let session: Int = httpsession();
-        let out: MStream = mstreamcreate();
+        let out: MStream = mstream_new();
         let status: Int = httprequest(session, "GET", url, "", out);
         if status == 200 {
-            println(mstreambuffer(out));
+            println(mstream_text(out));
         }
-        mstreamfree(out);
+        mstream_free(out);
         httpclose(session);
     }
     ret;
 }
 ```
 
-`mstreambuffer(out)` is the only way to read the body. A JSON response pairs
-directly with TOON: `toon_parse(mstreambuffer(out))`.
+`mstream_text(out)` reads the body. A JSON response pairs directly with TOON:
+`toon_parse(mstream_text(out))`.
 
 ### Sockets
 

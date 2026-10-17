@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-17-1*
+*Guide version: 2026-10-17-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -20,10 +20,11 @@ If you only read one part of this document, read **Highest-Value Rules** and
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output
    (`print`/`println`), `ai_chat`, task/thread helpers, and all host
-   interaction — filesystem (`mkdir`, `fileexists`, file I/O), environment
-   (`getenv`), CLI (`paramstr`), `random`/`randomize`, the clock (`gettime`),
+   interaction — files (`read_file`, `write_file`, `file_exists`, `mkdir`),
+   stdin (`read_line`, `read_all_stdin`), environment (`getenv`), CLI
+   (`args`), `random`/`randomize`, the clock (`clock_ms`, `now_text`),
    console input (`readkey`), networking (`http*`/`socket*`), and database
-   (`sqlite*`). Pure builtins (math, string, conversion) do not need `fx`.
+   (`sqlite*`). Pure builtins (math, Text, arrays, conversion) do not need `fx`.
 2. **SYN-001.** Use Aether keywords: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`. Do not import syntax from Python, Rust, JavaScript,
    or Go (`while`/`for` are the sole Pascal-heritage exception — Accepted,
@@ -52,8 +53,9 @@ If you only read one part of this document, read **Highest-Value Rules** and
 10. **OUT-001.** When asked to generate code, return raw Aether source only.
     No Markdown fences.
 11. **BUILT-001.** The builtins listed here are the supported, recommended
-    surface. Do not invent helpers (`substring`, `to_upper`, `replace`, ...) and
-    do not guess names. **The complete inventory is in the appendix at the end
+    surface. Do not invent helpers (`substring`, `to_upper`, `strip`, ...) and
+    do not guess names; method spellings (`s.upper()`, `xs.sort()`) are
+    SCOPE-001 — call the function (`upper(s)`, `sorted(xs)`). **The complete inventory is in the appendix at the end
     of this document** — every builtin this compiler exposes, so "if it is not
     listed, it does not exist" is something you can check rather than take on
     faith. `builtins_json()` / `builtin_info(...)` also exist, but those are
@@ -101,9 +103,9 @@ If you only read one part of this document, read **Highest-Value Rules** and
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block.
 22. **MS-001.** `MStream` is the opaque memory-stream handle type.
-    `mstreamcreate()` / `mstreamfromstring(text)` return `MStream` — never
+    `mstream_new()` / `mstream_from_text(text)` return `MStream` — never
     declare the binding `Int` or `Text`. Extract contents with
-    `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`. HTTP responses
+    `mstream_text(ms) -> Text`; release with `mstream_free(ms)`. HTTP responses
     arrive in an `MStream` out-buffer (see **HTTP requests**).
 23. **NAME-001.** Value names ignore case, like type names, and one name means
     one thing: do not redeclare a local or a parameter, name a loop variable
@@ -158,15 +160,20 @@ when unsure about a type, add it explicitly.
   *name* as `Text`, and there is no `map` / `filter` / `reduce` (FUNC-001)
 - a map, dict, or set type, or helpers over one (`map_get`, `keys`, `Map[K,V]`).
   There is no keyed container: use two parallel arrays and a linear scan, or a
-  `type` with an array field — see **Writing what the surface does not give
-  you**. For keys coming from a parsed payload, the TOON node is already keyed
-  (BUILT-001)
+  `type` with an array field — see **Standard helpers**. For keys coming from a
+  parsed payload, the TOON node is already keyed (BUILT-001)
 - names that were never declared, or locals reused outside their scope
   (SCOPE-001)
 - arithmetic on `ToonDoc` or `ToonNode`, or assigning one where the other is
   expected (TOON-001)
-- `let stream: Int = mstreamfromstring(...)` — memory streams are `MStream`
+- `let stream: Int = mstream_from_text(...)` — memory streams are `MStream`
   handles, not integers (MS-001)
+- `copy`, `pos`, `stringofchar`, `val`/`valreal`, `itoa`/`inttostr`, the `File`
+  type with `assign`/`reset`/`rewrite`/`append`/`readln`/`writeln(f, ...)`/
+  `eof`/`close`/`erase`/`rename`, `paramcount`/`paramstr`, `gettime`/`getdate`,
+  `setlength`, and the unprefixed `mstream*` names: none of them is Aether. Each
+  is SCOPE-001 (`File` is TYPE-002) with a hint naming the form to write — see
+  **Removed spellings** under Repair rules
 - annotations inside a function body (ANN-001)
 - a tuple index chained directly onto a call: `pair().0` — bind it first,
   `let t = pair(); t.0;` (TUP-001)
@@ -197,9 +204,11 @@ Generate the canonical form unless preserving existing code.
 | Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
-| Text → Int, untrusted input | `val(t, n, code)`, then require `code == 0` | `parse_int(t)` behind an explicit digit scan | `parse_int(t)` alone — it cannot report failure |
-| Text → Real, untrusted input | `valreal(t, r, code)`, then require `code == 0` | — | `parse_float(t)` alone — same reason |
-| Int → Text | `int_to_text(n)` | `itoa(n)`, `inttostr(n)` | inventing `n.toString()` |
+| Text → Int, untrusted input | `let (n, ok) = try_parse_int(t);`, then require `ok` | `parse_int(t)` behind an explicit digit scan | `parse_int(t)` alone — it cannot report failure |
+| Text → Real, untrusted input | `let (r, ok) = try_parse_real(t);` | — | `parse_float(t)` alone — same reason |
+| Int → Text | `int_to_text(n)` | — | `n.toString()`, `itoa(n)` (SCOPE-001) |
+| Upper / lower case | `upper(s)`, `lower(s)` | `upcase(s)` (whole string) | `s.upper()`, `to_upper(s)` |
+| Sort | `sorted(xs)`, `sorted_by(rs, "field")` | — | `xs.sort()`, a hand-written insertion sort |
 | Real type name | `Real` | `Float` | `Double`, `Number` (TYPE-002) |
 | Text type name | `Text` | `String` | `Str`, `Char` (TYPE-002) |
 | Real → Text | `formatfloat(r, prec)` — 1 or 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (a width argument is `[BUILT-002]`); `r:0:prec` as a value (it is `println`-only) |
@@ -791,7 +800,8 @@ Numeric builtins use Pascal naming — note **`arctan`** (not `atan`) and **`ln`
 | compare / clamp | `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)` |
 | integer | `odd(n) -> Bool`, `factorial(n) -> Int`, `fibonacci(n) -> Int` |
 | random | `random() -> Real` in `[0, 1)`; `random(n) -> Int` in `[0, n)`; seed with `randomize()` |
-| clock | `realtimeclock() -> Int` (Unix epoch seconds — the one you usually want); `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)` fill **var out-parameters** |
+| decimal rounding | `round_to(x, digits) -> Real`, half away from zero: `round_to(2.675, 2)` is `2.68`, `round_to(-2.5, 0)` is `-3.0` |
+| clock | `clock_ms() -> Int` (milliseconds since 1970-01-01 UTC, for timing), `now_text() -> Text` (`"YYYY-MM-DD HH:MM:SS"`, local), `realtimeclock() -> Int` (epoch seconds) — all effectful |
 
 `random` is two functions sharing a name, and they return **different types**.
 Assigning the no-argument form to an `Int` truncates `[0, 1)` to a constant `0`,
@@ -804,6 +814,10 @@ reproducible.
 
 `abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
 `round`/`trunc`/`floor`/`ceil` always return `Int`.
+
+`formatfloat(x, d)` and `x:0:d` round the stored binary value, so
+`formatfloat(2.675, 2)` is `"2.67"` (2.675 is stored as 2.67499...). When a spec
+says amounts round half up, round first: `formatfloat(round_to(x, 2), 2)`.
 
 Numeric casts: `int(x)` truncates a `Real` (or `Bool`) to `Int`, `real(n)`
 widens an `Int` to `Real`, `bool(n)` is `n != 0`; the capitalized spellings
@@ -915,15 +929,16 @@ Core safe `Text` surface for generated code:
 let nameLen: Int = string_len(name);   // canonical; name.len accepted
 let isReady: Bool = status == "ready"; // canonical; string_eq(a,b) accepted
 let s: Text = "ab" + "cd";             // concatenation of Text operands
-let label: Text = int_to_text(count);  // Int -> Text (canonical surface for IntToStr)
+let label: Text = int_to_text(count);  // Int -> Text
 ```
 
-`int_to_text(n)` is the canonical Int-to-`Text` conversion (it lowers to the
-backend `IntToStr`). Reach for it when you need a `Text` *value* — for
+`int_to_text(n)` is the Int-to-`Text` conversion. Reach for it when you need a
+`Text` *value* — for
 concatenation, a field, or a return — not merely to print a number
 (`println(n)` already prints an `Int` directly).
 
-Additional verified `Text` builtins (all pure, no `fx` needed):
+Additional verified `Text` builtins (all pure, no `fx` needed). Positions are
+0-based code points, like `s[i]`:
 
 | Builtin | Effect |
 |---|---|
@@ -932,24 +947,39 @@ Additional verified `Text` builtins (all pure, no `fx` needed):
 | `s[a..]` / `s[..b]` | from `a` to the end / the first `b` characters; past the end gives `""` |
 | `s[i] = "x"` | replace the character at `i` with a one-character `Text` |
 | `loop ch in s { ... }` | each character in turn, as a one-character `Text` |
-| `copy(s, start, count)` | substring; `start` is 0-based, `count` is a length |
-| `pos(needle, s)` | 0-based index of `needle` in `s`, **`-1` if absent** |
+| `contains(s, x) -> Bool` | whether `x` occurs in `s` |
+| `starts_with(s, p)` / `ends_with(s, p)` | `Bool` |
+| `index_of(s, x) -> Int` | first position of `x` in `s`, **`-1` if absent** (`0` is a match at the start) |
+| `count(s, x) -> Int` | non-overlapping occurrences of `x` (`0` for an empty `x`) |
+| `upper(s)` / `lower(s)` | the whole `Text` with its ASCII letters case-mapped (`upcase` is an alias of `upper`) |
 | `trim(s)` | strip leading/trailing whitespace |
-| `stringofchar(ch, n)` | `n` copies of single-char `ch` |
+| `replace(s, old, new)` | every non-overlapping `old` replaced, left to right; `s` unchanged when `old` is `""` |
+| `repeat(s, n)` | `s` written `n` times; `""` when `n <= 0` |
+| `reversed(s)` | the characters in reverse order |
+| `join(parts, sep)` | a `Text[]` joined with `sep` between elements (`""` for an empty array) |
+| `split(t, sep)` | the pieces of `t` between each `sep`, as `Text[]` (at least one) |
 
-Beyond these, do not invent string helpers: there is no `replace`, and no
-whole-string `to_upper`/`to_lower` (`upcase`/`toupper` change a single character
-only). For hand-rolled `replace`, `contains`, `startsWith`, and case
-conversion, copy the verified loops in **Writing what the surface does not give
-you**.
+```aether
+let csv: Text = "  Alice,Bob,Carol  ";
+let names: Text[] = split(trim(csv), ",");
+let shout: Text = upper(join(names, " & "));          // "ALICE & BOB & CAROL"
+let ok: Bool = starts_with(names[0], "Al") && contains(csv, "Bob");
+let at: Int = index_of(csv, "Bob");                    // 8
+let clean: Text = replace(csv, ",", ";");
+let rule: Text = repeat("-", 10);
+```
 
-### Parsing text into scalars — `parse_*` fails silently, `val` does not
+A method spelling (`s.upper()`, `s.contains(x)`, `s.startsWith(p)`) is
+`SCOPE-001` with a hint naming the function. `s.trim()` and `s.split(sep)` are
+accepted as calls of `trim(s)` / `split(s, sep)`.
+
+### Parsing text into scalars — `parse_*` fails silently, `try_parse_*` does not
 
 `parse_int(t)`, `parse_float(t)`, and `parse_bool(t)` are the canonical
 `Text` → scalar conversions. **None of them can report failure.** They are total
 functions: every input produces a value, including inputs that are not numbers
-at all. When the input is untrusted, use `val`/`valreal` instead — see
-**Checked parsing** below.
+at all. When the input is untrusted, use `try_parse_int` / `try_parse_real`
+instead — see **Checked parsing** below.
 
 | Call | Result | Why |
 |---|---|---|
@@ -969,69 +999,52 @@ Two consequences worth internalizing:
   parse to their numeric prefix. If a field must be *entirely* numeric, the
   parse will not tell you it was not.
 
-### Checked parsing — `val` and `valreal`
+### Checked parsing — `try_parse_int` and `try_parse_real`
 
-There is no `try_parse` and no `parse_int_or`, but there **is** a checked parse.
-`val` and `valreal` are the only builtins that report a bad parse, and they are
-the right tool for any field arriving from a file, an argument, an environment
-variable, or a model:
-
-| Builtin | Signature | Effect |
-|---|---|---|
-| `val(text, out, code)` | `(Text, Int, Int) -> Void` | pure |
-| `valreal(text, out, code)` | `(Text, Real, Int) -> Void` | pure |
-
-Both write into pre-declared variables. Aether has no general by-ref, but these
-take their destinations the same way `readln` and `gettime` do, so declare
-`out` and `code` first and pass them by name.
-
-`code` is `0` when the **whole** string parsed, and otherwise the 1-based
-position of the first offending character:
-
-| Call | `out` | `code` |
-|---|---|---|
-| `val("42", n, code)` | `42` | `0` — clean parse |
-| `val("-12", n, code)` | `-12` | `0` — a leading `-` and leading spaces are fine |
-| `val("12x", n, code)` | *unchanged* | `3` — first bad character is `x` |
-| `val("7 items", n, code)` | *unchanged* | `2` — a partial parse is a failure here |
-| `val("", n, code)` | *unchanged* | `1` — empty is a failure, not `0` |
-| `valreal("3.5", r, code)` | `3.5` | `0` |
-
-Two rules follow from that table:
-
-- **Check `code` before reading `out`.** On failure `out` is left *unmodified*,
-  not zeroed — it still holds whatever it held before the call, which on a
-  reused variable is the previous iteration's value.
-- **`val` is stricter than `parse_int`, not just louder.** `"12x"` is a
-  successful `parse_int` returning `12` and a *failed* `val`. That is the point:
-  `val` is what tells you a field was not entirely numeric.
-
-Both are pure, so they need no `fx` block and are legal inside a `@pure`
-function. That makes a checked wrapper easy to write:
+`try_parse_int(t) -> (Int, Bool)` and `try_parse_real(t) -> (Real, Bool)` return
+the value and whether the **whole** text was a number. They are the right tool
+for any field arriving from a file, an argument, stdin, an environment variable,
+or a model. Both are pure (no `fx`, legal in `@pure`), and they return a tuple,
+so destructure the direct call:
 
 ```aether
-@pure
-fn parseChecked(raw: Text) -> Int {
-    let n: Int = 0;
-    let code: Int = 0;
-    val(raw, n, code);
-    if code != 0 {
-        ret -1;
-    }
-    ret n;
+let (n, ok) = try_parse_int(raw);
+if !ok {
+    n = -1;
 }
 ```
 
-That yields `42` for `"42"` and `-1` for both `"12x"` and `"abc"` — the
-distinction `parse_int` cannot make. Choose a sentinel outside the field's real
-range, or return `(Int, Bool)` and destructure it if `-1` is a legal value.
+| Call | value | ok |
+|---|---|---|
+| `try_parse_int("42")` | `42` | `true` |
+| `try_parse_int(" -12 ")` | `-12` | `true` — surrounding spaces and one sign are fine |
+| `try_parse_int("12x")` | `0` | `false` — a partial number is a failure |
+| `try_parse_int("")` | `0` | `false` — empty is a failure |
+| `try_parse_int("3.5")` / `("0x1F")` | `0` | `false` — decimal digits only |
+| `try_parse_int("9223372036854775808")` | `0` | `false` — out of range |
+| `try_parse_real("3.5")` / `(".5")` / `("1e3")` | `3.5` / `0.5` / `1000.0` | `true` |
+| `try_parse_real("inf")` / `("nan")` / `("1e400")` | `0.0` | `false` |
+
+The value is `0` (or `0.0`) whenever `ok` is false, so **check `ok` before
+trusting the value** — `0` is also a legitimate parse of `"0"`.
+
+`try_parse_int` is stricter than `parse_int`, not just louder: `"12x"` is a
+successful `parse_int` returning `12` and a failed `try_parse_int`. That is the
+point: it is what tells you a field was not entirely numeric. A helper that
+forwards the result is a tuple-return function too:
+
+```aether
+fn readCount(raw: Text) -> (Int, Bool) {
+    ret try_parse_int(trim(raw));
+}
+```
 
 ### Validating before parsing
 
-`val` is a statement with out-parameters, not an expression, so it cannot appear
-in a `@pre`. When you want the requirement carried by a contract instead, a
-digit scan is a few lines and is `@pure`, so it can serve as a `@pre` on the
-helper that consumes the field:
+`try_parse_int` returns a tuple, which an expression such as a `@pre` cannot
+read. When you want the requirement carried by a contract instead, a digit scan
+is a few lines and is `@pure`, so it can serve as a `@pre` on the helper that
+consumes the field:
 
 ```aether
 @pure
@@ -1057,10 +1070,10 @@ fn scoreOf(raw: Text) -> Int {
 
 Guard at the call site with `if isAllDigits(raw) { ... }`, or let the contract
 carry the requirement as above. Note the predicate rejects a leading `-`, which
-`val` accepts; widen it if negative fields are in scope. Prefer `val` unless you
-specifically need the requirement expressed as a contract — it is one call, it
-already handles a sign and leading whitespace (trailing whitespace fails, so
-`trim` first), and it cannot drift out of sync with the parse it guards.
+`try_parse_int` accepts; widen it if negative fields are in scope. Prefer
+`try_parse_int` unless you specifically need the requirement expressed as a
+contract — it is one call, it already handles a sign and surrounding
+whitespace, and it cannot drift out of sync with the parse it guards.
 
 ## Dynamic arrays
 
@@ -1114,9 +1127,8 @@ let rest: Int[] = ys[1..]; // open end: elements 1 to the end; ys[..2] is ys[0..
   value -- `a..b` has no meaning outside `[...]`, and a `loop` range still needs
   both bounds
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
-- `setlength(xs, n)` resizes in place: new slots take the element type's zero,
-  surplus slots are dropped. Presize with it before an index loop instead of
-  appending one element at a time
+- there is no resize call: grow with `xs = xs + [v];`, shrink with a slice
+  (`xs = xs[..n];`, `stack = stack[..length(stack) - 1];` pops)
 - `xs == ys` / `xs != ys` compare structurally: equal when both have the same
   length and every element compares equal (nested arrays recurse; record
   elements compare by identity)
@@ -1152,137 +1164,70 @@ build still succeeds -- it's a warning, not an error -- but the diagnostic is
 almost always pointing at a real bug: the mutation the code appears to
 intend can never be observed by the caller).
 
-## Writing what the surface does not give you
+## Standard helpers
 
-`BUILT-001` forbids inventing helpers, so when a task needs one that does not
-exist, write the loop. These are the canonical shapes for the helpers models most
-often reach for. Copy them rather than guessing a name.
+The helpers models most often reach for exist. They are pure, they return a
+new value and never modify their argument, and they work on `Int[]`, `Real[]`
+and `Text[]` unless noted. Use them instead of hand-written loops (`BUILT-001`:
+a guessed name never compiles, a listed one does).
 
-A missing helper is not a missing capability. Every recipe below is ordinary
-first-order Aether — no closures, no generics, no container types beyond arrays
-and records. If you are tempted to conclude the language cannot do something,
-check this section first; the absence of `map` is a deliberate consequence of
-FUNC-001, not a gap.
-
-**Sum, mean, and extremes over an `Int[]`.** There is no `sum` or `mean`.
+| Helper | Result |
+|---|---|
+| `sum(xs)` | `Int` for an `Int[]`, `Real` for a `Real[]`; `0` when empty |
+| `min_of(xs)` / `max_of(xs)` | the smallest / largest element (`Text` compares by code point); a run-time error when `xs` is empty |
+| `sorted(xs)` / `sorted_desc(xs)` | a new array, ascending / descending; stable |
+| `reversed(xs)` | a new array, last element first |
+| `contains(xs, v)` | `Bool` |
+| `index_of(xs, v)` | the first index of `v`, or `-1` |
+| `count(xs, v)` | how many elements equal `v` |
+| `sorted_by(rs, "field")` / `sorted_by_desc(rs, "field")` | an array of records sorted by one `Int`, `Real` or `Text` field; stable |
 
 ```aether
-@pure
-fn total(xs: Int[]) -> Int {
-    let acc: Int = 0;
-    loop i in 0..length(xs) {
-        acc = acc + xs[i];
-    }
-    ret acc;
+let xs: Int[] = [5, 3, 9, 3, 1];
+let ys: Int[] = sorted(xs);                  // [1, 3, 3, 5, 9]; xs is unchanged
+let mean: Real = sum(xs) * 1.0 / length(xs); // 4.2
+let spread: Int = max_of(xs) - min_of(xs);   // 8
+let threes: Int = count(xs, 3);              // 2
+```
+
+`min` and `max` (two arguments) still compare two values; `min_of` / `max_of`
+take the array.
+
+**Sorting records.** `sorted_by` takes the field's name as a **string literal**;
+the compiler checks it names an `Int`, `Real` or `Text` field of the element
+type (`FIELD-002` otherwise), so a typo cannot reach run time. There is no
+comparator (functions are not values, FUNC-001); for a two-key order, sort by
+the minor key first and then by the major one — the sorts are stable:
+
+```aether
+type Player {
+    name: Text;
+    team: Text;
+    score: Int;
 }
 
-@pure
-fn mean(xs: Int[]) -> Real {
-    if length(xs) == 0 {
-        ret 0.0;
+fn main() -> Void {
+    let ps: Player[] = [new Player { name: "ann", team: "red", score: 7 },
+                        new Player { name: "bob", team: "blue", score: 9 },
+                        new Player { name: "cy", team: "red", score: 9 }];
+    let byScore: Player[] = sorted_by_desc(ps, "score");          // bob, cy, ann
+    let byTeam: Player[] = sorted_by(sorted_by_desc(ps, "score"), "team");
+    fx {
+        loop p in byScore { print(p.name, " "); }
+        println("");
+        loop p in byTeam { print(p.team, ":", p.name, " "); }
+        println("");
     }
-    ret total(xs) * 1.0 / length(xs);
+    ret;
 }
 ```
 
-For the extremes, seed from element `0` and fold with `min` / `max`, which do
-exist:
+### What is still written by hand
 
-```aether
-@pre length(xs) > 0
-@pure
-fn largest(xs: Int[]) -> Int {
-    let best: Int = xs[0];
-    loop i in 1..length(xs) {
-        best = max(best, xs[i]);
-    }
-    ret best;
-}
-```
-
-**Sort.** There is no `sort` and no comparator, because functions are not values
-(FUNC-001). Write an insertion sort over a copy:
-
-```aether
-@pure
-fn sorted(xs: Int[]) -> Int[] {
-    let out: Int[] = xs;               // arrays copy by value, so this is a clone
-    loop i in 1..length(out) {
-        let v: Int = out[i];
-        let j: Int = i - 1;
-        loop j >= 0 {
-            if out[j] <= v {
-                break;
-            }
-            out[j + 1] = out[j];
-            j = j - 1;
-        }
-        out[j + 1] = v;
-    }
-    ret out;                           // must return it -- see Dynamic arrays
-}
-```
-
-**Join.** There is no `join`; build the `Text` with a separator guard:
-
-```aether
-@pure
-fn joinText(parts: Text[], sep: Text) -> Text {
-    let out: Text = "";
-    loop i in 0..length(parts) {
-        if i > 0 {
-            out = out + sep;
-        }
-        out = out + parts[i];
-    }
-    ret out;
-}
-```
-
-**Case conversion.** There is no `to_upper`. Map code points with `ord` / `chr`:
-
-```aether
-@pure
-fn upper(s: Text) -> Text {
-    let out: Text = "";
-    loop i in 0..string_len(s) {
-        let c: Int = ord(s[i]);
-        if c >= 97 && c <= 122 {
-            out = out + chr(c - 32);
-        } else {
-            out = out + s[i];
-        }
-    }
-    ret out;
-}
-```
-
-**Contains, starts-with, replace.** `pos` gives you the first two directly;
-remember it returns `-1` when absent, so compare against `>= 0`.
-
-```aether
-@pure
-fn contains(haystack: Text, needle: Text) -> Bool {
-    ret pos(needle, haystack) >= 0;
-}
-
-@pure
-fn startsWith(s: Text, prefix: Text) -> Bool {
-    if string_len(prefix) > string_len(s) {
-        ret false;
-    }
-    ret s[0..string_len(prefix)] == prefix;
-}
-
-@pure
-fn replaceFirst(s: Text, from: Text, to: Text) -> Text {
-    let at: Int = pos(from, s);
-    if at < 0 {
-        ret s;
-    }
-    ret s[0..at] + to + s[at + string_len(from)..string_len(s)];
-}
-```
+A missing helper is not a missing capability. These are ordinary first-order
+Aether — no closures, no generics, no container types beyond arrays and
+records; the absence of `map` is a deliberate consequence of FUNC-001, not a
+gap.
 
 **Filter and map.** No `filter`, no `map` — build a new array in a loop:
 
@@ -1300,7 +1245,8 @@ fn evensDoubled(xs: Int[]) -> Int[] {
 ```
 
 **Lookup tables.** There is no map or dictionary type. Use two parallel arrays
-and a linear scan, or a `type` with an array field:
+and a linear scan (`index_of(keys, key)` finds the slot), or a `type` with an
+array field:
 
 ```aether
 @pure
@@ -1317,11 +1263,6 @@ fn lookup(keys: Text[], values: Int[], key: Text) -> Int {
 For keys that arrive from a parsed payload rather than from your own code,
 prefer the TOON accessors (`toon_get_int_or`, `toon_has_key`) over copying the
 payload into parallel arrays — the node is already a keyed structure.
-
-If you can run the compiler, `builtin_info(name)` settles whether a helper you
-are about to hand-roll already exists under a different name. If you cannot,
-write the loop: a hand-rolled helper always compiles, and an invented one never
-does.
 
 ## Structured data: TOON
 
@@ -1895,6 +1836,11 @@ does not exist — re-read the message rather than inventing a rule for it.
     `type <T> { ... }`, or fix the call name (METH-001)
   - a genuinely undeclared / out-of-scope name → declare it earlier, pass it in,
     or rename the local you actually meant (SCOPE-001)
+  - a removed spelling → write the form its hint names (**Removed spellings**
+    below)
+  - a method spelling on a builtin type (`s.upper()`, `xs.sort()`,
+    `xs.join(",")`) → call the function the hint names (`upper(s)`,
+    `sorted(xs)`, `join(xs, ",")`)
 - **[NAME-001]** a name declared twice → pick a fresh name, or assign without
   `let`. Names ignore case, so this covers `let limit` beside `const LIMIT` (top
   level or imported), a parameter named like a const, `x` beside `X`, a `let`
@@ -2030,6 +1976,30 @@ node (NEST-001); exact-output mismatch → match spacing, casing, and precision
 (FMT-001); Markdown fences in the answer → return raw Aether source only
 (OUT-001); flattened or renamed JSON keys → copy them exactly (KEY-001).
 
+### Removed spellings
+
+These names exist in the shared engine for other front ends but are not Aether.
+Each is `SCOPE-001` (the type `File` is `TYPE-002`) and the hint names the
+replacement:
+
+| Written | Write instead |
+|---|---|
+| `copy(s, a, n)` | `s[a..a + n]` (`s[a..]`, `s[..b]`) |
+| `pos(needle, s)` | `index_of(s, needle)` — the text comes first; or `contains`, `starts_with`, `ends_with` |
+| `stringofchar(c, n)` | `repeat(c, n)` |
+| `val(t, n, code)` / `valreal(t, r, code)` | `let (n, ok) = try_parse_int(t);` / `try_parse_real(t)` |
+| `itoa(n)`, `inttostr(n)` | `int_to_text(n)` |
+| `let f: File;` with `assign` / `reset` / `rewrite` / `append` / `readln(f, l)` / `writeln(f, ...)` / `eof(f)` / `close` | `read_file(path)`, `read_lines(path)`, `write_file(path, t)`, `append_file(path, t)` |
+| `erase(f)`, `rename(f, to)` | `delete_file(path)`, `rename_file(from, to)` |
+| `readln(x)`, `read(x)`, `eof()` on stdin | `x = read_line();`, `read_all_stdin()` |
+| `paramcount()`, `paramstr(i)` | `length(args())`, `args()[i - 1]` |
+| `gettime(h, m, s, cs)`, `getdate(y, m, d, wd)` | `clock_ms()`, `now_text()` |
+| `setlength(xs, n)` | `xs = xs[..n];` to shrink, `xs = xs + [v];` to grow |
+| `mstreamcreate`, `mstreamfromstring`, `mstreambuffer`, `mstreamappendbyte`, `mstreamloadfromfile`, `mstreamsavetofile`, `mstreamfree` | `mstream_new`, `mstream_from_text`, `mstream_text`, `mstream_append_byte`, `mstream_load(path)`, `mstream_save`, `mstream_free` |
+
+A program may still declare its own function with one of these names
+(`fn rename(...)`); calls then reach it.
+
 ## Validation Checklist
 
 Before submitting Aether code, verify:
@@ -2063,72 +2033,46 @@ Before submitting Aether code, verify:
 Host access for automation. **All of these are effectful — call inside `fx`**
 (FX-001), and they are rejected inside `@pure` functions.
 
+Each file operation is one call on a path; there are no file handles to open
+or close.
+
 | Builtin | Signature |
 |---|---|
-| `fileexists(path)` | `(Text) -> Bool` |
+| `read_file(path)` | `(Text) -> Text` — the whole file; a file that cannot be read is a run-time error |
+| `read_lines(path)` | `(Text) -> Text[]` — its lines without `"\n"` / `"\r\n"`; a final line break does not add an empty line |
+| `write_file(path, text)` | `(Text, Text) -> Void` — create or truncate, then write `text` as is |
+| `append_file(path, text)` | `(Text, Text) -> Void` — add `text` at the end, creating the file |
+| `file_exists(path)` | `(Text) -> Bool` (`fileexists` is accepted) |
+| `delete_file(path)` | `(Text) -> Bool` — true when it was deleted |
+| `rename_file(from, to)` | `(Text, Text) -> Bool` — true when it was renamed |
+| `read_line()` | `() -> Text` — the next stdin line without its line break, `""` at the end of input |
+| `read_all_stdin()` | `() -> Text` — the rest of stdin, each line ending in `"\n"` |
+| `args()` | `() -> Text[]` — the command-line arguments after the program (`args()[0]` is the first) |
 | `getenv(name)` | `(Text) -> Text` (empty if unset) |
 | `getenvint(name, fallback)` | `(Text, Int) -> Int` |
 | `getcurrentdir()` | `() -> Text` |
 | `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
-| `paramcount()` | `() -> Int` (CLI arg count) |
-| `paramstr(i)` | `(Int) -> Text` |
+
+`write_file` and `append_file` write exactly the text given: end each line with
+`"\n"` yourself. A blank line read from stdin is `""` too, so to process all of
+stdin, read it at once — `split(read_all_stdin(), "\n")` ends with an empty
+element when the input ends in a line break.
 
 ```aether
 fn main() -> Void {
     fx {
-        let home: Text = getenv("HOME");
-        if fileexists("/etc/hosts") { println("hosts present, home=", home); }
-    }
-    ret;
-}
-```
-
-### File content: read/write
-
-The table above only covers existence/metadata. To read or write a file's
-*contents*, declare a variable of type `File` (a Pascal-style line-oriented
-file handle) and use the classic `assign`/`reset`/`rewrite`/`readln`/
-`writeln`/`eof`/`close` sequence — same effect rules as above, all inside
-`fx`:
-
-| Builtin | Signature |
-|---|---|
-| `assign(f, path)` | `(File, Text) -> Void` — binds `f` to `path`, no I/O yet |
-| `rewrite(f)` | `(File) -> Void` — truncate/create for writing |
-| `reset(f)` | `(File) -> Void` — open for reading |
-| `append(f)` | `(File) -> Void` — open for writing at end-of-file |
-| `readln(f, line)` | `(File, Text) -> Void` — reads one line into `line` |
-| `writeln(f, ...)` | `(File, ...) -> Void` — writes args plus a newline |
-| `eof(f)` | `(File) -> Bool` — true once no more lines remain |
-| `close(f)` | `(File) -> Void` |
-| `erase(f)` | `(File) -> Void` — deletes the file named by a prior `assign` |
-| `rename(f, newPath)` | `(File, Text) -> Void` |
-
-```aether
-fn main() -> Void {
-    let f: File;
-    fx {
-        assign(f, "notes.txt");
-        rewrite(f);
-        writeln(f, "first line");
-        close(f);
-
-        reset(f);
-        loop {
-            if eof(f) { break; }
-            let line: Text;
-            readln(f, line);
+        write_file("notes.txt", "first line\n");
+        append_file("notes.txt", "second line\n");
+        loop line in read_lines("notes.txt") {
             println(line);
         }
-        close(f);
+        println("bytes=", length(read_file("notes.txt")), " args=", length(args()));
+        let gone: Bool = delete_file("notes.txt");
+        println("exists=", file_exists("notes.txt"));
     }
     ret;
 }
 ```
-
-`readln(f, line)` writing its result into `line` is built into a few builtins
-(`readln`, `val`, `valreal`, `gettime`, `getdate`) — Aether does not have
-general by-reference parameters, so user-defined functions cannot do this.
 
 Database builtins (`sqlite*`) are effectful too; they are outside the curated
 surface, and their signatures are in the appendix.
@@ -2145,28 +2089,15 @@ an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 | `httprequest(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
 | `httpsetheader(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
 | `httpclose(session)` | `(Int) -> Void` | yes |
-| `mstreamcreate()` | `() -> MStream` | no (pure memory) |
-| `mstreamfromstring(text)` | `(Text) -> MStream` | no |
-| `mstreambuffer(ms)` | `(MStream) -> Text` (stream contents) | no |
-| `mstreamfree(ms)` | `(MStream) -> Void` | no |
-| `mstreamloadfromfile(ms, path)` | `(MStream, Text) -> Bool` (a file that cannot be opened is a run-time error) | yes (file I/O) |
-| `mstreamsavetofile(ms, path)` | `(MStream, Text) -> Void` | yes (file I/O) |
-| `mstreamappendbyte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no (pure memory) |
-
-`mstreamappendbyte` writes a single byte at a time -- there is no
-whole-string append. To push `Text`, loop over it and append each
-character's code:
-
-```aether
-fn appendText(ms: MStream, text: Text) -> Void {
-    let n: Int = length(text);
-    loop i in 0..n {
-        let ch: Text = copy(text, i, 1);
-        mstreamappendbyte(ms, ord(ch));
-    }
-    ret;
-}
-```
+| `mstream_new()` | `() -> MStream` | no (pure memory) |
+| `mstream_from_text(text)` | `(Text) -> MStream` | no |
+| `mstream_text(ms)` | `(MStream) -> Text` (stream contents) | no |
+| `mstream_append_text(ms, text)` | `(MStream, Text) -> Void` | no |
+| `mstream_append_byte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no |
+| `mstream_length(ms)` | `(MStream) -> Int` (bytes) | no |
+| `mstream_free(ms)` | `(MStream) -> Void` | no |
+| `mstream_load(path)` | `(Text) -> MStream` — a new stream with the file's bytes (a file that cannot be read is a run-time error) | yes (file I/O) |
+| `mstream_save(ms, path)` | `(MStream, Text) -> Void` | yes (file I/O) |
 
 Golden shape — a GET request end to end (all `http*` calls inside `fx`):
 
@@ -2174,25 +2105,25 @@ Golden shape — a GET request end to end (all `http*` calls inside `fx`):
 fn main() -> Void {
     fx {
         let session: Int = httpsession();
-        let out: MStream = mstreamcreate();
+        let out: MStream = mstream_new();
         let status: Int = httprequest(session, "GET", "https://example.com/", "", out);
         if status == 200 {
-            let body: Text = mstreambuffer(out);
+            let body: Text = mstream_text(out);
             println(body);
         }
-        mstreamfree(out);
+        mstream_free(out);
         httpclose(session);
     }
     ret;
 }
 ```
 
-- the `out` argument must be an initialized `MStream` (`mstreamcreate()`);
+- the `out` argument must be an initialized `MStream` (`mstream_new()`);
   `httprequest` clears it before writing the response into it
-- `mstreambuffer(out)` is the ONLY way to get the body as `Text` — never
+- `mstream_text(out)` is the way to get the body as `Text` — never
   `print(out)` and never `let body: Int = ...`
 - `body` (arg 4) is the request payload — pass `""` for GET
-- a JSON response pairs naturally with TOON: `toon_parse(mstreambuffer(out))`
+- a JSON response pairs naturally with TOON: `toon_parse(mstream_text(out))`
 - `MStream` handles are opaque: no arithmetic, no cross-assignment with
   `ToonDoc`/`ToonNode`/`Int` (MS-001)
 
@@ -2214,7 +2145,7 @@ not exist. All `socket*` calls and `dnslookup` are effectful (FX-001, inside
 | `socketaccept(socket)` | `(Int) -> Int` (new connected-socket handle, `-1` on failure) | **blocks** until a peer connects |
 | `socketpeeraddr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
 | `socketsend(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
-| `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstreambuffer(...)` to read it |
+| `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstream_text(...)` to read it |
 | `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Void` | flips a socket to non-blocking mode |
 | `socketpoll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
 | `socketclose(socket)` | `(Int) -> Void` | |
@@ -2248,10 +2179,10 @@ fn server(listenSock: Int, out: Message) -> Void {
     fx {
         let conn: Int = socketaccept(listenSock);
         let ms: MStream = socketreceive(conn, 256);
-        out.payload = mstreambuffer(ms);
+        out.payload = mstream_text(ms);
         println("server got: ", out.payload);
         socketsend(conn, "pong");
-        mstreamfree(ms);
+        mstream_free(ms);
         socketclose(conn);
         socketclose(listenSock);
     }
@@ -2264,9 +2195,9 @@ fn client(port: Int, out: Message) -> Void {
         socketconnect(sock, "127.0.0.1", port);
         socketsend(sock, "ping");
         let ms: MStream = socketreceive(sock, 256);
-        out.payload = mstreambuffer(ms);
+        out.payload = mstream_text(ms);
         println("client got: ", out.payload);
-        mstreamfree(ms);
+        mstream_free(ms);
         socketclose(sock);
     }
     ret;
@@ -2299,7 +2230,7 @@ fn main() -> Void {
 
 *Generated by `tools/gen_builtin_appendix.py`. Do not edit by hand.*
 
-Every builtin this compiler exposes: **110** with a signature below, **74** whose signatures are in the tables earlier in this document, and **232** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
+Every builtin this compiler exposes: **144** with a signature below, **54** whose signatures are in the tables earlier in this document, and **228** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
 
 `fx` marks a builtin as effectful: it must be called inside an `fx { ... }` block and may not be called from a `@pure` function (FX-001).
 
@@ -2365,7 +2296,16 @@ Safe to call exactly as written.
 
 | Signature | Effect |
 |---|---|
+| `count(xs: T[], v: T) -> Int; count(s: Text, x: Text) -> Int` | pure |
 | `len(arrayOrText) -> Int` | pure |
+| `max_of(xs: T[]) -> T` | pure |
+| `min_of(xs: T[]) -> T` | pure |
+| `reversed(xs: T[]) -> T[]; reversed(s: Text) -> Text` | pure |
+| `sorted(xs: T[]) -> T[]` | pure |
+| `sorted_by(xs: R[], "field") -> R[]` | pure |
+| `sorted_by_desc(xs: R[], "field") -> R[]` | pure |
+| `sorted_desc(xs: T[]) -> T[]` | pure |
+| `sum(xs: Int[]) -> Int; sum(xs: Real[]) -> Real` | pure |
 
 **Conversion**
 
@@ -2373,17 +2313,26 @@ Safe to call exactly as written.
 |---|---|
 | `formatfloat(value: Real, precision: Int) -> Text` | pure |
 | `realtostr(value: Real) -> Text` | pure |
+| `round_to(x: Real, digits: Int) -> Real` | pure |
+| `try_parse_int(t: Text) -> (Int, Bool)` | pure |
+| `try_parse_real(t: Text) -> (Real, Bool)` | pure |
 
 **Filesystem**
 
 | Signature | Effect |
 |---|---|
-| `fileexists(path: Text) -> Bool` | `fx` |
+| `append_file(path: Text, text: Text) -> Void` | `fx` |
+| `delete_file(path: Text) -> Bool` | `fx` |
+| `file_exists(path: Text) -> Bool` | `fx` |
 | `getcurrentdir() -> Text` | `fx` |
 | `mkdir(path: Text) -> Int` | `fx` |
-| `mstreamloadfromfile(s: MStream, filename: Text) -> Bool` | `fx` |
-| `mstreamsavetofile(s: MStream, filename: Text) -> Void` | `fx` |
+| `mstream_load(path: Text) -> MStream` | `fx` |
+| `mstream_save(ms: MStream, path: Text) -> Void` | `fx` |
+| `read_file(path: Text) -> Text` | `fx` |
+| `read_lines(path: Text) -> Text[]` | `fx` |
+| `rename_file(from: Text, to: Text) -> Bool` | `fx` |
 | `rmdir(path: Text) -> Int` | `fx` |
+| `write_file(path: Text, text: Text) -> Void` | `fx` |
 
 **Input / output**
 
@@ -2391,6 +2340,8 @@ Safe to call exactly as written.
 |---|---|
 | `print(args...) -> Void` | `fx` |
 | `println(args...) -> Void` | `fx` |
+| `read_all_stdin() -> Text` | `fx` |
+| `read_line() -> Text` | `fx` |
 
 **Network and HTTP**
 
@@ -2446,19 +2397,31 @@ Safe to call exactly as written.
 
 | Signature | Effect |
 |---|---|
-| `copy(s: Text, start: Int, count: Int) -> Text` | pure |
-| `pos(needle: Text, s: Text) -> Int` | pure |
-| `stringofchar(ch: Text, n: Int) -> Text` | pure |
+| `contains(s: Text, x: Text) -> Bool; contains(xs: T[], v: T) -> Bool` | pure |
+| `ends_with(s: Text, suffix: Text) -> Bool` | pure |
+| `index_of(s: Text, x: Text) -> Int; index_of(xs: T[], v: T) -> Int` | pure |
+| `join(xs: Text[], sep: Text) -> Text` | pure |
+| `lower(s: Text) -> Text` | pure |
+| `mstream_append_byte(ms: MStream, b: Int) -> Void` | pure |
+| `mstream_append_text(ms: MStream, t: Text) -> Void` | pure |
+| `mstream_free(ms: MStream) -> Void` | pure |
+| `mstream_from_text(t: Text) -> MStream` | pure |
+| `mstream_length(ms: MStream) -> Int` | pure |
+| `mstream_new() -> MStream` | pure |
+| `mstream_text(ms: MStream) -> Text` | pure |
+| `repeat(s: Text, n: Int) -> Text` | pure |
+| `replace(s: Text, old: Text, new: Text) -> Text` | pure |
+| `starts_with(s: Text, prefix: Text) -> Bool` | pure |
 | `trim(s: Text) -> Text` | pure |
+| `upper(s: Text) -> Text` | pure |
 
 **System and process**
 
 | Signature | Effect |
 |---|---|
+| `args() -> Text[]` | `fx` |
 | `getenv(name: Text) -> Text` | `fx` |
 | `getenvint(name: Text, fallback: Int) -> Int` | `fx` |
-| `paramcount() -> Int` | `fx` |
-| `paramstr(i: Int) -> Text` | `fx` |
 | `random() -> Real in [0,1); random(n: Int) -> Int in [0,n)` | `fx` |
 | `randomize() -> Void` | `fx` |
 
@@ -2471,7 +2434,7 @@ Safe to call exactly as written.
 | `task_result(handle: Int, consume: Bool = false) -> Int` | `fx` |
 | `task_spawn(target: Text, name: Text, arg) -> Int` | `fx` |
 | `task_stats() -> Array` | `fx` |
-| `task_stats_json() -> Text` | pure |
+| `task_stats_json() -> Text` | `fx` |
 | `task_status(handle: Int, consume: Bool = false) -> Int` | `fx` |
 | `task_wait(handle: Int) -> Int` | `fx` |
 
@@ -2485,17 +2448,19 @@ Safe to call exactly as written.
 
 | Signature | Effect |
 |---|---|
+| `clock_ms() -> Int` | `fx` |
+| `now_text() -> Text` | `fx` |
 | `sleep(ms: Int) -> Void` | `fx` |
 
 ### Documented earlier in this document
 
 Real, and their signatures **are** documented — in the conversion, arity, math, and helper tables above, not in the table below. They are listed here only so that "absent from the appendix" still means "does not exist". Scroll up for the signature; do not treat these as unknown and do not hand-roll a replacement.
 
-**Core** — `abs`, `append`, `arccos`, `arcsin`, `arctan`, `assign`, `atan2`, `bool`, `ceil`, `chr`, `clamp`, `close`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `eof` *fx*, `erase` *fx*, `exp`, `floor`, `getdate` *fx*, `gettime` *fx*, `int`, `inttostr`, `ln`, `log10`, `max`, `min`, `mstreamappendbyte`, `mstreambuffer`, `mstreamcreate`, `mstreamfree`, `mstreamfromstring`, `odd`, `ord`, `pow`, `power`, `readln` *fx*, `real`, `rename` *fx*, `reset`, `rewrite`, `round`, `setlength`, `sin`, `sinh`, `socketaccept` *fx*, `socketbind` *fx*, `socketbindaddr` *fx*, `socketclose` *fx*, `socketconnect` *fx*, `socketcreate` *fx*, `socketlasterror` *fx*, `socketlisten` *fx*, `socketpeeraddr` *fx*, `socketpoll` *fx*, `socketreceive` *fx*, `socketsend` *fx*, `socketsetblocking` *fx*, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `val`, `valreal`
+**Core** — `abs`, `arccos`, `arcsin`, `arctan`, `atan2`, `bool`, `ceil`, `chr`, `clamp`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `exp`, `floor`, `int`, `ln`, `log10`, `max`, `min`, `odd`, `ord`, `pow`, `power`, `real`, `round`, `sin`, `sinh`, `socketaccept` *fx*, `socketbind` *fx*, `socketbindaddr` *fx*, `socketclose` *fx*, `socketconnect` *fx*, `socketcreate` *fx*, `socketlasterror` *fx*, `socketlisten` *fx*, `socketpeeraddr` *fx*, `socketpoll` *fx*, `socketreceive` *fx*, `socketsend` *fx*, `socketsetblocking` *fx*, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `upcase`
 
 **math** — `factorial`, `fibonacci`
 
-**Strings** — `itoa`, `parse_bool`, `parse_float`, `parse_int`, `split`
+**Strings** — `parse_bool`, `parse_float`, `parse_int`, `split`
 
 **System and process** — `realtimeclock` *fx*
 
@@ -2503,7 +2468,7 @@ Real, and their signatures **are** documented — in the conversion, arity, math
 
 These names exist, but their signatures are not documented here. That is deliberate and it is still useful: it confirms a name is real **without** licensing a guess at its arguments. Calling one with an invented argument list is how `BUILT-002` and uncoded runtime errors happen. If you need one of these and cannot verify its signature by running the compiler, restructure to use a documented helper above.
 
-**Core** — `apiReceive` *fx*, `apiSend` *fx*, `assignfile` *fx*, `beep` *fx*, `biblinktext`, `biboldtext`, `biclrscr`, `bilowvideo`, `binormvideo`, `biunderlinetext`, `biwherex`, `biwherey`, `blinktext`, `blockread` *fx*, `blockwrite` *fx*, `boldtext`, `byte`, `bytecodeversion`, `channelclose`, `channelcreate`, `channelisclosed`, `channelreceive`, `channelsend`, `channeltryreceive`, `channeltrysend`, `char`, `cleardevice`, `closefile` *fx*, `closegraph`, `closegraph3d`, `clreol`, `clrscr`, `createtargettexture`, `createtexture`, `cursoroff`, `cursoron`, `dec`, `deline`, `destroytexture`, `dispose`, `dosExec` *fx*, `dosFindfirst` *fx*, `dosFindnext` *fx*, `dosGetdate` *fx*, `dosGetenv` *fx*, `dosGetfattr` *fx*, `dosGettime` *fx*, `dosMkdir` *fx*, `dosRmdir` *fx*, `double`, `drawcircle`, `drawline`, `drawpolygon`, `drawrect`, `exec` *fx*, `exit` *fx*, `extbuiltincategorycount`, `extbuiltincategoryname`, `extbuiltinfunctioncount`, `extbuiltinfunctionname`, `extbuiltingroupcount`, `extbuiltingroupfunctioncount`, `extbuiltingroupfunctionname`, `extbuiltingroupname`, `fclose` *fx*, `fflush` *fx*, `filesize` *fx*, `fillcircle`, `fillrect`, `findfirst` *fx*, `findnext` *fx*, `float`, `flush` *fx*, `fopen` *fx*, `format`, `fprintf` *fx*, `freesound`, `getfattr` *fx*, `getmaxx`, `getmaxy`, `getmousestate`, `getpixelcolor`, `getscreensize`, `gettextsize`, `getticks`, `glbegin`, `glclear`, `glclearcolor`, `glcleardepth`, `glcolor3f`, `glcullface`, `gldepthfunc`, `gldepthmask`, `gldepthtest`, `glend`, `glfrustum`, `gllinewidth`, `glloadidentity`, `glmatrixmode`, `glperspective`, `glpopmatrix`, `glpushmatrix`, `glrotatef`, `glscalef`, `glsetswapinterval`, `glswapwindow`, `gltranslatef`, `glvertex3f`, `glviewport`, `gotoxy`, `graphloop`, `halt` *fx*, `hidecursor`, `high`, `highvideo`, `inc`, `initgraph`, `initgraph3d`, `initsoundsystem`, `inittextsystem`, `insline`, `invertcolors`, `ioresult` *fx*, `iskeydown`, `issoundplaying`, `jsonget`, `keypressed` *fx*, `landscapesetlightingpreset`, `landscapesetpalettepreset`, `loadimagetotexture`, `loadsound`, `low`, `lowvideo`, `new`, `newobj`, `normalcolors`, `normvideo`, `outtextxy`, `playsound`, `pollkey`, `pollkeyany`, `popscreen`, `printf` *fx*, `pushscreen`, `putpixel`, `quitrequested`, `quitsoundsystem`, `quittextsystem`, `read` *fx*, `readkey` *fx*, `rendercopy`, `rendercopyex`, `rendercopyrect`, `rendertexttotexture`, `restorecursor`, `savecursor`, `screencols`, `screenrows`, `setalphablend`, `setcolor`, `setrendertarget`, `setrgbcolor`, `showcursor`, `sizeof`, `stopallsounds`, `str`, `succ`, `taskawait` *fx*, `taskcancel` *fx*, `taskdone` *fx*, `taskspawn` *fx*, `textbackground`, `textbackgrounde`, `textcolor`, `textcolore`, `thread_cancel` *fx*, `thread_pause` *fx*, `thread_resume` *fx*, `thread_set_name` *fx*, `threadcancel` *fx*, `threadgetresult` *fx*, `threadgetstatus` *fx*, `threadlookup` *fx*, `threadpause` *fx*, `threadpoolsubmit` *fx*, `threadresume` *fx*, `threadsetname` *fx*, `threadspawnbuiltin` *fx*, `threadstats` *fx*, `threadstatsjson` *fx*, `tobool`, `tobyte`, `tochar`, `todouble`, `tofloat`, `toint`, `toupper`, `underlinetext`, `upcase`, `updatescreen`, `updatetexture`, `vmversion`, `waitforthread` *fx*, `waitkeyevent`, `wherex`, `wherey`, `window`
+**Core** — `apiReceive` *fx*, `apiSend` *fx*, `beep` *fx*, `biblinktext`, `biboldtext`, `biclrscr`, `bilowvideo`, `binormvideo`, `biunderlinetext`, `biwherex`, `biwherey`, `blinktext`, `blockread` *fx*, `blockwrite` *fx*, `boldtext`, `byte`, `bytecodeversion`, `channelclose`, `channelcreate`, `channelisclosed`, `channelreceive`, `channelsend`, `channeltryreceive`, `channeltrysend`, `char`, `cleardevice`, `closegraph`, `closegraph3d`, `clreol`, `clrscr`, `createtargettexture`, `createtexture`, `cursoroff`, `cursoron`, `dec`, `deline`, `destroytexture`, `dispose`, `dosExec` *fx*, `dosFindfirst` *fx*, `dosFindnext` *fx*, `dosGetdate` *fx*, `dosGetenv` *fx*, `dosGetfattr` *fx*, `dosGettime` *fx*, `dosMkdir` *fx*, `dosRmdir` *fx*, `double`, `drawcircle`, `drawline`, `drawpolygon`, `drawrect`, `exec` *fx*, `exit` *fx*, `extbuiltincategorycount`, `extbuiltincategoryname`, `extbuiltinfunctioncount`, `extbuiltinfunctionname`, `extbuiltingroupcount`, `extbuiltingroupfunctioncount`, `extbuiltingroupfunctionname`, `extbuiltingroupname`, `fclose` *fx*, `fflush` *fx*, `filesize` *fx*, `fillcircle`, `fillrect`, `findfirst` *fx*, `findnext` *fx*, `float`, `flush` *fx*, `fopen` *fx*, `format`, `fprintf` *fx*, `freesound`, `getfattr` *fx*, `getmaxx`, `getmaxy`, `getmousestate`, `getpixelcolor`, `getscreensize`, `gettextsize`, `getticks`, `glbegin`, `glclear`, `glclearcolor`, `glcleardepth`, `glcolor3f`, `glcullface`, `gldepthfunc`, `gldepthmask`, `gldepthtest`, `glend`, `glfrustum`, `gllinewidth`, `glloadidentity`, `glmatrixmode`, `glperspective`, `glpopmatrix`, `glpushmatrix`, `glrotatef`, `glscalef`, `glsetswapinterval`, `glswapwindow`, `gltranslatef`, `glvertex3f`, `glviewport`, `gotoxy`, `graphloop`, `halt` *fx*, `hidecursor`, `high`, `highvideo`, `inc`, `initgraph`, `initgraph3d`, `initsoundsystem`, `inittextsystem`, `insline`, `invertcolors`, `ioresult` *fx*, `iskeydown`, `issoundplaying`, `jsonget`, `keypressed` *fx*, `landscapesetlightingpreset`, `landscapesetpalettepreset`, `loadimagetotexture`, `loadsound`, `low`, `lowvideo`, `new`, `newobj`, `normalcolors`, `normvideo`, `outtextxy`, `playsound`, `pollkey`, `pollkeyany`, `popscreen`, `printf` *fx*, `pushscreen`, `putpixel`, `quitrequested`, `quitsoundsystem`, `quittextsystem`, `readkey` *fx*, `rendercopy`, `rendercopyex`, `rendercopyrect`, `rendertexttotexture`, `restorecursor`, `savecursor`, `screencols`, `screenrows`, `setalphablend`, `setcolor`, `setrendertarget`, `setrgbcolor`, `showcursor`, `sizeof`, `stopallsounds`, `str`, `succ`, `taskawait` *fx*, `taskcancel` *fx*, `taskdone` *fx*, `taskspawn` *fx*, `textbackground`, `textbackgrounde`, `textcolor`, `textcolore`, `thread_cancel` *fx*, `thread_pause` *fx*, `thread_resume` *fx*, `thread_set_name` *fx*, `threadcancel` *fx*, `threadgetresult` *fx*, `threadgetstatus` *fx*, `threadlookup` *fx*, `threadpause` *fx*, `threadpoolsubmit` *fx*, `threadresume` *fx*, `threadsetname` *fx*, `threadspawnbuiltin` *fx*, `threadstats` *fx*, `threadstatsjson` *fx*, `tobool`, `tobyte`, `tochar`, `todouble`, `tofloat`, `toint`, `toupper`, `underlinetext`, `updatescreen`, `updatetexture`, `vmversion`, `waitforthread` *fx*, `waitkeyevent`, `wherex`, `wherey`, `window`
 
 **math** — `chudnovsky`, `mandelbrotrow`
 

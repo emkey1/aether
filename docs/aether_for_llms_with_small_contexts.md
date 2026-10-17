@@ -1,13 +1,13 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-17-1*
+*Guide version: 2026-10-17-2*
 
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
-   task helpers, `ai_chat`, and all host interaction — filesystem (`mkdir`,
-   `fileexists`), env (`getenv`), CLI (`paramstr`), `random`/`randomize`, clock (`gettime`),
-   console input, `http*`/`socket*`, `sqlite*`. Pure math/string/conversion do
+   task helpers, `ai_chat`, and all host interaction — files (`read_file`,
+   `write_file`, `file_exists`), stdin (`read_line`), env (`getenv`), CLI (`args`),
+   `random`/`randomize`, clock (`clock_ms`), `http*`/`socket*`, `sqlite*`. Pure math/Text/array/conversion do
    not need `fx`; `@pure` functions may call only pure builtins and other
    `@pure` functions.
 2. **SYN-001.** Aether syntax only: `fn`, `let`, `const`, `ret`, `if`, `loop`,
@@ -15,7 +15,7 @@
    `while cond { }` / `for x in a..b { }` compile (accepted)
    but `loop` is canonical and covers every form — prefer it.
 3. **BUILT-001.** Every builtin named here exists as shown. Prefer them; do
-   not invent helpers (`substring`, `to_upper`, `replace`, ...) or guess a name
+   not invent helpers (`substring`, `to_upper`, `s.upper()`, ...) or guess a name
    beyond them.
    **BUILT-002:** right name, wrong argument count is its own error, caught at
    compile time for the fixed-arity conversion/math helpers. Most common:
@@ -75,9 +75,9 @@
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
 25. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
-    response bodies). `mstreamcreate()`/`mstreamfromstring(text)` return
+    response bodies). `mstream_new()`/`mstream_from_text(text)` return
     `MStream` — never `Int`, never `Text`. Body text comes from
-    `mstreambuffer(ms) -> Text`; release with `mstreamfree(ms)`.
+    `mstream_text(ms) -> Text`; release with `mstream_free(ms)`.
 
 Default stance: single-file programs; variadic `println("label = ", v)` over
 mixed-type `+`; explicit types for TOON values and non-trivial helper results;
@@ -302,19 +302,19 @@ let parts: Text[] = split("12,7,5", ",");  // Text -> Text[]  ["12","7","5"]
 let n: Int = parse_int(parts[0]);          // Text -> Int
 let r: Real = parse_float("3.5");          // Text -> Real
 let ok: Bool = parse_bool("true");         // Text -> Bool
-let s: Text = int_to_text(99);             // Int  -> Text  (itoa(n) also accepted)
+let s: Text = int_to_text(99);             // Int  -> Text
 let f: Text = formatfloat(3.14159, 2);     // Real -> Text  "3.14" (realtostr(r) = 6 dp)
 let code: Int = ord("A");                  // Text(1 char) -> Int  65
 let ch: Text = chr(65);                    // Int -> Text(1 char)  "A"
+let (v, good) = try_parse_int("12x");      // checked: (0, false); " 42" -> (42, true)
 ```
 
-The safe Text surface: `string_eq`, `string_len`, `split`, `parse_int`,
-`parse_float`, `parse_bool`, `itoa`/`int_to_text`, `formatfloat`/`realtostr`,
-`ord`/`chr` (character <-> code point), plus `copy(s, start, count)`
-(substring, `start` 0-based), `pos(needle, s)` (0-based, `-1` if absent),
-`trim(s)`,
-`stringofchar(ch, n)`. Do not invent richer helpers (no `replace`; no
-whole-string `to_upper`). Note: the `value:width:precision` spec only works
+Text helpers (all pure; positions 0-based, `-1` when absent): `contains(s, x)`,
+`starts_with`, `ends_with`, `index_of(s, x)`, `count(s, x)`, `upper(s)`,
+`lower(s)`, `trim(s)`, `replace(s, old, new)` (every occurrence),
+`repeat(s, n)`, `reversed(s)`, `join(parts, sep)`, `split`. Not Aether:
+`copy`, `pos`, `itoa`, `val`, `File`/`readln`, `paramstr`, `gettime`,
+`setlength`. Note: the `value:width:precision` spec only works
 inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes one
 or two arguments — never borrow the width slot from the `println` form:
 `formatfloat(r, 0, 2)` is a compile-time `[BUILT-002]`. `int(x)` is a numeric
@@ -326,10 +326,9 @@ strings and `ord` for character codes.
 The `parse_*` family never reports failure: `parse_int("abc")` is `0`,
 `parse_int("12x")` is `12` (leading digits only, rest discarded), and
 `parse_float("zz")` is `0.0`. A `0` therefore does not mean the text was
-numeric. When that distinction matters use `val(t, n, code)` (or
-`valreal(t, r, code)`): declare `n` and `code` first, and `code` is `0` only if
-the whole string parsed. It leaves `n` unmodified on failure, so test `code`
-first.
+numeric. When that distinction matters use `let (n, ok) = try_parse_int(t);`
+(or `try_parse_real`): `ok` is `true` only if the whole text parsed, and `n` is
+`0` otherwise.
 
 There is no map, dict, or set type: use two parallel arrays and a linear scan,
 or a `type` with an array field. For keys from a parsed payload, use the TOON
@@ -381,8 +380,11 @@ let mid: Int[] = ys[0..2];  // slice: half-open range, elements 0 and 1 (a copy,
 the inner loop with `length(table[r])` (rows may be jagged). Declaring `Int[]`
 and indexing twice is `ARR-002`.
 
-`setlength(xs, n)` resizes in place
-(new slots take the type zero); `xs == ys` compares element by element.
+Array helpers (pure; each returns a new value): `sum(xs)`, `min_of(xs)`,
+`max_of(xs)`, `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
+`index_of(xs, v)`, `count(xs, v)`, and for records
+`sorted_by(rs, "field")` / `sorted_by_desc` (a literal field name). Shrink with a
+slice (`xs = xs[..n];`); `xs == ys` compares element by element.
 `a..b` is half-open in a slice as in `loop i in a..b`, and means nothing
 outside `[...]` or a `loop` header. A slice may drop a bound: `xs[a..]` runs to
 the end (`queue = queue[1..];`), `xs[..b]` starts at 0 (`Text` too).
@@ -722,8 +724,8 @@ fix:
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
   `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
 - **[MS-001]** an `MStream` handle misuse → declare stream bindings `MStream`
-  (`let out: MStream = mstreamcreate();`), read contents with
-  `mstreambuffer(ms) -> Text`; never `Int`/`Text` bindings, arithmetic, or
+  (`let out: MStream = mstream_new();`), read contents with
+  `mstream_text(ms) -> Text`; never `Int`/`Text` bindings, arithmetic, or
   cross-assignment with TOON handles (see HTTP requests).
 - **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
   to the type if the prompt truly requires it).
@@ -785,7 +787,7 @@ FIELD-001). Re-read the prompt and match it exactly.
 - field & method names are not Aether keywords or operator words (`new`/`for`/
   `loop`/`div`); no `fn new()`/`__init__` constructor method (SYN-001)
 - no arithmetic on / cross-assignment of TOON handles; docs closed (TOON-001)
-- stream bindings declared `MStream`; bodies read via `mstreambuffer` (MS-001)
+- stream bindings declared `MStream`; bodies read via `mstream_text` (MS-001)
 - object roots: named array extracted (ROOT-001); keys copied exactly
   (KEY-001); a missing intermediate handled deliberately (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)
@@ -804,38 +806,18 @@ Reach for these only when the task requires them.
 Host access for automation. **All effectful — call inside `fx`** (FX-001), and
 banned in `@pure` functions:
 
-- `fileexists(path) -> Bool`, `getcurrentdir() -> Text`
-- `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
-- `mkdir(path)`, `rmdir(path)`
-- `paramcount() -> Int`, `paramstr(i) -> Text`
-- clock: `realtimeclock() -> Int` (Unix epoch seconds) is a function and is
-  usually what you want. `gettime(h, m, s, cs)` and `getdate(y, mo, d, weekday)`
-  are **procedures** that fill var out-parameters — `let t = gettime();` fails.
+- `read_file(path) -> Text`, `read_lines(path) -> Text[]` (no line breaks),
+  `write_file(path, text)`, `append_file(path, text)` (end lines with `"\n"`)
+- `file_exists(path) -> Bool`, `delete_file(path) -> Bool`,
+  `rename_file(a, b) -> Bool`, `getcurrentdir() -> Text`, `mkdir(path)`
+- `read_line() -> Text` (stdin, `""` at the end), `read_all_stdin() -> Text`
+- `args() -> Text[]`, `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
+- clock: `clock_ms() -> Int` (milliseconds since 1970), `now_text() -> Text`
 
 ```aether
-fx { if fileexists("/etc/hosts") { println(getenv("HOME")); } }
-```
-
-To read/write file *contents*, declare a `File` variable (Pascal-style handle;
-distinct from `Text`) and use `assign`/`reset`/`rewrite`/`readln`/`writeln`/
-`eof`/`close`/`erase`/`rename`, all inside `fx`:
-
-```aether
-let f: File;
 fx {
-    assign(f, "notes.txt");
-    rewrite(f);
-    writeln(f, "first line");
-    close(f);
-
-    reset(f);
-    loop {
-        if eof(f) { break; }
-        let line: Text;
-        readln(f, line);   // fills `line`
-        println(line);
-    }
-    close(f);
+    write_file("notes.txt", "first line\n");
+    loop line in read_lines("notes.txt") { println(line); }
 }
 ```
 
@@ -851,23 +833,23 @@ The `http*` calls are effectful (FX-001). The response body lands in an
   `httpsetheader(session, name, value)`
 - `httprequest(session, method, url, body, out) -> Int` (HTTP status; `body`
   is the request payload, `""` for GET; `out` is an initialized `MStream`)
-- `mstreamcreate() -> MStream`, `mstreambuffer(ms) -> Text`,
-  `mstreamfree(ms)` (all pure, no `fx`)
+- `mstream_new() -> MStream`, `mstream_text(ms) -> Text`,
+  `mstream_free(ms)` (all pure, no `fx`)
 
 ```aether
 fx {
     let session: Int = httpsession();
-    let out: MStream = mstreamcreate();
+    let out: MStream = mstream_new();
     let status: Int = httprequest(session, "GET", url, "", out);
-    if status == 200 { println(mstreambuffer(out)); }
-    mstreamfree(out);
+    if status == 200 { println(mstream_text(out)); }
+    mstream_free(out);
     httpclose(session);
 }
 ```
 
-`mstreambuffer(out)` is the only way to read the body — never `print(out)`,
-never `let stream: Int = ...`. JSON responses pair with TOON:
-`toon_parse(mstreambuffer(out))`.
+`mstream_text(out)` reads the body — never `print(out)`, never
+`let stream: Int = ...`. JSON responses pair with TOON:
+`toon_parse(mstream_text(out))`.
 
 ### Sockets
 
@@ -906,9 +888,9 @@ fn server(listenSock: Int, out: Message) -> Void {
     fx {
         let conn: Int = socketaccept(listenSock);
         let ms: MStream = socketreceive(conn, 256);
-        out.payload = mstreambuffer(ms);
+        out.payload = mstream_text(ms);
         socketsend(conn, "pong");
-        mstreamfree(ms);
+        mstream_free(ms);
         socketclose(conn);
         socketclose(listenSock);
     }
@@ -920,8 +902,8 @@ fn client(port: Int, out: Message) -> Void {
         socketconnect(sock, "127.0.0.1", port);
         socketsend(sock, "ping");
         let ms: MStream = socketreceive(sock, 256);
-        out.payload = mstreambuffer(ms);
-        mstreamfree(ms);
+        out.payload = mstream_text(ms);
+        mstream_free(ms);
         socketclose(sock);
     }
     ret;
