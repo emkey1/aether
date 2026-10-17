@@ -1744,6 +1744,19 @@ if ! grep -q '"kind":"declaration"' $OUT/aether_inferred_let_unknown_json.out; t
     cat $OUT/aether_inferred_let_unknown_json.out >&2
     exit 1
 fi
+# The JSON kind is the label of "Aether <kind> parser error" (a hyphenated one
+# too), and "parser" for a plain parser error. It used to be "par" for nearly
+# every parser diagnostic: rea's kind test matched "par" inside "parser".
+for kind_case in "diag/nested_fn_fail:nested-fn" "diag/slice_no_bounds_fail:parser"; do
+    kind_fx="$TESTS_DIR/fx/${kind_case%%:*}.aether"
+    kind_want="${kind_case##*:}"
+    "$AETHER_BIN" --diagnostics-json --no-cache --no-run "$kind_fx" >$OUT/aether_json_kind.out 2>&1 || true
+    if ! grep -q "\"kind\":\"$kind_want\"" $OUT/aether_json_kind.out; then
+        echo "diagnostics-json kind for $kind_fx: expected $kind_want" >&2
+        cat $OUT/aether_json_kind.out >&2
+        exit 1
+    fi
+done
 if ! grep -q '"file":"'"$INFERRED_LET_UNKNOWN_FAIL_FIXTURE"'"' $OUT/aether_inferred_let_unknown_json.out; then
     echo "missing diagnostics-json file path" >&2
     cat $OUT/aether_inferred_let_unknown_json.out >&2

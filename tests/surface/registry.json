@@ -407,12 +407,11 @@
    "spelling": "new Int[n]",
    "canonical_form": "Int[] built with a loop",
    "fixture": "fixtures/new_sized_array.aether",
-   "code": null,
+   "code": "SYN-001",
    "decided": "D5",
-   "status": "pending",
-   "today": "trap",
-   "owner": "W6",
-   "note": "today a VM error at run time"
+   "status": "holds",
+   "note": "SYN-001 naming the missing constructor since 2026-10-16-4 (was a VM error at run time)",
+   "hint": "no sized array constructor"
   },
   {
    "id": "list_repeat_mul",

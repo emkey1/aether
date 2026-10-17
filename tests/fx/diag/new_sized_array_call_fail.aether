@@ -1,0 +1,7 @@
+// W4-28, once a backlog probe: `new Int[](5)` was SYN-001 with a misleading
+// empty-index hint. Since 2026-10-16-4 the SYN-001 names the missing constructor.
+fn main() -> Void {
+    let xs: Int[] = new Int[](5);
+    xs[0] = 1;
+    fx { println(xs[0]); }
+}

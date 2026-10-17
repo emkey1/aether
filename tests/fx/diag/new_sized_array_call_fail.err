@@ -1,0 +1,4 @@
+new_sized_array_call_fail.aether:4:
+no sized array constructor
+grow it in a loop
+!empty index
