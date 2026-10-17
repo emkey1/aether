@@ -1,0 +1,25 @@
+// A TOON getter passed straight to a user fn that returns Void. The engine had
+// no return type for the Text, Real and Bool getters, so the call statement's
+// argument check saw VOID ("expects type UNICODESTRING but got VOID").
+fn shout(value: Text) -> Void { fx { println(value); } ret; }
+fn show_real(value: Real) -> Void { fx { println(value); } ret; }
+fn show_bool(value: Bool) -> Void { fx { println(value); } ret; }
+fn show_int(value: Int) -> Void { fx { println(value); } ret; }
+
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"k\": \"a\", \"n\": 4.5, \"b\": true, \"i\": 3}");
+    let root: ToonNode = toon_root(doc);
+    shout(toon_get_text(root, "k"));
+    shout(toon_get_text_or(root, "missing", "z"));
+    shout(toon_text_value(toon_key(root, "k")));
+    shout(toon_type(root));
+    show_real(toon_get_real(root, "n"));
+    show_real(toon_get_real_or(root, "missing", 1.5));
+    show_bool(toon_get_bool(root, "b"));
+    show_bool(toon_get_bool_or(root, "missing", false));
+    show_bool(toon_has_key(root, "k"));
+    show_int(toon_get_int(root, "i"));
+    show_int(toon_get_int_or(root, "missing", 7));
+    toon_close(doc);
+    ret;
+}

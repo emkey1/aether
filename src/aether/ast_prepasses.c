@@ -170,17 +170,6 @@ typedef struct AetherFieldTable {
     size_t cap;
 } AetherFieldTable;
 
-typedef struct ToonLiteralBinding {
-    char *name;
-    char *literal;
-} ToonLiteralBinding;
-
-typedef struct ToonLiteralTable {
-    ToonLiteralBinding *items;
-    size_t count;
-    size_t cap;
-} ToonLiteralTable;
-
 /* ---- forward declarations ---- */
 static int bufferEnsure(Buffer *buf, size_t extra);
 static int bufferAppendN(Buffer *buf, const char *text, size_t len);
@@ -223,12 +212,6 @@ static const char *findAetherFieldType(const AetherFieldTable *table,
                                        const char *typeName,
                                        const char *fieldName,
                                        size_t fieldLen);
-static void freeToonLiteralTable(ToonLiteralTable *table);
-static int ensureToonLiteralTable(ToonLiteralTable *table, size_t extra);
-static int setToonLiteralBinding(ToonLiteralTable *table, const char *name, const char *literal);
-static const char *findToonLiteralBinding(const ToonLiteralTable *table, const char *name, size_t len);
-static void clearToonLiteralBinding(ToonLiteralTable *table, const char *name, size_t len);
-static int isSupportedToonBindingType(const char *typeStart, const char *typeEnd);
 static int isAetherBoolLiteral(const char *start, const char *end);
 static int inferNumericLiteralType(const char *start, const char *end, const char **outTypeName);
 static const char *inferHelperReturnTypeName(const char *nameStart, size_t nameLen);
@@ -270,7 +253,6 @@ static int collectImportedAetherBindings(AetherBindingTable *out,
                                          AetherFunctionTable *functions,
                                          const char *source,
                                          const char *modulePath);
-static void maybeRecordToonLiteralBinding(ToonLiteralTable *table, const char *body, const char *lineEnd);
 static int appendJsonAliasReplacement(Buffer *out,
                                       const char *nameStart,
                                       size_t nameLen,
@@ -293,21 +275,18 @@ static const char *toonTypePredicateExpected(const char *nameStart, size_t nameL
 static int appendAliasedTrimmedRange(Buffer *out,
                                      const char *start,
                                      const char *end,
-                                     JsonAliasState *jsonState,
-                                     const ToonLiteralTable *toonTable);
+                                     JsonAliasState *jsonState);
 static int isSingleCharDoubleQuotedLiteral(const char *start, const char *end);
 static int appendToonTextKeyArg(Buffer *out,
                                 const char *start,
                                 const char *end,
-                                JsonAliasState *jsonState,
-                                const ToonLiteralTable *toonTable);
+                                JsonAliasState *jsonState);
 static int appendToonScalarAlias(Buffer *out,
                                  const char *nameStart,
                                  size_t nameLen,
                                  const char *openParen,
                                  const char **outCursor,
-                                 JsonAliasState *jsonState,
-                                 const ToonLiteralTable *toonTable);
+                                 JsonAliasState *jsonState);
 static int appendToonNullAlias(Buffer *out,
                                const char *nameStart,
                                size_t nameLen,
@@ -319,18 +298,15 @@ static int appendToonQueryAlias(Buffer *out,
                                 size_t nameLen,
                                 const char *openParen,
                                 const char **outCursor,
-                                JsonAliasState *jsonState,
-                                const ToonLiteralTable *toonTable);
+                                JsonAliasState *jsonState);
 static int appendToonInspectAlias(Buffer *out,
                                   const char *nameStart,
                                   size_t nameLen,
                                   const char *openParen,
                                   const char **outCursor,
-                                  JsonAliasState *jsonState,
-                                  const ToonLiteralTable *toonTable);
+                                  JsonAliasState *jsonState);
 static char *applyJsonAliasesToLine(const char *line,
-                                    JsonAliasState *jsonState,
-                                    const ToonLiteralTable *toonTable);
+                                    JsonAliasState *jsonState);
 static int startsWithWord(const char *body, const char *lineEnd, const char *word);
 static int braceDeltaForLine(const char *line);
 static char *rewriteAetherBuiltinAliases(const char *start, const char *end);
@@ -1170,136 +1146,6 @@ static const char *findAetherFieldType(const AetherFieldTable *table,
         }
     }
     return NULL;
-}
-
-static void freeToonLiteralTable(ToonLiteralTable *table) {
-    size_t i;
-
-    if (!table) {
-        return;
-    }
-    for (i = 0; i < table->count; i++) {
-        free(table->items[i].name);
-        free(table->items[i].literal);
-    }
-    free(table->items);
-    table->items = NULL;
-    table->count = 0;
-    table->cap = 0;
-}
-
-static int ensureToonLiteralTable(ToonLiteralTable *table, size_t extra) {
-    ToonLiteralBinding *resized;
-    size_t need;
-    size_t newCap;
-
-    if (!table) {
-        return 0;
-    }
-    need = table->count + extra;
-    if (need <= table->cap) {
-        return 1;
-    }
-    newCap = table->cap ? table->cap * 2 : 8;
-    while (newCap < need) {
-        newCap *= 2;
-    }
-    resized = (ToonLiteralBinding *)realloc(table->items, newCap * sizeof(ToonLiteralBinding));
-    if (!resized) {
-        return 0;
-    }
-    table->items = resized;
-    table->cap = newCap;
-    return 1;
-}
-
-static int setToonLiteralBinding(ToonLiteralTable *table, const char *name, const char *literal) {
-    size_t i;
-    char *nameCopy;
-    char *literalCopy;
-
-    if (!table || !name || !literal) {
-        return 0;
-    }
-    for (i = 0; i < table->count; i++) {
-        if (strcmp(table->items[i].name, name) == 0) {
-            literalCopy = dupRange(literal, literal + strlen(literal));
-            if (!literalCopy) {
-                return 0;
-            }
-            free(table->items[i].literal);
-            table->items[i].literal = literalCopy;
-            return 1;
-        }
-    }
-    if (!ensureToonLiteralTable(table, 1)) {
-        return 0;
-    }
-    nameCopy = dupRange(name, name + strlen(name));
-    literalCopy = dupRange(literal, literal + strlen(literal));
-    if (!nameCopy || !literalCopy) {
-        free(nameCopy);
-        free(literalCopy);
-        return 0;
-    }
-    table->items[table->count].name = nameCopy;
-    table->items[table->count].literal = literalCopy;
-    table->count++;
-    return 1;
-}
-
-static const char *findToonLiteralBinding(const ToonLiteralTable *table, const char *name, size_t len) {
-    size_t i;
-
-    if (!table || !name) {
-        return NULL;
-    }
-    for (i = 0; i < table->count; i++) {
-        if (strlen(table->items[i].name) == len &&
-            strncmp(table->items[i].name, name, len) == 0) {
-            return table->items[i].literal;
-        }
-    }
-    return NULL;
-}
-
-static void clearToonLiteralBinding(ToonLiteralTable *table, const char *name, size_t len) {
-    size_t i;
-
-    if (!table || !name) {
-        return;
-    }
-    for (i = 0; i < table->count; i++) {
-        if (strlen(table->items[i].name) == len &&
-            strncmp(table->items[i].name, name, len) == 0) {
-            free(table->items[i].name);
-            free(table->items[i].literal);
-            if (i + 1 < table->count) {
-                memmove(&table->items[i],
-                        &table->items[i + 1],
-                        (table->count - i - 1) * sizeof(ToonLiteralBinding));
-            }
-            table->count--;
-            return;
-        }
-    }
-}
-
-static int isSupportedToonBindingType(const char *typeStart, const char *typeEnd) {
-    size_t len;
-
-    if (!typeStart || !typeEnd || typeEnd < typeStart) {
-        return 0;
-    }
-    while (typeStart < typeEnd && isspace((unsigned char)*typeStart)) {
-        typeStart++;
-    }
-    while (typeEnd > typeStart && isspace((unsigned char)typeEnd[-1])) {
-        typeEnd--;
-    }
-    len = (size_t)(typeEnd - typeStart);
-    return (len == 4 && strncmp(typeStart, "TOON", len) == 0) ||
-           (len == 4 && strncmp(typeStart, "Text", len) == 0);
 }
 
 static int isAetherBoolLiteral(const char *start, const char *end) {
@@ -2239,91 +2085,6 @@ static int collectImportedAetherBindings(AetherBindingTable *out,
     return 1;
 }
 
-static void maybeRecordToonLiteralBinding(ToonLiteralTable *table, const char *body, const char *lineEnd) {
-    const char *cursor;
-    const char *nameStart;
-    const char *nameEnd;
-    const char *equals;
-    const char *valueStart;
-    const char *valueEnd;
-    const char *aliasLiteral = NULL;
-    char *name = NULL;
-    char *literal = NULL;
-
-    if (!table || !body || !lineEnd) {
-        return;
-    }
-    if (!(startsWithWord(body, lineEnd, "let") || startsWithWord(body, lineEnd, "const"))) {
-        return;
-    }
-    cursor = body + (startsWithWord(body, lineEnd, "const") ? 5 : 3);
-    cursor = skipSpacesInRange(cursor, lineEnd);
-    nameStart = cursor;
-    while (cursor < lineEnd && (isalnum((unsigned char)*cursor) || *cursor == '_')) {
-        cursor++;
-    }
-    nameEnd = cursor;
-    cursor = skipSpacesInRange(cursor, lineEnd);
-    if (cursor >= lineEnd || *cursor != ':') {
-        return;
-    }
-    equals = cursor + 1;
-    while (equals < lineEnd && *equals != '=') {
-        equals++;
-    }
-    if (equals >= lineEnd || *equals != '=') {
-        return;
-    }
-    if (!isSupportedToonBindingType(cursor + 1, equals)) {
-        return;
-    }
-    valueStart = skipSpacesInRange(equals + 1, lineEnd);
-    valueEnd = lineEnd;
-    while (valueEnd > valueStart && isspace((unsigned char)valueEnd[-1])) {
-        valueEnd--;
-    }
-    if (valueEnd > valueStart && valueEnd[-1] == ';') {
-        valueEnd--;
-    }
-    while (valueEnd > valueStart && isspace((unsigned char)valueEnd[-1])) {
-        valueEnd--;
-    }
-    name = trimmedCopy(nameStart, nameEnd);
-    if (!name) {
-        return;
-    }
-    if (valueEnd > valueStart && *valueStart == '"' && valueEnd[-1] == '"') {
-        literal = dupRange(valueStart, valueEnd);
-        if (!literal || !setToonLiteralBinding(table, name, literal)) {
-            free(name);
-            free(literal);
-            return;
-        }
-        free(name);
-        free(literal);
-        return;
-    }
-    if (valueEnd > valueStart &&
-        (isalpha((unsigned char)*valueStart) || *valueStart == '_')) {
-        const char *aliasEnd = valueStart;
-
-        while (aliasEnd < valueEnd && (isalnum((unsigned char)*aliasEnd) || *aliasEnd == '_')) {
-            aliasEnd++;
-        }
-        if (aliasEnd == valueEnd) {
-            aliasLiteral = findToonLiteralBinding(table,
-                                                 valueStart,
-                                                 (size_t)(valueEnd - valueStart));
-        }
-    }
-    if (aliasLiteral && setToonLiteralBinding(table, name, aliasLiteral)) {
-        free(name);
-        return;
-    }
-    clearToonLiteralBinding(table, name, strlen(name));
-    free(name);
-}
-
 static int appendJsonAliasReplacement(Buffer *out,
                                       const char *nameStart,
                                       size_t nameLen,
@@ -2795,8 +2556,7 @@ static const char *toonTypePredicateExpected(const char *nameStart, size_t nameL
 static int appendAliasedTrimmedRange(Buffer *out,
                                      const char *start,
                                      const char *end,
-                                     JsonAliasState *jsonState,
-                                     const ToonLiteralTable *toonTable) {
+                                     JsonAliasState *jsonState) {
     char *segment;
     char *aliased;
     int ok;
@@ -2811,7 +2571,7 @@ static int appendAliasedTrimmedRange(Buffer *out,
     if (!segment) {
         return 0;
     }
-    aliased = applyJsonAliasesToLine(segment, jsonState, toonTable);
+    aliased = applyJsonAliasesToLine(segment, jsonState);
     free(segment);
     if (!aliased) {
         return 0;
@@ -2849,14 +2609,13 @@ static int isSingleCharDoubleQuotedLiteral(const char *start, const char *end) {
 static int appendToonTextKeyArg(Buffer *out,
                                 const char *start,
                                 const char *end,
-                                JsonAliasState *jsonState,
-                                const ToonLiteralTable *toonTable) {
+                                JsonAliasState *jsonState) {
     if (isSingleCharDoubleQuotedLiteral(start, end)) {
         return bufferAppend(out, "(\"\" + ") &&
-               appendAliasedTrimmedRange(out, start, end, jsonState, toonTable) &&
+               appendAliasedTrimmedRange(out, start, end, jsonState) &&
                bufferAppend(out, ")");
     }
-    return appendAliasedTrimmedRange(out, start, end, jsonState, toonTable);
+    return appendAliasedTrimmedRange(out, start, end, jsonState);
 }
 
 static int appendToonScalarAlias(Buffer *out,
@@ -2864,8 +2623,7 @@ static int appendToonScalarAlias(Buffer *out,
                                  size_t nameLen,
                                  const char *openParen,
                                  const char **outCursor,
-                                 JsonAliasState *jsonState,
-                                 const ToonLiteralTable *toonTable) {
+                                 JsonAliasState *jsonState) {
     const char *getter = toonScalarGetterForName(nameStart, nameLen);
     const char *cursor;
     const char *arg1Start;
@@ -2960,20 +2718,20 @@ static int appendToonScalarAlias(Buffer *out,
     if (defaultHelper) {
         if (!bufferAppend(out, toonScalarDefaultGetterForName(nameStart, nameLen)) ||
             !bufferAppend(out, "(") ||
-            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState) ||
             !bufferAppend(out, ", ") ||
-            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
+            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState) ||
             !bufferAppend(out, ", ") ||
-            !appendAliasedTrimmedRange(out, arg3Start, arg3End, jsonState, toonTable) ||
+            !appendAliasedTrimmedRange(out, arg3Start, arg3End, jsonState) ||
             !bufferAppend(out, ")")) {
             return 0;
         }
     } else {
         if (!bufferAppend(out, getter) ||
             !bufferAppend(out, "(YyjsonGetKey(") ||
-            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState) ||
             !bufferAppend(out, ", ") ||
-            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
+            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState) ||
             !bufferAppend(out, "))")) {
             return 0;
         }
@@ -3017,8 +2775,7 @@ static int appendToonQueryAlias(Buffer *out,
                                 size_t nameLen,
                                 const char *openParen,
                                 const char **outCursor,
-                                JsonAliasState *jsonState,
-                                const ToonLiteralTable *toonTable) {
+                                JsonAliasState *jsonState) {
     const char *replacement = NULL;
     const char *cursor;
     const char *arg1Start;
@@ -3111,15 +2868,15 @@ static int appendToonQueryAlias(Buffer *out,
     if (keyOrHelper) {
         /* (YyjsonHasKey(node, key) ? YyjsonGetKey(node, key) : default) */
         if (!bufferAppend(out, "(YyjsonHasKey(") ||
-            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState) ||
             !bufferAppend(out, ", ") ||
-            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
+            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState) ||
             !bufferAppend(out, ") ? YyjsonGetKey(") ||
-            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+            !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState) ||
             !bufferAppend(out, ", ") ||
-            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable) ||
+            !appendToonTextKeyArg(out, arg2Start, arg2End, jsonState) ||
             !bufferAppend(out, ") : ") ||
-            !appendAliasedTrimmedRange(out, arg3Start, arg3End, jsonState, toonTable) ||
+            !appendAliasedTrimmedRange(out, arg3Start, arg3End, jsonState) ||
             !bufferAppend(out, ")")) {
             return 0;
         }
@@ -3129,16 +2886,16 @@ static int appendToonQueryAlias(Buffer *out,
 
     if (!bufferAppend(out, replacement) ||
         !bufferAppend(out, "(") ||
-        !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState, toonTable) ||
+        !appendAliasedTrimmedRange(out, arg1Start, arg1End, jsonState) ||
         !bufferAppend(out, ", ")) {
         return 0;
     }
     if (keyHelper) {
-        if (!appendToonTextKeyArg(out, arg2Start, arg2End, jsonState, toonTable)) {
+        if (!appendToonTextKeyArg(out, arg2Start, arg2End, jsonState)) {
             return 0;
         }
     } else {
-        if (!appendAliasedTrimmedRange(out, arg2Start, arg2End, jsonState, toonTable)) {
+        if (!appendAliasedTrimmedRange(out, arg2Start, arg2End, jsonState)) {
             return 0;
         }
     }
@@ -3154,8 +2911,7 @@ static int appendToonInspectAlias(Buffer *out,
                                   size_t nameLen,
                                   const char *openParen,
                                   const char **outCursor,
-                                  JsonAliasState *jsonState,
-                                  const ToonLiteralTable *toonTable) {
+                                  JsonAliasState *jsonState) {
     const char *expectedType = toonTypePredicateExpected(nameStart, nameLen);
     const char *cursor;
     const char *argStart;
@@ -3197,7 +2953,7 @@ static int appendToonInspectAlias(Buffer *out,
                     argEnd = cursor;
                     jsonState->needed = 1;
                     if (!bufferAppend(out, "YyjsonGetType(") ||
-                        !appendAliasedTrimmedRange(out, argStart, argEnd, jsonState, toonTable) ||
+                        !appendAliasedTrimmedRange(out, argStart, argEnd, jsonState) ||
                         !bufferAppend(out, ")")) {
                         return 0;
                     }
@@ -3243,7 +2999,7 @@ static int appendToonInspectAlias(Buffer *out,
                 argEnd = cursor;
                 jsonState->needed = 1;
                 if (!bufferAppend(out, "(YyjsonGetType(") ||
-                    !appendAliasedTrimmedRange(out, argStart, argEnd, jsonState, toonTable) ||
+                    !appendAliasedTrimmedRange(out, argStart, argEnd, jsonState) ||
                     !bufferAppend(out, ") == \"") ||
                     !bufferAppend(out, expectedType) ||
                     !bufferAppend(out, "\")")) {
@@ -3260,8 +3016,7 @@ static int appendToonInspectAlias(Buffer *out,
 }
 
 static char *applyJsonAliasesToLine(const char *line,
-                                    JsonAliasState *jsonState,
-                                    const ToonLiteralTable *toonTable) {
+                                    JsonAliasState *jsonState) {
     const char *cursor = line;
     Buffer out = {0};
 
@@ -3303,38 +3058,6 @@ static char *applyJsonAliasesToLine(const char *line,
                 return NULL;
             }
             break;
-        }
-        if ((cursor == line || !(isalnum((unsigned char)cursor[-1]) || cursor[-1] == '_')) &&
-            ((strncmp(cursor, "toon_parse", 10) == 0 &&
-              !(isalnum((unsigned char)cursor[10]) || cursor[10] == '_')) ||
-             (strncmp(cursor, "YyjsonRead", 10) == 0 &&
-              !(isalnum((unsigned char)cursor[10]) || cursor[10] == '_')))) {
-            const char *nameEnd = cursor + 10;
-            const char *openParen = skipSpaces(nameEnd);
-
-            if (*openParen == '(') {
-                const char *argStart = skipSpaces(openParen + 1);
-                const char *argEnd = argStart;
-                const char *literal = NULL;
-                const char *closeParen;
-
-                while (*argEnd && (isalnum((unsigned char)*argEnd) || *argEnd == '_')) {
-                    argEnd++;
-                }
-                literal = findToonLiteralBinding(toonTable, argStart, (size_t)(argEnd - argStart));
-                closeParen = skipSpaces(argEnd);
-                if (literal && *closeParen == ')') {
-                    jsonState->needed = 1;
-                    if (!bufferAppend(&out, "YyjsonRead(") ||
-                        !bufferAppend(&out, literal) ||
-                        !bufferAppend(&out, ")")) {
-                        free(out.data);
-                        return NULL;
-                    }
-                    cursor = closeParen + 1;
-                    continue;
-                }
-            }
         }
         if ((cursor == line || !(isalnum((unsigned char)cursor[-1]) || cursor[-1] == '_')) &&
             isalpha((unsigned char)*cursor)) {
@@ -3383,8 +3106,7 @@ static char *applyJsonAliasesToLine(const char *line,
                                       (size_t)(nameEnd - nameStart),
                                       afterName,
                                       &advancedCursor,
-                                      jsonState,
-                                      toonTable)) {
+                                      jsonState)) {
                 cursor = advancedCursor;
                 continue;
             }
@@ -3394,8 +3116,7 @@ static char *applyJsonAliasesToLine(const char *line,
                                      (size_t)(nameEnd - nameStart),
                                      afterName,
                                      &advancedCursor,
-                                     jsonState,
-                                     toonTable)) {
+                                     jsonState)) {
                 cursor = advancedCursor;
                 continue;
             }
@@ -3405,8 +3126,7 @@ static char *applyJsonAliasesToLine(const char *line,
                                        (size_t)(nameEnd - nameStart),
                                        afterName,
                                        &advancedCursor,
-                                       jsonState,
-                                       toonTable)) {
+                                       jsonState)) {
                 cursor = advancedCursor;
                 continue;
             }
@@ -3419,30 +3139,6 @@ static char *applyJsonAliasesToLine(const char *line,
                 appendJsonAliasReplacement(&out, nameStart, (size_t)(nameEnd - nameStart), jsonState)) {
                 cursor = nameEnd;
                 continue;
-            }
-        }
-        if ((cursor == line || !(isalnum((unsigned char)cursor[-1]) || cursor[-1] == '_')) &&
-            strncmp(cursor, "YyjsonRead(", 11) == 0) {
-            const char *argStart = skipSpaces(cursor + 11);
-            const char *argEnd = argStart;
-            const char *literal = NULL;
-
-            while (*argEnd && (isalnum((unsigned char)*argEnd) || *argEnd == '_')) {
-                argEnd++;
-            }
-            literal = findToonLiteralBinding(toonTable, argStart, (size_t)(argEnd - argStart));
-            if (literal) {
-                const char *afterArg = skipSpaces(argEnd);
-                if (*afterArg == ')') {
-                    if (!bufferAppend(&out, "YyjsonRead(") ||
-                        !bufferAppend(&out, literal) ||
-                        !bufferAppend(&out, ")")) {
-                        free(out.data);
-                        return NULL;
-                    }
-                    cursor = afterArg + 1;
-                    continue;
-                }
             }
         }
         if (!bufferAppendN(&out, cursor, 1)) {
@@ -3626,7 +3322,6 @@ char *aetherAstPrepassBuiltins(const char *source) {
     if (!aliasNormalized) return NULL;
 
     JsonAliasState jsonState = {0};
-    ToonLiteralTable toonTable = {0};
     Buffer out = {0};
     const char *cursor = aliasNormalized;
     int ok = 1;
@@ -3635,15 +3330,10 @@ char *aetherAstPrepassBuiltins(const char *source) {
         const char *lineStart = cursor;
         const char *lineEnd = cursor;
         while (*lineEnd && *lineEnd != '\n') lineEnd++;
-        const char *body = lineStart;
-        while (body < lineEnd && (*body == ' ' || *body == '\t')) body++;
-        /* Track TOON literal bindings exactly as the rewriter does before the
-         * per-line alias pass so doc-handle args resolve to the literal. */
-        maybeRecordToonLiteralBinding(&toonTable, body, lineEnd);
         char *lineCopy = dupRange(lineStart, lineEnd);
         if (!lineCopy) { ok = 0; break; }
         g_aetherPrepassAliasLine = line;
-        char *aliased = applyJsonAliasesToLine(lineCopy, &jsonState, &toonTable);
+        char *aliased = applyJsonAliasesToLine(lineCopy, &jsonState);
         g_aetherPrepassAliasLine = 0;
         free(lineCopy);
         if (!aliased) { ok = 0; break; }
@@ -3658,7 +3348,6 @@ char *aetherAstPrepassBuiltins(const char *source) {
         }
     }
     free(aliasNormalized);
-    freeToonLiteralTable(&toonTable);
     if (!ok) { free(out.data); return NULL; }
     if (!out.data) { out.data = (char *)malloc(1); if (out.data) out.data[0] = '\0'; }
     return out.data;

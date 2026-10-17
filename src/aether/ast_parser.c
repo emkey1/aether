@@ -7342,8 +7342,8 @@ AST *parseAetherAst(const char *rawSource) {
     if (!toonSource) return NULL;
     /* Builtin-alias pre-pass: lower stdlib/TOON/capability call spellings to the
      * canonical pscal builtins (toon_*->Yyjson*, has_toon/string_eq/...). Runs
-     * after TOON-block extraction so `let d: TOON = "..."` literal bindings are
-     * visible to the toon_parse(d) lowering. */
+     * after TOON-block extraction, so a `toon:` block's `toon_parse(d)` call is
+     * lowered too. toon_parse(d) always reads the variable d at run time. */
     char *builtinSource = aetherAstPrepassBuiltins(toonSource);
     free(toonSource);
     if (!builtinSource) return NULL;

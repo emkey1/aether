@@ -12,6 +12,29 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-17-2
+
+**`toon_parse(raw)` reads `raw`; a TOON getter can be passed to a Void fn.**
+Two bug fixes. pscal-core moves to `9464b57`.
+
+- **`toon_parse(raw)` parsed `raw`'s first literal (silent wrong).** The
+  builtin-alias pre-pass kept a line-ordered table of `let raw: Text = "..."`
+  bindings and inlined that literal into `toon_parse(raw)`. It ignored a later
+  `raw = ...` (in `fx` too) and any parameter or local of the same name in a
+  later function. So `let raw: Text = "{}"; raw = "{\"w\": 5}";` parsed `{}`,
+  and a first value of `""` failed at run time with "input length is 0".
+  The table is gone and `toon_parse` always reads the variable. A program
+  that never reassigns the name prints the same as before. Fixture
+  `tests/fx/basic/toon_parse_reassigned_pass`.
+- **A Text, Real or Bool TOON getter passed straight to a Void fn compiles.**
+  `shout(toon_get_text(root, "k"))`, where `shout` returns `Void`, was
+  "Compiler Error: argument 1 to 'shout' expects type UNICODESTRING but got
+  VOID." The engine had no return type for `toon_get_text`, `toon_get_text_or`,
+  `toon_text_value`, `toon_type`, the Real getters, `toon_get_bool_or` and the
+  other Bool getters, and a call statement checks arguments exactly
+  (pscal-core `9464b57`). Fixture
+  `tests/fx/basic/toon_getter_into_void_fn_pass`.
+
 ## 2026-10-17-1
 
 **Open-ended slices; a tuple-return function can forward a same-typed tuple;

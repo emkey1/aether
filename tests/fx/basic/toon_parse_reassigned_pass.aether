@@ -1,0 +1,46 @@
+// toon_parse(raw) reads raw's value when it runs, not the literal raw was
+// declared with. The alias pre-pass used to inline the first literal.
+fn width(raw: Text) -> Int {
+    let doc: ToonDoc = toon_parse(raw);
+    let w: Int = toon_get_int_or(toon_root(doc), "w", -1);
+    toon_close(doc);
+    ret w;
+}
+
+fn literal_width() -> Int {
+    let raw: Text = "{\"w\": 1}";
+    let doc: ToonDoc = toon_parse(raw);
+    let w: Int = toon_get_int_or(toon_root(doc), "w", -1);
+    toon_close(doc);
+    ret w;
+}
+
+fn main() -> Void {
+    let raw: Text = "{}";
+    raw = "{\"w\": 5}";
+    let doc: ToonDoc = toon_parse(raw);
+    fx { println(toon_get_int_or(toon_root(doc), "w", -1)); }
+    toon_close(doc);
+
+    let later: Text = "";
+    fx { later = "{\"w\": 6}"; }
+    let doc2: ToonDoc = toon_parse(later);
+    fx { println(toon_get_int_or(toon_root(doc2), "w", -1)); }
+    toon_close(doc2);
+
+    let total: Int = 0;
+    let text: Text = "{\"w\": 0}";
+    loop i in 1..4 {
+        let d: ToonDoc = toon_parse(text);
+        total = total + toon_get_int_or(toon_root(d), "w", -1);
+        toon_close(d);
+        text = "{\"w\": " + int_to_text(i * 10) + "}";
+    }
+
+    fx {
+        println(total);
+        println(literal_width());
+        println(width("{\"w\": 2}"));
+    }
+    ret;
+}
