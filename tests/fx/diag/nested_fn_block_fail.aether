@@ -1,0 +1,10 @@
+// A fn inside a nested block of a function body is the same FUNC-001.
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 2];
+    if length(xs) > 0 {
+        fn helper(x: Int) -> Int {
+            ret x * 2;
+        }
+        fx { println(helper(xs[0])); }
+    }
+}

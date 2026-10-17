@@ -12,6 +12,62 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-17-1
+
+**Open-ended slices; a tuple-return function can forward a same-typed tuple;
+a nested `fn` is FUNC-001.** Owner-approved (2026-10-16) from the Qwen3.8
+fine-tune's no-guide failures on `tasks_cs` / `tasks_hard_nontoon`. Front end
+only: pscal-core stays at `632f4d1`, rea at `a0fae25`.
+
+- **`xs[a..]` and `xs[..b]` (W4-35).** `queue = queue[1..];` was `[SYN-001]
+  expected an expression after '..', found ']'`. An open end means
+  `length(base)` and an open start means `0`, for arrays, `Text` and fields
+  (`o.f[a..]`, `self.f[..n]`); `xs[n..]` is empty. A Text slice still clamps
+  (D37d): `s[a..]` lowers to one `copy` with a count past any end, so a start
+  at or past the end gives `""`. `xs[..]` (no bound) is SYN-001 with a hint to
+  assign the array, and a `loop` range still needs both bounds: `loop i in
+  a.. {` and `loop i in ..n {` now say so (SYN-001, hints name `a..length(xs)`,
+  `xs[a..]` and `0..n`) instead of "expected an expression after '..'".
+  Backlog probe `open_slice` moved to `tests/fx/lower/slice_open_w435_pass`.
+- **A slice evaluates its base and bounds once.** The array lowering copies
+  element by element and used to re-evaluate the base per element and the
+  bounds per pass, so `made()[1..3]` called `made()` twice and printed its
+  effect twice. A base that is not a plain variable/field/index chain, or that
+  makes a call, now goes into a temp first; so does a bound that makes a call.
+  Plain bases are unchanged (no extra copy).
+- **A reversed array slice is ARR-003.** `xs[2..1]`, or `xs[4..]` on three
+  elements, failed with the uncoded backend line "SetLength: array length must
+  be non-negative."; it is now `[ARR-003] slice start 4 is past its end 3:
+  ...` on stderr, exit 1. A start or stop past the end of a bounded slice was
+  already the VM's ARR-003 and is unchanged.
+- **Tuple forwarding (D53).** In a function returning `(A, B)`, `ret g(x);`
+  where `g` returns `(A, B)`, and `ret t;` where `t` holds one (`let t = g();`,
+  `let t: (A, B) = g();`), used to be `[TUP-001] a tuple-return function must
+  return a tuple literal`. They are accepted: each tuple fn has its own record
+  type, so the value is copied field by field into this fn's tuple return, and
+  a tuple `@post` sees it. Recursive-descent parsers written by models do
+  exactly this (`ret parseNumber(s, pos);`). What stays TUP-001 names the legal
+  forms: a different tuple type ("this function returns (Int, Int), but the
+  returned value is (Int, Text)") or any other value ("... a tuple literal
+  `(...)`, a call to a function returning (Int, Int), or a variable holding
+  one").
+- **A `fn` inside a function body is FUNC-001 (D50, W6).** Models write
+  `fn backtrack(row: Int) -> Void { ... }` inside `main` to capture locals
+  (N-Queens, Dijkstra); it was `[SYN-001] expected ')' to close argument list`.
+  It is now `[FUNC-001] functions cannot be declared inside another function`,
+  hint "move it to the top level and pass the values it needs as parameters (or
+  a record for shared mutable state)", at the inner `fn`. Nested functions stay
+  out of the language. Surface registry `nested_fn` now holds.
+
+Spec: G.FnDecl.3 is `@reject=FUNC-001` (was SYN-001); new G.Postfix.4 (open
+slices), G.Postfix.5 (`xs[..]`), G.RetStmt.4 (forwarding), G.RetStmt.5 (a scalar
+from a tuple fn) and G.Range.4 (`loop i in 1..`). Fixtures: `tests/fx/lower/`
+`slice_open_{array,text,field,w435}_pass`, `tuple_forward_pass`;
+`tests/fx/diag/` `slice_open_past_end_fail`, `slice_reversed_fail`,
+`slice_no_bounds_fail`, `loop_open_{range,low}_fail`,
+`tuple_forward_mismatch_fail`, `tuple_ret_scalar_fail`,
+`nested_fn{,_block}_fail`. Guides: full, medium and small `2026-10-17-1`.
+
 ## 2026-10-16-5
 
 **A copy of a nested array copies its rows, however they were built; ARR-001

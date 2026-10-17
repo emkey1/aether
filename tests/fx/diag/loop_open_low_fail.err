@@ -1,0 +1,3 @@
+loop_open_low_fail.aether:3:
+a loop range needs both bounds
+loop i in 0..n

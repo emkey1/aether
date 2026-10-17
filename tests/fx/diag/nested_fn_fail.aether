@@ -1,0 +1,16 @@
+// A fn declared inside another fn's body (models write this to capture
+// locals, e.g. N-Queens). It used to be "[SYN-001] expected ')' to close
+// argument list"; Aether has no nested functions (D50).
+fn main() -> Void {
+    let n: Int = 4;
+    let count: Int = 0;
+    fn backtrack(row: Int) -> Void {
+        if row == n {
+            count = count + 1;
+            ret;
+        }
+        backtrack(row + 1);
+    }
+    backtrack(0);
+    fx { println(count); }
+}

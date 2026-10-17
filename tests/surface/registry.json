@@ -448,10 +448,9 @@
    "fixture": "fixtures/nested_fn.aether",
    "code": "FUNC-001",
    "decided": "D37d",
-   "status": "pending",
-   "today": "SYN-001",
-   "owner": "W6",
-   "note": "surface-later candidate, W8-26"
+   "status": "holds",
+   "note": "FUNC-001 since 2026-10-17-1; D50 keeps nested fns out of the language (surface only if >=3 families still write it after the coded hint)",
+   "hint": "move it to the top level"
   },
   {
    "id": "fn_as_value",

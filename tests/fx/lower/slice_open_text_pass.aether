@@ -1,0 +1,19 @@
+// Open-ended slices on Text (2026-10-17-1). A Text slice clamps, as bounded
+// ones do: a start at or past the end gives "".
+@pre length(s[1..]) > 0
+fn rest(s: Text) -> Text {
+    ret s[1..];
+}
+
+fn main() -> Void {
+    let t: Text = "hello";
+    let i: Int = 2;
+    fx {
+        println(t[i..]);
+        println(t[..2]);
+        println("[", t[5..], "]");
+        println("[", t[9..], "]");
+        println(t[1..][1..]);
+        println(rest("abc"));
+    }
+}

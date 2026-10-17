@@ -1,0 +1,3 @@
+tuple_ret_scalar_fail.aether:3:
+a tuple literal `(...)`, a call to a function returning (Int, Int), or a variable holding one
+`ret (a, b);`

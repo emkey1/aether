@@ -174,6 +174,8 @@ static AST *buildIntLiteral(long v, int line) {
     return node;
 }
 
+AST *aetherBuildIntConst(long v, int line) { return buildIntLiteral(v, line); }
+
 /* Build the two append statements shared by every array-append expansion:
  *     setlength(target, length(target) + 1);
  *     target[length(target) - 1] = item;
@@ -698,6 +700,53 @@ AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, in
     return outer;
 }
 
+/* `if (HI < LO) { writeln(stderr, "[ARR-003] slice start ", LO, " is past its end ", HI,
+ * " ..."); halt(1); }` -- an array slice whose start is past its end. setlength
+ * used to fail on the negative width with the uncoded backend line "SetLength:
+ * array length must be non-negative." (`xs[2..1]`, or `xs[4..]` on 3 elements).
+ * `lo` and `hi` are only read (copied); they are temps or call-free here. */
+static AST *buildSliceOrderGuard(const AST *lo, const AST *hi, int line) {
+    Token *ltTok = newToken(TOKEN_LESS, "<", line, 0);
+    AST *cond = newASTNode(AST_BINARY_OP, ltTok);
+    setLeft(cond, copyAST((AST *)hi));
+    setRight(cond, copyAST((AST *)lo));
+    setTypeAST(cond, TYPE_BOOLEAN);
+
+    Token *errTok = newToken(TOKEN_IDENTIFIER, "stderr", line, 0);
+    AST *errNode = newASTNode(AST_VARIABLE, errTok);
+    setTypeAST(errNode, TYPE_FILE);
+    AST *writelnNode = newASTNode(AST_WRITELN, NULL);
+    addChild(writelnNode, errNode);
+    const char *parts[] = {"[ARR-003] slice start ", NULL, " is past its end ", NULL,
+                           ": `xs[a..b]` needs a <= b, and `xs[a..]` needs a <= length(xs)."};
+    for (int i = 0; i < 5; i++) {
+        if (!parts[i]) {
+            addChild(writelnNode, copyAST((AST *)(i == 1 ? lo : hi)));
+            continue;
+        }
+        Token *strTok = newToken(TOKEN_STRING_CONST, parts[i], line, 0);
+        AST *strNode = newASTNode(AST_STRING, strTok);
+        strNode->i_val = (int)strlen(parts[i]);
+        setTypeAST(strNode, TYPE_STRING);
+        addChild(writelnNode, strNode);
+    }
+    setTypeAST(writelnNode, TYPE_VOID);
+
+    Token *haltTok = newToken(TOKEN_IDENTIFIER, "halt", line, 0);
+    AST *haltCall = newASTNode(AST_PROCEDURE_CALL, haltTok);
+    addChild(haltCall, buildIntLiteral(1, line));
+    setTypeAST(haltCall, TYPE_VOID);
+
+    AST *thenBlock = newASTNode(AST_COMPOUND, NULL);
+    addChild(thenBlock, writelnNode);
+    addChild(thenBlock, haltCall);
+    aetherAstRegisterSynthesizedSubtree(thenBlock);
+    AST *ifNode = newASTNode(AST_IF, NULL);
+    setLeft(ifNode, cond);
+    setRight(ifNode, thenBlock);
+    return ifNode;
+}
+
 /* Lower `base[lo..hi]` (slice sugar -- see the parsePostfix call site) into a
  * hoisted temp-array declaration plus a presize-and-copy loop, spliced into
  * the enclosing statement the same way buildObjectInitDecl/buildArrayAppend
@@ -722,7 +771,8 @@ AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, in
  * case in parsePrimary), or NULL on a hard failure (frees its inputs first).
  */
 AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
-    if (!base || !lo || !hi) {
+    /* `hi` may be NULL: an open-ended `base[lo..]` runs to the end. */
+    if (!base || !lo) {
         if (base) freeAST(base);
         if (lo) freeAST(lo);
         if (hi) freeAST(hi);
@@ -843,12 +893,20 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
      * TYPE-001 pointing at copy(); the rejection is what this replaces.) */
     if (sliceIsText) {
         free(inferredName);
-        /* count = hi - lo, built before `lo` is handed to the call. */
-        Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
-        AST *count = newASTNode(AST_BINARY_OP, minusTok);
-        setLeft(count, hi);
-        setRight(count, copyAST(lo));
-        setTypeAST(count, TYPE_INTEGER);
+        /* count = hi - lo, built before `lo` is handed to the call. An
+         * open-ended `s[a..]` (hi == NULL) passes a count past any Text's
+         * end instead: copy clamps it, so the base is evaluated once and a
+         * start at or past the end gives "" as `s[a..length(s)]` does. */
+        AST *count;
+        if (hi) {
+            Token *minusTok = newToken(TOKEN_MINUS, "-", line, 0);
+            count = newASTNode(AST_BINARY_OP, minusTok);
+            setLeft(count, hi);
+            setRight(count, copyAST(lo));
+            setTypeAST(count, TYPE_INTEGER);
+        } else {
+            count = buildIntLiteral(2147483647L, line);
+        }
 
         Token *copyTok = newToken(TOKEN_IDENTIFIER, "copy", line, 0);
         AST *call = newASTNode(AST_PROCEDURE_CALL, copyTok);
@@ -861,6 +919,51 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     outer->i_val = 1; /* splice into the surrounding block */
+
+    /* The copy loop below reads `base` once per element and `lo`/`hi` once
+     * per pass, so a base, bound or open end that makes a call is evaluated
+     * once into a temp first: `mk()[1..3]` used to call mk() per element.
+     * A plain variable/field/index base stays inline (no copy). */
+    if (!aetherIsLValueChain(base) || aetherExprHasCall(base)) {
+        char baseName[48];
+        snprintf(baseName, sizeof(baseName), "__aether_slice_base_%d", p->nextObjLitId - 1);
+        AST *baseDecl = buildTypedLetDecl(baseName, inferredName, base, line);
+        base = NULL;
+        if (!baseDecl) {
+            free(inferredName);
+            freeAST(outer);
+            freeAST(lo);
+            if (hi) freeAST(hi);
+            return NULL;
+        }
+        addChild(outer, baseDecl);
+        bindingTableSet(p->bindings, baseName, inferredName);
+        base = buildVarRef(baseName, sliceVtype, line);
+    }
+    /* `xs[a..]`: the end is `length(xs)`, of the (possibly hoisted) base. */
+    bool hiOpen = (hi == NULL);
+    if (hiOpen) hi = buildLengthCall(base, line);
+    AST **bounds[2] = {&lo, &hi};
+    for (int b = 0; b < 2; b++) {
+        /* The open end's `length(base)` reads a plain base: cheap and pure. */
+        if (!aetherExprHasCall(*bounds[b]) || (b == 1 && hiOpen)) continue;
+        char boundName[48];
+        snprintf(boundName, sizeof(boundName), "__aether_slice_%s_%d", b ? "hi" : "lo",
+                 p->nextObjLitId - 1);
+        AST *boundDecl = buildTypedLetDecl(boundName, "Int", *bounds[b], line);
+        *bounds[b] = NULL;
+        if (!boundDecl) {
+            free(inferredName);
+            freeAST(outer);
+            freeAST(base);
+            if (lo) freeAST(lo);
+            if (hi) freeAST(hi);
+            return NULL;
+        }
+        addChild(outer, boundDecl);
+        bindingTableSet(p->bindings, boundName, "Int");
+        *bounds[b] = buildVarRef(boundName, TYPE_INT64, line);
+    }
 
     /* let __aether_slice_N: T[] = []; */
     Token *sliceNameTok = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
@@ -884,6 +987,8 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
     setLeft(widthExpr, copyAST(hi));
     setRight(widthExpr, copyAST(lo));
     setTypeAST(widthExpr, TYPE_INTEGER);
+
+    addChild(outer, buildSliceOrderGuard(lo, hi, line));
 
     /* setlength(__aether_slice_N, HI - LO); */
     Token *sliceRefTok1 = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
@@ -1553,6 +1658,8 @@ static char *aetherRewriteTupleResultRefs(const char *postExpr, const char *temp
  * reentrant (each call gets its own temp + stack-copied return value) rather
  * than merely rejected. The result is an AST_COMPOUND splice (i_val==1) so
  * parseBlock flattens it into the body. */
+static AST *buildTupleReturnFromItems(AetherParser *p, AST **items, size_t idx, int line);
+
 static AST *parseTupleReturn(AetherParser *p, int line) {
     const AetherTupleSig *sig = p->currentTupleSig;
     aetherAdvance(p); /* consume '(' */
@@ -1590,7 +1697,15 @@ static AST *parseTupleReturn(AetherParser *p, int line) {
         for (size_t i = 0; i < idx; i++) freeAST(items[i]);
         return NULL;
     }
+    return buildTupleReturnFromItems(p, items, idx, line);
+}
 
+/* The tuple return itself, once its `idx` (== the signature's arity) item
+ * expressions are parsed: a fresh temp record of this fn's tuple type, one
+ * field store per item, the @post guard, `return temp;`. `items` ownership
+ * transfers. */
+static AST *buildTupleReturnFromItems(AetherParser *p, AST **items, size_t idx, int line) {
+    const AetherTupleSig *sig = p->currentTupleSig;
     char typeName[40];
     aetherTupleSyntheticTypeName(typeName, sizeof(typeName), sig->typeId);
     VarType vtype = TYPE_UNKNOWN;
@@ -2026,6 +2141,102 @@ static bool returnArrayConcatNeedsLowering(AetherParser *p, const AST *value) {
     return isArray;
 }
 
+/* `ret g(args);` / `ret t;` in a tuple-return fn: forward a value of the same
+ * tuple type -- a call to a tuple fn with an equal item list, or a variable
+ * bound to one. Each tuple fn has its own synthetic record type, so the value
+ * is copied field by field into this fn's own tuple return (and its @post):
+ *     let __aether_tupfwd_N: __AetherTuple<g> = g(args);   -- a call only
+ *     ret (__aether_tupfwd_N.item0, __aether_tupfwd_N.item1);
+ * Recursive-descent parsers written by models do exactly this
+ * (`ret parseNumber(s, pos);`). Anything else stays TUP-001. */
+static AST *parseTupleForwardReturn(AetherParser *p, int line) {
+    const AetherTupleSig *mine = p->currentTupleSig;
+    char want[160];
+    aetherFormatTupleItems(mine->itemTypes, mine->itemCount, want, sizeof(want));
+    if (p->current.type == REA_TOKEN_SEMICOLON || p->current.type == REA_TOKEN_RIGHT_BRACE ||
+        p->current.type == REA_TOKEN_EOF) {
+        char detail[256];
+        snprintf(detail, sizeof(detail), "a tuple-return function must return a %s value.", want);
+        reportAetherAstError(aetherSemanticGetSourcePath(), line, "tuple", detail,
+                             "return a tuple literal: `ret (a, b);`.");
+        p->hadError = true;
+        return NULL;
+    }
+    AST *value = parseExpr(p);
+    if (!value) {
+        aetherReportMissingExpr(p, "after 'ret'");
+        p->hadError = true;
+        return NULL;
+    }
+    const AetherTupleSig *sig = aetherTupleSigOfExpr(p, value);
+    bool same = sig && aetherTupleItemsMatch(sig->itemTypes, sig->itemCount, mine->itemTypes,
+                                             mine->itemCount);
+    if (!same) {
+        char detail[400];
+        if (sig) {
+            char have[160];
+            aetherFormatTupleItems(sig->itemTypes, sig->itemCount, have, sizeof(have));
+            snprintf(detail, sizeof(detail),
+                     "this function returns %s, but the returned value is %s.", want, have);
+        } else {
+            snprintf(detail, sizeof(detail),
+                     "a tuple-return function must return a tuple literal `(...)`, a call to a "
+                     "function returning %s, or a variable holding one.", want);
+        }
+        reportAetherAstError(aetherSemanticGetSourcePath(), line, "tuple", detail,
+                             "return a tuple literal built from the parts: `ret (a, b);`.");
+        p->hadError = true;
+        freeAST(value);
+        return NULL;
+    }
+    if (aetherTailRejectJuxtaposed(p)) {
+        freeAST(value);
+        return NULL;
+    }
+    if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
+
+    char srcType[40];
+    aetherTupleSyntheticTypeName(srcType, sizeof(srcType), sig->typeId);
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    AST *src = value;
+    if (value->type != AST_VARIABLE) {
+        char tmpName[64];
+        snprintf(tmpName, sizeof(tmpName), "__aether_tupfwd_%d", p->nextObjLitId++);
+        VarType tvt = TYPE_UNKNOWN;
+        AST *tmpTypeNode = buildTypeNode(srcType, strlen(srcType), line, &tvt);
+        AST *decl = newASTNode(AST_VAR_DECL, NULL);
+        addChild(decl, buildVarRef(tmpName, tvt, line));
+        setLeft(decl, value);
+        setRight(decl, tmpTypeNode);
+        setTypeAST(decl, tvt);
+        addChild(outer, decl);
+        bindingTableSet(p->bindings, tmpName, srcType);
+        src = buildVarRef(tmpName, tvt, line);
+    }
+    AST *items[16];
+    size_t n = sig->itemCount < 16 ? sig->itemCount : 16;
+    for (size_t i = 0; i < n; i++) {
+        char fieldName[32];
+        snprintf(fieldName, sizeof(fieldName), "item%zu", i);
+        VarType vt = TYPE_UNKNOWN;
+        AST *tn = buildTypeNodeFromName(sig->itemTypes[i], strlen(sig->itemTypes[i]), line, &vt);
+        if (tn) freeAST(tn);
+        Token *fldTok = newToken(TOKEN_IDENTIFIER, fieldName, line, 0);
+        AST *fldVar = newASTNode(AST_VARIABLE, fldTok);
+        AST *fa = newASTNode(AST_FIELD_ACCESS, fldTok);
+        setLeft(fa, copyAST(src));
+        setRight(fa, fldVar);
+        setTypeAST(fa, vt);
+        items[i] = fa;
+    }
+    freeAST(src);
+    AST *ret = buildTupleReturnFromItems(p, items, n, line);
+    if (!ret) { freeAST(outer); return NULL; }
+    addChild(outer, ret);
+    return outer;
+}
+
 /* ret [expr] ;  ->  AST_RETURN (mirrors rea parseReturn).
  *
  * Three contract/tuple-aware shapes (MILESTONE 3), matching translate.c:
@@ -2041,10 +2252,7 @@ AST *parseRet(AetherParser *p) {
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             return parseTupleReturn(p, line);
         }
-        reportAetherAstError(aetherSemanticGetSourcePath(), line, "tuple",
-                "a tuple-return function must return a tuple literal `(...)`.", NULL);
-        p->hadError = true;
-        return NULL;
+        return parseTupleForwardReturn(p, line);
     }
 
     aetherAdvance(p); /* consume 'ret' */
@@ -2583,8 +2791,14 @@ AST *parseLoopRange(AetherParser *p) {
                    ? NULL : parseAdd(p);
     if (!low) {
         if (!p->hadError) {
+            /* `loop i in ..5`: open bounds belong to slices only. */
+            bool openLow = (p->current.type == AE_TOKEN_DOTDOT);
             reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
-                    "expected '<low>..<high>' or a collection after 'in' in the loop header.", NULL);
+                    openLow ? "a loop range needs both bounds: `loop i in <low>..<high>`."
+                            : "expected '<low>..<high>' or a collection after 'in' in the loop header.",
+                    openLow ? "start from 0 explicitly: `loop i in 0..n { ... }`; an open "
+                              "bound (`xs[..b]`, `xs[a..]`) is only a slice."
+                            : NULL);
         }
         p->hadError = true;
         free(nameBuf);
@@ -2623,6 +2837,19 @@ AST *parseLoopRange(AetherParser *p) {
      * step are evaluated once; theirs stay ahead of the loop. Backlog W4-33
      * (tests/backlog/range_bound_reread) is the re-read itself: the fix that
      * evaluates the bound once must move these hoists back ahead of the loop. */
+    /* `loop i in a.. {`: an open end is a slice form (`xs[a..]`), not a range. */
+    if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+        if (!p->hadError) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
+                    "a loop range needs both bounds: `loop i in <low>..<high>`.",
+                    "to run to the end of an array, write `loop i in a..length(xs)` or "
+                    "`loop x in xs[a..]`; with no end at all, write `loop cond { ... }`.");
+        }
+        p->hadError = true;
+        freeAST(low);
+        free(nameBuf);
+        return NULL;
+    }
     int highMark = p->pendingObjLitCount;
     AST *high = parseAdd(p);
     if (!high) {

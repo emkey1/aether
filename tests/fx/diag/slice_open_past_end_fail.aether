@@ -1,0 +1,9 @@
+// An open slice whose start is past the end is a coded ARR-003, as a bounded
+// slice with reversed bounds is (it used to be the uncoded backend line
+// "SetLength: array length must be non-negative.").
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let start: Int = 4;
+    let ys: Int[] = xs[start..];
+    fx { println(length(ys)); }
+}

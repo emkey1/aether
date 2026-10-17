@@ -1,0 +1,3 @@
+slice_no_bounds_fail.aether:4:
+a slice needs at least one bound
+`let ys = xs;`

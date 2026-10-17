@@ -1,0 +1,24 @@
+// Open-ended slices of a record's fields, from outside and through `self`.
+type Stack {
+    data: Int[];
+    name: Text;
+
+    fn dropFirst(self) -> Int[] {
+        ret self.data[1..];
+    }
+
+    fn prefix(self, n: Int) -> Text {
+        ret self.name[..n];
+    }
+}
+
+fn main() -> Void {
+    let s: Stack = new Stack { data: [1, 2, 3], name: "stacked" };
+    let rest: Int[] = s.data[1..];
+    rest[0] = 42;
+    fx {
+        println(length(s.dropFirst()), " ", s.data[1], " ", rest[0]);
+        println(s.prefix(5), " ", s.name[5..]);
+        println(s.data[..2][1]);
+    }
+}

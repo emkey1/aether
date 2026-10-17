@@ -1,0 +1,9 @@
+// A tuple-return fn returning a scalar: TUP-001 names the three legal forms.
+fn f(x: Int) -> (Int, Int) {
+    ret x;
+}
+
+fn main() -> Void {
+    let (a, b) = f(1);
+    fx { println(a, b); }
+}

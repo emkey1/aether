@@ -1,0 +1,6 @@
+// A slice with neither bound: a whole copy is an assignment.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let ys: Int[] = xs[..];
+    fx { println(length(ys)); }
+}

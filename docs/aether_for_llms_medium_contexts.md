@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-16-1*
+*Guide version: 2026-10-17-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -45,7 +45,8 @@ Everything needed to write correct Aether in one shot.
 11. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas, no
     closures, never pass a function as an argument, and there is no
     `map`/`filter`/`reduce` — write a `loop`. To run your own code concurrently
-    use `par { f(); g(); }`.
+    use `par { f(); g(); }`. Every `fn` is top-level: one inside another fn's
+    body is FUNC-001 — pass what it needs as parameters (or a record).
 12. **PAR-001.** Each `par` branch must own the record it writes. The same record
     passed to two branches races and is rejected. Give each branch its own and
     combine after the block.
@@ -75,7 +76,8 @@ Everything needed to write correct Aether in one shot.
     ✗ `loop i in 0..n { }` when `i` is already a variable
 21. **TUP-001.** Tuples are narrow. `let (a, b) = pair();` works on a direct
     top-level helper call. To read one field, bind first: `let t = pair(); t.0;`
-    — never `pair().0` chained onto the call. If the producer is a method or an
+    — never `pair().0` chained onto the call. A tuple fn may `ret g(x);` when
+    `g` returns the same tuple type. If the producer is a method or an
     expression, return a record and read its fields instead.
 22. **IMP-001 / MOD-001 / MOD-002.** Canonical import is `use "module_name";`.
     Never invent an import. Imported names match exported names *exactly* — `use`
@@ -112,11 +114,9 @@ checks; **Repair rules** lists the codes.
 - `use module_name;` without quotes, or `export { ... }`
 - invented helpers not listed here (BUILT-001)
 - `toon_parse_string(text)` — the text parser is `toon_parse(text)`
-- anonymous functions, lambdas, or passing a function as a value (FUNC-001)
 - arithmetic on, or cross-assignment of, `ToonDoc` / `ToonNode` (TOON-001)
 - `let stream: Int = mstreamcreate();` — streams are `MStream` (MS-001)
 - annotations inside a function body (ANN-001)
-- `pair().0` — bind the tuple first (TUP-001)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. It is a `[NARROW-001]` warning, so it compiles —
   write `int(...)` when you mean to truncate
@@ -389,10 +389,7 @@ fn main() -> Void {
 The limits, all reported as `TUP-001`:
 
 - Destructuring works only on a **direct call to a top-level tuple-returning
-  function**. A method, an undefined helper, or a nested expression is rejected
-  with "tuple destructuring target is not a known tuple-return function".
-- `.N` works only on a **bound variable**. `pairSquares(6).0` chained onto the
-  call is rejected with a hint to bind it first.
+  function**, not on a method, an undefined helper, or a nested expression.
 - An index at or past the arity (`t.2` on a 2-tuple) is a **compile-time** error,
   not a crash.
 - Methods cannot return tuples.
@@ -535,10 +532,9 @@ whole-string `to_upper` — build them with a loop over `ord` / `chr` if a task
 demands one.
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
-the first character, `s[string_len(s) - 1]` the last, and `s[a..b]` is the
-substring from `a` up to but not including `b`; `s[i] = "x"` replaces one
-character. Visit each character with `loop ch in s { ... }`, or by index with
-`loop i in 0..string_len(s) { ... s[i] ... }`.
+the first character, `s[string_len(s) - 1]` the last, `s[a..b]` slices like an
+array, and `s[i] = "x"` replaces one character. Visit each character with
+`loop ch in s { ... }`, or by index with `loop i in 0..string_len(s) { ... s[i] ... }`.
 
 ## Dynamic arrays
 
@@ -557,8 +553,10 @@ fn main() -> Void {
 }
 ```
 
-`xs[a..b]` is half-open, matching `loop i in a..b`. There is no first-class
-Range value — `a..b` is meaningful only inside `[...]` or a `loop` header.
+`xs[a..b]` is half-open, matching `loop i in a..b`; `xs[a..]` runs to the end
+(`queue = queue[1..];`) and `xs[..b]` starts at 0, for `Text` too. There is no
+first-class Range value — `a..b` is meaningful only inside `[...]` or a `loop`
+header.
 `setlength(xs, n)` resizes in place (new slots take the type zero); `xs == ys`
 compares element by element, nested arrays included.
 

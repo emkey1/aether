@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-16-3*
+*Guide version: 2026-10-17-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -43,7 +43,9 @@ If you only read one part of this document, read **Highest-Value Rules** and
 9. **TUP-001.** Tuples are narrow: destructure direct top-level helper
    returns (`let (a, b) = pair();`), or bind to one variable and read a
    single field with `.0`/`.1`/`.2` (`let t = pair(); t.0;`) -- but not
-   `pair().0` directly. Assume nothing else. Recursive tuple-returning
+   `pair().0` directly. A tuple-return fn may also `ret` a call to a fn
+   returning the same tuple type (`ret parseNumber(s, pos);`) or a variable
+   holding one. Assume nothing else. Recursive tuple-returning
    functions (direct or indirect) and concurrent `par`-branch calls to the
    same tuple-returning function are fully supported (tuple returns lower
    to a record returned by value, reentrant per call).
@@ -90,7 +92,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
     builtin *name* as `Text` (`task_spawn("delay", "worker", 5)`), not a
     function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
     To run your own code concurrently, call your functions inside a
-    `par { ... }` block (see **Concurrency**), not `task_spawn`.
+    `par { ... }` block (see **Concurrency**), not `task_spawn`. Every `fn`
+    is top-level: one declared inside another function's body is FUNC-001.
+    Move it to the top level and pass the values it needs as parameters (or
+    a record for shared mutable state).
 21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
@@ -165,6 +170,7 @@ when unsure about a type, add it explicitly.
 - annotations inside a function body (ANN-001)
 - a tuple index chained directly onto a call: `pair().0` — bind it first,
   `let t = pair(); t.0;` (TUP-001)
+- a `fn` declared inside another function to capture its locals (FUNC-001)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. The fractional part is discarded silently — this is
   a `[NARROW-001]` **warning**, so it still compiles. Write `int(...)` when the
@@ -366,6 +372,20 @@ fn main() -> Void {
 The binding may carry the tuple's type — `let t: (Int, Int) = pairSquares(6);`
 — when it matches the called function; a mismatched annotation, and a tuple
 type on a parameter, a field or an array element, are `TUP-001`.
+
+A tuple-return function can hand back another one's result unchanged: `ret`
+a call to a function returning the same tuple type, or a variable holding
+one. Any other non-literal `ret` there is `TUP-001`.
+
+```aether
+fn parseDigit(s: Text, pos: Int) -> (Int, Int) {
+    ret (ord(s[pos]) - ord("0"), pos + 1);
+}
+
+fn parseTerm(s: Text, pos: Int) -> (Int, Int) {
+    ret parseDigit(s, pos);
+}
+```
 
 An index at or past the tuple's arity is a compile-time `TUP-001` error
 ("tuple index .N is out of range"), not a runtime crash. `.N` only works on
@@ -909,6 +929,7 @@ Additional verified `Text` builtins (all pure, no `fx` needed):
 |---|---|
 | `s[i]` | the character at `i`; **0-based**, like arrays (`s[0]` is the first) |
 | `s[a..b]` | substring from `a` up to but not including `b`, like `arr[a..b]` |
+| `s[a..]` / `s[..b]` | from `a` to the end / the first `b` characters; past the end gives `""` |
 | `s[i] = "x"` | replace the character at `i` with a one-character `Text` |
 | `loop ch in s { ... }` | each character in turn, as a one-character `Text` |
 | `copy(s, start, count)` | substring; `start` is 0-based, `count` is a length |
@@ -1074,6 +1095,7 @@ let ys: Int[] = [1, 2, 3];
 let zs: Int[] = xs + ys; // concatenation: `arr1 + arr2`, both already-built arrays
 xs = xs + ys;            // same idiom, self-reassignment form
 let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like loop ranges)
+let rest: Int[] = ys[1..]; // open end: elements 1 to the end; ys[..2] is ys[0..2]
 ```
 
 - `Type[]` declares; `[]` is the empty literal
@@ -1085,9 +1107,12 @@ let mid: Int[] = ys[0..2]; // slice: a COPY of elements 0..1 (half-open, like lo
   expressions, neither necessarily a literal) concatenates: the RHS is
   evaluated once and every one of its elements is appended, in order
 - `xs[a..b]` slices out a **copy** of elements `a` through `b - 1`
-  (half-open, same convention as `loop i in a..b`). This is sugar scoped to
-  indexing brackets, not a first-class Range value -- `a..b` has no meaning
-  outside `[...]`
+  (half-open, same convention as `loop i in a..b`). Either bound may be left
+  out: `xs[a..]` runs to the end (`queue = queue[1..];` drops the head) and
+  `xs[..b]` starts at 0. A start past the end, or after the stop, is a run-time
+  `ARR-003`. This is sugar scoped to indexing brackets, not a first-class Range
+  value -- `a..b` has no meaning outside `[...]`, and a `loop` range still needs
+  both bounds
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
 - `setlength(xs, n)` resizes in place: new slots take the element type's zero,
   surplus slots are dropped. Presize with it before an index loop instead of

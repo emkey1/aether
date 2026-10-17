@@ -267,6 +267,7 @@ void reportAetherAstError(const char *path, int line, const char *kind,
 void bindingTableSet(AetherBindingTable *t, const char *name, const char *typeName);
 const char *bindingTableGet(const AetherBindingTable *t, const char *name, size_t len);
 const AetherTupleSig *tupleTableGet(const AetherTupleTable *t, const char *name, size_t len);
+const AetherTupleSig *aetherTupleSigOfExpr(AetherParser *p, AST *e);
 void aetherTupleSyntheticTypeName(char *buf, size_t bufSize, int typeId);
 void aetherAdvance(AetherParser *p);
 void pushPendingObjLit(AetherParser *p, AST *hoisted);
@@ -314,6 +315,7 @@ void aetherAlignSpliceLines(AST *outer, AST *anchor);
 bool aetherArrayInitMayAlias(const AST *init);
 AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, int itemCount, int line, AST *src);
 AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
+AST *aetherBuildIntConst(long v, int line);
 AST *buildVarRef(const char *name, VarType vt, int line);
 AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *other,
                       char *otherTypeName, int line, AST *src);

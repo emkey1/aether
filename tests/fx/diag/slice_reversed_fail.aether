@@ -1,0 +1,7 @@
+// A bounded slice whose start is past its end: ARR-003, not the uncoded
+// backend "SetLength: array length must be non-negative.".
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let ys: Int[] = xs[2..1];
+    fx { println(length(ys)); }
+}

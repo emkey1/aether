@@ -1,0 +1,7 @@
+// An open end is a slice form only: a loop range still needs both bounds.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    loop i in 1.. {
+        fx { println(xs[i]); }
+    }
+}

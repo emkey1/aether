@@ -128,6 +128,12 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "unknown-type") == 0) {
             return "TYPE-002";
         }
+        /* A `fn` declared inside a function body (or any block). Aether has
+         * no nested functions or closures (D49, D50); FUNC-001 is the rule
+         * that functions are top-level names, not values. */
+        if (strcmp(kind, "nested-fn") == 0) {
+            return "FUNC-001";
+        }
     }
 
     if (!detail) {

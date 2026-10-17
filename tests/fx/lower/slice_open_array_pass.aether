@@ -1,0 +1,43 @@
+// Open-ended slices on arrays (2026-10-17-1): `xs[a..]` is `xs[a..length(xs)]`
+// and `xs[..b]` is `xs[0..b]`. A base that makes a call is evaluated once.
+fn tail(xs: Int[]) -> Int[] {
+    ret xs[1..];
+}
+
+fn made() -> Int[] {
+    fx { println("made"); }
+    ret [5, 6, 7, 8];
+}
+
+fn main() -> Void {
+    let queue: Int[] = [1, 2, 3, 4];
+    let total: Int = 0;
+    loop length(queue) > 0 {
+        total = total + queue[0];
+        queue = queue[1..];
+    }
+    let xs: Int[] = [10, 20, 30];
+    let n: Int = length(xs);
+    let front: Int[] = xs[..2];
+    let none: Int[] = xs[n..];
+    let fromCall: Int[] = made()[2..];
+    let g: Int[][] = [[1, 2, 3], [4, 5, 6]];
+    let row: Int[] = g[1][1..];
+    row[0] = 99;
+    let k: Int = 0;
+    loop length(xs[k..]) > 1 {
+        k = k + 1;
+    }
+    fx {
+        println(total);
+        println(length(tail([1, 2, 3])));
+        println(front[0], " ", front[1], " ", length(front));
+        println(length(none));
+        println(length(fromCall), " ", fromCall[0]);
+        println(g[1][1], " ", row[0]);
+        println(k);
+    }
+    loop v in xs[1..] {
+        fx { println(v); }
+    }
+}

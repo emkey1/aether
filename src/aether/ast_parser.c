@@ -2121,6 +2121,20 @@ static const char *aetherPostfixReceiverTypeName(AetherParser *p, AST *node) {
     return bindingTableGet(p->bindings, node->token->value, strlen(node->token->value));
 }
 
+/* The tuple signature of `e`'s value: a direct call to a tuple-return fn, or a
+ * variable bound to one (`let t = f();`, `let t: (A, B) = f();`). NULL when `e`
+ * is not a tuple. */
+const AetherTupleSig *aetherTupleSigOfExpr(AetherParser *p, AST *e) {
+    if (!p || !e) return NULL;
+    if (e->type == AST_PROCEDURE_CALL && !e->left && e->token && e->token->value)
+        return tupleTableGet(p->tuples, e->token->value, strlen(e->token->value));
+    int typeId = 0;
+    const char *tn = aetherPostfixReceiverTypeName(p, e);
+    if (tn && aetherParseSyntheticTupleTypeId(tn, &typeId))
+        return tupleTableGetByTypeId(p->tuples, typeId);
+    return NULL;
+}
+
 static AST *parsePostfix(AetherParser *p, AST *base) {
     AST *node = base;
     while (p->current.type == REA_TOKEN_DOT || p->current.type == REA_TOKEN_LEFT_BRACKET ||
@@ -2222,7 +2236,10 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 freeAST(node);
                 return NULL;
             }
-            AST *index = parseExpr(p);
+            /* `xs[..b]` starts at 0: the open start is a literal 0. */
+            bool openStart = (p->current.type == AE_TOKEN_DOTDOT);
+            AST *index = openStart
+                             ? aetherBuildIntConst(0, p->current.line) : parseExpr(p);
             if (!index && p->current.type != AE_TOKEN_DOTDOT) {
                 aetherReportMissingExpr(p, "as the index");
                 freeAST(node);
@@ -2245,7 +2262,22 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                  * doesn't need the same guard: '..' isn't a valid expression
                  * continuation for any parse rule, so parseExpr(p) for `a`
                  * already stops cleanly at it. */
-                AST *hi = parseAdd(p);
+                /* `xs[a..]` runs to the end: hi stays NULL and buildArraySlice
+                 * supplies `length(xs)`. `xs[..]` (no bound at all) is refused:
+                 * a whole copy is `let ys = xs;`. */
+                bool openEnd = (p->current.type == REA_TOKEN_RIGHT_BRACKET);
+                if (openStart && openEnd) {
+                    if (!p->hadError) {
+                        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                                "a slice needs at least one bound: `xs[a..]`, `xs[..b]` or `xs[a..b]`.",
+                                "to copy the whole array or Text, assign it: `let ys = xs;`.");
+                    }
+                    p->hadError = true;
+                    freeAST(index);
+                    freeAST(node);
+                    return NULL;
+                }
+                AST *hi = openEnd ? NULL : parseAdd(p);
                 if (p->current.type == REA_TOKEN_RIGHT_BRACKET) {
                     aetherAdvance(p);
                 } else if (!p->hadError) {
@@ -2255,7 +2287,7 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                     reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
                     p->hadError = true;
                 }
-                if (!index || !hi || p->hadError) {
+                if (!index || (!hi && !openEnd) || p->hadError) {
                     if (index) freeAST(index);
                     if (hi) freeAST(hi);
                     freeAST(node);
@@ -4944,6 +4976,23 @@ static AST *parseStatementInner(AetherParser *p) {
         }
         /* `fx` with no following block: a no-op block. */
         return newASTNode(AST_COMPOUND, NULL);
+    }
+    /* `fn backtrack(row: Int) -> Void { ... }` inside a function body: models
+     * reach for a nested fn to capture locals (N-Queens, Dijkstra). It used to
+     * parse `fn` as a call and say "expected ')' to close argument list".
+     * Aether has no nested functions (D50); name the fix instead. */
+    if (isAetherKeyword(&p->current, "fn") && !p->detachedText) {
+        int fnLine = p->current.line;
+        char detail[200];
+        snprintf(detail, sizeof(detail), "%s",
+                 p->functionDepth > 0
+                     ? "functions cannot be declared inside another function."
+                     : "functions cannot be declared inside a block.");
+        reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "nested-fn", detail,
+                "move it to the top level and pass the values it needs as parameters "
+                "(or a record for shared mutable state).");
+        p->hadError = true;
+        return NULL;
     }
     /* `(a, b) = step(j);`: tuple assignment. Aether destructures only into
      * fresh names; this was a generic SYN-001 (W4-25). */

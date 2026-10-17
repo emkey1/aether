@@ -1,0 +1,72 @@
+// Tuple forwarding (2026-10-17-1): a tuple-return fn may `ret` a call to a fn
+// returning the same tuple type, or a variable holding one. Recursive-descent
+// parsers written by models do exactly this.
+fn parseNumber(s: Text, pos: Int) -> (Int, Int) {
+    let v: Int = 0;
+    let i: Int = pos;
+    loop i < length(s) && s[i] >= "0" && s[i] <= "9" {
+        v = v * 10 + ord(s[i]) - ord("0");
+        i = i + 1;
+    }
+    ret (v, i);
+}
+
+fn parseTerm(s: Text, pos: Int) -> (Int, Int) {
+    ret parseNumber(s, pos);
+}
+
+fn parseSum(s: Text, pos: Int) -> (Int, Int) {
+    let (v, p) = parseTerm(s, pos);
+    if p < length(s) && s[p] == "+" {
+        let (w, q) = parseSum(s, p + 1);
+        ret (v + w, q);
+    }
+    ret (v, p);
+}
+
+fn viaAnnotated(s: Text) -> (Int, Int) {
+    let t: (Int, Int) = parseSum(s, 0);
+    ret t;
+}
+
+fn viaBare(s: Text) -> (Int, Int) {
+    let t = parseSum(s, 0);
+    ret t;
+}
+
+fn countdown(n: Int) -> (Int, Text) {
+    if n == 0 {
+        ret (0, "done");
+    }
+    ret countdown(n - 1);
+}
+
+fn first(n: Int) -> (Int, Int) {
+    ret later(n);
+}
+
+fn later(n: Int) -> (Int, Int) {
+    ret (n, n * 2);
+}
+
+@post result.0 >= 0
+fn guarded(s: Text) -> (Int, Int) {
+    ret parseNumber(s, 0);
+}
+
+fn main() -> Void {
+    let (a, b) = parseSum("12+30+4", 0);
+    let (c, d) = viaAnnotated("7+8");
+    let (e, f) = viaBare("100");
+    let (g, h) = countdown(5);
+    let (i, j) = first(4);
+    let (k, l) = guarded("42x");
+    fx {
+        println(a, " ", b);
+        println(c, " ", d);
+        println(e, " ", f);
+        println(g, " ", h);
+        println(i, " ", j);
+        println(k, " ", l);
+    }
+}

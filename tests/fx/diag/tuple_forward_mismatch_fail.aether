@@ -1,0 +1,13 @@
+// Forwarding needs the same tuple type: (Int, Text) is not (Int, Int).
+fn other(n: Int) -> (Int, Text) {
+    ret (n, "a");
+}
+
+fn f(x: Int) -> (Int, Int) {
+    ret other(x);
+}
+
+fn main() -> Void {
+    let (a, b) = f(1);
+    fx { println(a, b); }
+}

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-16-1*
+*Guide version: 2026-10-17-1*
 
 ## Highest-Value Rules
 
@@ -34,8 +34,9 @@
     and `Text`; crossing them fails at run time.
 11. **TUP-001.** Tuples are narrow: destructure a direct top-level call,
     `let (a, b) = pair();`, or bind it and read a field, `let t = pair(); t.0;`
-    (zero-based) -- never `pair().0` on the call. If the producer is a method
-    or an expression, return a record instead. An index past the arity is a
+    (zero-based) -- never `pair().0` on the call. A tuple fn may `ret g(x);`
+    when `g` returns the same tuple type. If the producer is a method or an
+    expression, return a record instead. An index past the arity is a
     compile-time TUP-001. A tuple `@post` uses `result.0`, `result.1`.
     Recursion through a tuple-returning function is fine.
 12. **OUT-001.** Return raw Aether source only. No Markdown fences.
@@ -68,7 +69,8 @@
 23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
     no lambdas, no closures, never pass a function as an argument. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
-    use `par { f(); g(); }`.
+    use `par { f(); g(); }`. Every `fn` is top-level: one inside another fn's
+    body is FUNC-001; pass what it needs as parameters (or a record).
 24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
@@ -382,7 +384,8 @@ and indexing twice is `ARR-002`.
 `setlength(xs, n)` resizes in place
 (new slots take the type zero); `xs == ys` compares element by element.
 `a..b` is half-open in a slice as in `loop i in a..b`, and means nothing
-outside `[...]` or a `loop` header.
+outside `[...]` or a `loop` header. A slice may drop a bound: `xs[a..]` runs to
+the end (`queue = queue[1..];`), `xs[..b]` starts at 0 (`Text` too).
 
 **Arrays are value-copied at the call boundary; records are not.** Passing
 `xs` into a function gives that function its own copy -- mutating it there
@@ -735,9 +738,8 @@ fix:
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function, keep effects out of pure code, and mark its helpers `@pure`.
-- **[TUP-001]** tuple misuse → destructure a direct top-level call, or bind it
-  and read one field (`let t = pair(); t.0;`, never `pair().0`); otherwise return
-  a record and read its fields.
+- **[TUP-001]** tuple misuse → the forms in rule 11; otherwise return a record
+  and read its fields.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int
   = 3.7;`, `n = random();`) → the fraction is discarded. Use a `Real` target, or
   `int(...)` if truncating is intended.

@@ -1,0 +1,2 @@
+nested_fn_block_fail.aether:5:
+functions cannot be declared inside another function

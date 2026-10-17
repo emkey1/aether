@@ -1,0 +1,4 @@
+loop_open_range_fail.aether:4:
+a loop range needs both bounds
+loop i in a..length(xs)
+!expected an expression

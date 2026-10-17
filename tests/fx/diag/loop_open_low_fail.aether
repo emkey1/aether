@@ -1,0 +1,6 @@
+// `loop i in ..n`: the low bound is written out.
+fn main() -> Void {
+    loop i in ..3 {
+        fx { println(i); }
+    }
+}

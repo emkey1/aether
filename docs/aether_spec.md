@@ -297,7 +297,10 @@ fn f() { ret; }
 fn main() -> Void { f(); }
 ```
 
-```aether @reject=SYN-001 id=G.FnDecl.3
+Every `fn` is top-level (or a method in a `type`): one declared inside a
+function body is `FUNC-001`.
+
+```aether @reject=FUNC-001 id=G.FnDecl.3
 fn main() -> Void {
     fn helper() -> Int { ret 1; }
 }
@@ -872,6 +875,14 @@ fn main() -> Void {
 }
 ```
 
+A range needs both bounds; an open bound is only a slice form:
+
+```aether @reject=SYN-001 id=G.Range.4
+fn main() -> Void {
+    loop i in 1.. { }
+}
+```
+
 Decision D7 accepts `a..=b` as the inclusive range; today it is rejected:
 
 ```aether @bug=D7 now=SYN-001 id=G.Range.3
@@ -998,6 +1009,32 @@ fn f() -> Int { return 1; }
 fn main() -> Void { }
 ```
 
+In a tuple-return function, `ret` takes a tuple literal, a call to a function
+returning the same tuple type, or a variable holding one; anything else is
+`TUP-001`.
+
+```aether @ok id=G.RetStmt.4
+fn digit(s: Text, i: Int) -> (Int, Int) { ret (ord(s[i]) - ord("0"), i + 1); }
+fn term(s: Text, i: Int) -> (Int, Int) { ret digit(s, i); }
+fn twice(s: Text) -> (Int, Int) {
+    let t: (Int, Int) = term(s, 0);
+    ret t;
+}
+fn main() -> Void {
+    let (v, next) = twice("7x");
+    fx { println(v, " ", next); }
+}
+```
+
+```text
+7 1
+```
+
+```aether @reject=TUP-001 id=G.RetStmt.5
+fn f(n: Int) -> (Int, Int) { ret n; }
+fn main() -> Void { }
+```
+
 ```aether @ok id=G.ExprStmt.1
 type C { n: Int = 0; fn inc(self) -> Void { self.n = self.n + 1; } }
 fn main() -> Void {
@@ -1035,7 +1072,7 @@ AddExpr    = MulExpr { ( "+" | "-" ) MulExpr } ;
 MulExpr    = Unary { ( "*" | "/" | "div" | "%" | "mod" ) Unary } ;
 Unary      = ( "-" | "!" | "not" ) Unary | Postfix ;
 Postfix    = Primary { "." Ident [ "(" [ Args ] ")" ] | "." Digits
-           | "[" Expr [ ".." Expr ] "]" } ;
+           | "[" Expr [ ".." [ AddExpr ] ] "]" | "[" ".." AddExpr "]" } ;
 Primary    = Literal | Ident | Call | "(" Expr ")" | ArrayLit | RecordLit
            | NewExpr | "self" | "nil" ;
 Call       = Ident "(" [ Args ] ")" ;
@@ -1318,6 +1355,28 @@ fn main() -> Void {
 
 ```text
 5 2 el h 2
+```
+
+A slice may leave out one bound: `xs[a..]` is `xs[a..length(xs)]` and
+`xs[..b]` is `xs[0..b]`, on arrays and `Text` alike. The base is evaluated once.
+
+```aether @ok id=G.Postfix.4
+fn main() -> Void {
+    let xs: Int[] = [5, 6, 7];
+    let s: Text = "hello";
+    fx { println(length(xs[1..]), " ", xs[..2][1], " ", length(xs[3..]), " ", s[2..], " ", s[..2]); }
+}
+```
+
+```text
+2 6 0 llo he
+```
+
+```aether @reject=SYN-001 id=G.Postfix.5
+fn main() -> Void {
+    let xs: Int[] = [5, 6, 7];
+    let ys: Int[] = xs[..];
+}
 ```
 
 ```aether @reject=TUP-001 id=G.Postfix.2
