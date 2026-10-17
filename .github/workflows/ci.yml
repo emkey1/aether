@@ -42,6 +42,15 @@ jobs:
         run: cmake --build build -j "$(nproc)"
       - name: Test
         run: ctest --test-dir build --output-on-failure -LE 'stress|metric'
+      # The benchmark oracle (every reference_solution, should_fail program and
+      # the sandbox probe) on Linux, moved here from the PBuild umbrella's CI
+      # with bench/ on 2026-10-17. instrument.yml only lints the manifests; a
+      # libc difference in val("") once broke tasks_frontier:val_checked_ledger
+      # on the Linux graders with no check noticing (2026-10-16).
+      # --no-python: the py_refs lap needs a baseline sandbox, which only macOS
+      # has (sandbox-exec); tools/instrument_check.sh runs it there.
+      - name: Benchmark oracle (Linux)
+        run: python3 tools/aether_oracle_check.py --aether-bin "$GITHUB_WORKSPACE/build/aether" --quiet --no-python
 
   macos:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'

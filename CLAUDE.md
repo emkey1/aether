@@ -62,14 +62,14 @@ re-blesses the goldens; read the printed diff before committing.
 
 `aether_replay` (`tests/run_replay.sh`) replays about 220 real model-written
 benchmark programs frozen in `tests/replay/`. Regenerate them only with
-`python3 tools/export_replay.py --umbrella <umbrella checkout>`; a declared
+`python3 tools/export_replay.py` (it reads `bench/results`); a declared
 language break goes in `tests/replay/WAIVED` with its CHANGELOG version.
 
 `tools/diag_census.py` measures failing programs' diagnostics (coded, hinted,
 uncoded backend lines, JSON `code: null`, stderr over 1,200 chars) over the
-umbrella's archived attempts, the `_fail` fixtures and deletion mutants. The
+archived attempts in `bench/results`, the `_fail` fixtures and deletion mutants. The
 baselines are in `tests/diag_census/`; after each diagnostics batch, re-run it
-with `--umbrella <checkout> --compare tests/diag_census/<last>.csv` and commit
+with `--umbrella . --compare tests/diag_census/<last>.csv` and commit
 the new CSV and table. `aether_diag_census` (label `metric`) is a quick report.
 
 ## Where a diagnostic comes from
@@ -101,7 +101,7 @@ Read `docs/aether_doc_maintenance.md` before editing one: stamps and changelog
 rows, the medium guide's 15,000-token ceiling (measure, never estimate), the
 paired-cut rule, and the LLM-only content audit. The guide freeze of decision
 register D3 ended on 2026-10-13: the B0, B0-small and B0-full baselines are committed
-in the umbrella repo, and guide pass 1 (G1) was adopted after a paired A/B. A guide
+under `bench/results/`, and guide pass 1 (G1) was adopted after a paired A/B. A guide
 edit now follows the normal rules above; measure it before calling it an improvement.
 
 ## Doc map
@@ -115,6 +115,39 @@ edit now follows the normal rules above; measure it before calling it an improve
 | Historical (do not trust for current behaviour) | `src/aether/DESIGN.md`, `src/aether/README.md`, `docs/parser_roadmap.md`, `docs/text_zero_based_migration_plan.md`, `docs/archive/` |
 | Generated | the builtin appendix at the end of the full guide |
 
-The benchmark harness and the fine-tuning corpus live in the umbrella repo
-(`emkey1/pscal`: `tools/aether_doc_bench.py`, `Tests/aether_doc_bench/`,
-`Tests/aether_specialization/`).
+## Benchmark and fine-tuning
+
+They moved here from the PBuild umbrella (`emkey1/pscal`) on 2026-10-17 as a
+plain move; their history before that is in the umbrella.
+
+| Path | What |
+|---|---|
+| `bench/` | task suites (`tasks*.json`, byte-identical to the umbrella's: reports hash them), `results/` (archived reports, never rewritten), `replay_waivers.json`, `manifest_history/` (pre-move manifest versions for replay), the offline tests |
+| `training/` | corpus candidates and manifests, seed pairs, datasets, run records; `training/config/` holds `families.json` and `runs/` |
+| `docs/benchmarks/`, `docs/bench_runbook.md` | per-run reports; the bench and eval ops runbook (read before any sweep) |
+| `tools/` | `aether_doc_bench.py` (the harness), `replay_bench.py`, `aether_oracle_check.py`, `instrument_check.sh`, `aether_specialization_*.py`, `aether_train_run.py`, `fleet_env.py` and the rest |
+
+Archived reports and the dataset manifests keep the umbrella's repo-relative
+paths (`Tests/aether_doc_bench/...`, `umbrella_commit`); readers map them with
+`aether_doc_bench.legacy_repo_path()`. Quick checks, no GPU:
+
+```sh
+python3 bench/test_doc_bench_offline.py
+python3 training/test_corpus_gates_offline.py && python3 training/test_train_run_offline.py
+python3 tools/aether_specialization_validate_corpus.py --strict
+bash tools/instrument_check.sh --lint-only          # --aether-bin build/aether for the full check
+python3 tools/replay_bench.py --aether-bin build/aether   # paired replay over bench/results
+```
+
+Fleet facts stay out of this repo: which machines run the boards and the
+training, their names, counts and hardware. Tracked files say "the GPU hosts" or
+"the training host", and archived records use the aliases `host-a` .. `host-g`
+(`bench/results/pack_reports.py` applies `FLEET_RULES` when packing reports, and
+`--rescrub` to anything already committed); the `fleet-hardware` rule of
+`tools/check_public_hygiene.py` fails on a slip. The tools read real names from
+the private overlay `~/.config/pscal/fleet.env` (`tools/fleet_env.py`): a run
+config's `"host": "host-c"` resolves through `AETHER_HOST_C`, the ssh user through
+`AETHER_TRAIN_SSH_USER`, the remote GPU host through `AETHER_REMOTE_GPU_HOST` /
+`AETHER_REMOTE_GPU_IP`, the distill proxy through `AETHER_DISTILL_TRA_TARGET` and
+`AETHER_DISTILL_PROXY_HOST`. Shared-GPU jobs go through the T'Ra scheduler as the
+umbrella's CLAUDE.md describes.

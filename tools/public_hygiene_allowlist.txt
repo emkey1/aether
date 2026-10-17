@@ -1,3 +1,30 @@
 # Public-hygiene allowlist for emkey1/aether (tools/check_public_hygiene.py).
 # Entries: `glob <path-glob> [<check>]` or `<path> <line-sha1-12>`, each with a reason.
 glob tools/check_public_hygiene.py  # the patterns themselves
+
+# ---- bench/ and training/, moved in from the PBuild umbrella on 2026-10-17 ----
+# Translated from the umbrella allowlist (its entries were seeded with --baseline on
+# 2026-10-06): archived records and notes that carry the run host's paths.
+glob training/corpus_candidates_manifest*.json home-path  # source_path provenance fields: the username only
+glob training/corpus_candidates_manifest.json.prebuild_csaug2.bak home-path  # same, archived manifest
+glob bench/results/** home-path  # archived run records carry the run host's temp/binary paths
+bench/run_full_guided.sh d9bdf11a10d5  # home path in pre-existing tooling or notes (line 19 at adoption)
+bench/run_full_guided.sh 6c1d1a864d08  # home path in pre-existing tooling or notes (line 21 at adoption)
+bench/run_full_guided_readiness.sh d9bdf11a10d5  # home path in pre-existing tooling or notes (line 7 at adoption)
+bench/run_full_guided_readiness.sh 6c1d1a864d08  # home path in pre-existing tooling or notes (line 8 at adoption)
+bench/run_guide_full_vs_medium.sh 6dc50bdf7a38  # home path in pre-existing tooling or notes (line 13 at adoption)
+bench/run_guide_full_vs_medium.sh d3cbe7648001  # home path in pre-existing tooling or notes (line 14 at adoption)
+bench/run_guide_full_vs_medium_all.sh 7a2a66537e38  # home path in pre-existing tooling or notes (line 7 at adoption)
+bench/run_guide_full_vs_medium_openai.sh db4950cc35f1  # home path in pre-existing tooling or notes (line 13 at adoption)
+bench/run_guide_full_vs_medium_openai.sh d3cbe7648001  # home path in pre-existing tooling or notes (line 14 at adoption)
+bench/run_guide_full_vs_medium_openai_all.sh 282c3ea05b8e  # home path in pre-existing tooling or notes (line 10 at adoption)
+bench/run_ornith_guided.sh d9bdf11a10d5  # home path in pre-existing tooling or notes (line 6 at adoption)
+bench/run_ornith_guided.sh 6c1d1a864d08  # home path in pre-existing tooling or notes (line 7 at adoption)
+training/bench_failure_mining_2026-07-01.md 06a9ae39a652  # home path in pre-existing tooling or notes (line 3 at adoption)
+training/corpus_reverify_2026-07-01.md ea3dc46ae7e2  # home path in pre-existing tooling or notes (line 5 at adoption)
+training/corpus_reverify_2026-07-01.md ac842d3c1623  # home path in pre-existing tooling or notes (line 35 at adoption)
+training/out_cs_aug2/aether_training_mix.json 4687db97aa13  # home path in pre-existing tooling or notes (line 2 at adoption)
+training/out_cs_aug2/aether_training_mix.json aa0e7615aecf  # home path in pre-existing tooling or notes (line 3 at adoption)
+training/out_cs_aug2/aether_training_mix.json ff1c210431df  # home path in pre-existing tooling or notes (line 4 at adoption)
+training/out_cs_aug2/aether_training_mix.json 8330a99b3062  # home path in pre-existing tooling or notes (line 5 at adoption)
+training/training_runs/mistral24b-cs-aug2-builtins.md e96d8d2d72a0  # home path in pre-existing tooling or notes (line 101 at adoption)

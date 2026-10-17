@@ -1,0 +1,21 @@
+name: Public hygiene
+
+# This repo is public: no host names, tailnet addresses, credential locations,
+# sudo notes, PATH dumps or session paths in tracked files. Names that are
+# themselves private come from the AETHER_PRIVATE_TERMS repository secret (one
+# regex per line); without it that part of the check is skipped and says so.
+
+on:
+  push:
+    branches: ["*"]
+  pull_request:
+
+jobs:
+  public-hygiene:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: No host, fleet, credential or session data in tracked files
+        env:
+          AETHER_PRIVATE_TERMS: ${{ secrets.AETHER_PRIVATE_TERMS }}
+        run: python3 tools/check_public_hygiene.py --root . --allowlist tools/public_hygiene_allowlist.txt

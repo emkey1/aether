@@ -25,8 +25,9 @@
 #                umbrella's pascal/clike or --pascal-bin/--clike-bin
 #   corpus-ab    tools/corpus_ab.py, the base binary (aether HEAD at HEAD's
 #                pins, or --baseline-bin) against the candidate over a corpus
-#                directory (--corpus, default the umbrella's
-#                Tests/aether_specialization/corpus_candidates)
+#                directory (--corpus, default this checkout's
+#                training/corpus_candidates, moved in from the umbrella
+#                on 2026-10-17)
 #   asan         opt-in (--asan): an AddressSanitizer build running tests/run.sh
 #                and the conformance pack, for releases that touch ownership
 #
@@ -52,7 +53,7 @@ Usage: tools/pin_gate.sh [options]
   --aether-bin BIN    test this binary instead of building one (smoke runs; the summary says so)
   --umbrella DIR      umbrella checkout to copy (default: $PSCAL_UMBRELLA); read only
   --umbrella-cmake-args "ARGS"   extra configure arguments for the umbrella build
-  --corpus DIR        corpus for corpus-ab (default: <umbrella>/Tests/aether_specialization/corpus_candidates)
+  --corpus DIR        corpus for corpus-ab (default: <aether-src>/training/corpus_candidates)
   --corpus-args "ARGS"  extra arguments for tools/corpus_ab.py (e.g. "--limit 200")
   --baseline-bin BIN  base binary for corpus-ab (default: build aether HEAD at HEAD's pins)
   --pascal-bin BIN, --clike-bin BIN   interpreters for the d19 probes without an umbrella build
@@ -432,9 +433,9 @@ fi
 
 # ---- corpus A/B -------------------------------------------------------------------------
 if want corpus-ab; then
-    [ -n "$CORPUS" ] || { [ -n "$UMBRELLA" ] && CORPUS="$UMBRELLA/Tests/aether_specialization/corpus_candidates"; }
+    [ -n "$CORPUS" ] || { [ -d "$AETHER_SRC/training/corpus_candidates" ] && CORPUS="$AETHER_SRC/training/corpus_candidates"; }
     if [ -z "$CORPUS" ]; then
-        record corpus-ab SKIP "no corpus (pass --corpus or set PSCAL_UMBRELLA)"
+        record corpus-ab SKIP "no corpus (pass --corpus; $AETHER_SRC has no training/corpus_candidates)"
     elif [ ! -d "$CORPUS" ]; then
         record corpus-ab FAIL "the --corpus directory does not exist"
     elif [ -z "$BIN" ]; then

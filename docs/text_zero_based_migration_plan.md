@@ -44,8 +44,8 @@ loop i in 1..length(s)  { ... }   // Text: DROPS THE LAST CHARACTER, no error
 Getting it right today requires `loop i in 1..length(s) + 1`, which nobody
 writes naturally.
 
-**Evidence from the last completed claw3 eval sweep** (`EVAL QUEUE COMPLETE`,
-`aether_eval_queue_cs_aug19_precision_claw3`), by failure cause:
+**Evidence from the last completed host-c eval sweep** (`EVAL QUEUE COMPLETE`,
+`aether_eval_queue_cs_aug19_precision_host-c`), by failure cause:
 
 | Cause | Attempts failed | Tasks |
 |---|---|---|
@@ -196,7 +196,7 @@ change so there is one cycle, not several. The two array-concat fixes
 *not* in that batch: they only widen what compiles, so they required no corpus
 edit and were landed standalone.
 
-**Deploy hazard:** every commit in this repo reaches claw1/2/3 and swaps the
+**Deploy hazard:** every commit in this repo reaches host-a/2/3 and swaps the
 grading binary. Confirm no eval is in flight before each step.
 
 ## Verification plan

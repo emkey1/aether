@@ -48,7 +48,7 @@ an entire frontier tier writes *every* program on the core benchmark correctly.
   raise them.
 - **Serving (the `served` column).** Local models run one resident at a time,
   unloaded between runs to bound memory — LM Studio 0.4.16 (MLX or llama.cpp) or
-  Ollama on the GB10 Sparks; the 122B by vLLM 0.20.2 on claw1; the cloud tier
+  Ollama on the GPU hosts; the 122B by vLLM 0.20.2 on host-a; the cloud tier
   (Z.ai GLM, Gemini, OpenAI) by API. Quant is part of the result and shown per
   row — a heavier quant of the same model may score differently.
 
@@ -76,7 +76,7 @@ stops. The v2/30 board fills that in, cloud and local together, sorted by size
 (exact out of 30; ✓ = compiled and ran):
 
 <!-- LEADERBOARD:START -->
-*think = reasoning effort. served: MLX/GGUF = LM Studio (local), vLLM/TRT-LLM = claw1, Z.ai/Gemini/OpenAI = cloud. Sorted by size, cloud first. 48 models scored; Retried and Fixed read 0 while the repair loop is off.*
+*think = reasoning effort. served: MLX/GGUF = LM Studio (local), vLLM/TRT-LLM = host-a, Z.ai/Gemini/OpenAI = cloud. Sorted by size, cloud first. 48 models scored; Retried and Fixed read 0 while the repair loop is off.*
 
 *Excluded as harness-incompatible (not capability results): `starcoder2-7b` (2024-02, context-window overflow), `stable-code-instruct-3b` (2024-03, chat-template parse failure), and `gemma4:12b` (Ollama, 0 of 30 produced a runnable program, a serving failure not a capability result).*
 

@@ -1,0 +1,48 @@
+name: Corpus
+
+# Fast, binary-free checks of the Aether fine-tuning corpus. The gates that
+# run programs (exact stdout, drill polarity, recapture --check, the guide
+# blocks' stdout) need an aether binary and run in
+# tools/aether_specialization_prepare_assets.py on the training host and in
+# tools/instrument_check.sh; here they are covered by offline tests against a
+# mock compiler. Moved in from the PBuild umbrella on 2026-10-17: the guides
+# are this repo's docs/, so no submodule is fetched.
+
+on:
+  push:
+    paths:
+      - "training/**"
+      - "bench/tasks*.json"
+      - "docs/aether_for_llms*.md"
+      - "tools/aether_specialization_*.py"
+      - "tools/aether_train_run.py"
+      - "tools/unsloth_qwen_coder_30b_sft.py"
+      - "tools/recapture_expected.py"
+      - "tools/check_guide_contamination.py"
+      - ".github/workflows/corpus.yml"
+  pull_request:
+    paths:
+      - "training/**"
+      - "bench/tasks*.json"
+      - "docs/aether_for_llms*.md"
+      - "tools/aether_specialization_*.py"
+      - "tools/aether_train_run.py"
+      - "tools/unsloth_qwen_coder_30b_sft.py"
+      - "tools/recapture_expected.py"
+      - "tools/check_guide_contamination.py"
+      - ".github/workflows/corpus.yml"
+
+jobs:
+  corpus-static:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: Corpus layout, oracle field and host data in goldens
+        run: python3 tools/aether_specialization_validate_corpus.py --strict > /dev/null
+      - name: Gate logic against a mock compiler
+        run: python3 training/test_corpus_gates_offline.py
+      - name: Training driver, family registry and run configs (no host, no GPU)
+        run: python3 training/test_train_run_offline.py
+      - name: Guide contamination (report mode until guide pass 1 renames land)
+        run: python3 tools/check_guide_contamination.py --docs-dir docs

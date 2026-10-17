@@ -24,8 +24,10 @@ one binary and records, per source:
   distinct_codes         distinct [CODE]s in that stderr
 
 Sources come in groups:
-  archive        every stored attempt in the umbrella's benchmark results
-                 (--umbrella; resolved and given its task's files and stdin the
+  archive        every stored attempt in a checkout's benchmark results
+                 (--umbrella: this repo, `--umbrella .`, since bench/ moved here
+                 on 2026-10-17, or an older PBuild umbrella; resolved and given
+                 its task's files and stdin the
                  way tools/export_replay.py does)
   fail_fixtures  tests/*_fail*.aether
   mutants        single-token deletions of tests/*_pass.aether, sampled
@@ -310,7 +312,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--aether", default=os.environ.get("AETHER_BIN", os.path.join(REPO, "build", "aether")))
     ap.add_argument("--umbrella", default=os.environ.get("PSCAL_UMBRELLA"),
-                    help="umbrella checkout whose benchmark results form the archive group")
+                    help="checkout whose bench results form the archive group (this repo: '.')")
     ap.add_argument("--mutants", type=int, default=1500, help="deletion mutants to sample (0: none)")
     ap.add_argument("--group", action="append", default=[], metavar="LABEL=GLOB")
     ap.add_argument("--no-fixtures", action="store_true", help="leave out tests/*_fail*.aether")

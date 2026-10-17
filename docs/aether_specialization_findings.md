@@ -8,8 +8,8 @@ untrained half. Broader historical findings are preserved at
 Every results table below is stamped with the **training corpus** and **test-suite
 version** it was produced against — both change over time, and a number without its
 provenance is not comparable to a later one. Test-suite versions are the `version`
-field baked into each `Tests/aether_doc_bench/tasks_*.json` file; corpus names match
-the `Tests/aether_specialization/out_<corpus>/` directory that produced the SFT data.
+field baked into each `bench/tasks_*.json` file; corpus names match
+the `training/out_<corpus>/` directory that produced the SFT data.
 
 **Model shorthand names encode generation and MoE-vs-dense, not just family —
 read them literally.** `qwen3-8b` is Qwen3 (`Qwen3ForCausalLM`). `qwen25-14b`
@@ -35,7 +35,7 @@ rather than trusting a name at face value.
 
 ## cs-aug20 (0-based `Text` corpus -- current primary board)
 
-**Corpus:** `cs-aug20` (`Tests/aether_specialization/out_cs_aug20`, dataset
+**Corpus:** `cs-aug20` (`training/out_cs_aug20`, dataset
 `2026-07-25-1`), 726 instruction + 38 repair records, built against aether
 `c660b1b`. Predecessor `cs-aug19` was 723 + 38.
 
@@ -137,9 +137,9 @@ under repair.
 
 **Grader drift is real; pin it.** Another session pushed `13f241f`, `d05ee22`
 (BUILT-002 compile-time builtin arity check), `3e37352` and more while this board
-was running, and autodeploy moved every claw's `aether-current` with them. The
+was running, and autodeploy moved every GPU host's `aether-current` with them. The
 8B/9B half had been graded with `c660b1b`. Fixed by building `c660b1b` at
-`~/aether-c660b1b` on claw2 **and** claw3 and pinning `--aether-bin` to
+`~/aether-c660b1b` on host-b **and** host-c and pinning `--aether-bin` to
 it. A differential probe did not find a case where the compilers disagree, so
 treat this as a control, not a known correction.
 
@@ -165,13 +165,13 @@ fewer records, 689 vs 752, because of the larger holdout.) A
 backward compatibility.
 
 **Serving constants are per-model and per-host, not global.**
-`--gpu-memory-utilization 0.18` fits the 8B on claw3 but **not** the 9B, which
+`--gpu-memory-utilization 0.18` fits the 8B on host-c but **not** the 9B, which
 needs 0.22 (17.66 GiB of weights against a ~21.5 GiB budget leaves too little for
 KV cache; the failure is a bare "Engine core initialization failed"). The
-14B-35B merges (28-67 GB) do not fit claw3 at all and were served on claw2 at
+14B-35B merges (28-67 GB) do not fit host-c at all and were served on host-b at
 0.85, which is what `serve_any.sh` has always defaulted to. torch
 `mem_get_info` reports only ~26% of unified memory as free on these GB10s
-(claw2 31.8 GiB of 121.6, claw3 ~27, claw1 6.5 with something resident); that
+(host-b 31.8 GiB of 121.6, host-c ~27, host-a 6.5 with something resident); that
 figure bounds serving but **not** training. No NVFP4 step is needed for this
 tier. Also: the serve loop's `docker logs --tail 15` captures only the outer
 wrapper traceback, not the EngineCore root cause -- use ~120.
@@ -182,7 +182,7 @@ wrapper traceback, not the EngineCore root cause -- use ~120.
 defaults matched nothing, `train_on_responses_only` masked every token, and the
 run died with `Removed 752 out of 752 samples ... num_samples=0`. Fix:
 `--instruction-part '[INST]' --response-part '[/INST]'`, no trailing whitespace.
-Check a new model with `claw2:/storage/render_template.py <model_path>` **before**
+Check a new model with `host-b:/storage/render_template.py <model_path>` **before**
 training. `qwen36-27b`/`35b-a3b` render `<|im_start|>assistant\n<think>\n\n</think>\n\n`
 -- the default marker is still present, so they are fine.
 
@@ -233,7 +233,7 @@ the task -- it would let repair attack the real error.
 
 ## cs-aug4 (superseded by cs-aug20)
 
-**Corpus:** `cs-aug4` (`Tests/aether_specialization/out_cs_aug4`, dataset
+**Corpus:** `cs-aug4` (`training/out_cs_aug4`, dataset
 `2026-07-15-1`) — same instruction+repair shape as `cs-aug3` (390 corpus items,
 408 instruction records, 38 repair records), regenerated from scratch against
 a **fixed compiler**: `aether 2026-07-09-1` at commit `9a44e67`, which includes
@@ -283,8 +283,8 @@ degraded run.
   family members. Seed-pinned (`seed: 42`), so this result — unlike most of
   the rest of this board — is directly comparable to any other seed-pinned
   run without the pre-2026-07-17 noise caveat.
-- **Training queue was interrupted twice by claw2 hardware faults** (see
-  `claw2` reliability notes) mid-run; the resumable queue design (skip if
+- **Training queue was interrupted twice by host-b hardware faults** (see
+  `host-b` reliability notes) mid-run; the resumable queue design (skip if
   `merged_16bit` already exists) meant no completed model was lost or
   redone — only the in-flight model at each interruption retrained from
   scratch.
@@ -546,11 +546,11 @@ alone either.
 
 Several infra bugs surfaced and were fixed along the way (see commit history in the
 `PBuild` repo, `tools/unsloth_qwen_coder_30b_sft.py` and
-`Tests/aether_doc_bench/bench_cs_aug18_precision*.sh`): an Unsloth 8-bit export crash
+`bench/bench_cs_aug18_precision*.sh`): an Unsloth 8-bit export crash
 (a monkeypatched `get_loading_attributes` lambda on the quantization config isn't
 JSON-serializable, and `unsloth_zoo`'s merge path serializes it before its own cleanup
 runs); a `peft` LoRA-dispatcher crash specific to non-quantized 16-bit loads on an
-older-`torchao` image; a claw2 host-memory leak that accumulates across vLLM container
+older-`torchao` image; a host-b host-memory leak that accumulates across vLLM container
 lifecycles (worked around with a pre-flight free-memory check + auto-reboot, not yet
 root-caused); and a benchmark-harness config bug that silently left `qwen35-9b` thinking
 enabled during eval (wrong destination-config key), which inflated its apparent
@@ -587,7 +587,7 @@ noisier and more sensitive to a bad initial draw than frontier models are.
 
 ### Status
 
-Full board landed in one session (2026-07-16) after two claw2 hardware
+Full board landed in one session (2026-07-16) after two host-b hardware
 interruptions and two tokenizer/serving fixes (one one-flag fix for
 `mistral24b`, one full backend switch for `deepseek6.7b`). The `MStream`-drill
 gap identified here is a natural target for the next corpus generation. A
@@ -601,7 +601,7 @@ fixed.
 
 ## cs-aug2-builtins
 
-**Corpus:** `cs-aug2-builtins` (`Tests/aether_specialization/out_cs_aug2_builtins`) —
+**Corpus:** `cs-aug2-builtins` (`training/out_cs_aug2_builtins`) —
 instruction + repair SFT set adding the non-SDL builtin reference to the training data.
 **Test suite:** `tasks_v2_pos.json` v`2026-06-21-1` (simple, 30) · `tasks_hard.json`
 v`2026-06-21-1` (large, 8) · `tasks_cs.json` v`2026-06-23-1` (cs, 19).
@@ -618,7 +618,7 @@ model when there is *nothing* in context to lean on?
 ### Setup
 
 - **Five models, QLoRA fine-tuned** on the cs-aug2-builtins corpus (419 train / 12
-  eval records; instruction + repair JSONL), each served on claw2's Ollama and asked
+  eval records; instruction + repair JSONL), each served on host-b's Ollama and asked
   to solve the same three instruments as the guide side — the simple set (30), the
   large set (8), and CS-classics (19) — exact-stdout scored against an oracle, repair on.
 - **Scoring is identical to the guide side:** **Compiled / Correct / Retried /
@@ -694,7 +694,7 @@ checkpoint is preserved. Tables regenerate from the per-model result JSONs.
 
 ## cs-aug3
 
-**Corpus:** `cs-aug3` (`Tests/aether_specialization/out_cs_aug3`, generated
+**Corpus:** `cs-aug3` (`training/out_cs_aug3`, generated
 2026-07-01, corpus tag `2026-07-01-1`) — retrain of the full cs-aug2-builtins model
 set (`mistral24b`, `qwen25-14b`, `qwen3-8b-nothink`, `qwen3-coder30b-a3b`) plus, for the first
 time, a dense ~27B model (`qwen36-27b`, Qwen3.6 dense).
@@ -702,21 +702,21 @@ time, a dense ~27B model (`qwen36-27b`, Qwen3.6 dense).
 `2026-06-21-1`, `tasks_hard.json` `2026-06-21-1`, `tasks_cs.json` `2026-06-23-1`),
 `--docs none`, repair on.
 
-`qwen36-27b` was evaluated at two serving precisions: **NVFP4/vLLM (claw2)** and
-**Q8 GGUF/ollama (claw1)**. Two real budget bugs were found and fixed mid-run on
+`qwen36-27b` was evaluated at two serving precisions: **NVFP4/vLLM (host-b)** and
+**Q8 GGUF/ollama (host-a)**. Two real budget bugs were found and fixed mid-run on
 both before any result could be trusted: (1) the ollama Modelfile pinned `num_ctx
 8192`, far too small for this reasoning model's thinking phase on harder tasks —
 raised to 40960; (2) `request_timeout_seconds` was set well under the worst-case
 decode time for a full 32768-token reasoning response at this hardware's throughput
-(~5.4 tok/s Q8/claw1, ~13 tok/s NVFP4/claw2) — raised to 9000s and 5400s
-respectively. Even after both fixes, claw1's Q8/ollama board kept producing an
+(~5.4 tok/s Q8/host-a, ~13 tok/s NVFP4/host-b) — raised to 9000s and 5400s
+respectively. Even after both fixes, host-a's Q8/ollama board kept producing an
 unreliable signal — orphaned in-flight generations repeatedly survived client-side
 kills and wedged the server's single decode slot, plus a reproducible cluster of
 instant failures at every relaunch — and was abandoned as not worth the ongoing
-recovery cost. **The `qwen36-27b-cs-aug3` result below is NVFP4/vLLM on claw2
+recovery cost. **The `qwen36-27b-cs-aug3` result below is NVFP4/vLLM on host-b
 only**; no Q8/ollama number for this model is reported.
 
-### Results — `qwen36-27b-cs-aug3` (NVFP4/vLLM, claw2), no guide, 3 repeats/task
+### Results — `qwen36-27b-cs-aug3` (NVFP4/vLLM, host-b), no guide, 3 repeats/task
 
 | instrument | n (tasks×3 repeats) | generated | compiled | exact (rate) | fixed by repair | aether ver |
 |---|---|---|---|---|---|---|
@@ -750,5 +750,5 @@ broader finding above that fine-tuning buys the easy set, not the hard tail.
 
 The other four cs-aug3 models (`mistral24b`, `qwen25-14b`, `qwen3-8b-nothink`,
 `qwen3-coder30b-a3b`) were not re-verified in this session — their board status
-should be checked the next time claw2 is back up before folding them into
+should be checked the next time host-b is back up before folding them into
 this table.

@@ -687,7 +687,7 @@ actually shows:
   the wrong-guess table under *Complete builtin inventory in the full guide*
   above, drawn from that week's transcripts. The reach is real, not theoretical.
 - **But the local benchmark results show none.** Across
-  `Tests/aether_doc_bench/results/ornith/*.json` there is not one attempt to call
+  `bench/results/ornith/*.json` there is not one attempt to call
   `to_upper` or `replace`. The only `substring` occurrences are the task name
   `cs_substring` ("Naive substring search") — which models solved by hand, exit
   0, correct output. Asked to do the work, they write the loop.
@@ -698,7 +698,7 @@ actually shows:
   model reading the full guide was told "there is no `replace`" with no
   alternative offered. That gap is now closed; the section is in all three.
 
-**Still open, and it needs the miner data on m5t** (`Tests/aether_doc_bench/out/`
+**Still open, and it needs the miner data on host-d** (`bench/out/`
 is gitignored, so it exists nowhere else): *frequency*. A reach recorded in one
 week's transcripts is not the same bar as the TOON builder's *surfaced
 repeatedly*. If the miner shows models reaching for `replace`/`to_upper`
@@ -910,12 +910,12 @@ already decided. Position recorded so the question stops recurring.)
 `aether_doc_bench.py`: each model freely wrote Aether programs of its own
 choosing, which were compiled + run with a repair loop; "success" = compiles and
 runs (exit 0), and the product is the failure analysis. This run: **8 models
-across 4 systems in parallel** (claw1 ollama: `gpt-oss-120b`,
+across 4 systems in parallel** (host-a ollama: `gpt-oss-120b`,
 `mistral-small-24b`, `qwen3-32b`, `exaone3.5-32b`; autoclaw GLM: `glm-5-turbo`,
 `glm-5.2`; Gemini: `gemini-2.5-flash`, `gemini-3.1-pro-preview`), 40 self-chosen
 programs, 33 ran clean, against `aether` 2026-06-27-3. Every finding below was
 re-verified with a minimal repro on the gating binary. Full report (per-program
-and per-attempt): `Tests/aether_doc_bench/out/idea_miner_2026-06-29.json` (and
+and per-attempt): `bench/out/idea_miner_2026-06-29.json` (and
 `.md`). `qwen3.6-35b-a3b` timed out (reasoning model, >20 min for 5 programs) and
 is excluded.*
 
@@ -1343,7 +1343,7 @@ to parse (seed-oss), and `par` blocks calling user functions can crash silently 
 ## Generative pass 2 — after the 2026-07-01 diagnostic/guide fixes
 
 *Re-ran the generative miner against the FIXED compiler (`aether 2026-07-01-1`, gitlink 63ca546)
-+ updated guides, 6 models (Ornith-1.0, m5 qwen3-coder-next + devstral, claw2 a3b-coder, gemini-2.5-flash,
++ updated guides, 6 models (Ornith-1.0, m5 qwen3-coder-next + devstral, host-b a3b-coder, gemini-2.5-flash,
 gemini-3.1-pro), 32 programs, 23 clean.* **The six fixes held under free-form generation** — none of the
 prior high-frequency gaps recurred: reserved-word member collisions now emit a named `SYN-001`,
 `@post`-over-array is a compile-time `ANN-001`, mutating methods on inferred `new` compile, and
@@ -1426,7 +1426,7 @@ failure whose message lands on STDOUT (e.g. `Aether @post failed in f` from a le
 as a "silent" failure, because it only inspected stderr + diagnostics. `analyze_failure` in
 `tools/aether_idea_miner.py` now also scans stdout for the known runtime-error prefixes (`Aether @post failed`,
 `Aether @pre failed`, `Runtime Error`, `Compiler error`) and fingerprints them as runtime rather than silent;
-covered by `Tests/aether_doc_bench/test_miner_offline.py`.)*
+covered by `bench/test_miner_offline.py`.)*
 
 ### Models write `fn m(self: T)` free functions instead of methods — *idea (verified, 2 models)*
 Folding GLM-5-Turbo/5.2 into pass 2 (both very clean: 9/10 programs compiled): the one gap was models
@@ -1446,7 +1446,7 @@ compiles+runs; the free-standing `fn get(self: C)` + `@pre self.v` form fails `[
 methods without a `self`-referencing contract still work. No `VERSION` bump (no language change).
 
 ## Generative pass 3 — 2026-07-01 (after the diagnostic/guide fixes + field-default work queued)
-10-model cohort (Ornith-1.0, claw2 trained a3b/mistral, m5 qwen3-coder/devstral/olmo3-think, 2× Gemini,
+10-model cohort (Ornith-1.0, host-b trained a3b/mistral, m5 qwen3-coder/devstral/olmo3-think, 2× Gemini,
 2× GLM), 5 free-form programs each, T'Ra-routed. 41/59 (69%) compiled+ran; the capable models were clean
 (qwen3-coder 5/5, both Gemini 5/5, both GLM 4/5, Ornith 14/18). The previously-coded diagnostics all fired
 correctly (`FX-001`, `NAME-001`, `PAR-001`, `SCOPE-001`), i.e. no regressions from the recent fixes. The
@@ -1621,7 +1621,7 @@ line text and re-parsed (cannot span lines; inner nodes keep detached-buffer lin
 
 ## Mined from historical bench logs — 2026-07-01 (post-hardening retest)
 
-*Source: `Tests/aether_specialization/bench_failure_mining_2026-07-01.md` (umbrella).
+*Source: `training/bench_failure_mining_2026-07-01.md` (umbrella).
 817 final-state failures from the 2026-06-27/28 guided + trained boards and 4
 idea-miner runs, each retested on aether 2026-07-01-8. 584/587 compile failures
 still reproduce (genuine prior signal); the big fixed-since class is the silent

@@ -1,0 +1,19 @@
+{
+  "dataset_id": "toon-20261016",
+  "built_at": "2026-10-16T06:14:48+00:00",
+  "umbrella_commit": "cb52bd0ab9cb37310e0b25b8aa903e8d2d175ea5",
+  "umbrella_dirty": false,
+  "aether_version": "2026-10-15-2",
+  "aether_sha256": "141c175798b2d6102c1f2f605df7f1c3f402bb2aebde2f67a7f4ba1eec7f05cd",
+  "repair_manifest": "Tests/aether_specialization/seed_repair_pairs.json",
+  "records": {
+    "instruction": 621,
+    "repair": 56
+  },
+  "files": {
+    "aether_instruction_sft.jsonl": "a6e3b376e4eceaa77a4d8b9076cf474ffb92a6cb1d8ba85c5c0aabcba1f1b6da",
+    "aether_repair_sft.jsonl": "28c67e09b4827ec3d276c7852beb4f271ad3429900f29aa352ab37354cd617d2",
+    "aether_training_mix.json": "6d0efa2dbcec025d5266ea8a12dcffb65461a0eac11a7c8e1239c81bba72253a",
+    "aether_build_report.json": "b9d54d9b95f99e11b3a1e00d795fc2f568475c965eb33d62d828d060fe43786e"
+  }
+}

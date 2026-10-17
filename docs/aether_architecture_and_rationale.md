@@ -53,8 +53,9 @@ the Aether front end (`src/aether/`), its docs, tests, examples, and
 `FetchContent`: `aether` fetches **`rea`** (`emkey1/rea`), which transitively
 fetches **`pscal-core`**; after a build they appear under `build/_deps/rea-src/`
 and `build/_deps/pscal_core-src/`. So the path references below span this repo
-(`src/aether/…`), the fetched **rea** and **pscal-core** deps, and the benchmark
-harness in the **PBuild umbrella** — they are no longer all in one tree.
+(`src/aether/…`, with the benchmark harness in `bench/` and `tools/` since
+2026-10-17) and the fetched **rea** and **pscal-core** deps — they are no longer
+all in one tree.
 
 ```
 Aether source
@@ -200,7 +201,7 @@ code. Read this section before proposing any "the language should…" change.
 
 ### 3.1 What the benchmark is, and the KPIs it reports
 
-`aether_doc_bench.py` (in the PBuild umbrella harness, not this repo) issues a
+`tools/aether_doc_bench.py` (in the PBuild umbrella until 2026-10-17) issues a
 task, compiles and runs the program the model returns with the `aether` binary,
 and scores its stdout byte for byte. With repair on, the compiler's diagnostics
 go back to the model for up to two more attempts. The suites in current use are
@@ -544,8 +545,9 @@ assuming it's an Aether bug.
 
 ## 7. Corpus: core + per-family overlays
 
-The fine-tuning corpus and benchmark harness live in the **PBuild umbrella** (not
-this standalone repo); see its `Tests/aether_specialization/README_corpus_structure.md`.
+The fine-tuning corpus and benchmark harness live in `training/` and `bench/`
+(moved from the PBuild umbrella on 2026-10-17); see
+`training/README_corpus_structure.md`.
 
 - **Core** (`corpus_candidates/`): model-agnostic verified positives. Everyone
   trains on these.
@@ -610,13 +612,13 @@ Paths are tagged by repo: unmarked = **this repo** (`emkey1/aether`);
 |---|---|
 | Understand the *vision* / phases | `src/aether/DESIGN.md` |
 | *Write* Aether (reference) | `docs/aether_for_llms_and_others.md` (and the medium and small guides); what is accepted: `docs/aether_spec.md` |
-| Run the KPI benchmark | *(umbrella)* `tools/aether_doc_bench.py` (variants `full`/`medium`/`small`/`card`/`none`, `--python-baseline`; KPIs in §3.1) |
+| Run the KPI benchmark | `tools/aether_doc_bench.py` (variants `full`/`medium`/`small`/`card`/`none`, `--python-baseline`; KPIs in §3.1) |
 | Triage a `none` failure | *(umbrella)* `tools/none_fail_detail.py <eval>.json none` |
 | See the surface↔backend alias lowering | `src/aether/ast_prepasses.c` (pre-passes) + `src/aether/ast_parser.c` |
 | Find Aether-only behavior forks | grep `FRONTEND_KIND_AETHER` |
 | Add/modify a builtin | *(pscal-core)* `src/backend_ast/builtin.{c,h}`, `src/ast/ast.c` (+ Aether surface in `src/aether/`) — see [§8](#8-anatomy-of-a-builtin-worked-example-clamp) |
 | TOON / yyjson bindings | *(pscal-core)* `src/ext_builtins/yyjson/yyjson_builtins.c` |
-| Corpus structure & overlays | *(umbrella)* `Tests/aether_specialization/README_corpus_structure.md` |
+| Corpus structure & overlays | `training/README_corpus_structure.md` |
 | Run the language regression suite | `ctest -R aether_tests` here, or *(umbrella)* `Tests/run_aether_tests.sh` |
 
 ---

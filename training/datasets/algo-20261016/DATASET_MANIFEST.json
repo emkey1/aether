@@ -1,0 +1,19 @@
+{
+  "dataset_id": "algo-20261016",
+  "built_at": "2026-10-16T14:52:55+00:00",
+  "umbrella_commit": "10fca2ae540059921436798b987a4540b2cdbdc7",
+  "umbrella_dirty": false,
+  "aether_version": "2026-10-16-3",
+  "aether_sha256": "845a5dd681b304787ae558e87930592acf6632f6190fcc8cabccbe076778fe37",
+  "repair_manifest": "Tests/aether_specialization/seed_repair_pairs.json",
+  "records": {
+    "instruction": 691,
+    "repair": 59
+  },
+  "files": {
+    "aether_instruction_sft.jsonl": "7577d2191b6fa3277669618436017c3c7d99f837fdb2c96ec0e565a018a2cd03",
+    "aether_repair_sft.jsonl": "b8134216c58ba684fdb9496f60a6f0d29c064f5defcb0b7f5f8e59c91b8983d9",
+    "aether_training_mix.json": "549d620158d62eba0cda14ae78474eb0fc398da07ecf2e1b907d6483c9e7c3e9",
+    "aether_build_report.json": "19f3874ad0afa72a7d4a297671dab71c38b28f7ac01035190a46a80c9c686c9d"
+  }
+}

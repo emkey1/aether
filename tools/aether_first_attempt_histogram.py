@@ -19,15 +19,15 @@ Two readings:
                 (optionally under --experiment, an AETHER_EXPERIMENT value), in
                 a directory holding the task's `files`, and compare with the
                 task's expected stdout, read from the tasks file the results
-                name (resolved against --bench-root)
+                name (resolved against --bench-root, default this repo; an
+                umbrella-era Tests/aether_doc_bench/ path maps onto bench/)
 
 The D12 gate is FX-001's share of first-attempt failures: run the fx A/B only if
 it is at least 5%.
 
-    tools/aether_first_attempt_histogram.py --bench-root <umbrella> \\
-        '<umbrella>/Tests/aether_doc_bench/results/**/*.json'
-    tools/aether_first_attempt_histogram.py --bench-root <umbrella> \\
-        --recompile --aether-bin build/aether '<umbrella>/.../results/**/*.json'
+    tools/aether_first_attempt_histogram.py 'bench/results/**/*.json'
+    tools/aether_first_attempt_histogram.py \\
+        --recompile --aether-bin build/aether 'bench/results/**/*.json'
 """
 import argparse
 import collections
@@ -40,6 +40,10 @@ import sys
 import tempfile
 
 CODE_RE = re.compile(r"\[([A-Z]+-\d{3})\]")
+REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+# Where the benchmark lived in the PBuild umbrella until 2026-10-17; archived
+# reports still name their tasks files there.
+LEGACY_BENCH = "Tests/aether_doc_bench/"
 
 
 def load_expected(bench_root, tasks_file, cache):
@@ -47,6 +51,8 @@ def load_expected(bench_root, tasks_file, cache):
         return cache[tasks_file]
     exp = {}
     path = os.path.join(bench_root, tasks_file) if bench_root else tasks_file
+    if not os.path.exists(path) and tasks_file.startswith(LEGACY_BENCH):
+        path = os.path.join(bench_root or REPO, "bench", tasks_file[len(LEGACY_BENCH):])
     try:
         for t in json.load(open(path)).get("tasks", []):
             if "expected_stdout" in t:
@@ -96,7 +102,8 @@ def run(binary, experiment, source, files, timeout=20):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("results", nargs="+", help="results JSON globs")
-    ap.add_argument("--bench-root", help="directory the results' tasks_file paths are relative to")
+    ap.add_argument("--bench-root", default=REPO,
+                    help="directory the results' tasks_file paths are relative to (default: this repo)")
     ap.add_argument("--recompile", action="store_true")
     ap.add_argument("--aether-bin")
     ap.add_argument("--experiment", default="")

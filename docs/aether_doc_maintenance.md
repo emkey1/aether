@@ -281,9 +281,9 @@ categories, all of which must return zero hits:
 for medium **and small**, and checks all three guides, full included, for the
 copied `"yyjson unavailable"` template literal and for benchmark identifiers
 (task ids, task module and file names, and their mod and export names) listed
-in `tools/bench_identifiers.txt`. That list is regenerated from the umbrella's
-task suites with `PSCAL_UMBRELLA=<checkout> python3 tools/audit_guides.py
---refresh`, so the test never reads the umbrella. A per-guide `ALLOWLIST` keeps
+in `tools/bench_identifiers.txt`. That list is regenerated from the task
+suites in `bench/` with `python3 tools/audit_guides.py --refresh`, so the test
+never reads the suites themselves. A per-guide `ALLOWLIST` keeps
 the deliberate hits: the small guide's Pascal naming mnemonic (`arctan` not
 `atan`) and its Pascal-style `File` handle model. The guide pass 1 drafts have
 no hits (`--strict` exits 0); the CTest still runs it in **report mode** until

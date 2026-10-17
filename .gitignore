@@ -5,3 +5,38 @@ build_fix/
 *.o
 .DS_Store
 build-curl/
+
+# ---- benchmark (bench/) and fine-tuning (training/), moved in from the PBuild
+# umbrella on 2026-10-17 with the ignore rules they had there ----
+__pycache__/
+training/out/
+# Destination configs carry endpoints and keys; the tracked examples were added
+# with -f (git keeps tracking them).
+bench/destinations.*.json
+bench/*.local.json
+bench/out/
+# Runtime artifact written by corpus program 07-19a_gemini_2_5_flash_lit_04
+# (rewrite/writeln); regenerated on every corpus run, trips the strict validator.
+training/corpus_candidates/app_log.txt
+# Pre-2026-08-10 guided-benchmark raw results (~33 MB of full model outputs),
+# kept on disk for provenance and out of git for bulk; the findings live in
+# bench/results/history/HISTORY.md. Ignored by name so a stray `git add -A`
+# cannot sweep them in.
+bench/results/history/full/
+bench/results/history/guide_full_vs_medium_20260729/
+bench/results/history/guide_full_vs_medium_openai_20260729/
+bench/results/history/out_guided_cloud/
+bench/results/history/ornith_archive_20260630/
+bench/results/history/ornith_archive_20260705/
+bench/results/history/logs/
+bench/results/history/harness_out/
+# In-flight benchmark writes. A .tmp is by definition a truncated report;
+# the driver moves it into place only after it validates.
+bench/results/**/*.json.tmp
+# 2026-07-05 Ornith hang diagnostics and reruns (the committed ornith/*.json
+# of the 2026-06-30 run are tracked and unaffected).
+bench/results/history/ornith/cs_*
+bench/results/history/ornith/*.partial_hang_backup
+bench/results/history/ornith/ornith_cs_final*.json
+bench/results/history/ornith/ornith_cs_rerun.json
+bench/results/history/ornith/ornith_large_full_rerun.json

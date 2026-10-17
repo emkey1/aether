@@ -3,8 +3,8 @@
 aether binary and report the programs whose stdout or exit status changed.
 
 The pin gate (tools/pin_gate.sh) runs this with the base binary (aether HEAD at
-HEAD's pins) as --old and the candidate as --new, over the umbrella's
-Tests/aether_specialization/corpus_candidates. Every regular file in the
+HEAD's pins) as --old and the candidate as --new, over this repo's
+training/corpus_candidates. Every regular file in the
 directory is taken as an Aether program (corpus files do not all end in
 .aether). The directory is only read: each program runs with --no-cache, stdin
 from /dev/null, in a fresh scratch working directory.

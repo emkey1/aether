@@ -8,6 +8,12 @@ tailnet addresses, the ssh user's sudo rights and credential locations. This is 
 net that keeps that class out: it scans every tracked text file (`git ls-files`)
 under --root for the patterns below.
 
+private-terms: names and terms that must not appear publicly but are themselves
+private (which machines the project runs on, for example) are not listed here.
+They are read at run time from $AETHER_PRIVATE_TERMS (the patterns themselves, one
+regex per line; CI passes them from a repository secret) or from the file
+~/.config/pscal/private_terms.txt; with neither, the check is skipped and says so.
+
 Known, accepted hits live in an allowlist (default: tools/public_hygiene_allowlist.txt
 under --root), one entry per line:
 
@@ -45,6 +51,24 @@ PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("sudo-rights", re.compile(r"NOPASSWD|passwordless sudo", re.IGNORECASE)),
 ]
 MAX_BYTES = 4 * 1024 * 1024
+
+
+def private_terms() -> re.Pattern[str] | None:
+    """Patterns kept out of this public file (see the module docstring)."""
+    import os
+    text = os.environ.get("AETHER_PRIVATE_TERMS")
+    if text is None:
+        path = pathlib.Path(os.environ.get("AETHER_PRIVATE_TERMS_FILE", "~/.config/pscal/private_terms.txt")).expanduser()
+        text = path.read_text(encoding="utf-8") if path.is_file() else None
+    if text is None:
+        return None
+    lines = [line.strip() for line in text.splitlines() if line.strip() and not line.lstrip().startswith("#")]
+    return re.compile("|".join(f"(?:{line})" for line in lines), re.IGNORECASE) if lines else None
+
+
+_PRIVATE = private_terms()
+if _PRIVATE is not None:
+    PATTERNS.append(("private-terms", _PRIVATE))
 
 
 def line_key(text: str) -> str:
@@ -122,7 +146,7 @@ def main() -> int:
             print(f"{rel} {line_key(text)}  # {name}, line {lineno} at adoption")
         return 0
     if not hits:
-        print(f"public hygiene: clean ({root.name})")
+        print(f"public hygiene: clean ({root.name})" + ("" if _PRIVATE is not None else "; private terms not loaded, that check skipped"))
         return 0
     print(f"public hygiene: {len(hits)} line(s) carry host, fleet, credential or "
           f"session data ({root.name}):", file=sys.stderr)

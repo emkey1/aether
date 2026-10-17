@@ -2,9 +2,9 @@
 """Freeze the replayed passing benchmark programs as aether's replay fixture.
 
 About 245 real model-written programs with known-correct stdout exist only in
-the umbrella's benchmark results, so aether's own tests could not see a silent
-semantic change in natural programs. This exports them: it re-runs every
-stored attempt the way the umbrella's tools/replay_bench.py does (same task
+the benchmark results (bench/results/), which aether's tests do not read, so
+they could not see a silent semantic change in natural programs. This exports
+them: it re-runs every stored attempt the way tools/replay_bench.py does (same task
 resolution, same compile_and_run, same --deny net,proc sandbox), keeps the
 attempts that pass on the given binary, deduplicates them by (task, source
 sha256), and writes
@@ -22,10 +22,12 @@ re-exported away: list the case in tests/replay/WAIVED with the CHANGELOG
 version that declared it; the export keeps WAIVED lines whose case it still
 writes and reports the ones it drops.
 
-The umbrella checkout is only read (Python bytecode caching is off so its
-tools/ stays untouched):
+The benchmark checkout is only read (Python bytecode caching is off so its
+tools/ stays untouched). It is this repo by default; --umbrella names another
+checkout holding tools/replay_bench.py, e.g. a PBuild umbrella from before
+2026-10-17, when the benchmark lived there:
 
-  python3 tools/export_replay.py --umbrella <umbrella checkout> [--aether build/aether]
+  python3 tools/export_replay.py [--umbrella <checkout>] [--aether build/aether]
          [--workers 8] [result globs ...] [--dry-run]
 """
 import argparse
@@ -53,7 +55,7 @@ def sha256_text(text):
 def load_umbrella(path):
     tools = pathlib.Path(path).resolve() / "tools"
     if not (tools / "replay_bench.py").is_file():
-        raise SystemExit(f"{tools}/replay_bench.py not found: --umbrella must name an umbrella checkout")
+        raise SystemExit(f"{tools}/replay_bench.py not found: --umbrella must name a benchmark checkout")
     sys.path.insert(0, str(tools))
     import aether_doc_bench as adb  # noqa: E402
     import replay_bench as rb  # noqa: E402
@@ -97,15 +99,13 @@ def task_key(task):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("results", nargs="*", help="result-JSON globs (default: the umbrella's tracked results)")
-    ap.add_argument("--umbrella", default=os.environ.get("PSCAL_UMBRELLA"),
-                    help="umbrella checkout to read (default $PSCAL_UMBRELLA)")
+    ap.add_argument("results", nargs="*", help="result-JSON globs (default: the tracked bench/results)")
+    ap.add_argument("--umbrella", default=str(REPO),
+                    help="checkout holding tools/replay_bench.py and the results (default: this repo)")
     ap.add_argument("--aether", default=str(REPO / "build" / "aether"))
     ap.add_argument("--workers", type=int, default=8)
     ap.add_argument("--dry-run", action="store_true", help="report the counts, write nothing")
     args = ap.parse_args()
-    if not args.umbrella:
-        raise SystemExit("--umbrella (or PSCAL_UMBRELLA) must name an umbrella checkout")
     adb, rb = load_umbrella(args.umbrella)
 
     run_dir = pathlib.Path(tempfile.mkdtemp(prefix="aether-replay-export-"))

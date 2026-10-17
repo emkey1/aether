@@ -4,7 +4,7 @@ set -euo pipefail
 # Every file this run writes (program output, expected-output goldens,
 # generated fixtures) goes in a private scratch directory that is removed on
 # exit. With fixed names under /tmp, two runs on one machine (two agents, or a
-# local run beside claw) overwrote each other's files and failed spuriously,
+# local run beside a remote one) overwrote each other's files and failed spuriously,
 # and each run left a few hundred files behind. The paths below are written
 # unquoted ($OUT/...), so the directory must not contain whitespace.
 OUT="$(mktemp -d "${TMPDIR:-/tmp}/aether_tests.XXXXXX")"
