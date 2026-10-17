@@ -224,6 +224,9 @@ typedef struct {
     int exprAfterOpLine;
     const char *stmtStartAt;
     bool detachedText;
+    /* A contract clause's sub-parser whose hoists the guard splices ahead of
+     * its test (buildContractGuard): quantifiers (D58) lower through them. */
+    bool contractHoists;
     /* The source line a parseExprFromText sub-parser's text belongs to (its
      * own lexer counts from 1), for a diagnostic raised inside it; else 0. */
     int detachedLine;
@@ -237,6 +240,19 @@ typedef struct {
      * that rewinds the lexer must not report the same comment twice). */
     bool rawPrevIsTail;
     const char *slashJudgedAt;
+    /* Nested functions (D62). nestedHost: parsing the body of a free
+     * top-level function, whose body may declare them; inNestedFn: parsing
+     * one. Each parsed nested fn waits in nestedFns (its place in the body is
+     * an empty marker block) until the host's body is complete, then
+     * aetherLiftNestedFns lifts them to top-level functions in liftedDecls,
+     * which the top-level loop emits ahead of the host. */
+    bool nestedHost;
+    bool inNestedFn;
+    struct AetherNestedFn *nestedFns;
+    int nestedFnCount;
+    int nestedFnCap;
+    int nextNestedFnId;
+    AST *liftedDecls;
 } AetherParser;
 
 /* One right-hand operand of a left-nested array-`+` chain, in APPLY order.
@@ -328,6 +344,12 @@ bool aetherEmitConcatOperand(AetherParser *p, AST *dest, AST *var,
 AST *parseLetTupleDestructure(AetherParser *p, int kwLine);
 AST *parseRet(AetherParser *p);
 AST *parseLoopRange(AetherParser *p);
+/* Parses a loop body for parseLoopRangeWith (the quantifiers, D58). */
+typedef AST *(*AetherLoopBodyFn)(AetherParser *p, void *ctx);
+AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx);
+AST *aetherParseQuantifier(AetherParser *p);
+bool aetherIsNestedFnName(const AetherParser *p, const char *name);
+bool aetherHoistsSpliced(const AetherParser *p);
 AST *buildWhile(AST *cond, AST *body);
 AST *buildWhileWithHoists(AST *cond, AST *hoists, AST *body, int line);
 AST *aetherDeferShortCircuitHoists(AetherParser *p, AST *bin, int mark, bool isAnd);

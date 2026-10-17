@@ -1,0 +1,23 @@
+// D58: `all`/`any` over arrays, Text, ranges (with `step`), records, nested
+// quantifiers and empty collections (`all` is true, `any` is false).
+type Item { name: Text; qty: Int; }
+
+fn main() -> Void {
+    let xs: Int[] = [4, 8, 15, 16];
+    let none: Int[] = [];
+    let word = "banana";
+    let grid: Int[][] = [[1, 2], [3, 4]];
+    let items: Item[] = [new Item { name: "pen", qty: 3 }, new Item { name: "ink", qty: 0 }];
+    fx {
+        println(all x in xs: x > 0, " ", all x in xs: x % 2 == 0);
+        println(any x in xs: x == 15, " ", any x in xs: x > 99);
+        println(all x in none: x > 99, " ", any x in none: x > 0);
+        println(any c in word: c == "n", " ", all c in word: c != "z");
+        println(all i in 0..10 step 2: i % 2 == 0, " ", any i in 10..0 step -3: i == 4);
+        println(all i in 0..length(xs) - 1: xs[i] < xs[i + 1]);
+        println(all i in 5..5: false);
+        println(all row in grid: all v in row: v > 0, " ", any row in grid: all v in row: v > 2);
+        println(any it in items: it.qty == 0 && it.name == "ink");
+        println(all it in items: it.qty > 0);
+    }
+}

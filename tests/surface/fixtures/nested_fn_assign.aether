@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let count = 0;
+    fn bump() -> Void { count = count + 1; }
+    bump();
+    fx { println(count); }
+}

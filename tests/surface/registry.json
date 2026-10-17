@@ -442,15 +442,36 @@
   },
   {
    "id": "nested_fn",
-   "class": 2,
-   "spelling": "fn inside a fn body",
-   "canonical_form": "a top-level fn",
+   "class": 1,
+   "spelling": "fn inside a free fn's body, reading its locals",
+   "canonical_form": "a nested fn (or a top-level fn taking the values as parameters)",
    "fixture": "fixtures/nested_fn.aether",
-   "code": "FUNC-001",
-   "decided": "D37d",
+   "twin": "fixtures/nested_fn.canon.aether",
+   "decided": "D62",
    "status": "holds",
-   "note": "FUNC-001 since 2026-10-17-1; D50 keeps nested fns out of the language (surface only if >=3 families still write it after the coded hint)",
-   "hint": "move it to the top level"
+   "note": "was FUNC-001 in 2026-10-17-1 (D50); D62 lifts it to a top-level fn with one parameter per enclosing local it reads, read-only arrays uncopied"
+  },
+  {
+   "id": "nested_fn_assign",
+   "class": 2,
+   "spelling": "a nested fn assigning an enclosing local",
+   "canonical_form": "return the value, or keep it in a record field",
+   "fixture": "fixtures/nested_fn_assign.aether",
+   "code": "FUNC-002",
+   "decided": "D62",
+   "status": "holds",
+   "hint": "record field"
+  },
+  {
+   "id": "nested_fn_value",
+   "class": 2,
+   "spelling": "let g = nested_fn;",
+   "canonical_form": "call the nested fn directly",
+   "fixture": "fixtures/nested_fn_value.aether",
+   "code": "FUNC-001",
+   "decided": "D62",
+   "status": "holds",
+   "hint": "call it directly"
   },
   {
    "id": "fn_as_value",
@@ -1363,6 +1384,39 @@
    "twin": "fixtures/helper_mstream_file.canon.aether",
    "decided": "D61",
    "status": "holds"
+  },
+  {
+   "id": "quantifier",
+   "class": 1,
+   "spelling": "all x in xs: cond, any i in a..b: cond",
+   "canonical_form": "all x in xs: cond",
+   "fixture": "fixtures/quantifier.aether",
+   "twin": "fixtures/quantifier.canon.aether",
+   "decided": "D58",
+   "status": "holds",
+   "note": "a Bool expression lowered to a loop that stops at the first deciding element; empty: all is true, any is false"
+  },
+  {
+   "id": "quantifier_contract",
+   "class": 1,
+   "spelling": "@pre all x in xs: x >= 0",
+   "canonical_form": "@pre all x in xs: cond",
+   "fixture": "fixtures/quantifier_contract.aether",
+   "twin": "fixtures/quantifier_contract.canon.aether",
+   "decided": "D58",
+   "status": "holds",
+   "note": "a failing clause is CON-001 like any contract"
+  },
+  {
+   "id": "quantifier_call",
+   "class": 2,
+   "spelling": "all(flags), @pre all(...)",
+   "canonical_form": "all x in xs: cond",
+   "fixture": "fixtures/quantifier_call.aether",
+   "code": "SCOPE-001",
+   "decided": "D58",
+   "status": "holds",
+   "hint": "all x in xs: cond"
   }
  ]
 }

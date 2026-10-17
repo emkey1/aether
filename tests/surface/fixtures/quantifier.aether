@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let xs: Int[] = [2, 4, 7];
+    fx { println(all x in xs: x > 0, " ", any i in 0..length(xs): xs[i] % 2 == 1); }
+}

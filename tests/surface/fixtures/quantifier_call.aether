@@ -1,0 +1,5 @@
+fn main() -> Void {
+    let flags: Bool[] = [true, false];
+    let ok = all(flags);
+    fx { println(ok); }
+}

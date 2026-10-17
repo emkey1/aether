@@ -1,0 +1,12 @@
+fn main() -> Void {
+    let xs: Int[] = [2, 4, 7];
+    let allPos = true;
+    loop x in xs {
+        if x <= 0 { allPos = false; break; }
+    }
+    let anyOdd = false;
+    loop i in 0..length(xs) {
+        if xs[i] % 2 == 1 { anyOdd = true; break; }
+    }
+    fx { println(allPos, " ", anyOdd); }
+}

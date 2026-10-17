@@ -1,0 +1,38 @@
+// D58: a quantifier in every expression position the lowering contract
+// names: statement (`let`), guard, `else if`, loop condition, call argument,
+// tuple item, record field, if-expression, `ret`, and the right of `&&`.
+type Report { ok: Bool; n: Int; }
+
+fn show(b: Bool) -> Text {
+    ret if b { "yes" } else { "no" };
+}
+
+fn check(xs: Int[]) -> (Bool, Int) {
+    ret (all x in xs: x > 0, length(xs));
+}
+
+fn has_neg(xs: Int[]) -> Bool {
+    ret any x in xs: x < 0;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [3, 5, 7];
+    let ys: Int[] = [3, -1];
+    let ok = all x in xs: x % 2 == 1;
+    let (pos, n) = check(ys);
+    let r = new Report { ok: any y in ys: y == -1, n: 2 };
+    let k = 0;
+    loop k < 10 && all x in xs: x > k { k = k + 1; }
+    fx {
+        println(ok);
+        if all x in xs: x < 10 { println("guard"); }
+        if any y in ys: y > 100 { println("bad"); } else if any y in ys: y < 0 { println("else if"); }
+        println(k);
+        println(show(any x in xs: x == 5));
+        println(pos, " ", n);
+        println(r.ok, " ", r.n);
+        println(if all x in ys: x > 0 { "all positive" } else { "not all" });
+        println(has_neg(ys), " ", has_neg(xs));
+        println(length(xs) > 2 && all i in 0..3: xs[i] > 2);
+    }
+}

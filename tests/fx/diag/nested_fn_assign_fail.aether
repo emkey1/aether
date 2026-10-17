@@ -1,6 +1,6 @@
-// A fn declared inside another fn's body (models write this to capture
-// locals, e.g. N-Queens). It used to be "[SYN-001] expected ')' to close
-// argument list"; Aether has no nested functions (D50).
+// D62: a nested fn reads its enclosing function's locals but may not assign
+// them (FUNC-002). Models write this to count N-Queens solutions; the fix is
+// to return the count, or keep it in a record field.
 fn main() -> Void {
     let n: Int = 4;
     let count: Int = 0;

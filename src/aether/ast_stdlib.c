@@ -86,7 +86,7 @@ const char *aetherRemovedBuiltinHint(const char *name) {
 bool aetherCheckRemovedBuiltin(AetherParser *p, const char *raw, int line) {
     if (!p || !raw || p->forwardScan || p->hadError) return false;
     const char *hint = aetherRemovedBuiltinHint(raw);
-    if (!hint || aetherAstIsTopLevelUserFunction(raw)) return false;
+    if (!hint || aetherAstIsTopLevelUserFunction(raw) || aetherIsNestedFnName(p, raw)) return false;
     char detail[160];
     snprintf(detail, sizeof(detail), "identifier '%.64s' not in scope.", raw);
     reportAetherAstError(aetherSemanticGetSourcePath(), line, "scope", detail, hint);

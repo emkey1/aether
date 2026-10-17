@@ -1,0 +1,6 @@
+// D58: the condition of a quantifier is a Bool.
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    let ok = all x in xs: x;
+    fx { println(ok); }
+}

@@ -1,0 +1,15 @@
+// D58: a quantifier stops at the first element that decides it, and on the
+// right of `&&` it runs only when the left is true (no out-of-bounds read).
+fn probe(v: Int) -> Bool {
+    fx { println("probe ", v); }
+    ret v >= 3;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3, 4, 5];
+    let n = 9;
+    let found = any x in xs: probe(x);
+    let all_small = all x in xs: !probe(x);
+    let safe = n <= length(xs) && all i in 0..n: xs[i] > 0;
+    fx { println(found, " ", all_small, " ", safe); }
+}

@@ -1,0 +1,7 @@
+fn scaled(i: Int, xs: Int[], base: Int) -> Int { ret xs[i] * base; }
+
+fn main() -> Void {
+    let base = 10;
+    let xs: Int[] = [1, 2, 3];
+    fx { println(scaled(2, xs, base)); }
+}

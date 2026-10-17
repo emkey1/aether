@@ -110,8 +110,11 @@ design decisions and tests look the way they do.
 Several Aether shapes have no PSCAL AST node and are lowered to a run of ordinary
 statements: array `+` (`buildArrayConcatSteps`, `ast_lower.c`), array append,
 slices, `ret T { ... }`, `ret a + b`, record literals in expression position,
-tuple destructuring and the range/foreach/`step` loops. Three conventions hold
-those lowerings together; a new desugaring should reuse them, not invent a fourth.
+tuple destructuring, the range/foreach/`step` loops and the `all`/`any`
+quantifiers (D58: a `Bool` temp and the loop that decides it, queued as a hoist
+by `aetherParseQuantifier` over the shared loop header `parseLoopRangeWith`).
+Three conventions hold those lowerings together; a new desugaring should reuse
+them, not invent a fourth.
 
 - **Splice groups.** A lowering that needs several statements returns an
   `AST_COMPOUND` with `i_val == 1`. `parseBlock` splices such a compound's
@@ -150,6 +153,19 @@ those lowerings together; a new desugaring should reuse them, not invent a fourt
 Ownership: the lowering helpers only read the nodes they are handed and copy what
 they keep (`buildLengthCall` copies its target), so passing a node that is
 already a child of the tree is safe.
+
+One lowering works on a whole function instead of a statement: **lambda
+lifting** of nested functions (D62). A `fn` in a free top-level function's body
+is parsed as any fn and leaves an empty marker block in its place
+(`aetherParseNestedFn`). When the host body is complete, `aetherLiftNestedFns`
+walks it in order with the visible locals (the marker's position fixes what
+each nested fn can see), computes each nested fn's captures (the host locals it
+reads, plus, to a fixed point, those of the siblings it calls), rejects writes
+to them (FUNC-002), renames it `__aether_<host>_<name>` with one parameter per
+capture, appends the captures to every call, and queues prototypes and the
+lifted fns in `liftedDecls`, which the top-level loop emits ahead of the host.
+A capture parameter has no prologue copy, so an array is read uncopied; it is
+not `by_ref` (`results/decisions/d62_readonly_capture.md`).
 
 ### 2.2 The lowering contract
 
@@ -466,7 +482,11 @@ rejects an annotation it can recognise as malformed: `@pre` with no expression,
 `@pure noisy`, a `@cost` with a zero budget, an unknown unit or a duplicate, and
 any annotation that is not directly above a function (ANN-001), or one written
 inside a body (SYN-001). Tuple post-conditions use dot indexing,
-`@post result.0 >= result.1`; `result[0]` is ANN-001.
+`@post result.0 >= result.1`; `result[0]` is ANN-001. A clause may quantify
+(`@pre all x in xs: x >= 0`, D58): the clause's sub-parser returns its hoists
+and the guard runs them ahead of its test, in a block of its own, with the
+usual short-circuit deferral, so `@pre n <= length(xs) && all i in 0..n:
+xs[i] > 0` never reads out of range.
 
 Not enforced, and not to be relied on: `@cost` is decorative by decision (its
 syntax is validated, nothing measures the budget), and an unknown `@word`,

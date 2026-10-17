@@ -1182,7 +1182,15 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->exprAfterOpLine = 0;
     p->stmtStartAt = NULL;
     p->detachedText = false;
+    p->contractHoists = false;
     p->detachedLine = 0;
+    p->nestedHost = false;
+    p->inNestedFn = false;
+    p->nestedFns = NULL;
+    p->nestedFnCount = 0;
+    p->nestedFnCap = 0;
+    p->nextNestedFnId = 0;
+    p->liftedDecls = NULL;
 }
 
 /* Record that the operator token `op` was just consumed, so a missing right
@@ -1874,11 +1882,15 @@ static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, b
 /* ------------------------------------------------------------------ */
 
 static AST *parseFnDecl(AetherParser *p);
+static AST *aetherParseNestedFn(AetherParser *p);
+static int nestedFnIndex(const AetherParser *p, const char *name);
+static bool aetherLiftNestedFns(AetherParser *p, AST *params, AST *block, const char *hostName);
+static void aetherFreeNestedFns(AetherParser *p);
 static AST *parseTypeDecl(AetherParser *p);
 static AST *parseConstDeclTop(AetherParser *p);
 
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
-                             bool inMethodContract);
+                             bool inMethodContract, AST **outHoists);
 
 /* ------------------------------------------------------------------ */
 /* Primary / call expressions (mirrors rea parseFactor primary cases)  */
@@ -2684,7 +2696,44 @@ static AST *parseIfExpr(AetherParser *p) {
     return aetherDeferConditionalHoists(p, node, thenMark, elseMark);
 }
 
+/* `all NAME in` / `any NAME in`: the start of a quantifier (D58). Peeks two
+ * tokens without consuming them, so `all` and `any` stay ordinary names
+ * everywhere else (`let any = 3;`, `fn all(xs: Int[]) -> Bool`). */
+static bool aetherAtQuantifier(AetherParser *p) {
+    if (p->current.type != REA_TOKEN_IDENTIFIER ||
+        !(tokTextIs(&p->current, "all") || tokTextIs(&p->current, "any"))) {
+        return false;
+    }
+    ReaToken save = p->current;
+    int savedHead = p->queueHead, savedCount = p->queueCount;
+    ReaToken q0 = p->queue[0], q1 = p->queue[1], q2 = p->queue[2];
+    ReaLexer savedLexer = p->lexer;
+    int savedPrevLine = p->prevLine;
+    const char *savedPrevStart = p->prevStart;
+    int savedPrevLength = p->prevLength;
+    bool savedRawTail = p->rawPrevIsTail;
+    aetherAdvance(p);
+    bool hit = aetherTokenIsIdentifierLike(&p->current) && !isAetherKeyword(&p->current, "in");
+    if (hit) {
+        aetherAdvance(p);
+        hit = isAetherKeyword(&p->current, "in");
+    }
+    p->lexer = savedLexer;
+    p->queueHead = savedHead; p->queueCount = savedCount;
+    p->queue[0] = q0; p->queue[1] = q1; p->queue[2] = q2;
+    p->current = save;
+    p->prevLine = savedPrevLine;
+    p->prevStart = savedPrevStart;
+    p->prevLength = savedPrevLength;
+    p->rawPrevIsTail = savedRawTail;
+    return hit;
+}
+
 static AST *parsePrimary(AetherParser *p) {
+    /* `all x in xs: cond` / `any i in a..b: cond` (D58). */
+    if (aetherAtQuantifier(p)) {
+        return aetherParseQuantifier(p);
+    }
     /* if-expression in value position: if c { a } else { b }. */
     if (p->current.type == REA_TOKEN_IF) {
         return parseIfExpr(p);
@@ -2991,7 +3040,8 @@ static AST *parsePrimary(AetherParser *p) {
             /* A user's own top-level `fn NAME` shadows an aliased builtin: the
              * text pre-pass leaves such a name verbatim (505cd44), so aliasing
              * it here would call the builtin instead of the user's function. */
-            const char *canonical = aetherAstIsTopLevelUserFunction(raw)
+            const char *canonical = (aetherAstIsTopLevelUserFunction(raw) ||
+                                     aetherIsNestedFnName(p, raw))
                                         ? raw : aliasBuiltinName(raw);
             if (canonical != raw && strcmp(canonical, raw) != 0) {
                 surfaceAlias = strdup(raw);
@@ -3098,6 +3148,20 @@ static AST *parsePrimary(AetherParser *p) {
             setLeft(fa, recv);
             setRight(fa, fieldVar);
             return parsePostfix(p, fa);
+        }
+        /* A nested function's name (D62) not called: functions are not
+         * values (FUNC-001, D49). Unless a variable of that name is in scope. */
+        if (tok->value && !p->forwardScan && nestedFnIndex(p, tok->value) >= 0 &&
+            !bindingTableGet(p->bindings, tok->value, strlen(tok->value))) {
+            char detail[240];
+            snprintf(detail, sizeof(detail),
+                     "the nested function '%s' is not a value: it cannot be stored, passed "
+                     "or returned.", tok->value);
+            reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "nested-fn", detail,
+                                 "call it directly, `name(args)`.");
+            p->hadError = true;
+            freeToken(tok);
+            return NULL;
         }
         AST *node = newASTNode(AST_VARIABLE, tok);
         setTypeAST(node, TYPE_UNKNOWN);
@@ -3689,8 +3753,13 @@ static void aetherStampTreeLine(AST *node, int line) {
     }
 }
 
+/* With `outHoists`, the expression's hoists (a quantifier's loop, D58) come
+ * back in one plain compound (NULL when there are none) for the caller to
+ * place ahead of the expression's use, and the sub-parser shares the main
+ * parser's temp counters so their names stay unique per program. */
 static AST *parseExprFromText(AetherParser *p, const char *text, int line,
-                             bool inMethodContract) {
+                             bool inMethodContract, AST **outHoists) {
+    if (outHoists) *outHoists = NULL;
     if (!text) return NULL;
     AetherParser sub;
     aetherParserInit(&sub, text, p->bindings);
@@ -3706,12 +3775,29 @@ static AST *parseExprFromText(AetherParser *p, const char *text, int line,
     sub.detachedText = true;
     sub.detachedLine = line;
     sub.currentReturnTypeName = p->currentReturnTypeName; /* types a sliced `result` */
+    if (outHoists) {
+        sub.contractHoists = true;
+        sub.nextObjLitId = p->nextObjLitId;
+        sub.nextLoopId = p->nextLoopId;
+    }
     aetherAdvance(&sub);
     AST *expr = parseExpr(&sub);
+    AST *hoists = aetherTakePendingHoists(&sub, 0);
+    free(sub.pendingObjLits);
+    if (outHoists) {
+        p->nextObjLitId = sub.nextObjLitId;
+        p->nextLoopId = sub.nextLoopId;
+    }
     if (!expr || sub.hadError) {
         if (expr) freeAST(expr);
+        if (hoists) freeAST(hoists);
         p->hadError = true;
         return NULL;
+    }
+    if (hoists) {
+        aetherStampTreeLine(hoists, line);
+        if (outHoists) *outHoists = hoists;
+        else freeAST(hoists);
     }
     /* Stamp the directive line on the whole tree (not just the root) so a
      * contract error reports the @pre/@post line, not column 0 -- and so
@@ -3923,7 +4009,8 @@ static bool checkContractComparisons(AetherParser *p, AST *node,
 AST *buildContractGuard(AetherParser *p, const char *exprText,
                        const char *kind, const char *fnName, int line) {
     if (!exprText || !*exprText) return NULL;
-    AST *cond = parseExprFromText(p, exprText, line, p->currentFunctionIsMethod);
+    AST *condHoists = NULL;
+    AST *cond = parseExprFromText(p, exprText, line, p->currentFunctionIsMethod, &condHoists);
     if (!cond) return NULL;
 
     /* Reject a contract predicate that compares an array to a scalar (e.g.
@@ -3931,6 +4018,7 @@ AST *buildContractGuard(AetherParser *p, const char *exprText,
      * lowers to a runtime assert that crashes with "Operands not comparable". */
     if (checkContractComparisons(p, cond, kind, line)) {
         freeAST(cond);
+        if (condHoists) freeAST(condHoists);
         return NULL;
     }
 
@@ -3988,7 +4076,12 @@ AST *buildContractGuard(AetherParser *p, const char *exprText,
     AST *ifNode = newASTNode(AST_IF, NULL);
     setLeft(ifNode, notNode);
     setRight(ifNode, thenBlock);
-    return ifNode;
+    if (!condHoists) return ifNode;
+    /* A quantifier in the clause (D58): its loop runs first, in a block of its
+     * own, so two guards in one body never share a temp. */
+    condHoists->i_val = 0;
+    addChild(condHoists, ifNode);
+    return condHoists;
 }
 
 /* ------------------------------------------------------------------ */
@@ -5065,19 +5158,33 @@ static AST *parseStatementInner(AetherParser *p) {
         return newASTNode(AST_COMPOUND, NULL);
     }
     /* `fn backtrack(row: Int) -> Void { ... }` inside a function body: models
-     * reach for a nested fn to capture locals (N-Queens, Dijkstra). It used to
-     * parse `fn` as a call and say "expected ')' to close argument list".
-     * Aether has no nested functions (D50); name the fix instead. */
+     * reach for a nested fn to capture locals (N-Queens, Dijkstra). In a free
+     * top-level function it is a nested function (D62), lifted when the body
+     * is complete; anywhere else it is FUNC-001 with the fix named. */
     if (isAetherKeyword(&p->current, "fn") && !p->detachedText) {
+        if (p->nestedHost && !p->inNestedFn) {
+            return aetherParseNestedFn(p);
+        }
         int fnLine = p->current.line;
-        char detail[200];
-        snprintf(detail, sizeof(detail), "%s",
-                 p->functionDepth > 0
-                     ? "functions cannot be declared inside another function."
-                     : "functions cannot be declared inside a block.");
-        reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "nested-fn", detail,
-                "move it to the top level and pass the values it needs as parameters "
-                "(or a record for shared mutable state).");
+        const char *detail;
+        const char *hint = "move it to the top level and pass the values it needs as parameters "
+                           "(or a record for shared mutable state).";
+        if (p->inNestedFn) {
+            detail = "a nested function cannot declare another function: nesting is one "
+                     "level deep.";
+            hint = "declare it beside this one, directly in the enclosing function's body.";
+        } else if (p->currentFunctionIsMethod) {
+            detail = "a method cannot declare a function in its body (methods do not capture "
+                     "locals, METH-001).";
+            hint = "make the helper another method of the type, or a top-level fn that takes "
+                   "what it needs as parameters.";
+        } else if (p->functionDepth > 0) {
+            detail = "only a free top-level function can declare a nested function, not a "
+                     "`mod` member or a `self` extension function.";
+        } else {
+            detail = "functions cannot be declared inside a block.";
+        }
+        reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "nested-fn", detail, hint);
         p->hadError = true;
         return NULL;
     }
@@ -5740,6 +5847,7 @@ static void collectPendingAnnotations(AetherParser *p) {
  * rea's parseFunctionDecl does for class methods. */
 static AST *parseFnDecl(AetherParser *p) {
     int fnLine = p->current.line; /* line of the `fn` keyword, for diagnostics */
+    const bool isNested = p->inNestedFn; /* D62: lifted, registered by its host */
     aetherAdvance(p); /* consume 'fn' */
 
     if (!aetherTokenIsIdentifierLike(&p->current) || aetherIsAetherTextKeyword(&p->current)) {
@@ -6157,19 +6265,25 @@ static AST *parseFnDecl(AetherParser *p) {
     if (nameTok->value) {
         int fnReturnsReal = (vtype == TYPE_REAL || vtype == TYPE_DOUBLE ||
                              vtype == TYPE_FLOAT || vtype == TYPE_LONG_DOUBLE);
-        aetherAstRegisterFunctionPurity(nameTok->value, fnIsPure);
-        aetherAstRegisterFunctionReturnsReal(nameTok->value, fnReturnsReal);
-        if (isMethod) {
-            const char *dot = strrchr(nameTok->value, '.');
-            if (dot && dot[1]) {
-                aetherAstRegisterFunctionPurity(dot + 1, fnIsPure);
-                aetherAstRegisterFunctionReturnsReal(dot + 1, fnReturnsReal);
-            }
+        if (isNested) {
+            /* Registered under its lifted name by aetherLiftNestedFns. Its
+             * declared name shadows a same-named builtin only in its host
+             * (aetherIsNestedFnName). */
         } else {
-            /* Not a `type { ... }`-body method: this bare name shadows any
-             * same-named vm_builtin for FX-001/ANN-001 purposes (see the
-             * `swap` collision writeup in docs/ideas_and_todo.md). */
-            aetherAstRegisterTopLevelFunction(nameTok->value);
+            aetherAstRegisterFunctionPurity(nameTok->value, fnIsPure);
+            aetherAstRegisterFunctionReturnsReal(nameTok->value, fnReturnsReal);
+            if (isMethod) {
+                const char *dot = strrchr(nameTok->value, '.');
+                if (dot && dot[1]) {
+                    aetherAstRegisterFunctionPurity(dot + 1, fnIsPure);
+                    aetherAstRegisterFunctionReturnsReal(dot + 1, fnReturnsReal);
+                }
+            } else {
+                /* Not a `type { ... }`-body method: this bare name shadows any
+                 * same-named vm_builtin for FX-001/ANN-001 purposes (see the
+                 * `swap` collision writeup in docs/ideas_and_todo.md). */
+                aetherAstRegisterTopLevelFunction(nameTok->value);
+            }
         }
     }
     /* A tuple-return @post must reference positional slots (`result.0`/`result.1`),
@@ -6241,6 +6355,11 @@ static AST *parseFnDecl(AetherParser *p) {
     if (isExtensionMethod && extClassName) {
         p->currentClassName = extClassName;
     }
+    /* D62: the body of a free top-level function may declare nested fns. */
+    bool prevNestedHost = p->nestedHost;
+    bool hostsNested = !isNested && !p->forwardScan && !isMethod && !isExtensionMethod &&
+                       prevDepth == 0 && !(p->currentModuleName && *p->currentModuleName);
+    p->nestedHost = hostsNested;
 
     AST *block = NULL;
     bool hasBody = false;
@@ -6273,6 +6392,13 @@ static AST *parseFnDecl(AetherParser *p) {
     extClassName = NULL;
     p->currentFunctionType = prevType;
     p->functionDepth = prevDepth;
+    p->nestedHost = prevNestedHost;
+    if (hostsNested && p->nestedFnCount > 0) {
+        if (block && !p->hadError) {
+            aetherLiftNestedFns(p, params, block, nameTok->value ? nameTok->value : "fn");
+        }
+        aetherFreeNestedFns(p);
+    }
 
     /* Non-Void function whose body has top-level statements but never returns a
      * value: a fallthrough path (FLOW-001), matching the rewriter. Checked before
@@ -6446,10 +6572,730 @@ static AST *parseFnDecl(AetherParser *p) {
     bool suppressRegistration = !isMethod && !(p->currentModuleName && *p->currentModuleName) &&
                                  reaFrontendIsParsingLibraryFile() &&
                                  strcasecmp(regName, "main") == 0;
-    if (!suppressRegistration) {
+    if (!suppressRegistration && !isNested) {
         registerFunctionSymbol(func, regName, vtype, hasBody, isMethod);
     }
     return func;
+}
+
+/* ------------------------------------------------------------------ */
+/* Nested functions (D62)                                              */
+/* ------------------------------------------------------------------ */
+
+/* A local or parameter of the host function, as a nested function sees it:
+ * the declaring node is its identity (two `x`s in different blocks are two
+ * entries). Nothing here is owned. */
+typedef struct {
+    const char *name;
+    AST *decl;          /* VAR_DECL (local or parameter) or CONST_DECL */
+    AST *typeNode;      /* the declared type node, or NULL (an untyped const) */
+    VarType vt;
+    AST *constValue;    /* a CONST_DECL's value, to type an untyped const */
+} AetherNestedVis;
+
+typedef struct AetherNestedFn {
+    AST *func;          /* the parsed fn, with its own parameters only */
+    char *name;         /* the name it was declared with */
+    char *liftedName;
+    char *retTypeName;  /* Aether return type name; NULL for Void */
+    int id;             /* its marker's id */
+    int line;
+    bool reached;       /* the host walk has passed its marker */
+    AST *scope;         /* the host block that declares it */
+    AetherNestedVis *vis;   /* host locals visible at the declaration */
+    int visCount;
+    AetherNestedVis **caps; /* what it reads, transitively through siblings */
+    int capCount;
+} AetherNestedFn;
+
+typedef struct {
+    AetherNestedVis *items;
+    int count, cap;
+} AetherNestedVisStack;
+
+typedef struct {
+    AST *call;
+    int fn;                 /* index of the nested fn it calls */
+    int from;               /* -1: the host body; else the calling nested fn */
+    AetherNestedVis *vis;   /* host only: locals visible at the call */
+    int visCount;
+} AetherNestedCall;
+
+typedef struct {
+    AetherParser *p;
+    AetherNestedVisStack stack;
+    AST **scopes;           /* the host blocks enclosing the walk position */
+    int scopeCount, scopeCap;
+    AetherNestedCall *calls;
+    int callCount, callCap;
+    bool failed;
+} AetherNestedWalk;
+
+static void nestedVisPush(AetherNestedVisStack *s, AetherNestedVis v) {
+    if (s->count == s->cap) {
+        int nc = s->cap ? s->cap * 2 : 16;
+        AetherNestedVis *g = (AetherNestedVis *)realloc(s->items, (size_t)nc * sizeof(*g));
+        if (!g) return;
+        s->items = g;
+        s->cap = nc;
+    }
+    s->items[s->count++] = v;
+}
+
+static AetherNestedVis *nestedVisSnapshot(const AetherNestedVisStack *s) {
+    if (s->count == 0) return NULL;
+    AetherNestedVis *copy = (AetherNestedVis *)malloc((size_t)s->count * sizeof(*copy));
+    if (copy) memcpy(copy, s->items, (size_t)s->count * sizeof(*copy));
+    return copy;
+}
+
+/* The innermost entry named `name` (Aether names ignore case), or NULL. */
+static AetherNestedVis *nestedVisFind(AetherNestedVis *vis, int count, const char *name) {
+    for (int i = count - 1; i >= 0; i--) {
+        if (vis[i].name && strcasecmp(vis[i].name, name) == 0) return &vis[i];
+    }
+    return NULL;
+}
+
+static int nestedFnIndex(const AetherParser *p, const char *name) {
+    if (!name) return -1;
+    for (int i = 0; i < p->nestedFnCount; i++) {
+        if (strcasecmp(p->nestedFns[i].name, name) == 0) return i;
+    }
+    return -1;
+}
+
+/* A nested fn (D62) of the host being parsed, declared so far: inside its
+ * host it shadows a builtin of the same name, as a top-level fn does
+ * everywhere. */
+bool aetherIsNestedFnName(const AetherParser *p, const char *name) {
+    return p && nestedFnIndex(p, name) >= 0;
+}
+
+#define AETHER_NESTED_MARKER "__aether_nestedfn_"
+
+static int nestedMarkerId(const AST *n) {
+    if (!n || n->type != AST_COMPOUND || !n->token || !n->token->value) return -1;
+    size_t ml = strlen(AETHER_NESTED_MARKER);
+    if (strncmp(n->token->value, AETHER_NESTED_MARKER, ml) != 0) return -1;
+    return atoi(n->token->value + ml);
+}
+
+static bool nestedIsCall(const AST *n) {
+    return n && n->type == AST_PROCEDURE_CALL && !n->left &&
+           n->token && n->token->value;
+}
+
+/* A record literal's `field: value` (an ASSIGN whose token is `:`): its left
+ * side is a field name, not a variable. A field access's right side is a
+ * field name too; the walks below skip both. */
+static bool nestedIsFieldInit(const AST *n) {
+    return n && n->type == AST_ASSIGN && n->token && n->token->value &&
+           strcmp(n->token->value, ":") == 0;
+}
+
+static void nestedReport(AetherNestedWalk *w, int line, const char *kind, const char *detail,
+                         const char *hint) {
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, kind, detail, hint);
+    w->failed = true;
+}
+
+static void nestedValueUse(AetherNestedWalk *w, const char *name, int line) {
+    char detail[240];
+    snprintf(detail, sizeof(detail),
+             "the nested function '%s' is not a value: it cannot be stored, passed or "
+             "returned.", name);
+    nestedReport(w, line, "nested-fn", detail, "call it directly, `name(args)`.");
+}
+
+static void nestedAddCall(AetherNestedWalk *w, AST *call, int fn, int from) {
+    if (w->callCount == w->callCap) {
+        int nc = w->callCap ? w->callCap * 2 : 16;
+        AetherNestedCall *g = (AetherNestedCall *)realloc(w->calls, (size_t)nc * sizeof(*g));
+        if (!g) { w->failed = true; return; }
+        w->calls = g;
+        w->callCap = nc;
+    }
+    AetherNestedCall *c = &w->calls[w->callCount++];
+    c->call = call;
+    c->fn = fn;
+    c->from = from;
+    c->vis = from < 0 ? nestedVisSnapshot(&w->stack) : NULL;
+    c->visCount = from < 0 ? w->stack.count : 0;
+}
+
+/* Walk the host body in order, tracking which host locals are visible: the
+ * declaration point of each nested fn (its marker), and every host call to
+ * one, with what is visible there. */
+static void nestedWalkHost(AetherNestedWalk *w, AST *n) {
+    if (!n || w->failed) return;
+    AetherParser *p = w->p;
+    int id = nestedMarkerId(n);
+    if (id >= 0) {
+        for (int i = 0; i < p->nestedFnCount; i++) {
+            AetherNestedFn *f = &p->nestedFns[i];
+            if (f->id != id) continue;
+            f->reached = true;
+            f->scope = w->scopeCount > 0 ? w->scopes[w->scopeCount - 1] : NULL;
+            f->vis = nestedVisSnapshot(&w->stack);
+            f->visCount = w->stack.count;
+        }
+        return;
+    }
+    switch (n->type) {
+        case AST_VAR_DECL:
+            nestedWalkHost(w, n->left);
+            for (int i = 0; i < n->child_count; i++) {
+                AST *v = n->children[i];
+                if (!v || v->type != AST_VARIABLE || !v->token || !v->token->value) continue;
+                AetherNestedVis e = { v->token->value, n, n->right, n->var_type, NULL };
+                nestedVisPush(&w->stack, e);
+            }
+            return;
+        case AST_CONST_DECL:
+            nestedWalkHost(w, n->left);
+            if (n->token && n->token->value) {
+                AetherNestedVis e = { n->token->value, n, n->right, n->var_type, n->left };
+                nestedVisPush(&w->stack, e);
+            }
+            return;
+        case AST_COMPOUND: {
+            int mark = w->stack.count;
+            if (w->scopeCount == w->scopeCap) {
+                int nc = w->scopeCap ? w->scopeCap * 2 : 16;
+                AST **g = (AST **)realloc(w->scopes, (size_t)nc * sizeof(*g));
+                if (!g) { w->failed = true; return; }
+                w->scopes = g;
+                w->scopeCap = nc;
+            }
+            w->scopes[w->scopeCount++] = n;
+            for (int i = 0; i < n->child_count; i++) nestedWalkHost(w, n->children[i]);
+            nestedWalkHost(w, n->left);
+            nestedWalkHost(w, n->right);
+            nestedWalkHost(w, n->extra);
+            w->scopeCount--;
+            w->stack.count = mark;
+            return;
+        }
+        case AST_VARIABLE:
+            if (n->token && n->token->value && nestedFnIndex(p, n->token->value) >= 0 &&
+                !nestedVisFind(w->stack.items, w->stack.count, n->token->value)) {
+                nestedValueUse(w, n->token->value, n->token->line);
+            }
+            return;
+        case AST_FIELD_ACCESS:
+            nestedWalkHost(w, n->left);
+            return;
+        default:
+            if (nestedIsFieldInit(n)) {
+                nestedWalkHost(w, n->right);
+                return;
+            }
+            break;
+    }
+    if (nestedIsCall(n)) {
+        int fi = nestedFnIndex(p, n->token->value);
+        if (fi >= 0) nestedAddCall(w, n, fi, -1);
+    }
+    nestedWalkHost(w, n->left);
+    nestedWalkHost(w, n->right);
+    nestedWalkHost(w, n->extra);
+    for (int i = 0; i < n->child_count; i++) nestedWalkHost(w, n->children[i]);
+}
+
+typedef struct {
+    const char **items;
+    int count, cap;
+} AetherNameSet;
+
+static bool nameSetHas(const AetherNameSet *s, const char *name) {
+    for (int i = 0; i < s->count; i++) {
+        if (strcasecmp(s->items[i], name) == 0) return true;
+    }
+    return false;
+}
+
+static void nameSetAdd(AetherNameSet *s, const char *name) {
+    if (!name || nameSetHas(s, name)) return;
+    if (s->count == s->cap) {
+        int nc = s->cap ? s->cap * 2 : 16;
+        const char **g = (const char **)realloc(s->items, (size_t)nc * sizeof(*g));
+        if (!g) return;
+        s->items = g;
+        s->cap = nc;
+    }
+    s->items[s->count++] = name;
+}
+
+/* Every name the nested fn declares (parameters, locals, loop variables,
+ * consts, compiler temps): none of them is a capture. */
+static void nestedCollectDecls(const AST *n, AetherNameSet *out) {
+    if (!n) return;
+    if (n->type == AST_VAR_DECL) {
+        for (int i = 0; i < n->child_count; i++) {
+            const AST *v = n->children[i];
+            if (v && v->type == AST_VARIABLE && v->token) nameSetAdd(out, v->token->value);
+        }
+    } else if (n->type == AST_CONST_DECL && n->token) {
+        nameSetAdd(out, n->token->value);
+    }
+    nestedCollectDecls(n->left, out);
+    nestedCollectDecls(n->right, out);
+    nestedCollectDecls(n->extra, out);
+    for (int i = 0; i < n->child_count; i++) nestedCollectDecls(n->children[i], out);
+}
+
+static void nestedCollectReads(const AST *n, AetherNameSet *out) {
+    if (!n) return;
+    if (n->type == AST_VARIABLE && n->token) nameSetAdd(out, n->token->value);
+    if (n->type == AST_FIELD_ACCESS) { nestedCollectReads(n->left, out); return; }
+    if (nestedIsFieldInit(n)) { nestedCollectReads(n->right, out); return; }
+    nestedCollectReads(n->left, out);
+    nestedCollectReads(n->right, out);
+    nestedCollectReads(n->extra, out);
+    for (int i = 0; i < n->child_count; i++) nestedCollectReads(n->children[i], out);
+}
+
+/* The variable an assignment target writes when it names the whole value or
+ * an element of it (`x`, `xs[i]`, `g[i][j]`); NULL when the write goes
+ * through a field (`st.count`, `ps[i].age`): records are shared, so that is
+ * the allowed way to change state from a nested function. */
+static const char *nestedWriteRoot(const AST *lv) {
+    while (lv) {
+        if (lv->type == AST_VARIABLE) return lv->token ? lv->token->value : NULL;
+        if (lv->type != AST_ARRAY_ACCESS) return NULL;
+        lv = lv->left;
+    }
+    return NULL;
+}
+
+static int nestedNodeLine(const AST *n) {
+    if (!n) return 0;
+    if (n->token && n->token->line > 0) return n->token->line;
+    int l = nestedNodeLine(n->left);
+    if (!l) l = nestedNodeLine(n->right);
+    for (int i = 0; !l && i < n->child_count; i++) l = nestedNodeLine(n->children[i]);
+    return l;
+}
+
+/* FUNC-002: the nested fn assigns `name`, a host local it reads. Calls that
+ * resize or step a variable in place (`setlength`, `inc`, `dec`) are writes
+ * too: the array `+` lowering emits `setlength`. */
+static void nestedCheckWrites(AetherNestedWalk *w, const AetherNestedFn *f, const AST *n,
+                              const AetherNameSet *own, const char *hostName) {
+    if (!n || w->failed) return;
+    const char *root = NULL;
+    if (nestedIsFieldInit(n)) {
+        nestedCheckWrites(w, f, n->right, own, hostName);
+        return;
+    }
+    if (n->type == AST_ASSIGN) {
+        root = nestedWriteRoot(n->left);
+    } else if (nestedIsCall(n) && n->child_count > 0 &&
+               (strcasecmp(n->token->value, "setlength") == 0 ||
+                strcasecmp(n->token->value, "inc") == 0 ||
+                strcasecmp(n->token->value, "dec") == 0)) {
+        root = nestedWriteRoot(n->children[0]);
+    }
+    if (root && !nameSetHas(own, root) && nestedVisFind(f->vis, f->visCount, root)) {
+        char detail[320];
+        snprintf(detail, sizeof(detail),
+                 "the nested function '%s' cannot change '%s' of its enclosing function "
+                 "'%s': a nested function reads the enclosing locals, it does not assign them.",
+                 f->name, root, hostName);
+        nestedReport(w, nestedNodeLine(n), "nested-assign", detail,
+                     "return the new value and assign it in the enclosing function, or keep "
+                     "it in a record field (`st.count = st.count + 1;`).");
+        return;
+    }
+    nestedCheckWrites(w, f, n->left, own, hostName);
+    nestedCheckWrites(w, f, n->right, own, hostName);
+    nestedCheckWrites(w, f, n->extra, own, hostName);
+    for (int i = 0; i < n->child_count; i++) nestedCheckWrites(w, f, n->children[i], own, hostName);
+}
+
+/* Calls from one nested fn to itself or a sibling, and sibling names used as
+ * values. */
+static void nestedWalkInner(AetherNestedWalk *w, AST *n, int from, const AetherNameSet *own) {
+    if (!n || w->failed) return;
+    if (n->type == AST_FIELD_ACCESS) { nestedWalkInner(w, n->left, from, own); return; }
+    if (nestedIsFieldInit(n)) { nestedWalkInner(w, n->right, from, own); return; }
+    if (n->type == AST_VARIABLE && n->token && n->token->value &&
+        nestedFnIndex(w->p, n->token->value) >= 0 && !nameSetHas(own, n->token->value)) {
+        nestedValueUse(w, n->token->value, n->token->line);
+        return;
+    }
+    if (nestedIsCall(n)) {
+        int fi = nestedFnIndex(w->p, n->token->value);
+        if (fi >= 0) nestedAddCall(w, n, fi, from);
+    }
+    nestedWalkInner(w, n->left, from, own);
+    nestedWalkInner(w, n->right, from, own);
+    nestedWalkInner(w, n->extra, from, own);
+    for (int i = 0; i < n->child_count; i++) nestedWalkInner(w, n->children[i], from, own);
+}
+
+static bool nestedCapsHas(const AetherNestedFn *f, const AetherNestedVis *v) {
+    for (int i = 0; i < f->capCount; i++) {
+        if (f->caps[i]->decl == v->decl && strcasecmp(f->caps[i]->name, v->name) == 0) return true;
+    }
+    return false;
+}
+
+static void nestedCapsAdd(AetherNestedFn *f, AetherNestedVis *v) {
+    if (nestedCapsHas(f, v)) return;
+    AetherNestedVis **g =
+        (AetherNestedVis **)realloc(f->caps, (size_t)(f->capCount + 1) * sizeof(*g));
+    if (!g) return;
+    f->caps = g;
+    f->caps[f->capCount++] = v;
+}
+
+/* The parameter declaration for capture `v` of a lifted fn: the host's own
+ * type node. It gets none of the prologue copies parseFnDecl gives a declared
+ * array parameter (the VM passes an array by sharing it), so an array is read
+ * uncopied: the nested fn cannot write it (FUNC-002), and recursion over a
+ * board array pays no copy per call. Not `by_ref`: a whole-value read
+ * (`let c = xs;`, `ret xs;`) of a by-reference parameter of a literal-built
+ * array fails its un-alias step (results/decisions/arrays_2026-10-07.md,
+ * shim 3). NULL when an untyped const has no literal value to type it. */
+static AST *nestedCaptureParam(const AetherNestedVis *v, int line) {
+    AST *typeNode = v->typeNode ? copyAST(v->typeNode) : NULL;
+    VarType vt = v->vt;
+    if (!typeNode && v->constValue) {
+        const char *tn = NULL;
+        switch (v->constValue->type) {
+            case AST_NUMBER:
+                tn = (v->constValue->token && v->constValue->token->type == TOKEN_REAL_CONST)
+                         ? "Real" : "Int";
+                break;
+            case AST_STRING: tn = "Text"; break;
+            case AST_BOOLEAN: tn = "Bool"; break;
+            default: break;
+        }
+        if (tn) typeNode = buildTypeNodeFromName(tn, strlen(tn), line, &vt);
+    }
+    if (!typeNode) return NULL;
+    Token *nameTok = newToken(TOKEN_IDENTIFIER, v->name, line, 0);
+    AST *var = newASTNode(AST_VARIABLE, nameTok);
+    setTypeAST(var, vt);
+    AST *decl = newASTNode(AST_VAR_DECL, NULL);
+    addChild(decl, var);
+    setRight(decl, typeNode);
+    setTypeAST(decl, vt);
+    return decl;
+}
+
+static AST *nestedPrototype(AST *func) {
+    AST *proto = copyAST(func);
+    if (!proto) return NULL;
+    if (proto->type == AST_PROCEDURE_DECL) {
+        if (proto->right) { freeAST(proto->right); proto->right = NULL; }
+    } else if (proto->extra) {
+        freeAST(proto->extra);
+        proto->extra = NULL;
+    }
+    return proto;
+}
+
+/* Lambda lifting (D62). Each nested fn of the host `hostName` becomes a
+ * top-level fn `__aether_<host>_<name>` with one extra parameter per host local
+ * it reads, directly or through the siblings it calls; every call, from the
+ * host or a sibling, passes those locals by name. Reads see the value at the
+ * call, which is the whole semantics, since nothing can assign them. The
+ * prototypes and lifted fns go to p->liftedDecls. Returns false after
+ * reporting. */
+static bool aetherLiftNestedFns(AetherParser *p, AST *params, AST *block, const char *hostName) {
+    AetherNestedWalk w;
+    memset(&w, 0, sizeof(w));
+    w.p = p;
+    for (int i = 0; params && i < params->child_count; i++) {
+        AST *pd = params->children[i];
+        if (!pd || pd->type != AST_VAR_DECL) continue;
+        for (int j = 0; j < pd->child_count; j++) {
+            AST *v = pd->children[j];
+            if (!v || v->type != AST_VARIABLE || !v->token || !v->token->value) continue;
+            AetherNestedVis e = { v->token->value, pd, pd->right, pd->var_type, NULL };
+            nestedVisPush(&w.stack, e);
+        }
+    }
+    nestedWalkHost(&w, block);
+
+    AetherNameSet *own = (AetherNameSet *)calloc((size_t)p->nestedFnCount, sizeof(*own));
+    for (int k = 0; own && !w.failed && k < p->nestedFnCount; k++) {
+        AetherNestedFn *f = &p->nestedFns[k];
+        AST *body = f->func->type == AST_PROCEDURE_DECL ? f->func->right : f->func->extra;
+        for (int i = 0; i < f->func->child_count; i++) nestedCollectDecls(f->func->children[i], &own[k]);
+        nestedCollectDecls(body, &own[k]);
+        AetherNameSet reads = {0};
+        nestedCollectReads(body, &reads);
+        /* Direct captures: what it reads that the host has visible at its
+         * declaration and it does not declare itself (innermost wins). */
+        for (int i = f->visCount - 1; i >= 0; i--) {
+            AetherNestedVis *v = &f->vis[i];
+            if (!nameSetHas(&reads, v->name) || nameSetHas(&own[k], v->name)) continue;
+            if (nestedVisFind(f->vis, f->visCount, v->name) != v) continue; /* shadowed */
+            nestedCapsAdd(f, v);
+        }
+        free(reads.items);
+        nestedCheckWrites(&w, f, body, &own[k], hostName);
+        nestedWalkInner(&w, body, k, &own[k]);
+    }
+
+    /* Through sibling calls, to a fixed point: a caller passes everything its
+     * callee reads, so it reads that too, and it must see the same locals. */
+    for (bool changed = true; changed && !w.failed;) {
+        changed = false;
+        for (int c = 0; c < w.callCount && !w.failed; c++) {
+            AetherNestedCall *call = &w.calls[c];
+            if (call->from < 0 || call->from == call->fn) continue;
+            AetherNestedFn *caller = &p->nestedFns[call->from];
+            AetherNestedFn *callee = &p->nestedFns[call->fn];
+            for (int i = 0; i < callee->capCount; i++) {
+                AetherNestedVis *cv = callee->caps[i];
+                if (nestedCapsHas(caller, cv)) continue;
+                AetherNestedVis *seen = nestedVisFind(caller->vis, caller->visCount, cv->name);
+                if (!seen || seen->decl != cv->decl || nameSetHas(&own[call->from], cv->name)) {
+                    char detail[320];
+                    snprintf(detail, sizeof(detail),
+                             "the nested function '%s' calls '%s', which reads '%s', but "
+                             "'%s' is not visible where '%s' is declared.",
+                             caller->name, callee->name, cv->name, cv->name, caller->name);
+                    nestedReport(&w, nestedNodeLine(call->call), "scope", detail,
+                                 "declare the local before both nested functions, or pass it "
+                                 "as a parameter.");
+                    break;
+                }
+                nestedCapsAdd(caller, seen);
+                changed = true;
+            }
+        }
+    }
+
+    /* Each call: declared before it, in a block that encloses it, with the
+     * right argument count, and seeing the same locals the callee reads. */
+    for (int c = 0; c < w.callCount && !w.failed; c++) {
+        AetherNestedCall *call = &w.calls[c];
+        AetherNestedFn *callee = &p->nestedFns[call->fn];
+        int line = nestedNodeLine(call->call);
+        int want = callee->func->child_count;
+        int given = call->call->child_count;
+        if (given != want) {
+            char detail[240];
+            snprintf(detail, sizeof(detail), "%s arguments for '%s': it takes %d, %d given.",
+                     given > want ? "Too many" : "Too few", callee->name, want, given);
+            nestedReport(&w, line, "parser", detail, NULL);
+            break;
+        }
+        if (call->from >= 0) continue;
+        if (!callee->reached) {
+            char detail[240];
+            snprintf(detail, sizeof(detail),
+                     "the nested function '%s' is called before its declaration.", callee->name);
+            nestedReport(&w, line, "scope", detail,
+                         "declare a nested function above its first call.");
+            break;
+        }
+        for (int i = 0; i < callee->capCount && !w.failed; i++) {
+            AetherNestedVis *cv = callee->caps[i];
+            AetherNestedVis *here = nestedVisFind(call->vis, call->visCount, cv->name);
+            if (!here || here->decl != cv->decl) {
+                char detail[320];
+                snprintf(detail, sizeof(detail),
+                         "'%s' here is not the '%s' that the nested function '%s' reads.",
+                         cv->name, cv->name, callee->name);
+                nestedReport(&w, line, "scope", detail,
+                             "rename the inner variable, or call the function outside its "
+                             "block.");
+            }
+        }
+    }
+    /* A nested fn declared in an inner block is visible only inside it. */
+    for (int c = 0; c < w.callCount && !w.failed; c++) {
+        AetherNestedCall *call = &w.calls[c];
+        AetherNestedFn *callee = &p->nestedFns[call->fn];
+        if (call->from >= 0 || !callee->scope || callee->scope == block) continue;
+        bool inside = false;
+        for (const AST *a = call->call; a && !inside; a = a->parent) inside = (a == callee->scope);
+        if (!inside) {
+            char detail[240];
+            snprintf(detail, sizeof(detail),
+                     "the nested function '%s' is declared inside a block and is not visible "
+                     "here.", callee->name);
+            nestedReport(&w, nestedNodeLine(call->call), "scope", detail,
+                         "declare it directly in the function body.");
+        }
+    }
+
+    bool ok = !w.failed;
+    if (ok) {
+        AST *protos = newASTNode(AST_COMPOUND, NULL);
+        AST *defs = newASTNode(AST_COMPOUND, NULL);
+        for (int k = 0; k < p->nestedFnCount; k++) {
+            AetherNestedFn *f = &p->nestedFns[k];
+            size_t ln = strlen(hostName) + strlen(f->name) + 16;
+            f->liftedName = (char *)malloc(ln);
+            if (f->liftedName) snprintf(f->liftedName, ln, "__aether_%s_%s", hostName, f->name);
+        }
+        for (int c = 0; c < w.callCount; c++) {
+            AetherNestedCall *call = &w.calls[c];
+            AetherNestedFn *callee = &p->nestedFns[call->fn];
+            if (!callee->liftedName) continue;
+            int line = nestedNodeLine(call->call);
+            free(call->call->token->value);
+            call->call->token->value = strdup(callee->liftedName);
+            call->call->token->length = strlen(callee->liftedName);
+            for (int i = 0; i < callee->capCount; i++) {
+                addChild(call->call, buildVarRef(callee->caps[i]->name, callee->caps[i]->vt, line));
+            }
+        }
+        for (int k = 0; k < p->nestedFnCount && ok; k++) {
+            AetherNestedFn *f = &p->nestedFns[k];
+            if (!f->liftedName) { ok = false; break; }
+            for (int i = 0; i < f->capCount; i++) {
+                AST *pd = nestedCaptureParam(f->caps[i], f->line);
+                if (!pd) {
+                    char detail[240];
+                    snprintf(detail, sizeof(detail),
+                             "the nested function '%s' reads the const '%s', whose type it "
+                             "cannot name.", f->name, f->caps[i]->name);
+                    reportAetherAstError(aetherSemanticGetSourcePath(), f->line, "nested-fn",
+                                         detail, "give the const a type: `const N: Int = ...;`.");
+                    ok = false;
+                    break;
+                }
+                addChild(f->func, pd);
+            }
+            if (!ok) break;
+            free(f->func->token->value);
+            f->func->token->value = strdup(f->liftedName);
+            f->func->token->length = strlen(f->liftedName);
+            int returnsReal = (f->func->var_type == TYPE_REAL || f->func->var_type == TYPE_DOUBLE ||
+                               f->func->var_type == TYPE_FLOAT ||
+                               f->func->var_type == TYPE_LONG_DOUBLE);
+            aetherAstRegisterFunctionPurity(f->liftedName, 0);
+            aetherAstRegisterFunctionReturnsReal(f->liftedName, returnsReal);
+            aetherAstRegisterTopLevelFunction(f->liftedName);
+            if (f->retTypeName && p->funcReturns) {
+                bindingTableSet(p->funcReturns, f->liftedName, f->retTypeName);
+            }
+            addChild(protos, nestedPrototype(f->func));
+            registerFunctionSymbol(f->func, f->liftedName, f->func->var_type, true, false);
+            addChild(defs, f->func);
+            f->func = NULL; /* owned by defs */
+        }
+        if (ok) {
+            if (!p->liftedDecls) p->liftedDecls = newASTNode(AST_COMPOUND, NULL);
+            for (int i = 0; i < protos->child_count; i++) {
+                addChild(p->liftedDecls, protos->children[i]);
+                protos->children[i] = NULL;
+            }
+            for (int i = 0; i < defs->child_count; i++) {
+                addChild(p->liftedDecls, defs->children[i]);
+                defs->children[i] = NULL;
+            }
+        } else {
+            p->hadError = true;
+        }
+        freeAST(protos);
+        freeAST(defs);
+    } else {
+        p->hadError = true;
+    }
+
+    for (int k = 0; own && k < p->nestedFnCount; k++) free(own[k].items);
+    free(own);
+    for (int c = 0; c < w.callCount; c++) free(w.calls[c].vis);
+    free(w.calls);
+    free(w.scopes);
+    free(w.stack.items);
+    return ok;
+}
+
+/* Release the host's nested-fn records (whatever lifting did not take). */
+static void aetherFreeNestedFns(AetherParser *p) {
+    for (int k = 0; k < p->nestedFnCount; k++) {
+        AetherNestedFn *f = &p->nestedFns[k];
+        if (f->func) freeAST(f->func);
+        free(f->name);
+        free(f->liftedName);
+        free(f->retTypeName);
+        free(f->vis);
+        free(f->caps);
+    }
+    p->nestedFnCount = 0;
+}
+
+/* `fn NAME(...) -> T { ... }` in the body of a free top-level function (D62).
+ * Parsed as any fn, with the host's locals still typed in the inference
+ * table, which is restored afterwards so the nested fn's own parameters and
+ * locals do not retype the host's. Returns the empty marker block that holds
+ * its place in the host body. */
+static AST *aetherParseNestedFn(AetherParser *p) {
+    int line = p->current.line;
+    AetherBindingTable *bt = p->bindings;
+    size_t savedCount = bt ? bt->count : 0;
+    char **savedTypes = NULL;
+    if (bt && savedCount) {
+        savedTypes = (char **)calloc(savedCount, sizeof(*savedTypes));
+        for (size_t i = 0; savedTypes && i < savedCount; i++) {
+            savedTypes[i] = bt->items[i].typeName ? strdup(bt->items[i].typeName) : NULL;
+        }
+    }
+    bool prevHost = p->nestedHost;
+    p->nestedHost = false;
+    p->inNestedFn = true;
+    AST *func = parseFnDecl(p);
+    p->inNestedFn = false;
+    p->nestedHost = prevHost;
+    if (bt) {
+        for (size_t i = savedCount; i < bt->count; i++) {
+            free(bt->items[i].name);
+            free(bt->items[i].typeName);
+        }
+        if (bt->count > savedCount) bt->count = savedCount;
+        for (size_t i = 0; savedTypes && i < savedCount && i < bt->count; i++) {
+            if (!savedTypes[i]) continue;
+            free(bt->items[i].typeName);
+            bt->items[i].typeName = savedTypes[i];
+            savedTypes[i] = NULL;
+        }
+        for (size_t i = 0; savedTypes && i < savedCount; i++) free(savedTypes[i]);
+    }
+    free(savedTypes);
+    if (!func) {
+        p->hadError = true;
+        return NULL;
+    }
+    if (p->nestedFnCount == p->nestedFnCap) {
+        int nc = p->nestedFnCap ? p->nestedFnCap * 2 : 4;
+        AetherNestedFn *g = (AetherNestedFn *)realloc(p->nestedFns, (size_t)nc * sizeof(*g));
+        if (!g) { freeAST(func); p->hadError = true; return NULL; }
+        p->nestedFns = g;
+        p->nestedFnCap = nc;
+    }
+    const char *name = func->token && func->token->value ? func->token->value : "";
+    if (nestedFnIndex(p, name) >= 0) {
+        char detail[200];
+        snprintf(detail, sizeof(detail),
+                 "the nested function '%s' is declared twice in this function.", name);
+        reportAetherAstError(aetherSemanticGetSourcePath(), line, "redeclaration", detail,
+                             "rename one of them.");
+        freeAST(func);
+        p->hadError = true;
+        return NULL;
+    }
+    AetherNestedFn *f = &p->nestedFns[p->nestedFnCount++];
+    memset(f, 0, sizeof(*f));
+    f->func = func;
+    f->name = strdup(name);
+    const char *rt = p->funcReturns ? bindingTableGet(p->funcReturns, name, strlen(name)) : NULL;
+    f->retTypeName = (rt && func->var_type != TYPE_VOID) ? strdup(rt) : NULL;
+    f->id = p->nextNestedFnId++;
+    f->line = line;
+    char marker[48];
+    snprintf(marker, sizeof(marker), AETHER_NESTED_MARKER "%d", f->id);
+    return newASTNode(AST_COMPOUND, newToken(TOKEN_IDENTIFIER, marker, line, 0));
 }
 
 /* ------------------------------------------------------------------ */
@@ -7173,15 +8019,41 @@ static AST *buildSyntheticTupleRecordType(int typeId, char **itemTypes, size_t i
  * Scans only top-level (column-0) `fn NAME(...) -> (...)` lines; method tuple
  * returns are unsupported (handled/diagnosed in parseFnDecl). Returns false on
  * allocation failure. */
-static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tuples,
-                                       int *nextTupleTypeId, AST *decls) {
+/* Does a column-0 `fn NAME` exist anywhere in `source`? */
+static bool aetherSourceHasTopLevelFn(const char *source, const char *name, size_t len) {
+    for (const char *c = source; c && *c;) {
+        if (c[0] == 'f' && c[1] == 'n' && (c[2] == ' ' || c[2] == '\t')) {
+            const char *n = c + 2;
+            while (*n == ' ' || *n == '\t') n++;
+            if (strncmp(n, name, len) == 0 && !(isalnum((unsigned char)n[len]) || n[len] == '_')) {
+                return true;
+            }
+        }
+        const char *nl = strchr(c, '\n');
+        c = nl ? nl + 1 : NULL;
+    }
+    return false;
+}
+
+/* `indented`: the second pass, over indented `fn` lines (a nested fn, D62, or
+ * a method, which parseFnDecl rejects), for names no top-level fn took. */
+static bool aetherRegisterTupleGlobalsPass(const char *source, AetherTupleTable *tuples,
+                                           int *nextTupleTypeId, AST *decls, bool indented) {
     const char *cursor = source;
     int lineNumber = 1;
     while (*cursor) {
         const char *lineStart = cursor;
         const char *lineEnd = cursor;
         while (*lineEnd && *lineEnd != '\n') lineEnd++;
-        /* Only column-0 `fn ` lines (no leading whitespace). */
+        if (indented) {
+            if (lineStart < lineEnd && (*lineStart == ' ' || *lineStart == '\t')) {
+                while (lineStart < lineEnd && (*lineStart == ' ' || *lineStart == '\t')) lineStart++;
+            } else {
+                lineStart = lineEnd; /* column 0: the first pass's */
+            }
+        }
+        /* Only column-0 `fn ` lines (no leading whitespace), or in the second
+         * pass the indented ones. */
         if (lineStart < lineEnd && (lineStart[0] == 'f' && lineStart[1] == 'n') &&
             (lineStart + 2 < lineEnd) &&
             (lineStart[2] == ' ' || lineStart[2] == '\t')) {
@@ -7236,7 +8108,10 @@ static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tup
                     }
                     char **items = NULL;
                     size_t itemCount = 0;
-                    if (parseTupleTypeList(rt, rtEnd, &items, &itemCount)) {
+                    if (indented && aetherSourceHasTopLevelFn(source, nameStart,
+                                                              (size_t)(nameEnd - nameStart))) {
+                        /* a top-level fn of that name keeps it */
+                    } else if (parseTupleTypeList(rt, rtEnd, &items, &itemCount)) {
                         char *fnName = (char *)malloc((size_t)(nameEnd - nameStart) + 1);
                         if (!fnName) { for (size_t i = 0; i < itemCount; i++) free(items[i]); free(items); return false; }
                         memcpy(fnName, nameStart, (size_t)(nameEnd - nameStart));
@@ -7259,6 +8134,12 @@ static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tup
         if (*lineEnd == '\n') lineNumber++;
     }
     return true;
+}
+
+static bool aetherRegisterTupleGlobals(const char *source, AetherTupleTable *tuples,
+                                       int *nextTupleTypeId, AST *decls) {
+    return aetherRegisterTupleGlobalsPass(source, tuples, nextTupleTypeId, decls, false) &&
+           aetherRegisterTupleGlobalsPass(source, tuples, nextTupleTypeId, decls, true);
 }
 
 /* Forward-declaration pre-pass: parse every top-level declaration once with the
@@ -7601,6 +8482,15 @@ AST *parseAetherAst(const char *rawSource) {
         if (!decl) {
             p.hadError = true;
             break;
+        }
+        /* A host fn's lifted nested fns (D62) go ahead of it. */
+        if (p.liftedDecls) {
+            for (int i = 0; i < p.liftedDecls->child_count; i++) {
+                if (p.liftedDecls->children[i]) addChild(decls, p.liftedDecls->children[i]);
+                p.liftedDecls->children[i] = NULL;
+            }
+            freeAST(p.liftedDecls);
+            p.liftedDecls = NULL;
         }
         int stmtsBefore = stmts->child_count;
         appendTopLevelDecl(decls, stmts, decl);

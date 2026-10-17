@@ -12,6 +12,89 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-17-5
+
+**The modern surface, Release B: quantifier expressions and nested functions with
+read-only capture** (decisions D58 and D62; the accepted proposal
+[`docs/proposals/2026-10-17-modern-surface.md`](docs/proposals/2026-10-17-modern-surface.md)).
+Front end only: pscal-core stays at `a67836f`, rea at `94ea5f5`.
+
+- **Quantifiers (D58).** `all NAME in COLLECTION: COND` and `any NAME in ...: COND`
+  are `Bool` expressions, usable anywhere an expression is, `@pre`/`@post`
+  included. The header is a `loop` header (`parseLoopRangeWith`, the body
+  callback form of `parseLoopRange`): an array, a `Text`, a ToonNode array, or a
+  range with an optional `step`. Lowered (`aetherParseQuantifier`, ast_lower.c)
+  to a hoisted `let __aether_q_N: Bool = true|false;` and a block holding the
+  loop, whose body tests COND and breaks on the first deciding element; COND's
+  own hoists (a nested quantifier, a slice) run inside the loop. An empty
+  collection leaves `all` true and `any` false. NAME is declared inside the loop
+  block, so it is visible only in COND; it follows the loop-variable rule
+  (NAME-001, `validateNoDuplicateLocals`, contract clauses checked against the
+  next `fn`'s parameters). On the right of `&&`/`||` and in a `?:` branch the
+  loop runs only when evaluated (the existing hoist deferral). COND certainly
+  not a Bool (a literal, arithmetic, an Int/Real/Text name) is TYPE-001;
+  `all(...)`/`any(...)` as calls stay SCOPE-001 with a hint naming the
+  quantifier; `all`/`any` remain ordinary names elsewhere (a two-token
+  lookahead for `NAME in`).
+- **Contract clauses splice their hoists.** `buildContractGuard` takes the
+  clause sub-parser's hoists (`parseExprFromText(..., outHoists)`, which now
+  shares the temp counters) and places them ahead of the test, in a block of
+  their own; `contractHoists` lets the short-circuit and conditional deferrals
+  run there, so `@pre n <= length(xs) && all i in 0..n: xs[i] > 0` never
+  indexes out of range. A failing quantified clause is CON-001 like any other.
+- **Nested functions (D62).** A `fn` in the body of a free top-level function
+  (not a method, a `mod` member or a `self` extension fn) reads the enclosing
+  parameters and the locals declared before it, calls itself and its sibling
+  nested fns (declared before or after), and is visible after its declaration
+  in the block that declares it. Lowered by lambda lifting
+  (`aetherLiftNestedFns`, run when the host body is complete): each becomes a
+  top-level `__aether_<host>_<name>` with one extra parameter per enclosing
+  local it reads, directly or through the siblings it calls (fixed point),
+  passed by name at every call; prototypes and lifted fns are emitted ahead of
+  the host. A capture parameter gets none of a declared array parameter's
+  prologue copies (the VM shares an array value; not `by_ref`, whose
+  whole-value reads fail the un-alias step): N-Queens n=8 reading a
+  20,000-element array runs in 0.70 s against 30.17 s with the array as a
+  copied top-level parameter, 0.18 s against 0.22 s with an 8-element one
+  (best of three, `results/decisions/d62_readonly_capture.md`); recursion depth
+  is unchanged (100,000 frames run, 1,000,000 overflow, either way).
+- **FUNC-002 (new code).** A nested fn assigning an enclosing local, an element
+  of one (`cols[r] = c`), or resizing it (`xs = xs + [v]`) is rejected: "return
+  the new value and assign it in the enclosing function, or keep it in a record
+  field". A field write through an enclosing record (`st.count = ...`) is
+  allowed. Other nested-fn errors: storing, passing or returning it is
+  FUNC-001; a `fn` inside a nested fn ("one level deep") or a method (METH-001)
+  is FUNC-001; a call before the declaration, outside the declaring block, or
+  where a reused name hides a captured local is SCOPE-001; a wrong argument
+  count names the nested fn. Inside its host a nested fn shadows a builtin of
+  the same name (`fn count(...)`), and nowhere else. The tuple pre-pass also
+  registers indented `fn` lines (a nested tuple-returning fn) unless a
+  column-0 `fn` has the name.
+- **Registry:** `nested_fn` flips from class 2 (FUNC-001) to class 1 with a
+  top-level twin; new `nested_fn_assign` (FUNC-002), `nested_fn_value`
+  (FUNC-001), `quantifier` and `quantifier_contract` (class 1, hand-written
+  twins) and `quantifier_call` (SCOPE-001). 128 entries.
+- **Spec:** `NestedFn` joins `Statement` and `Quantifier` joins `Primary`;
+  `G.FnDecl.3` (`@reject=FUNC-001`) becomes `G.NestedFn.1` (`@ok`), with
+  `G.NestedFn.2` (`@reject=FUNC-002`), `G.NestedFn.3` (two deep, FUNC-001) and
+  `G.Quantifier.1`/`.2`.
+- **Fixtures:** `fx/lower/quantifier_{basic,positions,short_circuit,contract}_pass`
+  (every expression position the lowering contract names),
+  `fx/diag/quantifier_{contract,not_bool,missing_colon}_fail`,
+  `fx/names/quantifier_name_reuse_fail`;
+  `fx/lower/nested_fn_{nqueens,siblings,union_find,shared_copy,block}_pass` (the block one
+  was `diag/nested_fn_block_fail`), `fx/diag/nested_fn_assign_fail` (was
+  `nested_fn_fail`, now FUNC-002), `nested_fn_{element,value,deep,method,scope}_fail`.
+- **Drills:** `repair_global_const_scope` taught "move the nested fn to the top
+  level", now legal; repointed as `repair_nested_fn_assigns_local` (a nested fn
+  accumulating into an enclosing `Real` -> return the area), in both overlays.
+- **Replay (fine-tune first attempts):** the five no-guide attempts that wrote
+  a nested helper (`cs_nqueens` x3, `cs_dijkstra`, `algo_union_find_components`)
+  all assign captured state (`count = count + 1`, `adj = ...`, path
+  compression on `parent`), so they move from FUNC-001 to FUNC-002 and none
+  flips to pass under the read-only rule; the replay tallies of
+  `training/training_runs/*/score` are otherwise identical to 2026-10-17-3.
+
 ## 2026-10-17-4
 
 **`[v; n]`: n copies of v** (decision D7, class 1; registry `repeat_literal`

@@ -1,0 +1,8 @@
+// D62/D49: a nested fn is not a value: it cannot be stored, passed or returned.
+fn apply(v: Int) -> Int { ret v; }
+
+fn main() -> Void {
+    let k = 3;
+    fn scale(x: Int) -> Int { ret x * k; }
+    fx { println(apply(scale)); }
+}

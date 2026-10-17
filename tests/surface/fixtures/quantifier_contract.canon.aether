@@ -1,0 +1,10 @@
+fn total(xs: Int[]) -> Int {
+    loop x in xs {
+        if x < 0 { fx { println("negative"); exit(1); } }
+    }
+    ret sum(xs);
+}
+
+fn main() -> Void {
+    fx { println(total([1, 2, 3])); }
+}

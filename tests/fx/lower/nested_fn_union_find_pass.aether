@@ -1,0 +1,27 @@
+// D62: union-find with a nested `find` over the enclosing `parent` array,
+// which the host itself updates between calls (a read sees the value at
+// the call).
+fn components(n: Int, edges: Int[][]) -> Int {
+    let parent: Int[] = [];
+    loop i in 0..n { parent = parent + [i]; }
+    fn find(x: Int) -> Int {
+        let r = x;
+        loop parent[r] != r { r = parent[r]; }
+        ret r;
+    }
+    loop e in edges {
+        let a = find(e[0]);
+        let b = find(e[1]);
+        if a != b { parent[a] = b; }
+    }
+    let roots = 0;
+    loop i in 0..n {
+        if find(i) == i { roots = roots + 1; }
+    }
+    ret roots;
+}
+
+fn main() -> Void {
+    let edges: Int[][] = [[0, 1], [1, 2], [3, 4]];
+    fx { println(components(6, edges)); }
+}

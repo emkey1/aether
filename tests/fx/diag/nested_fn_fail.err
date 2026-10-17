@@ -1,4 +1,0 @@
-nested_fn_fail.aether:7:
-functions cannot be declared inside another function
-move it to the top level and pass the values it needs as parameters (or a record for shared mutable state)
-!close argument list

@@ -1,0 +1,3 @@
+nested_fn_assign_fail.aether:9:
+cannot change 'count' of its enclosing function 'main'
+keep it in a record field

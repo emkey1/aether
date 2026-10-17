@@ -1,0 +1,13 @@
+// D62: only a free function hosts nested fns; a method does not (METH-001).
+type Box {
+    v: Int;
+    fn get() -> Int {
+        fn helper() -> Int { ret 1; }
+        ret helper();
+    }
+}
+
+fn main() -> Void {
+    let b = new Box { v: 1 };
+    fx { println(b.get()); }
+}

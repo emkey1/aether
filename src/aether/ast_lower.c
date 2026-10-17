@@ -2571,7 +2571,8 @@ static AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init,
  * `let row: Int[] = table[i];` gets, so writing to the loop variable never
  * writes through to the collection. The variable's type is registered before
  * the body is parsed so `NAME.field` and `let x = NAME;` infer inside it. */
-static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line) {
+static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line,
+                         AetherLoopBodyFn bodyFn, void *bodyCtx) {
     /* The slice resolver: inferLetTypeName first, so every collection it typed
      * keeps its type, then a field reached through a record. A field used to
      * have no name here, so `loop x in o.items` was "cannot infer the type of
@@ -2659,7 +2660,7 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line)
     }
     if (p->bindings) bindingTableSet(p->bindings, name, elemType);
 
-    AST *body = parseBlock(p);
+    AST *body = bodyFn ? bodyFn(p, bodyCtx) : parseBlock(p);
     if (!body) {
         if (!p->hadError) {
             reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser",
@@ -2752,6 +2753,14 @@ static AST *aetherAstRegisteredRangeBoundCopy(AST *high) {
 }
 
 AST *parseLoopRange(AetherParser *p) {
+    return parseLoopRangeWith(p, NULL, NULL);
+}
+
+/* The loop header shared by `loop`/`for` and the quantifiers (D58): with a
+ * `bodyFn`, the header ends at `:` instead of `{` and bodyFn parses what
+ * follows into the loop body (aetherParseQuantifier). */
+AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx) {
+    const ReaTokenType opener = bodyFn ? REA_TOKEN_COLON : REA_TOKEN_LEFT_BRACE;
     if (!aetherTokenIsIdentifierLike(&p->current)) {
         reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
                 "expected loop variable name.", NULL);
@@ -2787,7 +2796,7 @@ AST *parseLoopRange(AetherParser *p) {
      * author meant something other than a number. */
     /* No bound at all (`loop i in ..5`, `loop i in {`): the loop-header message
      * says more than parsePrimary's generic missing-expression one. */
-    AST *low = (p->current.type == AE_TOKEN_DOTDOT || p->current.type == REA_TOKEN_LEFT_BRACE)
+    AST *low = (p->current.type == AE_TOKEN_DOTDOT || p->current.type == opener)
                    ? NULL : parseAdd(p);
     if (!low) {
         if (!p->hadError) {
@@ -2805,14 +2814,15 @@ AST *parseLoopRange(AetherParser *p) {
         return NULL;
     }
     /* `loop NAME in COLLECTION {` -- no range operator, straight into the body. */
-    if (p->current.type == REA_TOKEN_LEFT_BRACE) {
-        AST *loop = parseForeach(p, nameBuf, low, idLine);
+    if (p->current.type == opener) {
+        AST *loop = parseForeach(p, nameBuf, low, idLine, bodyFn, bodyCtx);
         free(nameBuf);
         return loop;
     }
     if (p->current.type != AE_TOKEN_DOTDOT) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
-                "expected '<low>..<high>' in loop range.", NULL);
+                bodyFn ? "expected ':' after the collection or `<low>..<high>` of `all`/`any`."
+                       : "expected '<low>..<high>' in loop range.", NULL);
         p->hadError = true;
         freeAST(low);
         free(nameBuf);
@@ -2838,7 +2848,7 @@ AST *parseLoopRange(AetherParser *p) {
      * (tests/backlog/range_bound_reread) is the re-read itself: the fix that
      * evaluates the bound once must move these hoists back ahead of the loop. */
     /* `loop i in a.. {`: an open end is a slice form (`xs[a..]`), not a range. */
-    if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+    if (p->current.type == opener) {
         if (!p->hadError) {
             reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                     "a loop range needs both bounds: `loop i in <low>..<high>`.",
@@ -2862,7 +2872,7 @@ AST *parseLoopRange(AetherParser *p) {
         free(nameBuf);
         return NULL;
     }
-    AST *highHoists = p->detachedText ? NULL : aetherTakePendingHoists(p, highMark);
+    AST *highHoists = aetherHoistsSpliced(p) ? aetherTakePendingHoists(p, highMark) : NULL;
     if (high->var_type == TYPE_BOOLEAN) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "loop range bound must be numeric (Int/Real), not Bool -- "
@@ -2883,7 +2893,7 @@ AST *parseLoopRange(AetherParser *p) {
     if (isAetherKeyword(&p->current, "step")) {
         int stepLine = p->current.line;
         aetherAdvance(p); /* consume 'step' */
-        step = (p->current.type == REA_TOKEN_LEFT_BRACE) ? NULL : parseAdd(p);
+        step = (p->current.type == opener) ? NULL : parseAdd(p);
         if (!step || step->var_type == TYPE_BOOLEAN) {
             if (step || !p->hadError) {
                 reportAetherAstError(aetherSemanticGetSourcePath(), stepLine, "parser",
@@ -2920,7 +2930,18 @@ AST *parseLoopRange(AetherParser *p) {
     if (p->bindings) bindingTableSet(p->bindings, nameBuf, "Int");
 
     AST *body = NULL;
-    if (p->current.type == REA_TOKEN_LEFT_BRACE) {
+    if (bodyFn) {
+        body = bodyFn(p, bodyCtx);
+        if (!body) {
+            p->hadError = true;
+            if (step) freeAST(step);
+            freeAST(low);
+            freeAST(high);
+            if (highHoists) freeAST(highHoists);
+            free(nameBuf);
+            return NULL;
+        }
+    } else if (p->current.type == REA_TOKEN_LEFT_BRACE) {
         body = parseBlock(p);
     } else {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
@@ -3072,7 +3093,7 @@ static AST *aetherTakeExtra(AST *node) {
  * before `mark` and still run first. Returns `bin` itself when nothing was
  * queued, and in a contract clause (its hoists are not spliced anywhere). */
 AST *aetherDeferShortCircuitHoists(AetherParser *p, AST *bin, int mark, bool isAnd) {
-    if (!p || !bin || p->detachedText || p->pendingObjLitCount <= mark) return bin;
+    if (!p || !bin || !aetherHoistsSpliced(p) || p->pendingObjLitCount <= mark) return bin;
     AST *hoists = aetherTakePendingHoists(p, mark);
     if (!hoists) return bin;
     int line = bin->token ? bin->token->line : 0;
@@ -3122,7 +3143,7 @@ AST *aetherDeferShortCircuitHoists(AetherParser *p, AST *bin, int mark, bool isA
  * of the statement, as they always did. `cond`'s own hoists were queued before
  * `thenMark` and still run first. */
 AST *aetherDeferConditionalHoists(AetherParser *p, AST *ternary, int thenMark, int elseMark) {
-    if (!p || !ternary || p->detachedText || p->pendingObjLitCount <= thenMark) return ternary;
+    if (!p || !ternary || !aetherHoistsSpliced(p) || p->pendingObjLitCount <= thenMark) return ternary;
     /* A scalar result keeps the type resolveConditionalType gave the whole
      * expression (an Int and a Real branch make a Real); an array or a record
      * is named from a branch. */
@@ -3296,4 +3317,150 @@ AST *parseParBlock(AetherParser *p) {
     joins->child_count = 0;
     freeAST(joins);
     return block;
+}
+
+/* ------------------------------------------------------------------ */
+/* Quantifiers (D58)                                                   */
+/* ------------------------------------------------------------------ */
+
+/* Whether hoists queued in this parser reach a statement: always in the main
+ * parser, and in a contract clause's sub-parser, whose guard splices them
+ * ahead of its test (buildContractGuard). Any other detached sub-parse drops
+ * its queue, so a lowering there must not depend on it. */
+bool aetherHoistsSpliced(const AetherParser *p) {
+    return p && (!p->detachedText || p->contractHoists);
+}
+
+typedef struct {
+    bool isAll;
+    const char *resultName;
+    int line;
+} AetherQuantifierCtx;
+
+static AST *buildBoolLiteral(bool v, int line) {
+    Token *tok = newToken(v ? TOKEN_TRUE : TOKEN_FALSE, v ? "true" : "false", line, 0);
+    AST *node = newASTNode(AST_BOOLEAN, tok);
+    setTypeAST(node, TYPE_BOOLEAN);
+    node->i_val = v ? 1 : 0;
+    return node;
+}
+
+/* Is COND certainly not a Bool? Only shapes whose type the front end knows
+ * for sure (rule 4 of the lowering contract: never trust var_type): a number
+ * or string literal, arithmetic, or a name the inference table types as Int,
+ * Real or Text (`all x in xs: x`). Anything else is left to the engine. */
+static bool aetherQuantifierCondIsNotBool(AetherParser *p, const AST *cond) {
+    if (!cond) return false;
+    if (cond->type == AST_NUMBER || cond->type == AST_STRING) return true;
+    if (cond->type == AST_BINARY_OP && cond->token) {
+        switch (cond->token->type) {
+            case TOKEN_PLUS: case TOKEN_MINUS: case TOKEN_MUL: case TOKEN_SLASH:
+            case TOKEN_INT_DIV: case TOKEN_MOD:
+                return true;
+            default:
+                return false;
+        }
+    }
+    if (cond->type == AST_VARIABLE && cond->token && cond->token->value && p->bindings) {
+        const char *t = bindingTableGet(p->bindings, cond->token->value,
+                                        strlen(cond->token->value));
+        return t && (strcmp(t, "Int") == 0 || strcmp(t, "Real") == 0 ||
+                     strcmp(t, "Text") == 0);
+    }
+    return false;
+}
+
+/* The body of `all NAME in ...: COND` / `any NAME in ...: COND`, parsed after
+ * the loop header has bound NAME:
+ *
+ *     COND_HOISTS;
+ *     if (!COND) { __aether_q_N = false; break; }     -- all
+ *     if (COND)  { __aether_q_N = true;  break; }     -- any
+ *
+ * COND's own hoists (a nested quantifier, a slice) run with each test, inside
+ * the loop. COND runs to the end of the enclosing expression, as a `?:` branch
+ * would: `all x in xs: x > 0 && x < 9` tests both comparisons. */
+static AST *aetherQuantifierBody(AetherParser *p, void *ctxv) {
+    AetherQuantifierCtx *q = (AetherQuantifierCtx *)ctxv;
+    if (p->current.type != REA_TOKEN_COLON) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), q->line, "parser",
+                "expected ':' before the condition of `all`/`any`.",
+                "write `all x in xs: x > 0` or `any i in 0..n: xs[i] == t`.");
+        p->hadError = true;
+        return NULL;
+    }
+    aetherAdvance(p); /* consume ':' */
+    int mark = p->pendingObjLitCount;
+    AST *cond = parseExpr(p);
+    if (!cond) {
+        if (!p->hadError) aetherReportMissingExpr(p, "after ':' in `all`/`any`");
+        p->hadError = true;
+        return NULL;
+    }
+    if (aetherQuantifierCondIsNotBool(p, cond)) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), q->line, "quantifier",
+                "the condition of `all`/`any` must be a Bool.",
+                "compare the element, for example `all x in xs: x > 0`.");
+        p->hadError = true;
+        freeAST(cond);
+        return NULL;
+    }
+    AST *hoists = aetherTakePendingHoists(p, mark);
+    AST *test = cond;
+    if (q->isAll) {
+        Token *notTok = newToken(TOKEN_NOT, "!", q->line, 0);
+        test = newASTNode(AST_UNARY_OP, notTok);
+        setLeft(test, cond);
+        setTypeAST(test, TYPE_BOOLEAN);
+    }
+    AST *decided = newASTNode(AST_COMPOUND, NULL);
+    addChild(decided, buildNameAssignStmt(q->resultName, TYPE_BOOLEAN,
+                                          buildBoolLiteral(!q->isAll, q->line), q->line));
+    addChild(decided, newASTNode(AST_BREAK, NULL));
+    AST *ifNode = newASTNode(AST_IF, NULL);
+    setLeft(ifNode, test);
+    setRight(ifNode, decided);
+    AST *body = hoists ? hoists : newASTNode(AST_COMPOUND, NULL);
+    body->i_val = 0;
+    addChild(body, ifNode);
+    return body;
+}
+
+/* `all NAME in COLLECTION: COND`, `any NAME in LOW..HIGH [step D]: COND`: a
+ * Bool expression (D58). The header is a `loop` header (parseLoopRangeWith:
+ * arrays, Text, ToonNode arrays, ranges and `step`); the loop stops at the
+ * first element that decides the answer. Queues
+ *
+ *     let __aether_q_N: Bool = true;          -- false for `any`
+ *     { <the loop over NAME, body from aetherQuantifierBody> }
+ *
+ * and returns `__aether_q_N`. NAME is declared inside the loop block, so it is
+ * visible only in COND; an empty collection or range leaves the initial value
+ * (`all` is true, `any` is false). The current token is `all` or `any`. */
+AST *aetherParseQuantifier(AetherParser *p) {
+    bool isAll = p->current.length == 3 && strncmp(p->current.start, "all", 3) == 0;
+    int line = p->current.line;
+    aetherAdvance(p); /* consume 'all' / 'any' */
+    char resultName[48];
+    snprintf(resultName, sizeof(resultName), "__aether_q_%d", p->nextObjLitId++);
+    AetherQuantifierCtx ctx = { isAll, resultName, line };
+    AST *loop = parseLoopRangeWith(p, aetherQuantifierBody, &ctx);
+    if (!loop) {
+        p->hadError = true;
+        return NULL;
+    }
+    AST *decl = buildTypedLetDecl(resultName, "Bool", buildBoolLiteral(isAll, line), line);
+    if (!decl) {
+        freeAST(loop);
+        p->hadError = true;
+        return NULL;
+    }
+    if (p->bindings) bindingTableSet(p->bindings, resultName, "Bool");
+    loop->i_val = 0; /* a real block: NAME and the loop temps stay inside it */
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    addChild(outer, decl);
+    addChild(outer, loop);
+    pushPendingObjLit(p, outer);
+    return buildVarRef(resultName, TYPE_BOOLEAN, line);
 }

@@ -1,0 +1,6 @@
+@pre all x in xs: x >= 0
+fn total(xs: Int[]) -> Int { ret sum(xs); }
+
+fn main() -> Void {
+    fx { println(total([1, 2, 3])); }
+}

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-17-3*
+*Guide version: 2026-10-17-4*
 
 ## Highest-Value Rules
 
@@ -67,10 +67,11 @@
     call exported names directly. Never guess `export { ... }` syntax or the
     foreign object/JSON APIs listed under **TOON rules**.
 23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
-    no lambdas, no closures, never pass a function as an argument. No
+    no lambdas, never pass a function as an argument. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
-    use `par { f(); g(); }`. Every `fn` is top-level: one inside another fn's
-    body is FUNC-001; pass what it needs as parameters (or a record).
+    use `par { f(); g(); }`. A `fn` inside a free function's body may read that
+    function's parameters and earlier locals; assigning one is **FUNC-002**
+    (return the value, or use a record field).
 24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
     Give each branch its own record and combine the results after the block.
@@ -173,6 +174,9 @@ loop item in items { total = total + item; } // foreach: an array, a Text, or a 
 loop index < total { index = index + 1; }   // condition form: declare `index` first
 loop { break; }
 ```
+
+`all x in xs: x > 0` and `any i in 0..n: xs[i] == t` are `Bool` expressions over
+the same headers; empty gives `all` true, `any` false. They work in contracts.
 
 ## Records: `type`
 
@@ -603,7 +607,8 @@ steps`; syntax-checked but non-binding (no runtime enforcement).
 On a collection return (`-> T[]`) a contract must compare a **property** of the
 collection, not the collection itself: use `@post length(result) > 0`, never
 `@post result > 0` (an array is not comparable to a scalar → ANN-001). Same for
-`@pre` over an array parameter: `@pre length(xs) > 0`.
+`@pre` over an array parameter: `@pre length(xs) > 0`; every element:
+`@pre all x in xs: x >= 0`.
 
 ## Copyable templates
 
@@ -722,13 +727,10 @@ fix:
   spelling when there is one (`Double` → `Real`, `Integer` → `Int`, `Char` →
   `Text`, `int` → `Int`).
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
-  `let root: ToonNode = toon_root(doc);`; never do arithmetic on, or cross-assign, handles.
+  `let root: ToonNode = toon_root(doc);`.
 - **[MS-001]** an `MStream` handle misuse → declare stream bindings `MStream`
-  (`let out: MStream = mstream_new();`), read contents with
-  `mstream_text(ms) -> Text`; never `Int`/`Text` bindings, arithmetic, or
-  cross-assignment with TOON handles (see HTTP requests).
-- **[FIELD-002]** `Unknown field` → use the exact declared field name (or add it
-  to the type if the prompt truly requires it).
+  (rule 25).
+- **[FIELD-002]** `Unknown field` → use the exact declared field name.
 - **[FIELD-003]** a field default that is not a literal (an expression, a named
   `const`, another field, `self`, a call), or a populated array default → use a
   literal (`count: Int = 0`), or set the value at construction with
@@ -748,15 +750,16 @@ fix:
 - **[ARR-002]** a one-dimensional array indexed twice (`let dp: Int[] = [];`
   then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
   as its own `Int[]`, or index once with `dp[r * width + c]`.
-- **[PREC-001]** (warning) `flags & mask != 0` → `& | ^` bind looser than the
-  comparisons, so this is `flags & (mask != 0)` and yields an Int, not a Bool.
-  Write `(flags & mask) != 0`. As an error: `0 <= i < n` → `0 <= i && i < n`.
+- **[PREC-001]** (warning) `flags & mask != 0` → write `(flags & mask) != 0`.
+  As an error: `0 <= i < n` → `0 <= i && i < n`.
 - **`Length expects a string or array argument`** / **`... expects a single
   value handle`** (runtime, no code) → `toon_len` and `length` are crossed
   (LEN-001).
 - **[ARR-003]** (runtime) an index outside the array → the message gives the
   valid range; `loop i in 0..n` ends at `n - 1`, and a row being built is not in
   the table until it is appended.
+- **[FUNC-002]** a nested `fn` assigned an enclosing local → return the value
+  and assign it there, or keep it in a record field.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`) → a call broke
   `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
@@ -766,8 +769,8 @@ fix:
   parameters → put the statements in `fn main() -> Void`.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
-- **[PAR-002]** a non-call statement inside `par { ... }` → `par` bodies allow
-  only direct call statements; wrap the work in a `fn` and call that inside `par`.
+- **[PAR-002]** a non-call statement inside `par { ... }` → wrap the work in a
+  `fn` and call that inside `par`.
 
 If the program *compiles* but the output is wrong — extra headings, wrong
 spacing or precision (an integer where decimals are expected → a `Real`

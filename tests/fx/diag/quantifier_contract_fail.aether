@@ -1,0 +1,11 @@
+// D58: a broken quantified @pre stops the program with CON-001, like any
+// other contract (the guard runs before the body).
+@pre all x in xs: x >= 0
+fn total(xs: Int[]) -> Int {
+    ret sum(xs);
+}
+
+fn main() -> Void {
+    let xs: Int[] = [3, -1];
+    fx { println(total(xs)); }
+}

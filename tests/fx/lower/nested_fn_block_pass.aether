@@ -1,9 +1,10 @@
-// A fn inside a nested block of a function body is the same FUNC-001.
+// D62: a nested fn may be declared in an inner block of its host; it reads
+// the host's locals and is visible inside that block.
 fn main() -> Void {
     let xs: Int[] = [3, 1, 2];
     if length(xs) > 0 {
         fn helper(x: Int) -> Int {
-            ret x * 2;
+            ret x * length(xs);
         }
         fx { println(helper(xs[0])); }
     }

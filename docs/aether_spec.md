@@ -297,12 +297,45 @@ fn f() { ret; }
 fn main() -> Void { f(); }
 ```
 
-Every `fn` is top-level (or a method in a `type`): one declared inside a
-function body is `FUNC-001`.
+A `fn` declared in the body of a free top-level function is a nested function
+(decision D62). It reads the enclosing function's parameters and the locals
+declared before it, calls itself and its sibling nested functions, and is
+visible in the block that declares it, after its declaration. Assigning an
+enclosing local (or an element of one) from it is `FUNC-002`; writing a field of
+an enclosing record is allowed. It is not a value (`FUNC-001`). A `fn` inside a
+nested function or inside a method is `FUNC-001`. It is lowered by lambda
+lifting: a top-level function with one more parameter per enclosing local it
+reads, directly or through a sibling, passed at every call; an array is passed
+without a copy, which is safe because nothing can assign it.
 
-```aether @reject=FUNC-001 id=G.FnDecl.3
+```aether @ok id=G.NestedFn.1
 fn main() -> Void {
-    fn helper() -> Int { ret 1; }
+    let k: Int = 3;
+    let xs: Int[] = [1, 2];
+    fn scaled(i: Int) -> Int { ret xs[i] * k; }
+    fn total() -> Int { ret scaled(0) + scaled(1); }
+    fx { println(total()); }
+}
+```
+
+```text
+9
+```
+
+```aether @reject=FUNC-002 id=G.NestedFn.2
+fn main() -> Void {
+    let count: Int = 0;
+    fn bump() -> Void { count = count + 1; }
+    bump();
+}
+```
+
+```aether @reject=FUNC-001 id=G.NestedFn.3
+fn main() -> Void {
+    fn outer() -> Int {
+        fn inner() -> Int { ret 1; }
+        ret inner();
+    }
 }
 ```
 
@@ -646,7 +679,9 @@ fn main() -> Void {
 Block      = "{" { Statement } "}" ;
 Statement  = LetDecl | TupleLet | ConstDecl | TypeDecl | Assignment | IfStmt
            | LoopStmt | WhileStmt | ForStmt | FxBlock | ParBlock | RetStmt
-           | "break" ";" | "continue" ";" | ExprStmt | Block ;
+           | "break" ";" | "continue" ";" | ExprStmt | Block
+           | NestedFn ;
+NestedFn   = "fn" Ident "(" [ Params ] ")" "->" ReturnType Block ;
 LetDecl    = "let" Ident [ ":" Type ] [ "=" Expr ] ";" ;
 TupleLet   = "let" "(" Ident "," Ident { "," Ident } ")" "=" Call ";" ;
 Assignment = Postfix AssignOp Expr ";" ;
@@ -1074,7 +1109,8 @@ Unary      = ( "-" | "!" | "not" ) Unary | Postfix ;
 Postfix    = Primary { "." Ident [ "(" [ Args ] ")" ] | "." Digits
            | "[" Expr [ ".." [ AddExpr ] ] "]" | "[" ".." AddExpr "]" } ;
 Primary    = Literal | Ident | Call | "(" Expr ")" | ArrayLit | RecordLit
-           | NewExpr | "self" | "nil" ;
+           | NewExpr | Quantifier | "self" | "nil" ;
+Quantifier = ( "all" | "any" ) Ident "in" ( Range | AddExpr ) ":" Expr ;
 Call       = Ident "(" [ Args ] ")" ;
 Args       = Arg { "," Arg } ;
 Arg        = Expr [ ":" Expr [ ":" Expr ] ] ;
@@ -1127,6 +1163,37 @@ B
 fn main() -> Void {
     let x: Int = 1;
     let y: Int = if x > 0 { 1 };
+}
+```
+
+A quantifier (decision D58) is a `Bool`: `all` is true when its condition holds
+for every element of the collection or range (a `loop` header), `any` when it
+holds for at least one. It stops at the first element that decides, so an
+empty collection gives `true` for `all` and `false` for `any`. The bound name
+is visible only in the condition and follows the loop-variable rule (NAME-001);
+the condition extends as far as an `Expr` does. A condition that is certainly
+not a `Bool` is TYPE-001. `all` and `any` are names everywhere else.
+
+```aether @ok id=G.Quantifier.1
+fn main() -> Void {
+    let xs: Int[] = [2, 4, 9];
+    let none: Int[] = [];
+    fx {
+        println(all x in xs: x > 0, " ", any x in xs: x % 2 == 1, " ", all i in 0..3 step 2: xs[i] % 2 == 0);
+        println(all x in none: x > 0, " ", any x in none: x > 0, " ", (any c in "ab": c == "b") && true);
+    }
+}
+```
+
+```text
+true true false
+true false true
+```
+
+```aether @reject=TYPE-001 id=G.Quantifier.2
+fn main() -> Void {
+    let xs: Int[] = [1];
+    let ok: Bool = all x in xs: x + 1;
 }
 ```
 

@@ -2742,6 +2742,31 @@ static void scanFnParams(const char *open, int bodyDepth, int line,
     }
 }
 
+/* A quantifier's bound name (D58) against the visible locals, parameters and
+ * globals: the range/foreach loop-variable rule. Not pushed: it is visible
+ * only in its condition. */
+static void checkQuantifierName(const char *start, const char *end, int line, int depth,
+                                const AetherDeclList *decls, const AetherDeclList *globals) {
+    char *name = dupRange(start, end);
+    if (!name) return;
+    const AetherLocalDecl *outer = declListFind(decls, name, 0, depth);
+    const AetherLocalDecl *g = outer ? NULL : findGlobalValue(globals, name, line);
+    char detail[320];
+    if (outer) {
+        snprintf(detail, sizeof(detail),
+                 "the `all`/`any` variable '%s' reuses the name of '%s' (line %d); the "
+                 "quantifier gets its own '%s'.", name, outer->name, outer->line, name);
+        reportNameCollision(line, detail, "pick a new name for the quantifier variable.");
+    } else if (g) {
+        char what[160];
+        describeGlobal(g, what, sizeof(what));
+        snprintf(detail, sizeof(detail),
+                 "the `all`/`any` variable '%s' is the same name as %s.", name, what);
+        reportNameCollision(line, detail, "pick a new name for the quantifier variable.");
+    }
+    free(name);
+}
+
 static void validateNoDuplicateLocals(const char *source) {
     const char *cursor = source;
     int line = 1;
@@ -2749,6 +2774,7 @@ static void validateNoDuplicateLocals(const char *source) {
     int atStmtStart = 1;
     AetherDeclList decls = {0};
     AetherDeclList globals = {0};
+    AetherDeclList contractQuants = {0}; /* quantifier names in @pre/@post */
 
     if (!source) {
         return;
@@ -2811,6 +2837,12 @@ static void validateNoDuplicateLocals(const char *source) {
             }
             if (startsWithWord(word, lineEnd, "fn")) {
                 scanFnParams(word + 2, depth + 1, line, &decls, &globals);
+                for (size_t q = 0; q < contractQuants.count; q++) {
+                    const char *qn = contractQuants.items[q].name;
+                    checkQuantifierName(qn, qn + strlen(qn), contractQuants.items[q].line,
+                                        depth + 1, &decls, &globals);
+                }
+                declListPopAbove(&contractQuants, -1);
                 cursor = word + 2;
                 atStmtStart = 0;
                 continue;
@@ -2958,12 +2990,46 @@ static void validateNoDuplicateLocals(const char *source) {
             }
         }
 
+        /* `all NAME in` / `any NAME in` (D58): NAME is a loop variable of
+         * the quantifier's condition and follows the loop-variable rule. In a
+         * `@pre`/`@post` clause the parameters are not pushed yet: the name
+         * waits for the next `fn`. */
+        if (isIdentStartChar(c) && (cursor == source || (!isIdentChar(cursor[-1]) &&
+                                                         cursor[-1] != '.'))) {
+            const char *lineEnd = cursor;
+            while (*lineEnd && *lineEnd != '\n') lineEnd++;
+            if (startsWithWord(cursor, lineEnd, "all") || startsWithWord(cursor, lineEnd, "any")) {
+                const char *scan = skipInlineSpaces(cursor + 3, lineEnd);
+                const char *nameStart = scan;
+                while (scan < lineEnd && isIdentChar(*scan)) scan++;
+                const char *inWord = skipInlineSpaces(scan, lineEnd);
+                if (scan > nameStart && isIdentStartChar(*nameStart) &&
+                    startsWithWord(inWord, lineEnd, "in")) {
+                    const char *ls = cursor;
+                    while (ls > source && ls[-1] != '\n') ls--;
+                    ls = skipInlineSpaces(ls, lineEnd);
+                    if (*ls == '@') {
+                        declListPush(&contractQuants, nameStart, scan, 0, line,
+                                     AETHER_DECL_LOOP);
+                    } else {
+                        checkQuantifierName(nameStart, scan, line, depth, &decls, &globals);
+                    }
+                    cursor = scan;
+                    atStmtStart = 0;
+                    continue;
+                }
+            }
+            while (*cursor && isIdentChar(*cursor)) cursor++;
+            atStmtStart = 0;
+            continue;
+        }
         atStmtStart = 0;
         cursor++;
     }
 
     declListFree(&decls);
     declListFree(&globals);
+    declListFree(&contractQuants);
 }
 
 /* --------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-17-3*
+*Guide version: 2026-10-17-4*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -94,10 +94,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
     builtin *name* as `Text` (`task_spawn("delay", "worker", 5)`), not a
     function. There is no `map` / `filter` / `reduce`; transform with a `loop`.
     To run your own code concurrently, call your functions inside a
-    `par { ... }` block (see **Concurrency**), not `task_spawn`. Every `fn`
-    is top-level: one declared inside another function's body is FUNC-001.
-    Move it to the top level and pass the values it needs as parameters (or
-    a record for shared mutable state).
+    `par { ... }` block (see **Concurrency**), not `task_spawn`. A `fn` inside
+    a free function's body is a nested function (**Nested functions**): it
+    reads that function's parameters and earlier locals, never assigns them
+    (FUNC-002), and is not a value either.
 21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
@@ -177,7 +177,8 @@ when unsure about a type, add it explicitly.
 - annotations inside a function body (ANN-001)
 - a tuple index chained directly onto a call: `pair().0` — bind it first,
   `let t = pair(); t.0;` (TUP-001)
-- a `fn` declared inside another function to capture its locals (FUNC-001)
+- a nested `fn` that assigns a local of its enclosing function (FUNC-002), or a
+  `fn` nested two deep or inside a method (FUNC-001)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. The fractional part is discarded silently — this is
   a `[NARROW-001]` **warning**, so it still compiles. Write `int(...)` when the
@@ -341,6 +342,63 @@ fn add(a: Int, b: Int) -> Int {
     ret a + b;
 }
 ```
+
+### Nested functions (FUNC-002)
+
+A `fn` declared inside the body of a free top-level function is a nested
+function. It reads the enclosing function's parameters and the locals declared
+before it, calls itself and its sibling nested functions, and is called by name
+after its declaration:
+
+```aether
+type Tally {
+    hits: Int = 0;
+}
+
+fn countQueens(n: Int) -> Int {
+    let tally: Tally = new Tally();
+    fn safe(cols: Int[], row: Int, col: Int) -> Bool {
+        loop r in 0..row {
+            if cols[r] == col || abs(cols[r] - col) == row - r { ret false; }
+        }
+        ret true;
+    }
+    fn place(cols: Int[], row: Int) -> Void {
+        if row == n {
+            tally.hits = tally.hits + 1;     // a record field: allowed
+            ret;
+        }
+        loop col in 0..n {
+            if safe(cols, row, col) {
+                let next: Int[] = cols + [col];
+                place(next, row + 1);
+            }
+        }
+    }
+    let start: Int[] = [];
+    place(start, 0);
+    ret tally.hits;
+}
+
+fn main() -> Void {
+    fx { println(countQueens(6), " ", countQueens(8)); }
+}
+```
+
+```text
+4 92
+```
+
+- It **reads, never assigns**: `count = count + 1;`, `cols[r] = c;` or
+  `xs = xs + [v];` on an enclosing local is FUNC-002. Return the new value and
+  assign it in the enclosing function, or keep shared state in a record field
+  (`tally.hits` above): records are shared, the same rule as `par`.
+- A read sees the local's value at the time of the call. An array it reads is
+  passed without a copy, so recursion over a large array stays cheap.
+- One level deep, free functions only: a `fn` inside a nested `fn`, or inside a
+  method (methods do not capture, METH-001), is FUNC-001. One declared in an
+  inner block is visible only in that block.
+- It is not a value: storing, passing or returning it is FUNC-001.
 
 ### Narrow tuple returns (TUP-001)
 
@@ -708,6 +766,42 @@ nearest loop; `continue` moves to the next element, advancing the counter or
 applying the step. The loop variable is scoped to its loop, so reusing the name
 in a later loop in the same function is fine.
 
+### Quantifiers: `all` and `any`
+
+`all NAME in COLLECTION: COND` and `any NAME in COLLECTION: COND` are `Bool`
+expressions, usable anywhere a value is, contracts included. The header is a
+`loop` header: an array, a `Text`, a TOON array, or a range `a..b` with an
+optional `step`. `all` is true when COND holds for every element, `any` when it
+holds for at least one. Both stop at the first element that decides, so an empty
+collection gives `all` true and `any` false.
+
+```aether
+@pre all x in xs: x >= 0
+fn total(xs: Int[]) -> Int {
+    ret sum(xs);
+}
+
+fn main() -> Void {
+    let xs: Int[] = [3, 8, 1];
+    let ascending: Bool = all i in 0..length(xs) - 1: xs[i] <= xs[i + 1];
+    fx {
+        println(ascending, " ", any x in xs: x > 5, " ", total(xs));
+        if any c in "hello": c == "l" { println("has l"); }
+    }
+}
+```
+
+```text
+false true 12
+has l
+```
+
+NAME is visible only in COND and follows the loop-variable rule (NAME-001). COND
+extends to the end of the expression, so `all x in xs: x > 0 && x < 10` tests
+both comparisons; parenthesize a quantifier inside a larger condition:
+`(all x in xs: x > 0) && n > 0`. Calling `all(...)` or `any(...)` as a function
+is SCOPE-001.
+
 ## Effects: `fx` (FX-001)
 
 **LLM-critical.** All effects go inside `fx { ... }`: `print`, `println`, task
@@ -912,6 +1006,8 @@ fn clamp(score: Int) -> Int {
   `@post result > 0` (an array is not comparable to a scalar, so the whole-array
   form is rejected at compile time with ANN-001). The same applies to a `@pre`
   over an array parameter: `@pre length(xs) > 0`
+- a quantifier states a property of every element: `@pre all x in xs: x >= 0`,
+  `@post all v in result: v > 0` (see **Quantifiers**)
 - for tuple-return helpers, `@post` must use positional slots such as
   `result.0` and `result.1`
 - multiple `@pre` and `@post` lines may stack on one function
@@ -1931,6 +2027,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   Previously-appended rows *are* readable as `table[i - 1][j]`. If the index is
   genuinely meant to be in range, the loop bound is what to fix — remember
   `loop i in 0..n` is half-open, so the last valid index is `n - 1`.
+- **[FUNC-002]** a nested `fn` assigned a local of its enclosing function →
+  return the new value and assign it in the enclosing function, or keep the
+  state in a record field (`st.count = st.count + 1;`).
 - **[CON-001]** *(runtime)* `Aether @pre failed in f` (or `@post`) on stderr,
   exit status 1: a call broke `f`'s contract. For `@pre` the caller passed a bad
   argument; for `@post`, `f` computed the wrong `result`. Fix the code, not the

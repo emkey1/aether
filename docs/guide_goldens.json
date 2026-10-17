@@ -7,53 +7,73 @@
     "hand, each with its reason. `where` is informational: the key is the block's text."
   ],
   "blocks": {
+    "86f9ccd51f532ff96080d8b510622f15945ae7306caca6f2925c236036a2edf2": {
+      "where": "aether_for_llms_and_others.md:240",
+      "stdout": "Hello from Aether\n"
+    },
+    "e510349423d6781fb85c65ecdc13c06433aba0782701606de5e03de2ba4786fe": {
+      "where": "aether_for_llms_and_others.md:353",
+      "stdout": "4 92\n"
+    },
     "c1c54d19bb4af7921540a32c0960113e9a8ee3048aecd80361abd1160a674ae4": {
-      "where": "aether_for_llms_and_others.md:347",
+      "where": "aether_for_llms_and_others.md:405",
       "stdout": "1 2\n"
     },
     "f2e329212061f37770806449f24f955c4d361bd41031cb1db105a1d9fbc9e46f": {
-      "where": "aether_for_llms_and_others.md:369",
+      "where": "aether_for_llms_and_others.md:427",
       "stdout": "36 216\n"
     },
     "43e3431437f98d099b4a7737bd31eed7a9b03b531f2385b409dc46c5bd5ad488": {
-      "where": "aether_for_llms_and_others.md:411",
+      "where": "aether_for_llms_and_others.md:469",
       "stdout": "3 7\n"
     },
+    "ab997ce825c420a7326826c7b23a6b0ae23526402479fbf9372e6df9b66d2f87": {
+      "where": "aether_for_llms_and_others.md:778",
+      "stdout": "false true 12\nhas l\n"
+    },
     "cf646b413ae994319c3fa627aff113d869141bfe3e5e1b0513b06e46c7a94524": {
-      "where": "aether_for_llms_and_others.md:1202",
+      "where": "aether_for_llms_and_others.md:1298",
       "stdout": "bob cy ann \nblue:bob red:cy red:ann \n"
     },
     "8af7e277f49dd9f47842101db286c601fa7f8d881b13277cd5dcbbf9ae54cc4b": {
-      "where": "aether_for_llms_and_others.md:1392",
+      "where": "aether_for_llms_and_others.md:1488",
       "stdout": "name = Aether\nenabled = true\ncount = 2\n"
     },
     "c1af51727a7857ac6114995e1a9949ef46b8ea466dc356bffcb4b42178afec3a": {
-      "where": "aether_for_llms_and_others.md:1435",
+      "where": "aether_for_llms_and_others.md:1531",
       "stdout": "a=4950 b=19900\n"
     },
+    "b57769b69fec2f83740f5f5f012a2049609233265ebe8a52d99fc483d60f54aa": {
+      "where": "aether_for_llms_and_others.md:1687",
+      "stdout": "12\n"
+    },
+    "6f876d85beea5aa61b20b2e02364e9b27e81ac74870cf8baf7f4d19bc0b8770b": {
+      "where": "aether_for_llms_and_others.md:1711",
+      "stdout": "answer = 42\n"
+    },
     "b43f893aa0806ece51c6e714ade600d68754b63354d79ee93f7c61c9586279c8": {
-      "where": "aether_for_llms_and_others.md:1632",
+      "where": "aether_for_llms_and_others.md:1728",
       "stdout": "A: ready\nB: review\n"
     },
-    "5acef574eec5d51f006f83c05e29d5bb5da30a5f7f840434fa99762dc49b496e": {
-      "where": "aether_for_llms_and_others.md:1766",
-      "stdout": "42\n"
+    "472311b367906ac4f1673672aed026f28392adee63c90635721f3c57c7ce777d": {
+      "where": "aether_for_llms_and_others.md:1767",
+      "stdout": "row 0 = EMPTY\nrow 1 = K7\nrow 2 = EMPTY\nmissing = 2\n"
     },
-    "b91633f292e47cbfaa2b294e635f9f6ff2f0e8211e8ded5f333ebce806c65179": {
-      "where": "aether_for_llms_and_others.md:2061",
-      "stdout": "first line\nsecond line\nbytes=23 args=0\nexists=false\n"
+    "5acef574eec5d51f006f83c05e29d5bb5da30a5f7f840434fa99762dc49b496e": {
+      "where": "aether_for_llms_and_others.md:1862",
+      "stdout": "42\n"
     },
     "4ef60fc71f2f4cd578dcea148b5e1a5f82dd69cd5130c0abe17c0153342ee89f": {
       "where": "aether_for_llms_and_others.md:2104",
       "skip": "live network: GETs https://example.com/"
     },
-    "23533117e4b11dd45a13cde293c81adf00b7ac9efc47f560e4069bbc69e9232d": {
-      "where": "aether_for_llms_and_others.md:2173",
-      "stdout": "server got: ping\nclient got: pong\ndone\n"
+    "b91633f292e47cbfaa2b294e635f9f6ff2f0e8211e8ded5f333ebce806c65179": {
+      "where": "aether_for_llms_and_others.md:2160",
+      "stdout": "first line\nsecond line\nbytes=23 args=0\nexists=false\n"
     },
-    "86f9ccd51f532ff96080d8b510622f15945ae7306caca6f2925c236036a2edf2": {
-      "where": "aether_for_llms_medium_contexts.md:246",
-      "stdout": "Hello from Aether\n"
+    "23533117e4b11dd45a13cde293c81adf00b7ac9efc47f560e4069bbc69e9232d": {
+      "where": "aether_for_llms_and_others.md:2272",
+      "stdout": "server got: ping\nclient got: pong\ndone\n"
     },
     "0b9b33ecba86d56640b975a490102f3f7701782827bc3fca4103daa076128902": {
       "where": "aether_for_llms_medium_contexts.md:336",
@@ -115,21 +135,9 @@
       "where": "aether_for_llms_with_small_contexts.md:254",
       "stdout": "hello\n"
     },
-    "b57769b69fec2f83740f5f5f012a2049609233265ebe8a52d99fc483d60f54aa": {
-      "where": "aether_for_llms_with_small_contexts.md:577",
-      "stdout": "12\n"
-    },
-    "6f876d85beea5aa61b20b2e02364e9b27e81ac74870cf8baf7f4d19bc0b8770b": {
-      "where": "aether_for_llms_with_small_contexts.md:610",
-      "stdout": "answer = 42\n"
-    },
     "8e57bdffa5668903ab5f88767e4dc6d31a352f29d604f838c4df061cfd68ceb9": {
       "where": "aether_for_llms_with_small_contexts.md:625",
       "stdout": "name = Aether\n"
-    },
-    "472311b367906ac4f1673672aed026f28392adee63c90635721f3c57c7ce777d": {
-      "where": "aether_for_llms_with_small_contexts.md:645",
-      "stdout": "row 0 = EMPTY\nrow 1 = K7\nrow 2 = EMPTY\nmissing = 2\n"
     },
     "edf9e7472a813d74910b0ff0a5aa6e8a01e0041eeacf8cede9e9a9c2d4537ba4": {
       "where": "aether_for_llms_with_small_contexts.md:883",

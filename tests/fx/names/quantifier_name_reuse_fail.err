@@ -1,0 +1,3 @@
+quantifier_name_reuse_fail.aether:3:
+the `all`/`any` variable 'n'
+quantifier_name_reuse_fail.aether:6:

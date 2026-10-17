@@ -1,4 +1,6 @@
 fn main() -> Void {
-    fn g() -> Int { ret 1; }
-    fx { println(g()); }
+    let base = 10;
+    let xs: Int[] = [1, 2, 3];
+    fn scaled(i: Int) -> Int { ret xs[i] * base; }
+    fx { println(scaled(2)); }
 }

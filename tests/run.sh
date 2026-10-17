@@ -1747,7 +1747,7 @@ fi
 # The JSON kind is the label of "Aether <kind> parser error" (a hyphenated one
 # too), and "parser" for a plain parser error. It used to be "par" for nearly
 # every parser diagnostic: rea's kind test matched "par" inside "parser".
-for kind_case in "diag/nested_fn_fail:nested-fn" "diag/slice_no_bounds_fail:parser"; do
+for kind_case in "diag/nested_fn_deep_fail:nested-fn" "diag/nested_fn_assign_fail:nested-assign" "diag/slice_no_bounds_fail:parser"; do
     kind_fx="$TESTS_DIR/fx/${kind_case%%:*}.aether"
     kind_want="${kind_case##*:}"
     "$AETHER_BIN" --diagnostics-json --no-cache --no-run "$kind_fx" >$OUT/aether_json_kind.out 2>&1 || true

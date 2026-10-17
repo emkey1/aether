@@ -126,6 +126,15 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "nested-fn") == 0) {
             return "FUNC-001";
         }
+        /* A nested function (D62) assigning a local or parameter of its
+         * enclosing function: it reads them, it cannot change them. */
+        if (strcmp(kind, "nested-assign") == 0) {
+            return "FUNC-002";
+        }
+        /* The condition of `all`/`any` (D58) is not a Bool. */
+        if (strcmp(kind, "quantifier") == 0) {
+            return "TYPE-001";
+        }
     }
 
     if (!detail) {
@@ -335,6 +344,9 @@ static const AetherNameHint kAetherNameHints[] = {
     { "now", "did you mean 'now_text()' or 'clock_ms()'?" },
     { "time_ms", "did you mean 'clock_ms()'?" },
     { "current_time_ms", "did you mean 'clock_ms()'?" },
+    /* Quantifiers are expressions, not functions (D58). */
+    { "all", "write the quantifier `all x in xs: cond` (or `all i in 0..n: cond`); it is a Bool expression, in a contract too." },
+    { "any", "write the quantifier `any x in xs: cond` (or `any i in 0..n: cond`); it is a Bool expression, in a contract too." },
     /* Text and arrays (D56, D57). */
     { "to_upper", "did you mean 'upper(s)'?" },
     { "to_lower", "did you mean 'lower(s)'?" },

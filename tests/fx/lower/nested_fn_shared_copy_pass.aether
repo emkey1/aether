@@ -1,0 +1,42 @@
+// D62: a captured array is read uncopied, yet a nested fn's own copy of it
+// (`let c = xs;`, `ret xs;`, a row, a call that changes its parameter) never
+// changes the host's array, for literal-built and appended arrays alike.
+fn bumpAll(v: Int[]) -> Int[] {
+    loop i in 0..length(v) { v[i] = v[i] + 100; }
+    ret v;
+}
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let grid: Int[][] = [[1, 2], [3, 4]];
+    let built: Int[] = [];
+    loop i in 0..3 { built = built + [i * 10]; }
+    fn copyOut() -> Int[] {
+        let c = xs;
+        c[0] = 99;
+        ret c;
+    }
+    fn whole() -> Int[] { ret xs; }
+    fn viaFn() -> Int[] { ret bumpAll(xs); }
+    fn rowCopy() -> Int[] {
+        let r = grid[1];
+        r[0] = 77;
+        ret r;
+    }
+    fn builtWhole() -> Int[] { ret built; }
+    fn total() -> Int { ret sum(xs) + sum(built); }
+    let a = copyOut();
+    let b = whole();
+    b[1] = 55;
+    let c = viaFn();
+    let d = rowCopy();
+    let e = builtWhole();
+    e[2] = -1;
+    fx {
+        println(a[0], " ", xs[0]);
+        println(b[1], " ", xs[1]);
+        println(c[2], " ", xs[2]);
+        println(d[0], " ", grid[1][0]);
+        println(e[2], " ", built[2]);
+        println(total());
+    }
+}

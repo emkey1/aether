@@ -1,0 +1,41 @@
+// D62: N-Queens with nested helpers reading the enclosing `n` and the
+// read-only `weights` array (passed uncopied); the count lives in a record
+// field, the board travels as a parameter.
+type Tally { hits: Int; }
+
+fn queens(n: Int, weights: Int[]) -> Int {
+    let t = new Tally { hits: 0 };
+    fn safe(row: Int, col: Int, board: Int[]) -> Bool {
+        loop r in 0..row {
+            let c = board[r];
+            if c == col || abs(c - col) == row - r { ret false; }
+        }
+        ret weights[col] >= 0;
+    }
+    fn place(row: Int, board: Int[]) -> Void {
+        if row == n {
+            t.hits = t.hits + 1;
+            ret;
+        }
+        loop col in 0..n {
+            if safe(row, col, board) {
+                let next = board;
+                next[row] = col;
+                place(row + 1, next);
+            }
+        }
+    }
+    let start: Int[] = [];
+    loop i in 0..n { start = start + [0]; }
+    place(0, start);
+    ret t.hits;
+}
+
+fn main() -> Void {
+    let w: Int[] = [0, 1, 2, 3, 4, 5, 6, 7];
+    fx {
+        println(queens(4, w));
+        println(queens(6, w));
+        println(queens(8, w));
+    }
+}

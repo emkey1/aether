@@ -1,0 +1,10 @@
+// D62: a nested fn declared in an inner block is not visible after it, and
+// one called where a reused name hides the local it reads is rejected.
+fn main() -> Void {
+    let n = 3;
+    if n > 1 {
+        fn f() -> Int { ret n; }
+        fx { println(f()); }
+    }
+    fx { println(f()); }
+}

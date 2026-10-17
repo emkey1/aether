@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-17-3*
+*Guide version: 2026-10-17-4*
 
 Everything needed to write correct Aether in one shot.
 
@@ -42,11 +42,12 @@ Everything needed to write correct Aether in one shot.
 10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
     arrays and `Text`. Crossing them compiles, then fails at run time with no
     code.
-11. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas, no
-    closures, never pass a function as an argument, and there is no
+11. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas,
+    never pass a function as an argument, and there is no
     `map`/`filter`/`reduce` — write a `loop`. To run your own code concurrently
-    use `par { f(); g(); }`. Every `fn` is top-level: one inside another fn's
-    body is FUNC-001 — pass what it needs as parameters (or a record).
+    use `par { f(); g(); }`. A `fn` inside a free function's body may read that
+    function's parameters and earlier locals and call its sibling `fn`s;
+    assigning one is **FUNC-002** — return the value, or use a record field.
 12. **PAR-001.** Each `par` branch must own the record it writes. The same record
     passed to two branches races and is rejected. Give each branch its own and
     combine after the block.
@@ -95,9 +96,6 @@ Default stance: single-file programs; variadic `println("label = ", v)` rather
 than `+` concatenation; explicit types on TOON values and non-trivial results;
 real logic, never hard-coded expected output.
 
-Some rules above are compiler codes and some are authoring rules nothing
-checks; **Repair rules** lists the codes.
-
 ## Never Generate These
 
 - `return` → `ret`; `class` → `type`; drop `var`, `func`, `def`, `=>`
@@ -106,19 +104,14 @@ checks; **Repair rules** lists the codes.
   it: `loopCount`. Other languages' words (`word`, `text`, `match`, `class`) are fine
 - `fn new()` / `fn __init__` as a constructor. Aether has none — use
   `new T { field: value }`, or `new T()` then assign, or a top-level factory `fn`
-- an untyped array literal (TYPE-001)
 - `print` / `println` / `toon_parse_file` / task helpers / `ai_chat` outside
   `fx` (FX-001)
-- invented imports such as `use "helpers";`
 - `use module_name;` without quotes, or `export { ... }`
 - invented helpers not listed here (BUILT-001)
 - `toon_parse_string(text)` — the text parser is `toon_parse(text)`
-- arithmetic on, or cross-assignment of, `ToonDoc` / `ToonNode` (TOON-001)
-- `let stream: Int = mstream_new();` — streams are `MStream` (MS-001)
 - `copy`, `pos`, `val`, `itoa`, `File` / `assign` / `readln` / `eof`,
   `paramstr`, `gettime`, `setlength`, unprefixed `mstream*`: not Aether
   (SCOPE-001 names the replacement)
-- annotations inside a function body (ANN-001)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. It is a `[NARROW-001]` warning, so it compiles —
   write `int(...)` when you mean to truncate
@@ -324,6 +317,11 @@ loop { break; }                             // infinite + break
 
 That variable is scoped to the loop; `item` takes the element type (`Int` from
 `Int[]`, one-character `Text` from a `Text`, `ToonNode` from a TOON array).
+
+**Quantifiers.** `all x in xs: x > 0` and `any i in 0..n: xs[i] == t` are `Bool`
+expressions over the same headers. They stop at the first deciding element
+(empty: `all` true, `any` false) and work in contracts. Parenthesize one inside
+`&&`: `(all x in xs: x > 0) && ok`.
 
 **Operator precedence** follows C: `* / %` above `+ -`, then `<< >>`, then the
 comparisons, then `== !=`, then `& ^ |`, then `&&`, then `||`; the word forms
@@ -764,7 +762,8 @@ fn normalize(score: Int) -> Int {
   but non-binding.
 - On a collection return, a contract must compare a **property**, not the
   collection: `@post length(result) > 0`, never `@post result > 0`. Same for a
-  `@pre` over an array parameter: `@pre length(xs) > 0`.
+  `@pre` over an array parameter: `@pre length(xs) > 0`; every element:
+  `@pre all x in xs: x >= 0`.
 
 ## Modules
 
@@ -972,10 +971,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   a `type` you declared. The message names the Aether
   spelling when there is one (`Double` → `Real`, `Integer` → `Int`, `Char` →
   `Text`, `int` → `Int`).
-- **[TOON-001]** handle misuse → go through `toon_root(doc)`; never do arithmetic
-  on, or cross-assign, handles.
-- **[MS-001]** stream misuse → declare stream bindings `MStream`, read with
-  `mstream_text(ms)`.
+- **[TOON-001]** handle misuse → go through `toon_root(doc)` (rule 6).
+- **[MS-001]** stream misuse → declare stream bindings `MStream` (rule 23).
 - **[FIELD-002]** `Unknown field` → use the exact declared name.
 - **[FIELD-003]** a non-literal field default → use a literal, or set the value
   at construction with `new T { field: value }`. A *type*-mismatched default is
@@ -1004,11 +1001,12 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   is usually **not appended yet**: while building a table row by row, the current
   row is the local `row`, not `table[i]` — `table[i]` only exists after
   `table = table + [row];`. Earlier rows read fine as `table[i - 1][j]`.
+- **[FUNC-002]** a nested `fn` assigned an enclosing local → return the value
+  and assign it there, or keep it in a record field.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`), exit 1 → a
   call broke `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
-- **[PREC-001]** (warning) `flags & mask != 0` → `&`, `|` and `^` bind looser
-  than the comparisons, so this groups as `flags & (mask != 0)` and yields an
-  **Int**, not a Bool. Parenthesize: `(flags & mask) != 0`. As an error:
+- **[PREC-001]** (warning) `flags & mask != 0` → parenthesize:
+  `(flags & mask) != 0` (Core syntax). As an error:
   `0 <= i < n` → `0 <= i && i < n`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
   values as arguments: `println("n = ", n)`.

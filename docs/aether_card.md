@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-17-2*
+*Card version: 2026-10-17-3*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -14,7 +14,7 @@ Aether is a small statically typed language. Emit raw Aether source only.
 - **Effects.** `print`, `println` and every host call (random numbers, clock,
   files: `read_file(p)`, `read_lines(p)`, `write_file(p, t)`, stdin:
   `read_line()`) must sit inside `fx { ... }`, which may hold `let`, `if` and
-  `loop`. Plain computation needs no `fx`.
+  `loop`.
 
 ## Values
 
@@ -54,8 +54,8 @@ fn main() -> Void {
 0 1 2 10 7 4 1 4 9 2 a b done
 ```
 
-A range or foreach loop declares its own variable. `continue` skips to the
-next iteration.
+A range or foreach loop declares its own variable. `all x in xs: x > 0` and
+`any i in 0..n: xs[i] == 0` are `Bool` expressions.
 
 ## Functions, tuples, `@pure`
 
@@ -86,7 +86,8 @@ fn main() -> Void {
 Destructure a direct call, or bind it and read `t.0`; never `f(x).0`. A
 `@pure` function may not use `fx` and calls only pure builtins and other
 `@pure` functions. Functions are not values (no lambdas), and there is no
-`map` or `filter`: write a `loop`.
+`map` or `filter`: write a `loop`. A `fn` inside a `fn` may read the outer
+locals, never assign them (FUNC-002).
 
 ## Records and methods
 
@@ -143,7 +144,7 @@ Append with `xs = xs + [v];`; `[0; n]` is n zeros. Indexes are 0-based; `a..b` i
 slices and loops. `println` does not print a whole array; loop over it.
 Helpers return new values: `sum(xs)`, `min_of(xs)`, `max_of(xs)`,
 `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
-`index_of(xs, v)` (`-1` if absent), `count(xs, v)`; records:
+`index_of(xs, v)`, `count(xs, v)`; records:
 `sorted_by(xs, "field")`.
 
 ## Text
@@ -181,7 +182,6 @@ with `let (n, ok) = try_parse_int(t);`.
   `print` adds no newline.
 - A `Real` prints with 6 decimals: `println(2.5)` prints `2.500000`;
   `formatfloat(2.5, 1)` is `"2.5"`.
-- Print exactly the requested output, nothing more.
 
 ## Diagnostics
 

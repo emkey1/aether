@@ -1,0 +1,2 @@
+nested_fn_scope_fail.aether:9:
+is declared inside a block and is not visible here

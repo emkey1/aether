@@ -1,0 +1,12 @@
+// D58: a quantifier variable follows the loop-variable rule (NAME-001): it
+// may not reuse a visible local or parameter, in a contract too.
+@pre all n in xs: n > 0
+fn count_big(xs: Int[], n: Int) -> Int {
+    let i = 0;
+    let ok = any i in xs: i > n;
+    ret if ok { 1 } else { 0 };
+}
+
+fn main() -> Void {
+    fx { println(count_big([1, 2], 1)); }
+}

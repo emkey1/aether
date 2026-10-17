@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let k = 2;
+    fn twice(x: Int) -> Int { ret x * k; }
+    let g = twice;
+    fx { println(g); }
+}

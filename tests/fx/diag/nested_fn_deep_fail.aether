@@ -1,0 +1,8 @@
+// D62: nested fns are one level deep.
+fn main() -> Void {
+    fn outer() -> Int {
+        fn inner() -> Int { ret 1; }
+        ret inner();
+    }
+    fx { println(outer()); }
+}

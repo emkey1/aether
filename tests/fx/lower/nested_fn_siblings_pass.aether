@@ -1,0 +1,70 @@
+// D62: nested fns call themselves and each other (declared before or after),
+// read what their siblings read, typed and untyped local consts, a loop
+// variable of the host, and may share a builtin's name inside their host only.
+fn parity(limit: Int) -> Text {
+    let tag = "n=";
+    fn is_even(k: Int) -> Bool {
+        if k == 0 { ret true; }
+        ret is_odd(k - 1);
+    }
+    fn is_odd(k: Int) -> Bool {
+        if k == 0 || k > limit { ret false; }
+        ret is_even(k - 1);
+    }
+    ret tag + (if is_even(10) { "even" } else { "odd" });
+}
+
+fn scaled(xs: Int[]) -> Int {
+    const K: Int = 2;
+    const OFFSET = 1;
+    fn one(x: Int) -> Int { ret x * K + OFFSET; }
+    let s = 0;
+    loop x in xs { s = s + one(x); }
+    ret s;
+}
+
+fn matches(words: Text[], needle: Text) -> Int {
+    fn count(w: Text) -> Int {
+        ret if contains(w, needle) { 1 } else { 0 };
+    }
+    let n = 0;
+    loop w in words { n = n + count(w); }
+    ret n;
+}
+
+fn halves(k: Int) -> (Int, Int) {
+    fn split(m: Int) -> (Int, Int) { ret (m div 2, m - m div 2); }
+    let (a, b) = split(k);
+    ret (a, b);
+}
+
+fn squares() -> Int {
+    let total = 0;
+    loop i in 0..4 {
+        fn sq() -> Int { ret i * i; }
+        total = total + sq();
+    }
+    ret total;
+}
+
+fn depth(n: Int) -> Int {
+    let pad: Int[] = [1, 2, 3];
+    fn go(k: Int) -> Int {
+        if k == 0 { ret pad[0]; }
+        ret 1 + go(k - 1);
+    }
+    ret go(n);
+}
+
+fn main() -> Void {
+    let words: Text[] = ["apple", "grape", "plum"];
+    let (a, b) = halves(7);
+    fx {
+        println(parity(50));
+        println(scaled([1, 2, 3]));
+        println(matches(words, "p"), " ", count(words, "plum"));
+        println(a, " ", b);
+        println(squares());
+        println(depth(5000));
+    }
+}

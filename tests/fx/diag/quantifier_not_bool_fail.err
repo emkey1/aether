@@ -1,0 +1,2 @@
+quantifier_not_bool_fail.aether:4:
+must be a Bool

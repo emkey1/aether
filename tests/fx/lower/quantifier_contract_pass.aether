@@ -1,0 +1,31 @@
+// D58: quantifiers in @pre and @post, including over `result` and on the
+// right of `&&` (the range is read only after the length test passes).
+@pre all x in xs: x >= 0
+@post all v in result: v >= 1
+@post length(result) == length(xs)
+fn bump_all(xs: Int[]) -> Int[] {
+    let out: Int[] = [];
+    loop x in xs { out = out + [x + 1]; }
+    ret out;
+}
+
+@pre n >= 0 && n <= length(xs) && all i in 0..n: xs[i] > 0
+fn prefix_sum(xs: Int[], n: Int) -> Int {
+    let s = 0;
+    loop i in 0..n { s = s + xs[i]; }
+    ret s;
+}
+
+@post any c in result: c == "!"
+fn shout(t: Text) -> Text {
+    ret upper(t) + "!";
+}
+
+fn main() -> Void {
+    let xs: Int[] = [0, 2, 5];
+    fx {
+        println(sum(bump_all(xs)));
+        println(prefix_sum([3, 4, 5], 2));
+        println(shout("hi"));
+    }
+}

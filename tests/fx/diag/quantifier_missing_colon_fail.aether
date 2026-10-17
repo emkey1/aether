@@ -1,0 +1,6 @@
+// D58: `all x in xs` needs a `:` before its condition.
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    let ok = all x in xs x > 0;
+    fx { println(ok); }
+}
