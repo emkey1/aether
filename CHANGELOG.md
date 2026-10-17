@@ -94,6 +94,9 @@ Front end only: pscal-core stays at `a67836f`, rea at `94ea5f5`.
   compression on `parent`), so they move from FUNC-001 to FUNC-002 and none
   flips to pass under the read-only rule; the replay tallies of
   `training/training_runs/*/score` are otherwise identical to 2026-10-17-3.
+  The tracked replay (instrument check, d67626c) is unchanged too: first
+  attempts 242->219, 42 waived (the D55 class), 0 unwaived; corpus drift 0;
+  oracle 204/204; dataset gates pass.
 
 ## 2026-10-17-4
 
