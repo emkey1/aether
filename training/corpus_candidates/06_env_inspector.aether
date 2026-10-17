@@ -20,11 +20,11 @@ fn main() -> Void {
             println("User: ", user);
         }
 
-        let arg_count: Int = paramcount();
+        let arg_count: Int = length(args());
         println("Argument count: ", arg_count);
 
         loop i in 0..arg_count {
-            let arg: Text = paramstr(i);
+            let arg: Text = args()[i - 1];
             println("  Arg[", i, "]: ", arg);
         }
 

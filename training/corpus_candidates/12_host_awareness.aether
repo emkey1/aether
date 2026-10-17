@@ -3,14 +3,14 @@
 fn main() -> Void {
     let argc: Int = 0;
     fx {
-        argc = paramcount();
-        println("program: ", paramstr(0));
+        argc = length(args());
+        println("program: ", "");
         println("args:    ", argc);
     }
 
     loop i in 1..argc + 1 {
         fx {
-            println("arg[", i, "] = ", paramstr(i));
+            println("arg[", i, "] = ", args()[i - 1]);
         }
     }
 

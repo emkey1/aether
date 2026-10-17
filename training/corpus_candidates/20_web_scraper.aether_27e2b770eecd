@@ -2,12 +2,12 @@ fn fetch_url(url: Text) -> Text {
     let body: Text = "";
     fx {
         let session: Int = httpsession();
-        let out: MStream = mstreamcreate();
+        let out: MStream = mstream_new();
         let status: Int = httprequest(session, "GET", url, "", out);
         if status == 200 {
-            body = mstreambuffer(out);
+            body = mstream_text(out);
         }
-        mstreamfree(out);
+        mstream_free(out);
         httpclose(session);
     }
     ret body;
@@ -17,18 +17,18 @@ fn extract_links(html: Text) -> Text[] {
     let links: Text[] = [];
     let remaining: Text = html;
     loop true {
-        let marker_pos: Int = pos("<a href=\"", remaining);
+        let marker_pos: Int = index_of(remaining, "<a href=\"");
         if marker_pos < 0 {
             break;
         }
-        let after_marker: Text = copy(remaining, marker_pos + 9, string_len(remaining) - (marker_pos + 9));
-        let end_pos: Int = pos("\"", after_marker);
+        let after_marker: Text = remaining[marker_pos + 9..marker_pos + 9 + string_len(remaining) - (marker_pos + 9)];
+        let end_pos: Int = index_of(after_marker, "\"");
         if end_pos < 0 {
             break;
         }
-        let link: Text = copy(after_marker, 0, end_pos);
+        let link: Text = after_marker[..end_pos];
         links = links + [link];
-        remaining = copy(after_marker, end_pos + 1, string_len(after_marker) - (end_pos + 1));
+        remaining = after_marker[end_pos + 1..end_pos + 1 + string_len(after_marker) - (end_pos + 1)];
     }
     ret links;
 }

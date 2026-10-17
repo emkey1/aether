@@ -32,7 +32,7 @@ fn format_array(arr: Int[]) -> Text {
         if i > 0 {
             s = s + ", ";
         }
-        s = s + itoa(arr[i]);
+        s = s + int_to_text(arr[i]);
     }
     s = s + "]";
     ret s;

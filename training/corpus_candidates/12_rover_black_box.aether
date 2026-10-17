@@ -21,8 +21,8 @@ fn main() -> Void {
     }
 
     let packetText: Text = "{\"mission\":\"Asterion-4\",\"battery_pct\":21,\"temperature_c\":-47.5,\"tilt_deg\":18.2,\"wheel_slip\":true}";
-    let packet: MStream = mstreamfromstring(packetText);
-    let wireText: Text = mstreambuffer(packet);
+    let packet: MStream = mstream_from_text(packetText);
+    let wireText: Text = mstream_text(packet);
     let doc: ToonDoc = toon_parse(wireText);
     let root: ToonNode = toon_root(doc);
 
@@ -56,6 +56,6 @@ fn main() -> Void {
     }
 
     toon_close(doc);
-    mstreamfree(packet);
+    mstream_free(packet);
     ret;
 }

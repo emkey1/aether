@@ -1202,12 +1202,10 @@ def test_real_aether_reads_three_stdin_lines():
     binary = real_aether_bin()
     task = adb.Task(task_id="rd", title="t", prompt="", expected_stdout="three|two|one\n", stdin="one\ntwo\nthree\n")
     source = ('fn main() -> Void {\n    let a: Text = "";\n    let b: Text = "";\n    let c: Text = "";\n'
-              '    fx {\n        readln(a);\n        readln(b);\n        readln(c);\n'
+              '    fx {\n        a = read_line();\n        b = read_line();\n        c = read_line();\n'
               '        println(c, "|", b, "|", a);\n    }\n}\n')
     run = adb.compile_and_run(task, source, adb.argparse.Namespace(aether_bin=binary, sandbox_deny="net,proc"))
-    assert run["returncode"] == 0 and "three|two|one" in run["stdout"], run
-    # Not asserted exact: today's readln writes ESC[?25h to a piped stdout
-    # (B-backend-coupling-4), which is exactly what a stdin trap must see.
+    assert run["returncode"] == 0 and run["exact_stdout_match"] is True, run
 
 
 # --------------------------------------------------------------------------- #
@@ -1825,7 +1823,10 @@ def test_instrument_check_lint_only_runs_without_a_binary():
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_tracked_replay_reproduces_242_to_245_with_every_regression_waived():
+def test_tracked_replay_reproduces_242_to_219_with_every_regression_waived():
+    # 2026-10-17-3 (D55): the 32 first attempts that call a removed Pascal-era
+    # form (itoa, copy, val, assign, mstreamfromstring) are waived as one class;
+    # it was 242 -> 245 with 8 waived pass->fail before.
     binary = real_aether_bin()
     with workdir() as tmp:
         out = tmp / "replay.json"
@@ -1833,10 +1834,10 @@ def test_tracked_replay_reproduces_242_to_245_with_every_regression_waived():
         assert proc.returncode == 0, proc.stdout + proc.stderr
         result = json.loads(out.read_text())
         first = result["tallies"]["first"]
-        assert (first["attempts"], first["old_pass"], first["new_pass"]) == (274, 242, 245), first
-        assert (first["fail_to_pass"], first["pass_to_fail"]) == (11, 8), first
+        assert (first["attempts"], first["old_pass"], first["new_pass"]) == (274, 242, 219), first
+        assert (first["fail_to_pass"], first["pass_to_fail"]) == (9, 32), first
         assert result["unwaived"] == []
-        assert sum(1 for r in result["waived"] if r["kind"] == "first" and r["transition"] == "pass->fail") == 8
+        assert sum(1 for r in result["waived"] if r["kind"] == "first" and r["transition"] == "pass->fail") == 32
 
 
 def _seed_log_calls(log: pathlib.Path) -> list[tuple[str, str]]:

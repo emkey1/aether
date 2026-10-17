@@ -25,7 +25,7 @@ fn inorder(root: TreeNode) -> Text {
         ret "";
     }
     let result: Text = inorder(root.left);
-    result = result + itoa(root.value) + " ";
+    result = result + int_to_text(root.value) + " ";
     result = result + inorder(root.right);
     ret result;
 }
@@ -34,7 +34,7 @@ fn preorder(root: TreeNode) -> Text {
     if root == nil {
         ret "";
     }
-    let result: Text = itoa(root.value) + " ";
+    let result: Text = int_to_text(root.value) + " ";
     result = result + preorder(root.left);
     result = result + preorder(root.right);
     ret result;
@@ -46,7 +46,7 @@ fn postorder(root: TreeNode) -> Text {
     }
     let result: Text = postorder(root.left);
     result = result + postorder(root.right);
-    result = result + itoa(root.value) + " ";
+    result = result + int_to_text(root.value) + " ";
     ret result;
 }
 

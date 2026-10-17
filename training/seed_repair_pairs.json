@@ -250,7 +250,7 @@
     {
       "id": "repair_array_slice",
       "kind": "repair",
-      "diagnostic": "[TYPE-001] Aether array-copy parser error: copy() is the substring builtin for Text; it does not take an array.",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'copy' not in scope.",
       "broken_source": "fn main() -> Void {\n    let vals: Int[] = [5, 8, 13, 21];\n    let mid: Int[] = copy(vals, 1, 2);\n    fx {\n        loop i in 0..length(mid) {\n            println(mid[i]);\n        }\n    }\n    ret;\n}\n",
       "fixed_source": "fn main() -> Void {\n    let vals: Int[] = [5, 8, 13, 21];\n    let mid: Int[] = vals[1..3];\n    fx {\n        loop i in 0..length(mid) {\n            println(mid[i]);\n        }\n    }\n    ret;\n}\n",
       "expected_stdout": "8\n13\n"
@@ -316,7 +316,7 @@
       "kind": "repair",
       "diagnostic": "[SCOPE-001] identifier 'text_len' not in scope.",
       "broken_source": "fn main() -> Void {\n    let word: Text = \"aether\";\n    fx {\n        println(text_len(word));\n        println(substring(word, 1, 3));\n        println(string_at(word, 1));\n    }\n    ret;\n}\n",
-      "fixed_source": "fn main() -> Void {\n    let word: Text = \"aether\";\n    fx {\n        println(length(word));\n        println(copy(word, 0, 3));\n        println(word[0]);\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let word: Text = \"aether\";\n    fx {\n        println(length(word));\n        println(word[0..3]);\n        println(word[0]);\n    }\n    ret;\n}\n",
       "expected_stdout": "6\naet\na\n"
     },
     {
@@ -456,19 +456,20 @@
       "expected_stdout": "total 28\n"
     },
     {
-      "id": "repair_mstream_new_name",
+      "id": "repair_mstream_engine_names",
       "kind": "repair",
-      "diagnostic": "[SCOPE-001] identifier 'mstream_new' not in scope.",
-      "broken_source": "fn main() -> Void {\n    let ms: MStream = mstream_new();\n    mstreamappendbyte(ms, 72);\n    mstreamappendbyte(ms, 105);\n    fx { println(mstreambuffer(ms)); }\n    mstreamfree(ms);\n    ret;\n}\n",
-      "fixed_source": "fn main() -> Void {\n    let ms: MStream = mstreamcreate();\n    mstreamappendbyte(ms, 72);\n    mstreamappendbyte(ms, 105);\n    fx { println(mstreambuffer(ms)); }\n    mstreamfree(ms);\n    ret;\n}\n",
-      "expected_stdout": "Hi\n"
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'mstreamcreate' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let ms: MStream = mstreamcreate();\n    mstreamappendbyte(ms, 72);\n    mstreamappendbyte(ms, 105);\n    fx { println(mstreambuffer(ms)); }\n    mstreamfree(ms);\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let ms: MStream = mstream_new();\n    mstream_append_byte(ms, 72);\n    mstream_append_byte(ms, 105);\n    fx { println(mstream_text(ms)); }\n    mstream_free(ms);\n    ret;\n}\n",
+      "expected_stdout": "Hi\n",
+      "note": "Repointed 2026-10-17 (D61): it taught mstream_new -> mstreamcreate, the inverse of the snake_case family, which is now the Aether surface."
     },
     {
       "id": "repair_yyjson_parse_file_name",
       "kind": "repair",
       "diagnostic": "[SCOPE-001] identifier 'yyjson_parse_file' not in scope.",
-      "broken_source": "fn main() -> Void {\n    let ms: MStream = mstreamfromstring(\"{\\\"jobs\\\":3}\");\n    fx { mstreamsavetofile(ms, \"queue_state.json\"); }\n    mstreamfree(ms);\n    let doc: ToonDoc;\n    fx { doc = yyjson_parse_file(\"queue_state.json\"); }\n    let root: ToonNode = toon_root(doc);\n    fx { println(\"jobs \", toon_get_int(root, \"jobs\")); }\n    toon_close(doc);\n    ret;\n}\n",
-      "fixed_source": "fn main() -> Void {\n    let ms: MStream = mstreamfromstring(\"{\\\"jobs\\\":3}\");\n    fx { mstreamsavetofile(ms, \"queue_state.json\"); }\n    mstreamfree(ms);\n    let doc: ToonDoc;\n    fx { doc = toon_parse_file(\"queue_state.json\"); }\n    let root: ToonNode = toon_root(doc);\n    fx { println(\"jobs \", toon_get_int(root, \"jobs\")); }\n    toon_close(doc);\n    ret;\n}\n",
+      "broken_source": "fn main() -> Void {\n    let ms: MStream = mstream_from_text(\"{\\\"jobs\\\":3}\");\n    fx { mstream_save(ms, \"queue_state.json\"); }\n    mstream_free(ms);\n    let doc: ToonDoc;\n    fx { doc = yyjson_parse_file(\"queue_state.json\"); }\n    let root: ToonNode = toon_root(doc);\n    fx { println(\"jobs \", toon_get_int(root, \"jobs\")); }\n    toon_close(doc);\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let ms: MStream = mstream_from_text(\"{\\\"jobs\\\":3}\");\n    fx { mstream_save(ms, \"queue_state.json\"); }\n    mstream_free(ms);\n    let doc: ToonDoc;\n    fx { doc = toon_parse_file(\"queue_state.json\"); }\n    let root: ToonNode = toon_root(doc);\n    fx { println(\"jobs \", toon_get_int(root, \"jobs\")); }\n    toon_close(doc);\n    ret;\n}\n",
       "expected_stdout": "jobs 3\n"
     },
     {
@@ -494,6 +495,38 @@
       "broken_source": "fn insertionSort(xs: Int[]) -> Void {\n    loop i in 1..length(xs) {\n        let key: Int = xs[i];\n        let j: Int = i - 1;\n        loop j >= 0 && xs[j] > key {\n            xs[j + 1] = xs[j];\n            j = j - 1;\n        }\n        xs[j + 1] = key;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let xs: Int[] = [9, 4, 7, 1];\n    insertionSort(xs);\n    fx { println(xs[0], \" \", xs[1], \" \", xs[2], \" \", xs[3]); }\n    ret;\n}\n",
       "fixed_source": "fn insertionSort(input: Int[]) -> Int[] {\n    let xs: Int[] = input;\n    loop i in 1..length(xs) {\n        let key: Int = xs[i];\n        let j: Int = i - 1;\n        loop j >= 0 && xs[j] > key {\n            xs[j + 1] = xs[j];\n            j = j - 1;\n        }\n        xs[j + 1] = key;\n    }\n    ret xs;\n}\n\nfn main() -> Void {\n    let xs: Int[] = [9, 4, 7, 1];\n    xs = insertionSort(xs);\n    fx { println(xs[0], \" \", xs[1], \" \", xs[2], \" \", xs[3]); }\n    ret;\n}\n",
       "expected_stdout": "1 4 7 9\n"
+    },
+    {
+      "id": "repair_itoa_to_int_to_text",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'itoa' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let parts: Text[] = [];\n    loop i in 1..4 {\n        parts = parts + [itoa(i * i)];\n    }\n    fx { println(join(parts, \",\")); }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let parts: Text[] = [];\n    loop i in 1..4 {\n        parts = parts + [int_to_text(i * i)];\n    }\n    fx { println(join(parts, \",\")); }\n    ret;\n}\n",
+      "expected_stdout": "1,4,9\n"
+    },
+    {
+      "id": "repair_pos_to_index_of",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'pos' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let line: Text = \"key=value\";\n    let at: Int = pos(\"=\", line);\n    fx { println(copy(line, 0, at), \" / \", copy(line, at + 1, length(line) - at - 1)); }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let line: Text = \"key=value\";\n    let at: Int = index_of(line, \"=\");\n    fx { println(line[..at], \" / \", line[at + 1..]); }\n    ret;\n}\n",
+      "expected_stdout": "key / value\n"
+    },
+    {
+      "id": "repair_val_to_try_parse",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'val' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let raws: Text[] = [\"42\", \"12x\", \"\"];\n    loop raw in raws {\n        let n: Int = 0;\n        let code: Int = 0;\n        val(raw, n, code);\n        fx { if code == 0 { println(\"ok \", n); } else { println(\"bad [\", raw, \"]\"); } }\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let raws: Text[] = [\"42\", \"12x\", \"\"];\n    loop raw in raws {\n        let (n, ok) = try_parse_int(raw);\n        fx { if ok { println(\"ok \", n); } else { println(\"bad [\", raw, \"]\"); } }\n    }\n    ret;\n}\n",
+      "expected_stdout": "ok 42\nbad [12x]\nbad []\n"
+    },
+    {
+      "id": "repair_file_handle_to_read_lines",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'assign' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let f: File;\n    fx {\n        assign(f, \"tally.txt\");\n        rewrite(f);\n        writeln(f, \"3\");\n        writeln(f, \"4\");\n        close(f);\n        reset(f);\n        let total: Int = 0;\n        loop {\n            if eof(f) { break; }\n            let line: Text;\n            readln(f, line);\n            total = total + parse_int(line);\n        }\n        close(f);\n        println(\"total=\", total);\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    fx {\n        write_file(\"tally.txt\", \"3\\n4\\n\");\n        let total: Int = 0;\n        loop line in read_lines(\"tally.txt\") {\n            total = total + parse_int(line);\n        }\n        println(\"total=\", total);\n        let gone: Bool = delete_file(\"tally.txt\");\n    }\n    ret;\n}\n",
+      "expected_stdout": "total=7\n"
     }
   ]
 }

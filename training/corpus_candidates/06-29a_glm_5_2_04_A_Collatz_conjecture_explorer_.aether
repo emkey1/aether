@@ -33,7 +33,7 @@ fn main() -> Void {
         loop i in 0..length(lengths) {
             let n: Int = i + 1;
             let len: Int = lengths[i];
-            let bar: Text = stringofchar("#", len);
+            let bar: Text = repeat("#", len);
             println(n, ": ", bar);
         }
         println("");

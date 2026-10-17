@@ -55,9 +55,9 @@ fn main() -> Void {
 
     fx {
         println("");
-        println("Total products: ", itoa(stats.total));
-        println("Expensive (>50): ", itoa(stats.expensive));
-        println("Cheap (<=50): ", itoa(stats.cheap));
+        println("Total products: ", int_to_text(stats.total));
+        println("Expensive (>50): ", int_to_text(stats.expensive));
+        println("Cheap (<=50): ", int_to_text(stats.cheap));
     }
 
     toon_free(products);

@@ -8,18 +8,18 @@ fn nextTerm(source: Text) -> Text {
     let i: Int = 0;
 
     loop i < total {
-        let symbol: Text = copy(source, i, 1);
+        let symbol: Text = source[i..i + 1];
         let run: Int = 1;
 
         loop i + run < total {
-            let candidate: Text = copy(source, i + run, 1);
+            let candidate: Text = source[i + run..i + run + 1];
             if candidate != symbol {
                 break;
             }
             run = run + 1;
         }
 
-        output = output + itoa(run) + symbol;
+        output = output + int_to_text(run) + symbol;
         i = i + run;
     }
     ret output;

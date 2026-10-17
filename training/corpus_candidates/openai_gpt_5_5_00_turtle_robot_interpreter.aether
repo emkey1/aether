@@ -76,7 +76,7 @@ fn main() -> Void {
     let program: Text = "FFRFFLFFRFFF";
 
     loop i in 0..string_len(program) {
-        let command: Text = copy(program, i, 1);
+        let command: Text = program[i..i + 1];
         bot.apply(command);
     }
 

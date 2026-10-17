@@ -44,7 +44,7 @@ fn addDays(year: Int, month: Int, day: Int, days: Int) -> Text {
             y = y + 1;
         }
     }
-    ret itoa(y) + "-" + itoa(m) + "-" + itoa(d);
+    ret int_to_text(y) + "-" + int_to_text(m) + "-" + int_to_text(d);
 }
 
 fn main() -> Void {

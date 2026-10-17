@@ -17,7 +17,7 @@ fn main() -> Void {
     let count: Int = length(words);
     let width: Int = getMaxLength(words) + 4;
 
-    let border: Text = stringofchar("-", width);
+    let border: Text = repeat("-", width);
 
     fx {
         println("+", border, "+");
@@ -27,7 +27,7 @@ fn main() -> Void {
         let word: Text = words[i];
         let wLen: Int = string_len(word);
         let padLen: Int = width - wLen - 2;
-        let pad: Text = stringofchar(" ", padLen);
+        let pad: Text = repeat(" ", padLen);
         fx {
             println("| ", word, pad, "|");
         }

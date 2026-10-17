@@ -5,19 +5,12 @@ type DB {
 fn open_store(filename: Text) -> DB {
     let data: Text[] = [];
     fx {
-        if fileexists(filename) {
-            let f: File;
-            assign(f, filename);
-            reset(f);
-            loop {
-                if eof(f) { break; }
-                let line: Text;
-                readln(f, line);
+        if file_exists(filename) {
+            loop line in read_lines(filename) {
                 if string_len(line) > 0 {
                     data = data + [line];
                 }
             }
-            close(f);
         }
     }
     ret new DB { data: data };
@@ -54,15 +47,11 @@ fn get_entry(db: DB, key: Text) -> Text {
 }
 
 fn save_store(db: DB, filename: Text) -> Void {
-    fx {
-        let f: File;
-        assign(f, filename);
-        rewrite(f);
-        loop i in 0..length(db.data) {
-            writeln(f, db.data[i]);
-        }
-        close(f);
+    let text: Text = "";
+    loop i in 0..length(db.data) {
+        text = text + db.data[i] + "\n";
     }
+    fx { write_file(filename, text); }
     ret;
 }
 

@@ -568,7 +568,7 @@
           "formatting",
           "postcondition"
         ],
-        "notes": "end-to-end shape \u2014 pure classification, contract-guarded normalization, record construction from TOON rows, effectful report"
+        "notes": "end-to-end shape — pure classification, contract-guarded normalization, record construction from TOON rows, effectful report"
       }
     },
     {

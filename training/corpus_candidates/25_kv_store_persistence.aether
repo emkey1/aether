@@ -33,37 +33,26 @@ type KVStore {
     }
 
     fn save(path: Text) -> Bool {
-        fx {
-            let f: File;
-            assign(f, path);
-            rewrite(f);
-            loop i in 0..length(self.keys) {
-                writeln(f, self.keys[i] + "=" + self.values[i]);
-            }
-            close(f);
+        let text: Text = "";
+        loop i in 0..length(self.keys) {
+            text = text + self.keys[i] + "=" + self.values[i] + "\n";
         }
+        fx { write_file(path, text); }
         ret true;
     }
 
     fn load(path: Text) -> Bool {
-        fx {
-            let f: File;
-            assign(f, path);
-            reset(f);
-            loop {
-                if eof(f) { break; }
-                let line: Text;
-                readln(f, line);
-                if string_len(line) > 0 {
-                    let eqpos: Int = pos("=", line);
-                    if eqpos >= 0 {
-                        let k: Text = copy(line, 0, eqpos);
-                        let v: Text = copy(line, eqpos + 1, string_len(line) - eqpos - 1);
-                        self.put(k, v);
-                    }
+        let lines: Text[] = [];
+        fx { lines = read_lines(path); }
+        loop line in lines {
+            if string_len(line) > 0 {
+                let eqpos: Int = index_of(line, "=");
+                if eqpos >= 0 {
+                    let k: Text = line[..eqpos];
+                    let v: Text = line[eqpos + 1..];
+                    self.put(k, v);
                 }
             }
-            close(f);
         }
         ret true;
     }

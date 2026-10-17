@@ -9,29 +9,24 @@ type Logger {
 }
 
 fn log(logger: Logger, level: Text, message: Text) -> Void {
-    let h: Int;
-    let m: Int;
-    let s: Int;
-    let s100: Int;
+    let now: Text = "";
     fx {
-        gettime(h, m, s, s100);
+        now = now_text();   // "YYYY-MM-DD HH:MM:SS"
     }
-    let timestamp: Text = itoa(h) + ":" + itoa(m) + ":" + itoa(s);
+    let timestamp: Text = int_to_text(parse_int(now[11..13])) + ":" +
+                          int_to_text(parse_int(now[14..16])) + ":" +
+                          int_to_text(parse_int(now[17..19]));
     logger.entries = logger.entries + [new LogEntry { timestamp: timestamp, level: level, message: message }];
     ret;
 }
 
 fn save_logs(logger: Logger, filename: Text) -> Void {
-    fx {
-        let f: File;
-        assign(f, filename);
-        rewrite(f);
-        loop i in 0..length(logger.entries) {
-            let entry: LogEntry = logger.entries[i];
-            writeln(f, entry.timestamp + " [" + entry.level + "] " + entry.message);
-        }
-        close(f);
+    let text: Text = "";
+    loop i in 0..length(logger.entries) {
+        let entry: LogEntry = logger.entries[i];
+        text = text + entry.timestamp + " [" + entry.level + "] " + entry.message + "\n";
     }
+    fx { write_file(filename, text); }
     ret;
 }
 

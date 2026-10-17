@@ -23,7 +23,7 @@ fn bundleText(b: Int[]) -> Text {
     let s: Text = "[";
     loop g in 0..len(b) {
         if g > 0 { s = s + " "; }
-        s = s + goodName(g) + ":" + IntToStr(b[g]);
+        s = s + goodName(g) + ":" + int_to_text(b[g]);
     }
     ret s + "]";
 }

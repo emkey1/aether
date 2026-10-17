@@ -77,7 +77,7 @@ fn main() -> Void {
             pad = 1;
         }
         fx {
-            println(i + 1, "    | ", sorted[i].wtext, stringofchar(" ", pad), "| ", sorted[i].count);
+            println(i + 1, "    | ", sorted[i].wtext, repeat(" ", pad), "| ", sorted[i].count);
         }
         i = i + 1;
     }

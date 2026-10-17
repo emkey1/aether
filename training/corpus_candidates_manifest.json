@@ -5821,7 +5821,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5842,7 +5842,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5863,7 +5863,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5884,7 +5884,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5905,7 +5905,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5926,7 +5926,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5947,7 +5947,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5968,7 +5968,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -5989,7 +5989,7 @@
           "max-subarray",
           "climbing-stairs"
         ],
-        "notes": "1-D dynamic programming \u2014 Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
+        "notes": "1-D dynamic programming — Kadane's running max-subarray, climbing-stairs step counting (two-back recurrence), house-robber take/skip choice; rolling state, max() via if"
       }
     },
     {
@@ -6027,7 +6027,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6048,7 +6048,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6069,7 +6069,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6090,7 +6090,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6111,7 +6111,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6132,7 +6132,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6153,7 +6153,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6174,7 +6174,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6195,7 +6195,7 @@
           "flattened",
           "addressed"
         ],
-        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c \u2014 count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
+        "notes": "2-D grid dynamic programming flattened into an Int[] addressed r*cols+c — count down/right unique paths, and min-cost down/right path sum; boundary rows/cols, min() via if"
       }
     },
     {
@@ -6216,7 +6216,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6237,7 +6237,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6258,7 +6258,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6279,7 +6279,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6300,7 +6300,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6321,7 +6321,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6342,7 +6342,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6363,7 +6363,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6384,7 +6384,7 @@
           "division",
           "primality"
         ],
-        "notes": "number theory by trial division \u2014 primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
+        "notes": "number theory by trial division — primality test (i*i <= n loop), counting primes up to N, sum of all divisors, perfect-number check via proper-divisor sum; Bool output"
       }
     },
     {
@@ -6405,7 +6405,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6431,7 +6431,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6457,7 +6457,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6483,7 +6483,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6509,7 +6509,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6535,7 +6535,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6561,7 +6561,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6587,7 +6587,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6613,7 +6613,7 @@
           "character",
           "indexing"
         ],
-        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) \u2014 reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
+        "notes": "Text processing with 1-based character indexing (s[1]..s[string_len(s)]) — reverse by prepend-scan, palindrome check via string equality, vowel counting by per-char test, single-character frequency tally",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -6639,7 +6639,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6665,7 +6665,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6691,7 +6691,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6717,7 +6717,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6743,7 +6743,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6769,7 +6769,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6795,7 +6795,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6821,7 +6821,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6847,7 +6847,7 @@
           "adjacency",
           "matrix"
         ],
-        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) \u2014 recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
+        "notes": "undirected graph as a flat n*n adjacency matrix (adj[u*n+v]) — recursive DFS reachable-node count from a source, connected-component count by scanning unvisited roots, undirected edge count; visited[] passed by reference",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-23",
@@ -6955,7 +6955,7 @@
           "formatting",
           "postcondition"
         ],
-        "notes": "end-to-end shape \u2014 pure classification, contract-guarded normalization, record construction from TOON rows, effectful report"
+        "notes": "end-to-end shape — pure classification, contract-guarded normalization, record construction from TOON rows, effectful report"
       }
     },
     {
@@ -8376,7 +8376,7 @@
     {
       "source_path": "/tmp/aether_examples_verify/06_env_inspector.aether",
       "repo_path": "training/corpus_candidates/06_env_inspector.aether",
-      "sha256": "bc7d68e58fe39c3fe242e51058ceab8cabb7e9dafc90146dddb866193d3953b3",
+      "sha256": "777794e19129717bbbfc23405db642918eaf1fd8bee7053c72d92e92cb11534a",
       "stdout": "=== Environment Inspector ===\nCurrent Dir: /private/tmp\nHOME: <home>\nUser: <user>\nArgument count: 0\n=== End ===\n",
       "metadata": {
         "canonical": true,
@@ -8425,7 +8425,7 @@
     {
       "source_path": "/tmp/aether_examples_verify/09_string_transformer.aether",
       "repo_path": "training/corpus_candidates/09_string_transformer.aether",
-      "sha256": "a59a8561e860e2698785a079b428b79e1f7bd08d9a5354d25093e5379f884a2a",
+      "sha256": "5a50ef13ae1ad57a2b68d7241b9ba5fec7a4a198710cdc0ff90c7f3797ee2462",
       "stdout": "Log Code Extraction:\nLine 0: A123\nLine 1: B99\nLine 2: C00\nLine 3: NONE\nLine 4: D01\n",
       "metadata": {
         "canonical": true,
@@ -8445,7 +8445,7 @@
     {
       "source_path": "/tmp/aether_examples_verify/10_http_stream.aether",
       "repo_path": "training/corpus_candidates/10_http_stream.aether",
-      "sha256": "e2197b4cfbfcc96f8866f5fc864323313a31be4a4679a6e47a4d9e3de19ef5bc",
+      "sha256": "45cc139a125f6dca5f1ed781d686fc8c71f7877b50e4abadbe4039418d4f86f8",
       "stdout": "Success! Response length: 305\nFirst 100 chars: {\n  \"args\": {}, \n  \"headers\": {\n    \"Accept\": \"*/*\", \n    \"Accept-Encoding\": \"deflate, gzip\", \n    \"\n",
       "metadata": {
         "canonical": true,
@@ -8529,7 +8529,7 @@
     {
       "source_path": "/tmp/aether_dozen_verify/aether_dozen_examples/03_look_and_say.aether",
       "repo_path": "training/corpus_candidates/03_look_and_say.aether",
-      "sha256": "2639d060e499e894f14240cdba711d60d921b9ab423b6d75311212339bc7a026",
+      "sha256": "783adb4d2c3817378d50ba175df0f9a26b6f5bb386314c36768d8f05c5b8ee1f",
       "stdout": "1: 1  length=1\n2: 11  length=2\n3: 21  length=2\n4: 1211  length=4\n5: 111221  length=6\n6: 312211  length=6\n7: 13112221  length=8\n8: 1113213211  length=10\n9: 31131211131221  length=14\n10: 13211311123113112211  length=20\n11: 11131221133112132113212221  length=26\n12: 3113112221232112111312211312113211  length=34\n",
       "metadata": {
         "canonical": true,
@@ -8669,7 +8669,7 @@
     {
       "source_path": "/tmp/aether_dozen_verify/aether_dozen_examples/12_rover_black_box.aether",
       "repo_path": "training/corpus_candidates/12_rover_black_box.aether",
-      "sha256": "bee6ea01425cb526e239129ccff56c58ff46274da06544b9922a886e59445889",
+      "sha256": "dcb09c4e10638f2c904e8a5bb651613e82e1b499f1a9498c2553b1628eed7581",
       "stdout": "mission = Asterion-4\nbattery = 21%\ntemperature = -47.5 C\ntilt = 18.2 degrees\nrisk = 9 -> abort and phone home\n",
       "metadata": {
         "canonical": true,
@@ -8714,7 +8714,7 @@
     {
       "source_path": "/tmp/aether_miner_examples/03_log_parser.aether",
       "repo_path": "training/corpus_candidates/03_log_parser.aether",
-      "sha256": "0c9b4eda8f029652fed03d9dfc944d456117131da549f854d273bb8df82ea3c6",
+      "sha256": "6b484b7cd5c3ac47bda6965ba52bf528fd772cb28f4bde95a337824c74c46e73",
       "stdout": "[INFO] worker started\n[WARN] queue depth 80%\n[ERROR] disk full\n[UNKNOWN] malformed line\nerror count = 1\n",
       "metadata": {
         "canonical": true,
@@ -8839,7 +8839,7 @@
     {
       "source_path": "/tmp/aether_miner_examples/12_host_awareness.aether",
       "repo_path": "training/corpus_candidates/12_host_awareness.aether",
-      "sha256": "47eb6516478883be669f3a8c545ed7c79c7871a90aa477c964c780f0d5b948a3",
+      "sha256": "15b44f23f2f1c4b9ff33de47233e481dd17ecdbb1f7cdcb64dc8d4df29bcd8f1",
       "stdout": "program: \nargs:    0\nHOME = <home> | WORKERS = 4\ncwd  = /private/tmp\n/etc/hosts is present\ncreated aether_out/\n",
       "metadata": {
         "canonical": true,
@@ -8901,7 +8901,7 @@
     {
       "source_path": "/tmp/aether_batch3_examples/07_word_frequency.aether",
       "repo_path": "training/corpus_candidates/07_word_frequency.aether",
-      "sha256": "3ffca0ca37dc4361430f32df4a64a678f72b2d7a6f6ff8ee4996aabd0636e207",
+      "sha256": "2949ac3b13c1baf0caf84b98fd2fadf33e37e7f6046c1b4f57737b64620b3ffa",
       "stdout": "Word frequency analysis:\nTotal words: 13\nUnique words: 9\n\nWord counts:\nthe: 3\nquick: 2\nbrown: 1\nfox: 2\njumps: 1\nover: 1\nlazy: 1\ndog: 1\nwas: 1\n",
       "metadata": {
         "canonical": true,
@@ -8951,7 +8951,7 @@
     {
       "source_path": "/tmp/aether_batch4_examples/01_caesar_cipher.aether",
       "repo_path": "training/corpus_candidates/01_caesar_cipher.aether",
-      "sha256": "f346e05d9db5b25a266af266a53189618c21e038377976206e48c1f36010ab09",
+      "sha256": "914c0dd77eaa188fa8f9f34fb45ab731753eb3479783e19c7b26027446285b05",
       "stdout": "Original:  Hello World\nEncrypted: Khoor Zruog\nDecrypted: Hello World\n",
       "metadata": {
         "canonical": true,
@@ -9066,7 +9066,7 @@
     {
       "source_path": "/tmp/aether_batch4_examples/09_linked_list.aether",
       "repo_path": "training/corpus_candidates/09_linked_list.aether",
-      "sha256": "5cf663837f1e2c52c5ac22ea50798983e01dbb3bdf1827d93902dd50b82df494",
+      "sha256": "9485185c7f8f6fcceb28463db396441f7e568f61791af1e6ef0ebb8382cb66c1",
       "stdout": "List: [1, 5, 10, 20, 30]\nLength: 5\n",
       "metadata": {
         "canonical": true,
@@ -9163,7 +9163,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/03_date_calculator.aether",
       "repo_path": "training/corpus_candidates/03_date_calculator.aether",
-      "sha256": "8db47b42c523cfd4dede36adea411c1b8ddcebffcf3c990d862d5caf5940beff",
+      "sha256": "9caa337265d4551d2b320755bbdeaa7a1cc9ff71cb0c19f0d35882fcba2d0e3a",
       "stdout": "Date: 2024-3-15\nDay of year: 75\n100 days later: 2024-6-23\nIs 2024 leap? true\n",
       "metadata": {
         "canonical": true,
@@ -9178,7 +9178,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/04_hash_map.aether",
       "repo_path": "training/corpus_candidates/04_hash_map.aether",
-      "sha256": "4e6be2ee558f9d58c44b1715a0eb8259527e550e88bbd25f5d4703cb75e97db7",
+      "sha256": "f0f2967db5d7e487b98ed8fa22a078f760cb635c7b9a087c3a8b7355f540c543",
       "stdout": "name: Alice\ncity: Wonderland\ncontains 'age'? true\ncontains 'email'? false\n",
       "metadata": {
         "canonical": true,
@@ -9198,7 +9198,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/05_binary_tree.aether",
       "repo_path": "training/corpus_candidates/05_binary_tree.aether",
-      "sha256": "07e48f7e4f5b4e7bfa0eb060d34417650213df10b8114918d9dfaac7f2c500bf",
+      "sha256": "9f1f0f1b41beb2c4f2584dcfafefed75eae471f9f7b0dae6eeadcc7541aea6a7",
       "stdout": "Inorder:   20 30 40 50 60 70 80 \nPreorder:  50 30 20 40 70 60 80 \nPostorder: 20 40 30 60 80 70 50 \n",
       "metadata": {
         "canonical": true,
@@ -9213,7 +9213,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/09_http_client.aether",
       "repo_path": "training/corpus_candidates/09_http_client.aether",
-      "sha256": "49184ff8af1a537901b54f19399c7235b341046530b9baf7e026f0b3a6229d2a",
+      "sha256": "f811ef77aaa84bd3edec67d8abc868b3ad83dc97c3e6ff89f8d8cc063bf4b15c",
       "stdout": "HTTP error: -6\n",
       "metadata": {
         "canonical": false,
@@ -9262,7 +9262,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/14_json_parser.aether",
       "repo_path": "training/corpus_candidates/14_json_parser.aether_37fe2aa06ef2",
-      "sha256": "eee63274bd0f747c522a5a2e27f426c67534ada34149d09b1283167cdb18f682",
+      "sha256": "9303cb85eb7f4b54a541d72598dfa2ae50438e154fa72f3f2e0a04def3bdd384",
       "stdout": "Parsed JSON kind: string\nParsed JSON value: Alice\n",
       "metadata": {
         "canonical": true,
@@ -9297,7 +9297,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/16_key_value_store.aether",
       "repo_path": "training/corpus_candidates/16_key_value_store.aether_1c267b2b4a2e",
-      "sha256": "1c267b2b4a2e2f739b028ce7eb720ba30935526b513be85d7f1c95ff6fceb5c2",
+      "sha256": "0adbdb9f1b291d5748936e93fbaa997b485c2ded4e32aa7dd66c8c25c7370138",
       "stdout": "Name: Alice\nAge: 30\n",
       "metadata": {
         "canonical": true,
@@ -9312,7 +9312,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/17_vigenere_cipher.aether",
       "repo_path": "training/corpus_candidates/17_vigenere_cipher.aether_fc1eaad3d705",
-      "sha256": "55e967040d87efc4970c4cc16eaf29cb2f852e9109ed996f558c780fd1ba7272",
+      "sha256": "6e142719eb2a25efcd64044951395ec9a5b27d7285916b4b737656894c68b22d",
       "stdout": "Original: hello\nEncrypted: zincs\nDecrypted: hello\n",
       "metadata": {
         "canonical": true,
@@ -9349,7 +9349,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/20_web_scraper.aether",
       "repo_path": "training/corpus_candidates/20_web_scraper.aether_27e2b770eecd",
-      "sha256": "913d31492b9412d2e2884ccf950dda919406924bb0ef7447a6c4c1154b3cc2ce",
+      "sha256": "3a67e876ea2e4d104796f727f3da7c434f3202b9740f5bbb6476cc6fe6c8c08c",
       "stdout": "Links found: https://iana.org/domains/example \n",
       "metadata": {
         "canonical": false,
@@ -9407,7 +9407,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/24_unit_tests.aether",
       "repo_path": "training/corpus_candidates/24_unit_tests.aether",
-      "sha256": "e20e8a1bb7255ba96cf645bb754fc7947939d598b32e95a52138db164af277e0",
+      "sha256": "c6fdbbadc917693b1052c5b27d7bc721e31235baf8a11386eb7d04892cfccee3",
       "stdout": "[PASS] 2 + 2 = 4\n[PASS] 5 > 3\n[PASS] Hello starts with H\nPassed: 3/3\n",
       "metadata": {
         "canonical": true,
@@ -9427,7 +9427,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/25_logger.aether",
       "repo_path": "training/corpus_candidates/25_logger.aether",
-      "sha256": "637970f808d4835128c08950278a534483ab041061159a4e6d183e4c7edf5b9f",
+      "sha256": "21efcf4c8a2e80312d96645bc0d1b7913ee5be25881703cb3d451a6e711e1c47",
       "stdout": "12:0:40 [INFO] Application started\n12:0:40 [WARN] Low memory detected\n",
       "metadata": {
         "canonical": false,
@@ -9640,7 +9640,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29a_gemini_2_5_flash_02_This_program_retrieves_an_envi.aether",
       "repo_path": "training/corpus_candidates/06-29a_gemini_2_5_flash_02_This_program_retrieves_an_envi.aether",
-      "sha256": "cc7fb50d77ea2254347c3efeaf1024dd77d7d9f01f9b823b0e5bf8593653ab89",
+      "sha256": "13cc97c5264938e5320f15cc72e737749a9e29d6e5642c843a44a800c7f559a1",
       "stdout": "Original (from env or default): \" No message provided by env \"\nTrimmed message: \"No message provided by env\" (Length: 26)\nFirst 5 chars: \"No me\"\nRemaining part: \"ssage provided by env\"\nConcatenated: \"No message provided by env\"\n",
       "metadata": {
         "canonical": false,
@@ -9735,7 +9735,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29a_gemini_3_1_pro_previ_04_Performs_run_length_encoding_o.aether",
       "repo_path": "training/corpus_candidates/06-29a_gemini_3_1_pro_previ_04_Performs_run_length_encoding_o.aether",
-      "sha256": "c395b6b1c46ac820cb36d22c180c6a14a4dc403ce7ff7ccb058b2fa51db279bc",
+      "sha256": "25aa10532c39aec246caaf0b3491e1e86e49d4cf69efa4a3d87a6abc90713c15",
       "stdout": "Original:   AAABBBCCDAA\nCompressed: A3B3C2D1A2\n",
       "metadata": {
         "canonical": false,
@@ -9815,7 +9815,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29a_glm_5_2_04_A_Collatz_conjecture_explorer_.aether",
       "repo_path": "training/corpus_candidates/06-29a_glm_5_2_04_A_Collatz_conjecture_explorer_.aether",
-      "sha256": "2921d3dd295a4f6c161e79989409da278824d738454e3ce4e3dc262456e0b41b",
+      "sha256": "c7cb16859150db671081db75f9f32b50fceb18cea289e759fd7bd3225edca9c8",
       "stdout": "Collatz sequence lengths for n = 1..30\n\n1: #\n2: ##\n3: ########\n4: ###\n5: ######\n6: #########\n7: #################\n8: ####\n9: ####################\n10: #######\n11: ###############\n12: ##########\n13: ##########\n14: ##################\n15: ##################\n16: #####\n17: #############\n18: #####################\n19: #####################\n20: ########\n21: ########\n22: ################\n23: ################\n24: ###########\n25: ########################\n26: ###########\n27: ################################################################################################################\n28: ###################\n29: ###################\n30: ###################\n\nLongest sequence: 112 steps\n",
       "metadata": {
         "canonical": false,
@@ -9890,7 +9890,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29a_glm_5_turbo_04_Splits_a_sentence_into_words_c.aether",
       "repo_path": "training/corpus_candidates/06-29a_glm_5_turbo_04_Splits_a_sentence_into_words_c.aether",
-      "sha256": "5bdb43533c6e0fe3dff916b81c916d80189c004dc3756f52eddbe439c4c944d6",
+      "sha256": "484e5411ccb92e788885b9be1c526baa4d7f4bd7ecb71356748e0dfc3146425d",
       "stdout": "Rank | Word       | Count\n-----|------------|------\n1    | the        | 4\n2    | cat        | 2\n3    | sat        | 1\n4    | on         | 1\n5    | mat        | 1\n6    | ate        | 1\n7    | rat        | 1\n",
       "metadata": {
         "canonical": false,
@@ -9935,7 +9935,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29b_gemini_2_5_flash_02_This_program_processes_a_comma.aether",
       "repo_path": "training/corpus_candidates/06-29b_gemini_2_5_flash_02_This_program_processes_a_comma.aether",
-      "sha256": "5dac41b3f191d1b3f44d696eb968937bccf19a037cd3a2390d3cac108929e9ce",
+      "sha256": "762b45fd9a0fb9f7e0cec9a638f2ad08c0b1779dc1c0570e570eef8f6f5148ef",
       "stdout": "Usage: aether myprogram.aer \" <some text>\"\nNo command-line argument provided.\n",
       "metadata": {
         "canonical": false,
@@ -9980,7 +9980,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29b_gemini_3_1_pro_previ_02_Splits_a_string_into_a_dynamic.aether",
       "repo_path": "training/corpus_candidates/06-29b_gemini_3_1_pro_previ_02_Splits_a_string_into_a_dynamic.aether",
-      "sha256": "732f341e98e62e87a9ee6baef6fc62a29c17e1acc13a80323f030496316a869c",
+      "sha256": "ae0c975d13417a783081e777fd9ddf0cd4011e843173f3560c4c9f93f857b1d9",
       "stdout": "+-----------+\n| Aether   |\n| is       |\n| a        |\n| compact  |\n| front    |\n| end      |\n+-----------+\n",
       "metadata": {
         "canonical": false,
@@ -10147,7 +10147,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29b_sched_m5_devstral_03_A_text_processing_utility_to_s.aether",
       "repo_path": "training/corpus_candidates/06-29b_sched_m5_devstral_03_A_text_processing_utility_to_s.aether",
-      "sha256": "805ea606a1fad3034c4b1411ea60e3ef0cdc93c99fe595d5772319c6f4694925",
+      "sha256": "2ce804c8335dcaca3e229ff3663bdb75ab0e5bfe32213775fdeafee6c556e76a",
       "stdout": "Sentence:Hello World from Aether\nWord 'Hello':0 vowels\nWord 'World':0 vowels\nWord 'from':0 vowels\nWord 'Aether':0 vowels\nTotal vowels:0\n",
       "metadata": {
         "canonical": false,
@@ -10197,7 +10197,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29b_sched_m5_qwen3_coder_00_A_sorting_program_that_sorts_a.aether",
       "repo_path": "training/corpus_candidates/06-29b_sched_m5_qwen3_coder_00_A_sorting_program_that_sorts_a.aether",
-      "sha256": "5de7f6ea45d30a74477413fc333af7a8b5358807a68669b519681673f190fa2e",
+      "sha256": "63330520e90d205b2d955c6c2e59d0e1b6b13065292dd7446d84a3dfecc0a9d6",
       "stdout": "Original: [64, 34, 25, 12, 22, 11, 90]\nSorted:   [11, 12, 22, 25, 34, 64, 90]\n",
       "metadata": {
         "canonical": false,
@@ -10212,7 +10212,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29b_sched_m5_qwen3_coder_01_A_TOON_based_JSON_parser_that_.aether",
       "repo_path": "training/corpus_candidates/06-29b_sched_m5_qwen3_coder_01_A_TOON_based_JSON_parser_that_.aether",
-      "sha256": "2cc7e4306b4459a431602dc53d7f9cf1bf1fe6cfff4da5fccc2a41387afb4d7c",
+      "sha256": "cb70acb72ecff9fd43d6d1e1ed5a8796045c863ea8979080b08f13008509ee0a",
       "stdout": "Laptop: Premium\nMouse: Budget\nKeyboard: Standard\n\nTotal products: 3\nExpensive (>50): 2\nCheap (<=50): 1\n",
       "metadata": {
         "canonical": false,
@@ -10347,7 +10347,7 @@
     {
       "source_path": "/tmp/aether_harvest/07-01a_glm_5_turbo_04_Simulates_compound_interest_gr.aether",
       "repo_path": "training/corpus_candidates/07-01a_glm_5_turbo_04_Simulates_compound_interest_gr.aether",
-      "sha256": "66c7a78e127be4826bccf6cffedf1887e13947c3dc82841e3de0ec185beb4525",
+      "sha256": "d60da2471ec3511c74a2d875147bfb3b047b51f3ce7504ca76c7ed92a629c361",
       "stdout": "Compound Growth: $1000.00 at 7.0%\n\n0 | ########## $1000.00\n1 | ########### $1070.00\n2 | ########### $1144.90\n3 | ############ $1225.04\n4 | ############# $1310.80\n5 | ############## $1402.55\n6 | ############### $1500.73\n7 | ################ $1605.78\n8 | ################# $1718.19\n9 | ################### $1838.46\n10 | #################### $1967.15\n11 | ##################### $2104.85\n12 | ####################### $2252.19\n13 | ######################## $2409.85\n14 | ########################## $2578.53\n15 | ############################ $2759.03\n16 | ############################## $2952.16\n17 | ################################ $3158.82\n18 | ################################## $3379.93\n19 | ##################################### $3616.53\n20 | ######################################## $3869.68\n",
       "metadata": {
         "canonical": false,
@@ -10527,7 +10527,7 @@
     {
       "source_path": "/tmp/aether_harvest/07-01b_sched_m5_devstral_03_A_text_processing_utility_that.aether",
       "repo_path": "training/corpus_candidates/07-01b_sched_m5_devstral_03_A_text_processing_utility_that.aether",
-      "sha256": "5d593142180fd8a70dc1329b0d6322f261a7f55c360f81d4745f7f6550d0e72e",
+      "sha256": "2e306d4c1f79a814ee4e2e474b9bb6b38f00b89817ae015d09fb56ab7be7b821",
       "stdout": "Analysis of 'Hello World from Aether!':\nLength: 24\nWords: 4\nUppercase letters: 3\nWord density: 16.67%\n",
       "metadata": {
         "canonical": false,
@@ -10638,7 +10638,7 @@
       "source_path": "/tmp/aether_harvest/07-01b_sched_ornith_08_unspecified.aether",
       "repo_path": "training/corpus_candidates/07-01b_sched_ornith_08_unspecified.aether",
       "sha256": "ab47c19e986e54c9609fd50341ec3229057bb657498497a6718d053dff043766",
-      "stdout": "Shuffled deck, first 8 cards:\n7 of \u2665\nJ of \u2660\n3 of \u2663\n4 of \u2660\n8 of \u2660\n10 of \u2660\n9 of \u2666\nJ of \u2665\n",
+      "stdout": "Shuffled deck, first 8 cards:\n7 of ♥\nJ of ♠\n3 of ♣\n4 of ♠\n8 of ♠\n10 of ♠\n9 of ♦\nJ of ♥\n",
       "metadata": {
         "canonical": false,
         "oracle": "none",
@@ -10746,7 +10746,7 @@
     {
       "source_path": "/tmp/aether_harvest/07-19a_gemini_2_5_flash_lit_04_This_program_demonstrates_effe.aether",
       "repo_path": "training/corpus_candidates/07-19a_gemini_2_5_flash_lit_04_This_program_demonstrates_effe.aether",
-      "sha256": "effc509723cedd820a4cf7b5e4db6381b417a4c0a86b778e9893196cced0a45c",
+      "sha256": "a1ffcfdf9d9438b305650340f045bb1ca4aae38e6a4a8600662bb75ddc8afb8a",
       "stdout": "Logged: INFO: System started\nLogged: WARN: High CPU usage detected\nLogged: ERROR: Disk full\nLog written to app_log.txt\n",
       "metadata": {
         "canonical": false,
@@ -11166,7 +11166,7 @@
     {
       "source_path": "/tmp/aether_batch7_examples/22_armstrong_number.aether",
       "repo_path": "training/corpus_candidates/22_armstrong_number.aether",
-      "sha256": "fc3b0ce78bd8fc0f9e44f6c95bf63733f2170d8a66287ceb91d0067697c59883",
+      "sha256": "afd6d044985b60e370795683600c37f4e4099144e652aabc647e4ee1804174c6",
       "stdout": "153 is armstrong: true\n",
       "metadata": {
         "canonical": true,
@@ -11221,7 +11221,7 @@
     {
       "source_path": "/tmp/aether_batch8_examples/25_kv_store_persistence.aether",
       "repo_path": "training/corpus_candidates/25_kv_store_persistence.aether",
-      "sha256": "3c204f73ca85483216bbe470267be024b2c796185164579cda525f4e44e2ea56",
+      "sha256": "15c94900ddc2e591c781a6de0a4e849a898b1014c24255df44771529dc96ffa9",
       "stdout": "Before save: role=superuser\nAfter load: role=superuser\nAfter load: timeout=300\n",
       "metadata": {
         "canonical": true,
@@ -11241,7 +11241,7 @@
     {
       "source_path": "/tmp/aether_batch8_examples/26_recursive_descent_parser.aether",
       "repo_path": "training/corpus_candidates/26_recursive_descent_parser.aether",
-      "sha256": "840eccd04d45b0ece904e526b46cd8dfc75f14ffe5695afc54992b818265b441",
+      "sha256": "2f7ffce49c2aedb0f2dca4c590bea738bf3848a97eb7b3fdb34ca95d3683008c",
       "stdout": "Result: 18\n",
       "metadata": {
         "canonical": true,
@@ -11291,7 +11291,7 @@
     {
       "source_path": "/tmp/aether_batch8_examples/30_dfa_simulator.aether",
       "repo_path": "training/corpus_candidates/30_dfa_simulator.aether",
-      "sha256": "458351984d1672dba321a897ac7eac457984b9fb563983d97faf01dadfea9ab2",
+      "sha256": "93a127cfd9fe62b5f440ddc0f8bcfa179525688e30bcea2817b0695e11449d74",
       "stdout": "Binary strings divisible by 3:\n0 -> true\n11 -> true\n110 -> true\n111 -> false\n1001 -> true\n10101 -> true\n",
       "metadata": {
         "canonical": true,
@@ -11526,7 +11526,7 @@
     {
       "source_path": "/tmp/aether_harvest_pass5/pass5c13_host-c_ornith_1_0_35b_04_A_simple_text_based_cipher_tha.aether",
       "repo_path": "training/corpus_candidates/pass5c13_host-c_ornith_1_0_35b_04_A_simple_text_based_cipher_tha.aether_b188d0baa5f4",
-      "sha256": "1e95775e6fa26c29dfd9f8c7802bb843bc08b95ef31404dc419dd8f77cfb091b",
+      "sha256": "be9925fddca6f6102fd30f536795cea0a83ad9212c177336b1cb5e495e4ecddc",
       "stdout": "Caesar Cipher Demonstration\n==========================\n\nOriginal:   Hello, World! 123\nShift:      7\nEncrypted:  Olssv, Dvysk! 123\nDecrypted:  Hello, World! 123\n\nRound-trip successful: decryption matches original!\n\nCharacter-by-character transformation:\n  H (72) -> O (79)\n  e (101) -> l (108)\n  l (108) -> s (115)\n  l (108) -> s (115)\n  o (111) -> v (118)\n  , (44) -> , (44)\n    (32) ->   (32)\n  W (87) -> D (68)\n  o (111) -> v (118)\n  r (114) -> y (121)\n  l (108) -> s (115)\n  d (100) -> k (107)\n  ! (33) -> ! (33)\n    (32) ->   (32)\n  1 (49) -> 1 (49)\n  2 (50) -> 2 (50)\n  3 (51) -> 3 (51)\n",
       "metadata": {
         "canonical": false,
@@ -11591,7 +11591,7 @@
     {
       "source_path": "/tmp/aether_harvest_pass5/pass5gem_gemini_2_5_flash_lit_04_This_program_demonstrates_Aeth.aether",
       "repo_path": "training/corpus_candidates/pass5gem_gemini_2_5_flash_lit_04_This_program_demonstrates_Aeth.aether_0b1fd8c19301",
-      "sha256": "0b1fd8c19301965d38ca68165013fdfd3abd878ec0f117c8a61817a4e6703fb7",
+      "sha256": "9d228faa2423b91822fa615b76c949be91151dd27156aa63f15a28222a26f238",
       "stdout": "Successfully wrote to my_log.txt\nReading from my_log.txt:\n  Log entry 1: System started.\n  Log entry 2: Processing data...\n  Log entry 3: System shutting down.\n",
       "metadata": {
         "canonical": false,
@@ -11936,7 +11936,7 @@
     {
       "source_path": "/tmp/aether_harvest_pass5/pass5m5t_host-d_qwen3_6_35b_a3b_02_Defines_a_mutable_Counter_type.aether",
       "repo_path": "training/corpus_candidates/pass5m5t_host-d_qwen3_6_35b_a3b_02_Defines_a_mutable_Counter_type.aether_3197170a474a",
-      "sha256": "85b4a4de504413266ebb21a20c5bee7d78746c67b56794b1020d8f76a5c09a22",
+      "sha256": "4969fc50d5f855e2d68f8c3ae900f6ddeba551302bab0e529178e46d25dcb56f",
       "stdout": "Char 1: A\nChar 2: e\nChar 3: t\nChar 4: h\nChar 5: e\nChar 6: r\nChar 7:  \nChar 8: i\nChar 9: s\nChar 10:  \nChar 11: g\nChar 12: r\nChar 13: e\nChar 14: a\nChar 15: t\nTotal chars: 15\nAfter reset: 0\n",
       "metadata": {
         "canonical": false,
@@ -12061,7 +12061,7 @@
     {
       "source_path": "/tmp/aether_batch9_combined.aether",
       "repo_path": "training/corpus_candidates/aether_batch9_combined.aether_0c7eb15ff89f",
-      "sha256": "8c0f626253264590d7fad66bcc562739cf50d26df633859dab7032efb4e1955d",
+      "sha256": "b4f891e98b80f7b024323ca5ad1842f2376dbd79d47e2377c5f2cd9712604d29",
       "stdout": "point manhattan = 7\npolar point = 7, 7\nscore = 0 -> blocked\nstats seen = 3\nstats mean = 39.58\nstats range = 7.25 .. 99.00\nbit grid count = 3\npair total = 252\nfib = 89 odd = true\neven square sum = 120\nset bits = 8\nclamped score ratio = 0.396\nfirst line pieces = alpha\n",
       "metadata": {
         "canonical": true,
@@ -12081,7 +12081,7 @@
     {
       "source_path": "/tmp/aether_batch10_combined.aether",
       "repo_path": "training/corpus_candidates/aether_batch10_combined.aether",
-      "sha256": "c4eb5f37028172fec7a9ca5a4aeb4bb0522cba1523e7fdb310c1cf65b2953ef5",
+      "sha256": "e4c035fa3fed722dd301efc299520c8d0ffabc6ed74ed524b06116b335e27b49",
       "stdout": "meter name = dataset\ncount = 5\navg = 41.20\nspan = 101.25\nband = bronze\nchosen = alpha / 12.50 / true\nhits = 5\nramp pick = 16\nparity = true\nflags total = 5\ncopy demo = eth\npos demo = 2\nstringofchar demo = *****\n",
       "metadata": {
         "canonical": true,
@@ -12245,7 +12245,7 @@
     {
       "source_path": "/tmp/aether_openai_harvest/openai_gpt_5_5_00_turtle_robot_interpreter.aether",
       "repo_path": "training/corpus_candidates/openai_gpt_5_5_00_turtle_robot_interpreter.aether",
-      "sha256": "14f0fe98af76a646d2a2257e3773efff4bf49dc84f0bd1184e00f35fec86b875",
+      "sha256": "1f4c0419494e2f1c4eaedc09d2ad8d52c49cf9430f263ae7356dbb0cf051b506",
       "stdout": "commands: FFRFFLFFRFFF\nfinal position: (5, 4) facing E\n",
       "metadata": {
         "canonical": false,
@@ -12656,7 +12656,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_somos4_laurent_phenomenon.aether",
       "repo_path": "training/corpus_candidates/claude_somos4_laurent_phenomenon.aether",
-      "sha256": "b56123f9157ef0fc82066cc2219f484255978b0f7d0c7f5b4c986d3f8d328770",
+      "sha256": "419018a8c6691872ba3cd29adabcd1e9432a90635413e0181f95f0c8c80e3415",
       "stdout": "Somos-4 sequence trace\nn=1..4: 1, 1, 1, 1 (seeds)\nn=5: -> 2\nn=6: -> 3\nn=7: -> 7\nn=8: -> 23\nn=9: -> 59\nn=10: -> 314\nn=11: -> 1529\nn=12: -> 8209\nn=13: -> 83313\n\nEvery division above came out exact -- the Laurent phenomenon holds.\n",
       "metadata": {
         "include_in_training": true,
@@ -12792,7 +12792,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_soundex_hw_ambiguity.aether",
       "repo_path": "training/corpus_candidates/claude_soundex_hw_ambiguity.aether",
-      "sha256": "4ce517d361c1a3644608ead8b11eedc9dd1d5acf63ddc99d8b64aab44600797d",
+      "sha256": "ba27a937fe0934c0a25e7dcc8b5ccc771233bf1b1e9ce703978634e732fec36b",
       "stdout": "Soundex, transparent-H/W vs. H/W-as-separator conventions:\nRobert   -> R163 / R163\nRupert   -> R163 / R163\nAshcraft -> A261 / A226\nTymczak  -> T522 / T522\n",
       "metadata": {
         "include_in_training": true,
@@ -12818,7 +12818,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_word_ladder_bfs.aether",
       "repo_path": "training/corpus_candidates/claude_word_ladder_bfs.aether",
-      "sha256": "0818966c30bc4ff23d7eac258936988338ac164d347df59e6260b707d84d3df9",
+      "sha256": "4856dd149596ce16beee613fb14f7c1c82716200db62f0bcd46979fa1ca3ba64",
       "stdout": "Shortest ladder (length 5): hit -> hot -> dot -> dog -> cog\n",
       "metadata": {
         "include_in_training": true,
@@ -12845,7 +12845,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_semordnilaps.aether",
       "repo_path": "training/corpus_candidates/claude_semordnilaps.aether",
-      "sha256": "2708b1a593b179544b6e1042583595962681a7f1d7a26cc82d982ab6556b2d25",
+      "sha256": "8b5f5636a6acc8c4335f37544279ce30f3d37edcd3a814a3033de4cf630b82c3",
       "stdout": "Semordnilaps found:\nstressed <-> desserts\ndrawer <-> reward\ndiaper <-> repaid\ndog <-> god\nstraw <-> warts\nlager <-> regal\nbard <-> drab\n",
       "metadata": {
         "include_in_training": true,
@@ -12892,7 +12892,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_minimum_pangram_set_cover.aether",
       "repo_path": "training/corpus_candidates/claude_minimum_pangram_set_cover.aether",
-      "sha256": "e555c25f1a0f6854f0dc6a458d454ace43f8d4762f4fc1dc86da1f8653fcb8a2",
+      "sha256": "8608cab862fbcf65485b9148ac855e3b4203188d08830ec3f4f63c18a19ba09c",
       "stdout": "Minimum pangram-covering subset of {the, quick, brown, fox, jumps, over, lazy, dog}:\nthe quick brown fox jumps over lazy dog \nWords used: 8 out of 8\n",
       "metadata": {
         "include_in_training": true,
@@ -12920,7 +12920,7 @@
       "source_path": "/tmp/aether_harvest/claude_iching_fuxi_binary.aether",
       "repo_path": "training/corpus_candidates/claude_iching_fuxi_binary.aether",
       "sha256": "c63a5b114d1bce97e59e8c8cdc8f17178cf59b2bbfdb8bbaebb17d4c4944db66",
-      "stdout": "I Ching hexagrams in Fuxi binary order:\n(bottom line = least significant bit)\n\nHexagram 0  (000000):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n\nHexagram 1  (000001):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n\nHexagram 2  (000010):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n\nHexagram 3  (000011):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n\nHexagram 4  (000100):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n    \u2501 \u2501\n\nHexagram 5  (000101):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n\nHexagram 6  (000110):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n\nHexagram 7  (000111):\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n\n...\nHexagram 60 (111100):\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n    \u2501 \u2501\n\nHexagram 61 (111101):\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n    \u2501\u2501\u2501\n\nHexagram 62 (111110):\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501 \u2501\n\nHexagram 63 (111111):\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n    \u2501\u2501\u2501\n\nAll 64 hexagrams form a complete 6-bit binary system.\nFuxi order == binary 0-63. Leibniz 1703, after seeing\nthe diagrams, wrote 'Explication de l'Arithmetique\nBinaire' citing the I Ching as independent discovery.\n",
+      "stdout": "I Ching hexagrams in Fuxi binary order:\n(bottom line = least significant bit)\n\nHexagram 0  (000000):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n\nHexagram 1  (000001):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n\nHexagram 2  (000010):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n    ━ ━\n\nHexagram 3  (000011):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n    ━━━\n\nHexagram 4  (000100):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n    ━ ━\n    ━ ━\n\nHexagram 5  (000101):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n    ━ ━\n    ━━━\n\nHexagram 6  (000110):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n    ━━━\n    ━ ━\n\nHexagram 7  (000111):\n    ━ ━\n    ━ ━\n    ━ ━\n    ━━━\n    ━━━\n    ━━━\n\n...\nHexagram 60 (111100):\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n    ━ ━\n    ━ ━\n\nHexagram 61 (111101):\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n    ━ ━\n    ━━━\n\nHexagram 62 (111110):\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n    ━ ━\n\nHexagram 63 (111111):\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n    ━━━\n\nAll 64 hexagrams form a complete 6-bit binary system.\nFuxi order == binary 0-63. Leibniz 1703, after seeing\nthe diagrams, wrote 'Explication de l'Arithmetique\nBinaire' citing the I Ching as independent discovery.\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
@@ -12938,8 +12938,8 @@
     {
       "source_path": "/tmp/aether_harvest/claude_hangul_syllable_composition.aether",
       "repo_path": "training/corpus_candidates/claude_hangul_syllable_composition.aether",
-      "sha256": "0032ab8401ff7e6093b1c8fbb90f960ed7d2b99b806e52261b38851dd2952f3e",
-      "stdout": "Hangul syllable composition:\njamo      -> syllable (Unicode codepoint)\n----------------------------------------\n\u314e\u314f\u3134  ->  U+D55C  \ud55c\n\u3131\u3161\u3139  ->  U+AE00  \uae00\n\u3145\u314f\u3134  ->  U+C0B0  \uc0b0\n\u3141\u315c\u3134  ->  U+BB38  \ubb38\n\u3137\u3157  ->  U+B3C4  \ub3c4\n\u3142\u3153\u3142  ->  U+BC95  \ubc95\n\u3148\u314f\u3147  ->  U+C7A5  \uc7a5\n\u314b\u3163\u3141  ->  U+D0B4  \ud0b4\n\u3134\u314f\u3139  ->  U+B0A0  \ub0a0\n\u3131\u315c\u3131  ->  U+AD6D  \uad6d\n",
+      "sha256": "0b4b3bf64c3a7570756a98a4c546dd624e0c2fc8751b93a82342825db237ca59",
+      "stdout": "Hangul syllable composition:\njamo      -> syllable (Unicode codepoint)\n----------------------------------------\nㅎㅏㄴ  ->  U+D55C  한\nㄱㅡㄹ  ->  U+AE00  글\nㅅㅏㄴ  ->  U+C0B0  산\nㅁㅜㄴ  ->  U+BB38  문\nㄷㅗ  ->  U+B3C4  도\nㅂㅓㅂ  ->  U+BC95  법\nㅈㅏㅇ  ->  U+C7A5  장\nㅋㅣㅁ  ->  U+D0B4  킴\nㄴㅏㄹ  ->  U+B0A0  날\nㄱㅜㄱ  ->  U+AD6D  국\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
@@ -12950,7 +12950,7 @@
           "unicode",
           "arithmetic_formula"
         ],
-        "notes": "Hangul syllable composition via the real Unicode formula (BASE + cho*588 + jung*28 + jong); rendering uses a literal glyph lookup keyed by the computed codepoint rather than codepoint synthesis, since chr()/ord() only cover byte range 0-255 in Aether -- caught and fixed two real bugs in the source material: an extra invalid jongseong table entry (\u3138 cannot be a syllable-final) that shifted several indices, and a wrong final consonant for \ubc95 (should be \u3142, not \u3139); all 10 codepoints verified against Python ord()",
+        "notes": "Hangul syllable composition via the real Unicode formula (BASE + cho*588 + jung*28 + jong); rendering uses a literal glyph lookup keyed by the computed codepoint rather than codepoint synthesis, since chr()/ord() only cover byte range 0-255 in Aether -- caught and fixed two real bugs in the source material: an extra invalid jongseong table entry (ㄸ cannot be a syllable-final) that shifted several indices, and a wrong final consonant for 법 (should be ㅂ, not ㄹ); all 10 codepoints verified against Python ord()",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",
@@ -12963,7 +12963,7 @@
       "source_path": "/tmp/aether_harvest/claude_kangxi_radical_grouping.aether",
       "repo_path": "training/corpus_candidates/claude_kangxi_radical_grouping.aether",
       "sha256": "84d170683c79be28a3b199b4c660e799d0ffdfff3db7e8f901e11dc92378951d",
-      "stdout": "Kangxi radical groupings:\n\nRadical 86 \u706b  (fire):\n\u706b, \u70e7, \u706f, \u707e\n\nRadical 30 \u53e3  (mouth):\n\u5403, \u559d, \u53eb, \u5531\n\nRadical 85 \u6c34  (water):\n\u6c34, \u6c5f, \u6cb3, \u6d77\n\nRadical 75 \u6728  (tree/wood):\n\u6728, \u6797, \u68ee, \u6865\n\nRadical 61 \u5fc3  (heart/mind):\n\u5fc3, \u60f3, \u601d, \u5ff5\n\nRadical 167 \u91d1  (metal/gold):\n\u91d1, \u94c1, \u94dc, \u94f6\n\n",
+      "stdout": "Kangxi radical groupings:\n\nRadical 86 火  (fire):\n火, 烧, 灯, 灾\n\nRadical 30 口  (mouth):\n吃, 喝, 叫, 唱\n\nRadical 85 水  (water):\n水, 江, 河, 海\n\nRadical 75 木  (tree/wood):\n木, 林, 森, 桥\n\nRadical 61 心  (heart/mind):\n心, 想, 思, 念\n\nRadical 167 金  (metal/gold):\n金, 铁, 铜, 银\n\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
@@ -12981,8 +12981,8 @@
     {
       "source_path": "/tmp/aether_harvest/claude_braille_pattern_encoding.aether",
       "repo_path": "training/corpus_candidates/claude_braille_pattern_encoding.aether",
-      "sha256": "abe250ea3931a8d6c5a5981a0ac34df57cd9eda06a1d9f3de611281a7d791266",
-      "stdout": "Text to Braille pictograph encoding:\n\nPlain:     a e t h e r   p i c t o g r a p h \nBraille:   \u2801 \u2811 \u281e \u2813 \u2811 \u2817 \u2800 \u280f \u280a \u2809 \u281e \u2815 \u281b \u2817 \u2801 \u280f \u2813 \nPatterns:  01 11 1E 13 11 17 00 0F 0A 09 1E 15 1B 17 01 0F 13 \n\nDecoding back:\nDecoded: aether pictograph\n",
+      "sha256": "62ac4642b2769cc9d5c1fb6adcf3f8e3cf75c7348de9705c6236bb3afaaf2d33",
+      "stdout": "Text to Braille pictograph encoding:\n\nPlain:     a e t h e r   p i c t o g r a p h \nBraille:   ⠁ ⠑ ⠞ ⠓ ⠑ ⠗ ⠀ ⠏ ⠊ ⠉ ⠞ ⠕ ⠛ ⠗ ⠁ ⠏ ⠓ \nPatterns:  01 11 1E 13 11 17 00 0F 0A 09 1E 15 1B 17 01 0F 13 \n\nDecoding back:\nDecoded: aether pictograph\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
@@ -13005,7 +13005,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_roman_numeral_conversion.aether",
       "repo_path": "training/corpus_candidates/claude_roman_numeral_conversion.aether",
-      "sha256": "187fbd061f1dd5eb48d05ea9beef0c6d0a8f8595f977009a02cdbbe2022794ec",
+      "sha256": "54ae8e8e5081adf5b8926c202405e04224f34531f1d1e059e835aa5a3e21f919",
       "stdout": "Decimal -> Roman -> Decimal (round-trip verification):\n dec   roman          back   match\n----------------------------------------\n   1  I                1  OK\n   4  IV               4  OK\n   9  IX               9  OK\n  14  XIV             14  OK\n  19  XIX             19  OK\n  49  XLIX            49  OK\n  99  XCIX            99  OK\n 499  CDXCIX         499  OK\n 999  CMXCIX         999  OK\n1499  MCDXCIX       1499  OK\n2026  MMXXVI        2026  OK\n3999  MMMCMXCIX     3999  OK\n",
       "metadata": {
         "include_in_training": false,
@@ -13029,7 +13029,7 @@
     {
       "source_path": "/tmp/corpus_new/47_baconian_cipher.aether",
       "repo_path": "training/corpus_candidates/47_baconian_cipher.aether",
-      "sha256": "2ea34cdae35b0cf6b14b4a8b884bee965f124892013319d4cae8fe5351eac7c0",
+      "sha256": "bc71104859d12d8729fc9bd9df140dee1cf3b91664bece86a9e8396550e54ece",
       "stdout": "Baconian Biliteral Cipher (1605):\nPlaintext:  BACON\nBacon bits: aaaab aaaaa aaaba abbba abbab\nDecoded:    BACON\n\nFull alphabet mapping:\n  A -> aaaaa\n  B -> aaaab\n  C -> aaaba\n  D -> aaabb\n  E -> aabaa\n  F -> aabab\n  G -> aabba\n  H -> aabbb\n  I -> abaaa\n  J -> abaab\n  K -> ababa\n  L -> ababb\n  M -> abbaa\n  N -> abbab\n  O -> abbba\n  P -> abbbb\n  Q -> baaaa\n  R -> baaab\n  S -> baaba\n  T -> baabb\n  U -> babaa\n  V -> babab\n  W -> babba\n  X -> babbb\n  Y -> bbaaa\n  Z -> bbaab\nRoundtrip verified for all 26 letters.\n",
       "metadata": {
         "include_in_training": false,
@@ -13045,7 +13045,7 @@
     {
       "source_path": "/tmp/corpus_new2/48_caesar_cipher_v2.aether",
       "repo_path": "training/corpus_candidates/48_caesar_cipher_v2.aether",
-      "sha256": "2176fc79733ed7fa752e479f7fbbce607d0b3b8bbd07a706d770daecf7c6f624",
+      "sha256": "d21b06db315d20263459c73f6da0b5c52a8f579f16aed4bac95238b89922d189",
       "stdout": "Original: Hello World\nEncrypted: Khoor Zruog\nDecrypted: Hello World\n",
       "metadata": {
         "include_in_training": false,
@@ -13061,7 +13061,7 @@
     {
       "source_path": "/tmp/corpus_new2/49_vigenere_cipher_v2.aether",
       "repo_path": "training/corpus_candidates/49_vigenere_cipher_v2.aether",
-      "sha256": "507a3496e1da54aefd4b0986d22e0a248a40c984bc9001536d69e286461db0b3",
+      "sha256": "88699809dc5b3b8ebf4a6da32b888c8cbd0d270ac569fd9a182cedd5a7f614ee",
       "stdout": "Original: Attack at dawn\nEncrypted: Lxfopv ef rnhr\nDecrypted: Attack at dawn\n",
       "metadata": {
         "include_in_training": false,
@@ -13077,7 +13077,7 @@
     {
       "source_path": "/tmp/corpus_new2/50_substitution_cipher.aether",
       "repo_path": "training/corpus_candidates/50_substitution_cipher.aether",
-      "sha256": "df8877db80913998b324277b94dd4131e98194400c74d79c82be95228faa74f6",
+      "sha256": "9f3e025d756eb375f5e7cf0de4609833618bfce8f806636bb6454bea330e25ad",
       "stdout": "Original: Hello World\nEncrypted: Itssg Vgksr\nDecrypted: Hello World\n",
       "metadata": {
         "include_in_training": false,
@@ -13093,7 +13093,7 @@
     {
       "source_path": "/tmp/corpus_new2/51_rail_fence_cipher.aether",
       "repo_path": "training/corpus_candidates/51_rail_fence_cipher.aether",
-      "sha256": "6201c264ddfea6d7a316b8cd35cb13ef2a51e8bba0ea8a262036a5806fbbc040",
+      "sha256": "3aa18a4ef12bd82df26f1e12f3b89719f0a6a05b21c791688e18983b4376307a",
       "stdout": "Original: HELLO WORLD\nEncrypted: HOREL OLLWD\nDecrypted: HELLO WORLD\n",
       "metadata": {
         "include_in_training": false,
@@ -13109,7 +13109,7 @@
     {
       "source_path": "/tmp/corpus_new2/52_xor_cipher.aether",
       "repo_path": "training/corpus_candidates/52_xor_cipher.aether",
-      "sha256": "91e87b77bf00d146e4b422b2dccc9f73895eba76611968e2698d98c8def4e25a",
+      "sha256": "9d43275b9308be90ba1a32bda9eaac030e4016f419a6f653e66ebdf528857260",
       "stdout": "Original: Secret Message\nEncrypted (first byte, decimal): 24\nDecrypted: Secret Message\n",
       "metadata": {
         "include_in_training": false,
@@ -13159,7 +13159,7 @@
       "source_path": "/tmp/corpus_new3/56_french_republican_calendar.aether",
       "repo_path": "training/corpus_candidates/56_french_republican_calendar.aether",
       "sha256": "ffee3786936a5c9a17d908242dae143b963406822d5115bcd7e4515aeffe285f",
-      "stdout": "1 Jan 2024 -> Republican Year 233, Vend\u00e9miaire 1 (Primidi)\nYear 233 is leap: false\n",
+      "stdout": "1 Jan 2024 -> Republican Year 233, Vendémiaire 1 (Primidi)\nYear 233 is leap: false\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
@@ -13218,7 +13218,7 @@
     {
       "source_path": "/tmp/corpus_new5/61_bounded_pcp_search.aether",
       "repo_path": "training/corpus_candidates/61_bounded_pcp_search.aether",
-      "sha256": "607e629d33a915791b89564047f67a90223bbcf1d61f50079e4e6ff3a2a92a43",
+      "sha256": "c075a066416b8ecbb87235b499c7ee6617dd44fdf19256407a324e4ef21248d0",
       "stdout": "=== Bounded PCP Search ===\nDominoes (top/bottom):\n  1: a / baa\n  2: ab / aa\n  3: bba / bb\nDepth bound: 6\n\nDepth 1: 1 live state(s)\nDepth 2: 1 live state(s)\nDepth 3: 2 live state(s)\n\nSOLUTION found at depth 4:\n  sequence: 3 2 3 1 \n  top:    bbaabbbaa\n  bottom: bbaabbbaa\n  independently verified: true\n",
       "metadata": {
         "include_in_training": false,
@@ -13245,7 +13245,7 @@
     {
       "source_path": "/tmp/corpus_new5/63_combinatorial_double_auction.aether",
       "repo_path": "training/corpus_candidates/63_combinatorial_double_auction.aether",
-      "sha256": "f81758336d8dac2c02e216524011e84ac46a6622a760c9e7bfaf91e24441b2c8",
+      "sha256": "de20e7ab208df7942d10be8f64f3620dc280ccf15eb6e7029d7fdc330e7a358d",
       "stdout": "=== Combinatorial Double Auction ===\nSeller S0: inventory [CPU:4 RAM:8 GPU:1], reserve 50\nSeller S1: inventory [CPU:2 RAM:4 GPU:2], reserve 60\nSeller S2: inventory [CPU:8 RAM:8 GPU:0], reserve 40\nBuyer  B0: wants [CPU:2 RAM:4 GPU:1], values it at 90\nBuyer  B1: wants [CPU:4 RAM:8 GPU:0], values it at 80\nBuyer  B2: wants [CPU:2 RAM:4 GPU:2], values it at 65\nBuyer  B3: wants [CPU:2 RAM:8 GPU:0], values it at 70\n\nFeasible pairs (sorted by surplus): 7\n  B0 x S0  surplus 40\n  B1 x S2  surplus 40\n  B0 x S1  surplus 30\n  B1 x S0  surplus 30\n  B3 x S2  surplus 30\n  B3 x S0  surplus 20\n  B2 x S1  surplus 5\n\nTRADE B0 x S0: [CPU:2 RAM:4 GPU:1] cleared at midpoint price 70 (surplus 40)\nTRADE B1 x S2: [CPU:4 RAM:8 GPU:0] cleared at midpoint price 60 (surplus 40)\nTRADE B3 x S2: FAILED on RAM (inventory drained by earlier trade) -- ROLLED BACK\nTRADE B3 x S0: FAILED on RAM (inventory drained by earlier trade) -- ROLLED BACK\nTRADE B2 x S1: [CPU:2 RAM:4 GPU:2] cleared at midpoint price 62 (surplus 5)\n\nExecuted trades: 3   rollbacks: 2\nTotal surplus: 85\nRemaining inventories:\n  S0: [CPU:2 RAM:4 GPU:0]\n  S1: [CPU:0 RAM:0 GPU:0]\n  S2: [CPU:4 RAM:0 GPU:0]\n  B3 left unmatched\n",
       "metadata": {
         "include_in_training": false,
@@ -13256,7 +13256,7 @@
     {
       "source_path": "/tmp/corpus_new6/64_cyk_ambiguous_parser.aether",
       "repo_path": "training/corpus_candidates/64_cyk_ambiguous_parser.aether",
-      "sha256": "56aea57a76f141bc44fdf53aeeaa64bb51173c42c8b5fdc7bbe0a94f4932e84e",
+      "sha256": "8ddf981e3e65558d77f185099632fec599b2962aa158e52e22405dbc335db8e8",
       "stdout": "CYK word: baaba\nAccepted by the grammar: true\nDistinct S-rooted parse trees: 2\n",
       "metadata": {
         "include_in_training": false,
@@ -13315,7 +13315,7 @@
     {
       "source_path": "/tmp/corpus_new6/68_dfa_partition_refinement.aether",
       "repo_path": "training/corpus_candidates/68_dfa_partition_refinement.aether",
-      "sha256": "9cf2a83277ccd399a40d025f014cf3104bc0553de03335c0d768f0818fb3c27d",
+      "sha256": "e8cd65e11012dde23d5921f4d1beb1e24069df934f0a0844dd8db43aa6616a41",
       "stdout": "Original state count: 6\nMinimal state count: 3\noriginal state 0 -> class 0\noriginal state 1 -> class 1\noriginal state 2 -> class 2\noriginal state 3 -> class 0\noriginal state 4 -> class 1\noriginal state 5 -> class 2\nMinimized transition table:\nclass 0: 0 -> 0, 1 -> 1, accepting = true\nclass 1: 0 -> 2, 1 -> 0, accepting = false\nclass 2: 0 -> 1, 1 -> 2, accepting = false\nSample bits 110110 finish in class 0, accepted = true\n",
       "metadata": {
         "include_in_training": false,
@@ -13437,7 +13437,7 @@
     {
       "source_path": "/tmp/corpus_slices/78_rotate_via_slices.aether",
       "repo_path": "training/corpus_candidates/78_rotate_via_slices.aether",
-      "sha256": "77f26d0825bd9c48ef819f786fb855a3accda187150a74ed261566273dfdafc8",
+      "sha256": "d3088d1d5d1ab894e438e5abebf21003f384ffcb30e9464a8dc56a59f8aea425",
       "stdout": "original      [10 20 30 40 50 60 70]\nrotateLeft 1  [20 30 40 50 60 70 10]\nrotateLeft 2  [30 40 50 60 70 10 20]\nrotateLeft 3  [40 50 60 70 10 20 30]\nfull circle   [10 20 30 40 50 60 70]\nsource intact = true\nk=n restores  = true\nk=n+2 == k=2  = true\n",
       "metadata": {
         "include_in_training": false,

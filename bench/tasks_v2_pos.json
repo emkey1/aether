@@ -371,7 +371,7 @@
    "prompt": "Write an Aether program that builds an in-memory stream from the text `telemetry frame 7` using the memory-stream builtins, reads the stream's buffer back into a `Text` value, and prints exactly `body = telemetry frame 7` on one line and `len = 17` (the buffer's character count) on the next. Release the stream when done.",
    "expected_stdout": "body = telemetry frame 7\nlen = 17\n",
    "achievability": "model-verified",
-   "reference_solution": "fn main() -> Void {\n    let ms: MStream = mstreamfromstring(\"telemetry frame 7\");\n    let body: Text = mstreambuffer(ms);\n    fx {\n        println(\"body = \", body);\n        println(\"len = \", string_len(body));\n    }\n    mstreamfree(ms);\n    ret;\n}\n"
+   "reference_solution": "fn main() -> Void {\n    let ms: MStream = mstream_from_text(\"telemetry frame 7\");\n    let body: Text = mstream_text(ms);\n    fx {\n        println(\"body = \", body);\n        println(\"len = \", string_len(body));\n    }\n    mstream_free(ms);\n    ret;\n}\n"
   },
   {
    "id": "tuple_recursive_digits",

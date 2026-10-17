@@ -14,7 +14,7 @@ fn barOf(len: Int) -> Text {
     if len <= 0 {
         ret "";
     }
-    ret stringofchar("#", len);
+    ret repeat("#", len);
 }
 
 fn main() -> Void {

@@ -8,8 +8,8 @@
 fn appendText(ms: MStream, text: Text) -> Void {
     let n: Int = length(text);
     loop i in 0..n {
-        let ch: Text = copy(text, i, 1);
-        mstreamappendbyte(ms, ord(ch));
+        let ch: Text = text[i..i + 1];
+        mstream_append_byte(ms, ord(ch));
     }
     ret;
 }
@@ -17,7 +17,7 @@ fn appendText(ms: MStream, text: Text) -> Void {
 fn main() -> Void {
     let terms: Int = 13;
     let a: Int[] = [1, 1, 1, 1];
-    let log: MStream = mstreamcreate();
+    let log: MStream = mstream_new();
 
     appendText(log, "Somos-4 sequence trace\n");
     appendText(log, "n=1..4: 1, 1, 1, 1 (seeds)\n");
@@ -42,13 +42,13 @@ fn main() -> Void {
         n = n + 1;
     }
 
-    let report: Text = mstreambuffer(log);
+    let report: Text = mstream_text(log);
     fx {
         print(report);
         println("");
         println("Every division above came out exact -- the Laurent phenomenon holds.");
     }
 
-    mstreamfree(log);
+    mstream_free(log);
     ret;
 }

@@ -7,24 +7,19 @@ fn main() -> Void {
     let log_entries: Text[] = ["INFO", "WARN", "ERROR"];
     let messages: Text[] = ["System started", "High CPU usage detected", "Disk full"];
     let file_path: Text = "app_log.txt";
-    let f: File;
 
     fx {
-        // Open file for writing
-        assign(f, file_path);
-        rewrite(f);
+        // Start the file empty
+        write_file(file_path, "");
 
         // Loop through log entries and messages, format, and write to file
         loop i in 0..length(log_entries) {
             let level: Text = log_entries[i];
             let msg: Text = messages[i];
             let formatted_msg: Text = format_log_message(level, msg);
-            writeln(f, formatted_msg);
+            append_file(file_path, formatted_msg + "\n");
             println("Logged: ", formatted_msg); // Also print to console
         }
-
-        // Close the file
-        close(f);
 
         println("Log written to ", file_path);
     }

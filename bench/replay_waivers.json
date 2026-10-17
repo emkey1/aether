@@ -250,6 +250,221 @@
           "evidence": "2026-10-06-1: ARR-003 from the nested-continue defect; L0 and later: runs, prints a wrong grid (own range or print-order or transcription error), identical on every later build."
         }
       ]
+    },
+    "2026-10-17-3": {
+      "reason": "The Pascal-era forms are removed (D55, CHANGELOG 2026-10-17-3): `copy`, `pos`, `val`, `itoa`/`inttostr`, the File sequence (`assign`, ...), the unprefixed `mstream*` names and the rest are SCOPE-001 naming the modern form. An archived program that called one now stops with that coded error instead of running; one waiver class, declared in the proposal (docs/proposals/2026-10-17-modern-surface.md).",
+      "entries": [
+        {
+          "task_id": "cs_sieve_primes",
+          "source_sha256": "071b92d8363554ef3fd7883617715a9bc1aa2e79cbe3028b766273c609f4b497",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_lcs",
+          "source_sha256": "2fb078a0b2e10fd2ca2fde2eb5a45eb0bc4d319fbb49c50f5376174417fbed69",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `copy(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_fibonacci",
+          "source_sha256": "106dd449807dda5e268553f617e2186c19d77afe6286f4cfbc851407df32cd1b",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_sieve_primes",
+          "source_sha256": "c74bdd7a3c463da3c30fd42c86e21fc5fb31ab48e7e781252c1cdec6a27b321e",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_hanoi",
+          "source_sha256": "655dea8b9edadddd26f5d416fe1ecb29c3f61eb461106751b13543c88b93d514",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_bubble_sort",
+          "source_sha256": "894d5271406bd6bc089ee55b510ea6e7866ad98a71d5eae6bf14ac46199a7fdd",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_lcs",
+          "source_sha256": "bbd0d7fa139c4bf3b35de210627cb40335e3d60379a55cefd892a0091a438032",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `copy(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_merge_sort",
+          "source_sha256": "8d73835ecc614c3bd21a3e5101d40b65883ab3f5a52f5a282467f5e5a283f981",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_quick_sort",
+          "source_sha256": "37eb3c66d1becbd0a483a0149c60a3307d0418ee9cdd952ef699d9562901dc11",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_bfs",
+          "source_sha256": "616df394f760d10eff7d3217494690b06892c77fbabae78f5d8205640e9d817f",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "eligibility_bool_logic",
+          "source_sha256": "987d1ce0a65ba587df0dfcffb873cbe7b86c21b1fb5ea32b3df2a2f69bd01373",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_simple.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_sieve_primes",
+          "source_sha256": "b8aa1525af0b5065f3f66b69c42f38f4e901b7d21ae7d2364dea5308b644eca1",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_lcs",
+          "source_sha256": "c672fb5bc49a501561625a0183bb5a8a5964e919b630614238556ddfee8dace9",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `copy(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_bfs",
+          "source_sha256": "7a6840d014b7fc856184ce0fafc346af79fec6b1c4fe521d2404bcbd23732277",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_fibonacci",
+          "source_sha256": "73132cf3705217120ee3b14f781fe4c1dcd28793d721b3787b5aa881a4947d68",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_sieve_primes",
+          "source_sha256": "a1412aa014601982244426935bbf4c8585df0f3e433914792afc709026e2d942",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_bubble_sort",
+          "source_sha256": "a7ff514c0d06e6c55fb192334cd23bbe18d1285361e3690156a75b2c21b54f72",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json repair attempt 2: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_lcs",
+          "source_sha256": "908e20c15b8d01a258b7d0cf471a6feec93877f3c20862af918394d4508429ef",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `copy(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_merge_sort",
+          "source_sha256": "160afdea4d452f5b6404dcefb3b401a5ab0cff4cafdd6026ea765209fdb3c05a",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_quick_sort",
+          "source_sha256": "42d65bae3dfc3887891851fc90aab73eec443e93a417cf0af5387ef7816107c3",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat1.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_bfs",
+          "source_sha256": "9d31bf4d8b5a46b40272fc8921763fef2acd23e316f88e188c0b0b1ce58adae7",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat2.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_fibonacci",
+          "source_sha256": "1bbb33fb53817b0723c203aa96b1f6657c959aec21711542e8073e25027441e7",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat2.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_sieve_primes",
+          "source_sha256": "1b96af832dc4a2ee9113ebb12e578ea8fe19ffc5fe8e73fbbc9a0244b6c12090",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat2.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_coin_change",
+          "source_sha256": "554294630630c25b61730447c3b53ca233648deba42f18e57ed51a9410a22d31",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat2.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_merge_sort",
+          "source_sha256": "533ec4893cf45277cc89cbb7eeee6607aa58062ffec785a5f2f27d9cb619dc6e",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat2.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "cs_quick_sort",
+          "source_sha256": "d6eeee53d818c8e3b994d13adff7807d1db996c522a4f02fe9de1b02dc563818",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_cs_repeat2.json repair attempt 1: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "loop_until_threshold",
+          "source_sha256": "c2977c1f77faf443fa26a4005cc9fd97c182cfbd7ae11fc4a370676f4a639e29",
+          "transition": "pass->fail",
+          "note": "history/ornith_20260705/ornith_simple.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `itoa(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "val_checked_ledger",
+          "source_sha256": "7ddb122b863469c8411586d4adc22d4919638287adf6c1afad9ee62c08adc011",
+          "transition": "pass->fail",
+          "note": "local_tiers_20260811/high-ds4__tasks_frontier.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `val(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "file_csv_roundtrip",
+          "source_sha256": "c1ad409d7bce1cc3790556283419f3911dbd11f26f86a27f666f185afa06e8fd",
+          "transition": "pass->fail",
+          "note": "local_tiers_20260811/high-ds4__tasks_frontier.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `assign(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        },
+        {
+          "task_id": "mstream_field_parse",
+          "source_sha256": "165686f1280e6c5dbca7107d3fce719f07933a8ea6fe868bb520e094b846626c",
+          "transition": "pass->fail",
+          "note": "local_tiers_20260811/high-ds4__tasks_frontier.json first attempt 0: pass->coded_error",
+          "evidence": "SCOPE-001 at its `mstreamfromstring(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
+        }
+      ]
     }
   }
 }
