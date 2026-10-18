@@ -205,12 +205,22 @@ def stage_tasks(args) -> int:
     doc = load_json(tasks_path, {"version": args.batch, "description": "distillation tasks (generated)", "tasks": []})
     tasks = doc["tasks"]
     boards = board_prompts()
+    # Earlier batches count as duplicates too: a later batch aimed at the same categories must not
+    # re-ask their tasks.
+    prior = [t for other in sorted(out.parent.glob("*/tasks.json")) if other.parent != out
+             for t in load_json(other, {"tasks": []})["tasks"]]
+    prior_shingles = [(t["title"].lower(), word_shingles(t["prompt"])) for t in prior]
     rng = random.Random(len(tasks) + 7)
     dest = tra_destination(args.model, args.target, 0.8, 8000)
     log = open(out / "tasks.log", "a", encoding="utf-8")
     rejected = {"duplicate": 0, "board": 0, "short": 0}
     while len(tasks) < args.count:
         rotation = CATEGORIES + (TOON_FILE_CATEGORIES * 2 if args.with_toon_files else [])
+        if args.category:
+            # Aim a batch at categories where the guided solver's yield (and the fine-tune) was weakest.
+            rotation = [c for c in rotation if any(k.lower() in c.lower() for k in args.category)]
+            if not rotation:
+                raise SystemExit(f"--category {args.category} matches no category")
         category = rotation[len(doc.get("requests", [])) % len(rotation)]
         structured = category in TOON_FILE_CATEGORIES
         files_ok = structured and "file" in category
@@ -235,7 +245,8 @@ def stage_tasks(args) -> int:
                 rejected["short"] += 1
                 continue
             if any(jaccard(shingles, word_shingles(t["prompt"])) >= 0.5 or t["title"].lower() == item["title"].lower()
-                   for t in tasks):
+                   for t in tasks) or any(jaccard(shingles, s) >= 0.5 or title == item["title"].lower()
+                                          for title, s in prior_shingles):
                 rejected["duplicate"] += 1
                 continue
             if any(jaccard(shingles, ref) >= 0.35 for _, ref in boards):
@@ -493,6 +504,8 @@ def main() -> int:
                                       "harvest-python"])
     ap.add_argument("--with-toon-files", action="store_true",
                     help="tasks: add the JSON/TOON and data-file categories (about a third of a batch)")
+    ap.add_argument("--category", action="append", default=None,
+                    help="tasks stage: only categories containing this text (repeatable)")
     ap.add_argument("--count", type=int, default=300)
     ap.add_argument("--per-request", type=int, default=8)
     # Change these two together. T'Ra serves `large-open` only on the open-lane proxy target, so with
