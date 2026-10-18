@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-17-4*
+*Guide version: 2026-10-18-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -45,12 +45,13 @@ Everything needed to write correct Aether in one shot.
 11. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas,
     never pass a function as an argument, and there is no
     `map`/`filter`/`reduce` — write a `loop`. To run your own code concurrently
-    use `par { f(); g(); }`. A `fn` inside a free function's body may read that
-    function's parameters and earlier locals and call its sibling `fn`s;
-    assigning one is **FUNC-002** — return the value, or use a record field.
+    use `par { f(); g(); }`. A `fn` inside a free function's body may read and
+    assign that function's parameters and earlier locals (the enclosing
+    variable changes) and call its sibling `fn`s; `@pure`/`@pre`/`@post` work
+    above it.
 12. **PAR-001.** Each `par` branch must own the record it writes. The same record
-    passed to two branches races and is rejected. Give each branch its own and
-    combine after the block.
+    passed to two branches races and is rejected, as is a local that a nested
+    `fn` assigns. Give each branch its own and combine after the block.
 13. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. No guessed globals, no expired loop locals, no helper-local
     names borrowed from another function.
@@ -1001,8 +1002,6 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   is usually **not appended yet**: while building a table row by row, the current
   row is the local `row`, not `table[i]` — `table[i]` only exists after
   `table = table + [row];`. Earlier rows read fine as `table[i - 1][j]`.
-- **[FUNC-002]** a nested `fn` assigned an enclosing local → return the value
-  and assign it there, or keep it in a record field.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`), exit 1 → a
   call broke `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[PREC-001]** (warning) `flags & mask != 0` → parenthesize:

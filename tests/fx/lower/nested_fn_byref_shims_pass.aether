@@ -1,0 +1,27 @@
+// D64: whole-value reads of a written array capture copy (let, ret), a
+// literal reassignment is then resized, and a writer runs in a loop condition
+// (the D8 by-reference shims, promoted for capture parameters).
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let total = 0;
+    fn push(v: Int) -> Bool { xs = xs + [v]; ret length(xs) < 6; }
+    fn snap() -> Int[] { let c = xs; c[0] = 100; ret c; }
+    fn whole() -> Int[] { ret xs; }
+    fn reset() -> Void { xs = [7]; }
+    fn sum() -> Void { total = 0; loop x in xs { total = total + x; } }
+    let k = 10;
+    while push(k) { k = k + 1; }
+    let s = snap();
+    let w = whole();
+    w[1] = -1;
+    sum();
+    fx { println(length(xs)); println(xs[0]); println(s[0]); println(xs[1]); println(total); }
+    reset();
+    push(8);
+    push(9);
+    sum();
+    xs = [4, 4];
+    push(1);
+    sum();
+    fx { println(length(xs)); println(total); }
+}

@@ -248,6 +248,7 @@ typedef struct {
      * which the top-level loop emits ahead of the host. */
     bool nestedHost;
     bool inNestedFn;
+    bool nestedFnPure; /* D65: the nested fn parseFnDecl just parsed had `@pure` */
     struct AetherNestedFn *nestedFns;
     int nestedFnCount;
     int nestedFnCap;

@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-17-3*
+*Card version: 2026-10-18-1*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -86,8 +86,8 @@ fn main() -> Void {
 Destructure a direct call, or bind it and read `t.0`; never `f(x).0`. A
 `@pure` function may not use `fx` and calls only pure builtins and other
 `@pure` functions. Functions are not values (no lambdas), and there is no
-`map` or `filter`: write a `loop`. A `fn` inside a `fn` may read the outer
-locals, never assign them (FUNC-002).
+`map` or `filter`: write a `loop`. A `fn` inside a `fn` may read and assign
+the outer locals.
 
 ## Records and methods
 

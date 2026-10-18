@@ -1,0 +1,8 @@
+// D65: an annotation in a function body that no nested fn follows is
+// detached (ANN-001), as at top level.
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    @pure
+    let y = 3;
+    fx { println(y + xs[0]); }
+}

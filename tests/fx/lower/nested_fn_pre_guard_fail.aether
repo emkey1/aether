@@ -1,0 +1,7 @@
+// D65: an @pre on a nested fn is a run-time guard like any other.
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    @pre i < length(xs)
+    fn get(i: Int) -> Int { ret xs[i]; }
+    fx { println(get(1)); println(get(5)); }
+}

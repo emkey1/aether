@@ -126,8 +126,10 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "nested-fn") == 0) {
             return "FUNC-001";
         }
-        /* A nested function (D62) assigning a local or parameter of its
-         * enclosing function: it reads them, it cannot change them. */
+        /* Retired: under D62 a nested function assigning a local or
+         * parameter of its enclosing function was FUNC-002. D64 (language
+         * 2026-10-18-1) makes that legal, so nothing emits this kind; the
+         * code stays reserved so archived diagnostics keep their meaning. */
         if (strcmp(kind, "nested-assign") == 0) {
             return "FUNC-002";
         }

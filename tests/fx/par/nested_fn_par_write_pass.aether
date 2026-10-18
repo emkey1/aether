@@ -1,0 +1,21 @@
+// D64: nested fns that write different enclosing locals may run in different
+// par branches (one writer per local), and a branch may read a local nobody
+// writes. A by-reference capture reaches the spawned thread as an address.
+fn work(n: Int) -> Int {
+    let evens: Int[] = [];
+    let odds: Int[] = [0];
+    let base = 10;
+    let a = 0;
+    fn fillE() -> Void { loop i in 0..n { if i mod 2 == 0 { evens = evens + [i]; } } }
+    fn fillO() -> Void { loop i in 0..n { if i mod 2 == 1 { odds = odds + [i]; } } }
+    fn addA(k: Int) -> Void { a = a + k + base; }
+    fn peek() -> Void { let t = base; }
+    par {
+        fillE();
+        fillO();
+        addA(5);
+        peek();
+    }
+    ret length(evens) * 1000 + length(odds) + a * 1000000;
+}
+fn main() -> Void { fx { println(work(2000)); } }

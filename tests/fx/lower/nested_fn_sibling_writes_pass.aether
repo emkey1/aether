@@ -1,0 +1,24 @@
+// D64: a nested fn that writes nothing itself calls siblings that write a
+// Text, a counter and a grid element; the host reads the new values after.
+fn main() -> Void {
+    let log: Text = "";
+    let hits = 0;
+    let grid: Int[][] = [[0, 0], [0, 0]];
+    fn note(s: Text) -> Void { log = log + s; hits = hits + 1; }
+    fn setCell(r: Int, c: Int, v: Int) -> Void { grid[r][c] = v; note("s"); }
+    fn walk(k: Int) -> Void {
+        if k == 0 { ret; }
+        setCell(k mod 2, 1, k);
+        walk(k - 1);
+    }
+    walk(3);
+    let before = hits;
+    note("!");
+    fx {
+        println(log);
+        println(before);
+        println(hits);
+        println(grid[0][1]);
+        println(grid[1][1]);
+    }
+}

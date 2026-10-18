@@ -1,0 +1,18 @@
+// D64: written captures of every kind: a record field, a whole record, Text,
+// Real and Bool.
+type Acc { n: Int; label: Text; }
+fn main() -> Void {
+    let acc = new Acc { n: 0, label: "a" };
+    let name: Text = "x";
+    let r: Real = 1.5;
+    let done = false;
+    fn bump() -> Void { acc.n = acc.n + 1; }
+    fn swapAcc() -> Void { acc = new Acc { n: 100, label: "b" }; }
+    fn grow() -> Void { name = name + "y"; r = r * 2.0; done = true; }
+    bump(); bump();
+    let old = acc;
+    swapAcc();
+    bump();
+    grow(); grow();
+    fx { println(old.n); println(acc.n); println(acc.label); println(name); println(r); println(done); }
+}

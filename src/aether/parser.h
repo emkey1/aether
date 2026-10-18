@@ -40,6 +40,9 @@ void aetherAstRegisterFunctionPurity(const char *name, int isPure);
 /* Returns 1 if `name` is a declared Aether function; *isPure set when known. */
 int aetherAstLookupFunctionPurity(const char *name, int *isPure);
 void aetherAstRegisterFunctionReturnsReal(const char *name, int returnsReal);
+/* A lifted nested fn's declared name, for diagnostics; `name` otherwise. */
+void aetherAstRegisterFunctionDisplayName(const char *name, const char *displayName);
+const char *aetherAstFunctionDisplayName(const char *name);
 void aetherAstRegisterExplicitTypedDecl(const AST *node);
 int aetherAstDeclHasExplicitType(const AST *node);
 int aetherAstLookupFunctionReturnsReal(const char *name, int *returnsReal);

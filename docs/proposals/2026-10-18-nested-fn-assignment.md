@@ -1,6 +1,7 @@
 # Proposal: let a nested function assign its enclosing locals
 
 Status: **accepted** by the owner, 2026-10-18: D64 option (c), assignable capture, and D65.
+**Shipped** in language 2026-10-18-1 (route 1, by-reference capture parameters; see CHANGELOG).
 The owner decided directly; the pre-registered board rule below is superseded (kept for the record).
 Refines D62 (nested functions with read-only capture, shipped in language
 2026-10-17-5) and D49. Two draft decision rows: D64 (assignable capture)

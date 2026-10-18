@@ -1,0 +1,18 @@
+// D64: Dijkstra-style adjacency appends, adj[u] = adj[u] + [v], on a captured
+// Int[][].
+fn main() -> Void {
+    let n = 4;
+    let adj: Int[][] = [];
+    loop i in 0..n { adj = adj + [[]]; }
+    fn addEdge(u: Int, v: Int) -> Void {
+        adj[u] = adj[u] + [v];
+        adj[v] = adj[v] + [u];
+    }
+    addEdge(0, 1);
+    addEdge(0, 2);
+    addEdge(2, 3);
+    fx {
+        loop i in 0..n { println(length(adj[i])); }
+        println(adj[0][1]);
+    }
+}

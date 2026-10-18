@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-17-4*
+*Guide version: 2026-10-18-1*
 
 ## Highest-Value Rules
 
@@ -69,12 +69,13 @@
 23. **FUNC-001.** Functions are not values: no anonymous `fn(...) -> T { ... }`,
     no lambdas, never pass a function as an argument. No
     `map`/`filter`/`reduce`; use a `loop`. To run your own code concurrently,
-    use `par { f(); g(); }`. A `fn` inside a free function's body may read that
-    function's parameters and earlier locals; assigning one is **FUNC-002**
-    (return the value, or use a record field).
+    use `par { f(); g(); }`. A `fn` inside a free function's body may read and
+    assign that function's parameters and earlier locals (the enclosing
+    variable changes).
 24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record to two branches races — the parallel writes corrupt the heap.
-    Give each branch its own record and combine the results after the block.
+    So does a local that a nested `fn` assigns. Give each branch its own record
+    and combine the results after the block.
 25. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
     response bodies). `mstream_new()`/`mstream_from_text(text)` return
     `MStream` — never `Int`, never `Text`. Body text comes from
@@ -758,8 +759,6 @@ fix:
 - **[ARR-003]** (runtime) an index outside the array → the message gives the
   valid range; `loop i in 0..n` ends at `n - 1`, and a row being built is not in
   the table until it is appended.
-- **[FUNC-002]** a nested `fn` assigned an enclosing local → return the value
-  and assign it there, or keep it in a record field.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`) → a call broke
   `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass

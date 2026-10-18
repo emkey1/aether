@@ -91,4 +91,9 @@ void aetherRunExperiments(AST *root);
  * arguments of by-reference parameters into temporaries). */
 void aetherRunExperimentsBeforeRea(AST *root);
 
+/* D64: the front end lifted a nested fn with a by-reference (written) capture,
+ * so aetherRunExperimentsBeforeRea applies the D8 by-reference array shims to
+ * those parameters even outside the arrays=ref arm. */
+void aetherNoteByRefCaptures(void);
+
 #endif

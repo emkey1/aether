@@ -449,18 +449,40 @@
    "twin": "fixtures/nested_fn.canon.aether",
    "decided": "D62",
    "status": "holds",
-   "note": "was FUNC-001 in 2026-10-17-1 (D50); D62 lifts it to a top-level fn with one parameter per enclosing local it reads, read-only arrays uncopied"
+   "note": "was FUNC-001 in 2026-10-17-1 (D50); D62 lifts it to a top-level fn with one parameter per enclosing local it reads, read-only arrays uncopied; since D64 a local it writes is passed by reference"
   },
   {
    "id": "nested_fn_assign",
-   "class": 2,
-   "spelling": "a nested fn assigning an enclosing local",
-   "canonical_form": "return the value, or keep it in a record field",
+   "class": 1,
+   "spelling": "a nested fn assigning, appending to or writing an element of an enclosing local",
+   "canonical_form": "the same nested fn (or a top-level `let` that a top-level fn assigns)",
    "fixture": "fixtures/nested_fn_assign.aether",
-   "code": "FUNC-002",
-   "decided": "D62",
+   "twin": "fixtures/nested_fn_assign.canon.aether",
+   "decided": "D64",
    "status": "holds",
-   "hint": "record field"
+   "note": "was FUNC-002 in 2026-10-17-5 (D62); D64 passes a written capture by reference, so the enclosing variable changes. FUNC-002 is retired and reserved"
+  },
+  {
+   "id": "nested_fn_par_write",
+   "class": 2,
+   "spelling": "a nested fn that writes an enclosing local, called from two par branches",
+   "canonical_form": "change the local from one par branch only, or give each branch its own",
+   "fixture": "fixtures/nested_fn_par_write.aether",
+   "code": "PAR-001",
+   "decided": "D64",
+   "status": "holds",
+   "hint": "one par branch only"
+  },
+  {
+   "id": "nested_fn_annotated",
+   "class": 1,
+   "spelling": "@pure / @pre / @post above a nested fn",
+   "canonical_form": "the annotated nested fn (or an annotated top-level fn taking the values as parameters)",
+   "fixture": "fixtures/nested_fn_annotated.aether",
+   "twin": "fixtures/nested_fn_annotated.canon.aether",
+   "decided": "D65",
+   "status": "holds",
+   "note": "was SYN-001 (unexpected token in block) in 2026-10-17-5"
   },
   {
    "id": "nested_fn_value",

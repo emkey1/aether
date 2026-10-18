@@ -1,0 +1,28 @@
+// D64: N-Queens whose nested helpers bump a captured counter and append to
+// and slice a captured board (the tuned model's cs_nqueens shape).
+fn solve(n: Int) -> Int {
+    let count = 0;
+    let cols: Int[] = [];
+    fn safe(c: Int) -> Bool {
+        let r = length(cols);
+        loop i in 0..r {
+            if cols[i] == c || abs(cols[i] - c) == r - i { ret false; }
+        }
+        ret true;
+    }
+    fn place(row: Int) -> Void {
+        if row == n { count = count + 1; ret; }
+        loop c in 0..n {
+            if safe(c) {
+                cols = cols + [c];
+                place(row + 1);
+                cols = cols[..length(cols) - 1];
+            }
+        }
+    }
+    place(0);
+    ret count;
+}
+fn main() -> Void {
+    fx { println(solve(6)); println(solve(8)); }
+}

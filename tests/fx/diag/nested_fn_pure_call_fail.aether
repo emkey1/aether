@@ -1,0 +1,9 @@
+// D65: a @pure nested fn may call only @pure functions; its sibling is not
+// (ANN-001, quoting the declared names).
+fn main() -> Void {
+    let base = 3;
+    fn plain(k: Int) -> Int { ret k + base; }
+    @pure
+    fn twice(k: Int) -> Int { ret plain(k) * 2; }
+    fx { println(twice(1)); }
+}

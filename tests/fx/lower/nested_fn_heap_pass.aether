@@ -1,0 +1,43 @@
+// D64: a heap whose nested insert/pop append to, slice and swap in a captured
+// array and bump a captured size (devstral's hard2_heap_sort shape).
+fn main() -> Void {
+    let heap: Int[] = [];
+    let size = 0;
+    fn insert(v: Int) -> Void {
+        heap = heap + [v];
+        size = size + 1;
+        let i = size - 1;
+        while i > 0 && heap[(i - 1) div 2] > heap[i] {
+            let p = (i - 1) div 2;
+            let t = heap[p];
+            heap[p] = heap[i];
+            heap[i] = t;
+            i = p;
+        }
+    }
+    fn pop() -> Int {
+        let top = heap[0];
+        size = size - 1;
+        heap[0] = heap[size];
+        heap = heap[..size];
+        let i = 0;
+        while true {
+            let l = 2 * i + 1;
+            let r = l + 1;
+            let m = i;
+            if l < size && heap[l] < heap[m] { m = l; }
+            if r < size && heap[r] < heap[m] { m = r; }
+            if m == i { break; }
+            let t = heap[m]; heap[m] = heap[i]; heap[i] = t;
+            i = m;
+        }
+        ret top;
+    }
+    let vals: Int[] = [5, 3, 8, 1, 9, 2];
+    loop v in vals { insert(v); }
+    fx {
+        print(size);
+        while size > 0 { print(" "); print(pop()); }
+        println("");
+    }
+}

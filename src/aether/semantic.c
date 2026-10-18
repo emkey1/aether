@@ -3074,6 +3074,7 @@ static int aetherAstNodeLine(const AST *node) {
  * `Type.method` name, but diagnostics quote the bare method name (matching
  * the wording the old source scan produced from the `fn` line). */
 static const char *aetherBareFunctionName(const char *name) {
+    name = aetherAstFunctionDisplayName(name);
     const char *dot = name ? strrchr(name, '.') : NULL;
     return (dot && dot[1]) ? dot + 1 : name;
 }
@@ -3240,7 +3241,7 @@ static void aetherCheckCallNode(const AST *node,
         display = aetherAstAliasSurfaceAtLine(line, canonical);
     }
     if (!display) {
-        display = canonical;
+        display = aetherAstFunctionDisplayName(canonical);
     }
     aetherCheckBuiltinArity(node, canonical, display, line);
     isEffectful = aetherIsEffectfulBuiltin(canonical, strlen(canonical));
@@ -3625,7 +3626,9 @@ static void aetherWalkArrayParamMutation(const AST *node) {
         int count = 0;
         for (i = 0; i < node->child_count && count < AETHER_ARR001_MAX_PARAMS; i++) {
             AST *paramDecl = node->children[i];
-            if (paramDecl && paramDecl->var_type == TYPE_ARRAY &&
+            /* A by-reference parameter (a nested fn's written capture, D64)
+             * is the caller's variable: the write is visible. */
+            if (paramDecl && paramDecl->var_type == TYPE_ARRAY && !paramDecl->by_ref &&
                 paramDecl->child_count > 0 && paramDecl->children[0] &&
                 paramDecl->children[0]->type == AST_VARIABLE &&
                 paramDecl->children[0]->token && paramDecl->children[0]->token->value) {

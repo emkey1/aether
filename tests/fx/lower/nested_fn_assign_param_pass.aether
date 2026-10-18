@@ -1,0 +1,16 @@
+// D64: a nested fn assigns the host's parameters (the caller's argument
+// keeps its value), and a nested fn declared inside a block writes too.
+fn run(limit: Int, seed: Int[]) -> Int {
+    fn shrink() -> Void { limit = limit - 1; seed = seed + [limit]; }
+    shrink();
+    if limit > 0 {
+        let extra = 5;
+        fn addExtra() -> Void { limit = limit + extra; }
+        addExtra();
+    }
+    ret limit * 1000 + length(seed);
+}
+fn main() -> Void {
+    let s: Int[] = [1, 2];
+    fx { println(run(3, s)); println(length(s)); }
+}

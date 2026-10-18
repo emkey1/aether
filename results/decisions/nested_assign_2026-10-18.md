@@ -100,3 +100,32 @@ repeat 2, all three attempts). The other 16 fail later on unrelated errors:
 - `nested_assign_lowered/<sha12>.aether`: the 15 rewritten sources.
 - `nested_annot_stripped/<sha12>.aether`: the 7 sources without their
   in-body annotations.
+
+## Re-run on the shipped release (2026-10-18-1)
+
+The same census, with the original archived sources (not the lowered or
+stripped copies), on the binary that ships D64 and D65:
+
+```sh
+python3 results/decisions/nested_assign_census.py --aether-bin build/aether \
+    --lowered-dir results/decisions/nested_assign_lowered
+```
+
+| outcome on 2026-10-18-1 | first attempts | all attempts |
+|---|---|---|
+| pass | 8 | 19 |
+| silent wrong | 2 | 6 |
+| coded error, unrelated to the nested fn | 9 | 30 |
+| **total** | **19** | **55** |
+
+- The 21 FUNC-002 attempts run, and each matches its lowered version's class
+  from the table above: 15 pass and 6 silent wrong (devstral's N-Queens),
+  first attempts 7 pass and 2 silent wrong. No attempt differs from the
+  measurement.
+- The 3 `hard2_grade_bands` attempts (`07a540678b01`) with `@pure` above a
+  nested fn pass as written. The other 16 annotated attempts now fail on the
+  unrelated FX-001 and TUP-001 errors the stripped copies showed.
+- The read-only helper that passed before still passes. Every remaining coded
+  error is unrelated (foreign syntax such as `[Int; 5]`, a missing return
+  type, FX-001, TUP-001).
+

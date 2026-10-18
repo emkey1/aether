@@ -1,0 +1,13 @@
+@pure
+fn ok(s: Int, cut: Int) -> Bool { ret s >= cut; }
+
+@pre i >= 0 && i < length(scores)
+fn at(i: Int, scores: Int[]) -> Int { ret scores[i]; }
+
+fn main() -> Void {
+    let cut = 60;
+    let scores: Int[] = [50, 70, 90];
+    let passed = 0;
+    loop i in 0..length(scores) { if ok(at(i, scores), cut) { passed = passed + 1; } }
+    fx { println(passed); }
+}

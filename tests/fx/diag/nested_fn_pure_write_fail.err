@@ -1,0 +1,1 @@
+pure function 'bump' cannot change 'hits' of its enclosing function 'main'

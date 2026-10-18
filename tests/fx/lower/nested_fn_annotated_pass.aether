@@ -1,0 +1,18 @@
+// D65: @pure, @pre and @post above nested fns, checked as on any fn; the
+// contracts read the host's parameters and a written capture.
+fn grade(scores: Int[], cut: Int) -> Int {
+    let passed = 0;
+    @pure
+    fn ok(s: Int) -> Bool { ret s >= cut; }
+    @pre i >= 0 && i < length(scores)
+    @post result >= 0
+    fn at(i: Int) -> Int { ret scores[i]; }
+    @post passed <= length(scores)
+    fn tally(i: Int) -> Void { if ok(at(i)) { passed = passed + 1; } }
+    loop i in 0..length(scores) { tally(i); }
+    ret passed;
+}
+fn main() -> Void {
+    let s: Int[] = [50, 70, 90];
+    fx { println(grade(s, 60)); }
+}

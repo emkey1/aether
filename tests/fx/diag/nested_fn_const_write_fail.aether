@@ -1,0 +1,8 @@
+// D64: a nested fn assigns the enclosing locals it sees, but a const stays
+// constant.
+fn main() -> Void {
+    const LIMIT: Int = 3;
+    fn raise() -> Void { LIMIT = LIMIT + 1; }
+    raise();
+    fx { println(LIMIT); }
+}

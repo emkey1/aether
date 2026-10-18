@@ -1,0 +1,9 @@
+// D65: a @pure nested fn reads its captures; assigning one is a side effect
+// (ANN-001).
+fn main() -> Void {
+    let hits = 0;
+    @pure
+    fn bump(k: Int) -> Int { hits = hits + k; ret hits; }
+    let r = bump(2);
+    fx { println(r); }
+}

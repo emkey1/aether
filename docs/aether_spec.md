@@ -298,15 +298,21 @@ fn main() -> Void { f(); }
 ```
 
 A `fn` declared in the body of a free top-level function is a nested function
-(decision D62). It reads the enclosing function's parameters and the locals
-declared before it, calls itself and its sibling nested functions, and is
-visible in the block that declares it, after its declaration. Assigning an
-enclosing local (or an element of one) from it is `FUNC-002`; writing a field of
-an enclosing record is allowed. It is not a value (`FUNC-001`). A `fn` inside a
-nested function or inside a method is `FUNC-001`. It is lowered by lambda
-lifting: a top-level function with one more parameter per enclosing local it
-reads, directly or through a sibling, passed at every call; an array is passed
-without a copy, which is safe because nothing can assign it.
+(decisions D62, D64). It reads and assigns the enclosing function's parameters
+and the locals declared before it, calls itself and its sibling nested
+functions, and is visible in the block that declares it, after its declaration.
+An assignment, an element write or an append changes the enclosing variable,
+and a later read sees the new value; each activation of the enclosing function
+has its own variables. It is not a value (`FUNC-001`). A `fn` inside a nested
+function or inside a method is `FUNC-001`. `@pure`, `@pre` and `@post` may
+annotate it (D65); a `@pure` nested function may not assign an enclosing local
+(`ANN-001`). A nested function that assigns an enclosing local, directly or
+through a sibling, may not run in one `par` branch while another branch uses
+that local (`PAR-001`). `FUNC-002` (assigning an enclosing local, under D62) is
+retired and reserved. It is lowered by lambda lifting: a top-level function with
+one more parameter per enclosing local it reads or writes, directly or through a
+sibling, passed at every call; a local it writes is passed by reference, one it
+only reads by value and, for an array, without a copy.
 
 ```aether @ok id=G.NestedFn.1
 fn main() -> Void {
@@ -322,12 +328,19 @@ fn main() -> Void {
 9
 ```
 
-```aether @reject=FUNC-002 id=G.NestedFn.2
+```aether @ok id=G.NestedFn.2
 fn main() -> Void {
     let count: Int = 0;
-    fn bump() -> Void { count = count + 1; }
-    bump();
+    let seen: Int[] = [];
+    fn bump(v: Int) -> Void { count = count + 1; seen = seen + [v]; }
+    bump(4);
+    bump(7);
+    fx { println(count, " ", seen[1]); }
 }
+```
+
+```text
+2 7
 ```
 
 ```aether @reject=FUNC-001 id=G.NestedFn.3
@@ -336,6 +349,26 @@ fn main() -> Void {
         fn inner() -> Int { ret 1; }
         ret inner();
     }
+}
+```
+
+```aether @reject=PAR-001 id=G.NestedFn.4
+fn main() -> Void {
+    let total: Int = 0;
+    fn add(k: Int) -> Void { total = total + k; }
+    par {
+        add(1);
+        add(2);
+    }
+}
+```
+
+```aether @reject=ANN-001 id=G.NestedFn.5
+fn main() -> Void {
+    let hits: Int = 0;
+    @pure
+    fn bump(k: Int) -> Int { hits = hits + k; ret hits; }
+    let r = bump(1);
 }
 ```
 
@@ -456,7 +489,7 @@ fn f(n: Int) -> Int { ret n; }
 fn main() -> Void { }
 ```
 
-```aether @reject=SYN-001 id=G.Annotation.3
+```aether @reject=ANN-001 id=G.Annotation.3
 fn f(n: Int) -> Int {
     @pre n >= 0
     ret n;

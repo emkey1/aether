@@ -1,0 +1,14 @@
+// D64: a recursive host. Each activation has its own variables, and its
+// nested fn changes that activation's.
+fn depth(n: Int) -> Int {
+    let seen = 0;
+    fn mark() -> Void { seen = seen + n; }
+    mark();
+    if n > 0 {
+        let inner = depth(n - 1);
+        mark();
+        ret seen * 100 + inner;
+    }
+    ret seen;
+}
+fn main() -> Void { fx { println(depth(3)); } }

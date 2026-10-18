@@ -12,6 +12,67 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-18-1
+
+**Nested functions assign their enclosing locals; annotations above a nested fn**
+(decisions D64, option (c), and D65, accepted by the owner on 2026-10-18; the
+proposal [`docs/proposals/2026-10-18-nested-fn-assignment.md`](docs/proposals/2026-10-18-nested-fn-assignment.md)).
+One engine fix in pscal-core (`spawn` passes by-reference arguments); rea
+unchanged.
+
+- **Assignable capture (D64).** A nested fn may assign the enclosing
+  parameters and locals it can see, write their elements and append to them:
+  `count = count + 1;`, `cols[r] = c;`, `adj[u] = adj[u] + [v];` change the
+  enclosing variable, and a later read, in the host or any nested fn, sees the
+  new value. Each activation of the host has its own variables, so a recursive
+  host is correct. Lowering (`aetherLiftNestedFns`): the D62 capture walk also
+  collects the captures each nested fn writes (an assignment, an element
+  write, `setlength`/`inc`/`dec`, which covers the append and slice lowerings),
+  closed transitively through sibling calls like the reads; a written capture
+  becomes a `by_ref` parameter of the lifted fn, and a read-only one stays the
+  uncopied value parameter of D62. The D8 `arrays=ref` shims of
+  `src/aether/experiment.c` now also run for those parameters (shim 2
+  normalises a literal-built array before a call that resizes it, shim 3
+  copies a whole-value read such as `let c = xs;` or `ret xs;`); they touch
+  only array-typed by-reference parameters. ARR-001 no longer warns on a write
+  to a by-reference parameter. A nested fn assigning a captured `const` is
+  "cannot assign to constant". Everything else in D62 stands: not a value
+  (FUNC-001), one level deep, free functions only (METH-001), visible after its
+  declaration.
+- **FUNC-002 is retired.** Nothing emits it; the code (kind `nested-assign`)
+  stays reserved so archived diagnostics keep their meaning.
+- **par (D64).** PAR-001 has a new case: a local that a nested fn assigns
+  (directly or through a sibling) in one `par` branch may not be used by
+  another branch of the same block, as a capture or a call argument. One
+  writer per local in one branch runs.
+- **spawn with by-reference arguments (pscal-core).** `compileSpawnArgument`
+  passes a VAR parameter's address, as an ordinary call does; every `spawn`
+  argument used to compile as an rvalue, so a by-reference capture in a `par`
+  branch failed with "GET_INDIRECT requires an address on the stack".
+- **Annotations on a nested fn (D65).** `@pure`, `@pre` and `@post` directly
+  above a nested fn are collected in statement position and mean what they
+  mean on any fn (they were SYN-001, "unexpected token in block"). Contract
+  clauses may read the fn's parameters and its captures. A `@pure` nested fn
+  may read its captures but not write one, itself or through a sibling
+  (ANN-001); it calls only `@pure` functions, siblings included, and purity
+  diagnostics quote the declared name, not `__aether_<host>_<name>`. An
+  annotation in a body that no `fn` follows is ANN-001, as at top level.
+- **Census** (`results/decisions/nested_assign_2026-10-18.md`, re-run on this
+  release): the 21 archived attempts that stopped on FUNC-002 now run, and
+  match the measured lowering exactly: 15 pass and 6 print a wrong answer
+  (devstral's own N-Queens diagonal bug); first attempts 7 pass, 2 silent
+  wrong. The 3 `hard2_grade_bands` attempts with `@pure` above a nested fn pass.
+- **Fixtures:** `tests/fx/lower/nested_fn_*_pass` (counter, element write and
+  append, N-Queens, adjacency appends, union-find compression, heap, recursive
+  host, sibling writes, the by-reference shims, every value kind, host
+  parameters, annotations), `tests/fx/par/nested_fn_par_write_pass`, and
+  `tests/fx/diag/nested_fn_{par_twice,par_read,par_sibling,pure_write,pure_call,annot_detached,const_write}_fail`;
+  `diag/nested_fn_assign_fail` and `nested_fn_element_fail` became pass
+  fixtures. Registry: `nested_fn_assign` is class 1 with a top-level-`let`
+  twin, new `nested_fn_par_write` (class 2, PAR-001) and `nested_fn_annotated`
+  (class 1). Spec: `G.NestedFn.2` is `@ok`; new `G.NestedFn.4` (PAR-001) and
+  `G.NestedFn.5` (ANN-001).
+
 ## 2026-10-17-5
 
 **The modern surface, Release B: quantifier expressions and nested functions with

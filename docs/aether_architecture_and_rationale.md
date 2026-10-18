@@ -160,12 +160,18 @@ is parsed as any fn and leaves an empty marker block in its place
 (`aetherParseNestedFn`). When the host body is complete, `aetherLiftNestedFns`
 walks it in order with the visible locals (the marker's position fixes what
 each nested fn can see), computes each nested fn's captures (the host locals it
-reads, plus, to a fixed point, those of the siblings it calls), rejects writes
-to them (FUNC-002), renames it `__aether_<host>_<name>` with one parameter per
-capture, appends the captures to every call, and queues prototypes and the
-lifted fns in `liftedDecls`, which the top-level loop emits ahead of the host.
-A capture parameter has no prologue copy, so an array is read uncopied; it is
-not `by_ref` (`results/decisions/d62_readonly_capture.md`).
+reads, plus, to a fixed point, those of the siblings it calls) and, the same
+way, the captures it writes (D64), renames it `__aether_<host>_<name>` with one
+parameter per capture, appends the captures to every call, and queues
+prototypes and the lifted fns in `liftedDecls`, which the top-level loop emits
+ahead of the host. A capture parameter has no prologue copy. A read-only one is
+a value parameter, so an array is read uncopied
+(`results/decisions/d62_readonly_capture.md`); a written one is `by_ref`, so the
+write reaches the host's variable, and the D8 by-reference shims in
+`experiment.c` (normalise a literal-built array before a call that resizes it;
+copy a whole-value read) apply to it outside the `arrays=ref` arm too. The same
+walk rejects a written capture used by two `par` branches (PAR-001) and a
+written capture under `@pure` (ANN-001, D65).
 
 ### 2.2 The lowering contract
 

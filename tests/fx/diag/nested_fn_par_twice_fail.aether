@@ -1,0 +1,10 @@
+// D64: the same capture-writing nested fn in two par branches races (PAR-001).
+fn main() -> Void {
+    let total = 0;
+    fn add(k: Int) -> Void { total = total + k; }
+    par {
+        add(1);
+        add(2);
+    }
+    fx { println(total); }
+}

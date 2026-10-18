@@ -73,6 +73,12 @@
         "date": "2026-10-17",
         "body_sha256": "e8e2bbab4de0bba81ae0a5992ff5a72cdc9de6568628b93bf3539d9e4595a3ce",
         "o200k": 33592
+      },
+      {
+        "stamp": "2026-10-18-1",
+        "date": "2026-10-18",
+        "body_sha256": "6584d1d1ed35fcd9c00e7a9d1a25cb457d5ce3913d126ef39704c1cbff1873c5",
+        "o200k": 33589
       }
     ],
     "docs/aether_for_llms_medium_contexts.md": [
@@ -135,6 +141,12 @@
         "date": "2026-10-17",
         "body_sha256": "f1fdcc44b35d3bb9ac6e88eec56e8063ed9ad5d1a89d3f2b4e314eb8d061c954",
         "o200k": 13372
+      },
+      {
+        "stamp": "2026-10-18-1",
+        "date": "2026-10-18",
+        "body_sha256": "3fcb26350478797aa745bd4fd974b8a8fbb9bbc7eea56c78a3bded88936f1cbd",
+        "o200k": 13358
       }
     ],
     "docs/aether_for_llms_with_small_contexts.md": [
@@ -191,6 +203,12 @@
         "date": "2026-10-17",
         "body_sha256": "c20f8bfcc8422b9260dc6fe0eb6e54d5104df23df10d25374bf339facd634b6e",
         "o200k": 11685
+      },
+      {
+        "stamp": "2026-10-18-1",
+        "date": "2026-10-18",
+        "body_sha256": "1f82f577b569025f41702d1d673f7d3ef46eed9010db6fc583f157793aa41239",
+        "o200k": 11652
       }
     ],
     "docs/aether_card.md": [
@@ -217,6 +235,12 @@
         "date": "2026-10-17",
         "body_sha256": "8e365e106843e4786fb1c088a5970f1b4dd4733b084acf322248d9ad33895f8f",
         "o200k": 1997
+      },
+      {
+        "stamp": "2026-10-18-1",
+        "date": "2026-10-18",
+        "body_sha256": "bd4d27fdfd3d8561bf7469a489552cce61687715d63965f9be29286b5027ab99",
+        "o200k": 1991
       }
     ]
   }

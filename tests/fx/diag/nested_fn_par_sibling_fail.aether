@@ -1,0 +1,14 @@
+// D64: a par branch writes a capture through a sibling while another branch
+// reads it through a sibling (PAR-001).
+fn main() -> Void {
+    let xs: Int[] = [0, 0];
+    fn put(i: Int) -> Void { xs[i] = i + 1; }
+    fn viaPut() -> Void { put(0); }
+    fn reader() -> Int { ret xs[1]; }
+    fn readerV() -> Void { let r = reader(); }
+    par {
+        viaPut();
+        readerV();
+    }
+    fx { println(xs[0]); }
+}

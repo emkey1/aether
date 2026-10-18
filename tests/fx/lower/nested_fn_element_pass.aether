@@ -1,0 +1,14 @@
+// D64: writing an element of an enclosing array, or appending to it, changes
+// the enclosing array (FUNC-002 under D62).
+fn main() -> Void {
+    let cols: Int[] = [0, 0, 0];
+    fn place(row: Int, col: Int) -> Void {
+        cols[row] = col;
+    }
+    fn grow(v: Int) -> Void {
+        cols = cols + [v];
+    }
+    place(0, 2);
+    grow(5);
+    fx { println(cols[0]); println(length(cols)); println(cols[3]); }
+}

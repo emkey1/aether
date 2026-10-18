@@ -1,6 +1,6 @@
-// D62: a nested fn reads its enclosing function's locals but may not assign
-// them (FUNC-002). Models write this to count N-Queens solutions; the fix is
-// to return the count, or keep it in a record field.
+// D64: a nested fn assigns its enclosing function's local and the enclosing
+// variable changes (it was FUNC-002 under D62). Models write this to count
+// N-Queens solutions.
 fn main() -> Void {
     let n: Int = 4;
     let count: Int = 0;

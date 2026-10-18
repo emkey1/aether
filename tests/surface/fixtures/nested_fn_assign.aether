@@ -1,6 +1,11 @@
 fn main() -> Void {
     let count = 0;
-    fn bump() -> Void { count = count + 1; }
-    bump();
-    fx { println(count); }
+    let seen: Int[] = [];
+    fn bump(v: Int) -> Void {
+        count = count + 1;
+        seen = seen + [v];
+    }
+    bump(4);
+    bump(7);
+    fx { println(count); println(seen[1]); }
 }

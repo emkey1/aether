@@ -1,0 +1,11 @@
+// D64: one par branch changes a captured local that another branch reads
+// through a call argument (PAR-001).
+fn show(v: Int) -> Void { fx { println(v); } }
+fn main() -> Void {
+    let total = 0;
+    fn add(k: Int) -> Void { total = total + k; }
+    par {
+        add(1);
+        show(total);
+    }
+}

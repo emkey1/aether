@@ -1,0 +1,22 @@
+// D64: union-find whose nested find compresses paths in the captured parent
+// array, called recursively and through a sibling.
+fn components(n: Int, edges: Int[][]) -> Int {
+    let parent: Int[] = [];
+    loop i in 0..n { parent = parent + [i]; }
+    fn find(x: Int) -> Int {
+        if parent[x] != x { parent[x] = find(parent[x]); }
+        ret parent[x];
+    }
+    fn union(a: Int, b: Int) -> Void {
+        let ra = find(a);
+        let rb = find(b);
+        if ra != rb { parent[ra] = rb; }
+    }
+    loop e in edges { union(e[0], e[1]); }
+    let roots = 0;
+    loop i in 0..n { if find(i) == i { roots = roots + 1; } }
+    ret roots;
+}
+fn main() -> Void {
+    fx { println(components(6, [[0, 1], [1, 2], [3, 4]])); }
+}

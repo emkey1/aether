@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-17-4*
+*Guide version: 2026-10-18-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -96,12 +96,13 @@ If you only read one part of this document, read **Highest-Value Rules** and
     To run your own code concurrently, call your functions inside a
     `par { ... }` block (see **Concurrency**), not `task_spawn`. A `fn` inside
     a free function's body is a nested function (**Nested functions**): it
-    reads that function's parameters and earlier locals, never assigns them
-    (FUNC-002), and is not a value either.
+    reads and assigns that function's parameters and earlier locals, and is
+    not a value either.
 21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     same record to two branches races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
-    combine the results after the block.
+    combine the results after the block. The same holds for an enclosing local
+    that a nested fn assigns: only one branch may use it.
 22. **MS-001.** `MStream` is the opaque memory-stream handle type.
     `mstream_new()` / `mstream_from_text(text)` return `MStream` — never
     declare the binding `Int` or `Text`. Extract contents with
@@ -174,11 +175,11 @@ when unsure about a type, add it explicitly.
   `setlength`, and the unprefixed `mstream*` names: none of them is Aether. Each
   is SCOPE-001 (`File` is TYPE-002) with a hint naming the form to write — see
   **Removed spellings** under Repair rules
-- annotations inside a function body (ANN-001)
+- annotations inside a function body, except directly above a nested `fn`
+  (ANN-001)
 - a tuple index chained directly onto a call: `pair().0` — bind it first,
   `let t = pair(); t.0;` (TUP-001)
-- a nested `fn` that assigns a local of its enclosing function (FUNC-002), or a
-  `fn` nested two deep or inside a method (FUNC-001)
+- a `fn` nested two deep or inside a method (FUNC-001)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. The fractional part is discarded silently — this is
   a `[NARROW-001]` **warning**, so it still compiles. Write `int(...)` when the
@@ -343,41 +344,39 @@ fn add(a: Int, b: Int) -> Int {
 }
 ```
 
-### Nested functions (FUNC-002)
+### Nested functions
 
 A `fn` declared inside the body of a free top-level function is a nested
-function. It reads the enclosing function's parameters and the locals declared
-before it, calls itself and its sibling nested functions, and is called by name
-after its declaration:
+function. It reads and assigns the enclosing function's parameters and the
+locals declared before it, calls itself and its sibling nested functions, and
+is called by name after its declaration:
 
 ```aether
-type Tally {
-    hits: Int = 0;
-}
-
 fn countQueens(n: Int) -> Int {
-    let tally: Tally = new Tally();
-    fn safe(cols: Int[], row: Int, col: Int) -> Bool {
+    let count = 0;
+    let cols: Int[] = [];
+    fn safe(col: Int) -> Bool {
+        let row = length(cols);
         loop r in 0..row {
             if cols[r] == col || abs(cols[r] - col) == row - r { ret false; }
         }
         ret true;
     }
-    fn place(cols: Int[], row: Int) -> Void {
+    fn place(row: Int) -> Void {
         if row == n {
-            tally.hits = tally.hits + 1;     // a record field: allowed
+            count = count + 1;          // changes countQueens's count
             ret;
         }
         loop col in 0..n {
-            if safe(cols, row, col) {
-                let next: Int[] = cols + [col];
-                place(next, row + 1);
+            if safe(col) {
+                cols = cols + [col];    // appends to countQueens's cols
+                place(row + 1);
+                cols = cols[..row];     // and takes it off again
             }
         }
     }
-    let start: Int[] = [];
-    place(start, 0);
-    ret tally.hits;
+    place(0);
+    ret count;
 }
 
 fn main() -> Void {
@@ -389,12 +388,17 @@ fn main() -> Void {
 4 92
 ```
 
-- It **reads, never assigns**: `count = count + 1;`, `cols[r] = c;` or
-  `xs = xs + [v];` on an enclosing local is FUNC-002. Return the new value and
-  assign it in the enclosing function, or keep shared state in a record field
-  (`tally.hits` above): records are shared, the same rule as `par`.
-- A read sees the local's value at the time of the call. An array it reads is
-  passed without a copy, so recursion over a large array stays cheap.
+- An assignment, an element write (`cols[r] = c;`) or an append
+  (`xs = xs + [v];`) in a nested fn changes the enclosing function's variable
+  itself, and every later read, in the nested fn or in the enclosing function,
+  sees the new value. Each call of the enclosing function has its own locals,
+  so a recursive enclosing function is fine.
+- An array it only reads is passed without a copy, so recursion over a large
+  array stays cheap.
+- `@pure`, `@pre` and `@post` go directly above a nested fn as above any fn. A
+  `@pure` nested fn may read the enclosing locals but not assign them (ANN-001).
+- In `par`, a nested fn that assigns an enclosing local may run in one branch
+  only: if another branch also uses that local, it is PAR-001.
 - One level deep, free functions only: a `fn` inside a nested `fn`, or inside a
   method (methods do not capture, METH-001), is FUNC-001. One declared in an
   inner block is visible only in that block.
@@ -2027,9 +2031,6 @@ does not exist — re-read the message rather than inventing a rule for it.
   Previously-appended rows *are* readable as `table[i - 1][j]`. If the index is
   genuinely meant to be in range, the loop bound is what to fix — remember
   `loop i in 0..n` is half-open, so the last valid index is `n - 1`.
-- **[FUNC-002]** a nested `fn` assigned a local of its enclosing function →
-  return the new value and assign it in the enclosing function, or keep the
-  state in a record field (`st.count = st.count + 1;`).
 - **[CON-001]** *(runtime)* `Aether @pre failed in f` (or `@post`) on stderr,
   exit status 1: a call broke `f`'s contract. For `@pre` the caller passed a bad
   argument; for `@post`, `f` computed the wrong `result`. Fix the code, not the

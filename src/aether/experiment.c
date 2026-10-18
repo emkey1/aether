@@ -548,7 +548,8 @@ static unsigned long long refResizeMask(const AST *fn) {
     for (int i = 0; i < fn->child_count && pi < 64; i++) {
         const AST *d = fn->children[i];
         if (!d || d->type != AST_VAR_DECL) continue;
-        if (d->by_ref && d->child_count > 0 && body && refBodyResizes(body, varName(d->children[0])))
+        if (d->by_ref && d->var_type == TYPE_ARRAY && d->child_count > 0 && body &&
+            refBodyResizes(body, varName(d->children[0])))
             mask |= 1ULL << pi;
         pi++;
     }
@@ -647,7 +648,8 @@ static void refHoistIn(RefCtx *c, AST *n, AST **out, int *nout, int maxOut, int 
                     !inLoopCond && *nout < maxOut) {
                     out[(*nout)++] = buildArrayUnaliasStmt(n->children[pi], nodeLineOf(n->children[pi]));
                 }
-                if (pi < n->child_count && d->by_ref && !refIsLvalue(c, n->children[pi])) {
+                if (pi < n->child_count && d->by_ref && d->var_type == TYPE_ARRAY &&
+                    !refIsLvalue(c, n->children[pi])) {
                     AST *arg = n->children[pi];
                     char idx[16];
                     snprintf(idx, sizeof(idx), "%d", pi);
@@ -875,7 +877,8 @@ static void refWalkFunctions(RefCtx *c, AST *n) {
         rp.n = 0;
         for (int i = 0; i < n->child_count && rp.n < 64; i++) {
             const AST *d = n->children[i];
-            if (d && d->type == AST_VAR_DECL && d->by_ref && d->child_count > 0 && varName(d->children[0])) {
+            if (d && d->type == AST_VAR_DECL && d->by_ref && d->var_type == TYPE_ARRAY &&
+                d->child_count > 0 && varName(d->children[0])) {
                 rp.names[rp.n] = varName(d->children[0]);
                 rp.types[rp.n] = d->right;
                 rp.n++;
@@ -889,8 +892,17 @@ static void refWalkFunctions(RefCtx *c, AST *n) {
     for (int i = 0; i < n->child_count; i++) refWalkFunctions(c, n->children[i]);
 }
 
+static int g_byRefCaptures = 0;
+
+void aetherNoteByRefCaptures(void) {
+    g_byRefCaptures = 1;
+}
+
+/* The by-reference shims: the arrays=ref arm's, and since D64 the ones for
+ * nested fns' written captures (the only by-reference parameters outside that
+ * arm). Both only touch array parameters marked by_ref. */
 void aetherRunExperimentsBeforeRea(AST *root) {
-    if (!root || aetherExperiment()->arrays != AETHER_ARRAYS_REF) return;
+    if (!root || (aetherExperiment()->arrays != AETHER_ARRAYS_REF && !g_byRefCaptures)) return;
     RefCtx c;
     memset(&c, 0, sizeof(c));
     refIndex(&c, root, 1);
