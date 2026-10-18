@@ -573,7 +573,7 @@ def build_corpus_instruction_records(
             "messages": [
                 {
                     "role": "system",
-                    "content": PYTHON_SYSTEM if python else "You generate canonical Aether. When asked for code, output raw Aether source only.",
+                    "content": "You generate canonical Aether. When asked for code, output raw Aether source only.",
                 },
                 {
                     "role": "user",
