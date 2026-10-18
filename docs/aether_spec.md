@@ -2010,7 +2010,9 @@ Aether (D55, language 2026-10-17-3). A call to `copy`, `pos`, `stringofchar`,
 `val`, `valreal`, `itoa`, `inttostr`, `assign`, `reset`, `rewrite`, `append`,
 `close`, `eof`, `erase`, `rename`, `readln`, `read`, `paramcount`, `paramstr`,
 `gettime`, `getdate`, `setlength` or an unprefixed `mstream*` name is SCOPE-001,
-with a hint naming the modern form, unless the program declares a function of
+with a hint naming the modern form, as is a call to `mstream_append_text` or
+`mstream_append_byte` (renamed `mstream_write_text` and `mstream_write_byte` by
+D66, language 2026-10-18-2), unless the program declares a function of
 that name itself; the type `File` is TYPE-002. Each spelling has an entry in
 `tests/surface/registry.json`.
 

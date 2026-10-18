@@ -2,14 +2,14 @@
 //   a(n) = (a(n-1)*a(n-3) + a(n-2)^2) / a(n-4)
 // Every term is an integer despite the division at every step -- the
 // "Laurent phenomenon," proved by Fomin and Zelevinsky in 2002. This
-// walk logs every step into an MStream (byte-appended one character at
-// a time via mstreamappendbyte) and flushes it once at the end.
+// walk logs every step into an MStream (written one byte per character
+// via mstream_write_byte) and flushes it once at the end.
 
 fn appendText(ms: MStream, text: Text) -> Void {
     let n: Int = length(text);
     loop i in 0..n {
         let ch: Text = text[i..i + 1];
-        mstream_append_byte(ms, ord(ch));
+        mstream_write_byte(ms, ord(ch));
     }
     ret;
 }

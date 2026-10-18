@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-18-1*
+*Guide version: 2026-10-18-2*
 
 Everything needed to write correct Aether in one shot.
 
@@ -1084,7 +1084,7 @@ in an `MStream` out-buffer.
   status; `body` is the request payload (`""` for GET); `out` is an initialized
   `MStream`
 - `mstream_new() -> MStream`, `mstream_from_text(text) -> MStream`,
-  `mstream_text(ms) -> Text`, `mstream_append_text(ms, t)`,
+  `mstream_text(ms) -> Text`, `mstream_write_text(ms, t)`,
   `mstream_length(ms) -> Int`, `mstream_free(ms)` — all pure;
   `mstream_load(path) -> MStream` and `mstream_save(ms, path)` touch files.
 

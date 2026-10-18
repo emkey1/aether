@@ -1301,8 +1301,8 @@ static int expectedOpaqueArgKind(const char *name, size_t len, int *expectsKind)
         (len == 12 && strncmp(name, "mstream_free", len) == 0) ||
         (len == 12 && strncmp(name, "mstream_save", len) == 0) ||
         (len == 14 && strncmp(name, "mstream_length", len) == 0) ||
-        (len == 19 && strncmp(name, "mstream_append_text", len) == 0) ||
-        (len == 19 && strncmp(name, "mstream_append_byte", len) == 0) ||
+        (len == 18 && strncmp(name, "mstream_write_text", len) == 0) ||
+        (len == 18 && strncmp(name, "mstream_write_byte", len) == 0) ||
         (len == 13 && strncasecmp(name, "mstreambuffer", len) == 0) ||
         (len == 11 && strncasecmp(name, "mstreamfree", len) == 0) ||
         (len == 17 && strncasecmp(name, "mstreamsavetofile", len) == 0) ||

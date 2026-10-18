@@ -45,6 +45,8 @@ FORBIDDEN = {
     "toon_array_len", "toon_size", "toon_count", "toon_keys", "yyjson_parse_file", "yyjson_parse",
     "json_parse", "mstream_new", "mstream_create", "mstream_write", "mstream_read", "mstream_free",
     "mstream_buffer", "mstream_from_string",
+    # Removed by D66 (2026-10-18): the write verbs replaced them.
+    "mstream_append_text", "mstream_append_byte",
 }
 _IDENT = re.compile(r"[A-Za-z_][A-Za-z0-9_]*")
 

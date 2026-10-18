@@ -12656,7 +12656,7 @@
     {
       "source_path": "/tmp/aether_harvest/claude_somos4_laurent_phenomenon.aether",
       "repo_path": "training/corpus_candidates/claude_somos4_laurent_phenomenon.aether",
-      "sha256": "419018a8c6691872ba3cd29adabcd1e9432a90635413e0181f95f0c8c80e3415",
+      "sha256": "b856b412c675dd68791d19521fc5da367fec5f10f64e1fa6f8a14216a1c9a4fb",
       "stdout": "Somos-4 sequence trace\nn=1..4: 1, 1, 1, 1 (seeds)\nn=5: -> 2\nn=6: -> 3\nn=7: -> 7\nn=8: -> 23\nn=9: -> 59\nn=10: -> 314\nn=11: -> 1529\nn=12: -> 8209\nn=13: -> 83313\n\nEvery division above came out exact -- the Laurent phenomenon holds.\n",
       "metadata": {
         "include_in_training": true,
@@ -12668,7 +12668,7 @@
           "recurrence",
           "mstream_write"
         ],
-        "notes": "Somos-4 recurrence (OEIS A006720): division at every step never leaves a remainder (the Laurent phenomenon, Fomin-Zelevinsky 2002), checked at runtime; trace log built via the real mstreamappendbyte(ms, byte) builtin (one byte per char, via copy+ord) -- this was already callable from Aether source (confirmed 2026-07-22 by a clean before/after rebuild), just previously undocumented in the LLM guide, now added there",
+        "notes": "Somos-4 recurrence (OEIS A006720): division at every step never leaves a remainder (the Laurent phenomenon, Fomin-Zelevinsky 2002), checked at runtime; trace log built via mstream_write_byte(ms, byte) (the engine's mstreamappendbyte) (one byte per char, via copy+ord) -- this was already callable from Aether source (confirmed 2026-07-22 by a clean before/after rebuild), just previously undocumented in the LLM guide, now added there",
         "recaptured": {
           "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
           "date": "2026-07-25",

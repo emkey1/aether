@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Rewrite Pascal-era Aether spellings to the modern surface (D55, 2026-10-17).
+"""Rewrite Pascal-era Aether spellings to the modern surface (D55, 2026-10-17; D66).
 
 The mechanical cases are rewritten in place; the rest are reported, one line
 per site, for a hand migration (they change a program's shape: the File
@@ -16,8 +16,10 @@ Rewritten:
     paramstr(i)                         -> args()[i - 1]  (paramstr(0) -> "")
     mstreamcreate / mstreamfromstring / mstreambuffer / mstreamappendbyte /
     mstreamsavetofile / mstreamfree     -> mstream_new / mstream_from_text /
-                                           mstream_text / mstream_append_byte /
+                                           mstream_text / mstream_write_byte /
                                            mstream_save / mstream_free
+    mstream_append_text / mstream_append_byte
+                                        -> mstream_write_text / mstream_write_byte (D66)
 Reported (hand migration): val, valreal, the File sequence (assign, reset,
 rewrite, append, close, eof, erase, rename, `: File`), readln/read,
 gettime/getdate, setlength, mstreamloadfromfile.
@@ -51,9 +53,12 @@ RENAMES = {
     "mstreamcreate": "mstream_new",
     "mstreamfromstring": "mstream_from_text",
     "mstreambuffer": "mstream_text",
-    "mstreamappendbyte": "mstream_append_byte",
+    "mstreamappendbyte": "mstream_write_byte",
     "mstreamsavetofile": "mstream_save",
     "mstreamfree": "mstream_free",
+    # D66 (2026-10-18): the append verbs became write verbs.
+    "mstream_append_text": "mstream_write_text",
+    "mstream_append_byte": "mstream_write_byte",
 }
 HAND = {
     "val": "let (n, ok) = try_parse_int(t);",

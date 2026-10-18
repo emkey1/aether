@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-18-1*
+*Guide version: 2026-10-18-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -172,7 +172,9 @@ when unsure about a type, add it explicitly.
 - `copy`, `pos`, `stringofchar`, `val`/`valreal`, `itoa`/`inttostr`, the `File`
   type with `assign`/`reset`/`rewrite`/`append`/`readln`/`writeln(f, ...)`/
   `eof`/`close`/`erase`/`rename`, `paramcount`/`paramstr`, `gettime`/`getdate`,
-  `setlength`, and the unprefixed `mstream*` names: none of them is Aether. Each
+  `setlength`, the unprefixed `mstream*` names, and `mstream_append_text`/
+  `mstream_append_byte` (write `mstream_write_text`/`mstream_write_byte`): none
+  of them is Aether. Each
   is SCOPE-001 (`File` is TYPE-002) with a hint naming the form to write — see
   **Removed spellings** under Repair rules
 - annotations inside a function body, except directly above a nested `fn`
@@ -2098,7 +2100,8 @@ replacement:
 | `paramcount()`, `paramstr(i)` | `length(args())`, `args()[i - 1]` |
 | `gettime(h, m, s, cs)`, `getdate(y, m, d, wd)` | `clock_ms()`, `now_text()` |
 | `setlength(xs, n)` | `[0; n]` for a fresh array, `xs = xs[..n];` to shrink, `xs = xs + [v];` to grow |
-| `mstreamcreate`, `mstreamfromstring`, `mstreambuffer`, `mstreamappendbyte`, `mstreamloadfromfile`, `mstreamsavetofile`, `mstreamfree` | `mstream_new`, `mstream_from_text`, `mstream_text`, `mstream_append_byte`, `mstream_load(path)`, `mstream_save`, `mstream_free` |
+| `mstreamcreate`, `mstreamfromstring`, `mstreambuffer`, `mstreamappendbyte`, `mstreamloadfromfile`, `mstreamsavetofile`, `mstreamfree` | `mstream_new`, `mstream_from_text`, `mstream_text`, `mstream_write_byte`, `mstream_load(path)`, `mstream_save`, `mstream_free` |
+| `mstream_append_text`, `mstream_append_byte` | `mstream_write_text`, `mstream_write_byte` |
 
 A program may still declare its own function with one of these names
 (`fn rename(...)`); calls then reach it.
@@ -2195,8 +2198,8 @@ an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 | `mstream_new()` | `() -> MStream` | no (pure memory) |
 | `mstream_from_text(text)` | `(Text) -> MStream` | no |
 | `mstream_text(ms)` | `(MStream) -> Text` (stream contents) | no |
-| `mstream_append_text(ms, text)` | `(MStream, Text) -> Void` | no |
-| `mstream_append_byte(ms, byte)` | `(MStream, Int) -> Void` (appends one byte, `byte & 0xFF`) | no |
+| `mstream_write_text(ms, text)` | `(MStream, Text) -> Void` (writes at the end) | no |
+| `mstream_write_byte(ms, byte)` | `(MStream, Int) -> Void` (writes one byte at the end, `byte & 0xFF`) | no |
 | `mstream_length(ms)` | `(MStream) -> Int` (bytes) | no |
 | `mstream_free(ms)` | `(MStream) -> Void` | no |
 | `mstream_load(path)` | `(Text) -> MStream` — a new stream with the file's bytes (a file that cannot be read is a run-time error) | yes (file I/O) |
@@ -2505,13 +2508,13 @@ Safe to call exactly as written.
 | `index_of(s: Text, x: Text) -> Int; index_of(xs: T[], v: T) -> Int` | pure |
 | `join(xs: Text[], sep: Text) -> Text` | pure |
 | `lower(s: Text) -> Text` | pure |
-| `mstream_append_byte(ms: MStream, b: Int) -> Void` | pure |
-| `mstream_append_text(ms: MStream, t: Text) -> Void` | pure |
 | `mstream_free(ms: MStream) -> Void` | pure |
 | `mstream_from_text(t: Text) -> MStream` | pure |
 | `mstream_length(ms: MStream) -> Int` | pure |
 | `mstream_new() -> MStream` | pure |
 | `mstream_text(ms: MStream) -> Text` | pure |
+| `mstream_write_byte(ms: MStream, b: Int) -> Void` | pure |
+| `mstream_write_text(ms: MStream, t: Text) -> Void` | pure |
 | `repeat(s: Text, n: Int) -> Text` | pure |
 | `replace(s: Text, old: Text, new: Text) -> Text` | pure |
 | `starts_with(s: Text, prefix: Text) -> Bool` | pure |

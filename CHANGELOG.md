@@ -12,6 +12,47 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-18-2
+
+**MStream write verbs** (decision D66, accepted by the owner on 2026-10-18).
+`mstream_append_text(ms, t)` is now `mstream_write_text(ms, t)` and
+`mstream_append_byte(ms, b)` is now `mstream_write_byte(ms, b)`; the meaning
+is unchanged (the bytes go at the end of the stream). Reverses D61's two
+append names. The engine-private builtin keeps its name; pscal-core changes
+only the run-time messages and the builtin listing.
+
+- **The old names are removed, not aliased** (class 2, as the D55 removals):
+  a call to `mstream_append_text` or `mstream_append_byte` is SCOPE-001 with
+  the hint ``write `mstream_write_text(ms, t)` (it adds t's bytes at the
+  end)`` or ``write `mstream_write_byte(ms, b)` (it adds one byte at the
+  end)``, unless the program declares a function of that name itself. The
+  engine spelling `mstreamappendbyte` now hints `mstream_write_byte`.
+- **Why.** "append" carried a Pascal-era feel (it descends from
+  `mstreamappendbyte`); the run-5 fine-tune independently invented
+  `mstream_write_text` twice; in modern languages `write` on a stream already
+  means add at the end (Python `.write()`, Go's `Writer`). One canonical name
+  per operation (D55), so no alias.
+- **Did-you-mean hints** (SCOPE-001) for invented spellings now name the
+  write verbs: `mstream_append`, `mstream_write`, `mstream_put`,
+  `mstreamwrite` (both verbs); `mstream_write_bytes`, `mstream_append_bytes`,
+  `mstream_write_string`/`_str`, `mstream_append_string`/`_str`,
+  `mstreamappendtext`, `mstreamappendbytes`, `mstreamwritetext`
+  (`mstream_write_text`); `mstreamwritebyte` (`mstream_write_byte`);
+  `mstream_write_char`, `mstream_append_char` (`mstream_write_byte(ms,
+  ord(ch))`).
+- **Migration.** `tools/modernize_surface.py` rewrites the two old names (and
+  `mstreamappendbyte`) to the write verbs. Migrated in this release: the
+  surface registry (`helper_mstream`; new `removed_mstream_append_text`,
+  `removed_mstream_append_byte`), the seed instruction solutions (15 pairs,
+  one prompt), the repair drills' fixed sources, one corpus program (manifest
+  sha256 refreshed), and the reference solutions of three sealed TOON tasks
+  (not a grading field; prompts and expected output unchanged). No archived
+  benchmark attempt used the old names, so there is no replay waiver.
+- **Docs.** Full guide (HTTP/MStream table, the removed-spellings table and
+  bullet, the regenerated builtin appendix), medium guide (the MStream
+  bullet), spec section 6.1, decision register (D66 row; D61 row notes the
+  rename).
+
 ## 2026-10-18-1
 
 **Nested functions assign their enclosing locals; annotations above a nested fn**

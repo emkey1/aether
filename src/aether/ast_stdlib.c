@@ -3,8 +3,9 @@
  *
  * Two jobs. The Pascal-era builtins the engine still has for its other front
  * ends (copy, pos, val, the File sequence, paramstr, inttostr, the unprefixed
- * mstream* names, ...) are not Aether: a call to one is a SCOPE-001 whose hint
- * names the modern form (class 2, tests/surface/registry.json). And
+ * mstream* names, ...) and the append verbs D66 renamed are not Aether: a call
+ * to one is a SCOPE-001 whose hint names the modern form (class 2,
+ * tests/surface/registry.json). And
  * sorted_by / sorted_by_desc take their field name as a literal, checked here
  * against the element type's fields (FIELD-002) and lowered to the field's
  * record slot, because the engine's records carry no field names.
@@ -64,10 +65,14 @@ static const AetherRemovedBuiltin kAetherRemovedBuiltins[] = {
     { "mstreamcreate", "write `mstream_new()`" },
     { "mstreamfromstring", "write `mstream_from_text(t)`" },
     { "mstreambuffer", "write `mstream_text(ms)`" },
-    { "mstreamappendbyte", "write `mstream_append_byte(ms, b)`" },
+    { "mstreamappendbyte", "write `mstream_write_byte(ms, b)`" },
     { "mstreamloadfromfile", "write `let ms = mstream_load(path);` (it returns a new MStream)" },
     { "mstreamsavetofile", "write `mstream_save(ms, path)`" },
     { "mstreamfree", "write `mstream_free(ms)`" },
+    /* D66: the 2026-10-17 append verbs, renamed to write (one name per
+     * operation, D55). */
+    { "mstream_append_text", "write `mstream_write_text(ms, t)` (it adds t's bytes at the end)" },
+    { "mstream_append_byte", "write `mstream_write_byte(ms, b)` (it adds one byte at the end)" },
 };
 
 const char *aetherRemovedBuiltinHint(const char *name) {

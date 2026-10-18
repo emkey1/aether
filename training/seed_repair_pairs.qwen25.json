@@ -460,7 +460,7 @@
       "kind": "repair",
       "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'mstreamcreate' not in scope.",
       "broken_source": "fn main() -> Void {\n    let ms: MStream = mstreamcreate();\n    mstreamappendbyte(ms, 72);\n    mstreamappendbyte(ms, 105);\n    fx { println(mstreambuffer(ms)); }\n    mstreamfree(ms);\n    ret;\n}\n",
-      "fixed_source": "fn main() -> Void {\n    let ms: MStream = mstream_new();\n    mstream_append_byte(ms, 72);\n    mstream_append_byte(ms, 105);\n    fx { println(mstream_text(ms)); }\n    mstream_free(ms);\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let ms: MStream = mstream_new();\n    mstream_write_byte(ms, 72);\n    mstream_write_byte(ms, 105);\n    fx { println(mstream_text(ms)); }\n    mstream_free(ms);\n    ret;\n}\n",
       "expected_stdout": "Hi\n",
       "note": "Repointed 2026-10-17 (D61): it taught mstream_new -> mstreamcreate, the inverse of the snake_case family, which is now the Aether surface."
     },

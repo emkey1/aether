@@ -1445,7 +1445,7 @@ static const char *aliasBuiltinName(const char *name) {
          * Exit(value), which returns n from the enclosing function and lets
          * the program carry on (exit 0). */
         { "exit",            "halt" },
-        /* The modern surface (D56, D60, D61): snake_case names over the
+        /* The modern surface (D56, D60, D61, D66): snake_case names over the
          * engine's existing builtins. The engine spellings themselves are
          * removed from Aether (ast_stdlib.c). `upcase`/`toupper` (D21) are
          * whole-string now: they changed only the first character. */
@@ -1453,7 +1453,7 @@ static const char *aliasBuiltinName(const char *name) {
         { "mstream_new",         "mstreamcreate" },
         { "mstream_from_text",   "mstreamfromstring" },
         { "mstream_text",        "mstreambuffer" },
-        { "mstream_append_byte", "mstreamappendbyte" },
+        { "mstream_write_byte",  "mstreamappendbyte" },
         { "mstream_save",        "mstreamsavetofile" },
         { "mstream_free",        "mstreamfree" },
         { "upcase",              "aether_upper" },
@@ -1488,7 +1488,9 @@ static const char *aliasBuiltinName(const char *name) {
         { "args", "aether_args" },
         { "clock_ms", "aether_clock_ms" },
         { "now_text", "aether_now_text" },
-        { "mstream_append_text", "aether_mstream_append_text" },
+        /* D66: the surface verb is write; the engine-private name keeps
+         * "append" so a build of either age pairs with the other engine. */
+        { "mstream_write_text", "aether_mstream_append_text" },
         { "mstream_length", "aether_mstream_length" },
         { "mstream_load", "aether_mstream_load" },
         { "read_line", "aether_read_line" },

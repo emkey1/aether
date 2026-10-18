@@ -1033,12 +1033,35 @@
    "id": "removed_mstreamappendbyte",
    "class": 2,
    "spelling": "mstreamappendbyte(...)",
-   "canonical_form": "mstream_append_byte(ms, b)",
+   "canonical_form": "mstream_write_byte(ms, b)",
    "fixture": "fixtures/removed_mstreamappendbyte.aether",
    "code": "SCOPE-001",
    "decided": "D61",
    "status": "holds",
-   "hint": "mstream_append_byte(ms, b)"
+   "hint": "mstream_write_byte(ms, b)",
+   "note": "the hint names the D66 write verb"
+  },
+  {
+   "id": "removed_mstream_append_text",
+   "class": 2,
+   "spelling": "mstream_append_text(...)",
+   "canonical_form": "mstream_write_text(ms, t)",
+   "fixture": "fixtures/removed_mstream_append_text.aether",
+   "code": "SCOPE-001",
+   "decided": "D66",
+   "status": "holds",
+   "hint": "mstream_write_text(ms, t)"
+  },
+  {
+   "id": "removed_mstream_append_byte",
+   "class": 2,
+   "spelling": "mstream_append_byte(...)",
+   "canonical_form": "mstream_write_byte(ms, b)",
+   "fixture": "fixtures/removed_mstream_append_byte.aether",
+   "code": "SCOPE-001",
+   "decided": "D66",
+   "status": "holds",
+   "hint": "mstream_write_byte(ms, b)"
   },
   {
    "id": "removed_mstreamloadfromfile",
@@ -1390,7 +1413,7 @@
   {
    "id": "helper_mstream",
    "class": 1,
-   "spelling": "mstream_new, mstream_append_text, mstream_append_byte, mstream_length, mstream_text, mstream_from_text, mstream_free",
+   "spelling": "mstream_new, mstream_write_text, mstream_write_byte, mstream_length, mstream_text, mstream_from_text, mstream_free",
    "canonical_form": "mstream_new() and the snake_case family",
    "fixture": "fixtures/helper_mstream.aether",
    "twin": "fixtures/helper_mstream.canon.aether",
