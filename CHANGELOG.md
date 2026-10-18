@@ -72,6 +72,14 @@ unchanged.
   twin, new `nested_fn_par_write` (class 2, PAR-001) and `nested_fn_annotated`
   (class 1). Spec: `G.NestedFn.2` is `@ok`; new `G.NestedFn.4` (PAR-001) and
   `G.NestedFn.5` (ANN-001).
+- **ANN-001 for an annotation in a body.** `@pre`/`@post`/`@pure` inside a
+  function body with no `fn` after it was the generic SYN-001; it is ANN-001
+  now, with a placement hint (spec `G.Annotation.3`; three drills re-pinned).
+- The tracked replay (instrument check, b9f29b1) is unchanged attempt for
+  attempt (it holds none of the nested-fn attempts): first attempts 242->219,
+  42 waived (the D55 class), 0 unwaived; corpus drift 0; oracle 204/204;
+  dataset gates pass. The gain is in the archive the census reads: 18 attempts
+  move from coded error to pass (15 writers, 3 annotated).
 
 ## 2026-10-17-5
 
