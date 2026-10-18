@@ -143,7 +143,9 @@ def _template_re(snippet: str) -> re.Pattern:
         parts += [re.escape(snippet[pos:m.start()]), r".+?"]
         pos = m.end()
     parts.append(re.escape(snippet[pos:]))
-    return re.compile("^" + "".join(parts) + "$")
+    # "`Filled: ` followed by the count" quotes a prefix, not a whole line.
+    prefix = snippet != snippet.rstrip() or snippet.rstrip().endswith(":")
+    return re.compile("^" + "".join(parts) + (".*" if prefix else "$"))
 
 
 def prompt_contradictions(prompt: str, stdout: str) -> list[str]:

@@ -22,6 +22,10 @@ class PromptContradictionTests(unittest.TestCase):
         prompt = "Line 1: `TANK REPORT`\nLine 2: `Filled: N`\nLine 3: `Lowest: <name>`"
         self.assertEqual(distill.prompt_contradictions(prompt, "TANK REPORT\nFilled: 3\nLowest: Kelp\n"), [])
 
+    def test_quoted_prefix_matches_a_longer_line(self):
+        prompt = "Line 2: `Filled: ` followed by the count\nLine 3: `Missing species:` then names"
+        self.assertEqual(distill.prompt_contradictions(prompt, "TANK\nFilled: 3\nMissing species: Kelp\n"), [])
+
     def test_prompt_without_line_specs_passes(self):
         self.assertEqual(distill.prompt_contradictions("Print the total.", "42\n"), [])
 
