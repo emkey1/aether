@@ -310,5 +310,22 @@ class Contamination(unittest.TestCase):
         self.assertIsNone(contam.runnable_program("fn helper() -> Int { ret 1; }"))
 
 
+
+class PythonCapTests(unittest.TestCase):
+    def manifest(self):
+        pairs = [{"id": f"a{i}"} for i in range(5)] + [{"id": f"p{i}_py", "language": "python"} for i in range(10)]
+        return {"pairs": pairs}
+
+    def test_cap_keeps_every_aether_pair_and_limit_python_pairs(self):
+        capped = bd.cap_python_pairs(self.manifest(), 4)
+        self.assertEqual(sum(1 for p in capped["pairs"] if p.get("language") == "python"), 4)
+        self.assertEqual(sum(1 for p in capped["pairs"] if p.get("language") != "python"), 5)
+        self.assertEqual(capped["python_cap"], {"available": 10, "kept": 4})
+
+    def test_cap_is_stable_and_none_keeps_all(self):
+        self.assertEqual(bd.cap_python_pairs(self.manifest(), 4), bd.cap_python_pairs(self.manifest(), 4))
+        self.assertEqual(len(bd.cap_python_pairs(self.manifest(), None)["pairs"]), 15)
+        self.assertNotIn("python_cap", bd.cap_python_pairs(self.manifest(), 50))
+
 if __name__ == "__main__":
     unittest.main()

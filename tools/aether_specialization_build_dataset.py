@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import collections
+import hashlib
 import json
 import os
 import pathlib
@@ -84,6 +85,18 @@ def read_instruction_manifests(paths: list[pathlib.Path]) -> dict[str, Any]:
             seen[item["id"]] = path
             pairs.append(item)
     return {"pairs": pairs}
+
+
+def cap_python_pairs(manifest: dict[str, Any], limit: int | None) -> dict[str, Any]:
+    """Keep at most `limit` `language: python` pairs, chosen by sha256 of the id so the choice is stable across
+    builds and spreads evenly over batches; Aether pairs are untouched. None keeps them all."""
+    pairs = manifest["pairs"]
+    python = [p for p in pairs if p.get("language") == "python"]
+    if limit is None or len(python) <= limit:
+        return manifest
+    keep = {p["id"] for p in sorted(python, key=lambda p: hashlib.sha256(p["id"].encode()).hexdigest())[:limit]}
+    return {"pairs": [p for p in pairs if p.get("language") != "python" or p["id"] in keep],
+            "python_cap": {"available": len(python), "kept": limit}}
 DEFAULT_REPAIR_MANIFEST = REPO_ROOT / "training" / "seed_repair_pairs.json"
 TOOLS_DIR = REPO_ROOT / "tools"
 CORPUS_DIR = REPO_ROOT / "training" / "corpus_candidates"
@@ -922,9 +935,9 @@ def build_and_gate(args: argparse.Namespace, benchmark_manifests: list[pathlib.P
     stamp = policy.aether_identity(args.aether_bin)
 
     corpus_payload = read_json(args.corpus_manifest)
-    instruction_records = build_instruction_records(
-        read_instruction_manifests(args.instruction_manifest), args.aether_bin, stamp
-    )
+    instruction_manifest = cap_python_pairs(read_instruction_manifests(args.instruction_manifest),
+                                            args.max_python_pairs)
+    instruction_records = build_instruction_records(instruction_manifest, args.aether_bin, stamp)
     corpus_instruction_records = build_corpus_instruction_records(
         corpus_payload,
         aether_bin=args.aether_bin,
@@ -996,6 +1009,7 @@ def build_and_gate(args: argparse.Namespace, benchmark_manifests: list[pathlib.P
         **stamp,
         "status": "failed" if details else "ok",
         "corpus_selection": selection,
+        "python_cap": instruction_manifest.get("python_cap"),
         "benchmark_overlap": {
             "manifests": [policy.display_path(path) for path in benchmark_manifests],
             "dropped": sorted(dropped_instruction + dropped_repair),
@@ -1120,6 +1134,9 @@ def main() -> int:
     parser.add_argument("--instruction-manifest", type=pathlib.Path, action="append", default=None,
                         help="instruction pairs file (repeatable; default: seed_instruction_pairs.json plus "
                         "every approved batch in distilled/)")
+    parser.add_argument("--max-python-pairs", type=int, default=None,
+                        help="keep at most this many language: python instruction pairs (stable sha256-of-id "
+                        "choice; default: all)")
     parser.add_argument("--repair-manifest", type=pathlib.Path, default=DEFAULT_REPAIR_MANIFEST)
     parser.add_argument("--instruction-jsonl", type=pathlib.Path, default=None,
                         help="output (required unless --check-gates)")

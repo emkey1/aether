@@ -1,5 +1,5 @@
 {
-  "_note": "Fifth run (owner, 2026-10-18): the modern surface. Same recipe as qwen38-27b-distill; data rebuilt on language 2026-10-18-1 (Pascal forms removed, modern stdlib, nested fns, D55-D65): the migrated corpus, d1-20261016 (Aether + Python pairs), and batch d2-20261018 (MiMo tasks, about a third JSON/file processing; Python by MiMo; Aether by the guided untrained Qwen3.8 with the 2026-10-18-1 medium guide), plus its Python pairs against Aether leaking into the model's Python.",
+  "_note": "Fifth run (owner, 2026-10-18): the modern surface. Same recipe as qwen38-27b-distill; data rebuilt on language 2026-10-18-1 (Pascal forms removed, modern stdlib, nested fns, D55-D65): the migrated corpus, d1-20261016 (Aether + Python pairs), and batch d2-20261018 (MiMo tasks, about a third JSON/file processing; Python by MiMo; Aether by the guided untrained Qwen3.8 with the 2026-10-18-1 medium guide), plus its Python pairs against Aether leaking into the model's Python. Python pairs capped at 200 of 555 (about 11% of instruction records): enough against leakage without spending a third of the early-stopped budget on Python.",
   "tag": "qwen38-27b-modern",
   "family": "qwen3_5",
   "hf_repo": "Qwen/Qwen3.8-27B",
@@ -25,7 +25,8 @@
     "id": "modern-20261018",
     "version": "2026-10-18-1",
     "aether_version": "2026-10-18-1",
-    "repair_manifest": "training/seed_repair_pairs.json"
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 200
   },
   "score": {
     "variants": [

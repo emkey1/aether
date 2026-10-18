@@ -524,7 +524,9 @@ def stage_dataset(run: dict, args) -> int:
         raise SystemExit(f"{aether_bin} is {version!r}, the run wants language {want}")
     sh([sys.executable, str(_SCRIPT_DIR / "aether_specialization_prepare_assets.py"), "--output-dir", str(out),
         "--aether-bin", str(aether_bin), "--repair-manifest", str(REPO_ROOT / run["dataset"]["repair_manifest"]),
-        "--version", run["dataset"].get("version", f"{datetime.date.today().isoformat()}-1")])
+        "--version", run["dataset"].get("version", f"{datetime.date.today().isoformat()}-1"),
+        *(["--max-python-pairs", str(run["dataset"]["max_python_pairs"])]
+          if run["dataset"].get("max_python_pairs") is not None else [])])
     leaks = {}
     for name in DATASET_FILES:
         found = sorted(set(PRIVATE.findall((out / name).read_text(encoding="utf-8"))))
@@ -545,6 +547,7 @@ def stage_dataset(run: dict, args) -> int:
         "aether_version": mix.get("aether_version"),
         "aether_sha256": mix.get("aether_sha256"),
         "repair_manifest": run["dataset"]["repair_manifest"],
+        "max_python_pairs": run["dataset"].get("max_python_pairs"),
         "records": {"instruction": mix.get("instruction_records"), "repair": mix.get("repair_records")},
         "files": {name: sha256(out / name) for name in DATASET_FILES},
     }
