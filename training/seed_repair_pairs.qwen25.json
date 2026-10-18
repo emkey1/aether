@@ -527,6 +527,237 @@
       "broken_source": "fn main() -> Void {\n    let f: File;\n    fx {\n        assign(f, \"tally.txt\");\n        rewrite(f);\n        writeln(f, \"3\");\n        writeln(f, \"4\");\n        close(f);\n        reset(f);\n        let total: Int = 0;\n        loop {\n            if eof(f) { break; }\n            let line: Text;\n            readln(f, line);\n            total = total + parse_int(line);\n        }\n        close(f);\n        println(\"total=\", total);\n    }\n    ret;\n}\n",
       "fixed_source": "fn main() -> Void {\n    fx {\n        write_file(\"tally.txt\", \"3\\n4\\n\");\n        let total: Int = 0;\n        loop line in read_lines(\"tally.txt\") {\n            total = total + parse_int(line);\n        }\n        println(\"total=\", total);\n        let gone: Bool = delete_file(\"tally.txt\");\n    }\n    ret;\n}\n",
       "expected_stdout": "total=7\n"
+    },
+    {
+      "id": "repair_fxread_hotel_rooms",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'toon_parse_file' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let doc: ToonDoc = toon_parse_file(\"rooms.json\");\n    let rooms: ToonNode = toon_key(toon_root(doc), \"rooms\");\n    let ready: Int = 0;\n    loop r in rooms {\n        if toon_get_bool_or(r, \"clean\", false) {\n            ready = ready + 1;\n        }\n    }\n    let total: Int = toon_len(rooms);\n    toon_close(doc);\n    fx {\n        println(\"rooms ready: \", ready, \" of \", total);\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let doc: ToonDoc;\n    fx {\n        doc = toon_parse_file(\"rooms.json\");\n    }\n    let rooms: ToonNode = toon_key(toon_root(doc), \"rooms\");\n    let ready: Int = 0;\n    loop r in rooms {\n        if toon_get_bool_or(r, \"clean\", false) {\n            ready = ready + 1;\n        }\n    }\n    let total: Int = toon_len(rooms);\n    toon_close(doc);\n    fx {\n        println(\"rooms ready: \", ready, \" of \", total);\n    }\n    ret;\n}\n",
+      "expected_stdout": "rooms ready: 3 of 4\n",
+      "files": {
+        "rooms.json": "{\"rooms\": [{\"no\": 101, \"clean\": true}, {\"no\": 102, \"clean\": false}, {\"no\": 103, \"clean\": true}, {\"no\": 104, \"clean\": true}]}\n"
+      }
+    },
+    {
+      "id": "repair_fxread_seed_catalog",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'read_file' requires an fx block.",
+      "broken_source": "fn loadCatalog(path: Text) -> Text[] {\n    let raw: Text = read_file(path);\n    ret split(trim(raw), \"\\n\");\n}\n\nfn main() -> Void {\n    let seeds: Text[] = loadCatalog(\"seeds.txt\");\n    fx {\n        loop s in seeds {\n            println(\"* \", s);\n        }\n        println(length(seeds), \" packets\");\n    }\n    ret;\n}\n",
+      "fixed_source": "fn loadCatalog(path: Text) -> Text[] {\n    let raw: Text = \"\";\n    fx {\n        raw = read_file(path);\n    }\n    ret split(trim(raw), \"\\n\");\n}\n\nfn main() -> Void {\n    let seeds: Text[] = loadCatalog(\"seeds.txt\");\n    fx {\n        loop s in seeds {\n            println(\"* \", s);\n        }\n        println(length(seeds), \" packets\");\n    }\n    ret;\n}\n",
+      "expected_stdout": "* Tomato Brandywine\n* Basil Genovese\n* Carrot Nantes\n3 packets\n",
+      "files": {
+        "seeds.txt": "Tomato Brandywine\nBasil Genovese\nCarrot Nantes\n"
+      }
+    },
+    {
+      "id": "repair_fxread_gym_checkins",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'read_lines' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let early: Int = 0;\n    let total: Int = 0;\n    loop line in read_lines(\"checkins.txt\") {\n        total = total + 1;\n        if starts_with(line, \"06:\") {\n            early = early + 1;\n        }\n    }\n    fx {\n        println(\"check-ins: \", total);\n        println(\"before 7am: \", early);\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let early: Int = 0;\n    let total: Int = 0;\n    fx {\n        loop line in read_lines(\"checkins.txt\") {\n            total = total + 1;\n            if starts_with(line, \"06:\") {\n                early = early + 1;\n            }\n        }\n    }\n    fx {\n        println(\"check-ins: \", total);\n        println(\"before 7am: \", early);\n    }\n    ret;\n}\n",
+      "expected_stdout": "check-ins: 4\nbefore 7am: 2\n",
+      "files": {
+        "checkins.txt": "06:10 Asha\n06:45 Leo\n07:20 Asha\n18:05 Mina\n"
+      }
+    },
+    {
+      "id": "repair_fxread_quilt_patterns",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'mstream_load' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let ms: MStream = mstream_load(\"pattern.txt\");\n    let text: Text = mstream_text(ms);\n    mstream_free(ms);\n    let rows: Text[] = split(trim(text), \"\\n\");\n    fx {\n        println(\"rows: \", length(rows));\n        println(\"dark squares: \", count(text, \"X\"));\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let ms: MStream;\n    fx {\n        ms = mstream_load(\"pattern.txt\");\n    }\n    let text: Text = mstream_text(ms);\n    mstream_free(ms);\n    let rows: Text[] = split(trim(text), \"\\n\");\n    fx {\n        println(\"rows: \", length(rows));\n        println(\"dark squares: \", count(text, \"X\"));\n    }\n    ret;\n}\n",
+      "expected_stdout": "rows: 3\ndark squares: 10\n",
+      "files": {
+        "pattern.txt": "XOXOXO\nOXOXOX\nXXOOXX\n"
+      }
+    },
+    {
+      "id": "repair_fxread_pet_shelter",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'file_exists' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let path: Text = \"waiting.txt\";\n    if file_exists(\"waiting_today.txt\") {\n        path = \"waiting_today.txt\";\n    }\n    let pets: Text[] = [];\n    fx {\n        pets = read_lines(path);\n    }\n    fx {\n        println(\"list: \", path);\n        loop p in pets {\n            println(\"  \", p);\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let path: Text = \"waiting.txt\";\n    fx {\n        if file_exists(\"waiting_today.txt\") {\n            path = \"waiting_today.txt\";\n        }\n    }\n    let pets: Text[] = [];\n    fx {\n        pets = read_lines(path);\n    }\n    fx {\n        println(\"list: \", path);\n        loop p in pets {\n            println(\"  \", p);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "list: waiting.txt\n  Biscuit (dog)\n  Marble (cat)\n  Pip (rabbit)\n",
+      "files": {
+        "waiting.txt": "Biscuit (dog)\nMarble (cat)\nPip (rabbit)\n"
+      }
+    },
+    {
+      "id": "repair_fxread_tide_table",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'read_lines' requires an fx block.",
+      "broken_source": "fn parseHighs(path: Text) -> Text[] {\n    let highs: Text[] = [];\n    loop line in read_lines(path) {\n        let f: Text[] = split(line, \" \");\n        if f[1] == \"high\" {\n            highs = highs + [f[0] + \" \" + f[2] + \" m\"];\n        }\n    }\n    ret highs;\n}\n\nfn main() -> Void {\n    fx {\n        loop h in parseHighs(\"tides.txt\") {\n            println(\"high tide \", h);\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "fn parseHighs(path: Text) -> Text[] {\n    let highs: Text[] = [];\n    fx {\n        loop line in read_lines(path) {\n            let f: Text[] = split(line, \" \");\n            if f[1] == \"high\" {\n                highs = highs + [f[0] + \" \" + f[2] + \" m\"];\n            }\n        }\n    }\n    ret highs;\n}\n\nfn main() -> Void {\n    fx {\n        loop h in parseHighs(\"tides.txt\") {\n            println(\"high tide \", h);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "high tide 03:12 4.1 m\nhigh tide 15:40 3.8 m\n",
+      "files": {
+        "tides.txt": "03:12 high 4.1\n09:25 low 0.6\n15:40 high 3.8\n21:55 low 0.9\n"
+      }
+    },
+    {
+      "id": "repair_fxread_orchard_rows",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'toon_parse_file' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let rows: Text[] = [];\n    fx {\n        rows = read_lines(\"rows.txt\");\n    }\n    let doc: ToonDoc = toon_parse_file(\"trees.json\");\n    let root: ToonNode = toon_root(doc);\n    let total: Int = 0;\n    fx {\n        loop r in rows {\n            let n: Int = toon_get_int_or(root, r, 0);\n            total = total + n;\n            println(r, \": \", n, \" trees\");\n        }\n        println(\"orchard: \", total, \" trees\");\n    }\n    toon_close(doc);\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let rows: Text[] = [];\n    let doc: ToonDoc;\n    fx {\n        rows = read_lines(\"rows.txt\");\n        doc = toon_parse_file(\"trees.json\");\n    }\n    let root: ToonNode = toon_root(doc);\n    let total: Int = 0;\n    fx {\n        loop r in rows {\n            let n: Int = toon_get_int_or(root, r, 0);\n            total = total + n;\n            println(r, \": \", n, \" trees\");\n        }\n        println(\"orchard: \", total, \" trees\");\n    }\n    toon_close(doc);\n    ret;\n}\n",
+      "expected_stdout": "R1: 14 trees\nR2: 11 trees\nR3: 16 trees\norchard: 41 trees\n",
+      "files": {
+        "rows.txt": "R1\nR2\nR3\n",
+        "trees.json": "{\"R1\": 14, \"R2\": 11, \"R3\": 16}\n"
+      }
+    },
+    {
+      "id": "repair_fxread_tram_stops",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'toon_parse_file' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let root: ToonNode = toon_root(toon_parse_file(\"stops.json\"));\n    let stops: ToonNode = toon_key(root, \"stops\");\n    let n: Int = toon_len(stops);\n    fx {\n        println(\"line \", toon_get_text_or(root, \"line\", \"?\"), \": \", n, \" stops\");\n        println(toon_text_value(toon_at(stops, 0)), \" -> \", toon_text_value(toon_at(stops, n - 1)));\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let doc: ToonDoc;\n    fx {\n        doc = toon_parse_file(\"stops.json\");\n    }\n    let root: ToonNode = toon_root(doc);\n    let stops: ToonNode = toon_key(root, \"stops\");\n    let n: Int = toon_len(stops);\n    fx {\n        println(\"line \", toon_get_text_or(root, \"line\", \"?\"), \": \", n, \" stops\");\n        println(toon_text_value(toon_at(stops, 0)), \" -> \", toon_text_value(toon_at(stops, n - 1)));\n    }\n    toon_close(doc);\n    ret;\n}\n",
+      "expected_stdout": "line T4: 5 stops\nDepot -> Harbour\n",
+      "files": {
+        "stops.json": "{\"line\": \"T4\", \"stops\": [\"Depot\", \"Market\", \"Old Bridge\", \"University\", \"Harbour\"]}\n"
+      }
+    },
+    {
+      "id": "repair_fxread_fx_block_scope",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] identifier 'lines' not in scope.",
+      "broken_source": "fn main() -> Void {\n    fx {\n        let lines: Text[] = read_lines(\"rowing_times.txt\");\n    }\n    let best: Text = \"\";\n    let bestTime: Int = 100000;\n    loop line in lines {\n        let parts: Text[] = split(line, \" \");\n        let t: Int = parse_int(parts[1]);\n        if t < bestTime {\n            bestTime = t;\n            best = parts[0];\n        }\n    }\n    fx {\n        println(\"fastest rower: \", best, \" (\", bestTime, \" s)\");\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let lines: Text[] = [];\n    fx {\n        lines = read_lines(\"rowing_times.txt\");\n    }\n    let best: Text = \"\";\n    let bestTime: Int = 100000;\n    loop line in lines {\n        let parts: Text[] = split(line, \" \");\n        let t: Int = parse_int(parts[1]);\n        if t < bestTime {\n            bestTime = t;\n            best = parts[0];\n        }\n    }\n    fx {\n        println(\"fastest rower: \", best, \" (\", bestTime, \" s)\");\n    }\n    ret;\n}\n",
+      "expected_stdout": "fastest rower: Tomas (398 s)\n",
+      "files": {
+        "rowing_times.txt": "Mira 412\nTomas 398\nIngrid 405\nPaavo 421\n"
+      }
+    },
+    {
+      "id": "repair_fxread_escape_room_rooms",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'toon_parse_file' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let rooms: Text[] = [\"vault.json\", \"study.json\"];\n    let lines: Text[] = [];\n    loop name in rooms {\n        let doc: ToonDoc = toon_parse_file(name);\n        let root: ToonNode = toon_root(doc);\n        let minutes: Int = 0;\n        loop p in toon_key(root, \"puzzles\") {\n            minutes = minutes + toon_get_int_or(p, \"minutes\", 0);\n        }\n        lines = lines + [toon_get_text_or(root, \"room\", name) + \": \" + int_to_text(minutes) + \" min\"];\n        toon_close(doc);\n    }\n    fx {\n        loop line in lines {\n            println(line);\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let rooms: Text[] = [\"vault.json\", \"study.json\"];\n    let lines: Text[] = [];\n    loop name in rooms {\n        let doc: ToonDoc;\n        fx {\n            doc = toon_parse_file(name);\n        }\n        let root: ToonNode = toon_root(doc);\n        let minutes: Int = 0;\n        loop p in toon_key(root, \"puzzles\") {\n            minutes = minutes + toon_get_int_or(p, \"minutes\", 0);\n        }\n        lines = lines + [toon_get_text_or(root, \"room\", name) + \": \" + int_to_text(minutes) + \" min\"];\n        toon_close(doc);\n    }\n    fx {\n        loop line in lines {\n            println(line);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "Vault: 30 min\nStudy: 32 min\n",
+      "files": {
+        "vault.json": "{\"room\": \"Vault\", \"puzzles\": [{\"name\": \"dial\", \"minutes\": 12}, {\"name\": \"laser grid\", \"minutes\": 18}]}\n",
+        "study.json": "{\"room\": \"Study\", \"puzzles\": [{\"name\": \"bookcase\", \"minutes\": 9}, {\"name\": \"cipher\", \"minutes\": 15}, {\"name\": \"clock\", \"minutes\": 8}]}\n"
+      }
+    },
+    {
+      "id": "repair_fxread_spice_market_prices",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'file_exists' requires an fx block.",
+      "broken_source": "fn main() -> Void {\n    let p: Text = \"spices.json\";\n    let lines: Text[] = [];\n    if file_exists(p) {\n        let doc: ToonDoc = toon_parse_file(p);\n        loop s in toon_key(toon_root(doc), \"spices\") {\n            lines = lines + [toon_get_text_or(s, \"name\", \"?\") + \" \" + formatfloat(toon_get_real_or(s, \"per_100g\", 0.0), 2)];\n        }\n        toon_close(doc);\n    } else {\n        lines = [\"no price list\"];\n    }\n    fx {\n        loop line in lines {\n            println(line);\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let p: Text = \"spices.json\";\n    let lines: Text[] = [];\n    let found: Bool = false;\n    fx {\n        found = file_exists(p);\n    }\n    if found {\n        let doc: ToonDoc;\n        fx {\n            doc = toon_parse_file(p);\n        }\n        loop s in toon_key(toon_root(doc), \"spices\") {\n            lines = lines + [toon_get_text_or(s, \"name\", \"?\") + \" \" + formatfloat(toon_get_real_or(s, \"per_100g\", 0.0), 2)];\n        }\n        toon_close(doc);\n    } else {\n        lines = [\"no price list\"];\n    }\n    fx {\n        loop line in lines {\n            println(line);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "saffron 48.00\ncumin 2.35\ncardamom 6.80\n",
+      "files": {
+        "spices.json": "{\"spices\": [{\"name\": \"saffron\", \"per_100g\": 48.0}, {\"name\": \"cumin\", \"per_100g\": 2.35}, {\"name\": \"cardamom\", \"per_100g\": 6.8}]}\n"
+      }
+    },
+    {
+      "id": "repair_fxread_fishing_fleet_loader",
+      "kind": "repair",
+      "diagnostic": "[FX-001] Aether effect error: call to 'toon_parse_file' requires an fx block.",
+      "broken_source": "fn loadCatch(path: Text) -> ToonDoc {\n    ret toon_parse_file(path);\n}\n\nfn main() -> Void {\n    let doc: ToonDoc = loadCatch(\"catch.json\");\n    let total: Int = 0;\n    fx {\n        loop b in toon_key(toon_root(doc), \"boats\") {\n            let kg: Int = toon_get_int_or(b, \"kg\", 0);\n            total = total + kg;\n            println(toon_get_text_or(b, \"name\", \"?\"), \": \", kg, \" kg\");\n        }\n        println(\"landed: \", total, \" kg\");\n    }\n    toon_close(doc);\n    ret;\n}\n",
+      "fixed_source": "fn loadCatch(path: Text) -> ToonDoc {\n    let doc: ToonDoc;\n    fx {\n        doc = toon_parse_file(path);\n    }\n    ret doc;\n}\n\nfn main() -> Void {\n    let doc: ToonDoc = loadCatch(\"catch.json\");\n    let total: Int = 0;\n    fx {\n        loop b in toon_key(toon_root(doc), \"boats\") {\n            let kg: Int = toon_get_int_or(b, \"kg\", 0);\n            total = total + kg;\n            println(toon_get_text_or(b, \"name\", \"?\"), \": \", kg, \" kg\");\n        }\n        println(\"landed: \", total, \" kg\");\n    }\n    toon_close(doc);\n    ret;\n}\n",
+      "expected_stdout": "Mary Jane: 420 kg\nSea Wren: 310 kg\nNorth Star: 515 kg\nlanded: 1245 kg\n",
+      "files": {
+        "catch.json": "{\"boats\": [{\"name\": \"Mary Jane\", \"kg\": 420}, {\"name\": \"Sea Wren\", \"kg\": 310}, {\"name\": \"North Star\", \"kg\": 515}]}\n"
+      }
+    },
+    {
+      "id": "repair_mswrite_bindery_slip",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'mstream_append_text' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let jobs: Text[] = [\"ledger\", \"atlas\", \"folio\"];\n    let sheets: Int[] = [240, 96, 48];\n    let slip: MStream = mstream_new();\n    loop i in 0..length(jobs) {\n        mstream_append_text(slip, jobs[i] + \": \" + int_to_text(sheets[i] div 16) + \" signatures\\n\");\n    }\n    fx {\n        print(mstream_text(slip));\n    }\n    mstream_free(slip);\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let jobs: Text[] = [\"ledger\", \"atlas\", \"folio\"];\n    let sheets: Int[] = [240, 96, 48];\n    let slip: MStream = mstream_new();\n    loop i in 0..length(jobs) {\n        mstream_write_text(slip, jobs[i] + \": \" + int_to_text(sheets[i] div 16) + \" signatures\\n\");\n    }\n    fx {\n        print(mstream_text(slip));\n    }\n    mstream_free(slip);\n    ret;\n}\n",
+      "expected_stdout": "ledger: 15 signatures\natlas: 6 signatures\nfolio: 3 signatures\n"
+    },
+    {
+      "id": "repair_mswrite_callsign_bytes",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] Aether scope parser error: identifier 'mstream_append_byte' not in scope.",
+      "broken_source": "fn main() -> Void {\n    let letters: Int[] = [75, 87, 88, 89];\n    let call: MStream = mstream_new();\n    loop b in letters {\n        mstream_append_byte(call, b);\n    }\n    mstream_append_byte(call, 45);\n    mstream_append_byte(call, 48 + 7);\n    fx {\n        println(\"call sign: \", mstream_text(call), \" (\", mstream_length(call), \" bytes)\");\n    }\n    mstream_free(call);\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let letters: Int[] = [75, 87, 88, 89];\n    let call: MStream = mstream_new();\n    loop b in letters {\n        mstream_write_byte(call, b);\n    }\n    mstream_write_byte(call, 45);\n    mstream_write_byte(call, 48 + 7);\n    fx {\n        println(\"call sign: \", mstream_text(call), \" (\", mstream_length(call), \" bytes)\");\n    }\n    mstream_free(call);\n    ret;\n}\n",
+      "expected_stdout": "call sign: KWXY-7 (6 bytes)\n"
+    },
+    {
+      "id": "repair_mswrite_cheese_tasting",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] identifier 'mstream_write' not in scope.",
+      "broken_source": "fn addNote(ms: MStream, cheese: Text, months: Int) -> Void {\n    mstream_write(ms, cheese + \" aged \" + int_to_text(months) + \" months\\n\");\n    ret;\n}\n\nfn main() -> Void {\n    let notes: MStream = mstream_from_text(\"TASTING FLIGHT\\n\");\n    addNote(notes, \"Comte\", 18);\n    addNote(notes, \"Gouda\", 12);\n    addNote(notes, \"Manchego\", 6);\n    fx {\n        print(mstream_text(notes));\n    }\n    mstream_free(notes);\n    ret;\n}\n",
+      "fixed_source": "fn addNote(ms: MStream, cheese: Text, months: Int) -> Void {\n    mstream_write_text(ms, cheese + \" aged \" + int_to_text(months) + \" months\\n\");\n    ret;\n}\n\nfn main() -> Void {\n    let notes: MStream = mstream_from_text(\"TASTING FLIGHT\\n\");\n    addNote(notes, \"Comte\", 18);\n    addNote(notes, \"Gouda\", 12);\n    addNote(notes, \"Manchego\", 6);\n    fx {\n        print(mstream_text(notes));\n    }\n    mstream_free(notes);\n    ret;\n}\n",
+      "expected_stdout": "TASTING FLIGHT\nComte aged 18 months\nGouda aged 12 months\nManchego aged 6 months\n"
+    },
+    {
+      "id": "repair_modimport_hardware_filename_qualifier",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] identifier 'stock_rules' not in scope.",
+      "broken_source": "use \"stock_rules\";\n\nfn main() -> Void {\n    let parts: Text[] = [\"hinge\", \"bolt\", \"bracket\"];\n    let daily: Int[] = [4, 12, 2];\n    let lead: Int[] = [3, 2, 6];\n    fx {\n        loop i in 0..length(parts) {\n            println(parts[i], \" reorder at \", stock_rules.reorderPoint(daily[i], lead[i]));\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "use \"stock_rules\";\n\nfn main() -> Void {\n    let parts: Text[] = [\"hinge\", \"bolt\", \"bracket\"];\n    let daily: Int[] = [4, 12, 2];\n    let lead: Int[] = [3, 2, 6];\n    fx {\n        loop i in 0..length(parts) {\n            println(parts[i], \" reorder at \", reorderPoint(daily[i], lead[i]));\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "hinge reorder at 17\nbolt reorder at 29\nbracket reorder at 17\n",
+      "files": {
+        "stock_rules": "mod StockRules {\n    export const SafetyStock: Int = 5;\n\n    @pure\n    export fn reorderPoint(dailyUse: Int, leadDays: Int) -> Int {\n        ret dailyUse * leadDays + SafetyStock;\n    }\n}\n"
+      }
+    },
+    {
+      "id": "repair_modimport_harbor_guessed_mod",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] identifier 'Tide' not in scope.",
+      "broken_source": "use \"tide_tables\";\n\nfn main() -> Void {\n    let first: Int = 5 * 60 + 50;\n    let next: Int = Tide.highWater(first);\n    let after: Int = Tide.highWater(next);\n    fx {\n        println(\"high water at \", next div 60, \":\", next % 60);\n        println(\"then at \", after div 60, \":\", after % 60);\n    }\n    ret;\n}\n",
+      "fixed_source": "use \"tide_tables\";\n\nfn main() -> Void {\n    let first: Int = 5 * 60 + 50;\n    let next: Int = highWater(first);\n    let after: Int = highWater(next);\n    fx {\n        println(\"high water at \", next div 60, \":\", next % 60);\n        println(\"then at \", after div 60, \":\", after % 60);\n    }\n    ret;\n}\n",
+      "expected_stdout": "high water at 18:15\nthen at 6:40\n",
+      "files": {
+        "tide_tables": "mod TideTables {\n    @pure\n    export fn highWater(prevMinutes: Int) -> Int {\n        ret (prevMinutes + 12 * 60 + 25) % (24 * 60);\n    }\n}\n"
+      }
+    },
+    {
+      "id": "repair_modimport_piano_file_extension",
+      "kind": "repair",
+      "diagnostic": "[SCOPE-001] identifier 'centsOff' not in scope.",
+      "broken_source": "use \"piano_tuning\";\n\nfn main() -> Void {\n    let readings: Int[] = [438, 440, 445];\n    fx {\n        loop hz in readings {\n            println(hz, \" Hz: \", centsOff(hz, ConcertA), \" cents\");\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "use \"piano_tuning.aether\";\n\nfn main() -> Void {\n    let readings: Int[] = [438, 440, 445];\n    fx {\n        loop hz in readings {\n            println(hz, \" Hz: \", centsOff(hz, ConcertA), \" cents\");\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "438 Hz: -7 cents\n440 Hz: 0 cents\n445 Hz: 19 cents\n",
+      "files": {
+        "piano_tuning.aether": "mod PianoTuning {\n    export const ConcertA: Int = 440;\n\n    @pure\n    export fn centsOff(measured: Int, target: Int) -> Int {\n        ret (measured - target) * 1731 div target;\n    }\n}\n"
+      }
+    },
+    {
+      "id": "repair_tuplepost_bare_result",
+      "kind": "repair",
+      "diagnostic": "[ANN-001] Aether contract parser error: tuple-return @post checks must reference slots explicitly, for example `result.0` or `result.1`.",
+      "broken_source": "@post result >= 0\nfn ferryLoad(cars: Int, vans: Int) -> (Int, Int) {\n    let lanes: Int = (cars + 2 * vans + 9) div 10;\n    let spare: Int = lanes * 10 - (cars + 2 * vans);\n    ret (lanes, spare);\n}\n\nfn main() -> Void {\n    let (lanes, spare) = ferryLoad(17, 6);\n    fx {\n        println(\"lanes=\", lanes, \" spare=\", spare);\n    }\n    ret;\n}\n",
+      "fixed_source": "@post result.0 >= 0 && result.1 >= 0\nfn ferryLoad(cars: Int, vans: Int) -> (Int, Int) {\n    let lanes: Int = (cars + 2 * vans + 9) div 10;\n    let spare: Int = lanes * 10 - (cars + 2 * vans);\n    ret (lanes, spare);\n}\n\nfn main() -> Void {\n    let (lanes, spare) = ferryLoad(17, 6);\n    fx {\n        println(\"lanes=\", lanes, \" spare=\", spare);\n    }\n    ret;\n}\n",
+      "expected_stdout": "lanes=3 spare=1\n"
+    },
+    {
+      "id": "repair_tuplepost_bracket_slots",
+      "kind": "repair",
+      "diagnostic": "[ANN-001] Aether contract parser error: tuple-return @post checks must reference slots explicitly, for example `result.0` or `result.1`.",
+      "broken_source": "@pre length(readings) > 0\n@post result[0] <= result[1]\nfn tankBand(readings: Real[]) -> (Real, Real) {\n    ret (min_of(readings), max_of(readings));\n}\n\nfn main() -> Void {\n    let readings: Real[] = [24.5, 25.1, 23.8, 26.0];\n    let (cold, warm) = tankBand(readings);\n    fx {\n        println(\"aquarium \", cold:0:1, \" to \", warm:0:1, \" C\");\n    }\n    ret;\n}\n",
+      "fixed_source": "@pre length(readings) > 0\n@post result.0 <= result.1\nfn tankBand(readings: Real[]) -> (Real, Real) {\n    ret (min_of(readings), max_of(readings));\n}\n\nfn main() -> Void {\n    let readings: Real[] = [24.5, 25.1, 23.8, 26.0];\n    let (cold, warm) = tankBand(readings);\n    fx {\n        println(\"aquarium \", cold:0:1, \" to \", warm:0:1, \" C\");\n    }\n    ret;\n}\n",
+      "expected_stdout": "aquarium 23.8 to 26.0 C\n"
+    },
+    {
+      "id": "repair_arrvalue_heap_sort_void",
+      "kind": "behavioral",
+      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'weights' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "broken_source": "fn siftDown(weights: Int[], start: Int, size: Int) -> Void {\n    let root: Int = start;\n    loop 2 * root + 1 < size {\n        let child: Int = 2 * root + 1;\n        if child + 1 < size && weights[child + 1] > weights[child] {\n            child = child + 1;\n        }\n        if weights[root] >= weights[child] {\n            ret;\n        }\n        let tmp: Int = weights[root];\n        weights[root] = weights[child];\n        weights[child] = tmp;\n        root = child;\n    }\n    ret;\n}\n\nfn heapSort(weights: Int[]) -> Void {\n    let n: Int = length(weights);\n    let i: Int = n div 2 - 1;\n    loop i >= 0 {\n        siftDown(weights, i, n);\n        i = i - 1;\n    }\n    let last: Int = n - 1;\n    loop last > 0 {\n        let top: Int = weights[0];\n        weights[0] = weights[last];\n        weights[last] = top;\n        siftDown(weights, 0, last);\n        last = last - 1;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let dogs: Int[] = [23, 8, 31, 12, 27, 5];\n    heapSort(dogs);\n    fx {\n        print(\"kennel weights:\");\n        loop w in dogs {\n            print(\" \", w);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
+      "fixed_source": "fn siftDown(weights: Int[], start: Int, size: Int) -> Int[] {\n    let root: Int = start;\n    loop 2 * root + 1 < size {\n        let child: Int = 2 * root + 1;\n        if child + 1 < size && weights[child + 1] > weights[child] {\n            child = child + 1;\n        }\n        if weights[root] >= weights[child] {\n            ret weights;\n        }\n        let tmp: Int = weights[root];\n        weights[root] = weights[child];\n        weights[child] = tmp;\n        root = child;\n    }\n    ret weights;\n}\n\nfn heapSort(weights: Int[]) -> Int[] {\n    let n: Int = length(weights);\n    let i: Int = n div 2 - 1;\n    loop i >= 0 {\n        weights = siftDown(weights, i, n);\n        i = i - 1;\n    }\n    let last: Int = n - 1;\n    loop last > 0 {\n        let top: Int = weights[0];\n        weights[0] = weights[last];\n        weights[last] = top;\n        weights = siftDown(weights, 0, last);\n        last = last - 1;\n    }\n    ret weights;\n}\n\nfn main() -> Void {\n    let dogs: Int[] = [23, 8, 31, 12, 27, 5];\n    dogs = heapSort(dogs);\n    fx {\n        print(\"kennel weights:\");\n        loop w in dogs {\n            print(\" \", w);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
+      "expected_stdout": "kennel weights: 5 8 12 23 27 31\n"
+    },
+    {
+      "id": "repair_arrvalue_reverse_void",
+      "kind": "behavioral",
+      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'stops' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "broken_source": "fn reverseStops(stops: Int[]) -> Void {\n    let i: Int = 0;\n    let j: Int = length(stops) - 1;\n    loop i < j {\n        let tmp: Int = stops[i];\n        stops[i] = stops[j];\n        stops[j] = tmp;\n        i = i + 1;\n        j = j - 1;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let stops: Int[] = [1, 4, 7, 9, 12];\n    reverseStops(stops);\n    fx {\n        print(\"elevator going down:\");\n        loop s in stops {\n            print(\" \", s);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
+      "fixed_source": "fn reverseStops(stops: Int[]) -> Int[] {\n    let i: Int = 0;\n    let j: Int = length(stops) - 1;\n    loop i < j {\n        let tmp: Int = stops[i];\n        stops[i] = stops[j];\n        stops[j] = tmp;\n        i = i + 1;\n        j = j - 1;\n    }\n    ret stops;\n}\n\nfn main() -> Void {\n    let stops: Int[] = [1, 4, 7, 9, 12];\n    stops = reverseStops(stops);\n    fx {\n        print(\"elevator going down:\");\n        loop s in stops {\n            print(\" \", s);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
+      "expected_stdout": "elevator going down: 12 9 7 4 1\n"
+    },
+    {
+      "id": "repair_arrvalue_grid_mark_void",
+      "kind": "behavioral",
+      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'field' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "broken_source": "fn harvestRow(field: Int[][], row: Int) -> Void {\n    loop c in 0..length(field[row]) {\n        field[row][c] = 0;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let field: Int[][] = [[3, 5, 2], [4, 4, 1], [6, 2, 2]];\n    harvestRow(field, 1);\n    let remaining: Int = 0;\n    loop row in field {\n        remaining = remaining + sum(row);\n    }\n    fx {\n        println(\"bushels left in the field: \", remaining);\n    }\n    ret;\n}\n",
+      "fixed_source": "fn harvestRow(field: Int[][], row: Int) -> Int[][] {\n    loop c in 0..length(field[row]) {\n        field[row][c] = 0;\n    }\n    ret field;\n}\n\nfn main() -> Void {\n    let field: Int[][] = [[3, 5, 2], [4, 4, 1], [6, 2, 2]];\n    field = harvestRow(field, 1);\n    let remaining: Int = 0;\n    loop row in field {\n        remaining = remaining + sum(row);\n    }\n    fx {\n        println(\"bushels left in the field: \", remaining);\n    }\n    ret;\n}\n",
+      "expected_stdout": "bushels left in the field: 20\n"
     }
   ]
 }
