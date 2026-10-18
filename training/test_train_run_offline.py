@@ -84,6 +84,14 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("--no-load-in-4bit", argv)
         self.assertIn("--no-load-in-4bit", tr.trainer_argv(self.load(precision="16bit")))
 
+    def test_eval_split_size_and_cadence_are_optional(self):
+        argv = tr.trainer_argv(self.load())
+        self.assertNotIn("--eval-cases", argv)
+        argv = tr.trainer_argv(self.load(train={"eval_cases": 60, "eval_steps": 10}))
+        self.assertEqual(argv[argv.index("--eval-cases") + 1], "60")
+        self.assertEqual(argv[argv.index("--eval-steps") + 1], "10")
+        self.assertEqual(argv[argv.index("--save-steps") + 1], "10")
+
     def test_mistral_tuned_is_served_with_the_base_tokenizer(self):
         run = self.load(family="mistral")
         tuned, base = tr.serve_command(run, "tuned"), tr.serve_command(run, "base")

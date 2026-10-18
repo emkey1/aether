@@ -196,6 +196,13 @@ def trainer_argv(run: dict) -> list[str]:
     ]
     if train.get("max_steps"):
         argv += ["--max-steps", str(train["max_steps"])]
+    # The held-out split behind early stopping: 12 records (the trainer default) let two noise-sized
+    # eval-loss rises stop run qwen38-27b-modern at 0.35 epoch; a run can ask for more, and evaluate less
+    # often to keep the overhead flat.
+    if train.get("eval_cases"):
+        argv += ["--eval-cases", str(train["eval_cases"])]
+    if train.get("eval_steps"):
+        argv += ["--eval-steps", str(train["eval_steps"]), "--save-steps", str(train["eval_steps"])]
     return argv
 
 
