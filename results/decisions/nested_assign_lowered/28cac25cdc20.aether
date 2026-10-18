@@ -1,0 +1,84 @@
+let heap: Int[] = [];
+let size: Int = 0;
+fn main() -> Void {
+    heap = [];
+    size = 0;
+
+    // Insert values and sift up
+    fn insert(value: Int) -> Void {
+        heap = heap + [value];
+        let i: Int = size;
+        loop i > 0 {
+            let parent: Int = (i - 1) / 2;
+            if heap[i] >= heap[parent] {
+                break;
+            }
+            let temp: Int = heap[i];
+            heap[i] = heap[parent];
+            heap[parent] = temp;
+            i = parent;
+        }
+        size = size + 1;
+    }
+
+    insert(42);
+    insert(7);
+    insert(19);
+    insert(3);
+    insert(88);
+    insert(15);
+    insert(4);
+    insert(61);
+    insert(23);
+    insert(8);
+
+    // Drain heap and sift down
+    let sorted: Int[] = [];
+    loop size > 0 {
+        let root: Int = heap[0];
+        sorted = sorted + [root];
+
+        heap[0] = heap[size - 1];
+        size = size - 1;
+
+        let i: Int = 0;
+        loop {
+            let left: Int = 2 * i + 1;
+            if left > size - 1 {
+                break;
+            }
+            let right: Int = left + 1;
+            let smallest: Int = if right <= size - 1 && heap[right] < heap[left] { right } else { left };
+            if heap[i] <= heap[smallest] {
+                break;
+            }
+            let temp: Int = heap[i];
+            heap[i] = heap[smallest];
+            heap[smallest] = temp;
+            i = smallest;
+        }
+    }
+
+    fx {
+        print("sorted = ");
+        loop j in 0..length(sorted) {
+            if j > 0 {
+                print(" ");
+            }
+            print(sorted[j]);
+        }
+        println("");
+        println("min = ", sorted[0]);
+        println("max = ", sorted[length(sorted) - 1]);
+
+        let ordered: Bool = true;
+        loop k in 1..length(sorted) {
+            if sorted[k] < sorted[k - 1] {
+                ordered = false;
+                break;
+            }
+        }
+        println("ordered = ", if ordered { "true" } else { "false" });
+    }
+    ret;
+}

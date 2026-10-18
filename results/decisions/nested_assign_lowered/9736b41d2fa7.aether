@@ -1,0 +1,56 @@
+let count: Int = 0;
+let qboard: Int[] = [];
+fn isSafe(board: Int[], row: Int, col: Int) -> Bool {
+    loop i in 0..col {
+        if board[i] == row || abs(board[i] - row) == abs(i - col) {
+            ret false;
+        }
+    }
+    ret true;
+}
+
+fn solveNQueens(board: Int[], col: Int) -> Bool {
+    if col >= length(board) {
+        ret true;
+    }
+
+    loop i in 0..length(board) {
+        if isSafe(board, i, col) {
+            board[col] = i;
+            if solveNQueens(board, col + 1) {
+                ret true;
+            }
+        }
+    }
+    ret false;
+}
+
+fn countSolutions(n: Int) -> Int {
+    qboard = [];
+    loop i in 0..n { qboard = qboard + [0]; }
+    count = 0;
+
+    fn search(col: Int) -> Void {
+        if col == n {
+            count = count + 1;
+            ret;
+        }
+
+        loop row in 0..n {
+            if isSafe(qboard, row, col) {
+                qboard[col] = row;
+                search(col + 1);
+            }
+        }
+    }
+
+    search(0);
+    ret count;
+}
+
+fn main() -> Void {
+    let n: Int = 6;
+    let solutions: Int = countSolutions(n);
+    fx { println("solutions = ", solutions); }
+    ret;
+}

@@ -1,0 +1,43 @@
+let count: Int = 0;
+let board: Bool[][] = [];
+fn main() -> Void {
+    count = 0;
+    board = [];
+    loop i in 0..6 {
+        let row: Bool[] = [];
+        loop j in 0..6 {
+            row = row + [false];
+        }
+        board = board + [row];
+    }
+
+    fn isSafe(r: Int, c: Int) -> Bool {
+        loop i in 0..r {
+            if board[i][c] || (i - r) == (c - c) || (r - i) == (abs(c - c)) {
+                ret false;
+            }
+        }
+        ret true;
+    }
+
+    fn solve(row: Int) -> Void {
+        if row == 6 {
+            count = count + 1;
+            ret;
+        }
+        loop c in 0..6 {
+            if isSafe(row, c) {
+                board[row][c] = true;
+                solve(row + 1);
+                board[row][c] = false;
+            }
+        }
+    }
+
+    solve(0);
+
+    fx {
+        println("solutions = ", count);
+    }
+    ret;
+}

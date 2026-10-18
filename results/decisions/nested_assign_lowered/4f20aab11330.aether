@@ -1,0 +1,73 @@
+let parent: Int[] = [];
+fn main() -> Void {
+    let n: Int = 10;
+    let a: Int[] = [0, 1, 3, 4, 6, 8, 2];
+    let b: Int[] = [1, 2, 4, 5, 7, 9, 0];
+    parent = [];
+    let size: Int[] = [];
+    loop i in 0..n {
+        parent = parent + [i];
+        size = size + [1];
+    }
+    fn find(x: Int) -> Int {
+        let r: Int = x;
+        loop parent[r] != r {
+            r = parent[r];
+        }
+        loop parent[x] != r {
+            let next: Int = parent[x];
+            parent[x] = r;
+            x = next;
+        }
+        ret r;
+    }
+    let merges: Int = 0;
+    loop i in 0..length(a) {
+        let ra: Int = find(a[i]);
+        let rb: Int = find(b[i]);
+        if ra != rb {
+            let low: Int = ra;
+            let high: Int = rb;
+            if ra > rb {
+                low = rb;
+                high = ra;
+            }
+            parent[high] = low;
+            size[low] = size[low] + size[high];
+            merges = merges + 1;
+        }
+    }
+    let compRoot: Int[] = [];
+    loop i in 0..n {
+        let r: Int = find(i);
+        let seen: Bool = false;
+        loop j in 0..length(compRoot) {
+            if compRoot[j] == r {
+                seen = true;
+                break;
+            }
+        }
+        if !seen {
+            compRoot = compRoot + [r];
+        }
+    }
+    let compCount: Int = length(compRoot);
+    let largestRoot: Int = compRoot[0];
+    let largestSize: Int = size[compRoot[0]];
+    loop i in 1..compCount {
+        let r: Int = compRoot[i];
+        if size[r] > largestSize || (size[r] == largestSize && r < largestRoot) {
+            largestRoot = r;
+            largestSize = size[r];
+        }
+    }
+    fx {
+        loop i in 0..compCount {
+            let r: Int = compRoot[i];
+            println("component root=", r, " size=", size[r]);
+        }
+        println("components=", compCount, " merges=", merges);
+        println("largest root=", largestRoot, " size=", largestSize);
+    }
+    ret;
+}

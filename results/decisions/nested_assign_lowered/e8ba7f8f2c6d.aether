@@ -1,0 +1,45 @@
+let count: Int = 0;
+let cols: Int[] = [];
+let diag1: Int[] = [];
+let diag2: Int[] = [];
+fn solveQueens(n: Int) -> Int {
+    cols = [];
+    diag1 = [];
+    diag2 = [];
+    count = 0;
+
+    fn backtrack(row: Int) -> Void {
+        if row == n {
+            count = count + 1;
+            ret;
+        }
+        loop c in 0..n {
+            let d1: Int = row + c;
+            let d2: Int = row - c;
+            let ok: Bool = true;
+            loop i in 0..length(cols) { if cols[i] == c { ok = false; } }
+            loop i in 0..length(diag1) { if diag1[i] == d1 { ok = false; } }
+            loop i in 0..length(diag2) { if diag2[i] == d2 { ok = false; } }
+            if ok {
+                cols = cols + [c];
+                diag1 = diag1 + [d1];
+                diag2 = diag2 + [d2];
+                backtrack(row + 1);
+                cols = cols[0..length(cols) - 1];
+                diag1 = diag1[0..length(diag1) - 1];
+                diag2 = diag2[0..length(diag2) - 1];
+            }
+        }
+        ret;
+    }
+
+    backtrack(0);
+    ret count;
+}
+
+fn main() -> Void {
+    let n: Int = 6;
+    let total: Int = solveQueens(n);
+    fx { println("solutions = ", total); }
+    ret;
+}

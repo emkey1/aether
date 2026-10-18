@@ -1,0 +1,87 @@
+type Point {
+    r: Int = 0;
+    c: Int = 0;
+
+    fn eq(other: Point) -> Bool {
+        ret self.r == other.r && self.c == other.c;
+    }
+}
+
+fn main() -> Void {
+    let maze: Text = "..#..\n.##.#\n.....\n#.#.#\n...#.";
+    let rows: Int = 5;
+    let cols: Int = 5;
+
+    fn isOpen(p: Point) -> Bool {
+        let idx: Int = p.r * cols + p.c;
+        ret maze[idx] == '.';
+    }
+
+    fn neighbors(p: Point) -> Point[] {
+        let dirs: (Int, Int)[] = [(-1, 0), (1, 0), (0, -1), (0, 1)];
+        let res: Point[] = [];
+        loop d in dirs {
+            let nr: Int = p.r + d.0;
+            let nc: Int = p.c + d.1;
+            if nr >= 0 && nr < rows && nc >= 0 && nc < cols {
+                let np: Point = new Point { r: nr, c: nc };
+                if isOpen(np) {
+                    res = res + [np];
+                }
+            }
+        }
+        ret res;
+    }
+
+    fn bfs(start: Point, goals: Point[]) -> Int[] {
+        let dists: Int[][] = [];
+        loop r in 0..rows {
+            let row: Int[] = [];
+            loop c in 0..cols {
+                row = row + [-1];
+            }
+            dists = dists + [row];
+        }
+        let q: Point[] = [];
+        dists[start.r][start.c] = 0;
+        q = q + [start];
+
+        loop {
+            if length(q) == 0 {
+                break;
+            }
+            let p: Point = q[0];
+            q = q[1..length(q)];
+            loop np in neighbors(p) {
+                if dists[np.r][np.c] == -1 {
+                    dists[np.r][np.c] = dists[p.r][p.c] + 1;
+                    q = q + [np];
+                }
+            }
+        }
+
+        let res: Int[] = [];
+        loop g in goals {
+            if dists[g.r][g.c] == -1 {
+                res = res + [-1];
+            } else {
+                res = res + [dists[g.r][g.c]];
+            }
+        }
+        ret res;
+    }
+
+    let start: Point = new Point { r: 0, c: 0 };
+    let goals: Point[] = [
+        new Point { r: 2, c: 4 },
+        new Point { r: 4, c: 0 },
+        new Point { r: 4, c: 4 }
+    ];
+    let steps: Int[] = bfs(start, goals);
+    fx {
+        println("steps to (2,4) =", steps[0]);
+        println("steps to (4,0) =", steps[1]);
+        println("steps to (4,4) =", steps[2]);
+    }
+    ret;
+}

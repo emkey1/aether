@@ -1,0 +1,46 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc = toon_parse_file("numbers_hard_d.json");
+    let root: ToonNode = toon_root(doc);
+    let numbers: ToonNode = toon_key(root, "numbers");
+
+    fn collatz(v: Int) -> Int {
+        if v <= 1 {
+            ret 0;
+        }
+        if v % 2 == 0 {
+            ret 1 + collatz(v / 2);
+        } else {
+            ret 1 + collatz(3 * v + 1);
+        }
+    }
+
+    let maxSteps: Int = 0;
+    let maxN: Int = 0;
+
+    loop i in 0..toon_len(numbers) {
+        let numNode: ToonNode = toon_at(numbers, i);
+        let n: Int = toon_get_int(numNode, "n");
+        let steps: Int = collatz(n);
+
+        fx {
+            println("number ", i, ": ", n, " -> ", steps, " steps");
+        }
+
+        if steps > maxSteps || (steps == maxSteps && n < maxN) {
+            maxSteps = steps;
+            maxN = n;
+        }
+    }
+
+    fx {
+        println("max steps = ", maxSteps, " (number ", maxN, ")");
+    }
+
+    toon_close(doc);
+    ret;
+}

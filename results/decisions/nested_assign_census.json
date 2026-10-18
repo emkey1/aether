@@ -1,0 +1,1322 @@
+[
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_cs__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "9736b41d2fa7",
+  "nested": [
+   "search"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:33: [FUNC-002] Aether nested-assign parser error: the nested function 'search' cannot change 'count' of its enclosing function 'countSolutions': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_cs__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "cs_merge_sort",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "9061fc50e724",
+  "nested": [
+   "mergeSort",
+   "merge",
+   "mapInt"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_merge_sort.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+  ],
+  "shown_error": "cs_merge_sort.aether:1: [SYN-001] Aether syntax error: unexpected token ','; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_nontoon__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard2_expr_eval",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "52a942dd65c0",
+  "nested": [
+   "parse",
+   "term"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_expr_eval.aether:3: [SYN-001] Aether function parser error: functions must declare an explicit return type."
+  ],
+  "shown_error": "hard2_expr_eval.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_nontoon__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard2_expr_eval",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "c388f3647662",
+  "nested": [
+   "parse",
+   "term"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_expr_eval.aether:1: [SYN-001] Aether syntax error: unexpected token '\ufffd'; this construct could not be parsed."
+  ],
+  "shown_error": "hard2_expr_eval.aether:3: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_nontoon__r2.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard2_expr_eval",
+  "repeat": 2,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "f1d35179c75c",
+  "nested": [
+   "parseNum",
+   "parseFactor",
+   "parseTerm",
+   "parseExpr"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_expr_eval.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+  ],
+  "shown_error": "hard2_expr_eval.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_nontoon__r2.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard2_expr_eval",
+  "repeat": 2,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "3e7b15a41f5a",
+  "nested": [
+   "parseNum",
+   "parseFactor",
+   "parseTerm",
+   "parseExpr"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_expr_eval.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+  ],
+  "shown_error": "hard2_expr_eval.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_v2__r1.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard_word_lengths",
+  "repeat": 1,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "9de3e3638b88",
+  "nested": [
+   "classify"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_word_lengths.aether:48: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_v2__r1.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard_word_lengths",
+  "repeat": 1,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "9de3e3638b88",
+  "nested": [
+   "classify"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_word_lengths.aether:48: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_word_lengths.aether:48: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_hard_v2__r2.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "hard2_grade_bands",
+  "repeat": 2,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "cc751d08999f",
+  "nested": [
+   "band"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_grade_bands.aether:20: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard2_grade_bands.aether:1: [SYN-001] Aether syntax error: unexpected token '\ufffd'; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_v2_pos__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "string_checks",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "674b21ea5574",
+  "nested": [
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "string_checks.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_v2_pos__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "string_checks",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "c2506f925de9",
+  "nested": [
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "string_checks.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+  ],
+  "shown_error": "string_checks.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/low-prism-coder-7b__tasks_v2_pos__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "string_checks",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "4e490136f949",
+  "nested": [
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName",
+   "validName"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "string_checks.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+  ],
+  "shown_error": "string_checks.aether:1: [SYN-001] Aether syntax error: unexpected token ':'; this construct could not be parsed."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "ef1f15fd5778",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:16: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "58859cd9c5c3",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:16: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "58859cd9c5c3",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 1,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "ef1f15fd5778",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:16: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 1,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "58859cd9c5c3",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:16: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 1,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "58859cd9c5c3",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 2,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "ef1f15fd5778",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:16: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 2,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "8cc703d05c41",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:16: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 2,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "8cc703d05c41",
+  "nested": [
+   "collatz"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:11: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_grade_bands",
+  "repeat": 2,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "07a540678b01",
+  "nested": [
+   "band"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_grade_bands.aether:22: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_grade_bands",
+  "repeat": 2,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "07a540678b01",
+  "nested": [
+   "band"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_grade_bands.aether:22: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard2_grade_bands.aether:22: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B0/mid-devstral-small-2__tasks_hard_v2__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_grade_bands",
+  "repeat": 2,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "07a540678b01",
+  "nested": [
+   "band"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_grade_bands.aether:22: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard2_grade_bands.aether:22: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_20261007/B1/low-prism-coder-7b__tasks_traps__r0.json.gz",
+  "model": "prism-coder-7b",
+  "destination": "low-prism-coder-7b",
+  "doc": "medium",
+  "task_id": "trap_div_print_duration",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "dcdd81ca5840",
+  "nested": [
+   "sum",
+   "formatDuration"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "trap_div_print_duration.aether:6: [SYN-001] Aether syntax error: unexpected token '`'; this construct could not be parsed."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_cs__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "c924f85ea547",
+  "nested": [
+   "isSafe",
+   "solve"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:23: [FUNC-002] Aether nested-assign parser error: the nested function 'solve' cannot change 'count' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "silent_wrong",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_cs__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "c924f85ea547",
+  "nested": [
+   "isSafe",
+   "solve"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:23: [FUNC-002] Aether nested-assign parser error: the nested function 'solve' cannot change 'count' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "cs_nqueens.aether:12: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 12).",
+  "lowered_class": "silent_wrong",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_cs__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "771f58af3acb",
+  "nested": [
+   "isSafe",
+   "solve"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:23: [FUNC-002] Aether nested-assign parser error: the nested function 'solve' cannot change 'count' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "cs_nqueens.aether:12: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 12).",
+  "lowered_class": "silent_wrong",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_cs__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 2,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "700709b3d46b",
+  "nested": [
+   "is_safe",
+   "backtrack"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:23: [FUNC-002] Aether nested-assign parser error: the nested function 'backtrack' cannot change 'count' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "silent_wrong",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_cs__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 2,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "c4a2c12cb248",
+  "nested": [
+   "is_safe",
+   "backtrack"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:23: [FUNC-002] Aether nested-assign parser error: the nested function 'backtrack' cannot change 'count' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "cs_nqueens.aether:12: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 12).",
+  "lowered_class": "silent_wrong",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_cs__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 2,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "207e3ddc6bf9",
+  "nested": [
+   "is_safe",
+   "backtrack"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:23: [FUNC-002] Aether nested-assign parser error: the nested function 'backtrack' cannot change 'count' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "cs_nqueens.aether:12: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 12).",
+  "lowered_class": "silent_wrong",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "cfdc54a37537",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:7: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "1978b03054a9",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "hard2_heap_sort.aether:6: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 6).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "1978b03054a9",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "hard2_heap_sort.aether:5: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 5).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 1,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "3c7f69e11d6d",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:7: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 1,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "e0c360c6dd39",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "hard2_heap_sort.aether:6: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 6).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 1,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "e0c360c6dd39",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "hard2_heap_sort.aether:5: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 5).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 2,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "28cac25cdc20",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:7: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 2,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "ae8667fd3866",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "hard2_heap_sort.aether:6: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 6).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_nontoon__r2.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard2_heap_sort",
+  "repeat": 2,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "ae8667fd3866",
+  "nested": [
+   "insert"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard2_heap_sort.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'insert' cannot change 'heap' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "hard2_heap_sort.aether:5: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 5).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_v2__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "56af39339e04",
+  "nested": [
+   "collatzSteps"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:13: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_v2__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "56af39339e04",
+  "nested": [
+   "collatzSteps"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:13: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:13: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B0/mid-devstral-small-2__tasks_hard_v2__r0.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "medium",
+  "task_id": "hard_collatz_recursion",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "7f7bae98aec4",
+  "nested": [
+   "collatzSteps"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "hard_collatz_recursion.aether:7: [FX-001] Aether effect error: call to 'toon_parse_file' requires an fx block."
+  ],
+  "shown_error": "hard_collatz_recursion.aether:13: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B1/mid-devstral-small-2__tasks_traps__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "card",
+  "task_id": "trap_record_eq_bfs",
+  "repeat": 1,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "db7af68b80dc",
+  "nested": [
+   "isOpen",
+   "neighbors",
+   "bfs"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "trap_record_eq_bfs.aether:15: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B1/mid-devstral-small-2__tasks_traps__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "card",
+  "task_id": "trap_record_eq_bfs",
+  "repeat": 1,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "db7af68b80dc",
+  "nested": [
+   "isOpen",
+   "neighbors",
+   "bfs"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "trap_record_eq_bfs.aether:15: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "trap_record_eq_bfs.aether:15: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_devstral_mlx4bit_20261011/B1/mid-devstral-small-2__tasks_traps__r1.json.gz",
+  "model": "mistralai/devstral-small-2-2512",
+  "destination": "mid-devstral-small-2",
+  "doc": "card",
+  "task_id": "trap_record_eq_bfs",
+  "repeat": 1,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "db7af68b80dc",
+  "nested": [
+   "isOpen",
+   "neighbors",
+   "bfs"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "trap_record_eq_bfs.aether:15: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+  ],
+  "shown_error": "trap_record_eq_bfs.aether:15: [SYN-001] Aether parser error: unexpected token in block; expected a statement."
+ },
+ {
+  "report": "bench/results/b0_openrouter_20261010/B0/or-qwen35-9b__tasks_cs__r0.json.gz",
+  "model": "qwen/qwen3.5-9b",
+  "destination": "or-qwen35-9b",
+  "doc": "medium",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "7a5eeb7088cd",
+  "nested": [
+   "backtrack",
+   "isSafe"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-06-1",
+  "new_class": "pass",
+  "new_stderr": [],
+  "shown_error": "cs_nqueens.aether:16: [SCOPE-001] identifier '__aether_slice_0' not in scope."
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-algo/score/tuned__cs.json.gz",
+  "model": "qwen38-27b-algo-tuned",
+  "destination": "qwen38-27b-algo-tuned",
+  "doc": "none",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "e8ba7f8f2c6d",
+  "nested": [
+   "backtrack"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-16-3",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:9: [FUNC-002] Aether nested-assign parser error: the nested function 'backtrack' cannot change 'count' of its enclosing function 'solveQueens': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-algo/score/tuned__cs.json.gz",
+  "model": "qwen38-27b-algo-tuned",
+  "destination": "qwen38-27b-algo-tuned",
+  "doc": "none",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "e8ba7f8f2c6d",
+  "nested": [
+   "backtrack"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-16-3",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:9: [FUNC-002] Aether nested-assign parser error: the nested function 'backtrack' cannot change 'count' of its enclosing function 'solveQueens': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "cs_nqueens.aether:7: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 7).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-algo/score/tuned__cs.json.gz",
+  "model": "qwen38-27b-algo-tuned",
+  "destination": "qwen38-27b-algo-tuned",
+  "doc": "none",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "e8ba7f8f2c6d",
+  "nested": [
+   "backtrack"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-16-3",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:9: [FUNC-002] Aether nested-assign parser error: the nested function 'backtrack' cannot change 'count' of its enclosing function 'solveQueens': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "cs_nqueens.aether:7: [SYN-001] Aether parser error: expected ')' to close argument list (opened at line 7).",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-algo/score/tuned__cs.json.gz",
+  "model": "qwen38-27b-algo-tuned",
+  "destination": "qwen38-27b-algo-tuned",
+  "doc": "none",
+  "task_id": "cs_dijkstra",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "ee1ac465f20a",
+  "nested": [
+   "addEdge"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-16-3",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_dijkstra.aether:6: [FUNC-002] Aether nested-assign parser error: the nested function 'addEdge' cannot change 'adj' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-algo/score/tuned__frontier_algo.json.gz",
+  "model": "qwen38-27b-algo-tuned",
+  "destination": "qwen38-27b-algo-tuned",
+  "doc": "none",
+  "task_id": "algo_union_find_components",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "4f20aab11330",
+  "nested": [
+   "find"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-16-3",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "algo_union_find_components.aether:18: [FUNC-002] Aether nested-assign parser error: the nested function 'find' cannot change 'parent' of its enclosing function 'main': a nested function reads the enclosing locals, it does not assign them."
+  ],
+  "shown_error": "",
+  "lowered_class": "pass",
+  "lowered_stderr": []
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-l1-pilot/score/base__cs.json.gz",
+  "model": "qwen38-27b-l1-pilot-base",
+  "destination": "qwen38-27b-l1-pilot-base",
+  "doc": "none",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 0,
+  "kind": "first",
+  "sha12": "c258aa5969c7",
+  "nested": [
+   "solve"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-15-2",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:1: [SYN-001] Aether function parser error: functions must declare an explicit return type."
+  ],
+  "shown_error": ""
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-l1-pilot/score/base__cs.json.gz",
+  "model": "qwen38-27b-l1-pilot-base",
+  "destination": "qwen38-27b-l1-pilot-base",
+  "doc": "none",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 1,
+  "kind": "repair",
+  "sha12": "177e9180f4db",
+  "nested": [
+   "solve"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-15-2",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:3: [TYPE-001] Aether declaration parser error: cannot infer the type of 'cols' from its initializer."
+  ],
+  "shown_error": "cs_nqueens.aether:1: [SYN-001] Aether function parser error: functions must declare an explicit return type."
+ },
+ {
+  "report": "training/training_runs/qwen38-27b-l1-pilot/score/base__cs.json.gz",
+  "model": "qwen38-27b-l1-pilot-base",
+  "destination": "qwen38-27b-l1-pilot-base",
+  "doc": "none",
+  "task_id": "cs_nqueens",
+  "repeat": 0,
+  "attempt": 2,
+  "kind": "repair",
+  "sha12": "029efa329da2",
+  "nested": [
+   "solve"
+  ],
+  "stored_class": "coded_error",
+  "stored_version": "2026-10-15-2",
+  "new_class": "coded_error",
+  "new_stderr": [
+   "cs_nqueens.aether:8: [SYN-001] Aether parser error: expected ')' to close parameter list."
+  ],
+  "shown_error": "cs_nqueens.aether:3: [TYPE-001] Aether declaration parser error: cannot infer the type of 'cols' from its initializer."
+ }
+]

@@ -1,0 +1,37 @@
+let adj: Int[][] = [];
+fn main() -> Void {
+    let n: Int = 5;
+    adj = [];
+    loop i in 0..n { adj = adj + [[]]; }
+    fn addEdge(u: Int, v: Int, w: Int) -> Void {
+        adj[u] = adj[u] + [[v, w]];
+        adj[v] = adj[v] + [[u, w]];
+        ret;
+    }
+    addEdge(0, 1, 4);
+    addEdge(0, 2, 1);
+    addEdge(1, 2, 2);
+    addEdge(1, 3, 1);
+    addEdge(2, 3, 5);
+    addEdge(3, 4, 3);
+    let dist: Int[] = [];
+    let visited: Bool[] = [];
+    loop i in 0..n { dist = dist + [1000000]; visited = visited + [false]; }
+    dist[0] = 0;
+    loop i in 0..n {
+        let u: Int = -1;
+        let best: Int = 1000000;
+        loop j in 0..n {
+            if !visited[j] && dist[j] < best { best = dist[j]; u = j; }
+        }
+        if u < 0 { break; }
+        visited[u] = true;
+        loop k in 0..length(adj[u]) {
+            let v: Int = adj[u][k][0];
+            let w: Int = adj[u][k][1];
+            if dist[u] + w < dist[v] { dist[v] = dist[u] + w; }
+        }
+    }
+    fx { println("distance = ", dist[4]); }
+    ret;
+}

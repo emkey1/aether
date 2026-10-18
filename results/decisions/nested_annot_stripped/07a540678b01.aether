@@ -1,0 +1,68 @@
+fn main() -> Void {
+    if !has_toon() {
+        fx { println("yyjson unavailable"); }
+        ret;
+    }
+
+    let doc: ToonDoc = toon_parse("{\"students\":[{\"n\":\"ada\",\"s\":93},{\"n\":\"bob\",\"s\":71},{\"n\":\"cy\",\"s\":85},{\"n\":\"di\",\"s\":64},{\"n\":\"ed\",\"s\":90},{\"n\":\"fi\",\"s\":78}]}");
+    let root: ToonNode = toon_root(doc);
+    let students: ToonNode = toon_key(root, "students");
+
+    type Tally {
+        a: Int = 0;
+        b: Int = 0;
+        c: Int = 0;
+        f: Int = 0;
+        total: Real = 0.0;
+        count: Int = 0;
+    }
+
+    let tally: Tally = new Tally();
+
+    fn band(score: Int) -> Text {
+        if score >= 90 {
+            ret "A";
+        }
+        if score >= 80 {
+            ret "B";
+        }
+        if score >= 70 {
+            ret "C";
+        }
+        ret "F";
+    }
+
+    loop i in 0..toon_len(students) {
+        let student: ToonNode = toon_at(students, i);
+        let name: Text = toon_get_text(student, "n");
+        let score: Int = toon_get_int(student, "s");
+
+        tally.count = tally.count + 1;
+        tally.total = tally.total + score;
+
+        if score >= 90 {
+            tally.a = tally.a + 1;
+        } else if score >= 80 {
+            tally.b = tally.b + 1;
+        } else if score >= 70 {
+            tally.c = tally.c + 1;
+        } else {
+            tally.f = tally.f + 1;
+        }
+
+        fx { println("student ", name, " ", score, " -> ", band(score)); }
+    }
+
+    let mean: Real = tally.total / tally.count;
+
+    fx {
+        println("band A = ", tally.a);
+        println("band B = ", tally.b);
+        println("band C = ", tally.c);
+        println("band F = ", tally.f);
+        println("mean = ", formatfloat(mean, 2));
+    }
+
+    toon_close(doc);
+    ret;
+}

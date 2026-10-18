@@ -1,0 +1,86 @@
+let heap: Int[] = [];
+let size: Int = 0;
+fn main() -> Void {
+    heap = [];
+    size = 0;
+
+    // Insert values and sift up
+    fn insert(value: Int) -> Void {
+        heap = heap + [value];
+        let i: Int = size;
+        loop i > 0 {
+            let parent: Int = (i - 1) / 2;
+            if heap[i] < heap[parent] {
+                let temp: Int = heap[i];
+                heap[i] = heap[parent];
+                heap[parent] = temp;
+                i = parent;
+            } else {
+                break;
+            }
+        }
+        size = size + 1;
+    }
+
+    insert(42);
+    insert(7);
+    insert(19);
+    insert(3);
+    insert(88);
+    insert(15);
+    insert(4);
+    insert(61);
+    insert(23);
+    insert(8);
+
+    // Drain heap and sift down
+    let sorted: Int[] = [];
+    loop size > 0 {
+        let min: Int = heap[0];
+        sorted = sorted + [min];
+
+        heap[0] = heap[size - 1];
+        size = size - 1;
+
+        let i: Int = 0;
+        loop {
+            let left: Int = 2 * i + 1;
+            if left > size - 1 {
+                break;
+            }
+            let right: Int = left + 1;
+            let smallest: Int = if right <= size - 1 && heap[right] < heap[left] { right } else { left };
+            if heap[i] > heap[smallest] {
+                let temp: Int = heap[i];
+                heap[i] = heap[smallest];
+                heap[smallest] = temp;
+                i = smallest;
+            } else {
+                break;
+            }
+        }
+    }
+
+    fx {
+        print("sorted = ");
+        loop i in 0..length(sorted) {
+            if i > 0 {
+                print(" ");
+            }
+            print(sorted[i]);
+        }
+        println("");
+        println("min = ", sorted[0]);
+        println("max = ", sorted[length(sorted) - 1]);
+
+        let ordered: Bool = true;
+        loop i in 1..length(sorted) {
+            if sorted[i] < sorted[i - 1] {
+                ordered = false;
+                break;
+            }
+        }
+        println("ordered = ", if ordered { "true" } else { "false" });
+    }
+    ret;
+}
