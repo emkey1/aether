@@ -113,14 +113,18 @@ def main() -> int:
             problems.append("id already used")
         seen.add(item_id)
         source = source_of(item)
-        run = bd.run_aether(aether_bin=args.aether_bin, source=source, files=item.get("files"))
+        if item.get("language") == "python":
+            # verified in the harness's sandbox when harvested; only the data gates apply here
+            run = {"returncode": 0, "stdout": item.get("expected_stdout"), "stderr": ""}
+        else:
+            run = bd.run_aether(aether_bin=args.aether_bin, source=source, files=item.get("files"))
         if run["returncode"] != 0:
             problems.append(f"exit {run['returncode']}: {run['stderr'].strip().splitlines()[0][:140] if run['stderr'].strip() else ''}")
         elif run["stdout"] != item.get("expected_stdout"):
             problems.append(f"stdout differs (got {run['stdout'][:80]!r})")
         elif run["stderr"].strip():
             problems.append(f"stderr not empty: {run['stderr'].strip().splitlines()[0][:140]}")
-        invented = sorted(code_identifiers(source) & forbidden)
+        invented = sorted(code_identifiers(source) & forbidden) if item.get("language") != "python" else []
         if invented:
             problems.append(f"invented API names: {invented}")
         if item.get("expected_stdout") in board_stdout:

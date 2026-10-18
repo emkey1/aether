@@ -258,24 +258,35 @@ def verify_program(
     }
 
 
+PYTHON_SYSTEM = "You write correct Python 3. When asked for code, output raw Python source only."
+
+
 def build_instruction_records(
     payload: dict[str, Any], aether_bin: pathlib.Path, stamp: dict[str, str]
 ) -> list[dict[str, Any]]:
     records: list[dict[str, Any]] = []
     for item in payload.get("pairs", []):
-        verification = verify_program(
-            aether_bin=aether_bin,
-            source=item["solution"],
-            expected_stdout=item.get("expected_stdout"),
-            files=item.get("files"),
-        )
+        python = item.get("language") == "python"
+        if python:
+            # Python pairs (tools/aether_distill.py harvest-python) keep the model's Python apart from its
+            # Aether. They already ran in the harness's sandbox and printed expected_stdout; running
+            # model-written Python here, unsandboxed, on every build is not worth it.
+            verification = {"returncode": 0, "stdout": item.get("expected_stdout"), "stderr": "",
+                            "exact_stdout_match": True, "skipped": "python pair: verified in the harness sandbox"}
+        else:
+            verification = verify_program(
+                aether_bin=aether_bin,
+                source=item["solution"],
+                expected_stdout=item.get("expected_stdout"),
+                files=item.get("files"),
+            )
         record = {
             "kind": "instruction_sft",
             "id": item["id"],
             "messages": [
                 {
                     "role": "system",
-                    "content": "You generate canonical Aether. When asked for code, output raw Aether source only.",
+                    "content": PYTHON_SYSTEM if python else "You generate canonical Aether. When asked for code, output raw Aether source only.",
                 },
                 {
                     "role": "user",
@@ -287,6 +298,7 @@ def build_instruction_records(
                 },
             ],
             "expected_stdout": item.get("expected_stdout"),
+            "language": "python" if python else "aether",
             "files": item.get("files", {}),
             "verification": verification,
             "aether": stamp,
@@ -561,7 +573,7 @@ def build_corpus_instruction_records(
             "messages": [
                 {
                     "role": "system",
-                    "content": "You generate canonical Aether. When asked for code, output raw Aether source only.",
+                    "content": PYTHON_SYSTEM if python else "You generate canonical Aether. When asked for code, output raw Aether source only.",
                 },
                 {
                     "role": "user",

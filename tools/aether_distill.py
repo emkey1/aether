@@ -76,6 +76,16 @@ CATEGORIES = [
     "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
     "date-free calendar and time arithmetic in minutes and seconds (no real dates, no leap years)",
 ]
+# Structured-data and file tasks (language 2026-10-17-3+: TOON JSON helpers, one-call file reads).
+# --with-toon-files adds each twice, so they make up about a third of a batch.
+TOON_FILE_CATEGORIES = [
+    "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, "
+    "filtering, missing keys)",
+    "reading a small JSON data file provided with the exercise and reporting from it (records with optional fields, "
+    "grouping, ranking)",
+    "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+    "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+]
 DOMAINS = ["a bakery", "a library", "a train network", "a garden", "a warehouse", "a chess club", "a weather station",
            "a music playlist", "a bike-share", "a school timetable", "a parking garage", "a board game", "an orchard",
            "a ferry service", "a recipe book", "a fitness log", "a museum", "a vending machine", "a robot on a grid",
@@ -86,18 +96,19 @@ AVOID = ("factorial; Euclidean GCD alone; FizzBuzz; Fibonacci; Sieve of Eratosth
          "expression evaluator; run-length encoding; heaps; topological sort; interval merging; LRU cache; "
          "union-find; sliding window maximum; bracket validation; knapsack; big-number addition; merging k sorted "
          "lists; league tables; tokenizer positions; ledger rounding; Luhn; histogram bins; duration phrases; leap "
-         "years; word wrap; semantic versions; CSV quoting; Roman numerals; percentiles; JSON or TOON parsing")
+         "years; word wrap; semantic versions; CSV quoting; Roman numerals; percentiles")
+NO_STRUCTURED = "; JSON or TOON parsing"
 
 TASK_PROMPT = """You write programming exercises for a benchmark of a small, simple, statically typed imperative \
-language. It has functions, loops, if/else, Int, Real, Bool and Text values, arrays and 2-D arrays, records with \
-fields, and basic string functions. It has no hash maps, no regular expressions, no built-in sort, and no \
-exceptions.
+language. It has functions (including nested helper functions), loops, if/else, Int, Real, Bool and Text values, \
+arrays and 2-D arrays, records with fields, a small standard library (string helpers, sums, sorting, searching), \
+JSON document helpers and one-call file reading. It has no hash maps, no regular expressions and no exceptions.
 
 Write {k} new exercises. Category: {category}. Set each one in a different everyday setting; suggestions: {domains}.
 
 Rules for every exercise:
-- Self-contained: all input data is written literally in the statement (at most about 20 values or a short text). \
-No files, no user input, no randomness, no clocks, no network.
+- Self-contained: all input data is written literally in the statement (at most about 20 values or a short text){file_rule}. \
+No user input, no randomness, no clocks, no network.
 - Exactly one correct output. Specify the EXACT output format line by line: labels, separators, spacing, order. \
 If a Real is printed, say how many decimal places, and choose data so no value falls exactly halfway when rounded.
 - Between 2 and 15 output lines. No trailing spaces. Do not state the expected output and do not hint at an \
@@ -106,8 +117,12 @@ implementation.
 - Avoid these topics entirely: {avoid}.
 - Avoid these titles, already used: {used}.
 
-Return only a JSON array of objects with keys "title" (short, unique) and "prompt" (the full statement). \
+Return only a JSON array of objects with keys "title" (short, unique) and "prompt" (the full statement){files_key}. \
 No commentary, no Markdown fences."""
+FILE_RULE = (", or, for an exercise that reads a file, in one small input file you supply (at most 30 lines; the "
+             "statement names the file and describes its format; never paste the file's content into the statement)")
+FILES_KEY = (", plus \"files\" (an object mapping the one file name to its full content) for an exercise that reads a "
+             "file")
 
 
 def batch_dir(name: str) -> pathlib.Path:
@@ -171,10 +186,14 @@ def stage_tasks(args) -> int:
     log = open(out / "tasks.log", "a", encoding="utf-8")
     rejected = {"duplicate": 0, "board": 0, "short": 0}
     while len(tasks) < args.count:
-        category = CATEGORIES[len(tasks) // args.per_request % len(CATEGORIES)]
+        rotation = CATEGORIES + (TOON_FILE_CATEGORIES * 2 if args.with_toon_files else [])
+        category = rotation[len(doc.get("requests", [])) % len(rotation)]
+        structured = category in TOON_FILE_CATEGORIES
+        files_ok = structured and "file" in category
         used = "; ".join(t["title"] for t in tasks[-60:]) or "none yet"
         prompt = TASK_PROMPT.format(k=args.per_request, category=category, domains=", ".join(rng.sample(DOMAINS, 5)),
-                                    avoid=AVOID, used=used)
+                                    avoid=AVOID + ("" if structured else NO_STRUCTURED), used=used,
+                                    file_rule=FILE_RULE if files_ok else "", files_key=FILES_KEY if files_ok else "")
         started = time.time()
         try:
             reply = adb.invoke_tra_queue(prompt, dest)
@@ -199,9 +218,20 @@ def stage_tasks(args) -> int:
             if any(jaccard(shingles, ref) >= 0.35 for _, ref in boards):
                 rejected["board"] += 1
                 continue
-            tasks.append({"id": f"dst_{args.batch.replace('-', '_')}_{len(tasks):04d}", "title": item["title"].strip(),
-                          "prompt": item["prompt"].strip(), "expected_stdout": "", "hide_expected_stdout": True,
-                          "reference_solution": "", "category": category, "achievability": "distill-candidate"})
+            files = item.get("files") if files_ok else None
+            if files is not None:
+                ok = (isinstance(files, dict) and len(files) == 1
+                      and all(isinstance(k, str) and re.fullmatch(r"[A-Za-z0-9_.-]{1,40}", k) and k in item["prompt"]
+                              and isinstance(v, str) and 0 < v.count("\n") + 1 <= 30 for k, v in files.items()))
+                if not ok:
+                    rejected["bad_file"] = rejected.get("bad_file", 0) + 1
+                    continue
+            task = {"id": f"dst_{args.batch.replace('-', '_')}_{len(tasks):04d}", "title": item["title"].strip(),
+                    "prompt": item["prompt"].strip(), "expected_stdout": "", "hide_expected_stdout": True,
+                    "reference_solution": "", "category": category, "achievability": "distill-candidate"}
+            if files:
+                task["files"] = {k: v if v.endswith("\n") else v + "\n" for k, v in files.items()}
+            tasks.append(task)
             kept += 1
         save_json(tasks_path, doc)
         log.write(f"{time.strftime('%H:%M:%S')} {category[:40]!r}: {len(items)} returned, {kept} kept, "
@@ -366,24 +396,78 @@ def stage_harvest(args) -> int:
             repaired += 1
         board_task = adb.Task(task_id=task["id"], title=task["title"], prompt=task["prompt"],
                               expected_stdout=task["expected_stdout"])
-        pairs.append({"id": task["id"], "prompt": adb.build_prompt("none", "", board_task), "solution": source,
+        pair = {"id": task["id"], "prompt": adb.build_prompt("none", "", board_task), "solution": source,
                       "expected_stdout": task["expected_stdout"],
                       "_provenance": {"category": task.get("category"), "first_attempt": attempts[0] is exact[0],
                                       "solver": report["destinations"][0].get("model"),
                                       "guide": report["destinations"][0]["variants"][0].get("doc_version"),
                                       "grader": report.get("aether_version"),
                                       "generator_models": sorted((provenance or {}).get("requests_by_model", {})),
-                                      "generator_pool": (provenance or {}).get("pool")}})
+                                      "generator_pool": (provenance or {}).get("pool")}}
+        if task.get("files"):
+            pair["files"] = task["files"]
+        pairs.append(pair)
     save_json(out / "pairs.json", {"pairs": pairs})
     print(f"harvested {len(pairs)} pairs ({first} first-attempt, {repaired} after repair) of {len(frozen)} frozen "
           f"tasks; next: tools/aether_specialization_check_pairs.py {out / 'pairs.json'}")
     return 0
 
 
+def stage_harvest_python(args) -> int:
+    """Python pairs from the batch: the independent Python program for every task whose guided Aether agreed.
+
+    They train the model to keep the two languages apart (a fine-tune on Aether alone leaked `fx { }`,
+    `ret;` and `Text` into its Python, 2026-10-17). Prompts are the harness's own Python prompt
+    (`build_python_prompt`); `language: python` tells the dataset builder not to verify them with the Aether
+    compiler (each already ran in the harness's sandbox and printed the expected output).
+    """
+    out = batch_dir(args.batch)
+    frozen = {t["id"]: t for t in load_json(out / "tasks_frozen.json", {"tasks": []})["tasks"]}
+    pyrep = load_json(out / "python.json", None) or load_gz(out / "report__python.json.gz")
+    aerep = load_json(out / "aether.json", None) or load_gz(out / "report__aether.json.gz")
+    provenance = load_json(out / "provenance.json", None)
+    if pyrep is None or aerep is None:
+        raise SystemExit("need the batch's Python and Aether harness reports")
+    if not args.skip_provenance and not (provenance and provenance.get("ok")):
+        raise SystemExit("no passing provenance.json (the Python came from the generation lane); run provenance first")
+    agreed = {r["task_id"] for r in aerep["destinations"][0]["variants"][0]["results"]
+              if any((a.get("run") or {}).get("exact_stdout_match") for a in r.get("attempts") or [])}
+    pairs = []
+    for result in pyrep["destinations"][0]["variants"][0].get("python_baseline_results", []):
+        task = frozen.get(result.get("task_id"))
+        attempt = (result.get("attempts") or [result])[0]
+        run = attempt.get("run") or {}
+        if (task is None or task["id"] not in agreed or run.get("returncode") != 0
+                or run.get("stdout") != task["expected_stdout"]):
+            continue
+        board_task = adb.Task(task_id=task["id"], title=task["title"], prompt=task["prompt"],
+                              expected_stdout=task["expected_stdout"])
+        pair = {"id": task["id"] + "_py", "language": "python", "prompt": adb.build_python_prompt(board_task),
+                "solution": attempt.get("source_code") or "", "expected_stdout": task["expected_stdout"],
+                "_provenance": {"category": task.get("category"),
+                                "author_models": sorted((provenance or {}).get("requests_by_model", {})),
+                                "verified": "ran in the harness's macOS sandbox; its output agreed with the guided "
+                                            "Aether program"}}
+        if task.get("files"):
+            pair["files"] = task["files"]
+        pairs.append(pair)
+    save_json(out / "pairs_python.json", {"pairs": pairs})
+    print(f"harvested {len(pairs)} Python pairs of {len(agreed)} agreed tasks -> {out / 'pairs_python.json'}")
+    return 0
+
+
+def load_gz(path: pathlib.Path):
+    import gzip
+    return json.load(gzip.open(path)) if path.exists() else None
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("batch")
-    ap.add_argument("stage", choices=["tasks", "python-cmd", "freeze", "provenance", "aether-cmd", "harvest"])
+    ap.add_argument("stage", choices=["tasks", "python-cmd", "freeze", "provenance", "aether-cmd", "harvest",
+                                      "harvest-python"])
+    ap.add_argument("--with-toon-files", action="store_true",
+                    help="tasks: add the JSON/TOON and data-file categories (about a third of a batch)")
     ap.add_argument("--count", type=int, default=300)
     ap.add_argument("--per-request", type=int, default=8)
     # Change these two together. T'Ra serves `large-open` only on the open-lane proxy target, so with
@@ -415,7 +499,7 @@ def main() -> int:
     if args.stage == "provenance" and not args.proxy_host:
         raise SystemExit("set --proxy-host or AETHER_DISTILL_PROXY_HOST in the private fleet overlay "
                          f"({fleet_env.path()})")
-    return {"provenance": stage_provenance, "tasks": stage_tasks, "python-cmd": stage_python_cmd, "freeze": stage_freeze,
+    return {"harvest-python": stage_harvest_python, "provenance": stage_provenance, "tasks": stage_tasks, "python-cmd": stage_python_cmd, "freeze": stage_freeze,
             "aether-cmd": stage_aether_cmd, "harvest": stage_harvest}[args.stage](args)
 
 
