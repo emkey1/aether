@@ -43,8 +43,8 @@ FORBIDDEN = {
     "toon_get_root", "toon_get_key", "toon_get_at", "toon_get_str", "toon_int", "toon_text",
     "toon_bool", "toon_real", "toon_get", "toon_parse_json", "toon_get_array", "toon_get_obj",
     "toon_array_len", "toon_size", "toon_count", "toon_keys", "yyjson_parse_file", "yyjson_parse",
-    "json_parse", "mstream_new", "mstream_create", "mstream_write", "mstream_read", "mstream_free",
-    "mstream_buffer", "mstream_from_string",
+    "json_parse", "mstream_create", "mstream_write", "mstream_read", "mstream_buffer", "mstream_from_string",
+    # mstream_new and mstream_free are real builtins since D61 (2026-10-17) and are not listed.
     # Removed by D66 (2026-10-18): the write verbs replaced them.
     "mstream_append_text", "mstream_append_byte",
 }

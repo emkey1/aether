@@ -226,8 +226,7 @@ def stage_tasks(args) -> int:
             time.sleep(10)
             continue
         doc.setdefault("requests", []).append({"t0": round(started, 1), "t1": round(time.time(), 1),
-                                               "model": args.model, "target": reply.get("model"),
-                                               "job": reply.get("response_id")})
+                                               "model": args.model, "job": reply.get("response_id")})
         items = parse_task_array(reply.get("raw_text", ""))
         kept = 0
         for item in items:
