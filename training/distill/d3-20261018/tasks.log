@@ -1,0 +1,12 @@
+18:23:54 'table-based dynamic programming (countin': 14 returned, 12 kept, 12 total, 70s, rejected so far {'duplicate': 2, 'board': 0, 'short': 0}
+18:25:05 'parsing simple line-based text formats g': 9 returned, 8 kept, 20 total, 71s, rejected so far {'duplicate': 3, 'board': 0, 'short': 0}
+18:26:10 'small combinatorics and recursion (gener': 9 returned, 8 kept, 28 total, 65s, rejected so far {'duplicate': 4, 'board': 0, 'short': 0}
+18:27:37 'matrix operations on small fixed matrice': 9 returned, 8 kept, 36 total, 87s, rejected so far {'duplicate': 5, 'board': 0, 'short': 0}
+18:28:25 'searching and scanning arrays (pairs, wi': 8 returned, 8 kept, 44 total, 48s, rejected so far {'duplicate': 5, 'board': 0, 'short': 0}
+18:29:24 'sorting and selection written by hand (i': 9 returned, 8 kept, 52 total, 59s, rejected so far {'duplicate': 6, 'board': 0, 'short': 0}
+18:30:03 'table-based dynamic programming (countin': 8 returned, 8 kept, 60 total, 40s, rejected so far {'duplicate': 6, 'board': 0, 'short': 0}
+18:31:05 'parsing simple line-based text formats g': 8 returned, 7 kept, 67 total, 62s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0}
+18:31:39 'small combinatorics and recursion (gener': 8 returned, 8 kept, 75 total, 34s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0}
+18:32:41 'matrix operations on small fixed matrice': 10 returned, 10 kept, 85 total, 63s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0}
+18:33:40 'searching and scanning arrays (pairs, wi': 9 returned, 7 kept, 92 total, 59s, rejected so far {'duplicate': 9, 'board': 0, 'short': 0}
+18:34:47 'sorting and selection written by hand (i': 9 returned, 9 kept, 101 total, 67s, rejected so far {'duplicate': 9, 'board': 0, 'short': 0}

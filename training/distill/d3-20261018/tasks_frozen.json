@@ -1,0 +1,916 @@
+{
+ "version": "d3-20261018",
+ "description": "distillation tasks with the independent Python program's stdout as expected output",
+ "tasks": [
+  {
+   "id": "dst_d3_20261018_0000",
+   "title": "Stairwell Fire Code",
+   "prompt": "A small office building has a stairwell with 9 steps. The fire code requires that a person climbs the stairwell taking either 1 step or 2 steps at a time. However, steps 4 and 7 are currently blocked by stored boxes, so no climb may land on step 4 or step 7.\n\nCount the number of distinct ways a person can climb from step 0 to step 9 without ever landing on a blocked step.\n\nPrint exactly two lines in this format (no trailing spaces):\nBlocked steps: 4, 7\nWays to reach step 9: N\n\nwhere N is the integer count.",
+   "expected_stdout": "Blocked steps: 4, 7\nWays to reach step 9: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0001",
+   "title": "Beekeeper Hive Boxes",
+   "prompt": "A beekeeper stacks honey supers on a hive. There are 6 supers that must be placed in order (super 1 first, super 6 last). Each super has a weight in kilograms:\nSuper 1: 12\nSuper 2: 9\nSuper 3: 15\nSuper 4: 7\nSuper 5: 11\nSuper 6: 8\n\nThe hive can hold at most 40 kilograms. Supers must be placed consecutively starting from super 1; you stop placing supers as soon as adding the next super would exceed 40 kilograms. Find the number of supers placed and their total weight.\n\nPrint exactly two lines in this format (no trailing spaces):\nSupers placed: N\nTotal weight: W\n\nwhere N is the integer count and W is the integer weight.",
+   "expected_stdout": "Supers placed: 3\nTotal weight: 36\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0002",
+   "title": "Parking Garage Levels",
+   "prompt": "A parking garage has levels 0 through 4. You start at level 0 and want to reach level 4. From any level you may go up 1 level or up 2 levels (never down). The number of free spaces on each level is:\nLevel 0: 5\nLevel 1: 3\nLevel 2: 8\nLevel 3: 2\nLevel 4: 6\n\nFind the maximum number of free spaces you can pass through (counting only levels you actually land on, including level 0 and level 4) on any valid route from level 0 to level 4.\n\nPrint exactly one line in this format (no trailing spaces):\nMax free spaces passed: N\n\nwhere N is the integer total.",
+   "expected_stdout": "Max free spaces passed: 24\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0003",
+   "title": "Warehouse Pallet Stacks",
+   "prompt": "A warehouse stacks pallets in a column. There are 7 pallets that must be stacked in order (pallet 1 at the bottom). Each pallet has a height in centimetres:\nPallet 1: 14\nPallet 2: 11\nPallet 3: 17\nPallet 4: 9\nPallet 5: 13\nPallet 6: 16\nPallet 7: 10\n\nA forklift can lift pallets only if the stack it is building is at most 60 centimetres tall. Starting from an empty stack, you add pallets in order and stop before adding any pallet that would make the stack exceed 60 centimetres. Find how many pallets you can stack and the final stack height.\n\nPrint exactly two lines in this format (no trailing spaces):\nPallets stacked: N\nStack height: H\n\nwhere N is the integer count and H is the integer height.",
+   "expected_stdout": "Pallets stacked: 4\nStack height: 51\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0004",
+   "title": "Rooftop Garden Planters",
+   "prompt": "A rooftop garden has a row of 6 planters that must be filled in order. Each planter can hold one of two plants: a tomato plant (T) or a basil plant (B). The plant choices and their watering needs per week are:\nPlanter 1: T (3 litres) or B (2 litres)\nPlanter 2: T (4 litres) or B (1 litre)\nPlanter 3: T (2 litres) or B (3 litres)\nPlanter 4: T (5 litres) or B (2 litres)\nPlanter 5: T (1 litre) or B (4 litres)\nPlanter 6: T (3 litres) or B (2 litres)\n\nNo two adjacent planters may both hold a tomato plant (T). Find the minimum total weekly watering needed while filling all 6 planters under this rule.\n\nPrint exactly one line in this format (no trailing spaces):\nMin water: N\n\nwhere N is the integer litres.",
+   "expected_stdout": "Min water: 10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0005",
+   "title": "Train Station Ticket Gates",
+   "prompt": "A train station has 7 ticket gates in a row. A passenger must pass through gates starting at gate 1 and ending at gate 7, moving forward by exactly 1 gate or exactly 2 gates at a time (never skipping more than 2). Some gates are closed:\nClosed gates: 3, 6\n\nThe passenger may not step on a closed gate. Count the number of distinct valid routes from gate 1 to gate 7.\n\nPrint exactly two lines in this format (no trailing spaces):\nClosed: 3, 6\nRoutes: N\n\nwhere N is the integer count.",
+   "expected_stdout": "Closed: 3, 6\nRoutes: 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0006",
+   "title": "School Cafeteria Tray Line",
+   "prompt": "Students form a line at a school cafeteria. There are 6 students waiting. Each student takes a certain number of seconds to be served:\nStudent 1: 8\nStudent 2: 5\nStudent 3: 12\nStudent 4: 7\nStudent 5: 9\nStudent 6: 6\n\nThe cafeteria closes after 40 seconds of serving. Students are served strictly in order starting from student 1; serving stops before any student whose service would finish after exactly 40 seconds. Count how many students are served and the total serving time used.\n\nPrint exactly two lines in this format (no trailing spaces):\nStudents served: N\nTime used: T\n\nwhere N is the integer count and T is the integer seconds.",
+   "expected_stdout": "Students served: 4\nTime used: 32\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0007",
+   "title": "Balcony Herb Boxes",
+   "prompt": "A balcony has 5 herb boxes in a row that must be planted in order. Each box can hold either mint (M) or parsley (P). Mint needs 4 units of sunlight per day, parsley needs 2 units. The balcony receives 18 units of sunlight per day total. No two adjacent boxes may both hold mint. The sunlight needs are:\nBox 1: M=4, P=2\nBox 2: M=4, P=2\nBox 3: M=4, P=2\nBox 4: M=4, P=2\nBox 5: M=4, P=2\n\nFind the maximum number of mint boxes you can plant while keeping total sunlight need at most 18 and satisfying the adjacency rule.\n\nPrint exactly one line in this format (no trailing spaces):\nMax mint boxes: N\n\nwhere N is the integer count.",
+   "expected_stdout": "Max mint boxes: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0008",
+   "title": "Bakery Display Rack",
+   "prompt": "A bakery has a display rack with 6 shelves that must be loaded in order from top to bottom. Each shelf holds one type of pastry with a display time in minutes before it must be rotated:\nShelf 1: 10\nShelf 2: 15\nShelf 3: 8\nShelf 4: 12\nShelf 5: 9\nShelf 6: 14\n\nThe baker has 45 minutes before the first rotation is due. Shelves are loaded starting from shelf 1; loading stops before any shelf whose display time would push total time past 45 minutes. Count how many shelves are loaded and the total display time.\n\nPrint exactly two lines in this format (no trailing spaces):\nShelves loaded: N\nTotal display time: T\n\nwhere N is the integer count and T is the integer minutes.",
+   "expected_stdout": "Shelves loaded: 4\nTotal display time: 45\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0009",
+   "title": "Community Pool Lanes",
+   "prompt": "A community pool has 8 lane markers floating in a row. A swimmer swims from marker 1 to marker 8, advancing by 1 marker or 3 markers at each stroke. Some markers are missing (swimmer cannot land on them):\nMissing markers: 4, 7\n\nCount the number of distinct valid stroke sequences from marker 1 to marker 8.\n\nPrint exactly two lines in this format (no trailing spaces):\nMissing: 4, 7\nSequences: N\n\nwhere N is the integer count.",
+   "expected_stdout": "Missing: 4, 7\nSequences: 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0010",
+   "title": "Farm Stand Produce Crates",
+   "prompt": "A farm stand stacks produce crates. There are 6 crates that must be stacked in order (crate 1 at the bottom). Each crate has a weight in kilograms:\nCrate 1: 7\nCrate 2: 11\nCrate 3: 5\nCrate 4: 9\nCrate 5: 6\nCrate 6: 8\n\nThe stand's scale can hold at most 30 kilograms. Crates are placed starting from crate 1; you stop before placing any crate that would push the total over 30 kilograms. Count how many crates are placed and the final total weight.\n\nPrint exactly two lines in this format (no trailing spaces):\nCrates placed: N\nTotal weight: W\n\nwhere N is the integer count and W is the integer kilograms.",
+   "expected_stdout": "Crates placed: 3\nTotal weight: 23\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0011",
+   "title": "Museum Exhibit Path",
+   "prompt": "A museum has a corridor with 7 exhibit stations numbered 1 through 7. A visitor starts at station 1 and must reach station 7, moving forward by 1 station or 2 stations at a time. Some stations are closed:\nClosed stations: 3, 5\n\nThe visitor may not stop at a closed station. Count the number of distinct valid routes from station 1 to station 7.\n\nPrint exactly two lines in this format (no trailing spaces):\nClosed: 3, 5\nRoutes: N\n\nwhere N is the integer count.",
+   "expected_stdout": "Closed: 3, 5\nRoutes: 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0020",
+   "title": "Lighthouse Rotation",
+   "prompt": "You are programming the rotation controller for a small coastal lighthouse. The controller cycles through a fixed sequence of lens settings as it sweeps the horizon. The settings are defined as an array of Real values representing the light intensity at each step of one full rotation: 0.4, 1.2, 0.8, 1.6, 0.2, 1.0.\n\nFor a full sweep, the controller runs through the sequence starting at index 0, then again starting at index 1, then index 2, and so on, until it has started at every index in the array. When a start index is given, the controller reads values wrapping around to the beginning when it passes the end of the array. For each start index, print the sum of the values read over one full pass through the array.\n\nPrint exactly 6 lines, one per start index, in order from start index 0 to start index 5. Each line must be in the format:\nSTART=<n> SUM=<value>\nwhere <n> is the starting index (0 through 5) and <value> is the sum rounded to 2 decimal places, with no trailing spaces.",
+   "expected_stdout": "START=0 SUM=5.20\nSTART=1 SUM=5.20\nSTART=2 SUM=5.20\nSTART=3 SUM=5.20\nSTART=4 SUM=5.20\nSTART=5 SUM=5.20\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0021",
+   "title": "Ferry Deck Markings",
+   "prompt": "A small ferry has a car deck marked with numbered parking bays in a single row, numbered 1 through 10. On a particular crossing, cars occupy the following bays: 1, 2, 5, 6, 7, 10.\n\nA \"free run\" is a maximal contiguous group of unoccupied bays. For example, bays 3 and 4 form one free run, and bay 8 and bay 9 form another free run.\n\nCompute the list of free runs on the deck. Print exactly 3 lines, one per free run, ordered by starting bay ascending. Each line must be in the format:\nRUN=<start>-<end> LENGTH=<len>\nwhere <start> and <end> are the first and last bay numbers in the run, and <len> is the number of bays in the run (an integer). No trailing spaces.",
+   "expected_stdout": "RUN=3-4 LENGTH=2\nRUN=8-9 LENGTH=2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0022",
+   "title": "Weather Station Gust Log",
+   "prompt": "A weather station records wind gusts during a single hour. The gusts, in order of occurrence, are measured in metres per second and are given as an array of Int values:\n  12, 18, 7, 18, 9, 18, 5, 18, 11, 18, 18\n\nA \"peak gust\" is a gust that is strictly greater than the gust immediately before it and strictly greater than the gust immediately after it. (The first and last gusts in the log are never considered peaks because they lack a neighbour on one side.) If two consecutive gusts are equal and both are greater than their other neighbours, only the first of them counts as a peak.\n\nFor each peak gust found, print one line in the format:\nPEAK=<value> AT=<index>\nwhere <value> is the gust speed and <index> is its 0-based position in the array. Print lines in order of increasing index. If there are no peaks, print the single line NONE.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "PEAK=18 AT=1\nPEAK=18 AT=3\nPEAK=18 AT=5\nPEAK=18 AT=7\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0023",
+   "title": "Library Shelf Reshelving",
+   "prompt": "A librarian is reshelving a small cart of books onto a shelf. The shelf has 8 slots, numbered 0 through 7. The cart holds books in this order, each identified by a single character code:\n  A, B, C, D, E, F\n\nThe reshelving rule: the first book goes into slot 0, the second into slot 1, and so on. After a book is placed, the next available slot advances by 2 instead of 1 (so slots are visited 0, 2, 4, 6, 1, 3, 5, 7 in that order, wrapping around to the start of the unvisited slots if the advance passes the end).\n\nPlace all 6 books following this rule. Then print the shelf contents. Print exactly 8 lines, one per slot, in order from slot 0 to slot 7. Each line must be in the format:\nSLOT=<n> BOOK=<code>\nwhere <n> is the slot number and <code> is the single character of the book placed there, or the character '-' if the slot is empty. No trailing spaces.",
+   "expected_stdout": "SLOT=0 BOOK=A\nSLOT=1 BOOK=E\nSLOT=2 BOOK=B\nSLOT=3 BOOK=F\nSLOT=4 BOOK=C\nSLOT=5 BOOK=-\nSLOT=6 BOOK=D\nSLOT=7 BOOK=-\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0024",
+   "title": "Train Network Shortest Rides",
+   "prompt": "A small train network has 5 stations labelled 0, 1, 2, 3, 4. Direct connections between stations are given as an array of Int pairs, each pair being [from, to] with a travel time in minutes:\n  [0,1] time 4\n  [1,2] time 3\n  [0,2] time 10\n  [2,3] time 5\n  [1,3] time 8\n  [3,4] time 2\n  [2,4] time 9\n\nFor each station s from 0 to 4, compute the minimum travel time from station 0 to station s considering all direct connections and any chain of connections (times add along a chain). Station 0 to itself is time 0. If a station is unreachable from station 0, report -1.\n\nPrint exactly 5 lines, one per destination station, in order from station 0 to station 4. Each line must be in the format:\nTO=<n> MIN=<value>\nwhere <n> is the destination station number and <value> is the minimum travel time in minutes as an integer (or -1 if unreachable). No trailing spaces.",
+   "expected_stdout": "TO=0 MIN=0\nTO=1 MIN=4\nTO=2 MIN=7\nTO=3 MIN=12\nTO=4 MIN=14\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0025",
+   "title": "Museum Label Word Counts",
+   "prompt": "A museum curator is checking the word counts on exhibit labels. Four labels are given, each as a Text value. Words are separated by single spaces; there is no punctuation and no leading or trailing space.\n\nLabel 1: \"Ancient tools of the bronze age\"\nLabel 2: \"A short poem about rivers\"\nLabel 3: \"Ceramics\"\nLabel 4: \"Paintings from three continents\"\n\nFor each label, count the number of words. Then find the label with the fewest words; if there is a tie, choose the one that appears earliest in the list.\n\nPrint exactly 5 lines:\nLine 1: WORDS=<n1>\nLine 2: WORDS=<n2>\nLine 3: WORDS=<n3>\nLine 4: WORDS=<n4>\nLine 5: SHORTEST=<index>\nwhere <n1> through <n4> are the word counts of labels 1 through 4 as integers, and <index> is the 1-based index of the shortest label. No trailing spaces on any line.",
+   "expected_stdout": "WORDS=6\nWORDS=5\nWORDS=1\nWORDS=4\nSHORTEST=3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0026",
+   "title": "Ferry Passenger Manifest",
+   "prompt": "A small ferry carries passengers across a harbour. Each passenger on the manifest has a name and an age. The manifest is:\n  1. name=\"Ines\", age=34\n  2. name=\"Joon\", age=7\n  3. name=\"Kai\", age=12\n  4. name=\"Lena\", age=41\n  5. name=\"Mo\", age=9\n  6. name=\"Nia\", age=16\n\nPassengers are counted as children if their age is under 13, teenagers if their age is 13 through 19 inclusive, and adults otherwise.\n\nPrint exactly 4 lines:\nLine 1: CHILDREN=<n>\nLine 2: TEENAGERS=<n>\nLine 3: ADULTS=<n>\nLine 4: OLDEST=<name>\nwhere <n> is the integer count in each category, and <name> is the name of the oldest passenger on the manifest (if several share the maximum age, use the one appearing earliest in the list). No trailing spaces on any line.",
+   "expected_stdout": "CHILDREN=3\nTEENAGERS=1\nADULTS=2\nOLDEST=Lena\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0027",
+   "title": "Weather Station Sensor Triads",
+   "prompt": "A weather station takes temperature readings over a short interval. The readings, in order, are given as an array of Real values in degrees Celsius:\n  5.5, 6.1, 7.0, 6.8, 7.2, 8.0, 7.9, 8.4, 9.1, 9.0\n\nA \"steady rise\" is a group of three consecutive readings where each reading is strictly greater than the one before it. Groups may overlap. For each steady rise, record the average of its three readings.\n\nPrint one line per steady rise found, in order from the earliest starting index to the latest. Each line must be in the format:\nTRIAD=<i> AVG=<value>\nwhere <i> is the 0-based index of the first reading in the group and <value> is the average of the three readings rounded to 2 decimal places. If no steady rise exists, print the single line NONE.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "TRIAD=0 AVG=6.20\nTRIAD=3 AVG=7.33\nTRIAD=6 AVG=8.47\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0028",
+   "title": "Ferry Crossing Times",
+   "prompt": "A small ferry company runs crossings between four ports: Oak, Elm, Bay, and Cove. The company has recorded the travel time in minutes for a direct crossing between each pair of ports. Some pairs have no direct crossing, which is recorded as 0.\n\nThe travel time matrix is as follows (row = from, column = to), in the order Oak, Elm, Bay, Cove:\n\nOak:  0, 45, 90, 0\nElm:  45, 0, 0, 70\nBay:  90, 0, 0, 55\nCove: 0, 70, 55, 0\n\nWrite a program that computes the total time for a round trip starting and ending at Oak, visiting the other three ports in the order Elm, Bay, Cove, and returning to Oak. For each leg of the journey, if a direct crossing exists, use its time. If no direct crossing exists (matrix value is 0), the crossing must be made by changing ferries at the port that provides the shortest single-leg connection; specifically, find the intermediate port (among the four) that minimizes the sum of the two legs, and use that sum as the leg time.\n\nOutput exactly 5 lines in this format:\n\nLeg Oak-Elm: NN minutes\nLeg Elm-Bay: NN minutes\nLeg Bay-Cove: NN minutes\nLeg Cove-Oak: NN minutes\nTotal round trip: NN minutes\n\nwhere NN is the integer number of minutes (no decimal places, no leading zeros unless the value is 0).",
+   "expected_stdout": "Leg Oak-Elm: 45 minutes\nLeg Elm-Bay: 125 minutes\nLeg Bay-Cove: 55 minutes\nLeg Cove-Oak: 115 minutes\nTotal round trip: 340 minutes\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0029",
+   "title": "Vending Machine Restock",
+   "prompt": "A vending machine has 5 shelves (S1 to S5) and 4 product rows (A to D). The machine's stock count matrix (row = shelf, column = product) is:\n\nS1: 12, 0, 7, 3\nS2: 5, 9, 0, 11\nS3: 0, 4, 8, 6\nS4: 7, 2, 5, 0\nS5: 3, 6, 4, 9\n\nEach cell represents how many items are currently in that slot. The restocking rule is: a slot must be refilled if it holds fewer than 5 items. The restock amount for a slot is the number needed to bring it up to exactly 12 items.\n\nWrite a program that, for each shelf, prints the shelf label followed by the restock amounts for its four slots (space-separated integers), then prints a final line with the total number of items that must be restocked across all shelves.\n\nOutput exactly 6 lines in this format:\n\nS1 restock: n1 n2 n3 n4\nS2 restock: n1 n2 n3 n4\nS3 restock: n1 n2 n3 n4\nS4 restock: n1 n2 n3 n4\nS5 restock: n1 n2 n3 n4\nTotal items to restock: N\n\nwhere each ni is an integer restock amount for that slot (0 if no restock is needed) and N is the total integer sum. No trailing spaces.",
+   "expected_stdout": "S1 restock: 0 12 0 9\nS2 restock: 0 0 12 0\nS3 restock: 12 8 0 0\nS4 restock: 0 10 0 12\nS5 restock: 9 0 8 0\nTotal items to restock: 92\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0030",
+   "title": "Music Playlist Ratings",
+   "prompt": "A music playlist app shows how many stars (out of 5) each of 4 listeners gave to each of 5 songs. The rating matrix (row = listener, column = song) is:\n\nListener Ana: 5, 4, 3, 5, 2\nListener Bo:  4, 5, 4, 3, 4\nListener Cy:  3, 3, 5, 4, 5\nListener Di:  5, 4, 4, 5, 3\n\nThe songs are titled Song1, Song2, Song3, Song4, Song5.\n\nWrite a program that:\n1. For each song, computes the average rating across all four listeners, printed with exactly 2 decimal places.\n2. Finds the song with the highest average rating (if two songs tie, choose the one with the lower song number).\n3. For each listener, counts how many songs they rated 5 stars.\n\nOutput exactly 10 lines in this format:\n\nSong1 average: X.XX\nSong2 average: X.XX\nSong3 average: X.XX\nSong4 average: X.XX\nSong5 average: X.XX\nTop rated song: SongN\nAna fives: N\nBo fives: N\nCy fives: N\nDi fives: N\n\nwhere X.XX is the average with exactly two decimal places (choose your data carefully so no average falls exactly on a .005 boundary), SongN is the highest-rated song label, and each N is an integer count.",
+   "expected_stdout": "Song1 average: 4.25\nSong2 average: 4.00\nSong3 average: 4.00\nSong4 average: 4.25\nSong5 average: 3.50\nTop rated song: Song1\nAna fives: 2\nBo fives: 1\nCy fives: 2\nDi fives: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0031",
+   "title": "Library Book Reservations",
+   "prompt": "A small library has 4 members (M1, M2, M3, M4) and 5 books (B1, B2, B3, B4, B5). The reservation matrix shows how many days ahead each member booked each book (0 means no reservation):\n\nM1: 3, 0, 7, 2, 0\nM2: 0, 5, 0, 4, 6\nM3: 2, 3, 0, 0, 5\nM4: 6, 0, 4, 3, 0\n\nA reservation is considered urgent if it was made 5 or more days in advance (i.e., value >= 5). The library wants a summary:\n\n1. For each book, the number of members who have an urgent reservation for it.\n2. For each member, the total number of days ahead across all their reservations (sum of their row).\n3. The book with the highest total number of urgent reservations (if tied, choose the lower book number).\n\nOutput exactly 10 lines in this format:\n\nB1 urgent: N\nB2 urgent: N\nB3 urgent: N\nB4 urgent: N\nB5 urgent: N\nM1 total days: N\nM2 total days: N\nM3 total days: N\nM4 total days: N\nMost urgent book: BN\n\nwhere each N is an integer and BN is the book label with the most urgent reservations.",
+   "expected_stdout": "B1 urgent: 1\nB2 urgent: 1\nB3 urgent: 1\nB4 urgent: 0\nB5 urgent: 2\nM1 total days: 12\nM2 total days: 15\nM3 total days: 10\nM4 total days: 13\nMost urgent book: B5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0032",
+   "title": "Train Seat Layout",
+   "prompt": "A train carriage has 4 rows (R1 to R4) and 6 seats across (A to F). The seat occupancy matrix (1 = occupied, 0 = free) is:\n\nR1: 1, 1, 0, 0, 1, 0\nR2: 0, 1, 1, 0, 0, 1\nR3: 1, 0, 0, 1, 1, 0\nR4: 0, 1, 0, 1, 0, 1\n\nWrite a program that:\n1. For each row, prints the number of free seats in that row.\n2. Finds the seat column (A-F) with the most free seats across all rows (if tied, choose the leftmost column).\n3. Counts the number of pairs of adjacent free seats horizontally in the same row (i.e., two consecutive free seats within one row; a run of 3 free seats counts as 2 pairs).\n4. Counts the number of pairs of adjacent free seats vertically (same column, consecutive rows).\n\nOutput exactly 8 lines in this format:\n\nR1 free: N\nR2 free: N\nR3 free: N\nR4 free: N\nBest free column: X\nHorizontal free pairs: N\nVertical free pairs: N\nTotal free seats: N\n\nwhere X is a single uppercase letter A-F, and each N is an integer.",
+   "expected_stdout": "R1 free: 3\nR2 free: 3\nR3 free: 3\nR4 free: 3\nBest free column: C\nHorizontal free pairs: 3\nVertical free pairs: 2\nTotal free seats: 12\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0033",
+   "title": "Bakery Daily Sales",
+   "prompt": "A bakery tracks daily sales (in units) of 4 items across 5 days of the week (Mon to Fri). The sales matrix (row = day, column = item) is:\n\nMon: 12, 8, 15, 6\nTue: 10, 11, 9, 7\nWed: 14, 7, 12, 5\nThu: 9, 13, 11, 8\nFri: 16, 10, 18, 9\n\nThe items are Croissant, Loaf, Muffin, Cookie.\n\nWrite a program that:\n1. For each item, computes the total units sold across all 5 days.\n2. Finds the day with the highest total sales across all 4 items (if tied, choose the earlier day).\n3. Computes the average daily sales for each item, printed with exactly 2 decimal places.\n4. Finds the single highest cell value (day, item) in the matrix.\n\nOutput exactly 11 lines in this format:\n\nCroissant total: N\nLoaf total: N\nMuffin total: N\nCookie total: N\nBest day: DAY\nCroissant avg: X.XX\nLoaf avg: X.XX\nMuffin avg: X.XX\nCookie avg: X.XX\nPeak sale: DAY ITEM N\n\nwhere DAY is the three-letter day abbreviation (Mon, Tue, Wed, Thu, Fri), ITEM is the item name, N is an integer, and X.XX is an average with exactly two decimal places (data chosen so no average falls exactly on a .005 boundary).",
+   "expected_stdout": "Croissant total: 61\nLoaf total: 49\nMuffin total: 65\nCookie total: 35\nBest day: Fri\nCroissant avg: 12.20\nLoaf avg: 9.80\nMuffin avg: 13.00\nCookie avg: 7.00\nPeak sale: Fri Muffin 18\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0034",
+   "title": "Parking Lot Sensor Grid",
+   "prompt": "A parking lot has 4 rows (Row1 to Row4) and 5 bays (Bay1 to Bay5). Each sensor reports 1 if a car is present, 0 if empty. The occupancy matrix is:\n\nRow1: 1, 0, 1, 1, 0\nRow2: 0, 0, 1, 0, 1\nRow3: 1, 1, 0, 1, 0\nRow4: 0, 1, 1, 0, 1\n\nA parking block consists of exactly 2 or 3 consecutive occupied bays in the same row (horizontally adjacent), or exactly 2 or 3 consecutive occupied bays in the same column (vertically adjacent, across consecutive rows). Blocks may overlap.\n\nWrite a program that:\n1. For each row, prints the number of occupied bays in that row.\n2. Counts the total number of horizontal blocks (runs of 2 or 3 consecutive occupied bays within a row).\n3. Counts the total number of vertical blocks (runs of 2 or 3 consecutive occupied bays within a column across consecutive rows).\n4. Prints the total number of occupied bays in the lot.\n\nOutput exactly 7 lines in this format:\n\nRow1 occupied: N\nRow2 occupied: N\nRow3 occupied: N\nRow4 occupied: N\nHorizontal blocks: N\nVertical blocks: N\nTotal occupied: N\n\nwhere each N is an integer.",
+   "expected_stdout": "Row1 occupied: 3\nRow2 occupied: 2\nRow3 occupied: 3\nRow4 occupied: 3\nHorizontal blocks: 3\nVertical blocks: 2\nTotal occupied: 11\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0035",
+   "title": "Hotel Room Rates",
+   "prompt": "A hotel has 4 floors (F1 to F4) and 4 room types (Single, Double, Suite, Family). The nightly rate matrix in dollars (row = floor, column = room type) is:\n\nF1: 89, 120, 250, 160\nF2: 95, 130, 275, 175\nF3: 110, 145, 310, 190\nF4: 125, 160, 350, 210\n\nA group booking takes one room of each type on a single floor for 3 nights. The hotel offers a discount: if the total booking cost is $800 or more, the discount is 10% of the total; otherwise the discount is 5%.\n\nWrite a program that:\n1. For each floor, computes the total cost of booking one of each room type for 3 nights (before discount), then applies the appropriate discount and prints the final cost with exactly 2 decimal places.\n2. Finds which floor has the highest discounted total (if tied, choose the lower floor number).\n3. Prints the discount percentage applied to that floor's booking.\n\nOutput exactly 6 lines in this format:\n\nF1 booking: $X.XX\nF2 booking: $X.XX\nF3 booking: $X.XX\nF4 booking: $X.XX\nBest floor: FN\nDiscount: N%\n\nwhere each $X.XX is a dollar amount with a dollar sign, comma-free, and exactly two decimal places (data chosen so no value falls exactly on a .005 boundary), FN is the floor label, and N% is the discount percentage (either 10% or 5%) with the % sign.",
+   "expected_stdout": "F1 booking: $1671.30\nF2 booking: $1822.50\nF3 booking: $2038.50\nF4 booking: $2281.50\nBest floor: F4\nDiscount: 10%\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0036",
+   "title": "Robot Grid Path Check",
+   "prompt": "A small robot moves on a 5x5 grid. The grid is given as an array of 5 rows, each row an array of 5 integers. A value of 0 means the cell is free, and 1 means the cell is blocked.\n\nThe grid rows are:\nRow 0: 0 0 1 0 0\nRow 1: 0 1 1 0 0\nRow 2: 0 0 0 0 1\nRow 3: 1 1 0 1 0\nRow 4: 0 0 0 1 0\n\nWrite a program that reports the following about this grid.\n\nOutput format (exactly these lines, no trailing spaces):\nBlocked total: N\nRow with most blocked: R\nLongest free row run: L\nFree cells: F\n\nwhere N is the total number of blocked cells in the whole grid, R is the 0-based index of the row containing the largest number of blocked cells (if there is a tie, report the smallest such row index), L is the length of the longest contiguous run of free cells (value 0) within any single row (horizontal only, across all rows, taking the maximum), and F is the total number of free cells.",
+   "expected_stdout": "Blocked total: 8\nRow with most blocked: 3\nLongest free row run: 4\nFree cells: 17\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0037",
+   "title": "Garden Drip Line Check",
+   "prompt": "A garden drip line has 14 watering emitters arranged in a single row. Each emitter either works (W) or is clogged (C). The state of the 14 emitters, from position 1 to position 14, is:\nW C C C W W W W C W C W W W\n\nWrite a program that reports the following about this drip line.\n\nOutput format (exactly these lines, no trailing spaces):\nClogged count: N\nFirst clogged: P\nLast clogged: Q\nLongest working run: L\n\nwhere N is the total number of clogged emitters, P is the 1-based position of the first clogged emitter, Q is the 1-based position of the last clogged emitter, and L is the length of the longest contiguous run of working emitters (W) anywhere in the line.",
+   "expected_stdout": "Clogged count: 5\nFirst clogged: 2\nLast clogged: 11\nLongest working run: 4\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0038",
+   "title": "Playlist Track Scan",
+   "prompt": "A music playlist has 12 tracks. Each track has a title (text) and a duration in seconds (integer). The playlist is:\n1. Sunrise Drive, 210\n2. Midnight Rain, 195\n3. Sunrise Drive, 180\n4. Ocean Breeze, 240\n5. Midnight Rain, 225\n6. Sunset Boulevard, 260\n7. Midnight Rain, 175\n8. Ocean Breeze, 200\n9. Sunrise Drive, 190\n10. Sunset Boulevard, 230\n11. Ocean Breeze, 215\n12. Sunrise Drive, 170\n\nWrite a program that reports the following about this playlist.\n\nOutput format (exactly these lines, no trailing spaces):\nRepeat titles: N\nFirst title: T\nLongest same-title run: L\nTotal duration: S\n\nwhere N is the number of titles that appear more than once, T is the title of the first track in the playlist that is a repeat (i.e., the first title that appears again later in the list), L is the length of the longest contiguous run of tracks sharing the same title, and S is the total duration of all tracks in seconds.",
+   "expected_stdout": "Repeat titles: 4\nFirst title: Sunrise Drive\nLongest same-title run: 1\nTotal duration: 2490\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0039",
+   "title": "Beehive Frame Scan",
+   "prompt": "A beekeeper inspects 10 frames in a beehive. Each frame is rated on a 0-5 scale for how full of honey it is. The ratings for frames 1 through 10 are:\n3 4 4 4 2 5 5 1 5 3\n\nWrite a program that reports the following about these frames.\n\nOutput format (exactly these lines, no trailing spaces):\nMax rating: M\nFirst max frame: F\nLast max frame: L\nLongest max run: R\nFrames at max: C\n\nwhere M is the highest rating among all frames, F is the 1-based frame number of the first frame with rating M, L is the 1-based frame number of the last frame with rating M, R is the length of the longest contiguous run of frames that all have rating M, and C is the total number of frames with rating M.",
+   "expected_stdout": "Max rating: 5\nFirst max frame: 6\nLast max frame: 9\nLongest max run: 2\nFrames at max: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0040",
+   "title": "Library Book Call Numbers",
+   "prompt": "A small library shelf holds 11 books identified by a single letter call number. The call numbers, from left to right, are:\nB A C C C B A C C A B\n\nWrite a program that reports the following about this shelf.\n\nOutput format (exactly these lines, no trailing spaces):\nShelf length: N\nMost common: T\nCount of most common: C\nLongest same-letter run: L\nLetters seen: S\n\nwhere N is the total number of books, T is the letter that appears most often (if there is a tie, report the alphabetically smallest such letter), C is how many times T appears, L is the length of the longest contiguous run of the same letter anywhere on the shelf, and S is the number of distinct letters that appear at least once.",
+   "expected_stdout": "Shelf length: 11\nMost common: C\nCount of most common: 5\nLongest same-letter run: 3\nLetters seen: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0041",
+   "title": "Pond Fish Observation",
+   "prompt": "A nature observer watches a pond and records the type of fish that surfaces each minute for 12 minutes. The observations are:\nT T B B B T T T B T T T\nwhere T means Trout and B means Bass.\n\nWrite a program that reports the following about this observation log.\n\nOutput format (exactly these lines, no trailing spaces):\nTrout count: TC\nBass count: BC\nLongest trout run: LR\nFirst bass minute: FB\nLast trout minute: LT\n\nwhere TC is the total number of T observations, BC is the total number of B observations, LR is the length of the longest contiguous run of T observations, FB is the 1-based minute number of the first B observation, and LT is the 1-based minute number of the last T observation.",
+   "expected_stdout": "Trout count: 8\nBass count: 4\nLongest trout run: 3\nFirst bass minute: 3\nLast trout minute: 12\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0042",
+   "title": "Parking Lot Sensor Row",
+   "prompt": "A parking lot has one row of 13 sensors. Each sensor reads 1 if a car is present and 0 if the space is empty. The sensor readings, from left to right, are:\n1 1 0 1 0 0 0 1 1 1 0 1 1\n\nWrite a program that reports the following about this row.\n\nOutput format (exactly these lines, no trailing spaces):\nOccupied: O\nEmpty: E\nLongest occupied run: LO\nLongest empty run: LE\nFirst empty: FE\nLast occupied: LO2\n\nwhere O is the total number of 1 readings, E is the total number of 0 readings, LO is the length of the longest contiguous run of 1 readings, LE is the length of the longest contiguous run of 0 readings, FE is the 1-based position of the first 0 reading, and LO2 is the 1-based position of the last 1 reading.",
+   "expected_stdout": "Occupied: 8\nEmpty: 5\nLongest occupied run: 3\nLongest empty run: 3\nFirst empty: 3\nLast occupied: 13\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0043",
+   "title": "Farm Fence Post Check",
+   "prompt": "A farmer checks 12 fence posts along a field boundary. Each post is either standing (S) or leaning (L). The state of posts 1 through 12 is:\nS S S L L S S S S L S S\n\nWrite a program that reports the following about this fence line.\n\nOutput format (exactly these lines, no trailing spaces):\nPost count: N\nLeaning count: LC\nLongest standing run: LR\nFirst leaning: FL\nLast leaning: LL\nStanding percentage: P\n\nwhere N is the total number of posts, LC is the total number of leaning posts, LR is the length of the longest contiguous run of standing posts, FL is the 1-based position of the first leaning post, LL is the 1-based position of the last leaning post, and P is the percentage of posts that are standing, printed with exactly 1 decimal place (for example 66.7).",
+   "expected_stdout": "Post count: 12\nLeaning count: 3\nLongest standing run: 4\nFirst leaning: 4\nLast leaning: 10\nStanding percentage: 75.0\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0044",
+   "title": "Robot Grid Tile Ranking",
+   "prompt": "A small robot cleans tiles on a 4x4 grid. The grid is given below as four rows of four integers, each integer being the amount of dust (in milligrams) on that tile. The robot wants to clean the dustiest tiles first.\n\nGrid (rows top to bottom):\n12 7 19 3\n8 14 5 11\n6 17 10 2\n13 4 16 9\n\nWrite a program that ranks all 16 tiles from dustiest to cleanest. Tiles with equal dust values receive the same rank, and the next rank skips ahead accordingly (standard competition ranking: e.g., ranks 1, 1, 3). Ties among equal values are broken by reading order (row 0 left to right, then row 1, etc.), so equal values appear in reading order in the output.\n\nOutput exactly 16 lines, one per tile in the chosen order (dustiest first), each line formatted as:\nrank:dust:row,col\nwhere rank and dust are integers with no extra spaces, and row,col are the zero-based row and column indices separated by a comma.\n\nFor example, if a tile had dust value 19 at row 0, column 2 and it were rank 1, the line would be 1:19:0,2",
+   "expected_stdout": "1:19:0,2\n2:17:2,1\n3:16:3,2\n4:14:1,1\n5:13:3,0\n6:12:0,0\n7:11:1,3\n8:10:2,2\n9:9:3,3\n10:8:1,0\n11:7:0,1\n12:6:2,0\n13:5:1,2\n14:4:3,1\n15:3:0,3\n16:2:2,3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0046",
+   "title": "Library Shelf Call Number Sort",
+   "prompt": "A librarian has 12 books pulled from a shelf, each with a call number (a positive integer). The call numbers are:\n\n412, 87, 350, 87, 901, 233, 412, 64, 901, 350, 64, 128\n\nWrite a program that sorts these call numbers in ascending order using counting sort (or any hand-written sort other than bubble/merge/quick sort). After sorting, assign ranks: the smallest value gets rank 1, ties share the same rank, and the next distinct value's rank equals its position (1-based) in the sorted list.\n\nOutput exactly 12 lines, one per position in the sorted list, each formatted as:\n<position>:<value>:rank=<rank>\nwhere position is the 1-based index in the sorted list (1 to 12), value is the call number, and rank is the computed rank. For example, the first line might look like 1:64:rank=1 if 64 were the smallest and unique.",
+   "expected_stdout": "1:64:rank=1\n2:64:rank=1\n3:87:rank=3\n4:87:rank=3\n5:128:rank=5\n6:233:rank=6\n7:350:rank=7\n8:350:rank=7\n9:412:rank=9\n10:412:rank=9\n11:901:rank=11\n12:901:rank=11\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0047",
+   "title": "Vending Machine Snack Restock",
+   "prompt": "A vending machine has 11 snack slots. Each slot has a product code (single uppercase letter) and the number of items currently in stock. The data is:\n\nA 4\nB 12\nC 0\nD 7\nE 12\nF 3\nG 0\nH 9\nI 15\nJ 7\nK 0\n\nWrite a program that determines the restock order: slots are sorted by ascending stock count (emptiest first), and ties are broken by descending product code (K before J for example, i.e., reverse alphabetical). Output exactly 11 lines, each formatted as:\n<code>:<stock>\nwhere code is the product letter and stock is the integer count. No trailing spaces.",
+   "expected_stdout": "K:0\nG:0\nC:0\nF:3\nA:4\nJ:7\nD:7\nH:9\nE:12\nB:12\nI:15\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0048",
+   "title": "Robot Grid Repair Priority",
+   "prompt": "A maintenance robot inspects a 3x5 grid of floor panels. Each panel has a damage score (integer). The grid is:\n\nRow 0: 5  9  2  9  7\nRow 1: 1  6  6  3  8\nRow 2: 4  0  5  6  2\n\nWrite a program that selects the panels needing repair: only panels with damage score >= 5 are considered. Sort these selected panels by damage score in descending order; ties are broken by row index ascending, then column index ascending. Assign competition ranks starting at 1 (equal scores share a rank, next rank skips accordingly).\n\nOutput one line per selected panel in sorted order, formatted as:\nR<row>C<col> score=<score> rank=<rank>\nFor example: R0C1 score=9 rank=1\nOutput only the selected panels (no others), no trailing spaces.",
+   "expected_stdout": "R0C1 score=9 rank=1\nR0C3 score=9 rank=1\nR1C4 score=8 rank=3\nR0C4 score=7 rank=4\nR1C1 score=6 rank=5\nR1C2 score=6 rank=5\nR2C3 score=6 rank=5\nR0C0 score=5 rank=8\nR2C2 score=5 rank=8\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0049",
+   "title": "Orchard Harvest Crate Ranking",
+   "prompt": "An orchard harvests 12 crates of pears. Each crate has a crate ID (integer 1..12) and a fruit count. The data (ID: count) is:\n\n1: 48, 2: 61, 3: 35, 4: 61, 5: 48, 6: 72, 7: 35, 8: 54, 9: 48, 10: 61, 11: 72, 12: 54\n\nWrite a program that ranks the crates by fruit count in descending order using dense ranking (highest count = rank 1, next distinct count = rank 2, ties share a rank, no gaps). Ties are broken by crate ID ascending.\n\nOutput exactly 12 lines, one per crate in sorted order, formatted as:\ncrate=<ID> count=<count> rank=<rank>\nFor example: crate=6 count=72 rank=1\nNo trailing spaces.",
+   "expected_stdout": "crate=6 count=72 rank=1\ncrate=11 count=72 rank=1\ncrate=2 count=61 rank=2\ncrate=4 count=61 rank=2\ncrate=10 count=61 rank=2\ncrate=8 count=54 rank=3\ncrate=12 count=54 rank=3\ncrate=1 count=48 rank=4\ncrate=5 count=48 rank=4\ncrate=9 count=48 rank=4\ncrate=3 count=35 rank=5\ncrate=7 count=35 rank=5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0050",
+   "title": "Library Reading Room Seats",
+   "prompt": "A library reading room has 14 seats numbered 1 through 14. Each seat has a noise level score (integer) measured at noon. The scores for seats 1..14 are:\n\n3, 8, 1, 8, 5, 3, 9, 1, 6, 5, 8, 3, 9, 6\n\nWrite a program that ranks the seats from quietest (lowest score) to noisiest. Use competition ranking: the quietest seat(s) get rank 1, equal scores share a rank, and the next rank skips accordingly. Ties are broken by seat number ascending.\n\nOutput exactly 14 lines, one per seat in sorted order, formatted as:\nseat=<N> score=<S> rank=<R>\nFor example: seat=3 score=1 rank=1\nNo trailing spaces.",
+   "expected_stdout": "seat=3 score=1 rank=1\nseat=8 score=1 rank=1\nseat=1 score=3 rank=3\nseat=6 score=3 rank=3\nseat=12 score=3 rank=3\nseat=5 score=5 rank=6\nseat=10 score=5 rank=6\nseat=9 score=6 rank=8\nseat=14 score=6 rank=8\nseat=2 score=8 rank=10\nseat=4 score=8 rank=10\nseat=11 score=8 rank=10\nseat=7 score=9 rank=13\nseat=13 score=9 rank=13\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0051",
+   "title": "Music Playlist Duration Sort",
+   "prompt": "A music playlist has 9 tracks with titles and durations in seconds. The data is:\n\nAlpha 210\nBravo 185\nCharlie 210\nDelta 95\nEcho 142\nFoxtrot 185\nGolf 95\nHotel 247\nIndia 142\n\nWrite a program that sorts the tracks by duration in ascending order (shortest first). Tracks with equal duration are sorted alphabetically by title. Output exactly 9 lines, each formatted as:\n<title>:<duration>s\nwhere duration is the integer number of seconds (no leading zeros, no spaces around the colon). No trailing spaces.",
+   "expected_stdout": "Delta:95s\nGolf:95s\nEcho:142s\nIndia:142s\nBravo:185s\nFoxtrot:185s\nAlpha:210s\nCharlie:210s\nHotel:247s\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0052",
+   "title": "Warehouse Pallet Routes",
+   "prompt": "A warehouse worker must move a pallet from bay A to bay J along the floor grid. The grid has 3 rows (labelled R1, R2, R3) and 10 columns (labelled C1 through C10). Some cells are blocked by stacked crates.\n\nBlocked cells: R1C3, R1C7, R2C5, R2C9, R3C2, R3C6, R3C8.\n\nThe worker starts at R1C1 and can only move one step to the right or one step down (never left or up), and never onto a blocked cell.\n\nWrite a program that computes how many distinct valid routes exist from R1C1 to R3C10. Print the result.\n\nOutput format:\nOne single line containing:\nRoutes to R3C10: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Routes to R3C10: 0\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0053",
+   "title": "School Timetable Room Changes",
+   "prompt": "A school timetable must be laid out across 5 periods (P1 to P5) for a class. There are 4 subject slots to fill: Math, Science, English, Art. Each subject must occupy a contiguous run of consecutive periods (at least 1 period each), in some order, covering all 5 periods exactly (so one subject will take 2 periods). Some period-subject combinations are forbidden because the teacher is unavailable.\n\nForbidden combinations:\nMath in P4\nScience in P1\nEnglish in P5\nArt in P1 and Art in P3\n\nCount how many distinct valid timetables exist. Two timetables differ if at any period a different subject is scheduled.\n\nOutput format:\nOne single line containing:\nValid timetables: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Valid timetables: 23\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0054",
+   "title": "Ferry Lifeboat Stations",
+   "prompt": "A ferry has 8 emergency lifeboat stations numbered 1 to 8 along one deck. A safety inspection requires choosing a subset of stations to arm, such that no two armed stations are adjacent (adjacent means numbers differing by 1). Station 1 and station 8 must both be armed (they are the primary stations). Stations 3 and 6 are broken and cannot be armed.\n\nCount how many distinct valid subsets of stations exist.\n\nOutput format:\nOne single line containing:\nValid station sets: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Valid station sets: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0055",
+   "title": "Garden Path Stepping Stones",
+   "prompt": "A gardener lays stepping stones along a straight path. The path is divided into 9 positions numbered 1 to 9. A stone can be placed at any position except positions 4 and 7 (a drainage grate is there). Stones must be placed so that the gap between any two consecutive stones is either 1 or 3 positions. Position 1 must have a stone, and position 9 must have a stone.\n\nCount how many distinct valid placements of stones exist.\n\nOutput format:\nOne single line containing:\nValid stone layouts: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Valid stone layouts: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0056",
+   "title": "Cafe Table Reservations",
+   "prompt": "A small cafe has 6 tables numbered 1 to 6 in a row. A group booking requires selecting a set of tables such that:\n- Tables 1 and 6 are always included.\n- No two selected tables are adjacent.\n- Table 3 is reserved for a regular customer and must NOT be selected.\n- At most 4 tables total can be selected.\n\nCount how many distinct valid selections exist.\n\nOutput format:\nOne single line containing:\nValid selections: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Valid selections: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0057",
+   "title": "Playground Hopscotch Squares",
+   "prompt": "A child plays hopscotch on a strip of 10 squares numbered 1 to 10. The child starts on square 1 and must land exactly on square 10. From any square the child can hop forward 1, 2, or 4 squares, but cannot land on square 5 or square 8 (they are cracked).\n\nCount how many distinct sequences of hops take the child from square 1 to square 10.\n\nOutput format:\nOne single line containing:\nHop sequences: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Hop sequences: 10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0058",
+   "title": "Office Coffee Machine Selection",
+   "prompt": "An office has a coffee machine offering 7 drinks numbered 1 to 7. Over a week an employee picks one drink per day for 5 days (Monday to Friday). The following rules apply:\n- Drink 1 (espresso) may be chosen on at most 2 days.\n- Drink 4 (latte) may not be chosen on two consecutive days.\n- Drink 7 (decaf) must be chosen at least once in the week.\n- Any other drink may be chosen any number of days.\n\nCount how many distinct weekly schedules (sequences of 5 drinks) satisfy all rules.\n\nOutput format:\nOne single line containing:\nValid schedules: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Valid schedules: 8448\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0059",
+   "title": "Bus Stop Fare Collection",
+   "prompt": "A bus has 6 fare zones numbered 1 to 6. A passenger boards at zone 1 and rides to zone 6, passing through zones in increasing order. At each intermediate zone (2, 3, 4, 5) the passenger may either stay seated or tap off and tap on again (which records a fare event). Zones 3 and 5 are 'free transfer' zones where tapping off and on does NOT count as a fare event. The passenger must tap off at least once overall before reaching zone 6, and must not tap off at zone 4.\n\nCount how many distinct sequences of tap events exist from boarding at zone 1 to arriving at zone 6.\n\nOutput format:\nOne single line containing:\nTap sequences: N\nwhere N is the exact integer count.",
+   "expected_stdout": "Tap sequences: 7\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0060",
+   "title": "Rover Grid Waypoints",
+   "prompt": "A Mars rover receives a sequence of navigation commands as a list of strings. Each string is in the form \"<direction><distance>\" where direction is one of 'N', 'S', 'E', 'W' and distance is an integer between 1 and 9. The rover starts at position (0, 0) facing East.\n\nThe command list is:\n[\"N3\", \"E2\", \"S1\", \"W4\", \"N5\", \"E6\"]\n\nWrite a program that simulates the rover's movement and reports:\n1. The final X coordinate.\n2. The final Y coordinate.\n3. The total Manhattan distance traveled (sum of all distance values).\n4. The number of commands that moved the rover further from the origin (0,0) than it was before the command.\n\nOutput format (4 lines, no trailing spaces):\nFinal X: <integer>\nFinal Y: <integer>\nTotal Distance: <integer>\nAway Moves: <integer>",
+   "expected_stdout": "Final X: 4\nFinal Y: 7\nTotal Distance: 21\nAway Moves: 4\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0061",
+   "title": "Pool Lane Clocking",
+   "prompt": "A swim meet records lap times for four swimmers. Each record is a string in the format \"<name>:<seconds>\" where seconds is the total time in seconds for a set of laps.\n\nThe records are:\n[\"Ana:34.5\", \"Ben:41.2\", \"Cara:33.8\", \"Dan:39.6\"]\n\nWrite a program that:\n1. Parses each record to extract the name and time.\n2. Sorts the swimmers by time from fastest to slowest.\n3. Prints each swimmer's rank (1-based), name, and time formatted to exactly 1 decimal place.\n4. Prints the average time of all swimmers, formatted to exactly 1 decimal place.\n\nOutput format (5 lines, no trailing spaces):\n1. Ana 34.5\n2. Cara 33.8\n3. Dan 39.6\n4. Ben 41.2\nAverage: <time with 1 decimal place>\n\nNote: The example above shows the format but not the correct ranking — you must sort by time.",
+   "expected_stdout": "1. Cara 33.8\n2. Ana 34.5\n3. Dan 39.6\n4. Ben 41.2\nAverage: 37.3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0062",
+   "title": "Vending Machine Change",
+   "prompt": "A vending machine processes a list of purchase commands. Each command is a string in the format \"<item>:<price>\" where price is in dollars and cents (e.g., \"Cola:1.75\"). The customer pays with a $5.00 bill for each purchase.\n\nThe commands are:\n[\"Cola:1.75\", \"Chips:2.10\", \"Candy:0.95\", \"Water:1.40\"]\n\nWrite a program that for each command:\n1. Parses the item name and price.\n2. Computes change = 5.00 - price.\n3. Prints: \"<item> change: <change>\" where change is formatted to exactly 2 decimal places.\n4. Accumulates the total amount spent.\n\nAfter all commands, print the total spent formatted to exactly 2 decimal places.\n\nOutput format (5 lines, no trailing spaces):\nCola change: 3.25\nChips change: 2.90\nCandy change: 4.05\nWater change: 3.60\nTotal spent: 6.20\n\nNote: The example values above are placeholders — compute the correct values from the actual prices given.",
+   "expected_stdout": "Cola change: 3.25\nChips change: 2.90\nCandy change: 4.05\nWater change: 3.60\nTotal spent: 6.20\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0063",
+   "title": "Marathon Split Report",
+   "prompt": "A marathon race records runner splits at checkpoint times. Each record is a string in the format \"<runner>|<km>|<time_seconds>\" where km is the checkpoint distance and time_seconds is the cumulative time in seconds.\n\nThe records are:\n[\"Liu|5|1450\", \"Liu|10|2980\", \"Liu|21|6300\", \"Mia|5|1520\", \"Mia|10|3150\", \"Mia|21|6700\"]\n\nWrite a program that:\n1. Parses each record.\n2. For each runner, computes the pace for each segment (time difference divided by distance difference) in seconds per km.\n3. Prints each runner's name and their pace for each segment in order, formatted to exactly 1 decimal place.\n\nOutput format (4 lines, no trailing spaces):\nLiu segment 1 pace: <seconds per km with 1 decimal>\nLiu segment 2 pace: <seconds per km with 1 decimal>\nMia segment 1 pace: <seconds per km with 1 decimal>\nMia segment 2 pace: <seconds per km with 1 decimal>",
+   "expected_stdout": "Liu segment 1 pace: 306.0\nLiu segment 2 pace: 301.8\nMia segment 1 pace: 326.0\nMia segment 2 pace: 322.7\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0064",
+   "title": "Chess Club Match Log",
+   "prompt": "A chess club records match results as strings in the format \"<white>;<black>;<result>\" where result is \"1-0\" (white wins), \"0-1\" (black wins), or \"1/2-1/2\" (draw).\n\nThe match log is:\n[\"Elena;Marco;1-0\", \"Sofia;James;1/2-1/2\", \"Marco;Sofia;0-1\", \"James;Elena;0-1\", \"Elena;Sofia;1-0\"]\n\nWrite a program that:\n1. Parses each match.\n2. Tracks each player's score: 1 point for a win, 0.5 for a draw, 0 for a loss.\n3. Counts total games played by each player.\n4. Prints each player's name, games played, and score in format \"<name>: <games> games, <score>\" where score is formatted to exactly 1 decimal place.\n5. Players must be printed in alphabetical order.\n\nOutput format (4 lines, no trailing spaces):\nElena: 3 games, 2.0\nJames: 2 games, 0.5\nMarco: 2 games, 0.5\nSofia: 3 games, 1.5",
+   "expected_stdout": "Elena: 3 games, 3.0\nJames: 2 games, 0.5\nMarco: 2 games, 0.0\nSofia: 3 games, 1.5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0065",
+   "title": "Theater Seat Assignment",
+   "prompt": "A theater assigns seats using a list of request strings. Each string is in the format \"<row_letter><seat_number>;<ticket_type>\" where ticket_type is \"A\" (adult), \"C\" (child), or \"S\" (senior).\n\nThe requests are:\n[\"A5;A\", \"A6;C\", \"B3;S\", \"B4;A\", \"C7;C\", \"C8;A\"]\n\nTicket prices: Adult = 25.00, Child = 12.50, Senior = 18.00.\n\nWrite a program that:\n1. Parses each request.\n2. For each request, prints: \"<seat> <price>\" where price is formatted to exactly 2 decimal places.\n3. Prints the total revenue formatted to exactly 2 decimal places.\n4. Prints the count of child tickets.\n\nOutput format (8 lines, no trailing spaces):\nA5 25.00\nA6 12.50\nB3 18.00\nB4 25.00\nC7 12.50\nC8 25.00\nRevenue: 118.00\nChild tickets: 2\n\nNote: The example revenue is a placeholder — compute the correct total.",
+   "expected_stdout": "A5 25.00\nA6 12.50\nB3 18.00\nB4 25.00\nC7 12.50\nC8 25.00\nRevenue: 118.00\nChild tickets: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0066",
+   "title": "Coffee Shop Order Queue",
+   "prompt": "A coffee shop processes orders from a queue. Each order is a string in the format \"<drink>|<size>|<shots>\" where size is \"S\", \"M\", or \"L\" and shots is an integer (0, 1, or 2).\n\nBase prices: Small = 3.00, Medium = 3.75, Large = 4.50. Extra shot = 0.75.\n\nThe order queue is:\n[\"Latte|M|1\", \"Espresso|S|0\", \"Cappuccino|L|2\", \"Latte|S|1\", \"Americano|M|0\"]\n\nWrite a program that:\n1. Parses each order.\n2. Computes the price: base price + (shots × 0.75).\n3. Prints each order's drink name and price in format \"<drink>: <price>\" where price has exactly 2 decimal places.\n4. Prints the total of all orders formatted to exactly 2 decimal places.\n5. Prints the number of orders with 2 shots.\n\nOutput format (7 lines, no trailing spaces):\nLatte: 4.50\nEspresso: 3.00\nCappuccino: 6.00\nLatte: 4.50\nAmericano: 3.75\nTotal: <value with 2 decimal places>\nDouble shots: 1",
+   "expected_stdout": "Latte: 4.50\nEspresso: 3.00\nCappuccino: 6.00\nLatte: 3.75\nAmericano: 3.75\nTotal: 21.00\nDouble shots: 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0068",
+   "title": "Robot Maze Tile Counting",
+   "prompt": "A small robot can move on a 3x3 grid of tiles. It starts at the top-left tile and must reach the bottom-right tile. It can only move one tile Right or one tile Down at each step.\n\nWrite a program that prints two lines:\n- Line 1: the number of distinct paths from top-left to bottom-right using only Right and Down moves.\n- Line 2: the number of distinct paths that visit exactly 4 tiles (including start and end), i.e., paths of length 3 moves.\n\nOutput format:\nAllPaths: <number>\nFourTilePaths: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "AllPaths: 0\nFourTilePaths: 0\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0069",
+   "title": "Beekeeper Honey Jar Labels",
+   "prompt": "A beekeeper fills 4 honey jars labeled A, B, C, D. She wants to count how many ways she can arrange the 4 jars on a shelf, and how many of those arrangements have jar A first or jar D last (or both).\n\nWrite a program that prints two lines:\n- Line 1: the total number of arrangements of the 4 jars.\n- Line 2: the number of arrangements where jar A is first or jar D is last (or both).\n\nOutput format:\nTotal: <number>\nAFirstOrDLast: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "Total: 24\nAFirstOrDLast: 10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0070",
+   "title": "Weather Station Reading Order",
+   "prompt": "A weather station takes 3 daily temperature readings, one each on Monday, Tuesday, and Wednesday. The three readings (in degrees Celsius) are 15, 18, and 21. The station wants to know how many ways these three readings can be listed in a report, and how many of those listings have the coldest reading (15) first or the warmest reading (21) last (or both).\n\nWrite a program that prints two lines:\n- Line 1: the total number of orderings of the 3 readings.\n- Line 2: the number of orderings where the coldest is first or the warmest is last (or both).\n\nOutput format:\nTotal: <number>\nColdFirstOrWarmLast: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "Total: 6\nColdFirstOrWarmLast: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0071",
+   "title": "Board Game Token Placements",
+   "prompt": "A board game has 6 spaces numbered 1 through 6. A player places 3 distinct tokens (T1, T2, T3) on 3 different spaces.\n\nWrite a program that prints two lines:\n- Line 1: the number of ways to place the 3 distinct tokens on 3 different spaces.\n- Line 2: the number of those placements where token T1 is on an odd-numbered space.\n\nOutput format:\nTotal: <number>\nT1OnOdd: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "Total: 120\nT1OnOdd: 60\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0072",
+   "title": "Garden Hose Nozzle Settings",
+   "prompt": "A garden hose nozzle has 4 spray settings: Mist, Jet, Shower, and Flat. A gardener cycles through settings over 4 days, using one setting per day, and never repeats a setting.\n\nWrite a program that prints two lines:\n- Line 1: the total number of ways to assign 4 distinct settings to 4 days without repetition.\n- Line 2: the number of those assignments where Mist is used on Day 1 or Flat is used on Day 4 (or both).\n\nOutput format:\nTotal: <number>\nMistDay1OrFlatDay4: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "Total: 24\nMistDay1OrFlatDay4: 10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0073",
+   "title": "Beehive Frame Rearrangement",
+   "prompt": "A beekeeper has 5 honeycomb frames labeled F1, F2, F3, F4, F5 and wants to stack them in a box. He counts all possible orderings, and also counts orderings where F1 is directly above F2 (adjacent, F1 immediately before F2).\n\nWrite a program that prints two lines:\n- Line 1: the total number of orderings of the 5 frames.\n- Line 2: the number of orderings where F1 is immediately above F2.\n\nOutput format:\nTotal: <number>\nF1AboveF2: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "Total: 120\nF1AboveF2: 24\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0074",
+   "title": "Robot Grid Color Tiles",
+   "prompt": "A robot arranges 4 colored tiles (Red, Green, Blue, Yellow) in a straight line of 4 positions. It counts all arrangements, and also counts arrangements where Red is not at either end (not position 1 and not position 4).\n\nWrite a program that prints two lines:\n- Line 1: the total number of arrangements of the 4 distinct tiles.\n- Line 2: the number of arrangements where Red is in position 2 or position 3.\n\nOutput format:\nTotal: <number>\nRedMiddle: <number>\n\nNo trailing spaces.",
+   "expected_stdout": "Total: 24\nRedMiddle: 12\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0075",
+   "title": "Garden Shade Matrix",
+   "prompt": "A gardener maps how much shade each plant receives over a week. The garden is a 3x3 grid. The shade hours for each cell for Monday through Wednesday are given below:\n\nMon: 4, 6, 3\nTue: 5, 2, 7\nWed: 3, 5, 4\n\nThe shade hours for Thursday through Saturday are:\n\nThu: 6, 4, 5\nFri: 2, 7, 3\nSat: 4, 3, 6\n\nTotal shade for a cell is the sum of its hours across all six days. Print a row of totals for each of the three garden rows, then a final line with the overall average shade per cell.\n\nOutput format (exactly these 4 lines, no trailing spaces):\nRow 1: <total>, <total>, <total>\nRow 2: <total>, <total>, <total>\nRow 3: <total>, <total>, <total>\nAverage: <value>\n\nWhere <total> is an integer and <value> is a Real with exactly 2 decimal places.",
+   "expected_stdout": "Row 1: 24Row 2: Row 3: \nRow 1: 24, 27, 28\nRow 2: 24, 27, 28\nRow 3: 24, 27, 28\nAverage: 8.78\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0076",
+   "title": "Print Shop Ink Usage",
+   "prompt": "A small print shop tracks ink usage (in millilitres) for four colours (Cyan, Magenta, Yellow, Black) across three print jobs:\n\nJob A: 120, 85, 95, 40\nJob B: 75, 110, 60, 55\nJob C: 90, 70, 105, 65\n\nFor each job, the total ink used is the sum across all four colours. For each colour, the total used is the sum across all three jobs. Print one line per job with its total, then one line per colour with its total, then a final line with the grand total across all jobs and colours.\n\nOutput format (exactly these 8 lines, no trailing spaces):\nJob A: <total> ml\nJob B: <total> ml\nJob C: <total> ml\nCyan: <total> ml\nMagenta: <total> ml\nYellow: <total> ml\nBlack: <total> ml\nGrand total: <total> ml\n\nAll values are integers.",
+   "expected_stdout": "Job A: 340 ml\nJob B: 300 ml\nJob C: 330 ml\nCyan: 285 ml\nMagenta: 265 ml\nYellow: 260 ml\nBlack: 160 ml\nGrand total: 970 ml\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0077",
+   "title": "Vending Machine Slot Matrix",
+   "prompt": "A vending machine has 3 shelves (top, middle, bottom) and 4 slots per shelf. The current stock counts are:\n\nTop:    5, 0, 3, 7\nMiddle: 2, 6, 4, 1\nBottom: 8, 3, 0, 5\n\nA restocking delivery adds items to each slot. The delivery quantities are:\n\nTop:    2, 4, 1, 0\nMiddle: 3, 1, 2, 5\nBottom: 0, 2, 4, 1\n\nPrint the new stock counts for each shelf after delivery, one shelf per line, then a line for each shelf's total stock, then a final line with the machine's overall total.\n\nOutput format (exactly these 7 lines, no trailing spaces):\nTop: <n>, <n>, <n>, <n>\nMiddle: <n>, <n>, <n>, <n>\nBottom: <n>, <n>, <n>, <n>\nTop total: <total>\nMiddle total: <total>\nBottom total: <total>\nMachine total: <total>\n\nAll values are integers.",
+   "expected_stdout": "Top: 7, 4, 4, 7\nMiddle: 5, 7, 6, 6\nBottom: 8, 5, 4, 6\nTop total: 22\nMiddle total: 24\nBottom total: 23\nMachine total: 69\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0078",
+   "title": "Train Platform Occupancy",
+   "prompt": "A train station tracks how many passengers wait on each of 4 platforms during three time slots (morning, midday, evening):\n\nMorning: 45, 30, 60, 25\nMidday:  20, 55, 35, 40\nEvening: 70, 25, 50, 65\n\nThe station manager wants to know, for each platform, the total passengers across all time slots, and for each time slot, the total across all platforms. Print one line per platform with its total, then one line per time slot with its total, then a final line with the station-wide total.\n\nOutput format (exactly these 8 lines, no trailing spaces):\nPlatform 1: <total>\nPlatform 2: <total>\nPlatform 3: <total>\nPlatform 4: <total>\nMorning total: <total>\nMidday total: <total>\nEvening total: <total>\nStation total: <total>\n\nAll values are integers.",
+   "expected_stdout": "Platform 1: 135\nPlatform 2: 110\nPlatform 3: 145\nPlatform 4: 130\nMorning total: 160\nMidday total: 150\nEvening total: 210\nStation total: 520\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0079",
+   "title": "Robot Grid Sensor Readings",
+   "prompt": "A robot on a 3x3 grid records a temperature sensor reading at each tile. The readings (in degrees Celsius) are:\n\n22.5, 19.8, 24.1\n21.0, 23.7, 20.3\n18.9, 25.4, 22.2\n\nFor each row, compute the average of its three readings. Then compute the average of all nine readings. Print one line per row with its average, then a final line with the overall average.\n\nOutput format (exactly these 4 lines, no trailing spaces):\nRow 1 avg: <value>\nRow 2 avg: <value>\nRow 3 avg: <value>\nOverall avg: <value>\n\nWhere <value> is a Real with exactly 2 decimal places.",
+   "expected_stdout": "Row 1 avg: 22.13\nRow 2 avg: 21.67\nRow 3 avg: 22.17\nOverall avg: 21.99\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0080",
+   "title": "Cafe Table Tip Matrix",
+   "prompt": "A cafe records tips (in dollars) left by customers at four tables over three days:\n\nDay 1: 12.50, 8.75, 15.00, 6.25\nDay 2: 9.00, 14.25, 11.50, 7.75\nDay 3: 13.75, 10.00, 16.50, 8.50\n\nFor each table, compute the total tips across the three days. For each day, compute the total across the four tables. Print one line per table with its total, then one line per day with its total, then a final line with the grand total.\n\nOutput format (exactly these 8 lines, no trailing spaces):\nTable 1: $<value>\nTable 2: $<value>\nTable 3: $<value>\nTable 4: $<value>\nDay 1: $<value>\nDay 2: $<value>\nDay 3: $<value>\nGrand total: $<value>\n\nWhere <value> is a Real with exactly 2 decimal places.",
+   "expected_stdout": "Table 1: $35.25\nTable 2: $33.00\nTable 3: $43.00\nTable 4: $22.50\nDay 1: $42.50\nDay 2: $42.50\nDay 3: $48.75\nGrand total: $133.75\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0081",
+   "title": "Orchard Row Water Use",
+   "prompt": "An orchard has 3 rows of trees, each row divided into 4 sections. Water used (in litres) per section last week:\n\nRow A: 120, 95, 140, 110\nRow B: 105, 130, 85, 125\nRow C: 90, 115, 100, 135\n\nThe irrigation engineer wants, for each row, the total water used, and for each section position (1st through 4th across all rows), the total across the three rows. Print one line per row with its total, then one line per section position with its total, then a final line with the orchard-wide total.\n\nOutput format (exactly these 8 lines, no trailing spaces):\nRow A: <total> L\nRow B: <total> L\nRow C: <total> L\nSection 1: <total> L\nSection 2: <total> L\nSection 3: <total> L\nSection 4: <total> L\nOrchard total: <total> L\n\nAll values are integers.",
+   "expected_stdout": "Row A: 465 L\nRow B: 445 L\nRow C: 440 L\nSection 1: 315 L\nSection 2: 340 L\nSection 3: 325 L\nSection 4: 370 L\nOrchard total: 1350 L\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0082",
+   "title": "Robot Grid Energy Drain",
+   "prompt": "A robot drains battery percentage (in percent) moving across a 3x3 grid. The drain at each tile is:\n\n5, 8, 3\n7, 2, 6\n4, 9, 5\n\nThe robot's path visits tiles in this order: (1,1), (1,2), (2,2), (2,3), (3,3), (3,2), (3,1). Compute the cumulative battery drain after each step of the path. Print one line per step showing the step number and cumulative drain.\n\nOutput format (exactly these 7 lines, no trailing spaces):\nStep 1: <cum>\nStep 2: <cum>\nStep 3: <cum>\nStep 4: <cum>\nStep 5: <cum>\nStep 6: <cum>\nStep 7: <cum>\n\nAll values are integers.",
+   "expected_stdout": "Step 1: 5\nStep 2: 13\nStep 3: 15\nStep 4: 21\nStep 5: 26\nStep 6: 35\nStep 7: 39\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0083",
+   "title": "Print Shop Paper Stock",
+   "prompt": "A print shop holds paper stock (in reams) for three paper types (Glossy, Matte, Plain) across three sizes (A4, A5, Letter):\n\nGlossy: 12, 8, 15\nMatte:  10, 14, 9\nPlain:  20, 11, 17\n\nA new order requires: one third of each cell's stock be reserved (rounded down to the nearest whole ream). Print the reserved quantities for each paper type, then the remaining stock for each paper type, then a final line with the shop's total remaining stock across all types and sizes.\n\nOutput format (exactly these 7 lines, no trailing spaces):\nGlossy reserved: <n>, <n>, <n>\nMatte reserved: <n>, <n>, <n>\nPlain reserved: <n>, <n>, <n>\nGlossy remaining: <n>, <n>, <n>\nMatte remaining: <n>, <n>, <n>\nPlain remaining: <n>, <n>, <n>\nTotal remaining: <total>\n\nAll values are integers.",
+   "expected_stdout": "Glossy reserved: 4, 2, 5\nMatte reserved: 3, 4, 3\nPlain reserved: 6, 3, 5\nGlossy remaining: 8, 6, 10\nMatte remaining: 7, 10, 6\nPlain remaining: 14, 8, 12\nTotal remaining: 81\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0084",
+   "title": "Vending Machine Sales Matrix",
+   "prompt": "A vending machine records units sold for four products (Chips, Chocolate, Candy, Soda) across three days:\n\nDay 1: 14, 9, 22, 11\nDay 2: 18, 12, 15, 16\nDay 3: 10, 15, 19, 13\n\nEach product has a unit price: Chips $1.50, Chocolate $1.25, Candy $0.75, Soda $2.00. For each day, compute the revenue (sum over products of units sold that day times unit price). Print one line per day with its revenue, then a final line with total revenue across all days.\n\nOutput format (exactly these 4 lines, no trailing spaces):\nDay 1 revenue: $<value>\nDay 2 revenue: $<value>\nDay 3 revenue: $<value>\nTotal revenue: $<value>\n\nWhere <value> is a Real with exactly 2 decimal places.",
+   "expected_stdout": "Day 1 revenue: $70.75\nDay 2 revenue: $85.25\nDay 3 revenue: $74.00\nTotal revenue: $230.00\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0085",
+   "title": "Library Quiet Room Check",
+   "prompt": "You are a librarian checking the noise levels in a quiet study room over a period of time. The room has a noise sensor that records a decibel reading every minute.\n\nThe recorded readings (in decibels) are:\n`[45, 48, 52, 60, 65, 70, 68, 55, 50, 47, 46, 49, 51, 58, 62, 67, 72, 69, 54, 48]`\n\nA reading is considered \"loud\" if it is 60 decibels or higher.\n\nWrite a program that prints a report of the loud periods found in the data.\n\nFor each contiguous run of loud readings, print one line in the following format:\n`Loud from minute <start> to minute <end> lasting <length>`\nwhere `<start>` and `<end>` are the minute indices (1-based) of the first and last loud reading in that run, and `<length>` is the number of readings in the run.\n\nAfter listing all loud runs, print a final summary line in this exact format:\n`Total loud minutes: <total>`\nwhere `<total>` is the sum of the lengths of all loud runs.\n\nThere should be no trailing spaces on any line. Output lines between 2 and 15.",
+   "expected_stdout": "Loud from minute 4 to minute 7 lasting 4\nLoud from minute 15 to minute 18 lasting 4\nTotal loud minutes: 8\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0086",
+   "title": "Marathon Hydration Stations",
+   "prompt": "A marathon organizer places water stations along a 20-kilometer course. The distances (in km) of the stations from the start are:\n`[2, 5, 7, 10, 12, 15, 18]`\n\nRunners need to know the largest gap between any two consecutive stations, because a runner should never be more than a certain distance from water.\n\nWrite a program that finds the largest gap between two consecutive stations.\n\nPrint exactly one line in this format:\n`Largest gap: <km1> to <km2> = <gap> km`\nwhere `<km1>` and `<km2>` are the distances of the two stations forming the largest gap (in order), and `<gap>` is the difference. If there is a tie, choose the earliest gap.\n\nNo trailing spaces. Output exactly 1 line.",
+   "expected_stdout": "Largest gap: 2 to 5 = 3 km\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0087",
+   "title": "Weather Station Wind Gusts",
+   "prompt": "A weather station records wind gust speeds (in km/h) over a 15-minute period, sampled every minute:\n`[30, 35, 42, 55, 60, 58, 45, 40, 50, 65, 70, 62, 48, 38, 33]`\n\nThe station defines a \"gust event\" as any reading that is strictly higher than both of its neighbors (a local maximum). The first and last readings cannot be gust events because they lack one neighbor.\n\nWrite a program that finds all gust events.\n\nPrint one line per gust event in this format:\n`Gust at minute <m>: <speed> km/h`\nwhere `<m>` is the 1-based minute index and `<speed>` is the recorded value.\n\nAfter all gust lines, print a final line:\n`Total gust events: <count>`\nwhere `<count>` is the number of gust events found.\n\nNo trailing spaces. Output between 2 and 15 lines.",
+   "expected_stdout": "Gust at minute 5: 60 km/h\nGust at minute 11: 70 km/h\nTotal gust events: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0088",
+   "title": "Museum Audio Guide Battery",
+   "prompt": "A museum's handheld audio guide devices report their remaining battery percentage at the start of each tour. The readings for 16 devices are:\n`[95, 88, 72, 65, 58, 45, 38, 30, 25, 20, 15, 12, 10, 8, 5, 3]`\n\nA device needs at least 20% battery to complete a full tour without dying.\n\nWrite a program that determines which devices can complete a tour.\n\nPrint two lines:\n\nLine 1: `Devices with enough battery: <count>`\nwhere `<count>` is the number of devices with battery >= 20.\n\nLine 2: `First device below threshold: device <id>`\nwhere `<id>` is the 1-based index of the first device whose battery is strictly below 20.\n\nNo trailing spaces. Output exactly 2 lines.",
+   "expected_stdout": "Devices with enough battery: 10\nFirst device below threshold: device 11\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0089",
+   "title": "Bus Route Stop Intervals",
+   "prompt": "A city bus route has stops at the following distances (in meters) from the depot:\n`[0, 250, 480, 720, 1100, 1350, 1600, 2050, 2300, 2600]`\n\nThe transit authority wants to know the shortest interval between any two consecutive stops, because stops that are too close together slow down the route.\n\nWrite a program that finds the shortest interval between two consecutive stops.\n\nPrint exactly one line in this format:\n`Shortest interval: <m1> to <m2> = <dist> m`\nwhere `<m1>` and `<m2>` are the distances of the two stops forming the shortest interval (in order), and `<dist>` is the difference. If there is a tie, choose the earliest pair.\n\nNo trailing spaces. Output exactly 1 line.",
+   "expected_stdout": "Shortest interval: 250 to 480 = 230 m\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0090",
+   "title": "Greenhouse Humidity Windows",
+   "prompt": "A greenhouse monitors soil humidity (as a percentage) every hour. The readings over 18 hours are:\n`[40, 45, 50, 55, 60, 65, 70, 75, 80, 78, 72, 66, 60, 55, 50, 45, 42, 40]`\n\nThe head grower wants to find the longest contiguous window of hours during which humidity was at least 55% and at most 75% (inclusive).\n\nWrite a program that finds the longest such window.\n\nPrint exactly one line in this format:\n`Optimal window: hour <h1> to hour <h2> = <length> hours`\nwhere `<h1>` is the 1-based index of the first hour in the window, `<h2>` is the 1-based index of the last hour, and `<length>` is the number of hours in the window. If there are ties, choose the earliest window.\n\nNo trailing spaces. Output exactly 1 line.",
+   "expected_stdout": "Optimal window: hour 4 to hour 8 = 5 hours\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0091",
+   "title": "Swimming Pool Lap Times",
+   "prompt": "A swimmer records lap times (in seconds) for 14 laps during practice:\n`[32.4, 31.8, 33.0, 34.5, 35.2, 36.0, 37.5, 36.8, 35.0, 33.5, 32.0, 31.5, 30.8, 30.2]`\n\nThe coach wants to identify consecutive laps where the swimmer was consistently improving (each lap faster than the previous one, i.e., strictly decreasing time).\n\nWrite a program that finds the longest run of consecutive laps with strictly decreasing times.\n\nPrint exactly one line in this format:\n`Best improvement run: lap <l1> to lap <l2> = <length> laps`\nwhere `<l1>` is the 1-based index of the first lap in the run, `<l2>` is the 1-based index of the last lap, and `<length>` is the number of laps in the run. If there are ties, choose the earliest run.\n\nNo trailing spaces. Output exactly 1 line.",
+   "expected_stdout": "Best improvement run: lap 7 to lap 14 = 8 laps\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0092",
+   "title": "Ferry Deck Priority",
+   "prompt": "A small ferry loads vehicles onto its lower deck. Vehicles are ranked by priority: ambulances and fire trucks first, then buses, then cars, then bicycles. Ties are broken by vehicle length (shorter first).\n\nThe vehicles to load, in arrival order, are:\n1. Car, 4.2 meters\n2. Bicycle, 1.8 meters\n3. Bus, 12.0 meters\n4. Car, 3.9 meters\n5. Ambulance, 5.1 meters\n6. Car, 4.5 meters\n7. Bicycle, 2.0 meters\n8. Bus, 11.5 meters\n9. Car, 3.7 meters\n10. Ambulance, 4.9 meters\n\nPrint the loading manifest with exactly 10 lines. Each line has the format:\nLOAD <position>. <Vehicle> <length> m\nwhere <position> is the loading order number starting from 1, <Vehicle> is the vehicle type with its first letter capitalized (Car, Bicycle, Bus, Ambulance), and <length> is the length formatted to one decimal place (e.g. 4.2).\n\nExample of one line: LOAD 1. Ambulance 4.9 m\nDo not print any extra lines or spaces.",
+   "expected_stdout": "LOAD 1. Ambulance 4.9 m\nLOAD 2. Ambulance 5.1 m\nLOAD 3. Bus 11.5 m\nLOAD 4. Bus 12.0 m\nLOAD 5. Car 3.7 m\nLOAD 6. Car 3.9 m\nLOAD 7. Car 4.2 m\nLOAD 8. Car 4.5 m\nLOAD 9. Bicycle 1.8 m\nLOAD 10. Bicycle 2.0 m\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0093",
+   "title": "Mountain Hut Bed Ranking",
+   "prompt": "A mountain hut has 12 sleeping bunks. Each bunk has a rating (how good the view is, 1-10) and a temperature score (1-10, higher is warmer). Bunks are ranked by combined score (view + temperature), ties broken by lower bunk number first.\n\nThe bunks are:\nBunk 1: view 7, temp 5\nBunk 2: view 9, temp 4\nBunk 3: view 6, temp 7\nBunk 4: view 8, temp 6\nBunk 5: view 5, temp 8\nBunk 6: view 9, temp 5\nBunk 7: view 7, temp 7\nBunk 8: view 6, temp 6\nBunk 9: view 8, temp 4\nBunk 10: view 5, temp 9\nBunk 11: view 7, temp 6\nBunk 12: view 9, temp 3\n\nPrint the top 5 bunks. Each line has the format:\n<rank>. Bunk <n> score <combined>\nwhere <rank> is 1-5, <n> is the bunk number, and <combined> is view+temp as an integer.\n\nExample of one line: 1. Bunk 6 score 14\nDo not print any extra lines or spaces.",
+   "expected_stdout": "1. Bunk 4 score 14\n2. Bunk 6 score 14\n3. Bunk 7 score 14\n4. Bunk 10 score 14\n5. Bunk 2 score 13\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0094",
+   "title": "Parking Garage Ticket Sort",
+   "prompt": "A parking garage sorts tickets by total fee. Each ticket has a duration in minutes and a rate per hour. Fee = ceil(duration/60) * rate. Ties are broken by ticket number (lower first).\n\nThe tickets are:\nTicket 1: 45 min, rate 3\nTicket 2: 120 min, rate 2\nTicket 3: 75 min, rate 3\nTicket 4: 60 min, rate 4\nTicket 5: 30 min, rate 5\nTicket 6: 90 min, rate 3\nTicket 7: 150 min, rate 2\nTicket 8: 60 min, rate 3\n\nPrint all 8 tickets sorted by fee (descending). Each line has the format:\nT<ticket_number> fee=<fee>\nwhere <ticket_number> is the original ticket number and <fee> is the computed fee as an integer.\n\nExample of one line: T5 fee=5\nDo not print any extra lines or spaces.",
+   "expected_stdout": "T3 fee=6\nT6 fee=6\nT7 fee=6\nT5 fee=5\nT2 fee=4\nT4 fee=4\nT1 fee=3\nT8 fee=3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0095",
+   "title": "Recipe Book Ingredient Sort",
+   "prompt": "A recipe book lists ingredients by quantity needed. Each ingredient has a name, a quantity in grams, and a unit (g or ml). Ingredients are sorted by quantity descending; ties broken alphabetically by name.\n\nThe ingredients are:\nFlour, 250 g\nSugar, 180 g\nButter, 125 g\nMilk, 300 ml\nEggs, 120 g\nSalt, 5 g\nVanilla, 15 ml\nBaking powder, 10 g\nCocoa, 60 g\nWater, 400 ml\n\nPrint all 10 ingredients. Each line has the format:\n<name> <quantity> <unit>\nwhere <name> is the ingredient name (first letter capitalized), <quantity> is the number as given, and <unit> is g or ml.\n\nExample of one line: Water 400 ml\nDo not print any extra lines or spaces.",
+   "expected_stdout": "Water 400 ml\nMilk 300 ml\nFlour 250 g\nSugar 180 g\nButter 125 g\nEggs 120 g\nCocoa 60 g\nVanilla 15 ml\nBaking powder 10 g\nSalt 5 g\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0096",
+   "title": "School Canteen Queue Rank",
+   "prompt": "A school canteen ranks students in the lunch queue. Each student has a grade (1-6) and a lunch card balance. Students are ranked by grade descending (6 first); ties broken by balance descending (higher first); further ties by student number (lower first).\n\nThe students are:\nStudent 1: grade 4, balance 12.50\nStudent 2: grade 6, balance 8.00\nStudent 3: grade 4, balance 15.00\nStudent 4: grade 6, balance 8.00\nStudent 5: grade 5, balance 10.25\nStudent 6: grade 4, balance 9.75\nStudent 7: grade 6, balance 11.00\nStudent 8: grade 5, balance 7.50\n\nPrint all 8 students in queue order. Each line has the format:\n<position>. Student <n> grade <g> bal <b>\nwhere <position> is 1-8, <n> is the student number, <g> is the grade, and <b> is the balance formatted to two decimal places (e.g. 12.50).\n\nExample of one line: 1. Student 7 grade 6 bal 11.00\nDo not print any extra lines or spaces.",
+   "expected_stdout": "1. Student 7 grade 6 bal 11.00\n2. Student 2 grade 6 bal 8.00\n3. Student 4 grade 6 bal 8.00\n4. Student 5 grade 5 bal 10.25\n5. Student 8 grade 5 bal 7.50\n6. Student 3 grade 4 bal 15.00\n7. Student 1 grade 4 bal 12.50\n8. Student 6 grade 4 bal 9.75\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0097",
+   "title": "Bookshop Window Display",
+   "prompt": "A bookshop picks 6 books for its window display. Each book has a price and a rating (1-5 stars). Books are ranked by rating descending; ties broken by price ascending (cheaper first).\n\nThe books are:\nBook 1: price 14.99, rating 4\nBook 2: price 9.50, rating 5\nBook 3: price 18.00, rating 3\nBook 4: price 12.75, rating 4\nBook 5: price 7.25, rating 5\nBook 6: price 22.50, rating 2\nBook 7: price 11.00, rating 4\nBook 8: price 8.99, rating 5\nBook 9: price 16.50, rating 3\nBook 10: price 10.25, rating 4\n\nPrint the top 6 books. Each line has the format:\n<position>. Book <n> <stars> <price>\nwhere <position> is 1-6, <n> is the book number, <stars> is the rating as that many star characters (e.g. **** for 4), and <price> is formatted to two decimal places (e.g. 14.99).\n\nExample of one line: 1. Book 5 ***** 7.25\nDo not print any extra lines or spaces.",
+   "expected_stdout": "1. Book 5 ***** 7.25\n2. Book 8 ***** 8.99\n3. Book 2 ***** 9.50\n4. Book 10 **** 10.25\n5. Book 7 **** 11.00\n6. Book 4 **** 12.75\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0098",
+   "title": "Cinema Seat Ranking",
+   "prompt": "A cinema ranks seat rows for a premium screening. Each row has a distance from screen (in meters) and a number of seats. Rows are ranked by a comfort score = distance * 10 - seats. Lower comfort score is better (closer and roomier). Ties broken by row number (lower first).\n\nThe rows are:\nRow 1: distance 6.5, seats 40\nRow 2: distance 8.0, seats 45\nRow 3: distance 7.2, seats 38\nRow 4: distance 9.5, seats 50\nRow 5: distance 6.0, seats 36\nRow 6: distance 8.8, seats 42\nRow 7: distance 7.0, seats 44\nRow 8: distance 5.5, seats 30\n\nPrint all 8 rows in ranked order. Each line has the format:\n<position>. Row <n> comfort <score>\nwhere <position> is 1-8, <n> is the row number, and <score> is the comfort score as an integer (round distance*10 to nearest integer before subtracting seats).\n\nExample of one line: 1. Row 8 comfort 25\nDo not print any extra lines or spaces.",
+   "expected_stdout": "1. Row 5 comfort 24\n2. Row 1 comfort 25\n3. Row 8 comfort 25\n4. Row 7 comfort 26\n5. Row 3 comfort 34\n6. Row 2 comfort 35\n7. Row 4 comfort 45\n8. Row 6 comfort 46\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0099",
+   "title": "Pet Shop Adoption Priority",
+   "prompt": "A pet shop ranks animals for adoption priority. Each animal has an age in months and days waiting at the shop. Priority score = days waiting - age. Higher score means higher priority. Ties broken by animal number (lower first).\n\nThe animals are:\nAnimal 1: age 14 months, waiting 30 days\nAnimal 2: age 6 months, waiting 45 days\nAnimal 3: age 24 months, waiting 20 days\nAnimal 4: age 8 months, waiting 45 days\nAnimal 5: age 18 months, waiting 35 days\nAnimal 6: age 4 months, waiting 50 days\nAnimal 7: age 12 months, waiting 40 days\nAnimal 8: age 10 months, waiting 25 days\n\nPrint all 8 animals in priority order. Each line has the format:\n<position>. Animal <n> score <score>\nwhere <position> is 1-8, <n> is the animal number, and <score> is the priority score as an integer.\n\nExample of one line: 1. Animal 6 score 46\nDo not print any extra lines or spaces.",
+   "expected_stdout": "1. Animal 6 score 46\n2. Animal 2 score 39\n3. Animal 4 score 37\n4. Animal 7 score 28\n5. Animal 5 score 17\n6. Animal 1 score 16\n7. Animal 8 score 15\n8. Animal 3 score -4\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  },
+  {
+   "id": "dst_d3_20261018_0100",
+   "title": "Harbor Crane Load Order",
+   "prompt": "A harbor crane sorts containers for loading onto a ship. Each container has a weight (in tons) and a destination port code. Containers are sorted by weight descending; ties broken alphabetically by port code (ascending).\n\nThe containers are:\nContainer 1: 12.5 tons, port AMS\nContainer 2: 8.0 tons, port RTM\nContainer 3: 12.5 tons, port RTM\nContainer 4: 15.2 tons, port HAM\nContainer 5: 8.0 tons, port AMS\nContainer 6: 10.7 tons, port HAM\nContainer 7: 15.2 tons, port AMS\nContainer 8: 9.3 tons, port RTM\n\nPrint all 8 containers in loading order. Each line has the format:\n<position>. Container <n> <weight> <port>\nwhere <position> is 1-8, <n> is the container number, <weight> is the weight formatted to one decimal place (e.g. 12.5), and <port> is the three-letter port code.\n\nExample of one line: 1. Container 4 15.2 HAM\nDo not print any extra lines or spaces.",
+   "expected_stdout": "1. Container 7 15.2 AMS\n2. Container 4 15.2 HAM\n3. Container 1 12.5 AMS\n4. Container 3 12.5 RTM\n5. Container 6 10.7 HAM\n6. Container 8 9.3 RTM\n7. Container 5 8.0 AMS\n8. Container 2 8.0 RTM\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "python-agreed-candidate"
+  }
+ ]
+}
