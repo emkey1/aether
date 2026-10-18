@@ -1,0 +1,51 @@
+{
+  "_note": "Fifth run (owner, 2026-10-18): the modern surface. Same recipe as qwen38-27b-distill; data rebuilt on language 2026-10-18-1 (Pascal forms removed, modern stdlib, nested fns, D55-D65): the migrated corpus, d1-20261016 (Aether + Python pairs), and batch d2-20261018 (MiMo tasks, about a third JSON/file processing; Python by MiMo; Aether by the guided untrained Qwen3.8 with the 2026-10-18-1 medium guide), plus its Python pairs against Aether leaking into the model's Python.",
+  "tag": "qwen38-27b-modern",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.8-27B",
+  "base_model": "/storage/models/Qwen3.8-27B",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 60,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 2,
+    "early_stopping_threshold": 0.0
+  },
+  "dataset": {
+    "id": "modern-20261018",
+    "version": "2026-10-18-1",
+    "aether_version": "2026-10-18-1",
+    "repair_manifest": "training/seed_repair_pairs.json"
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-18-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    }
+  }
+}
