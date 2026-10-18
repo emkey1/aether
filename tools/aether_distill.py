@@ -131,6 +131,28 @@ def batch_dir(name: str) -> pathlib.Path:
     return path
 
 
+# A task writer sometimes spells out the exact output lines in the prompt ("Line 3: `Car 4 -> turned away`") and
+# gets one wrong; the Python program then prints the true value and the pair teaches a prompt that contradicts its
+# answer. Placeholders (N, <name>, {x}, ...) in a quoted line are wildcards.
+_PLACEHOLDER = re.compile(r"<[^>]*>|\{[^}]*\}|\[[^\]]*\]|\b[A-Z]{1,3}\b|\b[a-z]\b|\.\.\.|\u2026")
+
+
+def _template_re(snippet: str) -> re.Pattern:
+    parts, pos = [], 0
+    for m in _PLACEHOLDER.finditer(snippet):
+        parts += [re.escape(snippet[pos:m.start()]), r".+?"]
+        pos = m.end()
+    parts.append(re.escape(snippet[pos:]))
+    return re.compile("^" + "".join(parts) + "$")
+
+
+def prompt_contradictions(prompt: str, stdout: str) -> list[str]:
+    """Quoted `Line N:` output lines in the prompt that no line of stdout matches."""
+    lines = stdout.splitlines()
+    snippets = re.findall(r"Line \d+:\s*`([^`\n]*)`", prompt)
+    return [s for s in snippets if s not in lines and not any(_template_re(s).match(line) for line in lines)]
+
+
 def load_json(path: pathlib.Path, default):
     return json.loads(path.read_text(encoding="utf-8")) if path.exists() else default
 
@@ -354,6 +376,8 @@ def stage_freeze(args) -> int:
             why = "output too long"
         elif "Traceback" in stdout or stdout in board_stdout:
             why = "unusable output"
+        elif prompt_contradictions(task.get("prompt", ""), stdout):
+            why = "prompt contradicts output"
         if why:
             reasons[why] = reasons.get(why, 0) + 1
             continue
