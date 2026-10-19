@@ -1,0 +1,3 @@
+Text has no method 'index_of'
+write `index_of(r.line, ...)`
+!Runtime

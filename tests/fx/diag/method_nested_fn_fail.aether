@@ -1,0 +1,11 @@
+// A nested fn (D62) is reached only by a direct call; `xs.total()` compiled and
+// died at run time ("Undefined global variable 'total'").
+fn main() -> Void {
+    fn total(xs: Int[]) -> Int {
+        let t: Int = 0;
+        loop x in xs { t = t + x; }
+        ret t;
+    }
+    let xs: Int[] = [1, 2, 3];
+    fx { println(xs.total()); }
+}

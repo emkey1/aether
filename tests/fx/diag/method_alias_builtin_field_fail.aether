@@ -1,0 +1,7 @@
+// The same through a record field receiver, which used to escape the method
+// check entirely: `r.line.index_of(",")` is SCOPE-001 naming `index_of(r.line, ...)`.
+type Row { line: Text; }
+fn main() -> Void {
+    let r: Row = new Row { line: "a,b" };
+    fx { println(r.line.index_of(",")); }
+}

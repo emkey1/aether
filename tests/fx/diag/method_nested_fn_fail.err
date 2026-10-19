@@ -1,0 +1,3 @@
+Int[] has no method 'total'
+write `total(xs)`: a nested fn
+!Runtime

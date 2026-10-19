@@ -392,7 +392,8 @@ void aetherFreeTupleItems(char **items, size_t count);
 bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surface, int line);
 bool aetherIsBuiltinValueTypeName(const char *t);
 bool aetherCheckBuiltinMethod(AetherParser *p, const char *recvType, const char *method,
-                              bool isCall, bool knownCallable, int line);
+                              bool isCall, bool knownCallable, const char *callFormHint,
+                              int line);
 
 /* ---- Defined in ast_stdlib.c (the modern surface, D55-D61) ---------- */
 

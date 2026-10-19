@@ -2227,6 +2227,34 @@ const AetherTupleSig *aetherTupleSigOfExpr(AetherParser *p, AST *e) {
     return NULL;
 }
 
+static ReaTokenType aetherPeekNextTokenType(AetherParser *p);
+
+/* The receiver of `recv.name(...)` as the hint should spell it: a variable or a
+ * `a.b` field chain as written, anything else the placeholder for its type
+ * (`s`, `xs`, `n`, `x`, `b`). */
+static void aetherReceiverText(const AST *recv, const char *recvType, char *buf, size_t n) {
+    if (recv && recv->type == AST_VARIABLE && recv->token && recv->token->value &&
+        strcasecmp(recv->token->value, "myself") != 0 && strcasecmp(recv->token->value, "my") != 0) {
+        snprintf(buf, n, "%s", recv->token->value);
+        return;
+    }
+    if (recv && recv->type == AST_FIELD_ACCESS && recv->token && recv->token->value &&
+        recv->left && recv->left->type == AST_VARIABLE && recv->left->token &&
+        recv->left->token->value) {
+        const char *base = recv->left->token->value;
+        if (strcasecmp(base, "myself") == 0 || strcasecmp(base, "my") == 0) base = "self";
+        snprintf(buf, n, "%s.%s", base, recv->token->value);
+        return;
+    }
+    const char *t = recvType ? recvType : "";
+    const char *ph = "x";
+    if (aetherTypeNameIsArray(t)) ph = "xs";
+    else if (strcmp(t, "Text") == 0 || strcmp(t, "String") == 0) ph = "s";
+    else if (strcmp(t, "Int") == 0) ph = "n";
+    else if (strcmp(t, "Bool") == 0) ph = "b";
+    snprintf(buf, n, "%s", ph);
+}
+
 static AST *parsePostfix(AetherParser *p, AST *base) {
     AST *node = base;
     while (p->current.type == REA_TOKEN_DOT || p->current.type == REA_TOKEN_LEFT_BRACKET ||
@@ -2500,7 +2528,7 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
         /* W6-05: `.size` / `.count` (and other foreign members) on a builtin-typed
          * receiver, before rea reports "'size' not in scope". */
         if (p->current.type != REA_TOKEN_LEFT_PAREN && recvTypeName &&
-            aetherCheckBuiltinMethod(p, recvTypeName, nameTok->value, false, false,
+            aetherCheckBuiltinMethod(p, recvTypeName, nameTok->value, false, false, NULL,
                                      nameTok->line)) {
             free(recvTypeName);
             freeToken(nameTok);
@@ -2552,9 +2580,9 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
             /* W6-05: a method on Int/Real/Text/Bool or an array is a coded
              * SCOPE-001 unless it is a UFCS call of something callable (a user
              * fn or extension method, a module export, a builtin). */
-            /* An element receiver (`xs[0].toString()`) is typed from its array. */
-            char *elemCls = (!cls && node->type == AST_ARRAY_ACCESS) ? inferLetTypeName(p, node)
-                                                                    : NULL;
+            /* Any other receiver (`xs[0].toString()`, `p.x.round_to(1)`) is typed
+             * from its array or record field. */
+            char *elemCls = !cls ? aetherInferSliceBaseTypeName(p, node) : NULL;
             const char *checkCls = cls ? cls : elemCls;
             if (checkCls && aetherIsBuiltinValueTypeName(checkCls) && nameTok->value) {
                 const char *cls = checkCls;
@@ -2562,14 +2590,43 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 const char *mcanon = aliasBuiltinName(mname);
                 char ext[192];
                 snprintf(ext, sizeof(ext), "%s.%s", cls, mname);
-                bool knownCallable =
-                    aetherAstIsTopLevelUserFunction(mname) ||
-                    (p->funcReturns &&
-                     (bindingTableGet(p->funcReturns, ext, strlen(ext)) ||
-                      bindingTableGet(p->funcReturns, mname, strlen(mname)))) ||
-                    getVmBuiltinID(mcanon ? mcanon : mname) >= 0;
-                if (aetherCheckBuiltinMethod(p, cls, mname, true, knownCallable,
-                                             nameTok->line)) {
+                bool topLevelFn = aetherAstIsTopLevelUserFunction(mname);
+                bool extMethod = p->funcReturns &&
+                                 bindingTableGet(p->funcReturns, ext, strlen(ext));
+                /* A nested fn (D62) is lifted under another name and only its
+                 * direct calls are rewritten, so `xs.helper()` never reaches it:
+                 * that too is SCOPE-001 naming `helper(xs, ...)`. */
+                bool nestedFn = !topLevelFn && !extMethod && aetherIsNestedFnName(p, mname);
+                bool userCallable =
+                    !nestedFn &&
+                    (topLevelFn || extMethod ||
+                     (p->funcReturns && bindingTableGet(p->funcReturns, mname, strlen(mname))));
+                /* The UFCS call keeps the name as written: only a direct `name(`
+                 * call goes through aliasBuiltinName. So `x.round_to(1)` reached
+                 * the backend as `round_to`, which no builtin answers to, and
+                 * died at run time ("Undefined global variable"). A builtin known
+                 * only by its alias (the modern surface, D56-D67) is a function:
+                 * SCOPE-001 naming the call form. A builtin that answers to the
+                 * written name (`s.trim()`, `n.abs()`) stays UFCS. */
+                bool nativeBuiltin = getVmBuiltinID(mname) >= 0;
+                bool aliasOnlyBuiltin = !userCallable && !nativeBuiltin && mcanon &&
+                                        strcmp(mcanon, mname) != 0 &&
+                                        getVmBuiltinID(mcanon) >= 0;
+                char callForm[192];
+                callForm[0] = '\0';
+                if (aliasOnlyBuiltin || nestedFn) {
+                    char recvText[96];
+                    aetherReceiverText(node, cls, recvText, sizeof(recvText));
+                    bool noArgs = p->current.type == REA_TOKEN_LEFT_PAREN &&
+                                  aetherPeekNextTokenType(p) == REA_TOKEN_RIGHT_PAREN;
+                    snprintf(callForm, sizeof(callForm), "write `%s(%s%s)`: %s, the value goes first",
+                             mname, recvText, noArgs ? "" : ", ...",
+                             nestedFn ? "a nested fn is called as a function"
+                                      : "builtins are functions");
+                }
+                if (aetherCheckBuiltinMethod(p, cls, mname, true,
+                                             !nestedFn && (userCallable || nativeBuiltin),
+                                             callForm[0] ? callForm : NULL, nameTok->line)) {
                     free(elemCls);
                     freeToken(nameTok);
                     freeAST(node);

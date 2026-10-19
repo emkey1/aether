@@ -317,11 +317,16 @@ static const char *foreignMethodHint(const char *recvType, const char *m, char *
     return NULL;
 }
 
+/* `callFormHint` is set when `method` is a builtin known only by its alias
+ * (round_to, index_of, ...): the UFCS call could not reach it, so it is
+ * SCOPE-001 with that hint unless the foreign-method table has a better one. */
 bool aetherCheckBuiltinMethod(AetherParser *p, const char *recvType, const char *method,
-                              bool isCall, bool knownCallable, int line) {
+                              bool isCall, bool knownCallable, const char *callFormHint,
+                              int line) {
     if (!aetherIsBuiltinValueTypeName(recvType) || !method) return false;
     char buf[160];
     const char *hint = foreignMethodHint(recvType, method, buf, sizeof(buf));
+    if (!hint && isCall && callFormHint) hint = callFormHint;
     if (!hint && isCall && knownCallable) return false; /* UFCS: f(recv, args) */
     if (!hint && isCall)
         hint = "Aether types have no methods: call a function with the value as an argument";

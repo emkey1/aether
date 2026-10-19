@@ -12,6 +12,41 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-19-3
+
+**A method spelling that cannot reach its function is SCOPE-001, not a run-time
+"Undefined global"** (W6-05, D56). No new surface: programs that ran before run
+the same; programs that used to compile and then die at run time now fail to
+compile, with a hint naming the call form.
+
+- **Builtins known only by an alias.** `x.round_to(1)`, `s.index_of(",")`,
+  `n.int_to_text()`, `xs.sorted_desc()`, `xs.min_of()`, `path.read_file()`, ...
+  compiled as UFCS calls and failed at run time with "Undefined global variable
+  'round_to'": the method check took the name as callable because its alias
+  (`aether_round_to`) is a builtin, but only a direct `name(` call is aliased,
+  so the UFCS call reached the backend under the written name. Every
+  modern-surface helper (D56-D67) not already in the method-hint table was
+  affected. Now SCOPE-001: `Real has no method 'round_to'`, hint
+  ``write `round_to(x, ...)`: builtins are functions, the value goes first``
+  (just `round_to(x)` for an empty argument list; the receiver as written when it
+  is a variable or `a.b` field, else a placeholder). The hand-written hints
+  (`s.upper()`, `s.is_digit()`, `xs.sort()`, ...) keep their own wording.
+- **Nested functions (D62).** `xs.total()`, where `total` is a nested fn,
+  compiled and failed the same way (a nested fn is lifted under another name and
+  only direct calls are rewritten). Now SCOPE-001 with hint
+  ``write `total(xs)`: a nested fn is called as a function, ...``.
+- **More receivers checked.** The check also types a receiver reached through a
+  record field (`r.line.index_of(",")`, `self.label.upper()`), which escaped it
+  before; array elements, variables and call results were already covered.
+- **Unchanged.** A builtin that answers to the written name stays a UFCS call,
+  as the full guide documents (`s.trim()`, `s.split(sep)`, `n.abs()`,
+  `x.sqrt()`; fixture `diag/ufcs_builtin_pass`), as do `.len()` / `.length()`
+  (D7 class 1). A program's own top-level fn, extension method
+  (`fn index_of(self: Text, ...)`) or record method of the same name still wins.
+- **Tests.** Fixtures `diag/method_alias_builtin_fail`,
+  `diag/method_alias_builtin_field_fail`, `diag/method_alias_builtin_noargs_fail`,
+  `diag/method_nested_fn_fail` and `diag/method_alias_builtin_shadow_pass`.
+
 ## 2026-10-19-2
 
 **`[]` on an opaque handle is a compile-time error.** Indexing a `ToonNode`,
@@ -58,6 +93,7 @@ Fixtures: `diag/toon_node_index_fail`, `diag/toon_node_param_index_fail`,
 `diag/toon_node_slice_fail`, `diag/toon_node_index_assign_fail`,
 `diag/toon_doc_index_fail`, `diag/mstream_index_fail`,
 `diag/toon_handle_array_index_pass`.
+
 
 ## 2026-10-19-1
 

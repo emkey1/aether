@@ -1,0 +1,21 @@
+// Flip side of method_alias_builtin_fail: a program's own function wins over
+// the builtin of the same name in method position -- a top-level fn, an
+// extension method, a record method -- and builtins that answer to the name
+// as written stay UFCS calls (ufcs_builtin_pass).
+fn round_to(x: Real, d: Int) -> Real { ret x + d; }
+fn index_of(self: Text, x: Text) -> Int { ret 99; }
+type Box {
+    label: Text;
+    fn sum() -> Int { ret 5; }
+    fn shout() -> Text { ret upper(self.label); }
+}
+fn main() -> Void {
+    let x: Real = 1.5;
+    let s: Text = " a,b ";
+    let b: Box = new Box { label: "hi" };
+    let n: Int = -4;
+    fx {
+        println(x.round_to(1), " ", s.index_of(","), " ", b.sum(), " ", b.shout());
+        println(s.trim(), " ", n.abs(), " ", s.len());
+    }
+}

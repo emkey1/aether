@@ -1,0 +1,8 @@
+// A method spelling of a builtin known only by its alias (the modern surface,
+// D56-D67) is SCOPE-001 naming the call form. The UFCS call kept the name as
+// written, so `x.round_to(1)` compiled and died at run time with "Undefined
+// global variable 'round_to'".
+fn main() -> Void {
+    let x: Real = 3.14159;
+    fx { println(x.round_to(1)); }
+}
