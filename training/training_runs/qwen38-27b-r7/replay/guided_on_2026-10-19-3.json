@@ -1,0 +1,1799 @@
+{
+  "replay_binary": {
+    "aether_bin": "~/aether-models/grader/aether",
+    "aether_bin_resolved": "~/aether-models/grader/aether",
+    "binary_sha256": "3f0d2b8065fc247f1dda3c8514599bbcf0a6599554fc6b7a271dc5f121cbb238",
+    "aether_version": "2026-10-19-3",
+    "aether_version_raw": "Aether Compiler Version: 2026-10-19-3 (latest tag: untagged)",
+    "language_version": "2026-10-19-3",
+    "binary_commit": null,
+    "binary_dirty": false,
+    "standalone_build": true,
+    "aether_args": []
+  },
+  "reports": [
+    "~/aether-models/score_guided_2026-10-18-1/guided__cs.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__frontier.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__frontier_algo.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__frontier_spec.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__hard_nontoon.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__hard_v2.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
+    "~/aether-models/score_guided_2026-10-18-1/guided__v2_pos.json"
+  ],
+  "skipped_cases": {},
+  "attempts_replayed": 140,
+  "programs_run": 135,
+  "run_seconds": 15.77,
+  "tallies": {
+    "first": {
+      "attempts": 126,
+      "old_pass": 115,
+      "new_pass": 114,
+      "fail_to_pass": 0,
+      "pass_to_fail": 1,
+      "into_silent_wrong": 0,
+      "transitions": {
+        "pass->coded_error": 1
+      }
+    },
+    "repair": {
+      "attempts": 14,
+      "old_pass": 8,
+      "new_pass": 7,
+      "fail_to_pass": 0,
+      "pass_to_fail": 1,
+      "into_silent_wrong": 0,
+      "transitions": {
+        "pass->coded_error": 1
+      }
+    }
+  },
+  "waived": [],
+  "unwaived": [
+    {
+      "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
+      "destination": "qwen38-27b-base-guided-m5ollama",
+      "doc": "medium",
+      "task_id": "sealed_mstream_percent_encode",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "d585b2cff76696373af454ec5162984d7693ed634ab7b02cf6c4b8acf8ad48b0",
+      "base_version": "2026-10-18-1",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_mstream_percent_encode.aether:12: [SCOPE-001] Aether scope parser error: identifier 'mstream_append_text' not in scope."
+      ],
+      "transition": "pass->fail"
+    }
+  ],
+  "flips": [
+    {
+      "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
+      "destination": "qwen38-27b-base-guided-m5ollama",
+      "doc": "medium",
+      "task_id": "sealed_mstream_percent_encode",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "d585b2cff76696373af454ec5162984d7693ed634ab7b02cf6c4b8acf8ad48b0",
+      "base_version": "2026-10-18-1",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_mstream_percent_encode.aether:12: [SCOPE-001] Aether scope parser error: identifier 'mstream_append_text' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
+      "destination": "qwen38-27b-base-guided-m5ollama",
+      "doc": "medium",
+      "task_id": "sealed_mstream_file_roundtrip",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "95b70aecd0abbdfbeebacf579175ae27e9d8b3f285300e140d1eb6c791704abc",
+      "base_version": "2026-10-18-1",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_mstream_file_roundtrip.aether:5: [SCOPE-001] Aether scope parser error: identifier 'mstream_append_text' not in scope."
+      ],
+      "transition": "pass->fail"
+    }
+  ],
+  "moves": [
+    {
+      "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
+      "destination": "qwen38-27b-base-guided-m5ollama",
+      "doc": "medium",
+      "task_id": "sealed_mstream_percent_encode",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "d585b2cff76696373af454ec5162984d7693ed634ab7b02cf6c4b8acf8ad48b0",
+      "base_version": "2026-10-18-1",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_mstream_percent_encode.aether:12: [SCOPE-001] Aether scope parser error: identifier 'mstream_append_text' not in scope."
+      ]
+    },
+    {
+      "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
+      "destination": "qwen38-27b-base-guided-m5ollama",
+      "doc": "medium",
+      "task_id": "sealed_mstream_file_roundtrip",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "95b70aecd0abbdfbeebacf579175ae27e9d8b3f285300e140d1eb6c791704abc",
+      "base_version": "2026-10-18-1",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_mstream_file_roundtrip.aether:5: [SCOPE-001] Aether scope parser error: identifier 'mstream_append_text' not in scope."
+      ]
+    }
+  ],
+  "task_classes": [
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_bignum_add",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_binary_search_bounds",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_bracket_validate",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_dijkstra_path",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_edit_distance_script",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_interval_merge_gaps",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_knapsack_items",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_lcs_reconstruct",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_lru_eviction",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_merge_k_sorted",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_record_pipeline",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_sliding_window_max",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_topo_sort_cycle",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "algo_union_find_components",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "array_minmax",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "array_value_semantics",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "bitwise_permission_flags",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "clamp_scores",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "classify_scores",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "concat_chain_partition",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "contract_guarded_spread",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "contract_normalize",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "count_by_category",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_bfs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_binary_search",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_bubble_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_coin_change",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_collatz",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_dijkstra",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_edit_distance",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_factorial",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_fibonacci",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_fizzbuzz",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_gcd",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_hanoi",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_lcs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_lis",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_merge_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_nqueens",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_quick_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_sieve_primes",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "cs_substring",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "digit_separators_sum",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "dynamic_array_rollup",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "eligibility_bool_logic",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "field_defaults_gauge",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "file_csv_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_config_defaults",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_event_sessionize",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_expr_eval",
+      "attempts": 1,
+      "old": {
+        "uncoded_error": 1
+      },
+      "new": {
+        "uncoded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_grade_bands",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_heap_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_inventory_rollup",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_matrix_spiral",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_rle_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_route_legs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard2_sensor_windows",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_account_ledger",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_append_growth",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_collatz_recursion",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_expense_outliers",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_log_levels",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_payroll_nested",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_sensor_streak",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_turnstile_fsm",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hard_word_lengths",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hello_const_name",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "hello_fx",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "inline_if_average",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "inventory_status",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "jagged_nested_grid",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "loop_until_threshold",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "method_self_state",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "module_const_import",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "module_function_import",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "module_pure_export",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "money_cents_report",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "mstream_field_parse",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "mstream_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "nested_multiply_grid",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "par_shard_tally",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "parallel_array_wordcount",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "percentage_format",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "range_loop_squares",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "real_format_circle",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "real_mean_format",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "recursion_factorial",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_mstream_file_roundtrip",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_mstream_percent_encode",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_mstream_toon_body",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_cell_kinds",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_cluster_inventory",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_contact_audit",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_effective_config",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_meter_validation",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_monthly_spend",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_region_net",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_reorder_packs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "sealed_toon_score_ranking",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_csv_quoting",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_duration_phrase",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_greedy_wrap",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_histogram_bins",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_league_table",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_leap_year_rules",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_ledger_rounding",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_luhn_checksum",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_nearest_rank_percentile",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_roman_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_semver_order",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "spec_tokenizer_positions",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "string_checks",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "text_slice_tokenize",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "toon_deep_nested",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "toon_fleet_rollup",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "toon_inline_extract",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "toon_parse_file_simple",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "toon_safe_nested_codes",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "toon_type_probe",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "tuple_destructure",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "tuple_order_post",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "tuple_recursive_digits",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "tuple_stats_pipeline",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "two_type_methods",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "type_init_point",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "medium",
+      "task_id": "val_checked_ledger",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "algo_edit_distance_script",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "algo_knapsack_items",
+      "attempts": 2,
+      "old": {
+        "silent_wrong": 2
+      },
+      "new": {
+        "silent_wrong": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "algo_merge_k_sorted",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "cs_edit_distance",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "cs_fibonacci",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "cs_nqueens",
+      "attempts": 2,
+      "old": {
+        "coded_error": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "cs_sieve_primes",
+      "attempts": 2,
+      "old": {
+        "silent_wrong": 2
+      },
+      "new": {
+        "silent_wrong": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "hard2_expr_eval",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "sealed_mstream_file_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "spec_leap_year_rules",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "medium",
+      "task_id": "tuple_recursive_digits",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    }
+  ],
+  "gate": "first"
+}
