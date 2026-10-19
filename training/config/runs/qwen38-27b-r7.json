@@ -1,0 +1,55 @@
+{
+  "_note": "Run 7 (owner, 2026-10-19): run 6 with one change: no system message on any training record. Run 6's Python leaked Aether (core 18/35 vs 29) because every record carried a system turn (Aether or Python) while the harness and ordinary use send only the user message. Same data (r6 sources), recipe, stopping split and grader (2026-10-18-2).",
+  "tag": "qwen38-27b-r7",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.8-27B",
+  "base_model": "/storage/models/Qwen3.8-27B",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 60,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 3,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 10
+  },
+  "dataset": {
+    "id": "r7-20261019",
+    "version": "2026-10-18-2",
+    "aether_version": "2026-10-18-2",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-18-2",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    }
+  }
+}

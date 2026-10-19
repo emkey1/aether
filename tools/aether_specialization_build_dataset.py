@@ -759,6 +759,14 @@ def corpus_oracle_errors(payload: dict[str, Any]) -> list[str]:
     return errors
 
 
+def without_system_messages(records: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """The records with their system turns removed. The harness and ordinary use send only a user message; a
+    model trained with a system turn on every record learns to depend on it (run qwen38-27b-r6: the Python
+    system message was what kept its Python apart from its Aether, and scoring never sends one)."""
+    return [r | {"messages": [m for m in r["messages"] if m.get("role") != "system"]} if "messages" in r else r
+            for r in records]
+
+
 def write_jsonl(path: pathlib.Path, records: list[dict[str, Any]]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     with path.open("w", encoding="utf-8") as handle:
@@ -1134,6 +1142,9 @@ def main() -> int:
     parser.add_argument("--instruction-manifest", type=pathlib.Path, action="append", default=None,
                         help="instruction pairs file (repeatable; default: seed_instruction_pairs.json plus "
                         "every approved batch in distilled/)")
+    parser.add_argument("--system-message", action=argparse.BooleanOptionalAction, default=True,
+                        help="give each record its system turn (default); --no-system-message writes user and "
+                        "assistant turns only, as the harness and ordinary use send them")
     parser.add_argument("--max-python-pairs", type=int, default=None,
                         help="keep at most this many language: python instruction pairs (stable sha256-of-id "
                         "choice; default: all)")
@@ -1224,8 +1235,12 @@ def main() -> int:
     if details:
         raise SystemExit("verification failed: " + "; ".join(details))
 
-    write_jsonl(args.instruction_jsonl, built["instruction_records"])
-    write_jsonl(args.repair_jsonl, built["repair_records"])
+    instruction_records, repair_records = built["instruction_records"], built["repair_records"]
+    if not args.system_message:
+        instruction_records = without_system_messages(instruction_records)
+        repair_records = without_system_messages(repair_records)
+    write_jsonl(args.instruction_jsonl, instruction_records)
+    write_jsonl(args.repair_jsonl, repair_records)
 
     print(f"instruction_records={len(built['instruction_records'])} -> {args.instruction_jsonl}")
     print(f"repair_records={len(built['repair_records'])} -> {args.repair_jsonl}")

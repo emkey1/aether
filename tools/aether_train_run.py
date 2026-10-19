@@ -533,7 +533,8 @@ def stage_dataset(run: dict, args) -> int:
         "--aether-bin", str(aether_bin), "--repair-manifest", str(REPO_ROOT / run["dataset"]["repair_manifest"]),
         "--version", run["dataset"].get("version", f"{datetime.date.today().isoformat()}-1"),
         *(["--max-python-pairs", str(run["dataset"]["max_python_pairs"])]
-          if run["dataset"].get("max_python_pairs") is not None else [])])
+          if run["dataset"].get("max_python_pairs") is not None else []),
+        *(["--no-system-message"] if run["dataset"].get("system_message") is False else [])])
     leaks = {}
     for name in DATASET_FILES:
         found = sorted(set(PRIVATE.findall((out / name).read_text(encoding="utf-8"))))
@@ -555,6 +556,7 @@ def stage_dataset(run: dict, args) -> int:
         "aether_sha256": mix.get("aether_sha256"),
         "repair_manifest": run["dataset"]["repair_manifest"],
         "max_python_pairs": run["dataset"].get("max_python_pairs"),
+        "system_message": run["dataset"].get("system_message", True),
         "records": {"instruction": mix.get("instruction_records"), "repair": mix.get("repair_records")},
         "files": {name: sha256(out / name) for name in DATASET_FILES},
     }

@@ -42,6 +42,8 @@ def main() -> int:
                         help="instruction pairs file (repeatable; default: seed_instruction_pairs.json plus "
                         "every approved batch in distilled/)")
     parser.add_argument("--repair-manifest", type=pathlib.Path, default=DEFAULT_REPAIR_MANIFEST)
+    parser.add_argument("--no-system-message", action="store_true",
+                        help="passed to build_dataset: records without their system turn")
     parser.add_argument("--max-python-pairs", type=int, default=None,
                         help="passed to build_dataset: cap on language: python instruction pairs")
     parser.add_argument("--benchmark-tasks", type=pathlib.Path, action="append", default=None,
@@ -147,6 +149,8 @@ def main() -> int:
         "--report-json",
         str(build_report_json),
     ]
+    if args.no_system_message:
+        build_dataset_cmd += ["--no-system-message"]
     if args.max_python_pairs is not None:
         build_dataset_cmd += ["--max-python-pairs", str(args.max_python_pairs)]
     for path in checked_manifests:

@@ -327,5 +327,15 @@ class PythonCapTests(unittest.TestCase):
         self.assertEqual(len(bd.cap_python_pairs(self.manifest(), None)["pairs"]), 15)
         self.assertNotIn("python_cap", bd.cap_python_pairs(self.manifest(), 50))
 
+
+class SystemMessageTests(unittest.TestCase):
+    def test_without_system_messages_keeps_user_and_assistant_turns(self):
+        records = [{"id": "a", "messages": [{"role": "system", "content": "s"}, {"role": "user", "content": "u"},
+                                            {"role": "assistant", "content": "x"}]}, {"id": "raw", "text": "t"}]
+        out = bd.without_system_messages(records)
+        self.assertEqual([m["role"] for m in out[0]["messages"]], ["user", "assistant"])
+        self.assertEqual(out[1], records[1])
+        self.assertEqual(records[0]["messages"][0]["role"], "system")  # input untouched
+
 if __name__ == "__main__":
     unittest.main()
