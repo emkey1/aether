@@ -8,62 +8,88 @@ tags:
   - aether
   - lora
   - fine-tuned
-library_name: transformers
+library_name: peft
 pipeline_tag: text-generation
 ---
 
-<!-- DRAFT 2026-10-17. Numbers marked TBD come from the run chosen for release (internal notes:
-training/training_runs/*/RESULTS.md). Not published. -->
+<!-- DRAFT 2026-10-19 for release candidate qwen38-27b-r7. Numbers marked TBD: the untrained base without a
+guide on 2026-10-19-3, and the seed runs r7-s2/s3. Internal notes: training/training_runs/*/RESULTS.md.
+Not published. -->
 
-# Qwen3.8-27B-Aether (no-guide)
+# Qwen3.8-27B-Aether
 
-A LoRA fine-tune of [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) that writes
-**Aether** programs without a language guide in the prompt.
+A LoRA adapter for [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) that writes **Aether**
+programs with no language guide in the prompt. It ships in two forms:
+- the **adapter** on its own, to load onto the base model when writing Aether;
+- a **merged** model for convenience.
 
 [Aether](https://github.com/emkey1/aether) is a small, statically typed language with explicit effects
 (`fx { }` blocks), contracts (`@pre` / `@post`), records with methods, arrays and 2-D arrays, and a built-in
-JSON/TOON API. It is new, so general models do not know it: the untrained base model passes **0 of 73**
-benchmark tasks on the first attempt without a guide. With a ~15K-token guide in every prompt, strong models
-do well; this fine-tune moves that knowledge into the weights.
+JSON/TOON API. It is new, so general models do not know it. With a ~14K-token guide in every prompt, a strong base
+model does well; this adapter puts that knowledge into the weights.
+
+**This is an Aether specialist.** With the adapter loaded the model also writes noticeably worse Python, and
+probably worse code in other languages: it tends to answer in Aether syntax (see below). For anything other than
+Aether, use the base model, or unload the adapter.
 
 ## Results
 
-All scores: no guide in the prompt, temperature 0, seed 42, one sample per task, up to two repair rounds
-in which the model sees the compiler's diagnostic and the observed output. "First attempt" counts tasks
-solved by the first program; "after repair" counts tasks solved within the repairs. Compiler: Aether
-language TBD.
+All scores use no guide in the prompt, temperature 0, seed 42, one sample per task, and up to two repair rounds in
+which the model sees the compiler's diagnostic and the observed output.
+- "First attempt" counts tasks solved by the first program; "after repair" counts tasks solved within the repairs.
+- Every number below is graded with the Aether compiler at language version 2026-10-19-3.
+- Columns: first attempt (after repair).
 
-| suite | tasks | untrained base | **this model** | base model + medium guide |
+| suite | tasks | untrained base, no guide | **this model, no guide** | untrained base + 14K-token guide |
 |---|---:|---:|---:|---:|
-| core (easy) | 35 | 0 | TBD | TBD |
-| hard (TOON data processing) | 14 | 0 | TBD | TBD |
-| hard (non-TOON) | 5 | 0 | TBD | TBD |
-| algorithms | 19 | 0 | TBD | TBD |
-| **held-out** frontier (surface) | 15 | — | TBD | — |
-| **held-out** frontier (algorithmic) | 14 | — | TBD | — |
-| **held-out** frontier (specification) | 12 | — | TBD | — |
-| **held-out** TOON / MStream | 12 | — | TBD | — |
+| core | 35 | TBD | **33 (35)** | 34 (35) |
+| hard: TOON data processing | 14 | TBD | **13 (14)** | 14 (14) |
+| hard: other | 5 | TBD | **4 (5)** | 4 (5) |
+| algorithms | 19 | TBD | **18 (19)** | 15 (17) |
+| **main total** | **73** | TBD | **68 (73), 93%** | **67 (71)** |
+| held-out: surface | 15 | TBD | **10 (13)** | 15 (15) |
+| held-out: algorithmic | 14 | TBD | **10 (13)** | 11 (13) |
+| held-out: specification | 12 | TBD | **12 (12)** | 11 (12) |
+| held-out: TOON / memory streams | 12 | TBD | **7 (7)** | 10 (11) |
+| **held-out total** | **53** | TBD | **39 (45), 74%** | **47 (51)** |
 
-The held-out suites were never used to choose or write training data; they measure whether the gains carry
-beyond the tasks the training data was developed against.
+- **Main suites:** with no guide, the model matches the base model reading a 14K-token guide on the first
+  attempt, and solves every task after repair.
+- **Held-out suites:** these were never used to choose or write training data, so they measure how far the
+  gains carry beyond the tasks the training data was developed against. There the guided base is still ahead.
 
-**Python, same model, same tasks** (for scale): the untrained base writes Python for TBD of 73 core tasks
-(TBD of 53 held-out) on the first attempt; this fine-tune TBD / TBD, i.e. fine-tuning on Aether did not
-TBD its Python. Some tasks require Aether-only features (a `has_toon()` check, contracts, `fx`), so the
-Python comparison is indicative; excluding those tasks: TBD.
+**Run-to-run variation:** TBD (two further training seeds of the same recipe).
 
-Single training seed. Expect a task or two of difference between training runs.
+### Python, same model, same tasks
+
+| suite | tasks | untrained base | with the Aether adapter |
+|---|---:|---:|---:|
+| core | 35 | 29 (33) | 16 (30) |
+| hard: TOON data processing | 14 | 10 (13) | 11 (14) |
+| hard: other | 5 | 5 (5) | 3 (5) |
+| algorithms | 19 | 19 (19) | 18 (19) |
+| held-out: surface | 15 | 15 (15) | 3 (12) |
+| held-out: algorithmic | 14 | 13 (14) | 11 (13) |
+| held-out: specification | 12 | 12 (12) | 12 (12) |
+| held-out: TOON / memory streams | 12 | 11 (12) | 11 (11) |
+
+Almost every Python first attempt the adapter gets wrong is Aether syntax in a Python answer (`fn main`,
+`let x: Int`, `fx {`). Shown the Python error, it usually recovers. This is the familiar forgetting that comes with
+specialising a model on one language, and Aether looks a lot like Python. Mixing Python pairs into the training
+data held it off in short training runs but not at the length that gives the best Aether. Hence the advice: load
+the adapter for Aether only.
 
 ## How to use
 
-The model was trained with thinking **off**. Serve it so the chat template renders the same way:
+The adapter was trained with thinking **off** and with **no system message**. Serve it the same way:
 
-- **vLLM / transformers**: pass `chat_template_kwargs={"enable_thinking": false}`.
-- **Ollama** (OpenAI-compatible `/v1`): send `"reasoning_effort": "none"`. A top-level `think: false` is
-  ignored on that endpoint and the model will reason first. Set `num_ctx` in a Modelfile
-  (`PARAMETER num_ctx 32768`); `/v1` ignores per-request context options.
+- **vLLM / transformers**: pass `chat_template_kwargs={"enable_thinking": false}`. With vLLM, `--enable-lora`
+  serves the base model and the adapter side by side; choose per request.
+- **Ollama** (OpenAI-compatible `/v1`, merged model): send `"reasoning_effort": "none"`.
+  - A top-level `think: false` is ignored on that endpoint, and the model will reason first.
+  - Set the context in a Modelfile (`PARAMETER num_ctx 32768`); `/v1` ignores per-request context options.
 
-Prompt format used in training and evaluation (single user message):
+Prompt format used in training and evaluation (a single user message):
 
 ```
 You are writing Aether code.
@@ -85,41 +111,50 @@ Expected stdout:
 Aether source:
 ```
 
-Shorter natural-language requests ("Write an Aether program that ...") also work; part of the training data
-is in that form.
+Shorter natural-language requests ("Write an Aether program that ...") also work; part of the training data is
+in that form. Keep the Aether compiler in the loop: feeding its diagnostic back fixes most first-attempt misses.
 
 ## Training
 
-- **Method**: LoRA r=32, alpha=64, dropout 0, on attention and MLP projections; base loaded in 4-bit
-  (bitsandbytes); lr 1e-4, batch 1 x 8 accumulation, early stopping on a held-out set of 12 records (stopped
-  at epoch TBD); responses only (prompt tokens masked). Unsloth + TRL + PEFT on one GPU host,
-  about 30-45 minutes.
-- **Data** (TBD records; all programs compile and print their stated output on the Aether compiler, checked
-  on every build):
+- **Method**: LoRA r=32, alpha=64, dropout 0, on the attention and MLP projections.
+  - Base model loaded in 4-bit (bitsandbytes); lr 1e-4; batch 1 × 8 gradient accumulation; seed 3407.
+  - Loss on responses only (prompt tokens masked). No system message on any record.
+  - Early stopping on 60 held-out training records, evaluated every 10 steps, patience 3. It stopped at epoch
+    1.31; the best checkpoint, at epoch 1.17, is the one released.
+  - Unsloth + TRL + PEFT on one GPU host, about 2¼ hours.
+- **Data**: 1,681 instruction records (1,461 Aether, 220 Python) and 87 repair records. Every Aether program
+  compiles and prints its stated output with the compiler, checked on every build. The records are:
   - a curated corpus of Aether programs and natural-language task/solution pairs;
   - repair drills: a broken program, the compiler's diagnostic, the fix;
-  - targeted packs for the APIs and idioms the earlier runs got wrong (JSON/TOON, memory streams, 2-D
-    tables, array value semantics, stepped loops);
-  - **distilled pairs**: task statements and independent Python solutions written by
-    [MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL) (MIT), Aether solutions written by
-    the untrained base model *with* the guide, kept only where the Aether program prints exactly what the
-    Python program prints. All generation requests were audited to come from MiMo.
-- **Decontamination**: every training example is checked against every benchmark task (identical expected
-  output is dropped; 5-gram similarity to any reference solution must stay below 0.5), and the held-out suites
-  are excluded from data authoring.
+  - targeted packs for the idioms earlier runs got wrong (file reads inside `fx`, JSON/TOON, memory streams,
+    modules, tuple contracts, array value semantics). They were written from failure classes on the main suites,
+    never from task text;
+  - **distilled pairs**:
+    - task statements and independent Python solutions written by
+      [MiMo-V2.6-Flash-RL](https://huggingface.co/XiaomiMiMo/MiMo-V2.6-Flash-RL) (MIT);
+    - Aether solutions written with the guide, by the untrained base model or, for the tasks it could not solve,
+      by MiMo;
+    - kept only where the Aether program prints exactly what the Python program prints;
+    - all generation requests audited to come from MiMo.
+  - Python pairs (MiMo's programs for the same tasks) to limit the drift away from Python.
+- **Decontamination**:
+  - Every training example is checked against every benchmark task: an identical expected output is dropped, and
+    5-gram similarity to any reference solution must stay below 0.5.
+  - The held-out suites are excluded from data authoring and from failure mining.
 
-The language, its compiler and the guides are at [emkey1/aether](https://github.com/emkey1/aether). The
-training data, the benchmark tasks and the scoring reports are published as a companion dataset (TBD:
-Hugging Face dataset name).
+The language, its compiler, the guides, the benchmark tasks, the training data and the scoring reports are at
+[emkey1/aether](https://github.com/emkey1/aether) (`bench/`, `training/`).
 
 ## Limitations
 
-- Aether evolves; the model knows the language as of version TBD. Features added later will be unknown to it.
-- It writes small, self-contained programs well; it has not been evaluated on multi-file projects or long
-  programs.
-- First attempts still fail on some idioms that one repair round fixes (e.g. file parsing outside an `fx`
-  block); use it with the compiler in the loop where possible.
-- Single training seed; benchmark differences of one or two tasks are within run-to-run variation.
+- **Aether only.** Python, and probably other languages, are degraded with the adapter loaded; see above.
+- **Language version.** Aether evolves; the model knows the language as of 2026-10-19. Features added later will
+  be unknown to it.
+- **Program size.** It writes small, self-contained programs well. It has not been evaluated on multi-file
+  projects or long programs.
+- **First attempts still fail on some idioms that one repair round fixes.** Examples: an invented builtin name
+  (`mstream_len` for `mstream_length`), a wrong argument count, or mutating an array parameter under Aether's
+  value semantics. Use it with the compiler in the loop.
 
 ## License and attribution
 
