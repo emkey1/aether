@@ -208,6 +208,15 @@ static const char *foreignMethodHint(const char *recvType, const char *m, char *
         if (strstr(" lower tolower tolowercase lowercase downcase ", key)) return "write `lower(s)`";
         if (strstr(" upper toupper touppercase uppercase upcase ", key)) return "write `upper(s)`";
         if (strstr(" capitalize ", key)) return "write `upper(s[..1]) + s[1..]`";
+        /* D67: the character classes are functions, as upper(s) is. */
+        if (strstr(" isdigit is_digit isnumeric is_numeric isdecimal ", key))
+            return "write `is_digit(s)`";
+        if (strstr(" isalpha is_alpha isletter is_letter ", key)) return "write `is_alpha(s)`";
+        if (strstr(" isalnum is_alnum ", key)) return "write `is_alnum(s)`";
+        if (strstr(" isspace is_space iswhitespace is_whitespace ", key))
+            return "write `is_space(s)`";
+        if (strstr(" isupper is_upper ", key)) return "write `is_upper(s)`";
+        if (strstr(" islower is_lower ", key)) return "write `is_lower(s)`";
         if (strstr(" replace replaceall replace_all ", key)) return "write `replace(s, old, new)`";
         /* `s.trim()` and `s.split(sep)` stay UFCS calls of the builtins
          * (fixtures diag/ufcs_builtin_pass); only the foreign spelling is a

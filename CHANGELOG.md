@@ -12,6 +12,51 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-19-1
+
+**Character-class builtins** (decision D67, accepted by the owner on 2026-10-19).
+`is_digit(t)`, `is_alpha(t)`, `is_alnum(t)`, `is_space(t)`, `is_upper(t)` and
+`is_lower(t)`, each `Text -> Bool`.
+
+- **Meaning, Python-like.** True iff `t` is non-empty and every character of
+  `t` is in the class, so `is_digit(s[i])` tests one character and
+  `is_digit("123")` a whole field; `""` is false. ASCII classes only: digit
+  `0-9`; alpha `A-Z a-z`; alnum = alpha or digit; space = space, tab,
+  newline, carriage return, form feed, vertical tab; upper `A-Z`; lower
+  `a-z`. A non-ASCII character is in no class. Decided byte by byte in the
+  engine, never by the host's `<ctype.h>` locale, so Linux and macOS agree.
+- **Pure.** Usable in `@pure` functions, in `@pre`/`@post`, and outside `fx`.
+  A wrong argument count is BUILT-002; a non-`Text` argument is a run-time
+  error, as for `upper`.
+- **Why.** Aether had no character-class builtins; the only way to ask "is
+  this a digit" was an `ord` range comparison. The run-6 fine-tune
+  (`qwen38-27b-r6`) invented `is_digit` on a main benchmark suite, and these
+  are the names models and people reach for.
+- **Names a program already uses keep working.** A program's own top-level or
+  nested `fn is_digit(...)` (any signature) still wins over the builtin, as
+  for every aliased builtin; a local, parameter or field named `is_upper` is
+  untouched (fixture `tests/fx/names/char_class_named_fn_pass`). An
+  unqualified call of a module's exported `is_digit` reaches the builtin, as
+  it does for `upper`; call it qualified (`Mod.is_digit(c)`).
+- **Did-you-mean hints** (SCOPE-001): `isdigit`, `isalpha`, `isalnum`,
+  `isspace`, `isupper`, `islower`, `is_letter`, `is_whitespace` name the
+  builtin; the method spellings `s.is_digit()`, `s.isdigit()`,
+  `s.isnumeric()`, `s.isalpha()`, `s.isspace()`, ... are SCOPE-001 with a
+  hint naming the function, as for `s.upper()`.
+- **Engine.** pscal-core registers them under Aether-private names
+  (`aether_is_digit` .. `aether_is_lower`, `ext_builtins/strings/stdlib.c`)
+  and lists them in `builtins_json` with their signatures.
+- **Tests.** Surface registry `helper_char_class` (class 1; each builtin on
+  single characters, whole strings and `""`, and inside a `@pure` fn, against
+  an `ord`-range twin), `method_char_class`, `alias_isdigit` (class 2);
+  fixtures `names/char_class_named_fn_pass`, `diag/char_class_arity_fail`.
+  No archived benchmark attempt or corpus program changes meaning, so there
+  is no replay waiver.
+- **Docs.** Full guide (Strings table and method-spelling note, the
+  "Validating before parsing" contract now uses `is_digit`, the regenerated
+  builtin appendix), medium guide (one line in the Text helpers), decision
+  register (D67 row).
+
 ## 2026-10-18-2
 
 **MStream write verbs** (decision D66, accepted by the owner on 2026-10-18).

@@ -1,0 +1,5 @@
+// D67: the character classes take one Text; is_digit(s, i) is BUILT-002.
+fn main() -> Void {
+    let s: Text = "a1";
+    fx { println(is_digit(s, 1)); }
+}

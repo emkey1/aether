@@ -380,6 +380,15 @@ static const AetherNameHint kAetherNameHints[] = {
     { "parse_int_checked", "did you mean 'try_parse_int(t)'? It returns (value, ok)." },
     { "try_parse_float", "did you mean 'try_parse_real(t)'? It returns (value, ok)." },
     { "round_half_up", "did you mean 'round_to(x, digits)'? It rounds half away from zero." },
+    /* Character classes (D67): C/Python spellings without the underscore. */
+    { "isdigit", "did you mean 'is_digit(t)'?" },
+    { "isalpha", "did you mean 'is_alpha(t)'?" },
+    { "isalnum", "did you mean 'is_alnum(t)'?" },
+    { "isspace", "did you mean 'is_space(t)'?" },
+    { "isupper", "did you mean 'is_upper(t)'?" },
+    { "islower", "did you mean 'is_lower(t)'?" },
+    { "is_letter", "did you mean 'is_alpha(t)'?" },
+    { "is_whitespace", "did you mean 'is_space(t)'?" },
 };
 
 const char *aetherUnknownIdentifierHint(const char *ident) {

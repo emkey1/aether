@@ -85,6 +85,12 @@
         "date": "2026-10-18",
         "body_sha256": "685163431f934eb1850a901eb8667b78d0b920fc11982974a66203d5c7f0189c",
         "o200k": 33656
+      },
+      {
+        "stamp": "2026-10-19-1",
+        "date": "2026-10-19",
+        "body_sha256": "1e0434b4657adb00c02a3f5a6fac98f3a515e6239d15ea5b66a84142910b9da1",
+        "o200k": 33823
       }
     ],
     "docs/aether_for_llms_medium_contexts.md": [
@@ -159,6 +165,12 @@
         "date": "2026-10-18",
         "body_sha256": "efe97475a082c4a58aa55f52c7ad2ea80f1b74713dd110c6e8b2507fc069f1a6",
         "o200k": 13358
+      },
+      {
+        "stamp": "2026-10-19-1",
+        "date": "2026-10-19",
+        "body_sha256": "9a5ab5dc62be0aa040c2517c9669e58bfe6c21447a47248975e5f4fc67b7dffb",
+        "o200k": 13354
       }
     ],
     "docs/aether_for_llms_with_small_contexts.md": [

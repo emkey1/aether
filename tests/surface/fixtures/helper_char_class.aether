@@ -1,0 +1,21 @@
+@pure
+fn digit_count(s: Text) -> Int {
+    let n: Int = 0;
+    loop i in 0..length(s) {
+        if is_digit(s[i]) { n += 1; }
+    }
+    ret n;
+}
+
+fn main() -> Void {
+    let ws: Text = " \t\n\r" + chr(12) + chr(11);
+    fx {
+        println(is_digit("7"), " ", is_digit("x"), " ", is_digit("2026"), " ", is_digit("20-6"), " ", is_digit(""));
+        println(is_alpha("q"), " ", is_alpha("Q"), " ", is_alpha("Hello"), " ", is_alpha("a1"), " ", is_alpha(""));
+        println(is_alnum("z"), " ", is_alnum("9"), " ", is_alnum("abc123"), " ", is_alnum("a_1"), " ", is_alnum(""));
+        println(is_space(" "), " ", is_space("\t"), " ", is_space(ws), " ", is_space(" x "), " ", is_space(""));
+        println(is_upper("A"), " ", is_upper("a"), " ", is_upper("ABC"), " ", is_upper("AB1"), " ", is_upper(""));
+        println(is_lower("a"), " ", is_lower("A"), " ", is_lower("abc"), " ", is_lower("ab c"), " ", is_lower(""));
+        println(digit_count("a1b22c333"));
+    }
+}

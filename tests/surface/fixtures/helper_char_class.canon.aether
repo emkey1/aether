@@ -1,0 +1,40 @@
+// Each class by code-point ranges: true when t is non-empty and every
+// character is in the class.
+@pure
+fn in_class(t: Text, cls: Text) -> Bool {
+    if length(t) == 0 { ret false; }
+    loop i in 0..length(t) {
+        let c: Int = ord(t[i]);
+        let up: Bool = c >= 65 and c <= 90;
+        let lo: Bool = c >= 97 and c <= 122;
+        let dg: Bool = c >= 48 and c <= 57;
+        let sp: Bool = c == 32 or (c >= 9 and c <= 13);
+        let ok: Bool = (cls == "digit" and dg) or (cls == "alpha" and (up or lo)) or
+                       (cls == "alnum" and (up or lo or dg)) or (cls == "space" and sp) or
+                       (cls == "upper" and up) or (cls == "lower" and lo);
+        if !ok { ret false; }
+    }
+    ret true;
+}
+
+@pure
+fn digit_count(s: Text) -> Int {
+    let n: Int = 0;
+    loop i in 0..length(s) {
+        if in_class(s[i], "digit") { n += 1; }
+    }
+    ret n;
+}
+
+fn main() -> Void {
+    let ws: Text = " \t\n\r" + chr(12) + chr(11);
+    fx {
+        println(in_class("7", "digit"), " ", in_class("x", "digit"), " ", in_class("2026", "digit"), " ", in_class("20-6", "digit"), " ", in_class("", "digit"));
+        println(in_class("q", "alpha"), " ", in_class("Q", "alpha"), " ", in_class("Hello", "alpha"), " ", in_class("a1", "alpha"), " ", in_class("", "alpha"));
+        println(in_class("z", "alnum"), " ", in_class("9", "alnum"), " ", in_class("abc123", "alnum"), " ", in_class("a_1", "alnum"), " ", in_class("", "alnum"));
+        println(in_class(" ", "space"), " ", in_class("\t", "space"), " ", in_class(ws, "space"), " ", in_class(" x ", "space"), " ", in_class("", "space"));
+        println(in_class("A", "upper"), " ", in_class("a", "upper"), " ", in_class("ABC", "upper"), " ", in_class("AB1", "upper"), " ", in_class("", "upper"));
+        println(in_class("a", "lower"), " ", in_class("A", "lower"), " ", in_class("abc", "lower"), " ", in_class("ab c", "lower"), " ", in_class("", "lower"));
+        println(digit_count("a1b22c333"));
+    }
+}

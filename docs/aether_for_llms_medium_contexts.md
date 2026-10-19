@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-18-2*
+*Guide version: 2026-10-19-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -190,8 +190,6 @@ right the first time:
 | `clamp(x, lo, hi)` | 3 | |
 | `min(a, b)` / `max(a, b)` | 2 | |
 | `ord(ch)` / `chr(n)` / `trim(s)` | 1 | |
-| `replace(s, old, new)` | 3 | every occurrence |
-| `split(t, sep)` | 2 | |
 | `parse_int` / `parse_float` / `parse_bool` | 1 | |
 
 **Math surface.** `arctan` not `atan`, `ln` not `log`. Trig takes radians.
@@ -507,11 +505,13 @@ The Text helpers, all pure (positions are 0-based, `-1` when absent):
 - build: `upper(s)`, `lower(s)`, `trim(s)`, `replace(s, old, new)` (every
   occurrence), `repeat(s, n)`, `reversed(s)`, `join(parts, sep)`,
   `split(t, sep)`
+- test: `is_digit(t)`, `is_alpha`, `is_alnum`, `is_space`, `is_upper`,
+  `is_lower` (`t` non-empty and every character in the ASCII class)
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
-the first character, `s[string_len(s) - 1]` the last, `s[a..b]` slices like an
-array, and `s[i] = "x"` replaces one character. Visit each character with
-`loop ch in s { ... }`, or by index with `loop i in 0..string_len(s) { ... s[i] ... }`.
+the first character, `s[string_len(s) - 1]` the last, and `s[i] = "x"` replaces
+one character. Visit each character with `loop ch in s { ... }`, or by index
+with `loop i in 0..string_len(s)`.
 
 ## Dynamic arrays
 

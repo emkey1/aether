@@ -1467,6 +1467,14 @@ static const char *aliasBuiltinName(const char *name) {
         { "ends_with", "aether_ends_with" },
         { "repeat", "aether_repeat" },
         { "join", "aether_join" },
+        /* D67: ASCII character classes, true when the Text is non-empty and
+         * every character is in the class (`is_digit(s[i])`, `is_digit("42")`). */
+        { "is_digit", "aether_is_digit" },
+        { "is_alpha", "aether_is_alpha" },
+        { "is_alnum", "aether_is_alnum" },
+        { "is_space", "aether_is_space" },
+        { "is_upper", "aether_is_upper" },
+        { "is_lower", "aether_is_lower" },
         { "contains", "aether_contains" },
         { "index_of", "aether_index_of" },
         { "count", "aether_count" },

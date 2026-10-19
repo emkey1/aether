@@ -1152,6 +1152,28 @@
    "hint": "join(xs, sep)"
   },
   {
+   "id": "method_char_class",
+   "class": 2,
+   "spelling": "s.is_digit(), s.isdigit(), s.isalpha()",
+   "canonical_form": "is_digit(s)",
+   "fixture": "fixtures/method_char_class.aether",
+   "code": "SCOPE-001",
+   "decided": "D67",
+   "status": "holds",
+   "hint": "is_digit(s)"
+  },
+  {
+   "id": "alias_isdigit",
+   "class": 2,
+   "spelling": "isdigit(t), isalpha(t), isspace(t)",
+   "canonical_form": "is_digit(t)",
+   "fixture": "fixtures/alias_isdigit.aether",
+   "code": "SCOPE-001",
+   "decided": "D67",
+   "status": "holds",
+   "hint": "is_digit(t)"
+  },
+  {
    "id": "method_sort",
    "class": 2,
    "spelling": "xs.sort(), xs.sorted()",
@@ -1274,6 +1296,17 @@
    "twin": "fixtures/helper_join.canon.aether",
    "decided": "D56",
    "status": "holds"
+  },
+  {
+   "id": "helper_char_class",
+   "class": 1,
+   "spelling": "is_digit(t), is_alpha(t), is_alnum(t), is_space(t), is_upper(t), is_lower(t)",
+   "canonical_form": "is_digit(t) and the other five",
+   "fixture": "fixtures/helper_char_class.aether",
+   "twin": "fixtures/helper_char_class.canon.aether",
+   "decided": "D67",
+   "status": "holds",
+   "note": "ASCII; true when t is non-empty and every character is in the class, so is_digit(s[i]) and is_digit(\"123\") both work; \"\" is false"
   },
   {
    "id": "helper_sum_min_max",

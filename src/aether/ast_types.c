@@ -163,6 +163,8 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "aether_read_line", "Text" }, { "aether_read_all_stdin", "Text" }, { "aether_now_text", "Text" },
         { "aether_contains", "Bool" }, { "aether_starts_with", "Bool" }, { "aether_ends_with", "Bool" },
         { "aether_delete_file", "Bool" }, { "aether_rename_file", "Bool" }, { "fileexists", "Bool" },
+        { "aether_is_digit", "Bool" }, { "aether_is_alpha", "Bool" }, { "aether_is_alnum", "Bool" },
+        { "aether_is_space", "Bool" }, { "aether_is_upper", "Bool" }, { "aether_is_lower", "Bool" },
         { "aether_index_of", "Int" }, { "aether_count", "Int" }, { "aether_clock_ms", "Int" },
         { "aether_mstream_length", "Int" }, { "aether_round_to", "Real" },
         { "split", "Text[]" }, { "aether_read_lines", "Text[]" }, { "aether_args", "Text[]" },

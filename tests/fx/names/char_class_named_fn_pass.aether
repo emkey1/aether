@@ -1,0 +1,28 @@
+// D67 (2026-10-19): is_digit, is_alpha, ... are builtins now. A program's own
+// top-level fn of the same name still wins, whatever its signature; a local,
+// parameter or field of that name is untouched.
+type Tok { is_upper: Bool; text: Text; }
+
+fn is_digit(c: Text) -> Bool {
+    ret c == "x";
+}
+
+@pure
+fn is_space(code: Int) -> Bool {
+    ret code == 32 or code == 9;
+}
+
+fn shout(is_lower: Bool, t: Text) -> Text {
+    if is_lower { ret upper(t); }
+    ret t;
+}
+
+fn main() -> Void {
+    let is_alnum: Bool = is_alpha("q");
+    let t = new Tok();
+    t.is_upper = is_upper("AB");
+    fx {
+        println(is_digit("x"), " ", is_digit("5"), " ", is_space(32), " ", is_space(ord("a")));
+        println(is_alnum, " ", t.is_upper, " ", shout(true, "hi"), " ", is_lower("hi"));
+    }
+}

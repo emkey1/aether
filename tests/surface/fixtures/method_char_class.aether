@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let s: Text = "42";
+    fx { println(s.is_digit()); }
+}
