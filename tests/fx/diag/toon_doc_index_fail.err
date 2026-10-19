@@ -1,0 +1,4 @@
+[TOON-001]
+cannot index 'doc' with `[]`: it is a ToonDoc
+toon_root(doc)
+toon_at(root, i)

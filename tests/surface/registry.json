@@ -622,6 +622,42 @@
    "note": "today compares identity and prints false; `== nil` stays legal"
   },
   {
+   "id": "toon_node_index",
+   "class": 2,
+   "spelling": "node[i], node[a..b] on a ToonNode",
+   "canonical_form": "toon_at(node, i), toon_len(node)",
+   "fixture": "fixtures/toon_node_index.aether",
+   "code": "TOON-001",
+   "decided": "D7",
+   "status": "holds",
+   "note": "compiled and stopped at run time with an uncoded VM error (a handle is an Int slot); the slice was TYPE-001 with a hint to index with [i]",
+   "hint": "toon_at(items, i)"
+  },
+  {
+   "id": "toon_doc_index",
+   "class": 2,
+   "spelling": "doc[i] on a ToonDoc",
+   "canonical_form": "toon_at(toon_root(doc), i)",
+   "fixture": "fixtures/toon_doc_index.aether",
+   "code": "TOON-001",
+   "decided": "D7",
+   "status": "holds",
+   "note": "compiled and stopped at run time with an uncoded VM error",
+   "hint": "toon_root(doc)"
+  },
+  {
+   "id": "mstream_index",
+   "class": 2,
+   "spelling": "ms[i] on an MStream",
+   "canonical_form": "mstream_text(ms)[i]",
+   "fixture": "fixtures/mstream_index.aether",
+   "code": "MS-001",
+   "decided": "D7",
+   "status": "holds",
+   "note": "compiled and stopped at run time with an uncoded VM error",
+   "hint": "mstream_text(ms)"
+  },
+  {
    "id": "toon_parse_string",
    "class": 4,
    "spelling": "toon_parse_string(t)",

@@ -1,0 +1,23 @@
+// The handle-index check (TOON-001 / MS-001) judges only the handle types
+// themselves: a `ToonNode[]` is a real array and indexes normally, and the
+// taught forms -- toon_at/toon_len and an indexed mstream_text -- run.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}, {\"n\": 3}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    let nodes: ToonNode[] = [];
+    let total: Int = 0;
+    loop i in 0..toon_len(items) {
+        let el: ToonNode = toon_at(items, i);
+        nodes = nodes + [el];
+        total = total + toon_get_int_or(el, "n", 0);
+    }
+    let ms: MStream = mstream_from_text("abc");
+    let text: Text = mstream_text(ms);
+    fx {
+        println(total, " ", length(nodes), " ", toon_get_int(nodes[2], "n"));
+        println(text[1], " ", text[1..3]);
+    }
+    mstream_free(ms);
+    toon_close(doc);
+    ret;
+}

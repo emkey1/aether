@@ -1,0 +1,10 @@
+// `items[i]` on a ToonNode compiled and stopped at run time with an uncoded
+// "Pointer does not point to an array for element access."; it is TOON-001.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    let n: Int = toon_get_int_or(items[1], "n", 0);
+    fx { println(n); }
+    toon_close(doc);
+    ret;
+}

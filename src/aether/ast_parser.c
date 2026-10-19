@@ -2337,6 +2337,14 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 freeAST(node);
                 return NULL;
             }
+            /* TOON-001 / MS-001: `[i]` or `[a..b]` on an opaque handle
+             * (aetherCheckHandleIndex, ast_checks.c). */
+            if (aetherCheckHandleIndex(p, node, openLine,
+                                       p->current.type == AE_TOKEN_DOTDOT)) {
+                if (index) freeAST(index);
+                freeAST(node);
+                return NULL;
+            }
             if (p->current.type == AE_TOKEN_DOTDOT) {
                 /* Slice sugar: base[lo..hi]. NOT a first-class Range value --
                  * docs/ideas_and_todo.md's array-slicing entry explicitly

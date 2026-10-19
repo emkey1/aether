@@ -1,0 +1,10 @@
+// A call that returns a ToonNode, indexed directly: TOON-001; the hint names
+// toon_at with a placeholder node.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    let first: ToonNode = toon_key(toon_root(doc), "items")[0];
+    fx { println(toon_get_int(first, "n")); }
+    toon_close(doc);
+    ret;
+}

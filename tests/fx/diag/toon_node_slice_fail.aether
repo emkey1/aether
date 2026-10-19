@@ -1,0 +1,10 @@
+// A slice of a ToonNode was TYPE-001 with a hint to index one element with
+// `[i]`, which crashed at run time; it is TOON-001 naming toon_at.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    let part: ToonNode = items[0..1];
+    fx { println(toon_len(part)); }
+    toon_close(doc);
+    ret;
+}

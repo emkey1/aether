@@ -12,6 +12,53 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-19-2
+
+**`[]` on an opaque handle is a compile-time error.** Indexing a `ToonNode`,
+a `ToonDoc` or an `MStream` with `[]` compiled: a handle is an Int slot on the
+VM, so `toon_get_int_or(items[i], "n", 0)` on a TOON array node ran until the
+index and stopped with an uncoded `VM Error: Pointer does not point to an
+array for element access.` (a call result such as `toon_key(root, "items")[0]`
+drew the runtime `AETH-RUNTIME-INDEX-NOT-ARRAY` line, whose hint is about 2-D
+arrays). Each shape is now rejected where it is written. Front end only: the
+pins stay at pscal-core `26fd454` and rea `94ea5f5`.
+
+- **TOON-001 for `ToonNode` and `ToonDoc`, MS-001 for `MStream`**, kind
+  `type`: ``cannot index 'items' with `[]`: it is a ToonNode, an opaque TOON
+  handle, not an array.`` The hint names the taught form: `toon_at(items, i)`
+  and `toon_len(items)` with a `loop i in 0..toon_len(items)` skeleton for a
+  node; `toon_root(doc)` first, then `toon_at(root, i)` or `toon_key(root,
+  "name")` for a document; `mstream_text(ms)`, then index the `Text`, for a
+  stream. Judged on any base whose type the front end can name: a local, a
+  parameter, a call result, a record field (`h.node[i]`), an indexed write
+  (`items[0] = x`). A `ToonNode[]` is a real array and indexes as before.
+- **The slice form moves from TYPE-001 to TOON-001 / MS-001.** `items[0..1]`
+  on a `ToonNode` was already rejected, but its hint ("index one element with
+  `[i]`") led straight into the run-time crash; it now carries the same hint
+  as the index form.
+- **Where:** `aetherCheckHandleIndex` in `src/aether/ast_checks.c`, called
+  from `parsePostfix` before both the slice and the index lowering; the base
+  type comes from `aetherInferSliceBaseTypeName`, which resolves fields.
+
+Census: the paired replay (317 archived attempts) gives identical outcomes on
+`2026-10-19-1` and this change, so no archived benchmark program indexed a
+handle and there is no replay waiver; every `.aether` program in this repo
+(1,203: tests, examples, the training corpus candidates) run on both binaries
+differs only in the new fixtures and in ten programs whose stdout also varies
+between two runs of the old binary (random, wall-clock, `par` order). The
+dataset gates (`--check-gates`) pass: no training record uses the form.
+
+Docs: the full guide's TOON-001 repair bullet names `node[i]` and `ms[i]`
+(full guide `2026-10-19-2`; medium and small unchanged: they already teach
+`toon_at`/`toon_len` and carry no repair bullet for the index form). Surface
+registry: `toon_node_index`, `toon_doc_index`, `mstream_index` (class 2).
+
+Fixtures: `diag/toon_node_index_fail`, `diag/toon_node_param_index_fail`,
+`diag/toon_call_result_index_fail`, `diag/toon_field_index_fail`,
+`diag/toon_node_slice_fail`, `diag/toon_node_index_assign_fail`,
+`diag/toon_doc_index_fail`, `diag/mstream_index_fail`,
+`diag/toon_handle_array_index_pass`.
+
 ## 2026-10-19-1
 
 **Character-class builtins** (decision D67, accepted by the owner on 2026-10-19).

@@ -374,6 +374,7 @@ int aetherTypeNameRank(const char *name);
 /* ---- Defined in ast_checks.c ---------------------------------------- */
 
 bool aetherCheckArrayRankIndex(AetherParser *p, AST *node, int openLine);
+bool aetherCheckHandleIndex(AetherParser *p, AST *base, int openLine, bool slice);
 bool aetherCheckParSharedRecords(AetherParser *p, AST *call, int handle, int callLine,
                                  AetherParSharedRec *sharedRecs, int *sharedRecCount,
                                  int sharedRecCap);

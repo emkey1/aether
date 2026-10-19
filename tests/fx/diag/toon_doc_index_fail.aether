@@ -1,0 +1,8 @@
+// `doc[i]` on a ToonDoc: TOON-001, with a hint to take toon_root first.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    fx { println(doc[0]); }
+    toon_close(doc);
+    ret;
+}

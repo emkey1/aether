@@ -1,0 +1,4 @@
+[MS-001]
+cannot index 'ms' with `[]`: it is an MStream
+mstream_text(ms)
+!VM Error

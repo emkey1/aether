@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-19-1*
+*Guide version: 2026-10-19-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1971,7 +1971,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   an array is `T[]`, and there is no map type at all. `Float` and `String` are
   the two foreign spellings that are *accepted*, as aliases of `Real` and `Text`.
 - **[TOON-001]** a `ToonDoc` / `ToonNode` handle misuse → check handle types; do
-  not mix, do arithmetic on, or cross-assign them.
+  not mix, do arithmetic on, or cross-assign them. A handle is not an array:
+  `node[i]` is TOON-001 (`toon_at(node, i)`, `toon_len(node)`), and `ms[i]` on
+  an `MStream` is MS-001 (index `mstream_text(ms)`).
 - **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
   the type explicitly if the prompt really requires that field.
 - **[FIELD-003]** a field default that is not a literal — an expression, a named

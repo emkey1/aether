@@ -2,8 +2,9 @@
  * ast_checks.c -- front-end checks over the parsed Aether AST.
  *
  * Undefined `Type.method` calls (aetherCheckMemberCalls, SCOPE-001), the
- * FLOW-001 fallthrough helpers, the PAR-001 shared-record guard and the
- * ARR-002 rank check. Split out of ast_parser.c; see ast_internal.h.
+ * FLOW-001 fallthrough helpers, the PAR-001 shared-record guard, the
+ * ARR-002 rank check and the TOON-001/MS-001 handle-index check. Split out
+ * of ast_parser.c; see ast_internal.h.
  */
 
 #include "aether/ast_internal.h"
@@ -55,6 +56,72 @@ bool aetherCheckArrayRankIndex(AetherParser *p, AST *node, int openLine) {
         }
     }
     return false;
+}
+
+/* TOON-001 / MS-001: `[]` on an opaque handle (`ToonDoc`, `ToonNode`,
+ * `MStream`). A handle is an Int slot on the VM, so `items[i]` on a TOON array
+ * node compiled and died at run time with an uncoded "Pointer does not point
+ * to an array for element access."; the slice form was coded TYPE-001 but its
+ * hint ("index one element with `[i]`") led straight into that crash. A TOON
+ * array is read with `toon_at(node, i)` and `toon_len(node)`; a stream's bytes
+ * with `mstream_text(ms)`, which is an indexable Text.
+ *
+ * `base` is the value about to be indexed; any expression whose type
+ * aetherInferSliceBaseTypeName can name is judged (a handle local or
+ * parameter, a `toon_key(...)` call, a handle field such as `h.node`). A
+ * `ToonNode[]` is a real array and indexes normally. Reports, sets
+ * p->hadError and returns true when the index is rejected; the caller frees
+ * the operands. */
+bool aetherCheckHandleIndex(AetherParser *p, AST *base, int openLine, bool slice) {
+    if (!base) return false;
+    char *tn = aetherInferSliceBaseTypeName(p, base);
+    if (!tn) return false;
+    bool isDoc = strcasecmp(tn, "ToonDoc") == 0;
+    bool isNode = strcasecmp(tn, "ToonNode") == 0;
+    bool isStream = strcasecmp(tn, "MStream") == 0;
+    free(tn);
+    if (!isDoc && !isNode && !isStream) return false;
+
+    const char *typeName = isDoc ? "ToonDoc" : isNode ? "ToonNode" : "MStream";
+    const char *article = isStream ? "an" : "a";
+    const char *family = isStream ? "MStream" : "TOON";
+    const char *verb = slice ? "slice" : "index";
+    const char *form = slice ? "[a..b]" : "[]";
+    const char *baseName = (base->type == AST_VARIABLE && base->token && base->token->value)
+                               ? base->token->value : NULL;
+    const char *shown = baseName ? baseName : (isDoc ? "doc" : isNode ? "node" : "ms");
+    char detail[256];
+    char hint[512];
+    if (baseName) {
+        snprintf(detail, sizeof(detail),
+                 "cannot %s '%.64s' with `%s`: it is %s %s, an opaque %s handle, "
+                 "not an array.", verb, baseName, form, article, typeName, family);
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "cannot %s %s %s with `%s`: it is an opaque %s handle, not an array.",
+                 verb, article, typeName, form, family);
+    }
+    if (isNode) {
+        snprintf(hint, sizeof(hint),
+                 "read element i of a TOON array with `toon_at(%.64s, i)` and its length "
+                 "with `toon_len(%.64s)`: `loop i in 0..toon_len(%.64s) { let el: ToonNode = "
+                 "toon_at(%.64s, i); ... }`.",
+                 shown, shown, shown, shown);
+    } else if (isDoc) {
+        snprintf(hint, sizeof(hint),
+                 "take the root node first: `let root: ToonNode = toon_root(%.64s);`, then "
+                 "`toon_at(root, i)` for an array element (`toon_len(root)` for the length) "
+                 "or `toon_key(root, \"name\")` for a field.",
+                 shown);
+    } else {
+        snprintf(hint, sizeof(hint),
+                 "copy the contents out first: `let text: Text = mstream_text(%.64s);`, then "
+                 "index or slice `text`.",
+                 shown);
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), openLine, "type", detail, hint);
+    p->hadError = true;
+    return true;
 }
 
 /* FMT-001 (W6-04, D48): a placeholder in the first argument of a print call

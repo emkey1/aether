@@ -1,0 +1,5 @@
+[TOON-001]
+cannot index 'items' with `[]`: it is a ToonNode
+toon_at(items, i)
+toon_len(items)
+!VM Error

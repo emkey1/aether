@@ -1,0 +1,7 @@
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1, 2, 3]");
+    let items: ToonNode = toon_root(doc);
+    let n: Int = toon_int_value(items[0]);
+    fx { println(n); }
+    toon_close(doc);
+}

@@ -1,0 +1,14 @@
+// A ToonNode record field indexed with `[]`: TOON-001.
+type Holder {
+    node: ToonNode;
+}
+
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    let h: Holder = new Holder { node: items };
+    let first: ToonNode = h.node[0];
+    fx { println(toon_get_int(first, "n")); }
+    toon_close(doc);
+    ret;
+}

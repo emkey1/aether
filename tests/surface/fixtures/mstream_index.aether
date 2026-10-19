@@ -1,0 +1,6 @@
+fn main() -> Void {
+    let ms: MStream = mstream_from_text("abc");
+    let first: Text = ms[0];
+    fx { println(first); }
+    mstream_free(ms);
+}

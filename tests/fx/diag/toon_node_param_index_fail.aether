@@ -1,0 +1,12 @@
+// A ToonNode parameter indexed with `[]`: TOON-001 inside the function.
+fn first_n(items: ToonNode) -> Int {
+    ret toon_get_int_or(items[0], "n", 0);
+}
+
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    fx { println(first_n(items)); }
+    toon_close(doc);
+    ret;
+}

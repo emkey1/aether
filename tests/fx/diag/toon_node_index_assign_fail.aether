@@ -1,0 +1,8 @@
+// An indexed write to a ToonNode: TOON-001.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("{\"items\": [{\"n\": 1}, {\"n\": 2}]}");
+    let items: ToonNode = toon_key(toon_root(doc), "items");
+    items[0] = toon_root(doc);
+    toon_close(doc);
+    ret;
+}

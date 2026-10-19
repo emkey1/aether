@@ -1,0 +1,9 @@
+// `ms[i]` on an MStream compiled and stopped at run time; it is MS-001 with a
+// hint to copy the contents out with mstream_text.
+fn main() -> Void {
+    let ms: MStream = mstream_from_text("abc");
+    let first: Text = ms[0];
+    fx { println(first); }
+    mstream_free(ms);
+    ret;
+}
