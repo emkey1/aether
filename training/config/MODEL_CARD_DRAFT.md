@@ -12,10 +12,6 @@ library_name: peft
 pipeline_tag: text-generation
 ---
 
-<!-- DRAFT 2026-10-19 for release candidate qwen38-27b-r7. Numbers marked TBD: the untrained base without a
-guide on 2026-10-19-3, and the seed runs r7-s2/s3. Internal notes: training/training_runs/*/RESULTS.md.
-Not published. -->
-
 # Qwen3.8-27B-Aether
 
 A LoRA adapter for [Qwen/Qwen3.8-27B](https://huggingface.co/Qwen/Qwen3.8-27B) that writes **Aether**
@@ -42,23 +38,25 @@ which the model sees the compiler's diagnostic and the observed output.
 
 | suite | tasks | untrained base, no guide | **this model, no guide** | untrained base + 14K-token guide |
 |---|---:|---:|---:|---:|
-| core | 35 | TBD | **33 (35)** | 34 (35) |
-| hard: TOON data processing | 14 | TBD | **13 (14)** | 14 (14) |
-| hard: other | 5 | TBD | **4 (5)** | 4 (5) |
-| algorithms | 19 | TBD | **18 (19)** | 15 (17) |
-| **main total** | **73** | TBD | **68 (73), 93%** | **67 (71)** |
-| held-out: surface | 15 | TBD | **10 (13)** | 15 (15) |
-| held-out: algorithmic | 14 | TBD | **10 (13)** | 11 (13) |
-| held-out: specification | 12 | TBD | **12 (12)** | 11 (12) |
-| held-out: TOON / memory streams | 12 | TBD | **7 (7)** | 10 (11) |
-| **held-out total** | **53** | TBD | **39 (45), 74%** | **47 (51)** |
+| core | 35 | 0 (2) | **33 (35)** | 34 (35) |
+| hard: TOON data processing | 14 | 0 (0) | **13 (14)** | 14 (14) |
+| hard: other | 5 | 0 (0) | **4 (5)** | 4 (5) |
+| algorithms | 19 | 0 (1) | **18 (19)** | 15 (17) |
+| **main total** | **73** | **0 (3)** | **68 (73), 93%** | **67 (71)** |
+| held-out: surface | 15 | 0 (0) | **10 (13)** | 15 (15) |
+| held-out: algorithmic | 14 | 0 (0) | **10 (13)** | 11 (13) |
+| held-out: specification | 12 | 0 (0) | **12 (12)** | 11 (12) |
+| held-out: TOON / memory streams | 12 | 0 (0) | **7 (7)** | 10 (11) |
+| **held-out total** | **53** | **0 (0)** | **39 (45), 74%** | **47 (51)** |
 
 - **Main suites:** with no guide, the model matches the base model reading a 14K-token guide on the first
   attempt, and solves every task after repair.
 - **Held-out suites:** these were never used to choose or write training data, so they measure how far the
   gains carry beyond the tasks the training data was developed against. There the guided base is still ahead.
 
-**Run-to-run variation:** TBD (two further training seeds of the same recipe).
+**Run-to-run variation:** two more training runs of the same recipe with other seeds scored main 69 (72) and
+68 (73), and held-out 40 (47) and 40 (47). Across three seeds the first-attempt spread is 68–69 of 73 and 39–40 of
+53. The released adapter is the first run, chosen before the other seeds were trained.
 
 ### Python, same model, same tasks
 

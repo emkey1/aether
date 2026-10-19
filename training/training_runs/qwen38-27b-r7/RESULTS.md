@@ -91,6 +91,29 @@ The gap to the guided base is 8 first attempts: 18 for run 5, 10 for run 6.
   - wrong output on `tuple_recursive_digits` and `cs_nqueens`, which the guided base also fails.
   - No file read outside `fx` this time; that was the dominant miss of runs 5/5b.
 
+## Seeds (2026-10-19)
+
+Two more training runs repeat the recipe with only the seed changed. The seed also changes the shuffle and the
+60-record stopping split. Same data, same grader (2026-10-19-3), same scoring.
+
+| | run 7 (seed 3407) | `qwen38-27b-r7-s2` (42) | `qwen38-27b-r7-s3` (2026) |
+|---|---|---|---|
+| stopped / best epoch | 1.31 / 1.17 | 1.17 / 1.03 | 1.17 / 1.17 |
+| main (73) | 68 (73) | 69 (72) | 68 (73) |
+| held-out (53) | 39 (45) | 40 (47) | 40 (47) |
+| Python core (35) | 16 (30) | 19 (30) | 19 (33) |
+| Python frontier (15) | 3 (12) | 7 (14) | 7 (14) |
+
+- **Spread across three seeds:** main 68–69 of 73 and held-out 39–40 of 53 on the first attempt. The recipe
+  reproduces to within one task.
+- This is far tighter than the ±7 between runs 5 and 5b, whose noise came from the FX-001 habit now trained out.
+- The Python degradation appears in every seed.
+- **The release stays run 7**, as chosen before the seeds ran. Picking the seed with the best held-out score would
+  make the held-out suites a selection set.
+
+The untrained base without a guide, on the same grader (`../base-qwen38-27b-noguide-20261019/`), scores 0 (3) of 73
+on main and 0 (0) of 53 on held-out.
+
 ## Files
 
 - `score/`
