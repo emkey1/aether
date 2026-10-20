@@ -114,6 +114,22 @@ Two more training runs repeat the recipe with only the seed changed. The seed al
 The untrained base without a guide, on the same grader (`../base-qwen38-27b-noguide-20261019/`), scores 0 (3) of 73
 on main and 0 (0) of 53 on held-out.
 
+## On later languages (paired replay of the archived programs)
+
+The published adapter was trained and scored on 2026-10-19-3. Re-grading its archived first attempts on each later
+release (`tools/replay_bench.py`, zero GPU):
+
+| language | run 7 (126 first attempts) | s2 | s3 | what moved |
+|---|---|---|---|---|
+| 2026-10-19-3 (as published) | 107 | 109 | 108 | |
+| 2026-10-20-1 … -7 | 107 | 109 | 108 | nothing; D8 turned one silently wrong heap sort into a coded error (still a miss) |
+| 2026-10-20-8 (D72) | 99 | 97 | 99 | every flip is `formatfloat`, renamed `format_float` by D72 (SCOPE-001 with a hint naming it) |
+
+- **Owner decision (2026-10-20):** no `formatfloat` alias.
+- **For users on Aether 1.0:** the model card gets a note that the compiler's hint fixes the rename in one repair round.
+- **The fix:** the 1.0 refresh of the 27B (`qwen38-27b-v1`, see `training/PLAN-1.0-data-and-4b.md`) learns
+  `format_float` and the rest of 1.0.
+
 ## Files
 
 - `score/`
