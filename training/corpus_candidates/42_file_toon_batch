@@ -28,7 +28,7 @@ fn main() -> Void {
 
     let hasFile: Bool = false;
     fx {
-        hasFile = fileexists("jobs42.json");
+        hasFile = file_exists("jobs42.json");
     }
     if !hasFile {
         fx {

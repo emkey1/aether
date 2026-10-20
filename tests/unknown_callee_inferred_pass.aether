@@ -4,9 +4,9 @@
 fn main() -> Void {
     let n: Int = 0;
     fx {
-        let s: Int = socketcreate(0);
+        let s: Int = socket_create(0);
         n = s;
-        socketclose(s);
+        socket_close(s);
     }
     if n > 0 {
         fx { println("socket handle acquired"); }

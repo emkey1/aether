@@ -3,7 +3,7 @@
 @pure
 fn normalize_score(score: Int) -> Text {
     let percent: Real = score * 100.0 / 100.0;
-    ret formatfloat(percent, 2);
+    ret format_float(percent, 2);
 }
 
 fn main() -> Void {

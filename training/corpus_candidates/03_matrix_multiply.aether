@@ -18,7 +18,7 @@ type Matrix {
             let line: Text = "  ";
             loop c in 0..self.cols {
                 let val: Real = self.at(r, c);
-                line = line + formatfloat(val, 2) + " ";
+                line = line + format_float(val, 2) + " ";
             }
             fx { println(line); }
         }

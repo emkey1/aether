@@ -2625,12 +2625,12 @@ if ! grep -q "binding for 'doc' must use MStream when initialized from 'mstream_
     exit 1
 fi
 
-# Networking stays fx-gated: httpsession() outside fx is FX-001.
+# Networking stays fx-gated: http_session() outside fx is FX-001.
 if "$AETHER_BIN" --no-cache "$HTTP_SESSION_FX_FAIL_FIXTURE" >$OUT/aether_http_session_fx_fail.out 2>&1; then
     echo "expected httpsession fx failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "call to 'httpsession' requires an fx block" $OUT/aether_http_session_fx_fail.out; then
+if ! grep -q "call to 'http_session' requires an fx block" $OUT/aether_http_session_fx_fail.out; then
     echo "missing httpsession fx failure message" >&2
     cat $OUT/aether_http_session_fx_fail.out >&2
     exit 1
@@ -2648,7 +2648,7 @@ if "$AETHER_BIN" --no-cache "$SOCKET_FX_FAIL_FIXTURE" >$OUT/aether_socket_fx_fai
     echo "expected socketcreate fx failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[FX-001\].*call to 'socketcreate' requires an fx block" $OUT/aether_socket_fx_fail.out; then
+if ! grep -q "\[FX-001\].*call to 'socket_create' requires an fx block" $OUT/aether_socket_fx_fail.out; then
     echo "missing socketcreate FX-001 failure message" >&2
     cat $OUT/aether_socket_fx_fail.out >&2
     exit 1
@@ -2657,7 +2657,7 @@ if "$AETHER_BIN" --no-cache "$SOCKET_PURE_FAIL_FIXTURE" >$OUT/aether_socket_pure
     echo "expected @pure socketcreate failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "pure function 'openSocket' cannot call effectful builtin 'socketcreate'" $OUT/aether_socket_pure_fail.out; then
+if ! grep -q "pure function 'openSocket' cannot call effectful builtin 'socket_create'" $OUT/aether_socket_pure_fail.out; then
     echo "missing @pure socketcreate purity failure message" >&2
     cat $OUT/aether_socket_pure_fail.out >&2
     exit 1
@@ -3216,7 +3216,7 @@ if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/builtin_arity_fail.aether" >$OU
     echo "expected BUILT-002 for formatfloat(r, 0, 2) but compilation succeeded" >&2
     exit 1
 fi
-if ! grep -q "\[BUILT-002\] Aether builtin error: 'formatfloat' takes 1 to 2 arguments, but 3 were given." $OUT/aether_builtin_arity_fail.out; then
+if ! grep -q "\[BUILT-002\] Aether builtin error: 'format_float' takes 1 to 2 arguments, but 3 were given." $OUT/aether_builtin_arity_fail.out; then
     echo "missing BUILT-002 arity diagnostic (regressed to the uncoded runtime FormatFloat error?)" >&2
     cat $OUT/aether_builtin_arity_fail.out >&2
     exit 1
@@ -3383,7 +3383,7 @@ if "$AETHER_BIN" --no-cache --no-run "$TESTS_DIR/unknown_callee_inferred_fail.ae
     echo "expected SCOPE-001 for an inferred let calling a nonexistent builtin" >&2
     exit 1
 fi
-if ! grep -q "\[SCOPE-001\].*identifier 'sqlite_open' not in scope" $OUT/aether_unknown_callee.out; then
+if ! grep -q "\[SCOPE-001\].*identifier 'open_database' not in scope" $OUT/aether_unknown_callee.out; then
     echo "unknown callee in an inferred let did not report SCOPE-001 (regressed to the misleading TYPE-001?)" >&2
     cat $OUT/aether_unknown_callee.out >&2
     exit 1

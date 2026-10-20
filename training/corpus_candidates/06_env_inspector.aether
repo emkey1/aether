@@ -2,19 +2,19 @@ fn main() -> Void {
     fx {
         println("=== Environment Inspector ===");
 
-        let cwd: Text = getcurrentdir();
+        let cwd: Text = get_current_dir();
         println("Current Dir: ", cwd);
 
-        let home: Text = getenv("HOME");
+        let home: Text = get_env("HOME");
         if home == "" {
             println("HOME not set");
         } else {
             println("HOME: ", home);
         }
 
-        let user: Text = getenv("USER");
+        let user: Text = get_env("USER");
         if user == "" {
-            user = getenv("USERNAME");
+            user = get_env("USERNAME");
         }
         if user != "" {
             println("User: ", user);

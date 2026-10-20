@@ -8,7 +8,7 @@
 // it pins down the details they most often get wrong:
 //
 //   * the parser is `toon_parse(text)` -- there is no `toon_parse_string`
-//   * `formatfloat(value, precision)` takes two arguments, never three
+//   * `format_float(value, precision)` takes two arguments, never three
 //   * `clamp` / `min` / `max` exist; hand-rolled if-chains are not needed
 //   * every `par` branch writes only the record it was handed
 //   * `Int` and `Real` mix freely in arithmetic; `Int / Int` still truncates
@@ -164,8 +164,8 @@ fn reportSection(s: Section) -> Void {
         println("  ", s.name);
         println("    rows seen / valid : ", s.seen, " / ", s.valid);
         println("    ready / critical  : ", s.ready, " / ", s.critical);
-        println("    adjusted average  : ", formatfloat(s.average(), 2));
-        println("    best adjusted     : ", formatfloat(s.best, 2));
+        println("    adjusted average  : ", format_float(s.average(), 2));
+        println("    best adjusted     : ", format_float(s.best, 2));
         println("    readiness         : ", s.readiness():0:1, "%");
     }
     ret;
@@ -179,7 +179,7 @@ fn reportRows(label: Text, rows: ToonNode) -> Void {
         let r: Release = readRelease(toon_at(rows, i));
         fx {
             println("    ", r.id, " v", r.version,
-                    "  adj=", formatfloat(r.adjustedScore(), 1),
+                    "  adj=", format_float(r.adjustedScore(), 1),
                     "  sev=", r.severity.label,
                     "  -> ", r.status());
         }

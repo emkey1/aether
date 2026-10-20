@@ -43,8 +43,8 @@ fn main() -> Void {
     let existsLocal: Bool = false;
     let existsRepo: Bool = false;
     fx {
-        existsLocal = fileexists("agent_payload.json");
-        existsRepo = fileexists("examples/showcase/agent_payload.json");
+        existsLocal = file_exists("agent_payload.json");
+        existsRepo = file_exists("examples/showcase/agent_payload.json");
     }
     let payloadFile: Text = RepoPayloadPath;
     if existsLocal {

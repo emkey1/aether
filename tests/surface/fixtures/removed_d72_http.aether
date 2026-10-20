@@ -1,0 +1,5 @@
+fn main() -> Void {
+    fx {
+        let x = httpsession();
+    }
+}

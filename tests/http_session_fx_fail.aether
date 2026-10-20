@@ -1,5 +1,5 @@
-// Networking is effectful: httpsession() outside fx must be FX-001.
+// Networking is effectful: http_session() outside fx must be FX-001.
 fn main() -> Void {
-    let session: Int = httpsession();
+    let session: Int = http_session();
     ret;
 }

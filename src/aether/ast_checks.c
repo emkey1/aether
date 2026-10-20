@@ -197,7 +197,7 @@ bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surfac
              name, found);
     reportAetherAstError(aetherSemanticGetSourcePath(), line, "format", detail,
                          "pass values as separate arguments: `println(\"n = \", n)`; "
-                         "decimals: `formatfloat(x, 2)`");
+                         "decimals: `format_float(x, 2)`");
     p->hadError = true;
     return true;
 }
@@ -316,8 +316,8 @@ static const char *foreignMethodHint(const char *recvType, const char *m, char *
     }
     if (strstr(" tostring to_string str tostr totext to_text ", key)) {
         if (isInt) return "write `int_to_text(n)`";
-        if (isReal) return "write `formatfloat(x, 2)`";
-        return "write `int_to_text(n)` for an Int, `formatfloat(x, 2)` for a Real";
+        if (isReal) return "write `format_float(x, 2)`";
+        return "write `int_to_text(n)` for an Int, `format_float(x, 2)` for a Real";
     }
     if (strstr(" toint to_int parseint tointeger ", key)) {
         return isText ? "write `parse_int(t)`, or `try_parse_int(t)` to check it"

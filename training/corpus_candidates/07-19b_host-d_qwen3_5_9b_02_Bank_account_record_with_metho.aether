@@ -31,7 +31,7 @@ fn main() -> Void {
         println("Account: ", account.account_number);
 
         deposit(account, 1000.0);
-        println("After depositing $1000: ", account.account_number, " = ", formatfloat(get_balance(account), 2));
+        println("After depositing $1000: ", account.account_number, " = ", format_float(get_balance(account), 2));
 
         deposit(account, 500.0);
         println("After depositing $500: ", get_balance(account), " balance");
@@ -48,7 +48,7 @@ fn main() -> Void {
             println("Second withdrawal failed - insufficient funds");
         }
 
-        fx { println("Final balance: ", formatfloat(get_balance(account), 2)); }
+        fx { println("Final balance: ", format_float(get_balance(account), 2)); }
     }
 
     ret;

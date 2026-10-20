@@ -23,7 +23,7 @@ fn main() -> Void {
         println("area          = ", area:0:4);
         println("circumference = ", circumference:0:4);
         println("3-4-5 hypotenuse = ", diagonal:0:1);
-        println("area as text  = " + formatfloat(area, 2));
+        println("area as text  = " + format_float(area, 2));
     }
     ret;
 }

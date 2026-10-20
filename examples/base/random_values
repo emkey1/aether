@@ -47,7 +47,7 @@ fn main() -> Void {
     fx {
         println("d6 roll        : ", roll);
         println("random face    : ", pick);
-        println("fraction       : ", formatfloat(fraction, 4));
+        println("fraction       : ", format_float(fraction, 4));
         println("scaled percent : ", percent);
     }
     ret;

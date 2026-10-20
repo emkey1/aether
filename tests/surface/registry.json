@@ -1447,13 +1447,14 @@
   },
   {
    "id": "alias_fileexists",
-   "class": 4,
+   "class": 2,
    "spelling": "fileexists(path)",
    "canonical_form": "file_exists(path)",
    "fixture": "fixtures/alias_fileexists.aether",
-   "twin": "fixtures/alias_fileexists.canon.aether",
-   "decided": "D60",
-   "status": "holds"
+   "decided": "D72",
+   "status": "holds",
+   "code": "SCOPE-001",
+   "note": "D72 (2026-10-20): builtin names are snake_case; fileexists was tolerated (D60) and is now SCOPE-001 naming file_exists"
   },
   {
    "id": "helper_clock",
@@ -1607,6 +1608,54 @@
    "status": "holds",
    "hint": "Map[Text, T]",
    "note": "Int keys follow only if measured demand appears"
+  },
+  {
+   "id": "removed_d72_files",
+   "class": 2,
+   "spelling": "fileexists(...), formatfloat(...), getcurrentdir(...), getenv(...), getenvint(...), realtostr(...), dnslookup(...)",
+   "canonical_form": "file_exists, format_float, get_current_dir, get_env, get_env_int, real_to_text, dns_lookup",
+   "fixture": "fixtures/removed_d72_files.aether",
+   "code": "SCOPE-001",
+   "decided": "D72",
+   "status": "holds",
+   "hint": "format_float",
+   "note": "D72 (2026-10-20): builtin names are snake_case; the run-together spellings are removed"
+  },
+  {
+   "id": "removed_d72_http",
+   "class": 2,
+   "spelling": "httpsession(...), httpclose(...), httpsetheader(...), httprequest(...), httpawait(...), httpcancel(...), httpclearheaders(...), httperrorcode(...), httpgetasyncprogress(...), httpgetasynctotal(...), httpgetheader(...), httpgetlastheaders(...), httpisdone(...), httplasterror(...), httprequestasync(...), httprequestasynctofile(...), httprequesttofile(...), httpsetoption(...), httptryawait(...)",
+   "canonical_form": "http_session, http_close, http_set_header, http_request, http_await, http_cancel, http_clear_headers, http_error_code, http_get_async_progress, http_get_async_total, http_get_header, http_get_last_headers, http_is_done, http_last_error, http_request_async, http_request_async_to_file, http_request_to_file, http_set_option, http_try_await",
+   "fixture": "fixtures/removed_d72_http.aether",
+   "code": "SCOPE-001",
+   "decided": "D72",
+   "status": "holds",
+   "hint": "http_session",
+   "note": "D72 (2026-10-20): builtin names are snake_case; the run-together spellings are removed"
+  },
+  {
+   "id": "removed_d72_socket",
+   "class": 2,
+   "spelling": "socketcreate(...), socketconnect(...), socketbind(...), socketbindaddr(...), socketlisten(...), socketaccept(...), socketsend(...), socketreceive(...), socketclose(...), socketpeeraddr(...), socketlasterror(...), socketsetblocking(...), socketpoll(...)",
+   "canonical_form": "socket_create, socket_connect, socket_bind, socket_bind_addr, socket_listen, socket_accept, socket_send, socket_receive, socket_close, socket_peer_addr, socket_last_error, socket_set_blocking, socket_poll",
+   "fixture": "fixtures/removed_d72_socket.aether",
+   "code": "SCOPE-001",
+   "decided": "D72",
+   "status": "holds",
+   "hint": "socket_create",
+   "note": "D72 (2026-10-20): builtin names are snake_case; the run-together spellings are removed"
+  },
+  {
+   "id": "removed_d72_sqlite",
+   "class": 2,
+   "spelling": "sqliteopen(...), sqliteclose(...), sqliteexec(...), sqliteprepare(...), sqlitestep(...), sqlitefinalize(...), sqlitereset(...), sqliteclearbindings(...), sqlitebindint(...), sqlitebinddouble(...), sqlitebindtext(...), sqlitebindnull(...), sqlitecolumncount(...), sqlitecolumntype(...), sqlitecolumnname(...), sqlitecolumnint(...), sqlitecolumndouble(...), sqlitecolumntext(...), sqlitechanges(...), sqlitelastinsertrowid(...), sqliteerrmsg(...)",
+   "canonical_form": "sqlite_open, sqlite_close, sqlite_exec, sqlite_prepare, sqlite_step, sqlite_finalize, sqlite_reset, sqlite_clear_bindings, sqlite_bind_int, sqlite_bind_double, sqlite_bind_text, sqlite_bind_null, sqlite_column_count, sqlite_column_type, sqlite_column_name, sqlite_column_int, sqlite_column_double, sqlite_column_text, sqlite_changes, sqlite_last_insert_rowid, sqlite_errmsg",
+   "fixture": "fixtures/removed_d72_sqlite.aether",
+   "code": "SCOPE-001",
+   "decided": "D72",
+   "status": "holds",
+   "hint": "sqlite_open",
+   "note": "D72 (2026-10-20): builtin names are snake_case; the run-together spellings are removed"
   }
  ]
 }

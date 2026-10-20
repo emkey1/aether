@@ -1,14 +1,14 @@
 fn fetch_url(url: Text) -> Text {
     let body: Text = "";
     fx {
-        let session: Int = httpsession();
+        let session: Int = http_session();
         let out: MStream = mstream_new();
-        let status: Int = httprequest(session, "GET", url, "", out);
+        let status: Int = http_request(session, "GET", url, "", out);
         if status == 200 {
             body = mstream_text(out);
         }
         mstream_free(out);
-        httpclose(session);
+        http_close(session);
     }
     ret body;
 }

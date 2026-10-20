@@ -3,7 +3,7 @@
 fn main() -> Void {
     fx {
         println("before");
-        let session: Int = httpsession();
+        let session: Int = http_session();
         println("after ", session);
     }
 }

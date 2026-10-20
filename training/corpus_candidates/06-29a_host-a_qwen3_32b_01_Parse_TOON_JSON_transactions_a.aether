@@ -6,7 +6,7 @@ fn main() -> Void {
 
     let doc: ToonDoc;
     fx {
-        if !fileexists("transactions.json") {
+        if !file_exists("transactions.json") {
             println("Error: transactions.json not found.");
             ret;
         }

@@ -39,7 +39,7 @@ fn main() -> Void {
             }
 
             println("dept ", dname, ": staff=", count, " remote=", remote,
-                    " avg_lvl=", formatfloat(levels * 1.0 / count, 2),
+                    " avg_lvl=", format_float(levels * 1.0 / count, 2),
                     " top=", topName, "(", topLvl, ")");
             totalStaff = totalStaff + count;
             totalRemote = totalRemote + remote;
@@ -47,8 +47,8 @@ fn main() -> Void {
         }
 
         println("total staff = ", totalStaff);
-        println("remote pct = ", formatfloat(pct(totalRemote, totalStaff), 1));
-        println("org avg lvl = ", formatfloat(totalLevels * 1.0 / totalStaff, 2));
+        println("remote pct = ", format_float(pct(totalRemote, totalStaff), 1));
+        println("org avg lvl = ", format_float(totalLevels * 1.0 / totalStaff, 2));
         toon_close(doc);
     }
     ret;

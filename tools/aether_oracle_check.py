@@ -63,7 +63,7 @@ ALLOWED_SANDBOX_ALLOW = frozenset({"proc"})
 # prints its line, the sandbox is not containing generated code.
 SANDBOX_PROBE = """fn main() -> Void {
     fx {
-        let s: Int = socketcreate(0);
+        let s: Int = socket_create(0);
         println("socket created: ", s);
     }
 }
@@ -258,7 +258,10 @@ def check_sandbox(args: Any) -> dict[str, Any]:
         probe_args.sandbox_deny = "net,proc"
     task = adb.Task(task_id="sandbox_probe", title="sandbox probe", prompt="", expected_stdout="")
     run = adb.compile_and_run(task, SANDBOX_PROBE, probe_args)
-    ok = run["returncode"] != 0 and "socket created" not in run["stdout"]
+    # The refusal must be the sandbox's: a compile error (the probe calling a
+    # renamed builtin, D72) also exits nonzero and proves nothing.
+    ok = (run["returncode"] != 0 and "socket created" not in run["stdout"]
+          and "denied by --deny" in run["stderr"])
     return {"ok": ok, "deny": probe_args.sandbox_deny, "returncode": run["returncode"],
             "detail": (run["stderr"].strip().splitlines() or [""])[0][:200]}
 
@@ -354,7 +357,7 @@ def main(argv: list[str] | None = None) -> int:
             report["sandbox_probe"] = sandbox
             if not sandbox["ok"]:
                 failures += 1
-            print(f"[{'PASS' if sandbox['ok'] else 'FAIL'}] sandbox probe: socketcreate under --deny "
+            print(f"[{'PASS' if sandbox['ok'] else 'FAIL'}] sandbox probe: socket_create under --deny "
                   f"{sandbox['deny']} -> rc={sandbox['returncode']} {sandbox['detail']}")
         negatives = [n for manifest in manifests for n in check_negatives(manifest, args)]
         report["negatives"] = negatives

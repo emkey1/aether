@@ -9,7 +9,7 @@ fn main() -> Void {
     let number: Text = "42";
     fx {
         // fileexists / getfattr: path passed as a variable, not a literal
-        println("dir_exists = ", fileexists(path));
+        println("dir_exists = ", file_exists(path));
         println("dir_attr = ", getfattr(path));
         // atoi: numeric string passed as a variable
         println("atoi_plus_one = ", atoi(number) + 1);

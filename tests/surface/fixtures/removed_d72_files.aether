@@ -1,0 +1,5 @@
+fn main() -> Void {
+    fx {
+        let x = formatfloat(3.5, 1);
+    }
+}

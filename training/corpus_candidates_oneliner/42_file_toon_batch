@@ -17,7 +17,7 @@ fn classifyBatchScore(score: Int) -> Text {
 fn main() -> Void {
     if !has_toon() { fx { println("yyjson unavailable"); } ret; }
 
-    if !fileexists("jobs42.json") { fx { println("missing jobs42.json"); } ret; }
+    if !file_exists("jobs42.json") { fx { println("missing jobs42.json"); } ret; }
 
     let doc: ToonDoc = toon_parse_file("jobs42.json");
     let root: ToonNode = toon_root(doc);

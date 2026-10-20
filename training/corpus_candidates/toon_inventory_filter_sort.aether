@@ -39,12 +39,12 @@ fn main() -> Void {
 
         let total: Real = 0.0;
         loop i in 0..length(skus) {
-            println("rank ", i, ": ", skus[i], " = ", formatfloat(values[i], 2));
+            println("rank ", i, ": ", skus[i], " = ", format_float(values[i], 2));
             total = total + values[i];
         }
         println("stocked lines = ", length(skus));
         println("missing price = ", missing);
-        println("total value = ", formatfloat(total, 2));
+        println("total value = ", format_float(total, 2));
         toon_close(doc);
     }
     ret;

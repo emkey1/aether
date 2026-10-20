@@ -1613,7 +1613,7 @@ fn main() -> Void {
 
 ```aether @reject=BUILT-002 id=G.Call.3
 fn main() -> Void {
-    fx { println(formatfloat(1.5, 0, 2)); }
+    fx { println(format_float(1.5, 0, 2)); }
 }
 ```
 
@@ -2066,9 +2066,9 @@ bug. The surface registry (W8-11) will assign each one its synonym class.
 | `T(f: v, ...)` as a `let` initializer | `new T { f: v, ... }` |
 | `use name;` without quotes | `use "name";` |
 | `xs.len`, `xs.len()`, `xs.length()` | `length(xs)` |
-| `realtostr(r)` | six-decimal Real text |
+| `real_to_text(r)` | six-decimal Real text |
 | `upcase(s)`, `toupper(s)` | `upper(s)` (whole-string since 2026-10-17-3, D21) |
-| `fileexists(p)` | `file_exists(p)` |
+| `file_exists(p)` | `file_exists(p)` |
 
 ```aether @ok id=LEN.semicolon.1
 fn main() -> Void {
@@ -2151,7 +2151,7 @@ fn main() -> Void { fx { println(Geometry.perimeter(2, 3)); } }
 fn main() -> Void {
     let xs: Int[] = [1, 2];
     let s: Text = "abc";
-    fx { println(xs.len, xs.len(), xs.length(), s.len, " ", upcase("ab"), " ", realtostr(1.5)); }
+    fx { println(xs.len, xs.len(), xs.length(), s.len, " ", upcase("ab"), " ", real_to_text(1.5)); }
 }
 ```
 

@@ -1236,7 +1236,8 @@ static const char *inferHelperReturnTypeName(const char *nameStart, size_t nameL
         (nameLen == 12 && strncmp(nameStart, "mstream_load", 12) == 0) ||
         (nameLen == 13 && strncmp(nameStart, "mstreamcreate", 13) == 0) ||
         (nameLen == 17 && strncmp(nameStart, "mstreamfromstring", 17) == 0) ||
-        (nameLen == 13 && strncmp(nameStart, "socketreceive", 13) == 0)) {
+        (nameLen == 13 && strncmp(nameStart, "socketreceive", 13) == 0) ||
+        (nameLen == 14 && strncmp(nameStart, "socket_receive", 14) == 0)) {
         return "MStream";
     }
     if ((nameLen == 13 && strncmp(nameStart, "mstreambuffer", 13) == 0) ||

@@ -1,13 +1,13 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-5*
+*Guide version: 2026-10-20-6*
 
 ## Highest-Value Rules
 
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output,
    task helpers, `ai_chat`, and all host interaction — files (`read_file`,
-   `write_file`, `file_exists`), stdin (`read_line`), env (`getenv`), CLI (`args`),
-   `random`/`randomize`, clock (`clock_ms`), `http*`/`socket*`, `sqlite*`. Pure math/Text/array/conversion do
+   `write_file`, `file_exists`), stdin (`read_line`), env (`get_env`), CLI (`args`),
+   `random`/`randomize`, clock (`clock_ms`), `http_*`/`socket_*`, `sqlite_*`. Pure math/Text/array/conversion do
    not need `fx`; `@pure` functions may call only pure builtins and other
    `@pure` functions.
 2. **SYN-001.** Aether syntax only: `fn`, `let`, `const`, `ret`, `if`, `loop`,
@@ -19,7 +19,7 @@
    beyond them.
    **BUILT-002:** right name, wrong argument count is its own error, caught at
    compile time for the fixed-arity conversion/math helpers. Most common:
-   `formatfloat(r, 0, 2)` — it takes `(value, precision)`, and the width slot
+   `format_float(r, 0, 2)` — it takes `(value, precision)`, and the width slot
    belongs only to the `println`-only `r:0:prec` form.
 4. **IMP-001.** Never invent `use "..."` imports. Only import verified modules.
 5. **MOD-001.** If a module exports `getFortyTwo`, call `getFortyTwo`. Do not
@@ -103,7 +103,7 @@ flags the authoring-only ones.
   `Boolean`, `Char`, `List`, `Dict`, lowercase `int`) is a `TYPE-002` error.
   `println(boolValue)` prints `true` or `false`. To print mixed values use
   variadic `println`, not `+`; to build a `Text`, join `Text` with `+` after
-  converting numbers (`int_to_text`, `formatfloat`).
+  converting numbers (`int_to_text`, `format_float`).
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit;
   `not` / `and` / `or` are exact synonyms). Arrays compare with `==` / `!=`.
   `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
@@ -308,7 +308,7 @@ let n: Int = parse_int(parts[0]);          // Text -> Int
 let r: Real = parse_float("3.5");          // Text -> Real
 let ok: Bool = parse_bool("true");         // Text -> Bool
 let s: Text = int_to_text(99);             // Int  -> Text
-let f: Text = formatfloat(3.14159, 2);     // Real -> Text  "3.14" (realtostr(r) = 6 dp)
+let f: Text = format_float(3.14159, 2);     // Real -> Text  "3.14" (real_to_text(r) = 6 dp)
 let code: Int = ord("A");                  // Text(1 char) -> Int  65
 let ch: Text = chr(65);                    // Int -> Text(1 char)  "A"
 let (v, good) = try_parse_int("12x");      // checked: (0, false); " 42" -> (42, true)
@@ -319,10 +319,10 @@ Text helpers (all pure; positions 0-based, `-1` when absent): `contains(s, x)`,
 `lower(s)`, `trim(s)`, `replace(s, old, new)` (every occurrence),
 `repeat(s, n)`, `reversed(s)`, `join(parts, sep)`, `split`. Not Aether:
 `copy`, `pos`, `itoa`, `val`, `File`/`readln`, `paramstr`, `gettime`,
-`setlength`. Note: the `value:width:precision` spec only works
-inside `println`; use `formatfloat` to build a `Text`. `formatfloat` takes one
+`setlength`, run-together names like `formatfloat` (builtins are snake_case). Note: the `value:width:precision` spec only works
+inside `println`; use `format_float` to build a `Text`. `format_float` takes one
 or two arguments — never borrow the width slot from the `println` form:
-`formatfloat(r, 0, 2)` is a compile-time `[BUILT-002]`. `int(x)` is a numeric
+`format_float(r, 0, 2)` is a compile-time `[BUILT-002]`. `int(x)` is a numeric
 cast (`Real`/`Bool` -> `Int`, truncating) -- it does not parse or read the
 code point of `Text`; passing it a `Text` is a `TYPE-001` error (`Int(x)`,
 `real(n)`, `bool(n)` are accepted cast spellings). Use `parse_int` for numeric
@@ -812,9 +812,9 @@ banned in `@pure` functions:
 - checked reads, `(value, ok)` and never a run-time error: `try_read_file(path)
   -> (Text, Bool)`, `try_read_lines`, `try_toon_parse_file(path) -> (ToonDoc, Bool)`
 - `file_exists(path) -> Bool`, `delete_file(path) -> Bool`,
-  `rename_file(a, b) -> Bool`, `getcurrentdir() -> Text`, `mkdir(path)`
+  `rename_file(a, b) -> Bool`, `get_current_dir() -> Text`, `mkdir(path)`
 - `read_line() -> Text` (stdin, `""` at the end), `read_all_stdin() -> Text`
-- `args() -> Text[]`, `getenv(name) -> Text`, `getenvint(name, fallback) -> Int`
+- `args() -> Text[]`, `get_env(name) -> Text`, `get_env_int(name, fallback) -> Int`
 - clock: `clock_ms() -> Int` (milliseconds since 1970), `now_text() -> Text`
 
 ```aether
@@ -824,29 +824,29 @@ fx {
 }
 ```
 
-Sockets (`socket*`), `sqlite*`, `random`/`randomize`, and the clock are also
+Sockets (`socket_*`), `sqlite_*`, `random`/`randomize`, and the clock are also
 effectful.
 
 ### HTTP requests (MS-001)
 
-The `http*` calls are effectful (FX-001). The response body lands in an
+The `http_*` calls are effectful (FX-001). The response body lands in an
 `MStream` out-buffer:
 
-- `httpsession() -> Int`, `httpclose(session)`,
-  `httpsetheader(session, name, value)`
-- `httprequest(session, method, url, body, out) -> Int` (HTTP status; `body`
+- `http_session() -> Int`, `http_close(session)`,
+  `http_set_header(session, name, value)`
+- `http_request(session, method, url, body, out) -> Int` (HTTP status; `body`
   is the request payload, `""` for GET; `out` is an initialized `MStream`)
 - `mstream_new() -> MStream`, `mstream_text(ms) -> Text`,
   `mstream_free(ms)` (all pure, no `fx`)
 
 ```aether
 fx {
-    let session: Int = httpsession();
+    let session: Int = http_session();
     let out: MStream = mstream_new();
-    let status: Int = httprequest(session, "GET", url, "", out);
+    let status: Int = http_request(session, "GET", url, "", out);
     if status == 200 { println(mstream_text(out)); }
     mstream_free(out);
-    httpclose(session);
+    http_close(session);
 }
 ```
 
@@ -856,32 +856,32 @@ fx {
 
 ### Sockets
 
-Real BSD-socket-style API (`socket*`) and `dnslookup` — not `tcpsocket*`/
+Real BSD-socket-style API (`socket_*`) and `dns_lookup` — not `tcpsocket*`/
 `udpsocket*`/`resolve`, which do not exist. All effectful (FX-001).
-`socketreceive` returns an `MStream` (MS-001), never `Text`/`Int` directly.
+`socket_receive` returns an `MStream` (MS-001), never `Text`/`Int` directly.
 
-- `socketcreate(type[, family]) -> Int`: `type` `0`=TCP, `1`=UDP; `family`
+- `socket_create(type[, family]) -> Int`: `type` `0`=TCP, `1`=UDP; `family`
   `4`=IPv4 (default), `6`=IPv6
-- `socketconnect(socket, host, port) -> Int`,
-  `socketbind(socket, port) -> Int` (all interfaces),
-  `socketbindaddr(socket, host, port) -> Int` (one address),
-  `socketlisten(socket, backlog) -> Int` (all `0`/`-1`);
-  `socketclose(socket)` returns nothing
-- `socketaccept(socket) -> Int` (new socket handle) **blocks** until a peer
-  connects; `socketreceive(socket, maxlen) -> MStream` **blocks** until data
+- `socket_connect(socket, host, port) -> Int`,
+  `socket_bind(socket, port) -> Int` (all interfaces),
+  `socket_bind_addr(socket, host, port) -> Int` (one address),
+  `socket_listen(socket, backlog) -> Int` (all `0`/`-1`);
+  `socket_close(socket)` returns nothing
+- `socket_accept(socket) -> Int` (new socket handle) **blocks** until a peer
+  connects; `socket_receive(socket, maxlen) -> MStream` **blocks** until data
   arrives (`0`-length result = peer closed, not failure)
-- `socketsend(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
-- `socketpeeraddr(socket) -> Text`, `socketlasterror() -> Int`
-- `socketsetblocking(socket, blocking: Bool)`,
-  `socketpoll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
+- `socket_send(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
+- `socket_peer_addr(socket) -> Text`, `socket_last_error() -> Int`
+- `socket_set_blocking(socket, blocking: Bool)`,
+  `socket_poll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
   `2`=writable, bitwise-or; `0` on timeout) — the non-blocking alternative to
-  a bare `socketaccept`/`socketreceive`
-- `dnslookup(hostname) -> Text` (forward only; `""` on failure)
+  a bare `socket_accept`/`socket_receive`
+- `dns_lookup(hostname) -> Text` (forward only; `""` on failure)
 
-`socketaccept`/`socketreceive` hang forever with no peer. Either run a
+`socket_accept`/`socket_receive` hang forever with no peer. Either run a
 same-process client+server pair via `par` (create/bind/listen *before* the
 `par` block so the client can't race a not-yet-listening server; `par`
-joins), or use `socketsetblocking(s, false)` + poll `socketpoll` in a loop.
+joins), or use `socket_set_blocking(s, false)` + poll `socket_poll` in a loop.
 
 ```aether
 type Message {
@@ -889,25 +889,25 @@ type Message {
 }
 fn server(listenSock: Int, out: Message) -> Void {
     fx {
-        let conn: Int = socketaccept(listenSock);
-        let ms: MStream = socketreceive(conn, 256);
+        let conn: Int = socket_accept(listenSock);
+        let ms: MStream = socket_receive(conn, 256);
         out.payload = mstream_text(ms);
-        socketsend(conn, "pong");
+        socket_send(conn, "pong");
         mstream_free(ms);
-        socketclose(conn);
-        socketclose(listenSock);
+        socket_close(conn);
+        socket_close(listenSock);
     }
     ret;
 }
 fn client(port: Int, out: Message) -> Void {
     fx {
-        let sock: Int = socketcreate(0);
-        socketconnect(sock, "127.0.0.1", port);
-        socketsend(sock, "ping");
-        let ms: MStream = socketreceive(sock, 256);
+        let sock: Int = socket_create(0);
+        socket_connect(sock, "127.0.0.1", port);
+        socket_send(sock, "ping");
+        let ms: MStream = socket_receive(sock, 256);
         out.payload = mstream_text(ms);
         mstream_free(ms);
-        socketclose(sock);
+        socket_close(sock);
     }
     ret;
 }
@@ -917,9 +917,9 @@ fn main() -> Void {
     let serverMsg: Message = new Message();
     let clientMsg: Message = new Message();
     fx {
-        listenSock = socketcreate(0);
-        socketbind(listenSock, port);
-        socketlisten(listenSock, 1);
+        listenSock = socket_create(0);
+        socket_bind(listenSock, port);
+        socket_listen(listenSock, 1);
     }
     par {
         server(listenSock, serverMsg);

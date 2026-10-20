@@ -1,6 +1,6 @@
 // Regression: has_builtin searched only the EXTENDED registry, so a guard for a
 // core builtin was inverted -- has_builtin("network", "SocketCreate") answered
-// false on a build where socketcreate(0) returns a working handle, so the guard
+// false on a build where socket_create(0) returns a working handle, so the guard
 // skipped code that would have worked. It now falls back to the core registry.
 //
 // The safety-critical half is the last two lines: a name that does not exist

@@ -1,4 +1,4 @@
 println has no placeholders: "{}" prints literally
 println("n = ", n)
-formatfloat(x, 2)
+format_float(x, 2)
 !Runtime error

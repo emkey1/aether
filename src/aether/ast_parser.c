@@ -1451,6 +1451,67 @@ static const char *aliasBuiltinName(const char *name) {
          * removed from Aether (ast_stdlib.c). `upcase`/`toupper` (D21) are
          * whole-string now: they changed only the first character. */
         { "file_exists",         "fileexists" },
+        /* D72: every builtin name is snake_case; the run-together engine
+         * spellings are removed from Aether (ast_stdlib.c). */
+        { "format_float", "formatfloat" },
+        { "get_current_dir", "getcurrentdir" },
+        { "get_env", "getenv" },
+        { "get_env_int", "getenvint" },
+        { "real_to_text", "realtostr" },
+        { "dns_lookup", "dnslookup" },
+        { "http_session", "httpsession" },
+        { "http_close", "httpclose" },
+        { "http_set_header", "httpsetheader" },
+        { "http_request", "httprequest" },
+        { "http_await", "httpawait" },
+        { "http_cancel", "httpcancel" },
+        { "http_clear_headers", "httpclearheaders" },
+        { "http_error_code", "httperrorcode" },
+        { "http_get_async_progress", "httpgetasyncprogress" },
+        { "http_get_async_total", "httpgetasynctotal" },
+        { "http_get_header", "httpgetheader" },
+        { "http_get_last_headers", "httpgetlastheaders" },
+        { "http_is_done", "httpisdone" },
+        { "http_last_error", "httplasterror" },
+        { "http_request_async", "httprequestasync" },
+        { "http_request_async_to_file", "httprequestasynctofile" },
+        { "http_request_to_file", "httprequesttofile" },
+        { "http_set_option", "httpsetoption" },
+        { "http_try_await", "httptryawait" },
+        { "socket_create", "socketcreate" },
+        { "socket_connect", "socketconnect" },
+        { "socket_bind", "socketbind" },
+        { "socket_bind_addr", "socketbindaddr" },
+        { "socket_listen", "socketlisten" },
+        { "socket_accept", "socketaccept" },
+        { "socket_send", "socketsend" },
+        { "socket_receive", "socketreceive" },
+        { "socket_close", "socketclose" },
+        { "socket_peer_addr", "socketpeeraddr" },
+        { "socket_last_error", "socketlasterror" },
+        { "socket_set_blocking", "socketsetblocking" },
+        { "socket_poll", "socketpoll" },
+        { "sqlite_open", "sqliteopen" },
+        { "sqlite_close", "sqliteclose" },
+        { "sqlite_exec", "sqliteexec" },
+        { "sqlite_prepare", "sqliteprepare" },
+        { "sqlite_step", "sqlitestep" },
+        { "sqlite_finalize", "sqlitefinalize" },
+        { "sqlite_reset", "sqlitereset" },
+        { "sqlite_clear_bindings", "sqliteclearbindings" },
+        { "sqlite_bind_int", "sqlitebindint" },
+        { "sqlite_bind_double", "sqlitebinddouble" },
+        { "sqlite_bind_text", "sqlitebindtext" },
+        { "sqlite_bind_null", "sqlitebindnull" },
+        { "sqlite_column_count", "sqlitecolumncount" },
+        { "sqlite_column_type", "sqlitecolumntype" },
+        { "sqlite_column_name", "sqlitecolumnname" },
+        { "sqlite_column_int", "sqlitecolumnint" },
+        { "sqlite_column_double", "sqlitecolumndouble" },
+        { "sqlite_column_text", "sqlitecolumntext" },
+        { "sqlite_changes", "sqlitechanges" },
+        { "sqlite_last_insert_rowid", "sqlitelastinsertrowid" },
+        { "sqlite_errmsg", "sqliteerrmsg" },
         { "mstream_new",         "mstreamcreate" },
         { "mstream_from_text",   "mstreamfromstring" },
         { "mstream_text",        "mstreambuffer" },
@@ -3530,7 +3591,7 @@ static AST *parsePrimary(AetherParser *p) {
             reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "format",
                                  "Aether has no f-strings or string interpolation.",
                                  "pass values as separate arguments: `println(\"n = \", n)`; "
-                                 "decimals: `formatfloat(x, 2)`");
+                                 "decimals: `format_float(x, 2)`");
             p->hadError = true;
             freeToken(tok);
             return NULL;
@@ -5273,15 +5334,24 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                      !bindingTableGet(p->funcReturns, callee, strlen(callee)))) {
                     char scopeDetail[256];
                     char unknownHint[256];
+                    /* Quote the name as written: an alias whose engine builtin
+                     * is absent from this build (`sqlite_open` without SQLite)
+                     * carries the engine spelling by now (D72). */
+                    const char *shown = aetherAstCallSurfaceName(init);
+                    if (!shown) shown = callee;
                     snprintf(scopeDetail, sizeof(scopeDetail),
-                             "identifier '%s' not in scope.", callee);
-                    const char *nameHint = aetherUnknownIdentifierHint(callee);
+                             "identifier '%s' not in scope.", shown);
+                    const char *nameHint = aetherUnknownIdentifierHint(shown);
                     if (nameHint) {
                         snprintf(unknownHint, sizeof(unknownHint), "%s", nameHint);
+                    } else if (strcmp(shown, callee) != 0) {
+                        snprintf(unknownHint, sizeof(unknownHint),
+                                 "'%s' is an Aether builtin, but this build of the compiler "
+                                 "does not include it.", shown);
                     } else {
                         snprintf(unknownHint, sizeof(unknownHint),
                                  "'%s' is not a builtin or a function in this program: check the "
-                                 "spelling, or define it with `fn`.", callee);
+                                 "spelling, or define it with `fn`.", shown);
                     }
                     reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "scope",
                             scopeDetail,

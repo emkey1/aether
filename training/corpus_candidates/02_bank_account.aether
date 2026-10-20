@@ -32,7 +32,7 @@ type Account {
 
     fn print() -> Void {
         fx {
-            println("Account ", self.id, " (", self.owner, "): ", formatfloat(self.balance, 2));
+            println("Account ", self.id, " (", self.owner, "): ", format_float(self.balance, 2));
         }
         ret;
     }

@@ -31,31 +31,31 @@ type Exchange {
 
 fn server(listenSock: Int, out: Exchange) -> Void {
     fx {
-        let conn: Int = socketaccept(listenSock);   // blocks until the client connects
-        let ms: MStream = socketreceive(conn, BUF); // blocks until data arrives
+        let conn: Int = socket_accept(listenSock);   // blocks until the client connects
+        let ms: MStream = socket_receive(conn, BUF); // blocks until data arrives
         out.got = mstream_text(ms);
         out.bytes = string_len(out.got);
         out.ok = out.bytes > 0;
         mstream_free(ms);
 
-        socketsend(conn, "pong:" + out.got);
-        socketclose(conn);
+        socket_send(conn, "pong:" + out.got);
+        socket_close(conn);
     }
     ret;
 }
 
 fn client(serverPort: Int, out: Exchange) -> Void {
     fx {
-        let sock: Int = socketcreate(0);            // 0 = TCP, 1 = UDP
-        if socketconnect(sock, "127.0.0.1", serverPort) == 0 {
-            socketsend(sock, "ping");
-            let ms: MStream = socketreceive(sock, BUF);
+        let sock: Int = socket_create(0);            // 0 = TCP, 1 = UDP
+        if socket_connect(sock, "127.0.0.1", serverPort) == 0 {
+            socket_send(sock, "ping");
+            let ms: MStream = socket_receive(sock, BUF);
             out.got = mstream_text(ms);
             out.bytes = string_len(out.got);
             out.ok = out.bytes > 0;
             mstream_free(ms);
         }
-        socketclose(sock);
+        socket_close(sock);
     }
     ret;
 }
@@ -73,17 +73,17 @@ fn main() -> Void {
     // Listen first, then fan out. A zero-length receive means the peer closed
     // cleanly; it is not an error.
     fx {
-        listenSock = socketcreate(0);
-        bound = socketbind(listenSock, PORT);
+        listenSock = socket_create(0);
+        bound = socket_bind(listenSock, PORT);
         if bound == 0 {
-            socketlisten(listenSock, BACKLOG);
+            socket_listen(listenSock, BACKLOG);
         }
     }
 
     if bound != 0 {
         fx {
-            println("could not bind port ", PORT, " (", socketlasterror(), ")");
-            socketclose(listenSock);
+            println("could not bind port ", PORT, " (", socket_last_error(), ")");
+            socket_close(listenSock);
         }
         ret;
     }
@@ -94,7 +94,7 @@ fn main() -> Void {
     }
 
     fx {
-        socketclose(listenSock);
+        socket_close(listenSock);
         println("server received : [", serverSide.got, "] ", serverSide.bytes, " bytes");
         println("client received : [", clientSide.got, "] ", clientSide.bytes, " bytes");
         if serverSide.ok && clientSide.ok {

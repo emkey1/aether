@@ -201,9 +201,9 @@ fn printSummary(stats: Stats) -> Void {
         ret;
     }
     fx {
-        println("Average Score:  ", formatfloat(stats.average(), 2));
+        println("Average Score:  ", format_float(stats.average(), 2));
         println("Score Range:    ", stats.min, " to ", stats.max);
-        println("Pass Rate:      ", formatfloat(stats.passRate(), 1), "%");
+        println("Pass Rate:      ", format_float(stats.passRate(), 1), "%");
     }
     ret;
 }

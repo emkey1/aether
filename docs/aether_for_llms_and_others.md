@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-5*
+*Guide version: 2026-10-20-6*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -21,10 +21,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
 1. **FX-001.** Every effectful builtin must be inside `fx { ... }`: output
    (`print`/`println`), `ai_chat`, task/thread helpers, and all host
    interaction — files (`read_file`, `write_file`, `file_exists`, `mkdir`),
-   stdin (`read_line`, `read_all_stdin`), environment (`getenv`), CLI
+   stdin (`read_line`, `read_all_stdin`), environment (`get_env`), CLI
    (`args`), `random`/`randomize`, the clock (`clock_ms`, `now_text`),
-   console input (`readkey`), networking (`http*`/`socket*`), and database
-   (`sqlite*`). Pure builtins (math, Text, arrays, conversion) do not need `fx`.
+   console input (`readkey`), networking (`http_*`/`socket_*`), and database
+   (`sqlite_*`). Pure builtins (math, Text, arrays, conversion) do not need `fx`.
 2. **SYN-001.** Use Aether keywords: `fn`, `let`, `const`, `ret`, `if`, `loop`,
    `type`, `mod`, `use`. Do not import syntax from Python, Rust, JavaScript,
    or Go (`while`/`for` are the sole Pascal-heritage exception — Accepted,
@@ -63,10 +63,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
     cannot call them, and the appendix is there precisely so you do not need to.
 12. **BUILT-002.** Call a listed builtin with the argument count shown in its
     signature. Getting the name right and the arity wrong is a distinct error
-    (`[BUILT-002] 'formatfloat' takes 1 to 2 arguments, but 3 were given.`) and
+    (`[BUILT-002] 'format_float' takes 1 to 2 arguments, but 3 were given.`) and
     is now caught at compile time for the fixed-arity conversion and math
     helpers. The classic case is splicing the width slot out of the
-    `println`-only `r:0:prec` form into `formatfloat`, which takes
+    `println`-only `r:0:prec` form into `format_float`, which takes
     `(value, precision)` and nothing more.
 13. **ROOT-001.** `toon_root(doc)` returns the top-level value. If the JSON is
     object-shaped, extract the named array with `toon_key(...)` before
@@ -153,8 +153,8 @@ when unsure about a type, add it explicitly.
   suffix on `toon_parse_file(path)` does **not** imply a matching `_string`
   sibling; `toon_parse` already takes `Text`. (A compatibility alias quietly
   rewrites it, so it runs — write the canonical name anyway)
-- `formatfloat(r, 0, prec)` — `formatfloat` takes one or two arguments,
-  `formatfloat(r, prec)`. The width slot belongs to the separate, `println`-only
+- `format_float(r, 0, prec)` — `format_float` takes one or two arguments,
+  `format_float(r, prec)`. The width slot belongs to the separate, `println`-only
   `r:width:prec` form. This is a compile-time `[BUILT-002]`
 - anonymous functions, inline `fn(...) -> T { ... }` literals, lambdas, or
   passing a function as a value; `task_spawn` / `task_queue` take a builtin
@@ -172,9 +172,10 @@ when unsure about a type, add it explicitly.
 - `copy`, `pos`, `stringofchar`, `val`/`valreal`, `itoa`/`inttostr`, the `File`
   type with `assign`/`reset`/`rewrite`/`append`/`readln`/`writeln(f, ...)`/
   `eof`/`close`/`erase`/`rename`, `paramcount`/`paramstr`, `gettime`/`getdate`,
-  `setlength`, the unprefixed `mstream*` names, and `mstream_append_text`/
-  `mstream_append_byte` (write `mstream_write_text`/`mstream_write_byte`): none
-  of them is Aether. Each
+  `setlength`, the unprefixed `mstream*` names, `mstream_append_text`/
+  `mstream_append_byte` (write `mstream_write_text`/`mstream_write_byte`), and
+  run-together builtin names (`formatfloat`, `httprequest`: every builtin is
+  snake_case, `format_float`, `http_request`): none of them is Aether. Each
   is SCOPE-001 (`File` is TYPE-002) with a hint naming the form to write — see
   **Removed spellings** under Repair rules
 - annotations inside a function body, except directly above a nested `fn`
@@ -215,7 +216,7 @@ Generate the canonical form unless preserving existing code.
 | Sort | `sorted(xs)`, `sorted_by(rs, "field")` | — | `xs.sort()`, a hand-written insertion sort |
 | Real type name | `Real` | `Float` | `Double`, `Number` (TYPE-002) |
 | Text type name | `Text` | `String` | `Str`, `Char` (TYPE-002) |
-| Real → Text | `formatfloat(r, prec)` — 1 or 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)` (a width argument is `[BUILT-002]`); `r:0:prec` as a value (it is `println`-only) |
+| Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (always 6 dp) | `format_float(r, 0, prec)` (a width argument is `[BUILT-002]`); `r:0:prec` as a value (it is `println`-only) |
 | Numeric cast | `int(x)` (`Real` → `Int`, truncating) | `Int(x)`, `real(n)` / `Real(n)`, `bool(n)` / `Bool(n)` | `int(text)` (`TYPE-001`; use `parse_int`) |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001`: it casts `Real`/`Bool`, not `Text`) |
 | Int code → Char | `chr(code)` | — | inventing a lookup table |
@@ -312,7 +313,7 @@ guessing conversion helpers or `Text + Int` coercions.
 | Comparison | `== != < <= > >=` |
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
 | Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`) |
-| Text | `+` concatenation (convert numbers with `int_to_text` / `formatfloat` first); `==` equality |
+| Text | `+` concatenation (convert numbers with `int_to_text` / `format_float` first); `==` equality |
 | Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
 
 `&`/`|`/`^` are bitwise, not logical -- use `&&`/`||` for Bool conjunction/
@@ -848,7 +849,7 @@ work is effectful.
 
 `print` / `println` are the Aether output builtins. For mixed types, use
 variadic arguments; to build a `Text`, convert numbers with `int_to_text` /
-`formatfloat` before `+`:
+`format_float` before `+`:
 
 ```aether
 fx {
@@ -861,7 +862,7 @@ fx {
 output use `value:width:precision`; width `0` means "precision only". The
 `value:width:precision` spec works **only inside `print`/`println` arguments**.
 To capture a formatted Real as `Text` (to return from a helper or concatenate),
-use `formatfloat(value, precision)` or `realtostr(value)` (always 6 decimals).
+use `format_float(value, precision)` or `real_to_text(value)` (always 6 decimals).
 
 `println(a, b)` writes its arguments with **nothing between them**, then a
 newline: `println(1, 2)` prints `12`. Put the separators in yourself
@@ -916,9 +917,9 @@ reproducible.
 `abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
 `round`/`trunc`/`floor`/`ceil` always return `Int`.
 
-`formatfloat(x, d)` and `x:0:d` round the stored binary value, so
-`formatfloat(2.675, 2)` is `"2.67"` (2.675 is stored as 2.67499...). When a spec
-says amounts round half up, round first: `formatfloat(round_to(x, 2), 2)`.
+`format_float(x, d)` and `x:0:d` round the stored binary value, so
+`format_float(2.675, 2)` is `"2.67"` (2.675 is stored as 2.67499...). When a spec
+says amounts round half up, round first: `format_float(round_to(x, 2), 2)`.
 
 Numeric casts: `int(x)` truncates a `Real` (or `Bool`) to `Int`, `real(n)`
 widens an `Int` to `Real`, `bool(n)` is `n != 0`; the capitalized spellings
@@ -2089,7 +2090,7 @@ does not exist — re-read the message rather than inventing a rule for it.
   (`pair().0`) both fail here too. If the callee isn't a known top-level
   tuple-returning function, return a record instead and read its fields.
 - **[BUILT-002]** a listed builtin called with the wrong number of arguments →
-  use the count in its signature (`formatfloat(r, 2)`, never a width slot).
+  use the count in its signature (`format_float(r, 2)`, never a width slot).
 - **[ARR-001]** a function changes an array or map parameter it never returns
   (`xs[i] = v`, `grid[r][c] = v`, `m[k] = v`, an append), or a call's returned
   array or map is thrown away (`sortDesc(xs);`) → return it and reassign,
@@ -2099,7 +2100,7 @@ does not exist — re-read the message rather than inventing a rule for it.
 - **[FMT-001]** a placeholder in a `println` string — `"{}"`, `{name}`, `{0}`,
   `{:.2}`, `${}`, `%d` / `%.2f`, or an `f"..."` literal → `println` has no
   placeholders: pass the values as arguments (`println("n = ", n)`) and format
-  decimals with `formatfloat(x, 2)`.
+  decimals with `format_float(x, 2)`.
 - **[DIV-002]** `x // 2` → `//` always starts a comment; integer division is
   `x div 2`.
 - **[ENTRY-001]** `fn main` would not run — the file also has top-level
@@ -2142,6 +2143,7 @@ replacement:
 | `setlength(xs, n)` | `[0; n]` for a fresh array, `xs = xs[..n];` to shrink, `xs = xs + [v];` to grow |
 | `mstreamcreate`, `mstreamfromstring`, `mstreambuffer`, `mstreamappendbyte`, `mstreamloadfromfile`, `mstreamsavetofile`, `mstreamfree` | `mstream_new`, `mstream_from_text`, `mstream_text`, `mstream_write_byte`, `mstream_load(path)`, `mstream_save`, `mstream_free` |
 | `mstream_append_text`, `mstream_append_byte` | `mstream_write_text`, `mstream_write_byte` |
+| run-together names: `fileexists`, `formatfloat`, `realtostr`, `getcurrentdir`, `getenv`, `getenvint`, `dnslookup`, and `httprequest`, `socketcreate`, `sqliteopen` and the rest of those families | snake_case (D72): `file_exists`, `format_float`, `real_to_text`, `get_current_dir`, `get_env`, `get_env_int`, `dns_lookup`, `http_request`, `socket_create`, `sqlite_open`, ... -- an underscore between the words |
 
 A program may still declare its own function with one of these names
 (`fn rename(...)`); calls then reach it.
@@ -2193,15 +2195,15 @@ inside `fx`.
 | `try_toon_parse_file(path)` | `(Text) -> (ToonDoc, Bool)` — checked `toon_parse_file`: `ok` is false for a missing file or bad JSON, and the document is then JSON `null` (every accessor degrades; close it as usual) |
 | `write_file(path, text)` | `(Text, Text) -> Void` — create or truncate, then write `text` as is |
 | `append_file(path, text)` | `(Text, Text) -> Void` — add `text` at the end, creating the file |
-| `file_exists(path)` | `(Text) -> Bool` (`fileexists` is accepted) |
+| `file_exists(path)` | `(Text) -> Bool` (`file_exists` is accepted) |
 | `delete_file(path)` | `(Text) -> Bool` — true when it was deleted |
 | `rename_file(from, to)` | `(Text, Text) -> Bool` — true when it was renamed |
 | `read_line()` | `() -> Text` — the next stdin line without its line break, `""` at the end of input |
 | `read_all_stdin()` | `() -> Text` — the rest of stdin, each line ending in `"\n"` |
 | `args()` | `() -> Text[]` — the command-line arguments after the program (`args()[0]` is the first) |
-| `getenv(name)` | `(Text) -> Text` (empty if unset) |
-| `getenvint(name, fallback)` | `(Text, Int) -> Int` |
-| `getcurrentdir()` | `() -> Text` |
+| `get_env(name)` | `(Text) -> Text` (empty if unset) |
+| `get_env_int(name, fallback)` | `(Text, Int) -> Int` |
+| `get_current_dir()` | `() -> Text` |
 | `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
 
 `write_file` and `append_file` write exactly the text given: end each line with
@@ -2225,21 +2227,21 @@ fn main() -> Void {
 }
 ```
 
-Database builtins (`sqlite*`) are effectful too; they are outside the curated
+Database builtins (`sqlite_*`) are effectful too; they are outside the curated
 surface, and their signatures are in the appendix.
 
 ## HTTP requests and memory streams (MS-001)
 
 HTTP support needs a build with libcurl networking (`AETHER_ENABLE_CURL=ON`);
-without it the `http*` builtins fail at runtime. The response body arrives in
+without it the `http_*` builtins fail at runtime. The response body arrives in
 an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 
 | Builtin | Signature | fx? |
 |---|---|---|
-| `httpsession()` | `() -> Int` (session handle, `-1` on failure) | yes |
-| `httprequest(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
-| `httpsetheader(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
-| `httpclose(session)` | `(Int) -> Void` | yes |
+| `http_session()` | `() -> Int` (session handle, `-1` on failure) | yes |
+| `http_request(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
+| `http_set_header(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
+| `http_close(session)` | `(Int) -> Void` | yes |
 | `mstream_new()` | `() -> MStream` | no (pure memory) |
 | `mstream_from_text(text)` | `(Text) -> MStream` | no |
 | `mstream_text(ms)` | `(MStream) -> Text` (stream contents) | no |
@@ -2250,27 +2252,27 @@ an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 | `mstream_load(path)` | `(Text) -> MStream` — a new stream with the file's bytes (a file that cannot be read is a run-time error) | yes (file I/O) |
 | `mstream_save(ms, path)` | `(MStream, Text) -> Void` | yes (file I/O) |
 
-Golden shape — a GET request end to end (all `http*` calls inside `fx`):
+Golden shape — a GET request end to end (all `http_*` calls inside `fx`):
 
 ```aether
 fn main() -> Void {
     fx {
-        let session: Int = httpsession();
+        let session: Int = http_session();
         let out: MStream = mstream_new();
-        let status: Int = httprequest(session, "GET", "https://example.com/", "", out);
+        let status: Int = http_request(session, "GET", "https://example.com/", "", out);
         if status == 200 {
             let body: Text = mstream_text(out);
             println(body);
         }
         mstream_free(out);
-        httpclose(session);
+        http_close(session);
     }
     ret;
 }
 ```
 
 - the `out` argument must be an initialized `MStream` (`mstream_new()`);
-  `httprequest` clears it before writing the response into it
+  `http_request` clears it before writing the response into it
 - `mstream_text(out)` is the way to get the body as `Text` — never
   `print(out)` and never `let body: Int = ...`
 - `body` (arg 4) is the request payload — pass `""` for GET
@@ -2282,29 +2284,29 @@ fn main() -> Void {
 
 A real, working BSD-socket-style API — not the `tcpsocket*`/`udpsocket*`/
 `resolve` names a model might guess by analogy with other languages; those do
-not exist. All `socket*` calls and `dnslookup` are effectful (FX-001, inside
-`fx`). `socketreceive` returns its data in an `MStream` (MS-001), same as
-`http*` — never `Int`, never `Text` directly.
+not exist. All `socket_*` calls and `dns_lookup` are effectful (FX-001, inside
+`fx`). `socket_receive` returns its data in an `MStream` (MS-001), same as
+`http_*` — never `Int`, never `Text` directly.
 
 | Builtin | Signature | Notes |
 |---|---|---|
-| `socketcreate(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`); `family`: `4` = IPv4 (default), `6` = IPv6 |
-| `socketconnect(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | resolves `host` (hostname or literal address) and connects |
-| `socketbind(socket, port)` | `(Int, Int) -> Int` (`0`/`-1`) | binds on all local interfaces (`INADDR_ANY`) |
-| `socketbindaddr(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | binds to one specific local address |
-| `socketlisten(socket, backlog)` | `(Int, Int) -> Int` (`0`/`-1`) | |
-| `socketaccept(socket)` | `(Int) -> Int` (new connected-socket handle, `-1` on failure) | **blocks** until a peer connects |
-| `socketpeeraddr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
-| `socketsend(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
-| `socketreceive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstream_text(...)` to read it |
-| `socketsetblocking(socket, blocking)` | `(Int, Bool) -> Void` | flips a socket to non-blocking mode |
-| `socketpoll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
-| `socketclose(socket)` | `(Int) -> Void` | |
-| `socketlasterror()` | `() -> Int` | last socket error code (errno/WSA), `0` if the last call succeeded |
-| `dnslookup(hostname)` | `(Text) -> Text` | forward lookup only (no reverse lookup); returns `""` on failure |
+| `socket_create(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`); `family`: `4` = IPv4 (default), `6` = IPv6 |
+| `socket_connect(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | resolves `host` (hostname or literal address) and connects |
+| `socket_bind(socket, port)` | `(Int, Int) -> Int` (`0`/`-1`) | binds on all local interfaces (`INADDR_ANY`) |
+| `socket_bind_addr(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | binds to one specific local address |
+| `socket_listen(socket, backlog)` | `(Int, Int) -> Int` (`0`/`-1`) | |
+| `socket_accept(socket)` | `(Int) -> Int` (new connected-socket handle, `-1` on failure) | **blocks** until a peer connects |
+| `socket_peer_addr(socket)` | `(Int) -> Text` | remote IP of a connected socket |
+| `socket_send(socket, data)` | `(Int, Text\|MStream) -> Int` (bytes sent, `-1` on failure) | `data` may be `Text` or an `MStream` |
+| `socket_receive(socket, maxlen)` | `(Int, Int) -> MStream` | **blocks** until data arrives (or the peer closes — a `0`-length result then means EOF, not failure); use `mstream_text(...)` to read it |
+| `socket_set_blocking(socket, blocking)` | `(Int, Bool) -> Void` | flips a socket to non-blocking mode |
+| `socket_poll(socket, timeoutMs, flags)` | `(Int, Int, Int) -> Int` | `flags`: `1` = check readable, `2` = check writable (bitwise-or both); returns `0` on timeout, else a bitmask of what's ready |
+| `socket_close(socket)` | `(Int) -> Void` | |
+| `socket_last_error()` | `() -> Int` | last socket error code (errno/WSA), `0` if the last call succeeded |
+| `dns_lookup(hostname)` | `(Text) -> Text` | forward lookup only (no reverse lookup); returns `""` on failure |
 
-The gotcha every generated socket example must handle: `socketaccept` and
-`socketreceive` **block the calling task indefinitely** until a peer shows up
+The gotcha every generated socket example must handle: `socket_accept` and
+`socket_receive` **block the calling task indefinitely** until a peer shows up
 — call either one with no counterpart running concurrently and the program
 hangs forever. Two ways to avoid that:
 
@@ -2314,9 +2316,9 @@ hangs forever. Two ways to avoid that:
    so the client branch can never race ahead of a not-yet-listening server;
    `par` already joins (waits for both) before continuing (see
    **Concurrency**).
-2. **Non-blocking + `socketpoll`.** Call `socketsetblocking(socket, false)`,
-   then loop on `socketpoll(socket, timeoutMs, 1)` until it reports readable
-   (or a deadline passes) before calling `socketaccept`/`socketreceive`.
+2. **Non-blocking + `socket_poll`.** Call `socket_set_blocking(socket, false)`,
+   then loop on `socket_poll(socket, timeoutMs, 1)` until it reports readable
+   (or a deadline passes) before calling `socket_accept`/`socket_receive`.
 
 Golden shape — a same-process TCP echo, listener set up before `par`, verified
 to run to completion in well under a second:
@@ -2328,28 +2330,28 @@ type Message {
 
 fn server(listenSock: Int, out: Message) -> Void {
     fx {
-        let conn: Int = socketaccept(listenSock);
-        let ms: MStream = socketreceive(conn, 256);
+        let conn: Int = socket_accept(listenSock);
+        let ms: MStream = socket_receive(conn, 256);
         out.payload = mstream_text(ms);
         println("server got: ", out.payload);
-        socketsend(conn, "pong");
+        socket_send(conn, "pong");
         mstream_free(ms);
-        socketclose(conn);
-        socketclose(listenSock);
+        socket_close(conn);
+        socket_close(listenSock);
     }
     ret;
 }
 
 fn client(port: Int, out: Message) -> Void {
     fx {
-        let sock: Int = socketcreate(0);
-        socketconnect(sock, "127.0.0.1", port);
-        socketsend(sock, "ping");
-        let ms: MStream = socketreceive(sock, 256);
+        let sock: Int = socket_create(0);
+        socket_connect(sock, "127.0.0.1", port);
+        socket_send(sock, "ping");
+        let ms: MStream = socket_receive(sock, 256);
         out.payload = mstream_text(ms);
         println("client got: ", out.payload);
         mstream_free(ms);
-        socketclose(sock);
+        socket_close(sock);
     }
     ret;
 }
@@ -2360,9 +2362,9 @@ fn main() -> Void {
     let serverMsg: Message = new Message();
     let clientMsg: Message = new Message();
     fx {
-        listenSock = socketcreate(0);
-        socketbind(listenSock, port);
-        socketlisten(listenSock, 1);
+        listenSock = socket_create(0);
+        socket_bind(listenSock, port);
+        socket_listen(listenSock, 1);
     }
     par {
         server(listenSock, serverMsg);
@@ -2381,7 +2383,7 @@ fn main() -> Void {
 
 *Generated by `tools/gen_builtin_appendix.py`. Do not edit by hand.*
 
-Every builtin this compiler exposes: **159** with a signature below, **54** whose signatures are in the tables earlier in this document, and **228** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
+Every builtin this compiler exposes: **159** with a signature below, **40** whose signatures are in the tables earlier in this document, and **228** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
 
 `fx` marks a builtin as effectful: it must be called inside an `fx { ... }` block and may not be called from a `@pure` function (FX-001).
 
@@ -2468,8 +2470,8 @@ Safe to call exactly as written.
 
 | Signature | Effect |
 |---|---|
-| `formatfloat(value: Real, precision: Int) -> Text` | pure |
-| `realtostr(value: Real) -> Text` | pure |
+| `format_float(value: Real, precision: Int) -> Text` | pure |
+| `real_to_text(value: Real) -> Text` | pure |
 | `round_to(x: Real, digits: Int) -> Real` | pure |
 | `try_parse_int(t: Text) -> (Int, Bool)` | pure |
 | `try_parse_real(t: Text) -> (Real, Bool)` | pure |
@@ -2481,7 +2483,7 @@ Safe to call exactly as written.
 | `append_file(path: Text, text: Text) -> Void` | `fx` |
 | `delete_file(path: Text) -> Bool` | `fx` |
 | `file_exists(path: Text) -> Bool` | `fx` |
-| `getcurrentdir() -> Text` | `fx` |
+| `get_current_dir() -> Text` | `fx` |
 | `mkdir(path: Text) -> Int` | `fx` |
 | `mstream_load(path: Text) -> MStream` | `fx` |
 | `mstream_save(ms: MStream, path: Text) -> Void` | `fx` |
@@ -2507,51 +2509,51 @@ Safe to call exactly as written.
 
 | Signature | Effect |
 |---|---|
-| `httpawait(id: Int, out: MStream) -> Int` | `fx` |
-| `httpcancel(id: Int) -> Void` | `fx` |
-| `httpclearheaders(session: Int) -> Void` | `fx` |
-| `httpclose(session: Int) -> Void` | `fx` |
-| `httperrorcode(session: Int) -> Int` | `fx` |
-| `httpgetasyncprogress(id: Int) -> Int` | `fx` |
-| `httpgetasynctotal(id: Int) -> Int` | `fx` |
-| `httpgetheader(session: Int, name: Text) -> Text` | `fx` |
-| `httpgetlastheaders(session: Int) -> Text` | `fx` |
-| `httpisdone(id: Int) -> Bool` | `fx` |
-| `httplasterror(session: Int) -> Text` | `fx` |
-| `httprequest(session: Int, method: Text, url: Text, body: Text, out: MStream) -> Int` | `fx` |
-| `httprequestasync(session: Int, method: Text, url: Text, body: Text) -> Int` | `fx` |
-| `httprequestasynctofile(session: Int, method: Text, url: Text, body: Text, out: Text) -> Int` | `fx` |
-| `httprequesttofile(session: Int, method: Text, url: Text, body: Text, out: Text) -> Int` | `fx` |
-| `httpsession() -> Int` | `fx` |
-| `httpsetheader(session: Int, name: Text, value: Text) -> Void` | `fx` |
-| `httpsetoption(session: Int, key: Text, value: Int) -> Void` | `fx` |
-| `httptryawait(id: Int, out: MStream) -> Int` | `fx` |
+| `http_await(id: Int, out: MStream) -> Int` | `fx` |
+| `http_cancel(id: Int) -> Void` | `fx` |
+| `http_clear_headers(session: Int) -> Void` | `fx` |
+| `http_close(session: Int) -> Void` | `fx` |
+| `http_error_code(session: Int) -> Int` | `fx` |
+| `http_get_async_progress(id: Int) -> Int` | `fx` |
+| `http_get_async_total(id: Int) -> Int` | `fx` |
+| `http_get_header(session: Int, name: Text) -> Text` | `fx` |
+| `http_get_last_headers(session: Int) -> Text` | `fx` |
+| `http_is_done(id: Int) -> Bool` | `fx` |
+| `http_last_error(session: Int) -> Text` | `fx` |
+| `http_request(session: Int, method: Text, url: Text, body: Text, out: MStream) -> Int` | `fx` |
+| `http_request_async(session: Int, method: Text, url: Text, body: Text) -> Int` | `fx` |
+| `http_request_async_to_file(session: Int, method: Text, url: Text, body: Text, out: Text) -> Int` | `fx` |
+| `http_request_to_file(session: Int, method: Text, url: Text, body: Text, out: Text) -> Int` | `fx` |
+| `http_session() -> Int` | `fx` |
+| `http_set_header(session: Int, name: Text, value: Text) -> Void` | `fx` |
+| `http_set_option(session: Int, key: Text, value: Int) -> Void` | `fx` |
+| `http_try_await(id: Int, out: MStream) -> Int` | `fx` |
 
 **SQLite**
 
 | Signature | Effect |
 |---|---|
-| `sqlitebinddouble(stmt: Int, index: Int, value: Real) -> Int` | `fx` |
-| `sqlitebindint(stmt: Int, index: Int, value: Int) -> Int` | `fx` |
-| `sqlitebindnull(stmt: Int, index: Int) -> Int` | `fx` |
-| `sqlitebindtext(stmt: Int, index: Int, value: Text) -> Int` | `fx` |
-| `sqlitechanges(db: Int) -> Int` | `fx` |
-| `sqliteclearbindings(stmt: Int) -> Int` | `fx` |
-| `sqliteclose(db: Int) -> Int` | `fx` |
-| `sqlitecolumncount(stmt: Int) -> Int` | `fx` |
-| `sqlitecolumndouble(stmt: Int, column: Int) -> Real` | `fx` |
-| `sqlitecolumnint(stmt: Int, column: Int) -> Int` | `fx` |
-| `sqlitecolumnname(stmt: Int, column: Int) -> Text` | `fx` |
-| `sqlitecolumntext(stmt: Int, column: Int) -> Text` | `fx` |
-| `sqlitecolumntype(stmt: Int, column: Int) -> Int` | `fx` |
-| `sqliteerrmsg(db: Int) -> Text` | `fx` |
-| `sqliteexec(db: Int, sql: Text) -> Int` | `fx` |
-| `sqlitefinalize(stmt: Int) -> Int` | `fx` |
-| `sqlitelastinsertrowid(db: Int) -> Int` | `fx` |
-| `sqliteopen(path: Text) -> Int` | `fx` |
-| `sqliteprepare(db: Int, sql: Text) -> Int` | `fx` |
-| `sqlitereset(stmt: Int) -> Int` | `fx` |
-| `sqlitestep(stmt: Int) -> Int` | `fx` |
+| `sqlite_bind_double(stmt: Int, index: Int, value: Real) -> Int` | `fx` |
+| `sqlite_bind_int(stmt: Int, index: Int, value: Int) -> Int` | `fx` |
+| `sqlite_bind_null(stmt: Int, index: Int) -> Int` | `fx` |
+| `sqlite_bind_text(stmt: Int, index: Int, value: Text) -> Int` | `fx` |
+| `sqlite_changes(db: Int) -> Int` | `fx` |
+| `sqlite_clear_bindings(stmt: Int) -> Int` | `fx` |
+| `sqlite_close(db: Int) -> Int` | `fx` |
+| `sqlite_column_count(stmt: Int) -> Int` | `fx` |
+| `sqlite_column_double(stmt: Int, column: Int) -> Real` | `fx` |
+| `sqlite_column_int(stmt: Int, column: Int) -> Int` | `fx` |
+| `sqlite_column_name(stmt: Int, column: Int) -> Text` | `fx` |
+| `sqlite_column_text(stmt: Int, column: Int) -> Text` | `fx` |
+| `sqlite_column_type(stmt: Int, column: Int) -> Int` | `fx` |
+| `sqlite_errmsg(db: Int) -> Text` | `fx` |
+| `sqlite_exec(db: Int, sql: Text) -> Int` | `fx` |
+| `sqlite_finalize(stmt: Int) -> Int` | `fx` |
+| `sqlite_last_insert_rowid(db: Int) -> Int` | `fx` |
+| `sqlite_open(path: Text) -> Int` | `fx` |
+| `sqlite_prepare(db: Int, sql: Text) -> Int` | `fx` |
+| `sqlite_reset(stmt: Int) -> Int` | `fx` |
+| `sqlite_step(stmt: Int) -> Int` | `fx` |
 
 **Strings**
 
@@ -2586,8 +2588,8 @@ Safe to call exactly as written.
 | Signature | Effect |
 |---|---|
 | `args() -> Text[]` | `fx` |
-| `getenv(name: Text) -> Text` | `fx` |
-| `getenvint(name: Text, fallback: Int) -> Int` | `fx` |
+| `get_env(name: Text) -> Text` | `fx` |
+| `get_env_int(name: Text, fallback: Int) -> Int` | `fx` |
 | `random() -> Real in [0,1); random(n: Int) -> Int in [0,n)` | `fx` |
 | `randomize() -> Void` | `fx` |
 
@@ -2622,7 +2624,7 @@ Safe to call exactly as written.
 
 Real, and their signatures **are** documented — in the conversion, arity, math, and helper tables above, not in the table below. They are listed here only so that "absent from the appendix" still means "does not exist". Scroll up for the signature; do not treat these as unknown and do not hand-roll a replacement.
 
-**Core** — `abs`, `arccos`, `arcsin`, `arctan`, `atan2`, `bool`, `ceil`, `chr`, `clamp`, `cos`, `cosh`, `cotan`, `dnslookup` *fx*, `exp`, `floor`, `int`, `ln`, `log10`, `max`, `min`, `odd`, `ord`, `pow`, `power`, `real`, `round`, `sin`, `sinh`, `socketaccept` *fx*, `socketbind` *fx*, `socketbindaddr` *fx*, `socketclose` *fx*, `socketconnect` *fx*, `socketcreate` *fx*, `socketlasterror` *fx*, `socketlisten` *fx*, `socketpeeraddr` *fx*, `socketpoll` *fx*, `socketreceive` *fx*, `socketsend` *fx*, `socketsetblocking` *fx*, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `upcase`
+**Core** — `abs`, `arccos`, `arcsin`, `arctan`, `atan2`, `bool`, `ceil`, `chr`, `clamp`, `cos`, `cosh`, `cotan`, `exp`, `floor`, `int`, `ln`, `log10`, `max`, `min`, `odd`, `ord`, `pow`, `power`, `real`, `round`, `sin`, `sinh`, `sqr`, `sqrt`, `tan`, `tanh`, `trunc`, `upcase`
 
 **math** — `factorial`, `fibonacci`
 

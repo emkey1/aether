@@ -1,6 +1,6 @@
 fn check_path(path: Text) -> Void {
     fx {
-        if fileexists(path) {
+        if file_exists(path) {
             println("EXISTS: ", path);
         } else {
             println("MISSING: ", path);
@@ -18,7 +18,7 @@ fn main() -> Void {
         check_path("/var/log");
         check_path("/nonexistent_file_xyz");
 
-        let cwd: Text = getcurrentdir();
+        let cwd: Text = get_current_dir();
         check_path(cwd);
     }
     ret;

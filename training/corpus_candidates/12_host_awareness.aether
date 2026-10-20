@@ -18,15 +18,15 @@ fn main() -> Void {
     let workers: Int = 0;
     let cwd: Text = "";
     fx {
-        home = getenv("HOME");
-        workers = getenvint("WORKERS", 4);
-        cwd = getcurrentdir();
+        home = get_env("HOME");
+        workers = get_env_int("WORKERS", 4);
+        cwd = get_current_dir();
     }
 
     fx {
         println("HOME = ", home, " | WORKERS = ", workers);
         println("cwd  = ", cwd);
-        if fileexists("/etc/hosts") {
+        if file_exists("/etc/hosts") {
             println("/etc/hosts is present");
         } else {
             println("/etc/hosts not found");

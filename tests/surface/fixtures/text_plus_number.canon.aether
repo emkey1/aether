@@ -1,6 +1,6 @@
 fn main() -> Void {
     let n: Int = 3;
     let r: Real = 1.5;
-    let s: Text = "n=" + int_to_text(n) + " r=" + realtostr(r);
+    let s: Text = "n=" + int_to_text(n) + " r=" + real_to_text(r);
     fx { println(s); }
 }

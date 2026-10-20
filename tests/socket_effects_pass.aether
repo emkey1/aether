@@ -2,9 +2,9 @@
 // the first socket call. (Record/replay is covered by socket_echo_pass.)
 fn main() -> Void {
     fx {
-        let s: Int = socketcreate(0);
+        let s: Int = socket_create(0);
         println("handle ok: ", s >= 0);
-        socketclose(s);
+        socket_close(s);
     }
     ret;
 }

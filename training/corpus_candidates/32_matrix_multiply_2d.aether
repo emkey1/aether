@@ -45,7 +45,7 @@ type Matrix {
         loop i in 0..self.rows {
             let line: Text = "";
             loop j in 0..self.cols {
-                line = line + formatfloat(self.data[i][j], 2) + "  ";
+                line = line + format_float(self.data[i][j], 2) + "  ";
             }
             fx {
                 println(line);

@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-5*
+*Guide version: 2026-10-20-6*
 
 Everything needed to write correct Aether in one shot.
 
@@ -9,8 +9,8 @@ Everything needed to write correct Aether in one shot.
 1. **FX-001.** Every effectful builtin must sit inside `fx { ... }`: output
    (`print`, `println`), task helpers, `ai_chat`, and all host interaction —
    files (`read_file`, `write_file`, `file_exists`), stdin (`read_line`), env
-   (`getenv`), CLI (`args`), `random`/`randomize`, clock (`clock_ms`), `http*`,
-   `socket*`, `sqlite*`. Pure math, Text, array and conversion helpers do not need `fx`.
+   (`get_env`), CLI (`args`), `random`/`randomize`, clock (`clock_ms`), `http_*`,
+   `socket_*`, `sqlite_*`. Pure math, Text, array and conversion helpers do not need `fx`.
    ✗ `println("hi");` at function scope   ✓ `fx { println("hi"); }`
    ✗ `let doc: ToonDoc = toon_parse_file(p);` — reading a file is an effect
    ✓ `let doc: ToonDoc; fx { doc = toon_parse_file(p); }`
@@ -24,7 +24,7 @@ Everything needed to write correct Aether in one shot.
    ✗ `substring(s, 0, 3)`, `to_upper(s)`, `s.upper()` — write `s[0..3]`, `upper(s)`
 4. **BUILT-002.** Right name, wrong argument count is its own compile-time error
    for the fixed-arity conversion and math helpers.
-   ✗ `formatfloat(r, 0, 2)` — it takes `(value, precision)`; the width slot
+   ✗ `format_float(r, 0, 2)` — it takes `(value, precision)`; the width slot
    belongs only to the `println`-only `r:0:prec` form.
 5. **TYPE-001.** An array literal needs a declared type. Annotate any binding
    whose type is not obvious.
@@ -105,13 +105,12 @@ real logic, never hard-coded expected output.
   it: `loopCount`. Other languages' words (`word`, `text`, `match`, `class`) are fine
 - `fn new()` / `fn __init__` as a constructor. Aether has none — use
   `new T { field: value }`, or `new T()` then assign, or a top-level factory `fn`
-- `print` / `println` / `toon_parse_file` / task helpers / `ai_chat` outside
-  `fx` (FX-001)
 - `use module_name;` without quotes, or `export { ... }`
 - `toon_parse_string(text)` — the text parser is `toon_parse(text)`
 - `copy`, `pos`, `val`, `itoa`, `File` / `assign` / `readln` / `eof`,
-  `paramstr`, `gettime`, `setlength`, unprefixed `mstream*`: not Aether
-  (SCOPE-001 names the replacement)
+  `paramstr`, `gettime`, `setlength`, unprefixed `mstream*`, run-together names
+  (`formatfloat`; every builtin is snake_case): not Aether (SCOPE-001 names the
+  replacement)
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. It is a `[NARROW-001]` warning, so it compiles —
   write `int(...)` when you mean to truncate
@@ -131,7 +130,7 @@ real logic, never hard-coded expected output.
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Int → Text | `int_to_text(n)` | — | `n.toString()`, `itoa(n)` |
-| Real → Text | `formatfloat(r, prec)` — 1 or 2 args | `realtostr(r)` (always 6 dp) | `formatfloat(r, 0, prec)`; `r:0:prec` as a value |
+| Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (always 6 dp) | `format_float(r, 0, prec)`; `r:0:prec` as a value |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001` for a `Text`) |
 | Array / TOON length | `length(xs)` / `toon_len(node)` | `len(xs)`, `xs.len` | crossing the two |
 | Method call | `counter.bump()` | — | `bump(counter)`; class syntax |
@@ -149,8 +148,8 @@ let n: Int = parse_int(parts[0]);          // Text  -> Int
 let r: Real = parse_float("3.5");          // Text  -> Real
 let ok: Bool = parse_bool("true");         // Text  -> Bool
 let s: Text = int_to_text(99);             // Int   -> Text
-let f: Text = formatfloat(3.14159, 2);     // Real  -> Text    "3.14"
-let g: Text = realtostr(3.14159);          // Real  -> Text    always 6 dp
+let f: Text = format_float(3.14159, 2);     // Real  -> Text    "3.14"
+let g: Text = real_to_text(3.14159);          // Real  -> Text    always 6 dp
 let code: Int = ord("A");                  // 1-char Text -> Int  65
 let ch: Text = chr(65);                    // Int -> 1-char Text  "A"
 let t: Int = int(3.7);                     // Real/Bool -> Int, truncating
@@ -174,7 +173,7 @@ check.
 allowed) is a number, and `value` is `0` otherwise. Both are pure. Use them for
 any field from a file, an argument, stdin, or a model.
 
-`formatfloat` rounds the stored binary value (`formatfloat(2.675, 2)` is `"2.67"`);
+`format_float` rounds the stored binary value (`format_float(2.675, 2)` is `"2.67"`);
 when a spec says round half up, use `round_to(x, digits)` first.
 
 **Arity traps.** These are caught at compile time as `BUILT-002`, but write them
@@ -182,8 +181,8 @@ right the first time:
 
 | Helper | Arity | Note |
 |---|---|---|
-| `formatfloat(v)` / `formatfloat(v, prec)` | 1 or 2 | never 3 — no width slot |
-| `realtostr(v)` | 1 | always 6 decimals |
+| `format_float(v)` / `format_float(v, prec)` | 1 or 2 | never 3 — no width slot |
+| `real_to_text(v)` | 1 | always 6 decimals |
 | `clamp(x, lo, hi)` | 3 | |
 | `min(a, b)` / `max(a, b)` | 2 | |
 | `ord(ch)` / `chr(n)` / `trim(s)` | 1 | |
@@ -478,7 +477,7 @@ fx {
 
 `println(realValue)` defaults to six decimals. Use `value:width:precision` when
 exact output matters; width `0` means "precision only". That spec works **only
-inside `print`/`println`** — to build a `Text`, use `formatfloat`.
+inside `print`/`println`** — to build a `Text`, use `format_float`.
 
 `println(a, b)` puts **nothing** between its arguments — write
 `println(a, " ", b)` — and each requested output line is its own `println`.
@@ -915,7 +914,7 @@ fn main() -> Void {
     b.add(4.5);
     b.add(9.25);
     fx {
-        println("items=", b.items, " avg=", formatfloat(b.average(), 2));
+        println("items=", b.items, " avg=", format_float(b.average(), 2));
     }
     ret;
 }
@@ -1064,10 +1063,10 @@ All effectful — inside `fx`, and banned in `@pure`.
 - `write_file(path, text)` (create or truncate), `append_file(path, text)`;
   end each line with `"\n"` yourself
 - `file_exists(path) -> Bool`, `delete_file(path) -> Bool`,
-  `rename_file(from, to) -> Bool`, `getcurrentdir() -> Text`, `mkdir(path)`
+  `rename_file(from, to) -> Bool`, `get_current_dir() -> Text`, `mkdir(path)`
 - `read_line() -> Text` (next stdin line, `""` at the end),
   `read_all_stdin() -> Text`
-- `args() -> Text[]` (the arguments after the program), `getenv(name) -> Text`
+- `args() -> Text[]` (the arguments after the program), `get_env(name) -> Text`
 
 ```aether
 fn main() -> Void {
@@ -1086,9 +1085,9 @@ Not present in every build. If the task must degrade cleanly, guard with
 `has_builtin("network", "HttpRequest")`. All effectful. The response body lands
 in an `MStream` out-buffer.
 
-- `httpsession() -> Int`, `httpclose(session)`,
-  `httpsetheader(session, name, value)`
-- `httprequest(session, method, url, body, out) -> Int` — returns the HTTP
+- `http_session() -> Int`, `http_close(session)`,
+  `http_set_header(session, name, value)`
+- `http_request(session, method, url, body, out) -> Int` — returns the HTTP
   status; `body` is the request payload (`""` for GET); `out` is an initialized
   `MStream`
 - `mstream_new() -> MStream`, `mstream_from_text(text) -> MStream`,
@@ -1099,14 +1098,14 @@ in an `MStream` out-buffer.
 ```aether
 fn fetch(url: Text) -> Void {
     fx {
-        let session: Int = httpsession();
+        let session: Int = http_session();
         let out: MStream = mstream_new();
-        let status: Int = httprequest(session, "GET", url, "", out);
+        let status: Int = http_request(session, "GET", url, "", out);
         if status == 200 {
             println(mstream_text(out));
         }
         mstream_free(out);
-        httpclose(session);
+        http_close(session);
     }
     ret;
 }
@@ -1117,24 +1116,24 @@ fn fetch(url: Text) -> Void {
 
 ### Sockets
 
-A BSD-style API. The names are `socket*` and `dnslookup` — there is no
-`tcpsocket*`, `udpsocket*`, or `resolve`. All effectful. `socketreceive` returns
+A BSD-style API. The names are `socket_*` and `dns_lookup` — there is no
+`tcpsocket*`, `udpsocket*`, or `resolve`. All effectful. `socket_receive` returns
 an `MStream`, never `Text`.
 
-- `socketcreate(type[, family]) -> Int` — `type` `0`=TCP, `1`=UDP; `family`
+- `socket_create(type[, family]) -> Int` — `type` `0`=TCP, `1`=UDP; `family`
   `4`=IPv4 (default), `6`=IPv6
-- `socketconnect(socket, host, port)`, `socketbind(socket, port)`,
-  `socketbindaddr(socket, host, port)`, `socketlisten(socket, backlog)` — all
-  return `0` or `-1`; `socketclose(socket)` returns nothing
-- `socketaccept(socket) -> Int` and `socketreceive(socket, maxlen) -> MStream`
+- `socket_connect(socket, host, port)`, `socket_bind(socket, port)`,
+  `socket_bind_addr(socket, host, port)`, `socket_listen(socket, backlog)` — all
+  return `0` or `-1`; `socket_close(socket)` returns nothing
+- `socket_accept(socket) -> Int` and `socket_receive(socket, maxlen) -> MStream`
   both **block**. A zero-length receive means the peer closed, not an error.
-- `socketsend(socket, data) -> Int` — `data` is `Text` or `MStream`
-- `socketpeeraddr(socket) -> Text`, `socketlasterror() -> Int`
-- `socketsetblocking(socket, blocking: Bool)`,
-  `socketpoll(socket, timeoutMs, flags) -> Int` — `flags` `1`=readable,
+- `socket_send(socket, data) -> Int` — `data` is `Text` or `MStream`
+- `socket_peer_addr(socket) -> Text`, `socket_last_error() -> Int`
+- `socket_set_blocking(socket, blocking: Bool)`,
+  `socket_poll(socket, timeoutMs, flags) -> Int` — `flags` `1`=readable,
   `2`=writable, bitwise-or; `0` on timeout
 
-`socketaccept` and `socketreceive` block until a peer arrives: bind and listen
+`socket_accept` and `socket_receive` block until a peer arrives: bind and listen
 before a `par` that runs the client, or poll a non-blocking socket.
 
 ### Tasks and AI

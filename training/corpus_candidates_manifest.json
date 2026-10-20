@@ -7037,7 +7037,7 @@
     {
       "source_path": "/Users/mke/PBuild/Tests/aether_specialization/corpus_candidates/42_file_toon_batch",
       "repo_path": "training/corpus_candidates/42_file_toon_batch",
-      "sha256": "71b7924377504dbaff900950be0c08f384f874e76ec9e97829793d698b23f877",
+      "sha256": "72ff03597122871e4e2a45f0b8f13f6da3e042b1741de8b16b76c61257f2a7c2",
       "stdout": "batch = daily-7\nalpha -> ready\nbeta -> review\ngamma -> blocked\nmissing scores = 1\n",
       "metadata": {
         "canonical": true,
@@ -8376,7 +8376,7 @@
     {
       "source_path": "/tmp/aether_examples_verify/06_env_inspector.aether",
       "repo_path": "training/corpus_candidates/06_env_inspector.aether",
-      "sha256": "777794e19129717bbbfc23405db642918eaf1fd8bee7053c72d92e92cb11534a",
+      "sha256": "562693204c1b794a2470dbb61dfe6618e13be99c6742dc9f138395c38c804e80",
       "stdout": "=== Environment Inspector ===\nCurrent Dir: /private/tmp\nHOME: <home>\nUser: <user>\nArgument count: 0\n=== End ===\n",
       "metadata": {
         "canonical": true,
@@ -8445,7 +8445,7 @@
     {
       "source_path": "/tmp/aether_examples_verify/10_http_stream.aether",
       "repo_path": "training/corpus_candidates/10_http_stream.aether",
-      "sha256": "45cc139a125f6dca5f1ed781d686fc8c71f7877b50e4abadbe4039418d4f86f8",
+      "sha256": "16b285a4f5dc881363bee0e1f729e5fff96be60817f55477125ac604061ca28f",
       "stdout": "Success! Response length: 305\nFirst 100 chars: {\n  \"args\": {}, \n  \"headers\": {\n    \"Accept\": \"*/*\", \n    \"Accept-Encoding\": \"deflate, gzip\", \n    \"\n",
       "metadata": {
         "canonical": true,
@@ -8482,7 +8482,7 @@
     {
       "source_path": "/tmp/aether_examples_verify/12_filesystem_walker.aether",
       "repo_path": "training/corpus_candidates/12_filesystem_walker.aether",
-      "sha256": "7bede62e7e868f96941caebc883677731f77adf238f16ee7aaff85c4c7065f1c",
+      "sha256": "81d5c058c1bc9c9bee48247c321da67db6fbb42f788e1742e10f925f3c8a8642",
       "stdout": "System Path Check:\nEXISTS: /etc/hosts\nEXISTS: /etc/passwd\nEXISTS: /tmp\nEXISTS: /var/log\nMISSING: /nonexistent_file_xyz\nEXISTS: /private/tmp\n",
       "metadata": {
         "canonical": true,
@@ -8699,7 +8699,7 @@
     {
       "source_path": "/tmp/aether_miner_examples/02_circle_math.aether",
       "repo_path": "training/corpus_candidates/02_circle_math.aether",
-      "sha256": "3b490bb51904a2f48fb1721ef167434ef4f65fb60d5a833114a771400c8786e1",
+      "sha256": "6dfae277e89369c3b63a593a1e75b312883811d8eb219771608d79fe31c01d74",
       "stdout": "radius        = 2.50\narea          = 19.6350\ncircumference = 15.7080\n3-4-5 hypotenuse = 5.0\narea as text  = 19.63\n",
       "metadata": {
         "canonical": true,
@@ -8839,7 +8839,7 @@
     {
       "source_path": "/tmp/aether_miner_examples/12_host_awareness.aether",
       "repo_path": "training/corpus_candidates/12_host_awareness.aether",
-      "sha256": "15b44f23f2f1c4b9ff33de47233e481dd17ecdbb1f7cdcb64dc8d4df29bcd8f1",
+      "sha256": "3f0bfc628f31d77b1f9942710632a5b53fa0130426b66f042933a393d70b88dc",
       "stdout": "program: \nargs:    0\nHOME = <home> | WORKERS = 4\ncwd  = /private/tmp\n/etc/hosts is present\ncreated aether_out/\n",
       "metadata": {
         "canonical": true,
@@ -8986,7 +8986,7 @@
     {
       "source_path": "/tmp/aether_batch4_examples/03_matrix_multiply.aether",
       "repo_path": "training/corpus_candidates/03_matrix_multiply.aether",
-      "sha256": "d2fcdebab608858a2f8dddaa58f4decd999720215db1b4a9c82bf0bc32bfed75",
+      "sha256": "89dd33bd8331eab009153a6d9448bc8de074b4c4c221db5043daa6b2064c2736",
       "stdout": "A (2x3):\n  1.00 2.00 3.00 \n  4.00 5.00 6.00 \nB (3x2):\n  7.00 8.00 \n  9.00 10.00 \n  11.00 12.00 \nA x B (2x2):\n  58.00 64.00 \n  139.00 154.00 \n",
       "metadata": {
         "canonical": true,
@@ -9148,7 +9148,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/02_bank_account.aether",
       "repo_path": "training/corpus_candidates/02_bank_account.aether",
-      "sha256": "c91df4fc5c39956e3d3a02482b16600af62c0320d72dc8739922980e28abfb70",
+      "sha256": "b058ca3c96fc33fbf31c3fa8d73f7cd39a63120a0e9c193b70761509b40801cd",
       "stdout": "Account 1 (Alice): 1000.00\nAccount 2 (Bob): 500.00\nAccount 1 (Alice): 900.00\nAccount 2 (Bob): 700.00\n",
       "metadata": {
         "canonical": true,
@@ -9213,7 +9213,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/09_http_client.aether",
       "repo_path": "training/corpus_candidates/09_http_client.aether",
-      "sha256": "f811ef77aaa84bd3edec67d8abc868b3ad83dc97c3e6ff89f8d8cc063bf4b15c",
+      "sha256": "8edfbd711bb5abe0e2539647c4893e78e7637d1e3dd92926895ac15498d608a6",
       "stdout": "HTTP error: -6\n",
       "metadata": {
         "canonical": false,
@@ -9229,7 +9229,7 @@
     {
       "source_path": "/tmp/aether_batch5_examples/12_dns_lookup.aether",
       "repo_path": "training/corpus_candidates/12_dns_lookup.aether",
-      "sha256": "e0d80fc4ad0d39d2b4aa99d4b627f5e236de118c905ec707ebf61908cec8fcd3",
+      "sha256": "598e070aa2fafb1c5498f8c8182b72afc4879bea6ecaac764d7d95e89aeca653",
       "stdout": "example.com -> 104.20.23.154\n",
       "metadata": {
         "canonical": false,
@@ -9349,7 +9349,7 @@
     {
       "source_path": "/tmp/aether_batch6_examples/20_web_scraper.aether",
       "repo_path": "training/corpus_candidates/20_web_scraper.aether_27e2b770eecd",
-      "sha256": "3a67e876ea2e4d104796f727f3da7c434f3202b9740f5bbb6476cc6fe6c8c08c",
+      "sha256": "a6c7fb3b4f5c20a760897d8dc7f88d75b3a31e8dbf1e9b690c22f8f1f437a0c8",
       "stdout": "Links found: https://iana.org/domains/example \n",
       "metadata": {
         "canonical": false,
@@ -9550,7 +9550,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29a_host-a_qwen3_32b_01_Parse_TOON_JSON_transactions_a.aether",
       "repo_path": "training/corpus_candidates/06-29a_host-a_qwen3_32b_01_Parse_TOON_JSON_transactions_a.aether",
-      "sha256": "ad706ebe253af23d34ef91762b9aa2090680b28249a41aa17017183b0f16d9a7",
+      "sha256": "7141a391fa414db36a5ce4e642cfd70daa55aa28a0828065808ea2e7822c59be",
       "stdout": "Error: transactions.json not found.\n",
       "metadata": {
         "canonical": false,
@@ -9640,7 +9640,7 @@
     {
       "source_path": "/tmp/aether_harvest/06-29a_gemini_2_5_flash_02_This_program_retrieves_an_envi.aether",
       "repo_path": "training/corpus_candidates/06-29a_gemini_2_5_flash_02_This_program_retrieves_an_envi.aether",
-      "sha256": "13cc97c5264938e5320f15cc72e737749a9e29d6e5642c843a44a800c7f559a1",
+      "sha256": "6d5e1ec4ba864596997c13985f2445f00628dcd4725a8fb61b3bba69c947a5f7",
       "stdout": "Original (from env or default): \" No message provided by env \"\nTrimmed message: \"No message provided by env\" (Length: 26)\nFirst 5 chars: \"No me\"\nRemaining part: \"ssage provided by env\"\nConcatenated: \"No message provided by env\"\n",
       "metadata": {
         "canonical": false,
@@ -10806,7 +10806,7 @@
     {
       "source_path": "/tmp/aether_harvest/07-19b_host-d_gemma4_12b_03_This_program_demonstrates_a_de.aether",
       "repo_path": "training/corpus_candidates/07-19b_host-d_gemma4_12b_03_This_program_demonstrates_a_de.aether",
-      "sha256": "5f2c022c2dc957cceda4a438ac31f97d948eb1df58c25dfc1d13a1bf08c3a14b",
+      "sha256": "36b11832ba3ba62e8ac9bd8a834f39e1275cce6b07bdbceec275dd50ec9f7959",
       "stdout": "Normalized Scores:\nScore 85 -> 85.00\nScore 92 -> 92.00\nScore 40 -> 40.00\nScore 100 -> 100.00\n",
       "metadata": {
         "canonical": false,
@@ -10821,7 +10821,7 @@
     {
       "source_path": "/tmp/aether_harvest/07-19b_host-d_qwen3_5_9b_02_Bank_account_record_with_metho.aether",
       "repo_path": "training/corpus_candidates/07-19b_host-d_qwen3_5_9b_02_Bank_account_record_with_metho.aether",
-      "sha256": "bd6d6fd7c616bf79c69b6f83de29cc74ef5212b88cd13ed27eeb90506fdbb6bf",
+      "sha256": "b5a5dbb6921d0c66796dec22ee6b3ab7f0ce76ed61a374291915de9e06945290",
       "stdout": "Bank Account Simulation\nAccount: ACC-12345\nAfter depositing $1000: ACC-12345 = 1000.00\nAfter depositing $500: 1500.000000 balance\nWithdrawal of $300: 1200.000000 remaining\nWithdrawal of $200: 1000.000000 remaining\nFinal balance: 1000.00\n",
       "metadata": {
         "canonical": false,
@@ -11331,7 +11331,7 @@
     {
       "source_path": "/tmp/aether_batch8_examples/32_matrix_multiply_2d.aether",
       "repo_path": "training/corpus_candidates/32_matrix_multiply_2d.aether",
-      "sha256": "230a2317694660e3081c02de72b994540c724473390b80080a66a2e411e7729e",
+      "sha256": "1329c3ff9f656b7ff20c61f26d90c304548f4d1d7a46d8ce3705fc3764ef39a7",
       "stdout": "Matrix A * B =\n58.00  64.00  \n139.00  154.00  \n",
       "metadata": {
         "canonical": true,
@@ -13453,7 +13453,7 @@
     {
       "source_path": "corpus_gen/toon_coverage/toon_nested_org_rollup.aether",
       "repo_path": "training/corpus_candidates/toon_nested_org_rollup.aether",
-      "sha256": "4bd8689954b579c7cba09ccfc2cd7978916ca136369d068accc2faf9a29b6fa8",
+      "sha256": "d7e1a1d7c99de1c5df0fdfc83e724ccc61eed89b3da8876e48d7d54eecd58747",
       "stdout": "org = acme\ndept eng: staff=3 remote=2 avg_lvl=5.00 top=grace(6)\ndept ops: staff=2 remote=1 avg_lvl=3.50 top=raj(4)\ntotal staff = 5\nremote pct = 60.0\norg avg lvl = 4.40\n",
       "metadata": {
         "canonical": false,
@@ -13470,7 +13470,7 @@
     {
       "source_path": "corpus_gen/toon_coverage/toon_inventory_filter_sort.aether",
       "repo_path": "training/corpus_candidates/toon_inventory_filter_sort.aether",
-      "sha256": "6c28bddaf68015cbbb757791d9b1eb8551ef6dfd6ac5f9cb4d27b05348c3443a",
+      "sha256": "e0023ea106d7b57b486776061bf0f904579c02753e4404468bfae9538472cd0c",
       "stdout": "rank 0: D4 = 69.75\nrank 1: A1 = 54.00\nrank 2: E5 = 35.25\nrank 3: C3 = 0.00\nstocked lines = 4\nmissing price = 1\ntotal value = 159.00\n",
       "metadata": {
         "canonical": false,

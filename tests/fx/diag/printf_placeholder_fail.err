@@ -1,2 +1,2 @@
 "%.2f" prints literally
-formatfloat(x, 2)
+format_float(x, 2)

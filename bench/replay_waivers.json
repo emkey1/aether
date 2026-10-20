@@ -477,6 +477,25 @@
           "evidence": "solve(row, cols, diag1, diag2, counter) writes cols[col] = 1 / 0 without returning cols; ARR-001 at line 13"
         }
       ]
+    },
+    "2026-10-20-8": {
+      "reason": "D72 (CHANGELOG 2026-10-20-8): builtin names are snake_case; the run-together spellings (formatfloat, realtostr, fileexists, httprequest, ...) are SCOPE-001 naming the new name. Programs that called an old spelling no longer compile.",
+      "entries": [
+        {
+          "task_id": "tuple_stats_pipeline",
+          "source_sha256": "f033eff7067470e3792b6f46045cf20a86c2f829976360c95d3bcf9b097bba8b",
+          "transition": "pass->fail",
+          "note": "local_tiers_20260811/high-ds4__tasks_frontier.json attempt 0: pass->coded_error",
+          "evidence": "formatfloat(...) at line 33; format_float passes"
+        },
+        {
+          "task_id": "money_cents_report",
+          "source_sha256": "9c31ba77710328c7278b36c1ee1c37772adca0f6dfd38b7a798328ca581eb079",
+          "transition": "pass->fail",
+          "note": "local_tiers_20260811/high-ds4__tasks_frontier.json attempt 0: pass->coded_error",
+          "evidence": "formatfloat(...) at line 16; format_float passes"
+        }
+      ]
     }
   }
 }

@@ -3,16 +3,16 @@
 // AETHER_ENABLE_CURL=ON to actually run; it compile-checks everywhere.
 //
 // The shape to remember:
-//   httpsession() -> Int session handle
+//   http_session() -> Int session handle
 //   mstreamcreate() -> MStream out-buffer (opaque handle, never Int)
-//   httprequest(session, method, url, body, out) -> Int status
+//   http_request(session, method, url, body, out) -> Int status
 //   mstreambuffer(out) -> Text response body
 fn main() -> Void {
     fx {
-        let session: Int = httpsession();
+        let session: Int = http_session();
         let out: MStream = mstream_new();
         let url: Text = "https://api.open-meteo.com/v1/forecast?latitude=45.6387&longitude=-122.6615&current_weather=true";
-        let status: Int = httprequest(session, "GET", url, "", out);
+        let status: Int = http_request(session, "GET", url, "", out);
         if status == 200 {
             let body: Text = mstream_text(out);
             println(body);
@@ -21,7 +21,7 @@ fn main() -> Void {
             println(status);
         }
         mstream_free(out);
-        httpclose(session);
+        http_close(session);
     }
     ret;
 }

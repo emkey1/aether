@@ -9,28 +9,28 @@ type Message {
 
 fn server(listenSock: Int, out: Message) -> Void {
     fx {
-        let conn: Int = socketaccept(listenSock);
-        let ms: MStream = socketreceive(conn, 256);
+        let conn: Int = socket_accept(listenSock);
+        let ms: MStream = socket_receive(conn, 256);
         out.payload = mstream_text(ms);
         println("server got: ", out.payload);
-        socketsend(conn, "pong");
+        socket_send(conn, "pong");
         mstream_free(ms);
-        socketclose(conn);
-        socketclose(listenSock);
+        socket_close(conn);
+        socket_close(listenSock);
     }
     ret;
 }
 
 fn client(port: Int, out: Message) -> Void {
     fx {
-        let sock: Int = socketcreate(0);
-        socketconnect(sock, "127.0.0.1", port);
-        socketsend(sock, "ping");
-        let ms: MStream = socketreceive(sock, 256);
+        let sock: Int = socket_create(0);
+        socket_connect(sock, "127.0.0.1", port);
+        socket_send(sock, "ping");
+        let ms: MStream = socket_receive(sock, 256);
         out.payload = mstream_text(ms);
         println("client got: ", out.payload);
         mstream_free(ms);
-        socketclose(sock);
+        socket_close(sock);
     }
     ret;
 }
@@ -47,16 +47,16 @@ fn main() -> Void {
     let serverMsg: Message = new Message();
     let clientMsg: Message = new Message();
     fx {
-        listenSock = socketcreate(0);
+        listenSock = socket_create(0);
         loop !bound && port < lastPort {
-            if socketbind(listenSock, port) == 0 {
+            if socket_bind(listenSock, port) == 0 {
                 bound = true;
             } else {
                 port = port + 1;
             }
         }
         if bound {
-            socketlisten(listenSock, 1);
+            socket_listen(listenSock, 1);
         }
     }
     if !bound {

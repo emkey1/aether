@@ -4,7 +4,7 @@
 // `r:0:prec` form, which is the shape LLMs actually generate.
 fn main() -> Void {
     let r: Real = 87.4567;
-    let bad: Text = formatfloat(r, 0, 2);
+    let bad: Text = format_float(r, 0, 2);
     fx {
         println(bad);
     }

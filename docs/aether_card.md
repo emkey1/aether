@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-18-1*
+*Card version: 2026-10-20-1*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -173,7 +173,7 @@ world! n=42
 `s[..b]`); `index_of(s, x)` is the first index or `-1`. Also `contains`,
 `starts_with`, `ends_with`, `upper`, `lower`, `trim`, `repeat(s, n)`,
 `join(parts, sep)`. `+` joins `Text`; convert with `int_to_text(n)` or
-`formatfloat(r, digits)`. `parse_int` gives `0` for non-numeric text; check
+`format_float(r, digits)`. `parse_int` gives `0` for non-numeric text; check
 with `let (n, ok) = try_parse_int(t);`.
 
 ## Printing
@@ -181,7 +181,7 @@ with `let (n, ok) = try_parse_int(t);`.
 - `println(a, b)` prints its arguments with **no separator**, then a newline;
   `print` adds no newline.
 - A `Real` prints with 6 decimals: `println(2.5)` prints `2.500000`;
-  `formatfloat(2.5, 1)` is `"2.5"`.
+  `format_float(2.5, 1)` is `"2.5"`.
 
 ## Diagnostics
 
@@ -194,7 +194,7 @@ Most errors carry a code in brackets.
 | SCOPE-001 | unknown name or invented builtin | declare it first, or use the helper the hint names |
 | TYPE-001 | type cannot be inferred | annotate: `let xs: Int[] = [];` |
 | TYPE-002 | unknown type such as `Integer` | a type listed under Values |
-| BUILT-002 | wrong argument count | `formatfloat(r, 2)`, `replace(s, old, new)` |
+| BUILT-002 | wrong argument count | `format_float(r, 2)`, `replace(s, old, new)` |
 | NAME-001 | local declared twice | assign without `let`, or rename |
 | TUP-001 | `f().0`, or destructuring a non-call | bind first: `let t = f();` |
 | ARR-002 | a `T[]` indexed twice | declare it `T[][]` |

@@ -11,7 +11,7 @@ fn tryInt(s: Text) -> Void {
 
 fn tryReal(s: Text) -> Void {
     let (r, ok) = try_parse_real(s);
-    fx { println("real [", s, "] r=", formatfloat(r, 6), " ok=", ok); }
+    fx { println("real [", s, "] r=", format_float(r, 6), " ok=", ok); }
 }
 
 fn main() -> Void {

@@ -12,6 +12,56 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-8
+
+**Builtin names are snake_case (D72).** The run-together legacy names are
+renamed with an underscore between the words, and the old spellings are class 2:
+SCOPE-001 whose hint names the new one (`write format_float(...)`), as D55, D61
+and D66 did for earlier families. A program's own `fn` of an old name still
+works.
+
+- Files, environment and formatting: `fileexists` -> `file_exists` (it was a
+  tolerated spelling, D60), `formatfloat` -> `format_float`, `realtostr` ->
+  `real_to_text`, `getcurrentdir` -> `get_current_dir`, `getenv` -> `get_env`,
+  `getenvint` -> `get_env_int`, `dnslookup` -> `dns_lookup`.
+- HTTP: `http_session`, `http_close`, `http_set_header`, `http_request`,
+  `http_request_to_file`, `http_request_async`, `http_request_async_to_file`,
+  `http_await`, `http_try_await`, `http_is_done`, `http_cancel`,
+  `http_get_async_progress`, `http_get_async_total`, `http_get_header`,
+  `http_get_last_headers`, `http_clear_headers`, `http_set_option`,
+  `http_error_code`, `http_last_error`.
+- Sockets: `socket_create`, `socket_connect`, `socket_bind`, `socket_bind_addr`,
+  `socket_listen`, `socket_accept`, `socket_send`, `socket_receive`,
+  `socket_close`, `socket_peer_addr`, `socket_last_error`, `socket_set_blocking`,
+  `socket_poll`.
+- SQLite: `sqlite_open`, `sqlite_close`, `sqlite_exec`, `sqlite_prepare`,
+  `sqlite_step`, `sqlite_finalize`, `sqlite_reset`, `sqlite_clear_bindings`,
+  `sqlite_bind_int`, `sqlite_bind_double`, `sqlite_bind_text`, `sqlite_bind_null`,
+  `sqlite_column_count`, `sqlite_column_type`, `sqlite_column_name`,
+  `sqlite_column_int`, `sqlite_column_double`, `sqlite_column_text`,
+  `sqlite_changes`, `sqlite_last_insert_rowid`, `sqlite_errmsg`.
+
+The engine names are unchanged (the new names alias them), so effects, arity
+and types carry over; diagnostics quote the name as written (`call to
+'http_session' requires an fx block`), while a VM `--deny` message still names
+the engine builtin. Migrated: 15 tests, 9 examples, 18 training-corpus programs (manifest
+shas updated; the 13 that record a deterministic stdout print it unchanged),
+55 calls in the seed instruction solutions, 249 in the four distilled
+training batches (`training/distilled`), the spice-market repair drill, 7
+bench reference solutions in 5 suites (not a grading field; `tasks_version`
+unchanged; 204/204 references pass), the oracle check's sandbox probe (which
+now also requires the refusal to be the sandbox's: the old `socketcreate` was
+rejected as SCOPE-001 and the probe read that as a pass), the guides, the card
+and the spec. An unknown callee's SCOPE-001 in an inferred `let` quotes the
+name as written and says when a builtin is missing from this build
+(`sqlite_open` without SQLite named the engine's `sqliteopen`), and
+`unknown_callee_inferred_fail` calls `open_database`, since `sqlite_open` is
+now real. The builtin listing uses the new names
+(pscal-core), the surface registry gains four `removed_d72_*` class-2 entries
+so the appendix does not list the old spellings, and `alias_fileexists` is
+class 2. Archived benchmark attempts that call an old name now fail to compile:
+those are declared breaks in `bench/replay_waivers.json`.
+
 ## 2026-10-20-7
 
 **Checked file reads (D73).** Three new helpers return `(value, ok)`, the shape

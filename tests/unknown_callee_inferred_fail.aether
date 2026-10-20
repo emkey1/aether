@@ -3,10 +3,11 @@
 // to add an annotation -- which then produced a different code, [SCOPE-001],
 // making the fix look like it had caused a new problem. One model reading the
 // two codes alternately concluded the compiler was non-deterministic. Both
-// spellings must now name the unknown callee.
+// spellings must now name the unknown callee. (It called `sqlite_open`, which
+// became a real builtin in D72.)
 fn main() -> Void {
     fx {
-        let db = sqlite_open("test.db");
+        let db = open_database("test.db");
         println(db);
     }
     ret;

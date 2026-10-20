@@ -1,7 +1,7 @@
 fn main() -> Void {
     fx {
         let defaultMessage: Text = " No message provided by env ";
-        let envMessage: Text = getenv("AETHER_MESSAGE");
+        let envMessage: Text = get_env("AETHER_MESSAGE");
 
         let messageToProcess: Text = if string_len(envMessage) > 0 { envMessage } else { defaultMessage };
 

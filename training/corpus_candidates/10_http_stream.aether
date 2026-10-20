@@ -1,13 +1,13 @@
 fn main() -> Void {
     fx {
-        let session: Int = httpsession();
+        let session: Int = http_session();
         if session == -1 {
             println("Session failed (networking disabled?)");
             ret;
         }
 
         let stream: MStream = mstream_new();
-        let status: Int = httprequest(session, "GET", "https://httpbin.org/get", "", stream);
+        let status: Int = http_request(session, "GET", "https://httpbin.org/get", "", stream);
 
         if status == 200 {
             let body: Text = mstream_text(stream);
@@ -18,7 +18,7 @@ fn main() -> Void {
         }
 
         mstream_free(stream);
-        httpclose(session);
+        http_close(session);
     }
     ret;
 }

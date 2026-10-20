@@ -1403,7 +1403,8 @@ static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsKi
         (len == 12 && strncmp(name, "mstream_load", len) == 0) ||
         (len == 13 && strncasecmp(name, "mstreamcreate", len) == 0) ||
         (len == 17 && strncasecmp(name, "mstreamfromstring", len) == 0) ||
-        (len == 13 && strncasecmp(name, "socketreceive", len) == 0)) {
+        (len == 13 && strncasecmp(name, "socketreceive", len) == 0) ||
+        (len == 14 && strncmp(name, "socket_receive", len) == 0)) {
         *returnsKind = AETHER_HANDLE_MSTREAM;
         return 1;
     }
@@ -3085,15 +3086,15 @@ static const char *aetherBareFunctionName(const char *name) {
  * These all previously reached the VM and failed at *runtime*, so a wrong-arity
  * call sailed past `--no-run` and only died once that line executed -- a
  * generated program could pass a compile-only gate and then blow up on its
- * first formatted number. `formatfloat` is the motivating case: the guide's
- * Real->Text row lists canonical `formatfloat(r, prec)` beside the forbidden,
+ * first formatted number. `format_float` is the motivating case: the guide's
+ * Real->Text row lists canonical `format_float(r, prec)` beside the forbidden,
  * println-only `r:0:prec`, and models splice the width slot out of the second
- * into the first, producing `formatfloat(r, 0, prec)` (see the 2026-07-26
+ * into the first, producing `format_float(r, 0, prec)` (see the 2026-07-26
  * transcript findings in docs/ideas_and_todo.md).
  *
  * Every min/max pair below is read off the corresponding `arg_count` guard in
  * pscal-core (builtin.c / ext_builtins/strings/parse.c) -- do NOT add an entry
- * from a doc signature alone. `formatfloat`'s published signature says two
+ * from a doc signature alone. `format_float`'s published signature says two
  * parameters, but the VM accepts one or two; guessing from the signature would
  * have rejected the valid one-argument call. Builtins with genuinely variadic
  * or overloaded arity (length, println, write) are deliberately absent. */

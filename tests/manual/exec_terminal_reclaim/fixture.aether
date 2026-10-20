@@ -6,7 +6,7 @@
 // with the fix, it returns as soon as a keystroke is available.
 fn main() -> Void {
     fx {
-        let roguePath: Text = getenv("ROGUE_SHELL_PATH");
+        let roguePath: Text = get_env("ROGUE_SHELL_PATH");
         exec(roguePath, "");
         println("before-readkey");
         readkey();

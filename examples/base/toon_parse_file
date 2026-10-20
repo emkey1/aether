@@ -10,7 +10,7 @@ fn main() -> Void {
     // examples/base, with a fallback for a run from the repository root.
     let path: Text = "toon_parse_file_payload.json";
     let local: Bool = false;
-    fx { local = fileexists(path); }
+    fx { local = file_exists(path); }
     if !local {
         path = "examples/base/toon_parse_file_payload.json";
     }
