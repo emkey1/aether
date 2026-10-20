@@ -40,7 +40,9 @@ error, and a program whose `par` branch failed now exits non-zero. Corpus A/B
   printed and the program went on and exited 0. Now, at the join, the program
   stops with a non-zero exit, and only the branch's own error is on stderr.
   This is in the engine (THREAD_JOIN under `frontendIsAether()`), so other
-  front ends' threads are unchanged.
+  front ends' threads are unchanged. D37d had placed this fix in the front end.
+  The engine route needed no front-end change, because the worker already
+  records a failed job's status and only the join discarded it.
 - **A branch that fails after running its own `par` no longer hangs.** A
   nested worker's failed job was escalated to a program-wide interrupt, and
   the joiner deadlocked on its own lock: it hung in 4 of 4 runs at pscal-core
