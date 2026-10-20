@@ -1,0 +1,8 @@
+// `s[i] = t` with a Text variable t stores its one character (W4-40). It was an
+// uncoded VM error until pscal-core 18d2c80 (the 2026-10-20 VM audit).
+fn main() -> Void {
+    let s: Text = "abc";
+    let t: Text = "z";
+    s[0] = t;
+    fx { println(s); }
+}

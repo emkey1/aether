@@ -1884,9 +1884,9 @@ AST *parseLetTupleDestructure(AetherParser *p, int kwLine) {
 
     /* <SynthType> __aether_tupdest_<serial> = <call>; -- captures the callee's
      * return-by-value record once. The VM deep-copies a record on return (see
-     * returnFromCall/copyRecord in pscal-core), so this temp is an independent
-     * snapshot: recursion or a concurrent `par` branch calling the same
-     * tuple-returning function cannot alias it. */
+     * returnFromCall/pscalRecordObjCopy in pscal-core), so this temp is an
+     * independent snapshot: recursion or a concurrent `par` branch calling the
+     * same tuple-returning function cannot alias it. */
     Token *tmpVarTok = newToken(TOKEN_IDENTIFIER, tempName, kwLine, 0);
     AST *tmpVar = newASTNode(AST_VARIABLE, tmpVarTok);
     setTypeAST(tmpVar, tmpVtype);
@@ -3287,9 +3287,10 @@ AST *parseParBlock(AetherParser *p) {
          * so two branches calling the same tuple-returning function raced on
          * them. Now that tuple returns lower to a record returned by value
          * (each call gets its own VM-deep-copied result -- see
-         * returnFromCall/copyRecord in pscal-core, and parseTupleReturn /
-         * parseLetTupleDestructure), that defect class is structurally
-         * impossible: nothing is shared, so there is nothing left to detect. */
+         * returnFromCall/pscalRecordObjCopy in pscal-core, and
+         * parseTupleReturn / parseLetTupleDestructure), that defect class is
+         * structurally impossible: nothing is shared, so there is nothing left
+         * to detect. */
 
         /* int __aether_par_N = spawn <call>; */
         Token *hTok = newToken(TOKEN_IDENTIFIER, handleName, callLine, 0);

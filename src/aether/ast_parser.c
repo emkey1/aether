@@ -829,8 +829,8 @@ void aetherTupleSyntheticTypeName(char *buf, size_t bufSize, int typeId) {
  * tuple returns lowered to shared per-function globals that raced under
  * reentrancy. Tuple returns now lower to a record returned by value (see
  * buildSyntheticTupleRecordType, parseTupleReturn, parseLetTupleDestructure);
- * the VM deep-copies a record on every return (returnFromCall/copyRecord in
- * pscal-core), so each call -- recursive or concurrent -- gets its own
+ * the VM deep-copies a record on every return (returnFromCall/pscalRecordObjCopy
+ * in pscal-core), so each call -- recursive or concurrent -- gets its own
  * independent result. There is no shared state left for a call-graph tracker
  * to protect, so it was removed rather than left as dead bookkeeping.
  */
