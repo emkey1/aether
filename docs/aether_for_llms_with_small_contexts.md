@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-4*
+*Guide version: 2026-10-20-5*
 
 ## Highest-Value Rules
 
@@ -809,6 +809,8 @@ banned in `@pure` functions:
 
 - `read_file(path) -> Text`, `read_lines(path) -> Text[]` (no line breaks),
   `write_file(path, text)`, `append_file(path, text)` (end lines with `"\n"`)
+- checked reads, `(value, ok)` and never a run-time error: `try_read_file(path)
+  -> (Text, Bool)`, `try_read_lines`, `try_toon_parse_file(path) -> (ToonDoc, Bool)`
 - `file_exists(path) -> Bool`, `delete_file(path) -> Bool`,
   `rename_file(a, b) -> Bool`, `getcurrentdir() -> Text`, `mkdir(path)`
 - `read_line() -> Text` (stdin, `""` at the end), `read_all_stdin() -> Text`

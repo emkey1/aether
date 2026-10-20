@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-4*
+*Guide version: 2026-10-20-5*
 
 Everything needed to write correct Aether in one shot.
 
@@ -1058,7 +1058,9 @@ Reach for these only when the task requires them.
 
 All effectful — inside `fx`, and banned in `@pure`.
 
-- `read_file(path) -> Text`, `read_lines(path) -> Text[]` (no line breaks)
+- `read_file(path) -> Text`, `read_lines(path) -> Text[]` (no line breaks);
+  checked, `(value, ok)` with no run-time error: `try_read_file`,
+  `try_read_lines`, `try_toon_parse_file(path) -> (ToonDoc, Bool)`
 - `write_file(path, text)` (create or truncate), `append_file(path, text)`;
   end each line with `"\n"` yourself
 - `file_exists(path) -> Bool`, `delete_file(path) -> Bool`,
@@ -1132,10 +1134,8 @@ an `MStream`, never `Text`.
   `socketpoll(socket, timeoutMs, flags) -> Int` — `flags` `1`=readable,
   `2`=writable, bitwise-or; `0` on timeout
 
-`socketaccept` and `socketreceive` hang forever with no peer. Either run a
-client and server in one process via `par` — creating, binding, and listening
-*before* the `par` block so the client cannot race a server that is not yet
-listening — or set the socket non-blocking and poll.
+`socketaccept` and `socketreceive` block until a peer arrives: bind and listen
+before a `par` that runs the client, or poll a non-blocking socket.
 
 ### Tasks and AI
 
@@ -1148,5 +1148,3 @@ All effectful except the `has_*` probes.
   `has_builtin(category: Text, function: Text) -> Bool` — true for extended
   *and* core builtins; a core builtin matches on the function name whatever
   category you pass
-
-To run your own code concurrently, use `par`.

@@ -1263,6 +1263,10 @@ static void validateContractAnnotations(const char *source) {
     }
 }
 
+/* ast_stdlib.c: a prelude fn (try_read_file, ...) injected into this compile
+ * that performs effects (D73). */
+bool aetherStdlibPreludeIsEffectful(const char *name);
+
 static int aetherIsEffectfulBuiltin(const char *name, size_t len) {
     /* Effectfulness is single-sourced in pscal-core. Use the *live* check
      * (pscalBuiltinNameEffectMaskLive), not the static-table-only
@@ -3264,6 +3268,9 @@ static void aetherCheckCallNode(const AST *node,
          * declaration still falls through to the check unchanged. */
         isEffectful = 0;
     }
+    /* The checked-I/O helpers (D73) are declared fns over hidden builtins, but
+     * they read files exactly as read_file does, so a call needs `fx` too. */
+    if (aetherStdlibPreludeIsEffectful(canonical)) isEffectful = 1;
 
     if (isEffectful && fxDepth == 0) {
         snprintf(detail, sizeof(detail), "call to '%s' requires an fx block.", display);

@@ -1,0 +1,7 @@
+// D73: the checked readers are effectful like read_file, so a call outside
+// `fx` is FX-001.
+fn main() -> Void {
+    let (text, ok) = try_read_file("notes.txt");
+    fx { println(ok, " ", length(text)); }
+    ret;
+}

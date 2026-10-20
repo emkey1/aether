@@ -12,6 +12,27 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-7
+
+**Checked file reads (D73).** Three new helpers return `(value, ok)`, the shape
+`try_parse_int` already taught, instead of stopping the program when a file is
+missing or unreadable:
+
+- `try_read_file(path) -> (Text, Bool)` -- `("", false)` on failure;
+- `try_read_lines(path) -> (Text[], Bool)` -- `([], false)` on failure;
+- `try_toon_parse_file(path) -> (ToonDoc, Bool)` -- `ok` is false for a missing
+  file or bad JSON, and the document is then JSON `null`, so `toon_root`,
+  every accessor and `toon_close` keep working.
+
+All three are effectful: a call needs `fx` (FX-001) and is barred from `@pure`
+(ANN-001), exactly as `read_file` is. The unchecked forms are unchanged and
+still stop with a run-time error. Each is one line of Aether over hidden engine
+builtins (pscal-core: `aether_try_read_file_text`, `aether_try_read_lines_list`,
+`aether_try_toon_read_file` and a per-thread `aether_last_io_ok`), injected only
+when a program calls it, like the `try_parse_*` pair; the file is read once.
+The builtin listing documents the three as `fx` (appendix 156 -> 159), and the guides'
+file sections list them (guide stamps `2026-10-20-5`).
+
 ## 2026-10-20-6
 
 **Int / Int is Real, and a Real in an Int-only place is an error (D4 B+, D18).**

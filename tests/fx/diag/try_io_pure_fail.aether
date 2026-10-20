@@ -1,0 +1,11 @@
+// D73 / D69: a @pure function may not read a file, checked or not.
+@pure
+fn load(path: Text) -> Text {
+    let (text, ok) = try_read_file(path);
+    ret text;
+}
+
+fn main() -> Void {
+    fx { println(load("x.txt")); }
+    ret;
+}

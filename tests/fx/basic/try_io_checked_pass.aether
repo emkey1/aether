@@ -1,0 +1,24 @@
+// D73 checked I/O: try_read_file, try_read_lines and try_toon_parse_file return
+// (value, ok) like try_parse_int. A missing file or bad JSON is ok = false with
+// "" / [] / a JSON-null document, never a run-time error.
+fn main() -> Void {
+    fx {
+        write_file("ok.txt", "alpha\nbeta\n");
+        write_file("ok.json", "{\"n\": 3, \"xs\": [1, 2]}");
+        write_file("bad.json", "{bad json");
+        let (a, aok) = try_read_file("ok.txt");
+        let (b, bok) = try_read_file("missing.txt");
+        let (ls, lok) = try_read_lines("ok.txt");
+        let (ms, mok) = try_read_lines("missing.txt");
+        let (d, dok) = try_toon_parse_file("ok.json");
+        let (e, eok) = try_toon_parse_file("bad.json");
+        let (f, fok) = try_toon_parse_file("missing.json");
+        println(aok, " ", length(a), " ", bok, " [", b, "] ", lok, " ", ls[1], " ", mok, " ", length(ms));
+        println(dok, " ", toon_get_int_or(toon_root(d), "n", -1), " ", eok, " ",
+                toon_get_int_or(toon_root(e), "n", -1), " ", fok);
+        toon_close(d);
+        toon_close(e);
+        toon_close(f);
+    }
+    ret;
+}

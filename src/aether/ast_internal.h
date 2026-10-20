@@ -410,6 +410,8 @@ bool aetherCheckRemovedBuiltin(AetherParser *p, const char *raw, int line);
 void aetherRecordFieldSlot(AetherParser *p, const char *typeName, const char *field, int slot);
 bool aetherLowerStdlibCall(AetherParser *p, AST *call, int line);
 char *aetherStdlibPrelude(const char *source);
+/* D73: a prelude fn injected into this compile that performs effects. */
+bool aetherStdlibPreludeIsEffectful(const char *name);
 
 /* Maps (D68), ast_stdlib.c. Type names are "Map[Text, T]". */
 bool aetherTypeNameIsMap(const char *name);

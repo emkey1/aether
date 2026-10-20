@@ -855,7 +855,29 @@ static const struct {
     { "try_parse_real",
       "@pure\nfn try_parse_real(t: Text) -> (Real, Bool) { ret (aetherparserealvalue(t), "
       "aetherparserealok(t)); }" },
+    /* Checked I/O (D73): effectful, so a call needs `fx` like read_file
+     * (aetherStdlibPreludeIsEffectful). One read; the ok flag is per thread. */
+    { "try_read_file",
+      "fn try_read_file(path: Text) -> (Text, Bool) { let t: Text = \"\"; let ok: Bool = false; "
+      "fx { t = aether_try_read_file_text(path); ok = aether_last_io_ok(); } ret (t, ok); }" },
+    { "try_read_lines",
+      "fn try_read_lines(path: Text) -> (Text[], Bool) { let t: Text[] = []; let ok: Bool = false; "
+      "fx { t = aether_try_read_lines_list(path); ok = aether_last_io_ok(); } ret (t, ok); }" },
+    { "try_toon_parse_file",
+      "fn try_toon_parse_file(path: Text) -> (ToonDoc, Bool) { let d: ToonDoc; let ok: Bool = false; "
+      "fx { d = aether_try_toon_read_file(path); ok = aether_last_io_ok(); } ret (d, ok); }" },
 };
+
+/* The prelude fns injected into this compile that perform effects (D73). */
+static const char *g_preludeEffectful[8];
+static int g_preludeEffectfulCount = 0;
+
+bool aetherStdlibPreludeIsEffectful(const char *name) {
+    if (!name) return false;
+    for (int i = 0; i < g_preludeEffectfulCount; i++)
+        if (strcmp(g_preludeEffectful[i], name) == 0) return true;
+    return false;
+}
 
 /* Does `source` call `name(` (outside strings and comments), and does it
  * declare `fn name` itself? */
@@ -908,8 +930,9 @@ static void aetherScanPreludeUse(const char *source, const char *name, bool *cal
 }
 
 char *aetherStdlibPrelude(const char *source) {
+    g_preludeEffectfulCount = 0;
     if (!source) return NULL;
-    char prelude[512];
+    char prelude[2048];
     size_t used = 0;
     prelude[0] = '\0';
     for (size_t i = 0; i < sizeof(kAetherPreludeFns) / sizeof(kAetherPreludeFns[0]); i++) {
@@ -919,6 +942,11 @@ char *aetherStdlibPrelude(const char *source) {
         int n = snprintf(prelude + used, sizeof(prelude) - used, "%s\n", kAetherPreludeFns[i].decl);
         if (n < 0 || (size_t)n >= sizeof(prelude) - used) break;
         used += (size_t)n;
+        if (strncmp(kAetherPreludeFns[i].name, "try_read_", 9) == 0 ||
+            strcmp(kAetherPreludeFns[i].name, "try_toon_parse_file") == 0) {
+            if (g_preludeEffectfulCount < 8)
+                g_preludeEffectful[g_preludeEffectfulCount++] = kAetherPreludeFns[i].name;
+        }
     }
     return used ? strdup(prelude) : NULL;
 }
