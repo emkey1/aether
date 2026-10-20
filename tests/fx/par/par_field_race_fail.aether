@@ -1,0 +1,11 @@
+// PAR-001: the same field expression in two branches is one record.
+type H { c: C; }
+type C { n: Int = 0; }
+fn bump(c: C) -> Void { c.n = c.n + 1; ret; }
+fn bumpH(h: H) -> Void { h.c.n = h.c.n + 1; ret; }
+fn main() -> Void {
+    let h: H = new H { c: new C() };
+    par { bump(h.c); bump(h.c); }
+    par { bumpH(h); bump(h.c); }
+    ret;
+}

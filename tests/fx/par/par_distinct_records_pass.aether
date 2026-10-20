@@ -1,0 +1,16 @@
+// Shapes PAR-001 must keep accepting: distinct array elements, separate
+// records, and a global the branches only read.
+type C { n: Int = 0; }
+fn bump(c: C) -> Void { c.n = c.n + 1; ret; }
+let shared: Int = 5;
+fn readOnly(k: Int) -> Void { let x: Int = shared + k; ret; }
+fn main() -> Void {
+    let ts: C[] = [new C(), new C()];
+    par { bump(ts[0]); bump(ts[1]); }
+    let a: C = new C();
+    let b: C = new C();
+    par { bump(a); bump(b); }
+    par { readOnly(1); readOnly(2); }
+    fx { println(ts[0].n, " ", ts[1].n, " ", a.n, " ", b.n); }
+    ret;
+}

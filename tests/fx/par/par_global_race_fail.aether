@@ -1,0 +1,5 @@
+// PAR-001: a global written in one branch's call graph and used by another
+// raced (lost updates on an Int, a double-release crash on a Text).
+let counter: Int = 0;
+fn inc(k: Int) -> Void { loop i in 0..k { counter = counter + 1; } ret; }
+fn main() -> Void { par { inc(1000); inc(1000); } fx { println(counter); } ret; }

@@ -3661,6 +3661,408 @@ static void aetherValidateArrayParamMutation(const AST *root) {
 }
 
 /* --------------------------------------------------------------------------
+ * PAR-001, whole program: races the parse-time check cannot see.
+ *
+ * parseParBlock rejects the same record *name* handed to two branches, but it
+ * runs before the callees are parsed and compares names only. Three shapes got
+ * through, and each raced: lost updates on an Int global (332962 of 400000),
+ * and on a shared Text or record, a refcount double-release that killed the VM
+ * (exit 133/134/138):
+ *   - a global one branch's call graph writes and another branch's uses;
+ *   - one record under two names (`let b: S = a; par { f(a); f(b); }`);
+ *   - the same field or element expression in two branches (`f(h.c)` twice),
+ *     or a record in one branch and a part of it in another (`f(h); g(h.c)`).
+ * Distinct elements (`f(ts[0]); f(ts[1])`) stay legal: they are the taught
+ * "each branch its own record" shape.
+ * -------------------------------------------------------------------------- */
+
+typedef struct {
+    const char **items;
+    int count, cap;
+} ParNameSet;
+
+static bool parSetHas(const ParNameSet *s, const char *name) {
+    for (int i = 0; i < s->count; i++)
+        if (strcasecmp(s->items[i], name) == 0) return true;
+    return false;
+}
+
+static void parSetAdd(ParNameSet *s, const char *name) {
+    if (!name || parSetHas(s, name)) return;
+    if (s->count == s->cap) {
+        int ncap = s->cap ? s->cap * 2 : 16;
+        const char **n = (const char **)realloc(s->items, (size_t)ncap * sizeof(*n));
+        if (!n) return;
+        s->items = n;
+        s->cap = ncap;
+    }
+    s->items[s->count++] = name;
+}
+
+static void parSetFree(ParNameSet *s) {
+    free(s->items);
+    memset(s, 0, sizeof(*s));
+}
+
+typedef struct {
+    ParNameSet globals;       /* top-level `let` names */
+    const AST **fns;          /* every function / procedure declaration */
+    int fnCount, fnCap;
+} ParIndex;
+
+static void parIndexProgram(ParIndex *ix, const AST *n, bool topLevel) {
+    if (!n) return;
+    if (n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) {
+        if (ix->fnCount == ix->fnCap) {
+            int ncap = ix->fnCap ? ix->fnCap * 2 : 32;
+            const AST **f = (const AST **)realloc(ix->fns, (size_t)ncap * sizeof(*f));
+            if (!f) return;
+            ix->fns = f;
+            ix->fnCap = ncap;
+        }
+        ix->fns[ix->fnCount++] = n;
+        topLevel = false;
+    } else if (n->type == AST_VAR_DECL) {
+        if (topLevel) {
+            for (int i = 0; i < n->child_count; i++) {
+                const AST *v = n->children[i];
+                if (v && v->type == AST_VARIABLE && v->token && v->token->value)
+                    parSetAdd(&ix->globals, v->token->value);
+            }
+        }
+        return;
+    }
+    parIndexProgram(ix, n->left, topLevel);
+    parIndexProgram(ix, n->right, topLevel);
+    parIndexProgram(ix, n->extra, topLevel);
+    for (int i = 0; i < n->child_count; i++) parIndexProgram(ix, n->children[i], topLevel);
+}
+
+/* The declarations a call can reach: an exact (case-insensitive) name, or for
+ * `recv.method` / `Type.method`, every method of that name. */
+static bool parCallMatches(const char *callName, const AST *fn) {
+    const char *fname = fn->token ? fn->token->value : NULL;
+    if (!fname || !callName) return false;
+    if (strcasecmp(callName, fname) == 0) return true;
+    const char *cdot = strrchr(callName, '.');
+    const char *fdot = strrchr(fname, '.');
+    return cdot && fdot && strcasecmp(cdot + 1, fdot + 1) == 0;
+}
+
+/* The variable an lvalue chain is rooted at (`g`, `g.f`, `g[i].f`), or NULL. */
+static const AST *parLValueRoot(const AST *n) {
+    while (n && (n->type == AST_FIELD_ACCESS || n->type == AST_ARRAY_ACCESS)) n = n->left;
+    return (n && n->type == AST_VARIABLE && n->token && n->token->value) ? n : NULL;
+}
+
+typedef struct {
+    const ParIndex *ix;
+    ParNameSet locals;   /* params and lets of the function being scanned */
+    ParNameSet written;  /* globals written */
+    ParNameSet used;     /* globals read or written */
+    const AST **seen;    /* functions already scanned (recursion guard) */
+    int seenCount, seenCap;
+} ParAccess;
+
+static void parScanFunction(ParAccess *a, const AST *fn);
+
+static bool parIsGlobal(const ParAccess *a, const char *name) {
+    return name && parSetHas(&a->ix->globals, name) && !parSetHas(&a->locals, name);
+}
+
+static void parScan(ParAccess *a, const AST *n) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL:
+            return; /* a nested declaration is scanned when it is called */
+        case AST_VAR_DECL:
+            for (int i = 0; i < n->child_count; i++) {
+                const AST *v = n->children[i];
+                if (v && v->type == AST_VARIABLE && v->token && v->token->value)
+                    parSetAdd(&a->locals, v->token->value);
+            }
+            parScan(a, n->left);
+            return;
+        case AST_ASSIGN: {
+            const AST *root = parLValueRoot(n->left);
+            if (root && parIsGlobal(a, root->token->value)) {
+                parSetAdd(&a->written, root->token->value);
+                parSetAdd(&a->used, root->token->value);
+            }
+            break;
+        }
+        case AST_VARIABLE:
+            if (n->token && parIsGlobal(a, n->token->value)) parSetAdd(&a->used, n->token->value);
+            return;
+        case AST_PROCEDURE_CALL:
+            if (n->token && n->token->value) {
+                for (int i = 0; i < a->ix->fnCount; i++)
+                    if (parCallMatches(n->token->value, a->ix->fns[i]))
+                        parScanFunction(a, a->ix->fns[i]);
+            }
+            break;
+        default:
+            break;
+    }
+    parScan(a, n->left);
+    parScan(a, n->right);
+    parScan(a, n->extra);
+    for (int i = 0; i < n->child_count; i++) parScan(a, n->children[i]);
+}
+
+static void parScanFunction(ParAccess *a, const AST *fn) {
+    for (int i = 0; i < a->seenCount; i++)
+        if (a->seen[i] == fn) return;
+    if (a->seenCount == a->seenCap) {
+        int ncap = a->seenCap ? a->seenCap * 2 : 16;
+        const AST **s = (const AST **)realloc(a->seen, (size_t)ncap * sizeof(*s));
+        if (!s) return;
+        a->seen = s;
+        a->seenCap = ncap;
+    }
+    a->seen[a->seenCount++] = fn;
+    /* Locals are per function: a callee's `let x` must not hide the caller's
+     * view of a global `x`, nor the other way round. */
+    ParNameSet saved = a->locals;
+    memset(&a->locals, 0, sizeof(a->locals));
+    for (int i = 0; i < fn->child_count; i++) {
+        const AST *prm = fn->children[i];
+        if (!prm || prm->type != AST_VAR_DECL) continue;
+        for (int j = 0; j < prm->child_count; j++) {
+            const AST *v = prm->children[j];
+            if (v && v->type == AST_VARIABLE && v->token && v->token->value)
+                parSetAdd(&a->locals, v->token->value);
+        }
+    }
+    parScan(a, fn->type == AST_FUNCTION_DECL ? fn->extra : fn->right);
+    parScan(a, fn->type == AST_FUNCTION_DECL ? fn->right : fn->extra);
+    parSetFree(&a->locals);
+    a->locals = saved;
+}
+
+/* A record-ish argument expression, printed for comparison (`h.c`, `ts[1]`). */
+static bool parExprText(const AST *n, char *buf, size_t cap, size_t *len) {
+    if (!n) return false;
+    if (n->type == AST_VARIABLE && n->token && n->token->value) {
+        int w = snprintf(buf + *len, cap - *len, "%s", n->token->value);
+        if (w < 0 || (size_t)w >= cap - *len) return false;
+        *len += (size_t)w;
+        return true;
+    }
+    if (n->type == AST_NUMBER && n->token && n->token->value) {
+        int w = snprintf(buf + *len, cap - *len, "%s", n->token->value);
+        if (w < 0 || (size_t)w >= cap - *len) return false;
+        *len += (size_t)w;
+        return true;
+    }
+    if (n->type == AST_FIELD_ACCESS && n->right && n->right->token && n->right->token->value) {
+        if (!parExprText(n->left, buf, cap, len)) return false;
+        int w = snprintf(buf + *len, cap - *len, ".%s", n->right->token->value);
+        if (w < 0 || (size_t)w >= cap - *len) return false;
+        *len += (size_t)w;
+        return true;
+    }
+    if (n->type == AST_ARRAY_ACCESS && n->child_count == 1) {
+        if (!parExprText(n->left, buf, cap, len)) return false;
+        if (*len + 1 >= cap) return false;
+        buf[(*len)++] = '[';
+        if (!parExprText(n->children[0], buf, cap, len)) return false;
+        if (*len + 1 >= cap) return false;
+        buf[(*len)++] = ']';
+        buf[*len] = '\0';
+        return true;
+    }
+    return false;
+}
+
+static bool parIsAggregate(const AST *n) {
+    return n && (n->var_type == TYPE_POINTER || n->var_type == TYPE_RECORD ||
+                 n->var_type == TYPE_ARRAY);
+}
+
+/* Record aliases in the function around a par block: `let b: S = a;` and
+ * `b = a;` put a and b in one class. A tiny union-find over names. */
+typedef struct {
+    const char *name[128];
+    int parent[128];
+    int count;
+} ParAliases;
+
+static int parAliasFind(ParAliases *al, const char *name) {
+    int idx = -1;
+    for (int i = 0; i < al->count; i++)
+        if (strcasecmp(al->name[i], name) == 0) { idx = i; break; }
+    if (idx < 0) {
+        if (al->count >= 128) return -1;
+        idx = al->count++;
+        al->name[idx] = name;
+        al->parent[idx] = idx;
+    }
+    while (al->parent[idx] != idx) idx = al->parent[idx];
+    return idx;
+}
+
+static void parAliasUnion(ParAliases *al, const char *a, const char *b) {
+    int ra = parAliasFind(al, a), rb = parAliasFind(al, b);
+    if (ra >= 0 && rb >= 0 && ra != rb) al->parent[ra] = rb;
+}
+
+static void parReport(int line, const char *detail) {
+    char msg[512];
+    snprintf(msg, sizeof(msg),
+             "%s The par branches run at the same time, so they race on it (lost updates, "
+             "or a crash on a Text or record). Give each branch its own record and combine "
+             "the results after the `par { ... }` block.",
+             detail);
+    aetherSemanticReportCoded("PAR-001", "par", line > 0 ? line : 1, msg, 1);
+}
+
+static const AST *parSpawnCall(const AST *stmt) {
+    if (stmt && stmt->type == AST_VAR_DECL && stmt->left &&
+        stmt->left->type == AST_THREAD_SPAWN && stmt->left->left &&
+        stmt->left->left->type == AST_PROCEDURE_CALL)
+        return stmt->left->left;
+    return NULL;
+}
+
+static void parCheckBlock(const ParIndex *ix, ParAliases *al, const AST *block) {
+    const AST *calls[64];
+    int n = 0;
+    for (int i = 0; i < block->child_count && n < 64; i++) {
+        const AST *c = parSpawnCall(block->children[i]);
+        if (c) calls[n++] = c;
+    }
+    if (n < 2) return;
+    int line = calls[0]->token ? calls[0]->token->line : 0;
+
+    /* Globals. */
+    ParAccess acc[64];
+    memset(acc, 0, sizeof(acc));
+    for (int b = 0; b < n; b++) {
+        acc[b].ix = ix;
+        for (int i = 0; i < calls[b]->child_count; i++) parScan(&acc[b], calls[b]->children[i]);
+        parScan(&acc[b], calls[b]);
+    }
+    bool reported = false;
+    for (int b = 0; b < n && !reported; b++) {
+        for (int w = 0; w < acc[b].written.count && !reported; w++) {
+            const char *g = acc[b].written.items[w];
+            for (int o = 0; o < n && !reported; o++) {
+                if (o == b || !parSetHas(&acc[o].used, g)) continue;
+                char detail[256];
+                snprintf(detail, sizeof(detail),
+                         "the global '%s' is written by par branch %d (%s) and used by "
+                         "branch %d (%s).",
+                         g, b + 1, calls[b]->token ? calls[b]->token->value : "?", o + 1,
+                         calls[o]->token ? calls[o]->token->value : "?");
+                parReport(line, detail);
+                reported = true;
+            }
+        }
+    }
+    for (int b = 0; b < n; b++) {
+        parSetFree(&acc[b].written);
+        parSetFree(&acc[b].used);
+        parSetFree(&acc[b].locals);
+        free(acc[b].seen);
+    }
+    if (reported) return;
+
+    /* Aliased or overlapping aggregate arguments. */
+    for (int b = 0; b < n; b++) {
+        for (int i = 0; i < calls[b]->child_count; i++) {
+            const AST *x = calls[b]->children[i];
+            if (!parIsAggregate(x)) continue;
+            for (int o = b + 1; o < n; o++) {
+                for (int j = 0; j < calls[o]->child_count; j++) {
+                    const AST *y = calls[o]->children[j];
+                    if (!parIsAggregate(y)) continue;
+                    char tx[160], ty[160];
+                    size_t lx = 0, ly = 0;
+                    tx[0] = ty[0] = '\0';
+                    if (!parExprText(x, tx, sizeof(tx), &lx) ||
+                        !parExprText(y, ty, sizeof(ty), &ly))
+                        continue;
+                    const AST *rx = parLValueRoot(x), *ry = parLValueRoot(y);
+                    bool same = strcasecmp(tx, ty) == 0;
+                    bool whole = rx && ry && strcasecmp(rx->token->value, ry->token->value) == 0 &&
+                                 (x->type == AST_VARIABLE || y->type == AST_VARIABLE);
+                    bool alias = x->type == AST_VARIABLE && y->type == AST_VARIABLE && !same &&
+                                 parAliasFind(al, tx) >= 0 &&
+                                 parAliasFind(al, tx) == parAliasFind(al, ty);
+                    if (!same && !whole && !alias) continue;
+                    char detail[320];
+                    if (alias)
+                        snprintf(detail, sizeof(detail),
+                                 "'%s' (branch %d) and '%s' (branch %d) are the same record: "
+                                 "one was assigned from the other.",
+                                 tx, b + 1, ty, o + 1);
+                    else if (same)
+                        snprintf(detail, sizeof(detail),
+                                 "'%s' is passed to par branches %d and %d.", tx, b + 1, o + 1);
+                    else
+                        snprintf(detail, sizeof(detail),
+                                 "'%s' (branch %d) and '%s' (branch %d) overlap: one is "
+                                 "part of the other.",
+                                 tx, b + 1, ty, o + 1);
+                    parReport(line, detail);
+                    return;
+                }
+            }
+        }
+    }
+}
+
+/* Walk statements in source order, collecting record aliases as they are made,
+ * and check each par block with the aliases made before it. */
+static void parWalk(const ParIndex *ix, ParAliases *al, const AST *n) {
+    if (!n) return;
+    if (n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) {
+        ParAliases fresh;
+        memset(&fresh, 0, sizeof(fresh));
+        parWalk(ix, &fresh, n->left);
+        parWalk(ix, &fresh, n->right);
+        parWalk(ix, &fresh, n->extra);
+        for (int i = 0; i < n->child_count; i++) parWalk(ix, &fresh, n->children[i]);
+        return;
+    }
+    if (n->type == AST_VAR_DECL && n->left && n->left->type == AST_VARIABLE &&
+        n->left->token && n->left->token->value && parIsAggregate(n->left)) {
+        for (int i = 0; i < n->child_count; i++) {
+            const AST *v = n->children[i];
+            if (v && v->type == AST_VARIABLE && v->token && v->token->value)
+                parAliasUnion(al, v->token->value, n->left->token->value);
+        }
+    }
+    if (n->type == AST_ASSIGN && n->left && n->right && n->left->type == AST_VARIABLE &&
+        n->right->type == AST_VARIABLE && n->left->token && n->right->token &&
+        n->left->token->value && n->right->token->value && parIsAggregate(n->right)) {
+        parAliasUnion(al, n->left->token->value, n->right->token->value);
+    }
+    if (n->type == AST_COMPOUND) {
+        bool isPar = false;
+        for (int i = 0; i < n->child_count && !isPar; i++) isPar = parSpawnCall(n->children[i]) != NULL;
+        if (isPar) parCheckBlock(ix, al, n);
+    }
+    parWalk(ix, al, n->left);
+    parWalk(ix, al, n->right);
+    parWalk(ix, al, n->extra);
+    for (int i = 0; i < n->child_count; i++) parWalk(ix, al, n->children[i]);
+}
+
+static void aetherValidateParRaces(const AST *root) {
+    ParIndex ix;
+    memset(&ix, 0, sizeof(ix));
+    parIndexProgram(&ix, root, true);
+    ParAliases al;
+    memset(&al, 0, sizeof(al));
+    parWalk(&ix, &al, root);
+    parSetFree(&ix.globals);
+    free(ix.fns);
+}
+
+/* --------------------------------------------------------------------------
  * TYPE-002: a type name in a declaration that never resolved.
  *
  * buildTypeNode() emits a bare AST_TYPE_REFERENCE at TYPE_UNKNOWN for any type
@@ -4136,6 +4538,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
     aetherRunExperiments(root);
     /* Coded errors hosted on the type oracle (types.c aetherTypedRules), on a
      * program the passes above accepted. */
+    if (pascal_semantic_error_count == errorCountBefore) aetherValidateParRaces(root);
     if (pascal_semantic_error_count == errorCountBefore) aetherTypedRules(root);
     /* The type oracle's pass (types.c). It runs only when AETHER_DUMP_TYPES is
      * set and reports no diagnostics: W7-24a ships the oracle with no rules. */

@@ -1,0 +1,4 @@
+// PAR-001: one record under two names raced into a double-release crash.
+type S { t: Text; }
+fn grow(s: S, k: Int) -> Void { loop i in 0..k { s.t = s.t + "x"; } ret; }
+fn main() -> Void { let a: S = new S(); let b: S = a; par { grow(a, 20000); grow(b, 20000); } fx { println(length(a.t)); } ret; }
