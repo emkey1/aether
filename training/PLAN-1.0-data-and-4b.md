@@ -94,3 +94,14 @@ A RESULTS.md beside the run, on one grader. The run-7 lessons apply:
 - the noise floor;
 - replaying older runs on the current compiler;
 - mining failure classes from the main suites only.
+
+## 6. After the current runs: sanity check on the revised VM (owner, 2026-10-20)
+
+The underlying VM (pscal-core) is being audited and fixed: performance and bug fixes, with no Aether surface change
+intended. It is not redeployed to the graders until the current data and training work is done. Then, on the
+deployed build:
+1. Paired replay of every scored model's archived programs: run 7 and its seeds, `qwen38-27b-v1`, `qwen35-4b-v1`.
+   Any flip is named.
+2. `--check-gates` over the full training data.
+3. The compiler's ctest, including the builtin-surface test.
+4. Timing of the replay, old build against new, to quantify the performance change.
