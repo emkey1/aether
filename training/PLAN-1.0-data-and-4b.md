@@ -1,6 +1,7 @@
 # Plan: training data for Aether 1.0 and the first small model (drafted 2026-10-20)
 
-Starts when Aether 1.0 is tagged (D75: the release that completes the 2026-10-20 review round, 2026-10-20-11).
+Starts when Aether 1.0 beta 1 is tagged (D75, revised: the release that completes the 2026-10-20 review round,
+2026-10-20-11, labelled `1.0beta1`; the final 1.0 comes later, after mileage).
 Nothing below is generated before then.
 - **Why wait:** D72 (renames), D70 (case-sensitive names) and D74 (Real formatting) change what correct programs
   look like.
@@ -49,7 +50,14 @@ Nothing below is generated before then.
    - The published 27B writes Aether for many more tasks, verified on the 1.0 compiler and against Python, which
      gives the 4B far more examples than the guided solvers can produce.
    - The 27B was trained before 1.0, so its outputs pass only where 1.0 accepts them. The compiler filters the rest.
-3. **Optional `qwen38-27b-v1`:** a 27B refresh on the 1.0 dataset, if a published model that knows maps and the 1.0
+**Run order on the training host** (owner, 2026-10-20). The 27B does not need redoing before the first small model:
+`qwen35-4b-v1` uses no 27B output.
+1. `qwen35-4b-v1`.
+2. `qwen38-27b-v1`: the 27B refreshed on the same 1.0 dataset. It is the candidate public update and the new
+   teacher, since the published 27B never learned maps or the 1.0 names.
+3. `qwen35-4b-v2`: the 4B plus the refreshed 27B's verified programs; one change from v1.
+
+3. **`qwen38-27b-v1` (see the run order above):** a 27B refresh on the 1.0 dataset, if a published model that knows maps and the 1.0
    names is wanted. Changes from run 7: the data and the language only.
 
 ## 5. Each run's write-up
