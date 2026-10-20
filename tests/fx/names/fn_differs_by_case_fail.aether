@@ -1,0 +1,10 @@
+// Two functions whose names differ only by case (D70). The engine keeps one
+// routine per name, ignoring case, so both calls ran the later body and the
+// program printed "2 2".
+fn foo() -> Int { ret 1; }
+fn Foo() -> Int { ret 2; }
+
+fn main() -> Void {
+    fx { println(foo(), " ", Foo()); }
+    ret;
+}

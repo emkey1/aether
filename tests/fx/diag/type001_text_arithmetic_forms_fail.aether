@@ -1,0 +1,11 @@
+// Each of these used to compile: `*` and `-` on a character computed from
+// its code, and `t - 1` on a whole Text failed only at run time.
+fn main() -> Void {
+    let s: Text = "abc";
+    let t: Text = s[1];
+    let a: Int = s[1] * 2;
+    let b: Int = s[0] - s[1];
+    let c: Int = t - 1;
+    fx { println(a, b, c); }
+    ret;
+}

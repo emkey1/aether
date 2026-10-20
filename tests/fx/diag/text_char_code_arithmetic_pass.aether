@@ -1,0 +1,10 @@
+// The arithmetic the TYPE-001 for Text points to: ord() for a character's
+// code, parse_int() for the number in a Text. `+` still joins Text.
+fn main() -> Void {
+    let s: Text = "7a";
+    let digit: Int = ord(s[0]) - ord("0");
+    let n: Int = parse_int("41") + 1;
+    let joined: Text = s[1] + 2;
+    fx { println(digit, " ", n, " ", joined, " ", s[0] < s[1]); }
+    ret;
+}

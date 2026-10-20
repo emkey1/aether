@@ -3114,17 +3114,17 @@ if ! cmp -s $OUT/aether_bitwise_shift_ops_expected.out $OUT/aether_bitwise_shift
     exit 1
 fi
 
-# A non-Int operand to a shift operator must still fail at runtime with a
-# clear VM diagnostic (the frontend deliberately does not re-validate operand
-# types at parse time -- see the comment above parseShift in ast_parser.c --
-# so this exercises the existing VM-level SHL/SHR type guard as the actual
-# safety net for the new operators).
+# A non-Int operand to a shift operator must fail with a clear diagnostic. The
+# parser deliberately does not re-validate operand types (see the comment above
+# parseShift in ast_parser.c); a Text operand is the typed pass's TYPE-001
+# (types.c ruleTextArithmetic), and the VM-level SHL/SHR type guard remains the
+# safety net for operands the typed pass cannot type.
 if "$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_shift_type_mismatch_fail.aether" >$OUT/aether_bitwise_shift_type_mismatch_fail.out 2>&1; then
     echo "expected bitwise/shift type-mismatch failure but program succeeded" >&2
     cat $OUT/aether_bitwise_shift_type_mismatch_fail.out >&2
     exit 1
 fi
-if ! grep -q "Operands for 'shl' and 'shr' must be integers" $OUT/aether_bitwise_shift_type_mismatch_fail.out; then
+if ! grep -q '\[TYPE-001\].*`shl` needs numbers, but an operand is Text' $OUT/aether_bitwise_shift_type_mismatch_fail.out; then
     echo "missing shift type-mismatch diagnostic" >&2
     cat $OUT/aether_bitwise_shift_type_mismatch_fail.out >&2
     exit 1

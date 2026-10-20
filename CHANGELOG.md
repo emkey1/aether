@@ -15,6 +15,33 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-13
+
+**Silent-wrong fixes from the 2026-10-20 VM audit's compiler list** (1.0-beta3dev).
+Each compiled a program that then ran the wrong way.
+
+Fixed:
+- **A function declared twice, or twice up to case, is NAME-001** (D70; W4-23,
+  whose backlog probe is now `tests/fx/names/duplicate_fn_fail`). The engine
+  keeps one routine per name, ignoring case, so the later body replaced the
+  earlier one for every call: `fn foo` beside `fn Foo` printed `2 2`, and a
+  helper written twice ran its second body. Two methods of one type are
+  checked the same way; a function and a method, or methods of different
+  types, may share a name, and a function and a value still may (D17).
+- **Arithmetic other than `+` on Text is TYPE-001.** `-`, `*`, `/`, `div`,
+  `%`, `shl`, `shr` and unary minus took a Text operand: `s[0] - 1` was 96 for
+  "abc" (the character code), `-s[0]` was -97, and `t - 1` on a whole Text
+  stopped only at run time ("Operands must be numbers"). The message names
+  `ord(c)` and `parse_int(t)`, the forms the guides teach; `+` still joins
+  Text. `"abc" << 1` is now this TYPE-001 at compile time instead of the VM's
+  uncoded shift error (`tests/run.sh` updated).
+- **A print width or precision above 255** (`println(x:300)`) used its low
+  byte (width 44): pscal-core's wide FORMAT_VALUE16.
+- Engine (pscal-core, no Aether program reaches it today, since nested
+  functions are lifted and nothing captures): a closure kept past its
+  defining routine, or a thread running a nested routine past its spawner's
+  return, no longer reads and writes the dead frame's stack slots.
+
 ## 2026-10-20-12
 
 **Release `1.0-beta2`** (D75): the second 1.0 beta, tagged `1.0-beta2`;

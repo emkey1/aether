@@ -1,0 +1,7 @@
+// W4-23 (was a backlog probe): a duplicate fn was silently last-wins, so
+// this printed 2. A function declared twice is NAME-001.
+fn score() -> Int { ret 1; }
+fn score() -> Int { ret 2; }
+fn main() -> Void {
+    fx { println(score()); }
+}

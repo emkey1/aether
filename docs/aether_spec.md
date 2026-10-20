@@ -150,12 +150,22 @@ cannot both exist: a second binding that differs only in case is NAME-001
 parameter or loop variable that reuses a top-level const or `let` name (or a
 `use`d module's const), a body-level `let` of a parameter's name, and a loop
 variable named like a visible local. Type/value and fn/value pairs
-(`let board: Board`) are not collisions.
+(`let board: Board`) are not collisions. Two functions, or two methods of one
+type, with the same name or names that differ only by case are NAME-001 too:
+the engine keeps one routine per name, so every call would reach only one.
 
 ```aether @reject=NAME-001 id=L.ident.4
 fn main() -> Void {
     let total: Int = 1;
     let Total: Int = 2;
+}
+```
+
+```aether @reject=NAME-001 id=L.ident.8
+fn count() -> Int { ret 1; }
+fn Count() -> Int { ret 2; }
+fn main() -> Void {
+    fx { println(count()); }
 }
 ```
 

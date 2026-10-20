@@ -1,0 +1,12 @@
+// Two methods of one type whose names differ only by case (D70).
+type Box {
+    v: Int;
+    fn get() -> Int { ret myself.v; }
+    fn Get() -> Int { ret 7; }
+}
+
+fn main() -> Void {
+    let b: Box = new Box { v: 3 };
+    fx { println(b.get()); }
+    ret;
+}

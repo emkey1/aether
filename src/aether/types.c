@@ -1842,9 +1842,46 @@ static void ruleRecordCompare(RuleCtx *c, const AST *e, const AetherTypeEnv *env
     }
 }
 
+/* Arithmetic other than `+` (which joins Text) on a Text operand. `s[i]` is
+ * a one-character Text, and the engine computed `s[0] - 1` from its
+ * character code (96 for "abc") and `-s[0]` as -97; `t - 1` on a whole Text
+ * failed only at run time. */
+static int ruleTextArithmetic(RuleCtx *c, const AST *e, const AetherTypeEnv *env) {
+    const AST *operand = NULL;
+    const char *op = NULL;
+    if (e->type == AST_BINARY_OP && e->token) {
+        switch (e->token->type) {
+            case TOKEN_MINUS: op = "-"; break;
+            case TOKEN_MUL: op = "*"; break;
+            case TOKEN_SLASH: op = "/"; break;
+            case TOKEN_INT_DIV: op = "div"; break;
+            case TOKEN_MOD: op = "%"; break;
+            case TOKEN_SHL: op = "shl"; break;
+            case TOKEN_SHR: op = "shr"; break;
+            default: return 0;
+        }
+        if (isTextual(aetherTypeOf(e->left, env))) operand = e->left;
+        else if (isTextual(aetherTypeOf(e->right, env))) operand = e->right;
+    } else if (e->type == AST_UNARY_OP && e->token &&
+               (e->token->type == TOKEN_MINUS || e->token->type == TOKEN_PLUS)) {
+        op = e->token->type == TOKEN_MINUS ? "unary -" : "unary +";
+        if (isTextual(aetherTypeOf(e->left, env))) operand = e->left;
+    }
+    if (!operand) return 0;
+    char detail[320];
+    snprintf(detail, sizeof(detail),
+             "`%s` needs numbers, but an operand is Text: for a character's code use "
+             "ord(c) (`ord(s[i]) - ord(\"0\")`), for the number in a Text parse_int(t) "
+             "or parse_float(t).",
+             op);
+    ruleReport(c, e, detail);
+    return 1;
+}
+
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
     if (ruleMapExpr(c, e, env)) return;
+    if (ruleTextArithmetic(c, e, env)) return;
     /* D8 V-strict: a call statement that hands over an array and throws away
      * the array it returns (`sortDesc(xs);`, `sorted(xs);`) leaves xs as it
      * was, because arrays are values. A map (D68) is a value the same way. */

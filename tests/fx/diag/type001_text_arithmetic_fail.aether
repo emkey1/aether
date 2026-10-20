@@ -1,0 +1,8 @@
+// Arithmetic other than `+` on Text. `s[i]` is a one-character Text, and
+// `s[0] - 1` used to compute from the character code: 96 for "abc".
+fn main() -> Void {
+    let s: Text = "abc";
+    let x: Int = s[0] - 1;
+    fx { println(x); }
+    ret;
+}

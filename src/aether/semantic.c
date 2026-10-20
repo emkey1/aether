@@ -4277,6 +4277,71 @@ static void aetherValidateNameCase(const AST *root) {
     free(d.types.names);
 }
 
+/* Two functions (or two methods of a type) with one name, or names that
+ * differ only by case. The engine keeps one routine per name, ignoring case,
+ * so the later body silently replaced the earlier one for every call: with
+ * `fn foo` and `fn Foo` both calls ran Foo. A prototype the forward scan
+ * emits has no body and is not a declaration here. */
+typedef struct {
+    const char *name;
+    int line;
+} FnDeclSeen;
+
+static void dupFnCollect(const AST *n, FnDeclSeen **seen, int *count, int *cap) {
+    if (!n) return;
+    if ((n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) && n->token &&
+        n->token->value) {
+        const AST *body = n->type == AST_FUNCTION_DECL ? n->extra : n->right;
+        if (body) {
+            const char *name = n->token->value;
+            int line = n->token->line > 0 ? n->token->line : 1;
+            for (int i = 0; i < *count; i++) {
+                if (strcasecmp((*seen)[i].name, name) != 0) continue;
+                const char *dot = strrchr(name, '.');
+                const char *kind = dot ? "method" : "function";
+                const char *shown = dot ? dot + 1 : name;
+                const char *first = strrchr((*seen)[i].name, '.');
+                first = first ? first + 1 : (*seen)[i].name;
+                char detail[320];
+                if (strcmp((*seen)[i].name, name) == 0) {
+                    snprintf(detail, sizeof(detail),
+                             "%s '%s' is declared twice (first on line %d): every call would "
+                             "reach only the last one.",
+                             kind, shown, (*seen)[i].line);
+                } else {
+                    snprintf(detail, sizeof(detail),
+                             "%s '%s' and '%s' (line %d) differ only by case: two names may "
+                             "not differ only by case, and every call would reach only one.",
+                             kind, shown, first, (*seen)[i].line);
+                }
+                reportNameCollision(line, detail, "rename one of them.");
+                break;
+            }
+            if (*count == *cap) {
+                int ncap = *cap ? *cap * 2 : 32;
+                FnDeclSeen *grown = (FnDeclSeen *)realloc(*seen, (size_t)ncap * sizeof(**seen));
+                if (!grown) return;
+                *seen = grown;
+                *cap = ncap;
+            }
+            (*seen)[*count].name = name;
+            (*seen)[*count].line = line;
+            (*count)++;
+        }
+    }
+    dupFnCollect(n->left, seen, count, cap);
+    dupFnCollect(n->right, seen, count, cap);
+    dupFnCollect(n->extra, seen, count, cap);
+    for (int i = 0; i < n->child_count; i++) dupFnCollect(n->children[i], seen, count, cap);
+}
+
+static void aetherValidateDuplicateFunctions(const AST *root) {
+    FnDeclSeen *seen = NULL;
+    int count = 0, cap = 0;
+    dupFnCollect(root, &seen, &count, &cap);
+    free(seen);
+}
+
 static void aetherWalkLoopExits(const AST *n, int loopDepth) {
     if (!n) return;
     switch (n->type) {
@@ -4774,6 +4839,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
     aetherValidateEffectsAndPurity(root);
     /* D70: a reference spelled differently from its declaration. */
     aetherValidateNameCase(root);
+    aetherValidateDuplicateFunctions(root);
     if (pascal_semantic_error_count > errorCountBefore) {
         return;
     }

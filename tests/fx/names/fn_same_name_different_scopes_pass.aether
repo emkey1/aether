@@ -1,0 +1,20 @@
+// The same name may name a function, a method of each type, and a value
+// (D17): none of these is a second declaration of one routine.
+type A {
+    n: Int;
+    fn size() -> Int { ret myself.n; }
+}
+type B {
+    n: Int;
+    fn size() -> Int { ret myself.n * 10; }
+}
+
+fn size(xs: Int[]) -> Int { ret length(xs); }
+
+fn main() -> Void {
+    let a: A = new A { n: 2 };
+    let b: B = new B { n: 3 };
+    let Size: Int = size([1, 2, 3, 4]);
+    fx { println(a.size(), " ", b.size(), " ", Size); }
+    ret;
+}
