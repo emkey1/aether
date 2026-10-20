@@ -1,0 +1,6 @@
+// abs() of the most negative Int traps with "Integer overflow" (was the backlog
+// probe abs_min_wrap: it returned MIN unchanged).
+fn main() -> Void {
+    let m: Int = -9223372036854775807 - 1;
+    fx { println(abs(m)); }
+}

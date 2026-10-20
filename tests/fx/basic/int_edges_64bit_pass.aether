@@ -1,0 +1,15 @@
+// The last in-range values of the Int conversions, shifts and overflow-checked
+// builtins: none of these may trap. A shift count of 64 or more shifts every
+// bit out: `<<` gives 0 and `>>` the sign fill.
+fn main() -> Void {
+    let lo: Real = -9223372036854775808.0;
+    let near: Int[] = [-9223372036854775807, -1];
+    let m8: Int = -8;
+    let c64: Int = 64;
+    let k: Int = 3037000499;
+    fx {
+        println(int(lo), " ", floor(-5000000000.2), " ", ceil(5000000000.2), " ", round(2.5), " ", round(-2.5));
+        println(fibonacci(92), " ", factorial(20), " ", sum(near), " ", sqr(k), " ", abs(m8), " ", -m8);
+        println(1 << 63, " ", m8 >> 1, " ", m8 >> c64, " ", c64 >> c64, " ", 1 << c64);
+    }
+}

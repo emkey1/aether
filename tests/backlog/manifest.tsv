@@ -19,12 +19,4 @@ range_bound_reread	silent:5	W4-33	full:628	the range bound is re-read every pass
 result_shadow	silent:nil	W4-43	-	the backend's `result` local shadows the user's global
 text_index_store	uncoded-runtime	W4-40	-	`s[i] = t` with a Text variable is an uncoded VM error
 chr_high	silent:Θ	W5-18	-	chr(233) prints through CP437
-real_to_int_32bit	silent:705032704	ideas:Real → Int builtins convert at 32 bits	full:187,medium:118,small:750	int(5000000000.0) wraps at 32 bits; NARROW-001 steers to int()
-round_32bit	silent:1294967296	ideas:Real → Int builtins convert at 32 bits	full:895	round(-3000000000.0) wraps at 32 bits
-trunc_32bit	silent:705032704	ideas:Real → Int builtins convert at 32 bits	full:895	trunc(5000000000.7) wraps at 32 bits
-shift_literal_32bit	silent:0 -1073741824 4294967296	ideas:Literal shifts fold at 32 bits	full:313,medium:262,small:110	`1 << 32` folds to 0 and `3 << 30` is negative; a variable shift is 64-bit
-factorial_wrap	silent:7034535277573963776	ideas:Int builtins wrap where	full:901,medium:206,small:361	factorial(25) wraps instead of trapping
-sum_wrap	silent:-9223372036854775808	ideas:Int builtins wrap where	full:1272,medium:590	sum([MAX, 1]) wraps instead of trapping
-abs_min_wrap	silent:-9223372036854775808	ideas:Int builtins wrap where	full:895	abs(MIN) returns MIN
-par_branch_failure	silent:after par	W4-37	-	a failing par branch prints ARR-003 and the program exits 0
 tuple_eq	silent:differ	W4-20	-	tuple == compares identity

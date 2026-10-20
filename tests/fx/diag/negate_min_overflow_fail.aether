@@ -1,0 +1,6 @@
+// Unary minus of the most negative Int traps with "Integer overflow" (it
+// returned MIN unchanged).
+fn main() -> Void {
+    let m: Int = -9223372036854775807 - 1;
+    fx { println(-m); }
+}

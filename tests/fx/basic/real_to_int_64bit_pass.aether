@@ -1,0 +1,6 @@
+// int() of a Real past 2^31 converts at 64 bits (was the backlog probe
+// real_to_int_32bit: makeInt() tagged INT32 and printed 705032704).
+fn main() -> Void {
+    let r: Real = 5000000000.0;
+    fx { println(int(r)); }
+}

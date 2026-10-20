@@ -1,0 +1,6 @@
+// sum() over [MAX, 1] traps with the same "Integer overflow" as `+` (was the
+// backlog probe sum_wrap: it printed MIN).
+fn main() -> Void {
+    let xs: Int[] = [9223372036854775807, 1];
+    fx { println(sum(xs)); }
+}

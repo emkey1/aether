@@ -1,0 +1,6 @@
+// A branch that fails inside a par nested in a par branch fails each level:
+// mid(5) stops, so "mid after 5" and "main after" are not printed, and the
+// exit is non-zero. Joining it used to deadlock or exit 0 cut short.
+fn leaf(k: Int) -> Void { let xs: Int[] = [1]; fx { println("leaf ", xs[k]); } }
+fn mid(k: Int) -> Void { par { leaf(0); leaf(k); } fx { println("mid after ", k); } }
+fn main() -> Void { par { mid(0); mid(5); } fx { println("main after"); } }

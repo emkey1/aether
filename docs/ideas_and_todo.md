@@ -860,20 +860,34 @@ with no NARROW-001. Probe `infer_int_times_real`.
 ### `=` is accepted as an `if` condition — *fixed 2026-10-20-1*
 `if x = 2 { ... }` assigns and takes the branch. Probe `assign_in_condition`.
 
-### Real → Int builtins convert at 32 bits — *gap (2026-10-20 review)*
-`int(5000000000.0)` and `trunc` give 705032704, `round(-3000000000.0)` gives
-1294967296, while the implicit narrowing is 64-bit, so NARROW-001's "write
-`int(...)`" steers to the wrong answer. Cause: `makeInt()` tags `TYPE_INT32`
-(pscal-core `utils.c`, used by `vmBuiltinFloor/Ceil/Trunc/Round`). Probes
-`real_to_int_32bit`, `round_32bit`, `trunc_32bit`.
+### Real → Int builtins convert at 32 bits — *fixed 2026-10-20-2*
+`int(5000000000.0)` and `trunc` gave 705032704, `round(-3000000000.0)` gave
+1294967296, while the implicit narrowing was 64-bit, so NARROW-001's "write
+`int(...)`" steered to the wrong answer. Cause: `makeInt()` tags `TYPE_INT32`
+(pscal-core `utils.c`, used by `vmBuiltinFloor/Ceil/Trunc/Round` and `int`).
+Now (pscal-core b76a44b) `int`, `trunc`, `round`, `floor` and `ceil` widen
+like every Int result, and a Real with no 64-bit Int value (NaN, an infinity,
+|x| >= 2^63) is a runtime error, `int(1e+20) has no 64-bit integer value`,
+instead of a wrapped number. Fixtures
+`tests/fx/basic/{real_to_int,trunc,round}_64bit_pass`,
+`int_edges_64bit_pass` and `tests/fx/diag/real_to_int_range_fail`.
 
-### Literal shifts fold at 32 bits — *gap (2026-10-20 review)*
-`1 << 32` is `0` and `3 << 30` is negative; the same shift on a variable is
-64-bit. Probe `shift_literal_32bit`.
+### Literal shifts fold at 32 bits — *fixed 2026-10-20-2*
+`1 << 32` was `0` and `3 << 30` negative, while the same shift on a variable
+was 64-bit: the VM's fast path for two INT32 operands tagged the result INT32.
+It now widens (pscal-core 08807e1), and every count >= 0 is defined: 64 or
+more shifts every bit out (`<<` gives 0, `>>` the sign fill; `one << 64` was 1,
+C UB). Fixtures
+`tests/fx/basic/shift_literal_64bit_pass` and `int_edges_64bit_pass`; the
+backend-conformance `int64_paths` (W5-04) passes.
 
-### Int builtins wrap where `+` and `*` trap — *gap (2026-10-20 review)*
-`factorial(25)` is 7034535277573963776, `sum([MAX, 1])` and `abs(MIN)` are
-MIN. Probes `factorial_wrap`, `sum_wrap`, `abs_min_wrap`.
+### Int builtins wrap where `+` and `*` trap — *fixed 2026-10-20-2*
+`factorial(25)` was 7034535277573963776, `sum([MAX, 1])`, `abs(MIN)` and
+`-MIN` were MIN, `sqr` and `fibonacci(93..)` wrapped. All of them now raise
+the same uncoded `Runtime Error: Integer overflow.` as `+` (pscal-core
+68d4d5b). Still open: that error has no code, for `+` and `*` as for these.
+Fixtures
+`tests/fx/diag/{factorial,sum,abs_min,negate_min,sqr,fibonacci}_overflow_fail`.
 
 ### PAR-001 misses aliases, and the race double-releases — *fixed 2026-10-20-1*
 PAR-001 compares argument names only, so `let b = a;` then

@@ -1,6 +1,0 @@
-// Backlog probe: abs() of the most negative Int returns it unchanged.
-// Correct behaviour: a coded overflow error.
-fn main() -> Void {
-    let m: Int = -9223372036854775807 - 1;
-    fx { println(abs(m)); }
-}

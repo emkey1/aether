@@ -1,0 +1,6 @@
+// A branch that ran a par of its own and then fails: before pscal-core's
+// nested-worker fix the program hung on every run (the joiner deadlocked on
+// itself), or stopped early with exit 0.
+fn leaf(k: Int) -> Void { let xs: Int[] = [1]; fx { println("leaf ", xs[k]); } }
+fn mid(k: Int) -> Void { par { leaf(0); leaf(0); } let xs: Int[] = [1]; fx { println("mid ", xs[k]); } }
+fn main() -> Void { par { mid(0); mid(5); } fx { println("main after"); } }

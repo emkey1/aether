@@ -12,6 +12,46 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-2
+
+**Engine fixes from the 2026-10-20 language review** (pscal-core
+26fd454..5ac9b55). No new surface and no compile-time change. A program that
+got a silently wrong number now gets the right one or stops with a runtime
+error, and a program whose `par` branch failed now exits non-zero. Corpus A/B
+(734 programs) and the replay lap are unchanged.
+
+- **Real → Int conversions are 64-bit.** `int`, `trunc`, `round`, `floor` and
+  `ceil` tagged their result INT32, so `int(5000000000.0)` and
+  `trunc(5000000000.7)` printed 705032704 and `round(-3000000000.0)`
+  1294967296, while the implicit Real → Int store was right. That made
+  NARROW-001's "write `int(...)`" steer to the wrong answer. A Real with no
+  64-bit Int value (NaN, an infinity, |x| >= 2^63) used to come back as garbage
+  (`int(1e20)` was -1). It is now a runtime error:
+  `int(1e+20) has no 64-bit integer value`.
+- **Shifts are 64-bit on literals too.** `1 << 32` was 0 and `3 << 30`
+  negative (the VM's fast path for two small operands), while the same shift
+  on a variable was right. A count of 64 or more is now defined: `<<` gives 0
+  and `>>` the sign fill (`one << 64` was 1).
+- **Int builtins trap on overflow like `+` and `*`.** `sum([MAX, 1])`,
+  `abs(MIN)` and `-MIN` returned MIN, `sqr(3037000500)` went negative, and
+  `factorial(21..)` and `fibonacci(93..)` wrapped (`factorial(25)` =
+  7034535277573963776). All raise `Runtime Error: Integer overflow.`.
+- **A failing `par` branch fails the program** (W4-37). The branch's error was
+  printed and the program went on and exited 0. Now, at the join, the program
+  stops with a non-zero exit, and only the branch's own error is on stderr.
+  This is in the engine (THREAD_JOIN under `frontendIsAether()`), so other
+  front ends' threads are unchanged.
+- **A branch that fails after running its own `par` no longer hangs.** A
+  nested worker's failed job was escalated to a program-wide interrupt, and
+  the joiner deadlocked on its own lock: it hung in 4 of 4 runs at pscal-core
+  26fd454, and a variant stopped early with exit 0.
+
+Backlog probes flipped and moved to `tests/fx/`: real_to_int_32bit,
+trunc_32bit, round_32bit, shift_literal_32bit, factorial_wrap, sum_wrap,
+abs_min_wrap, par_branch_failure. Backend conformance `int64_paths` (W5-04)
+passes. New fixtures cover the boundaries (`int_edges_64bit_pass`), the range
+error, negate/sqr/fibonacci overflow and two nested-`par` failures.
+
 ## 2026-10-20-1
 
 **Soundness fixes from the 2026-10-20 language review.** No new surface. Every

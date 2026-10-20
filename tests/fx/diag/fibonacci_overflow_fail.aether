@@ -1,0 +1,5 @@
+// fibonacci(93) is past Int's range and traps (fibonacci(100) wrapped to
+// 3736710778780434371); fibonacci(92) is in int_edges_64bit_pass.
+fn main() -> Void {
+    fx { println(fibonacci(93)); }
+}

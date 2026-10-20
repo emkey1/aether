@@ -1,0 +1,5 @@
+// sqr() traps where `n * n` would (sqr(3037000500) wrapped negative).
+fn main() -> Void {
+    let n: Int = 3037000500;
+    fx { println(sqr(n)); }
+}

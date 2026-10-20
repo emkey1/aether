@@ -20,7 +20,7 @@
 int64_stored            stdout  pass         const, typed-local and accumulator Int stay 64-bit
 int64_stored_overflow   stdout  pass         a stored INT64 product past 2^63 traps with exit 1
 int64_literal           stdout  pass         literal-derived Int arithmetic past 2^31 stays 64-bit
-int64_paths             stdout  xfail:W5-04  parse_int past 2^31 and `<<` still wrap at 32 bits
+int64_paths             stdout  pass         parse_int past 2^31 and `<<` are 64-bit (W5-04; the shift by pscal-core 08807e1)
 int64_overflow_trap     stdout  pass         fact(25) from a literal traps with exit 1
 leak_guard              rss     pass         no ArrayObj leaked per indexed access
 stdin_pipe_no_escape    stdout  pass         read_line (readln before D55) writes no cursor escape to a piped stdout

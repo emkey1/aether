@@ -1,0 +1,5 @@
+// factorial(25) traps with the same "Integer overflow" as `*` (was the backlog
+// probe factorial_wrap: it printed 7034535277573963776).
+fn main() -> Void {
+    fx { println(factorial(25)); }
+}

@@ -1,7 +1,8 @@
-// Int paths that are still 32-bit after core-0 (B-runtime-semantics-2,
-// B-type-system-1): parse_int of a value past 2^31 wraps, and `<<` shifts in
-// 32 bits, each with exit 0. Literal-derived arithmetic is fixed and covered by
-// int64_literal. Fixed by W5-04 steps 3 and 5 (shift, Int builtins).
+// Int paths that were still 32-bit after core-0 (B-runtime-semantics-2,
+// B-type-system-1): parse_int of a value past 2^31 wrapped, and `<<` shifted in
+// 32 bits, each with exit 0 (W5-04 steps 3 and 5). parse_int was fixed first;
+// the shift by pscal-core 08807e1 (the VM's INT32 fast path now widens).
+// Literal-derived arithmetic is covered by int64_literal.
 fn main() -> Void {
     fx {
         println(parse_int("3000000000"));

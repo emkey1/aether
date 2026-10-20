@@ -1,0 +1,6 @@
+// trunc() of a Real past 2^31 converts at 64 bits (was the backlog probe
+// trunc_32bit: it printed 705032704).
+fn main() -> Void {
+    let r: Real = 5000000000.7;
+    fx { println(trunc(r)); }
+}

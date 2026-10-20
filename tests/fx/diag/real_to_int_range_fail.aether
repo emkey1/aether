@@ -1,0 +1,6 @@
+// A Real with no 64-bit Int value is a runtime error, not a wrapped number
+// (int(1e20) used to print -1).
+fn main() -> Void {
+    let r: Real = 1e20;
+    fx { println(int(r)); }
+}

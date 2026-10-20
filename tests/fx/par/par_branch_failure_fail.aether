@@ -1,0 +1,12 @@
+// A failing par branch fails the program after the join: its ARR-003 is the
+// only error, the exit is non-zero and "after par" is not printed (W4-37; was
+// the backlog probe par_branch_failure, which exited 0 after "after par").
+fn boom(xs: Int[]) -> Void {
+    let y: Int = xs[10];
+}
+fn ok() -> Void { ret; }
+fn main() -> Void {
+    let xs: Int[] = [1];
+    par { boom(xs); ok(); }
+    fx { println("after par"); }
+}

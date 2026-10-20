@@ -1,0 +1,5 @@
+// round() of a Real past -2^31 converts at 64 bits (was the backlog probe
+// round_32bit: it printed 1294967296).
+fn main() -> Void {
+    fx { println(round(-3000000000.0)); }
+}

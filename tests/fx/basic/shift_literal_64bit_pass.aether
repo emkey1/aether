@@ -1,0 +1,7 @@
+// A literal shift is 64-bit like a variable one (was the backlog probe
+// shift_literal_32bit: the VM's INT32 fast path made `1 << 32` 0 and `3 << 30` negative).
+fn main() -> Void {
+    let one: Int = 1;
+    let k: Int = 32;
+    fx { println(1 << 32, " ", 3 << 30, " ", one << k); }
+}

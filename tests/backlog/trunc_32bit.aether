@@ -1,6 +1,0 @@
-// Backlog probe: trunc() of a Real past 2^31 wraps at 32 bits.
-// Correct behaviour: prints 5000000000.
-fn main() -> Void {
-    let r: Real = 5000000000.7;
-    fx { println(trunc(r)); }
-}

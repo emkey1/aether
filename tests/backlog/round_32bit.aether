@@ -1,5 +1,0 @@
-// Backlog probe: round() of a Real past -2^31 wraps at 32 bits.
-// Correct behaviour: prints -3000000000.
-fn main() -> Void {
-    fx { println(round(-3000000000.0)); }
-}
