@@ -157,6 +157,12 @@
         "date": "2026-10-20",
         "body_sha256": "4733142b4d868e15b7bc012f2c7d7147c0df5459f11472a5ff5f7bdbf865fe5c",
         "o200k": null
+      },
+      {
+        "stamp": "2026-10-20-11",
+        "date": "2026-10-20",
+        "body_sha256": "a4c2a88fee85284d8c5d710380d757ee06ebea49c15acb13587f437c9bca578f",
+        "o200k": null
       }
     ],
     "docs/aether_for_llms_medium_contexts.md": [

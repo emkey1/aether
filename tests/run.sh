@@ -2252,6 +2252,15 @@ if [ "$(cat $OUT/aether_module_effects_pass.out)" != "$(printf 'note: hi\n14 1')
     cat $OUT/aether_module_effects_pass.out >&2
     exit 1
 fi
+# aether_version() (D75 addition) is the text --version prints after "Version: ",
+# without the build-provenance "latest tag" that only --version shows.
+printf 'fn main() -> Void {\n    fx { println(aether_version()); }\n}\n' > $OUT/aether_version_probe.aether
+av_got="$("$AETHER_BIN" --no-cache $OUT/aether_version_probe.aether 2>&1)"
+av_want="$("$AETHER_BIN" --version | head -1 | sed -E 's/^.*Version: //; s/ \(latest tag: [^)]*\)$//; s/, latest tag: [^)]*\)$/)/')"
+if [ "$av_got" != "$av_want" ]; then
+    echo "aether_version() printed '$av_got', --version says '$av_want'" >&2
+    exit 1
+fi
 # ...and ARR-001 (D8), against the module's own file.
 if "$AETHER_BIN" --no-cache "$MODULE_ARR_PARAM_FAIL_FIXTURE" >$OUT/aether_module_arr_param_fail.out 2>&1; then
     echo "expected ARR-001 inside an imported module but program succeeded (D69)" >&2

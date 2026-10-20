@@ -64,6 +64,7 @@
 #include "aether/ast_prepasses.h"
 #include "aether/experiment.h"
 #include "aether/ast_internal.h"
+#include "core/build_info.h"
 
 /* Count of user-facing diagnostics written to stderr during the current parse.
  * Every parser diagnostic funnels through aetherDiagf (all `fprintf(stderr, ...)`
@@ -2360,6 +2361,18 @@ static AST *parseWriteArg(AetherParser *p) {
  * onto the call node, matching rea). When `isWrite` is set, each argument is
  * parsed as a write argument so `expr:w:p` format specifiers are honored (the
  * caller passes this for the write builtins, matching rea's isWriteBuiltin). */
+/* aether_version() (D75, a 1.0-beta addition): the compiler's version as
+ * `aether --version` prints it after "Version: ", the language version and
+ * the release label: "2026-10-20-14 (1.0-beta3)". It is constant for a build,
+ * so the call becomes a string literal. */
+static void aetherVersionText(char *out, size_t n) {
+#ifdef PSCAL_RELEASE_LABEL
+    snprintf(out, n, "%s (%s)", pscal_program_version_string(), PSCAL_RELEASE_LABEL);
+#else
+    snprintf(out, n, "%s", pscal_program_version_string());
+#endif
+}
+
 static AST *parseArgListEx(AetherParser *p, bool isWrite) {
     int openLine = p->current.line;
     aetherAdvance(p); /* consume '(' */
@@ -3682,6 +3695,39 @@ static AST *parsePrimary(AetherParser *p) {
                         return NULL;
                     }
                 }
+            }
+            /* aether_version(): a string literal (see aetherVersionText). A
+             * user's own fn of that name wins, as for any builtin. */
+            if (strcmp(raw, "aether_version") == 0 && !aetherAstIsTopLevelUserFunction(raw) &&
+                !aetherIsNestedFnName(p, raw)) {
+                AST *vargs = parseArgListEx(p, false);
+                if (!vargs) {
+                    freeToken(tok);
+                    return NULL;
+                }
+                int given = vargs->child_count;
+                freeAST(vargs);
+                if (given != 0) {
+                    char detail[160];
+                    snprintf(detail, sizeof(detail),
+                             "'aether_version' takes 0 arguments, but %d %s given.", given,
+                             given == 1 ? "was" : "were");
+                    reportAetherAstErrorWithCode(idLine, "BUILT-002", detail,
+                                                 "call it as `aether_version()`.");
+                    p->hadError = true;
+                    freeToken(tok);
+                    return NULL;
+                }
+                char text[192];
+                aetherVersionText(text, sizeof(text));
+                Token *vtok = newToken(TOKEN_STRING_CONST, text, idLine, 0);
+                freeToken(tok);
+                if (!vtok) return NULL;
+                AST *vnode = newASTNode(AST_STRING, vtok);
+                freeToken(vtok);
+                vnode->i_val = (int)strlen(text);
+                setTypeAST(vnode, TYPE_STRING);
+                return parsePostfix(p, vnode);
             }
             /* A user's own top-level `fn NAME` shadows an aliased builtin: the
              * text pre-pass leaves such a name verbatim (505cd44), so aliasing

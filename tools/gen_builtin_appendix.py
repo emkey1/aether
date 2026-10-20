@@ -181,7 +181,10 @@ def build_sections(entries, in_prose):
             # must write the registered lowercase spelling.
             name = name.lower()
             e = dict(e, name=name)
-        if name.lower() in removed or name.lower().startswith(HIDDEN_PREFIXES):
+        # aether_* engine names are internals, but a curated Aether entry may use
+        # the prefix on purpose (aether_version).
+        hidden = name.lower().startswith(HIDDEN_PREFIXES) and e.get("source") != "aether_alias"
+        if name.lower() in removed or hidden:
             continue
         if name in backend_names and name not in {x.get("backend_name") for x in [e]}:
             pass

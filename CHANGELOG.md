@@ -15,6 +15,28 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-14
+
+**`aether_version()`** (D75, a 1.0-beta addition; release label still
+`1.0-beta3dev`). A program can now ask which compiler runs it:
+`aether_version()` returns the text `aether --version` prints after
+"Version:", the language version and then the release label, e.g.
+`"2026-10-20-14 (1.0-beta3)"` (a PBuild umbrella build adds its `+commit`).
+It is pure and fixed for a given compiler, so the front end turns the call into
+a string literal; a user's own `fn aether_version` still wins, and an argument
+is BUILT-002. It is in the builtin listing (pscal-core), so `builtin_info` and
+the full guide's appendix document it. An agent had looked for a version in
+vain: no builtin, no environment variable, and the guide's stamp
+(`2026-10-20-10`) is the guide's own revision, not the compiler's.
+`tests/fx/builtins/aether_version_pass` and a `tests/run.sh` check against
+`--version`; the full guide's probes list it (guide stamp `2026-10-20-11`).
+
+The engine pin also fixes a crash: an async HTTP request's worker thread wrote
+the session's last headers and error, so a cancelled request that finished
+after `http_close` freed them twice (`http_loopback_pass` aborted in 4 of 180
+runs at 12 in parallel). The awaiting thread now applies them in `http_await` and
+`http_try_await`, and what those calls leave on the session is unchanged.
+
 ## 2026-10-20-13
 
 **Silent-wrong fixes from the 2026-10-20 VM audit's compiler list** (1.0-beta3dev).

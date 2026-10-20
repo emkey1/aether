@@ -1,0 +1,10 @@
+// aether_version(): the compiler's version text, constant for a build. The
+// exact value changes with every release, so this checks its shape; tests/run.sh
+// compares it with `aether --version`.
+fn main() -> Void {
+    let v: Text = aether_version();
+    fx {
+        println(length(v) > 10, " ", starts_with(v, "20"), " ", aether_version() == v);
+    }
+    ret;
+}
