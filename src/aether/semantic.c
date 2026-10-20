@@ -4051,6 +4051,48 @@ static void parWalk(const ParIndex *ix, ParAliases *al, const AST *n) {
     for (int i = 0; i < n->child_count; i++) parWalk(ix, al, n->children[i]);
 }
 
+/* `break` / `continue` outside a loop reached the backend, which reported it
+ * with no code and line 0: "L0: Compiler error: 'break' statement outside of
+ * a loop." */
+static void aetherWalkLoopExits(const AST *n, int loopDepth) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL:
+            loopDepth = 0;
+            break;
+        case AST_WHILE:
+        case AST_REPEAT:
+        case AST_FOR_TO:
+        case AST_FOR_DOWNTO:
+            aetherWalkLoopExits(n->left, loopDepth);
+            aetherWalkLoopExits(n->right, loopDepth + 1);
+            aetherWalkLoopExits(n->extra, loopDepth + 1);
+            for (int i = 0; i < n->child_count; i++) aetherWalkLoopExits(n->children[i], loopDepth + 1);
+            return;
+        case AST_BREAK:
+        case AST_CONTINUE:
+            if (loopDepth == 0) {
+                const char *word = n->type == AST_BREAK ? "break" : "continue";
+                char detail[256];
+                snprintf(detail, sizeof(detail),
+                         "`%s` is outside any loop: it only works inside `loop { }` (or "
+                         "`while`/`for`). To leave a function early, use `ret`.",
+                         word);
+                aetherSemanticReportCoded("SYN-001", "parser",
+                                          n->token && n->token->line > 0 ? n->token->line : 1,
+                                          detail, 1);
+            }
+            return;
+        default:
+            break;
+    }
+    aetherWalkLoopExits(n->left, loopDepth);
+    aetherWalkLoopExits(n->right, loopDepth);
+    aetherWalkLoopExits(n->extra, loopDepth);
+    for (int i = 0; i < n->child_count; i++) aetherWalkLoopExits(n->children[i], loopDepth);
+}
+
 static void aetherValidateParRaces(const AST *root) {
     ParIndex ix;
     memset(&ix, 0, sizeof(ix));
@@ -4538,6 +4580,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
     aetherRunExperiments(root);
     /* Coded errors hosted on the type oracle (types.c aetherTypedRules), on a
      * program the passes above accepted. */
+    if (pascal_semantic_error_count == errorCountBefore) aetherWalkLoopExits(root, 0);
     if (pascal_semantic_error_count == errorCountBefore) aetherValidateParRaces(root);
     if (pascal_semantic_error_count == errorCountBefore) aetherTypedRules(root);
     /* The type oracle's pass (types.c). It runs only when AETHER_DUMP_TYPES is

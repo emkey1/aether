@@ -1,0 +1,3 @@
+break_outside_loop_fail.aether:6: [SYN-001]
+`break` is outside any loop
+!L0:

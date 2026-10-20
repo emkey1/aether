@@ -1,0 +1,3 @@
+[FIELD-002]
+Unknown field 'y' on type 'Point'. Its fields are: x.
+!Compiler error

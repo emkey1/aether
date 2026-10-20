@@ -318,6 +318,38 @@ static AetherType recordFieldType(const char *recName, const char *field) {
     return mk(AETHER_T_UNKNOWN);
 }
 
+/* How `field` names a field of record `recName`: 1 exactly, 2 only when case
+ * is ignored (the backend's field lookup is exact, so that one fails there),
+ * 0 not at all, -1 when the record is not indexed. `*declared` gets the
+ * declared spelling for 2, and the field list (comma-separated) for 0. */
+static int recordFieldMatch(const char *recName, const char *field, char *declared, size_t n) {
+    const AST *rec = indexGet(&g_records, recName);
+    if (!rec || !field) return -1;
+    int found = 0;
+    size_t len = 0;
+    if (n) declared[0] = '\0';
+    for (int i = 0; i < rec->child_count; i++) {
+        const AST *f = rec->children[i];
+        if (!f || f->type != AST_VAR_DECL) continue;
+        for (int j = 0; j < f->child_count; j++) {
+            const AST *v = f->children[j];
+            if (!v || !v->token || !v->token->value) continue;
+            const char *fname = v->token->value;
+            if (strncmp(fname, "__", 2) == 0) continue; /* hidden __vtable */
+            if (strcmp(fname, field) == 0) return 1;
+            if (strcasecmp(fname, field) == 0) {
+                snprintf(declared, n, "%s", fname);
+                found = 2;
+            }
+            if (!found && len < n) {
+                int w = snprintf(declared + len, n - len, "%s%s", len ? ", " : "", fname);
+                if (w > 0) len += (size_t)w;
+            }
+        }
+    }
+    return found;
+}
+
 /* A function's declared parameters: children that are VAR_DECLs. */
 static int functionParamTypes(const AST *fn, AetherType *out, int max) {
     int n = 0;
@@ -1089,6 +1121,11 @@ static void walkStmt(Walker *w, AST *s) {
                 for (int i = 0; i < s->left->child_count; i++)
                     walkExpr(w, s->left->children[i], useOf(AETHER_USE_INDEX));
             } else if (s->left && s->left->type == AST_FIELD_ACCESS) {
+                /* The target itself, so a rule can check the field name. */
+                if (w->v->onExpr) {
+                    AetherUse u = useOf(AETHER_USE_OTHER);
+                    w->v->onExpr(w->v->ctx, s->left, &u, &w->env);
+                }
                 walkExpr(w, s->left->left, useOf(AETHER_USE_OTHER));
             }
             if (op == TOKEN_ASSIGN && lt.kind != AETHER_T_UNKNOWN)
@@ -1281,8 +1318,45 @@ static void ruleSink(void *vctx, const AST *site, const AST *value, const Aether
     reportRealInIntPosition(c, value, where);
 }
 
+/* FIELD-002 for a field the record does not declare. The backend reported
+ * these itself, with no code and no file: "L2: Compiler error: Unknown field
+ * 'Count'." (a case slip on `count`) and "field 'y' not found in record
+ * initializer for 'P'". */
+static void ruleFieldName(RuleCtx *c, const AST *at, const char *rec, const char *field) {
+    if (!rec || !field) return;
+    char declared[256];
+    int m = recordFieldMatch(rec, field, declared, sizeof(declared));
+    if (m != 0 && m != 2) return;
+    char detail[512];
+    if (m == 2)
+        snprintf(detail, sizeof(detail),
+                 "Unknown field '%s' on type '%s': field names are case-sensitive, and the "
+                 "field is spelled '%s'.",
+                 field, rec, declared);
+    else
+        snprintf(detail, sizeof(detail),
+                 "Unknown field '%s' on type '%s'. Its fields are: %s.", field, rec,
+                 declared[0] ? declared : "(none)");
+    int line = nodeLine(at);
+    aetherSemanticReportCoded("FIELD-002", "field", line > 0 ? line : 1, detail, 1);
+    c->reported++;
+}
+
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
+    if (e->type == AST_FIELD_ACCESS && e->right && e->right->token && e->right->token->value) {
+        AetherType rt = aetherTypeOf(e->left, env);
+        if (rt.kind == AETHER_T_RECORD && rt.name)
+            ruleFieldName(c, e, rt.name, e->right->token->value);
+        return;
+    }
+    if (e->type == AST_NEW && e->extra && e->token && e->token->value) {
+        for (int i = 0; i < e->extra->child_count; i++) {
+            const AST *fi = e->extra->children[i];
+            if (fi && fi->type == AST_ASSIGN && fi->left && fi->left->token && fi->left->token->value)
+                ruleFieldName(c, fi, e->token->value, fi->left->token->value);
+        }
+    }
     /* A condition must be a Bool. `if x = 2 { ... }` assigned 2 to x and took
      * the branch (an assignment is an expression in the shared engine, and an
      * Int is truthy there), and `if n { ... }` on an Int ran as `n != 0`. */

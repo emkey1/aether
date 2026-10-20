@@ -1,0 +1,11 @@
+// FUNC-001 (D49): a top-level function is not a value. `let f = sq;` was a
+// TYPE-001 with a hint to annotate it `Real`.
+fn sq(x: Int) -> Int {
+    ret x * x;
+}
+
+fn main() -> Void {
+    let f = sq;
+    fx { println(f(3)); }
+    ret;
+}

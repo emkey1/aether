@@ -1,0 +1,12 @@
+// FIELD-002, coded and with the file: field names are case-sensitive, and a
+// case slip reached the backend as "L2: Compiler error: Unknown field 'Count'."
+type Tally {
+    count: Int = 0;
+}
+
+fn main() -> Void {
+    let t: Tally = new Tally();
+    t.Count = 3;
+    fx { println(t.count); }
+    ret;
+}

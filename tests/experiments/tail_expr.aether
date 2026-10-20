@@ -1,6 +1,6 @@
-// D39 experiment fixture: a Rust-style tail `if` in a non-Void function. Today
-// it compiles and returns nothing (prints nil); tail=reject makes it FLOW-001;
-// tail=ret returns the branch value.
+// D39 experiment fixture: a Rust-style tail `if` in a non-Void function. It
+// printed nil until FLOW-001 checked every path (W4-04); now the default arm is
+// FLOW-001 too. tail=reject names the discarded value; tail=ret returns it.
 fn bigger(a: Int, b: Int) -> Int {
     if a > b { a } else { b }
 }

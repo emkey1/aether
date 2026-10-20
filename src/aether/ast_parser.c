@@ -3267,6 +3267,24 @@ static AST *parsePrimary(AetherParser *p) {
             freeToken(tok);
             return NULL;
         }
+        /* The same for a top-level function (D49: FUNC-001 for `let g = f;`).
+         * `let f = sq;` was TYPE-001 with a hint to annotate it `Real`, and
+         * `apply(sq)` a bare SCOPE-001 for a name that plainly exists. */
+        if (tok->value && !p->forwardScan && !p->detachedText &&
+            aetherAstIsTopLevelUserFunction(tok->value) &&
+            !bindingTableGet(p->bindings, tok->value, strlen(tok->value)) &&
+            !fieldNameListHas(p->classFields, tok->value, strlen(tok->value))) {
+            char detail[240];
+            snprintf(detail, sizeof(detail),
+                     "the function '%s' is not a value: it cannot be stored, passed or "
+                     "returned.", tok->value);
+            reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "nested-fn", detail,
+                                 "call it directly, `name(args)`; to choose between functions, "
+                                 "branch with `if` and call each one.");
+            p->hadError = true;
+            freeToken(tok);
+            return NULL;
+        }
         AST *node = newASTNode(AST_VARIABLE, tok);
         setTypeAST(node, TYPE_UNKNOWN);
         return parsePostfix(p, node);
@@ -5376,14 +5394,18 @@ static AST *parseStatementInner(AetherParser *p) {
         return parseParBlock(p); /* `par { ... }` -> spawn/join block */
     }
     if (p->current.type == REA_TOKEN_BREAK || isAetherKeyword(&p->current, "break")) {
+        int breakLine = p->current.line;
         aetherAdvance(p); /* consume 'break' */
         if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
-        return newASTNode(AST_BREAK, NULL); /* rea parseBreak shape */
+        /* rea parseBreak shape; the token carries the line for the
+         * outside-a-loop check (aetherValidateLoopExits). */
+        return newASTNode(AST_BREAK, newToken(TOKEN_BREAK, "break", breakLine, 0));
     }
     if (p->current.type == REA_TOKEN_CONTINUE || isAetherKeyword(&p->current, "continue")) {
+        int continueLine = p->current.line;
         aetherAdvance(p); /* consume 'continue' */
         if (p->current.type == REA_TOKEN_SEMICOLON) aetherAdvance(p);
-        return newASTNode(AST_CONTINUE, NULL); /* rea parseContinue shape */
+        return newASTNode(AST_CONTINUE, newToken(TOKEN_CONTINUE, "continue", continueLine, 0));
     }
     if (p->current.type == REA_TOKEN_IF) {
         return parseIfStmt(p);
@@ -8960,7 +8982,8 @@ AST *parseAetherAst(const char *rawSource) {
             if (mainDecl->child_count > 0) {
                 entryMsg = "fn main takes no parameters.";
                 entryHint = "write `fn main() -> Void`; read command-line arguments with "
-                            "paramcount() and paramstr(i).";
+                            "`args()` (a Text[] of the arguments after the program), "
+                            "inside fx.";
                 entryLine = mainLine;
             } else if (mainDecl->type == AST_FUNCTION_DECL && !mainIsInt) {
                 entryMsg = "fn main must return Void or Int.";

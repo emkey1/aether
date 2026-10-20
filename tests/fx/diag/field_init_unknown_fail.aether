@@ -1,0 +1,11 @@
+// FIELD-002 for a `new T { ... }` initializer naming a field T does not have;
+// the backend said "field 'y' not found in record initializer" with no code.
+type Point {
+    x: Int = 0;
+}
+
+fn main() -> Void {
+    let p: Point = new Point { y: 3 };
+    fx { println(p.x); }
+    ret;
+}
