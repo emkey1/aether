@@ -12,6 +12,57 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-1
+
+**Soundness fixes from the 2026-10-20 language review.** No new surface. Every
+change turns a program that compiled and then ran wrong, returned nil or crashed
+into a compile-time error with a code, except the inferred-Real fix, which
+makes such programs print the right value. Paired replay over the archived
+benchmark attempts: no unwaived pass→fail; the 218 frozen replay cases are
+unchanged (185 pass).
+
+- **TYPE-001 for a value of the wrong type** (W4-17). The type oracle already
+  classified every typed sink but no rule reported a mismatch, so
+  `fn g() -> Text { ret 5; }`, `xs[0] = "z"` on an `Int[]`, `a.x = "hello"`
+  into an `Int` field, `greet(42)` into a `Text` parameter and
+  `const N: Int = "ten"` compiled, as did record confusion
+  (`let a: P = new Q()`, a `Q` passed for a `P`, a `Q` in a `P[]` literal),
+  which then read the wrong type's data by slot. All are TYPE-001 now
+  ("type mismatch: the function returns Text, but this value is Int").
+  Int into Real still widens, Real into Int keeps its truncation and
+  NARROW-001 warning, and anything the oracle cannot type passes.
+- **A condition must be Bool.** `if x = 2 { }` assigned 2 and took the
+  branch, and `if n { }` on an Int ran as `n != 0`. Both are TYPE-001.
+- **An inferred `let` over Int and Real is Real.** `let c = n * y;` (Int `n`,
+  Real `y`) followed its left operand, was typed Int and printed 7 for 7.5.
+- **FLOW-001 checks every path** (W4-04). It fired only when a non-Void
+  function had no value `ret` anywhere, so an `if`-only body returned nil. A
+  function now passes when every path ends in `ret`, `halt`/`exit`, an `if`
+  whose branches all do, or a `loop { }` nothing breaks out of.
+- **PAR-001 sees globals, aliases and shared fields.** A global one branch's
+  call graph writes and another uses, one record under two names
+  (`let b: S = a; par { f(a); f(b); }`), and the same field expression in two
+  branches raced: lost updates, or a VM double-release crash (exit 133). They
+  are rejected at compile time; distinct array elements, separate records and
+  read-only globals stay legal.
+- **A method named like its own type is NAME-001.** `fn c` inside `type C`
+  (names ignore case) became the engine's constructor and died with
+  "VM Error: Local slot index 1 out of range".
+- **Backend errors now coded:** FIELD-002 for an unknown field, a case slip
+  (`t.Count` on `count`, naming the declared spelling) and an unknown
+  `new T { y: ... }` initializer; SYN-001 for `break`/`continue` outside a
+  loop, on its line (was "L0: Compiler error"); FUNC-001 for a top-level
+  function used as a value (`let f = sq;`, `apply(sq)`), as D49 specifies.
+- **ENTRY-001's hint** for `fn main(args: Text[])` names `args()` instead of
+  the removed `paramcount()`/`paramstr(i)`.
+
+Backlog probes flipped and moved to `tests/fx/`: flow001_tail_ret,
+flow001_int_fallthrough, ret_text_from_int, bool_from_int, bool_from_int_ret,
+ret_int_from_text, elem_store_wrong_type, field_store_wrong_type,
+record_nominal_let, record_nominal_param, infer_int_times_real,
+assign_in_condition, par_alias_append, method_named_like_type,
+entry_hint_paramstr.
+
 ## 2026-10-19-3
 
 **A method spelling that cannot reach its function is SCOPE-001, not a run-time

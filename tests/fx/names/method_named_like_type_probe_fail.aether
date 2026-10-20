@@ -1,4 +1,4 @@
-// Backlog probe: a method named like its own type, ignoring case (`fn c` in `type C`),
+// Regression (was backlog probe, fixed 2026-10-20): a method named like its own type, ignoring case (`fn c` in `type C`),
 // compiles and dies with "Local slot index 1 out of range".
 // Correct behaviour: prints 100, or a coded compile-time error.
 type C {

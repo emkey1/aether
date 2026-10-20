@@ -1,4 +1,4 @@
-// Backlog probe: `let c = n * y` with n: Int and y: Real infers Int and truncates 7.5.
+// Regression (was backlog probe, fixed 2026-10-20): `let c = n * y` with n: Int and y: Real infers Int and truncates 7.5.
 // Correct behaviour: infers Real and prints 7.500000.
 fn main() -> Void {
     let y: Real = 2.5;

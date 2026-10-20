@@ -1,8 +1,0 @@
-// Backlog probe: `ret 5` from `-> Text` is accepted (the reverse of ret_text_from_int).
-// Correct behaviour: a coded type error.
-fn g() -> Text {
-    ret 5;
-}
-fn main() -> Void {
-    fx { println(g()); }
-}

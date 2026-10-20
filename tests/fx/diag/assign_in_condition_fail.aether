@@ -1,4 +1,4 @@
-// Backlog probe: `if x = 2` assigns and takes the branch.
+// Regression (was backlog probe, fixed 2026-10-20): `if x = 2` assigns and takes the branch.
 // Correct behaviour: a coded error pointing at `==`.
 fn main() -> Void {
     let x: Int = 1;

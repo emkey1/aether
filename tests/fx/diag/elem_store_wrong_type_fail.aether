@@ -1,4 +1,4 @@
-// Backlog probe: storing a Text into an Int[] element is accepted.
+// Regression (was backlog probe, fixed 2026-10-20): storing a Text into an Int[] element is accepted.
 // Correct behaviour: a coded type error.
 fn main() -> Void {
     let xs: Int[] = [1, 2];

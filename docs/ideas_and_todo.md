@@ -846,18 +846,18 @@ The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it
 names in `tests/backlog/`.
 
-### Element, field and record-type stores are not type-checked — *gap (2026-10-20 review)*
+### Element, field and record-type stores are not type-checked — *fixed 2026-10-20-1*
 `xs[0] = "z"` into an `Int[]` and `a.x = "hello"` into an `Int` field are
 stored as given (`a.x + 1` then prints `hello1`), and records are not nominal:
 `let a: A = new B { y: "hi" }` prints `hi` for `a.x`, and a `Q` passed to a
 `P` parameter is read through P's slots. Probes `elem_store_wrong_type`,
 `field_store_wrong_type`, `record_nominal_let`, `record_nominal_param`.
 
-### Inferred `let` of Int × Real is Int — *gap (2026-10-20 review)*
+### Inferred `let` of Int × Real is Int — *fixed 2026-10-20-1*
 `let c = n * y;` with `n: Int`, `y: Real` infers `Int` and prints `7` for 7.5,
 with no NARROW-001. Probe `infer_int_times_real`.
 
-### `=` is accepted as an `if` condition — *gap (2026-10-20 review)*
+### `=` is accepted as an `if` condition — *fixed 2026-10-20-1*
 `if x = 2 { ... }` assigns and takes the branch. Probe `assign_in_condition`.
 
 ### Real → Int builtins convert at 32 bits — *gap (2026-10-20 review)*
@@ -875,16 +875,16 @@ with no NARROW-001. Probe `infer_int_times_real`.
 `factorial(25)` is 7034535277573963776, `sum([MAX, 1])` and `abs(MIN)` are
 MIN. Probes `factorial_wrap`, `sum_wrap`, `abs_min_wrap`.
 
-### PAR-001 misses aliases, and the race double-releases — *gap (2026-10-20 review)*
+### PAR-001 misses aliases, and the race double-releases — *fixed 2026-10-20-1*
 PAR-001 compares argument names only, so `let b = a;` then
 `par { grow(a, k); grow(b, k); }` compiles; appending to the shared Text dies
 with a pscal-core double-release (exit 133). Probe `par_alias_append`.
 
-### A method named like its own type crashes the VM — *gap (2026-10-20 review)*
+### A method named like its own type crashes the VM — *fixed 2026-10-20-1*
 `fn c` inside `type C` (names ignore case) compiles, and the call dies with
 `VM Error: Local slot index 1 out of range`. Probe `method_named_like_type`.
 
-### ENTRY-001's hint names the removed `paramcount`/`paramstr` — *gap (2026-10-20 review)*
+### ENTRY-001's hint names the removed `paramcount`/`paramstr` — *fixed 2026-10-20-1*
 `fn main(args: Text[])` is ENTRY-001 with the hint "read command-line
 arguments with paramcount() and paramstr(i)", both removed by D55 (they are
 SCOPE-001). The hint should name `args()`. Probe `entry_hint_paramstr`.

@@ -1,4 +1,4 @@
-// Backlog probe: two par branches append to one record's Text through an alias (`let b = a`);
+// Regression (was backlog probe, fixed 2026-10-20): two par branches append to one record's Text through an alias (`let b = a`);
 // PAR-001 compares argument names only, and the VM double-releases the string (exit 133).
 // One par block crashes in ~97% of runs; eight in a row crash every time and stay under 1 s.
 // Correct behaviour: a coded PAR-001 at compile time.
