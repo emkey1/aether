@@ -408,6 +408,59 @@ bool astHasValueReturn(const AST *node) {
     return false;
 }
 
+/* True if `n` holds a `break` that would leave the loop `n` sits in: nested
+ * loops own their breaks, and nested function bodies are not this loop. */
+static bool astHasLoopExitBreak(const AST *n) {
+    if (!n) return false;
+    if (n->type == AST_BREAK) return true;
+    if (n->type == AST_WHILE || n->type == AST_REPEAT || n->type == AST_FOR_TO ||
+        n->type == AST_FOR_DOWNTO || n->type == AST_FUNCTION_DECL ||
+        n->type == AST_PROCEDURE_DECL)
+        return false;
+    if (astHasLoopExitBreak(n->left) || astHasLoopExitBreak(n->right) ||
+        astHasLoopExitBreak(n->extra))
+        return true;
+    for (int i = 0; i < n->child_count; i++) {
+        if (astHasLoopExitBreak(n->children[i])) return true;
+    }
+    return false;
+}
+
+static bool astIsTrueLiteral(const AST *n) {
+    return n && n->type == AST_BOOLEAN &&
+           (n->i_val != 0 || (n->token && n->token->type == TOKEN_TRUE));
+}
+
+/* True if control never reaches the end of `s`: a `ret`, `halt`/`exit`, an
+ * `if` whose branches all end that way, a block holding such a statement, or a
+ * `loop { }` / `while true` that nothing breaks out of. */
+bool astStmtNeverFallsThrough(const AST *s) {
+    if (!s) return false;
+    switch (s->type) {
+        case AST_RETURN:
+            return true;
+        case AST_COMPOUND:
+        case AST_BLOCK:
+            for (int i = 0; i < s->child_count; i++) {
+                if (astStmtNeverFallsThrough(s->children[i])) return true;
+            }
+            return false;
+        case AST_IF:
+            return s->extra && astStmtNeverFallsThrough(s->right) &&
+                   astStmtNeverFallsThrough(s->extra);
+        case AST_WHILE:
+            return astIsTrueLiteral(s->left) && !astHasLoopExitBreak(s->right);
+        case AST_EXPR_STMT:
+            return astStmtNeverFallsThrough(s->left);
+        case AST_PROCEDURE_CALL:
+            return s->token && s->token->value &&
+                   (strcasecmp(s->token->value, "halt") == 0 ||
+                    strcasecmp(s->token->value, "exit") == 0);
+        default:
+            return false;
+    }
+}
+
 /* True if the block has a top-level statement that "falls through": an
  * expression/assignment/call, not a declaration, control-flow construct, or
  * return. Mirrors the rewriter's sawFallthroughTopLevelStmt (translate.c ~8966,

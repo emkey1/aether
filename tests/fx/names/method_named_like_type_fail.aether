@@ -1,0 +1,17 @@
+// A method named like its own type (names ignore case) used to become the
+// engine's constructor and crash the VM on `new Box()`. It is NAME-001 now.
+type Box {
+    n: Int = 0;
+
+    fn box(k: Int) -> Void {
+        self.n = self.n + k;
+        ret;
+    }
+}
+
+fn main() -> Void {
+    let b: Box = new Box();
+    b.box(5);
+    fx { println(b.n); }
+    ret;
+}

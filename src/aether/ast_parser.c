@@ -5985,6 +5985,24 @@ static AST *parseFnDecl(AetherParser *p) {
         p->hadError = true;
         return NULL;
     }
+    /* A method named like its own type (names ignore case: `fn box` in
+     * `type Box`) becomes the engine's constructor, which `new Box()` then
+     * calls with the wrong frame: "VM Error: Local slot index 1 out of
+     * range" at run time. Aether has no constructors, so name the collision. */
+    if (p->currentClassName && !isNested &&
+        (size_t)p->current.length == strlen(p->currentClassName) &&
+        strncasecmp(p->current.start, p->currentClassName, (size_t)p->current.length) == 0) {
+        char detail[200];
+        snprintf(detail, sizeof(detail),
+                 "method '%.*s' has the same name as its type '%s' (names ignore case).",
+                 (int)p->current.length, p->current.start, p->currentClassName);
+        reportAetherAstErrorWithCode(p->current.line, "NAME-001", detail,
+                                     "rename the method. Aether has no constructor methods: "
+                                     "allocate with `new T { field: value }`, or write a "
+                                     "top-level factory `fn`.");
+        p->hadError = true;
+        return NULL;
+    }
     /* `fn __init__` is Python's constructor. Aether has none, and a method of
      * that name compiled as an ordinary method that nothing ever calls: `new P()`
      * left the object zero-valued and exit 0. Rejected before the signature is
@@ -6536,11 +6554,15 @@ static AST *parseFnDecl(AetherParser *p) {
         aetherExperiment()->tail == AETHER_TAIL_RET && !postExpr && !p->currentTupleSig) {
         aetherTailRetBlock(p, block);
     }
+    /* W4-04: every path, not just "some `ret <value>` exists somewhere". An
+     * `if`-only body (`if n < 0 { ret -1; } if n > 0 { ret 1; }`) used to pass
+     * and return nil at run time. An empty body is left to the declaration
+     * checks, as before. */
     if (hasBody && block && !p->hadError && vtype != TYPE_VOID &&
-        astBlockHasFallthroughStmt(block) && !astHasValueReturn(block)) {
+        block->child_count > 0 && !astStmtNeverFallsThrough(block)) {
         reportAetherAstError(aetherSemanticGetSourcePath(), fnLine, "function",
                              "non-Void functions have a fallthrough path with no return value.",
-                             "add `ret value;` on the top-level path that can reach the closing `}`, or declare the function `-> Void` if it only performs side effects.");
+                             "every path must end in `ret value;` -- an `if` with no `else`, or a loop that can finish, falls through to the closing `}`: add a final `ret`, or declare the function `-> Void` if it only performs side effects.");
         p->hadError = true;
     }
 

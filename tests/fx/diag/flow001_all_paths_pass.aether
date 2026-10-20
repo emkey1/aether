@@ -1,0 +1,56 @@
+// W4-04: shapes that return on every path must keep compiling once FLOW-001
+// checks each path rather than "some value `ret` exists".
+fn sign(n: Int) -> Int {
+    if n > 0 {
+        ret 1;
+    } else if n < 0 {
+        ret -1;
+    } else {
+        ret 0;
+    }
+}
+
+fn firstAbove(n: Int) -> Int {
+    loop {
+        if n > 3 {
+            ret n;
+        }
+        n = n + 1;
+    }
+}
+
+fn mustBePositive(n: Int) -> Int {
+    if n > 0 {
+        ret n;
+    }
+    fx { halt(3); }
+}
+
+fn label(n: Int) -> Text {
+    ret if n > 0 { "pos" } else { "non-pos" };
+}
+
+fn findTwo(n: Int) -> Int {
+    loop i in 0..n {
+        if i == 2 {
+            ret i;
+        }
+    }
+    ret -1;
+}
+
+fn ordered(a: Int, b: Int) -> (Int, Int) {
+    if a <= b {
+        ret (a, b);
+    }
+    ret (b, a);
+}
+
+fn main() -> Void {
+    let (lo, hi) = ordered(9, 4);
+    fx {
+        println(sign(-5), " ", firstAbove(1), " ", mustBePositive(7), " ", label(0), " ",
+                findTwo(5), " ", findTwo(1), " ", lo, " ", hi);
+    }
+    ret;
+}

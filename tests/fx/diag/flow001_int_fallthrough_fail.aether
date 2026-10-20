@@ -1,0 +1,9 @@
+// W4-04 regression (was a backlog probe that printed nil): an `if`-only body
+// can fall off the end, so FLOW-001 rejects it at compile time.
+fn sign(n: Int) -> Int {
+    if n < 0 { ret -1; }
+    if n > 0 { ret 1; }
+}
+fn main() -> Void {
+    fx { println(sign(0)); }
+}

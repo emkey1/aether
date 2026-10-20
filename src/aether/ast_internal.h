@@ -380,6 +380,7 @@ bool aetherCheckParSharedRecords(AetherParser *p, AST *call, int handle, int cal
                                  int sharedRecCap);
 bool astHasValueReturn(const AST *node);
 bool astBlockHasFallthroughStmt(const AST *block);
+bool astStmtNeverFallsThrough(const AST *s);
 int aetherCheckMemberCalls(AST *node, AST *decls);
 
 /* ---- Tuple annotations (ast_parser.c, W4-25) ------------------------- */

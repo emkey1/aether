@@ -1842,7 +1842,7 @@ if ! grep -q "Aether function parser error: non-Void functions have a fallthroug
     cat $OUT/aether_function_missing_value_return_fail.out >&2
     exit 1
 fi
-if ! grep -q 'hint: add `ret value;` on the top-level path that can reach the closing `}`, or declare the function `-> Void` if it only performs side effects\.' $OUT/aether_function_missing_value_return_fail.out; then
+if ! grep -q 'hint: every path must end in `ret value;` -- an `if` with no `else`, or a loop that can finish, falls through' $OUT/aether_function_missing_value_return_fail.out; then
     echo "missing value return rewrite failure hint" >&2
     cat $OUT/aether_function_missing_value_return_fail.out >&2
     exit 1
