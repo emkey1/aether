@@ -1,0 +1,22 @@
+// D24: == on records, tuples, nested records and arrays of records compares
+// field by field; same(a, b) is identity; == nil stays legal.
+type P { x: Int = 0; name: Text = ""; }
+type Seg { a: P; b: P; tags: Text[] = []; }
+fn pair(n: Int) -> (Int, Text) { ret (n, "k"); }
+fn main() -> Void {
+    let a: P = new P { x: 1, name: "n" };
+    let b: P = new P { x: 1, name: "n" };
+    let c: P = new P { x: 2, name: "n" };
+    let s1: Seg = new Seg { a: a, b: c, tags: ["t"] };
+    let s2: Seg = new Seg { a: b, b: new P { x: 2, name: "n" }, tags: ["t"] };
+    let ps: P[] = [a, c];
+    let qs: P[] = [b, new P { x: 2, name: "n" }];
+    let t1 = pair(3);
+    let t2 = pair(3);
+    let none: P = nil;
+    fx {
+        println(a == b, " ", a != b, " ", a == c, " ", same(a, b), " ", same(a, a));
+        println(s1 == s2, " ", ps == qs, " ", t1 == t2, " ", none == nil, " ", a == nil);
+    }
+    ret;
+}

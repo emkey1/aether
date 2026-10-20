@@ -3131,6 +3131,7 @@ static const AetherBuiltinArity kAetherBuiltinArity[] = {
     {"aether_index_of", 15, 2, 2},
     {"aether_repeat", 13, 2, 2},
     {"aether_join", 11, 2, 2},
+    {"aether_same", 11, 2, 2},
     {"aether_is_digit", 15, 1, 1},
     {"aether_is_alpha", 15, 1, 1},
     {"aether_is_alnum", 15, 1, 1},

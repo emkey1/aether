@@ -441,9 +441,11 @@ if(Python3_Interpreter_FOUND)
     set_property(TEST aether_tests APPEND PROPERTY ENVIRONMENT "AETHER_RUN_SH_FIXTURES=0")
     add_test(NAME aether_fixtures_selftest
              COMMAND ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/run_fixtures_selftest.sh)
+    # The baseline lap alone runs every fixture once; at 250+ fixtures under
+    # `ctest -j` it passed 300 s twice on 2026-10-20 (24 s run alone).
     set_tests_properties(aether_fixtures_selftest PROPERTIES
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
-        TIMEOUT 300
+        TIMEOUT 900
         LABELS "fixtures")
 endif()
 

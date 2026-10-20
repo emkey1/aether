@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-18-1*
+*Guide version: 2026-10-20-1*
 
 ## Highest-Value Rules
 
@@ -388,8 +388,8 @@ Array helpers (pure, new values): `sum(xs)`, `min_of(xs)`,
 `max_of(xs)`, `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
 `index_of(xs, v)`, `count(xs, v)`, and for records
 `sorted_by(rs, "field")` / `sorted_by_desc` (a literal field name). `[0; n]` is
-n zeros; shrink with a slice (`xs = xs[..n];`); `xs == ys`
-compares element by element.
+n zeros; shrink with a slice (`xs = xs[..n];`); `==` compares arrays element by
+element and records and tuples field by field (`same(a, b)` is identity).
 `a..b` is half-open in a slice as in `loop i in a..b`, and means nothing
 outside `[...]` or a `loop` header. A slice may drop a bound: `xs[a..]` runs to
 the end (`queue = queue[1..];`), `xs[..b]` starts at 0 (`Text` too).
@@ -743,6 +743,7 @@ fix:
   value (`ret <expr>;`), or declare the function `-> Void`.
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move `@pre`/`@post`/`@pure`/`@cost` directly above the function, keep effects out of pure code, and mark its helpers `@pure`.
+- **[REC-001]** `==` on a type that contains itself → `same(a, b)`.
 - **[TUP-001]** tuple misuse → the forms in rule 11; otherwise return a record
   and read its fields.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int

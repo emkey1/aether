@@ -1,4 +1,4 @@
-// Backlog probe (W4-20): record == compares identity.
+// Regression (was backlog probe; D24 structural ==, 2026-10-20) (W4-20): record == compares identity.
 // Correct behaviour: REC-001, or prints same.
 type Pos { r: Int; c: Int; }
 fn main() -> Void {

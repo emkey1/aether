@@ -1,4 +1,4 @@
-// Backlog probe (W4-20): tuple == compares identity, so two equal tuples differ.
+// Regression (was backlog probe; D24 structural ==, 2026-10-20) (W4-20): tuple == compares identity, so two equal tuples differ.
 // Correct behaviour: REC-001, or prints same.
 fn pair() -> (Int, Int) { ret (1, 2); }
 fn main() -> Void {

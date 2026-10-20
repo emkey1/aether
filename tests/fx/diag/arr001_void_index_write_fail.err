@@ -1,0 +1,4 @@
+[ARR-001]
+array parameter 'arr' has an element written here, but the function never returns it
+`xs = f(xs)`
+!the write is lost

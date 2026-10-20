@@ -1,0 +1,14 @@
+// D24: == on a self-referential record type is REC-001 (same() is the identity
+// test); two different record types never compare equal (TYPE-001); same()
+// takes records.
+type Node { v: Int = 0; next: Node; }
+type P { x: Int = 0; }
+type Q { x: Int = 0; }
+fn main() -> Void {
+    let a: Node = new Node { v: 1 };
+    let b: Node = new Node { v: 1 };
+    let p: P = new P();
+    let q: Q = new Q();
+    fx { println(a == b, same(a, b), p == q, same(3, 4)); }
+    ret;
+}

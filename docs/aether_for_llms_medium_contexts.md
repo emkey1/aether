@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-19-1*
+*Guide version: 2026-10-20-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -108,7 +108,6 @@ real logic, never hard-coded expected output.
 - `print` / `println` / `toon_parse_file` / task helpers / `ai_chat` outside
   `fx` (FX-001)
 - `use module_name;` without quotes, or `export { ... }`
-- invented helpers not listed here (BUILT-001)
 - `toon_parse_string(text)` — the text parser is `toon_parse(text)`
 - `copy`, `pos`, `val`, `itoa`, `File` / `assign` / `readln` / `eof`,
   `paramstr`, `gettime`, `setlength`, unprefixed `mstream*`: not Aether
@@ -118,13 +117,11 @@ real logic, never hard-coded expected output.
   write `int(...)` when you mean to truncate
 - foreign object/JSON APIs: `JsonDoc`, `JsonNode`, `json.parseFile(...)`,
   `root.get(...)`, `Int.MIN`, `value.toString()`
-- Markdown fences around the program
 
 ## Canonical vs accepted forms
 
 | Topic | Canonical | Accepted | Avoid |
 |---|---|---|---|
-| Mutable binding | `let x: Int = 0;` | `let mut x: Int = 0;` | treating `let` as immutable |
 | Loop keyword | `loop` (condition / range / foreach) | `while cond { }`, `for x in a..b { }` | inventing other loop syntax |
 | Return | `ret value;` (`ret;` for Void) | — | `return value;` |
 | Output | variadic `println(a, b)` in `fx` | `+` concatenation | — |
@@ -256,7 +253,8 @@ fn main() -> Void {
   `TYPE-002` error.
 - `println(boolValue)` prints `true` or `false`.
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`/`not`, `&&`/`and`, `||`/`or`
-  (short-circuit). Arrays compare element by element with `==` / `!=`.
+  (short-circuit). `==` / `!=` compare arrays, records and tuples by value,
+  element by element and field by field; `same(a, b)` is record identity.
   `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
 - Bitwise / shift, `Int` only: `&`, `|`, `^` (`xor` is the same operator as `^`),
   `<<`, `>>`. `6 & 3` is `2`; `6 << 1` is `12`. These are not logical operators —
@@ -984,6 +982,7 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[ANN-001]** a misplaced annotation, or a `@pure` function calling an effect →
   move the annotation above the function; keep effects out of pure code and
   mark its helpers `@pure` too.
+- **[REC-001]** `==` on a type that contains itself → `same(a, b)` or compare fields.
 - **[TUP-001]** tuple misuse → destructure a direct call, or bind and read one
   field; never chain onto the call.
 - **[ARR-001]** (warning) a `Void` function mutating an array parameter → return

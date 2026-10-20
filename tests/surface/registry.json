@@ -503,9 +503,8 @@
    "fixture": "fixtures/fn_as_value.aether",
    "code": "FUNC-001",
    "decided": "D37d",
-   "status": "pending",
-   "today": "TYPE-001",
-   "owner": "W6"
+   "status": "holds",
+   "note": "FUNC-001 since 2026-10-20-1"
   },
   {
    "id": "tuple_bracket_index",
@@ -610,16 +609,14 @@
   },
   {
    "id": "record_equality",
-   "class": 3,
+   "class": 1,
    "spelling": "a == b on records or tuples",
-   "canonical_form": "compare the fields",
+   "canonical_form": "a == b compares the fields (same(a, b) is identity)",
    "fixture": "fixtures/record_equality.aether",
-   "code": "REC-001",
    "decided": "D24",
-   "status": "pending",
-   "today": "accepted",
-   "owner": "W4-20",
-   "note": "today compares identity and prints false; `== nil` stays legal"
+   "status": "holds",
+   "note": "D24 (2026-10-20): structural == on records and tuples; was identity and printed false",
+   "twin": "fixtures/record_equality.canon.aether"
   },
   {
    "id": "toon_node_index",

@@ -1,0 +1,4 @@
+[REC-001]
+Node reaches itself through its fields
+a P is compared with a Q
+same() tests whether two records are the same record

@@ -1765,8 +1765,10 @@ run-time errors. Open rows:
 - **D8**, array semantics (value copies today, deep for nested arrays since
   `2026-10-16-5`; V-strict vs by-ref pending).
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
-- **D24**, record and tuple `==`: REC-001 from W4. Today `==` on two records
-  compares identity.
+- **D24**, record and tuple `==` compare field by field (slot by slot for a
+  tuple), recursing into nested records and arrays; `same(a, b)` is identity
+  and `== nil` stays legal. `==` on a self-referential record type is REC-001,
+  and comparing two different record types is TYPE-001.
 - **D14**, `println(array)` and `int(Text)` are coded TYPE-001 errors (W8-15);
   both used to be silent.
 - **D33**, print widths and Bool spelling; **D46**, `println` puts nothing
@@ -1779,17 +1781,26 @@ fn main() -> Void {
 }
 ```
 
-```aether @bug=D24 now=ok id=D.receq.1
+```aether @ok id=D.receq.1
 type P { x: Int; }
 fn main() -> Void {
     let a: P = new P { x: 1 };
     let b: P = new P { x: 1 };
-    fx { println(a == b); }
+    fx { println(a == b, " ", same(a, b), " ", same(a, a)); }
 }
 ```
 
 ```text
-false
+true false true
+```
+
+```aether @reject=REC-001 id=D.receq.2
+type Node { v: Int; next: Node; }
+fn main() -> Void {
+    let a: Node = new Node { v: 1 };
+    let b: Node = new Node { v: 1 };
+    fx { println(a == b); }
+}
 ```
 
 ```aether @reject=TYPE-001 id=D.inttext.1

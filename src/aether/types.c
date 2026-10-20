@@ -459,6 +459,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"aether_ends_with", AETHER_T_BOOL, NULL}, {"aether_delete_file", AETHER_T_BOOL, NULL},
     {"aether_rename_file", AETHER_T_BOOL, NULL}, {"aetherparseintok", AETHER_T_BOOL, NULL},
     {"aetherparserealok", AETHER_T_BOOL, NULL},
+    {"aether_same", AETHER_T_BOOL, NULL},
     {"aether_is_digit", AETHER_T_BOOL, NULL}, {"aether_is_alpha", AETHER_T_BOOL, NULL},
     {"aether_is_alnum", AETHER_T_BOOL, NULL}, {"aether_is_space", AETHER_T_BOOL, NULL},
     {"aether_is_upper", AETHER_T_BOOL, NULL}, {"aether_is_lower", AETHER_T_BOOL, NULL},
@@ -1342,8 +1343,89 @@ static void ruleFieldName(RuleCtx *c, const AST *at, const char *rec, const char
     c->reported++;
 }
 
+/* True if record type `name` can reach itself through its fields (directly, or
+ * through a field of another record type or an array of records). `==` on such
+ * a type could recurse without end, so it is REC-001 (D24). */
+static int recordReaches(const char *from, const char *target, const char **seen, int nseen) {
+    const AST *rec = indexGet(&g_records, from);
+    if (!rec || nseen >= 64) return 0;
+    for (int i = 0; i < nseen; i++)
+        if (strcasecmp(seen[i], from) == 0) return 0;
+    seen[nseen++] = from;
+    for (int i = 0; i < rec->child_count; i++) {
+        const AST *f = rec->children[i];
+        if (!f || f->type != AST_VAR_DECL) continue;
+        AetherType ft = declTypeOf(f);
+        const char *next = NULL;
+        if (ft.kind == AETHER_T_RECORD) next = ft.name;
+        else if (ft.kind == AETHER_T_ARRAY && ft.elem == AETHER_T_RECORD) next = ft.name;
+        if (!next) continue;
+        if (strcasecmp(next, target) == 0) return 1;
+        if (recordReaches(next, target, seen, nseen)) return 1;
+    }
+    return 0;
+}
+
+static int recordIsSelfReferential(const char *name) {
+    const char *seen[64];
+    return name && recordReaches(name, name, seen, 0);
+}
+
+/* D24: `==` / `!=` on records and tuples compares field by field. Two
+ * different record types never compare equal, so that is a TYPE-001; a
+ * self-referential type is REC-001, with `same(a, b)` as the identity test. */
+static void ruleRecordCompare(RuleCtx *c, const AST *e, const AetherTypeEnv *env) {
+    AetherType lt = aetherTypeOf(e->left, env);
+    AetherType rt = aetherTypeOf(e->right, env);
+    const char *ln = NULL, *rn = NULL;
+    if (lt.kind == AETHER_T_RECORD) ln = lt.name;
+    else if (lt.kind == AETHER_T_ARRAY && lt.elem == AETHER_T_RECORD) ln = lt.name;
+    if (rt.kind == AETHER_T_RECORD) rn = rt.name;
+    else if (rt.kind == AETHER_T_ARRAY && rt.elem == AETHER_T_RECORD) rn = rt.name;
+    if (!ln || !rn) return;
+    char detail[320];
+    if (strcasecmp(ln, rn) != 0) {
+        snprintf(detail, sizeof(detail),
+                 "a %s is compared with a %s: values of two different types are never equal. "
+                 "Compare the fields you mean.",
+                 ln, rn);
+        ruleReport(c, e, detail);
+        return;
+    }
+    if (recordIsSelfReferential(ln)) {
+        snprintf(detail, sizeof(detail),
+                 "`==` compares records field by field, and %s reaches itself through its "
+                 "fields, so the comparison could recurse without end. Use `same(a, b)` to "
+                 "test whether two values are the same record, or compare the fields you mean.",
+                 ln);
+        int line = nodeLine(e);
+        aetherSemanticReportCoded("REC-001", "record-compare", line > 0 ? line : 1, detail, 1);
+        c->reported++;
+    }
+}
+
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
+    if (e->type == AST_BINARY_OP && e->token &&
+        (e->token->type == TOKEN_EQUAL || e->token->type == TOKEN_NOT_EQUAL)) {
+        ruleRecordCompare(c, e, env);
+    }
+    /* same(a, b) is identity, which only records have. */
+    if (e->type == AST_PROCEDURE_CALL && callName(e) && strcasecmp(callName(e), "aether_same") == 0) {
+        for (int i = 0; i < e->child_count; i++) {
+            AetherType at = aetherTypeOf(e->children[i], env);
+            if (at.kind == AETHER_T_UNKNOWN || at.kind == AETHER_T_RECORD || at.kind == AETHER_T_NIL)
+                continue;
+            char got[96], detail[256];
+            aetherTypeFormat(at, got, sizeof(got));
+            snprintf(detail, sizeof(detail),
+                     "same() tests whether two records are the same record; this value is %s. "
+                     "Compare values with `==`.",
+                     got);
+            ruleReport(c, e->children[i], detail);
+            break;
+        }
+    }
     if (e->type == AST_FIELD_ACCESS && e->right && e->right->token && e->right->token->value) {
         AetherType rt = aetherTypeOf(e->left, env);
         if (rt.kind == AETHER_T_RECORD && rt.name)

@@ -12,6 +12,33 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-3
+
+**Records and tuples compare by value (D24).** `a == b` on two records was a
+pointer comparison and printed `false` for equal fields with no warning; it now
+compares field by field (a tuple slot by slot), recursing into nested records
+and arrays, so an array of records compares element by element too. `!=` is its
+negation and `== nil` / `!= nil` work as before.
+
+- **`same(a, b)`** (new builtin, pure) answers whether two values are the same
+  record: the identity test `==` used to be. Arguments that are not records are
+  TYPE-001.
+- **REC-001** for `==` / `!=` on a record type that reaches itself through its
+  fields (`type Node { next: Node; }`), where a field-wise comparison could
+  recurse without end: use `same(a, b)` or compare the fields.
+- **TYPE-001** for comparing two different record types, which can never be
+  equal.
+- Engine: pscal-core compares two record pointers field by field when the front
+  end is Aether (other front ends keep pointer identity), with a depth cap as a
+  backstop, and registers `aether_same`.
+
+Programs that compared records with `==` change output where the compared
+records were distinct but equal (they printed `false`, now `true`). Backlog
+probes record_eq and tuple_eq (W4-20) flip and move to `tests/fx/basic`; the
+spec's D.receq.1 is an `@ok` example, the surface registry's record_equality
+entry is class 1, and the three guides say `==` compares records by value
+(guide stamps `2026-10-20-1`).
+
 ## 2026-10-20-2
 
 **Engine fixes from the 2026-10-20 language review** (pscal-core

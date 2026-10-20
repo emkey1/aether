@@ -1478,6 +1478,7 @@ static const char *aliasBuiltinName(const char *name) {
         { "contains", "aether_contains" },
         { "index_of", "aether_index_of" },
         { "count", "aether_count" },
+        { "same", "aether_same" },
         { "reversed", "aether_reversed" },
         { "sum", "aether_sum" },
         { "min_of", "aether_min_of" },
