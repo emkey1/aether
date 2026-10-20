@@ -1,0 +1,16 @@
+// A condition must be Bool. `if x = 2` assigned and took the branch; `if n`
+// on an Int ran as `n != 0`.
+fn main() -> Void {
+    let x: Int = 1;
+    let s: Text = "a";
+    if x = 2 {
+        fx { println("assigned"); }
+    }
+    if x {
+        fx { println("truthy"); }
+    }
+    loop s {
+        break;
+    }
+    ret;
+}

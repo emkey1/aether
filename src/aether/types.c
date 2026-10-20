@@ -1226,9 +1226,47 @@ static int realRulesOn(void) {
     return aetherExperiment()->div == AETHER_DIV_CURRENT;
 }
 
+/* W4-17: a value whose type the oracle knows, stored where a different type is
+ * declared. `fn g() -> Text { ret 5; }`, `xs[0] = "z"` on an Int[], a `Q`
+ * passed for a `P` parameter and `let a: A = new B { ... }` all compiled; the
+ * VM then stored the wrong value (a record read by slot handed back B's data
+ * through A's field) or stopped later with an uncoded "Type mismatch". Only
+ * an outright MISMATCH is judged: Int into Real widens, Real into Int keeps
+ * its D1 truncation (NARROW-001), and anything the oracle cannot type passes. */
+static const char *sinkWhere(const char *label) {
+    if (!label) return NULL;
+    if (!strcmp(label, "let") || !strcmp(label, "const")) return "this binding is declared";
+    if (!strcmp(label, "assign")) return "the assignment target is";
+    if (!strcmp(label, "ret")) return "the function returns";
+    if (!strcmp(label, "arg")) return "this parameter is";
+    if (!strcmp(label, "element")) return "the array's elements are";
+    if (!strcmp(label, "field-init")) return "this field is";
+    return NULL;
+}
+
+static void ruleSinkMismatch(RuleCtx *c, const AST *value, const AetherUse *use,
+                             const AetherTypeEnv *env) {
+    const char *where = sinkWhere(use->sinkLabel);
+    if (!where) return;
+    AetherType have = aetherTypeOf(value, env);
+    if (aetherTypeAgreement(use->want, have) != AETHER_AGREE_MISMATCH) return;
+    char want[96], got[96], detail[320];
+    aetherTypeFormat(use->want, want, sizeof(want));
+    aetherTypeFormat(have, got, sizeof(got));
+    int scalars = use->want.kind != AETHER_T_RECORD && use->want.kind != AETHER_T_ARRAY &&
+                  have.kind != AETHER_T_RECORD && have.kind != AETHER_T_ARRAY;
+    snprintf(detail, sizeof(detail), "type mismatch: %s %s, but this value is %s. %s",
+             where, want, got,
+             scalars ? "Convert it explicitly (int_to_text, parse_int, int, ...) or fix "
+                       "the declaration."
+                     : "Use a value of the declared type, or fix the declaration.");
+    ruleReport(c, value, detail);
+}
+
 static void ruleSink(void *vctx, const AST *site, const AST *value, const AetherUse *use,
                      const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
+    ruleSinkMismatch(c, value, use, env);
     if (!realRulesOn() || !use->sinkLabel || strcmp(use->sinkLabel, "builtin-arg") != 0 ||
         use->want.kind != AETHER_T_INT)
         return;
@@ -1245,6 +1283,28 @@ static void ruleSink(void *vctx, const AST *site, const AST *value, const Aether
 
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
+    /* A condition must be a Bool. `if x = 2 { ... }` assigned 2 to x and took
+     * the branch (an assignment is an expression in the shared engine, and an
+     * Int is truthy there), and `if n { ... }` on an Int ran as `n != 0`. */
+    if (use->kind == AETHER_USE_CONDITION) {
+        if (e->type == AST_ASSIGN) {
+            ruleReport(c, e,
+                       "`=` assigns, it does not compare: write `==` to test equality "
+                       "(an assignment is not a condition).");
+            return;
+        }
+        AetherType ct = aetherTypeOf(e, env);
+        if (ct.kind != AETHER_T_UNKNOWN && ct.kind != AETHER_T_BOOL) {
+            char got[96], detail[256];
+            aetherTypeFormat(ct, got, sizeof(got));
+            snprintf(detail, sizeof(detail),
+                     "a condition must be Bool, but this value is %s: compare it "
+                     "explicitly (`n != 0`, `s != \"\"`, `length(xs) > 0`).",
+                     got);
+            ruleReport(c, e, detail);
+            return;
+        }
+    }
     if (realRulesOn() && (use->kind == AETHER_USE_MOD || use->kind == AETHER_USE_INT_DIV) &&
         aetherTypeOf(e, env).kind == AETHER_T_REAL) {
         reportRealInIntPosition(c, e, use->kind == AETHER_USE_MOD ? "`%`" : "`div`");

@@ -1,0 +1,6 @@
+// W4-17 regression (was a backlog probe that ran with the wrong value): a
+// value of another type into a declared binding or return is TYPE-001.
+fn main() -> Void {
+    let b: Bool = 5;
+    fx { println(b); }
+}

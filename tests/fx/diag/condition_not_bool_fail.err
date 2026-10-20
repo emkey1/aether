@@ -1,0 +1,7 @@
+:6: [TYPE-001]
+`=` assigns, it does not compare
+:9: [TYPE-001]
+a condition must be Bool, but this value is Int
+:12: [TYPE-001]
+a condition must be Bool, but this value is Text
+!assigned

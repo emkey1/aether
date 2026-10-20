@@ -1,0 +1,13 @@
+:13: [TYPE-001]
+the function returns P, but this value is Q
+:22: [TYPE-001]
+this binding is declared P, but this value is Q
+:23: [TYPE-001]
+this parameter is P, but this value is Q
+:24: [TYPE-001]
+this parameter is Text, but this value is Int
+:25: [TYPE-001]
+the array's elements are P, but this value is Q
+:27: [TYPE-001]
+:28: [TYPE-001]
+:29: [TYPE-001]

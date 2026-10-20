@@ -1,0 +1,8 @@
+// W4-17 regression (was a backlog probe that ran with the wrong value): a
+// value of another type into a declared binding or return is TYPE-001.
+fn ok() -> Bool {
+    ret 7;
+}
+fn main() -> Void {
+    fx { println(ok()); }
+}

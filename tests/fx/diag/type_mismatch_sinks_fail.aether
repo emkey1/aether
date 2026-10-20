@@ -1,0 +1,31 @@
+// W4-17: a value of another type into a declared binding, return, parameter,
+// array element or field is TYPE-001 at compile time. Each of these compiled
+// before: the record ones read the wrong type's data by slot, the scalar ones
+// stopped later with an uncoded "Type mismatch" or printed the wrong value.
+type P { x: Int = 0; }
+type Q { name: Text = "q"; }
+
+fn show(p: P) -> Int {
+    ret p.x;
+}
+
+fn make() -> P {
+    ret new Q();
+}
+
+fn greet(name: Text) -> Void {
+    fx { println("hi ", name); }
+    ret;
+}
+
+fn main() -> Void {
+    let a: P = new Q();
+    let n: Int = show(new Q());
+    greet(42);
+    let ps: P[] = [new P(), new Q()];
+    let xs: Int[] = [1, 2];
+    xs[0] = "z";
+    a.x = "hello";
+    const LIMIT: Int = "ten";
+    ret;
+}

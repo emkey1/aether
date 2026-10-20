@@ -278,9 +278,19 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
             int lStr = lt && (strcmp(lt, "Text") == 0 || strcmp(lt, "str") == 0);
             int rStr = rt && (strcmp(rt, "Text") == 0 || strcmp(rt, "str") == 0);
             int mixed = lt && rt && (lStr != rStr);
+            /* Int and Real mix to Real, whichever side the Real is on. The
+             * var_type fallback below follows the left operand, so `let c =
+             * n * y;` with an Int `n` and a Real `y` was typed Int and
+             * truncated 7.5 to 7 with no warning. */
+            int lReal = lt && strcmp(lt, "Real") == 0;
+            int rReal = rt && strcmp(rt, "Real") == 0;
+            int realMix = !mixed && !lStr && !rStr && (lReal || rReal) &&
+                          (strcmp(bop, "+") == 0 || strcmp(bop, "-") == 0 ||
+                           strcmp(bop, "*") == 0);
             free(lt);
             free(rt);
             if (mixed) return NULL;
+            if (realMix) return strdup("Real");
         }
     }
     /* fall back to the expression's own computed var_type. */

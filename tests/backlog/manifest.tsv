@@ -9,9 +9,6 @@ const_case_alias	fails:NAME-001	W4-22	-	names ignore case: `let limit` overwrote
 param_case_shadow	fails:NAME-001	W4-22	-	parameter `limit` answered to `LIMIT` before W4-22
 loop_var_outer	fails:NAME-001	W4-22	-	a loop variable named like a let left the let at 0 before W4-22
 record_eq	silent:differ	W4-20	medium:339,full:282	record == compares identity
-ret_text_from_int	silent:bob	W4-17	-	`ret` is not checked against the declared type
-bool_from_int	silent:true	W4-17	-	`let b: Bool = 5` is accepted
-bool_from_int_ret	silent:7	W4-17	-	`ret 7` from -> Bool prints 7
 cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped)
 ret_inside_fx	passes	ideas:Misleading `FLOW-001` on `ret` inside `fx`	full:309	ret inside fx compiles and runs, but the full guide still forbids it
 tail_expr_return	silent:2	W4-03	-	`a b` juxtaposition keeps a and drops b

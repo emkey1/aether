@@ -1,0 +1,13 @@
+// An inferred `let` over Int and Real arithmetic is Real whichever side the
+// Real is on. `let c = n * y;` used to take the left operand's Int type and
+// truncate 7.5 to 7 with no warning.
+fn main() -> Void {
+    let y: Real = 2.5;
+    let n: Int = 3;
+    let c = n * y;
+    let d = y + n;
+    let e = n - y;
+    let k = n + 1;
+    fx { println(c, " ", d, " ", e, " ", k); }
+    ret;
+}
