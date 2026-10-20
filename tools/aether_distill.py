@@ -86,6 +86,22 @@ TOON_FILE_CATEGORIES = [
     "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
     "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
 ]
+# Keyed-data categories for language 1.0's Map[Text, T] (D68). The task statements stay language-neutral; Python
+# answers with a dict, Aether with a map. Both keep insertion order, so each category asks the task to state its
+# output order (first appearance, or sorted) and the two programs agree on it.
+MAP_CATEGORIES = [
+    "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states "
+    "the output order: first appearance or sorted by key or by count with a tie rule",
+    "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task "
+    "states the output order of the groups",
+    "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), "
+    "reporting missing keys explicitly, in a stated output order",
+    "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting "
+    "the final state in a stated order",
+    "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a "
+    "stated order",
+    "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+]
 DOMAINS = ["a bakery", "a library", "a train network", "a garden", "a warehouse", "a chess club", "a weather station",
            "a music playlist", "a bike-share", "a school timetable", "a parking garage", "a board game", "an orchard",
            "a ferry service", "a recipe book", "a fitness log", "a museum", "a vending machine", "a robot on a grid",
@@ -216,6 +232,7 @@ def stage_tasks(args) -> int:
     rejected = {"duplicate": 0, "board": 0, "short": 0}
     while len(tasks) < args.count:
         rotation = CATEGORIES + (TOON_FILE_CATEGORIES * 2 if args.with_toon_files else [])
+        rotation += MAP_CATEGORIES * 2 if args.with_maps else []
         if args.category:
             # Aim a batch at categories where the guided solver's yield (and the fine-tune) was weakest.
             rotation = [c for c in rotation if any(k.lower() in c.lower() for k in args.category)]
@@ -502,6 +519,9 @@ def main() -> int:
     ap.add_argument("batch")
     ap.add_argument("stage", choices=["tasks", "python-cmd", "freeze", "provenance", "aether-cmd", "harvest",
                                       "harvest-python"])
+    ap.add_argument("--with-maps", action="store_true",
+                    help="tasks stage: add the keyed-data categories (Map[Text, T], language 1.0) to the rotation, "
+                    "twice each")
     ap.add_argument("--with-toon-files", action="store_true",
                     help="tasks: add the JSON/TOON and data-file categories (about a third of a batch)")
     ap.add_argument("--category", action="append", default=None,

@@ -30,5 +30,13 @@ class PromptContradictionTests(unittest.TestCase):
         self.assertEqual(distill.prompt_contradictions("Print the total.", "42\n"), [])
 
 
+
+class CategoryTests(unittest.TestCase):
+    def test_map_categories_state_an_output_order(self):
+        self.assertEqual(len(distill.MAP_CATEGORIES), 6)
+        for c in distill.MAP_CATEGORIES:
+            self.assertIn("order", c)
+        self.assertFalse(set(distill.MAP_CATEGORIES) & set(distill.CATEGORIES))
+
 if __name__ == "__main__":
     unittest.main()

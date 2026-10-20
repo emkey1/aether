@@ -1,0 +1,55 @@
+{
+  "_note": "First small-model run (owner, 2026-10-20): Qwen3.5-4B (instruct, Apache-2.0, same tokenizer and qwen3_5 architecture as Qwen3.8-27B) with run 7's recipe. Changes forced by the model: bf16 LoRA instead of 4-bit (Unsloth's advice for Qwen3.5) and a smaller memory floor. Data: Aether 1.0 (2026-10-20-11), the run-7 sources migrated to 1.0 plus the map pairs and the map distillation batch. Guided baselines on 2026-10-19-3: 52/73 main, 13/53 held-out; no guide 0.",
+  "tag": "qwen35-4b-v1",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.5-4B",
+  "base_model": "/storage/models/Qwen3.5-4B",
+  "host": "host-c",
+  "precision": "16bit",
+  "min_available_gb": 30,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 3,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 10
+  },
+  "dataset": {
+    "id": "v1-20261021",
+    "version": "2026-10-20-11",
+    "aether_version": "2026-10-20-11",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-20-11",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    }
+  }
+}
