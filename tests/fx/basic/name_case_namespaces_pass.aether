@@ -1,0 +1,12 @@
+// D70: types and values are separate namespaces, so a value may share a
+// type's name up to case; the cast spellings `Int(x)`, `Real(x)` stay.
+type Board {
+    size: Int = 3;
+}
+
+fn main() -> Void {
+    let board: Board = new Board();
+    let n: Int = Int(2.9);
+    fx { println(board.size, " ", n, " ", Real(n)); }
+    ret;
+}

@@ -12,6 +12,30 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-9
+
+**Names are case-sensitive (D70, superseding D17's case folding).** The shared
+engine resolves names ignoring case, so `total = 5` reached a `let Total`,
+`new point()` built a `Point`, `area(3)` called `fn Area` and `Println(x)`
+printed. A reference must now be spelled exactly as its declaration: a name that
+matches a declared one only up to case is SCOPE-001, "identifier 'Total' not in
+scope: names are case-sensitive, and the one declared is 'total'. Did you mean
+`total`?", and a builtin written in another case (`Println`, `SQRT`) is
+SCOPE-001 naming the lowercase form. Types and values are separate namespaces
+(`let board: Board` is fine), and the cast spellings `Int(x)`, `Real(x)`,
+`Bool(x)`, `Text(x)` stay. Two names that differ only by case still cannot both
+be declared (NAME-001, now worded "differs from 'Total' only by case"), because
+the engine cannot keep them apart. Fields were already exact (FIELD-002).
+
+Census before the switch, over `tests/` (the 218 replay programs included),
+`examples/` and the training corpus, 1,234 programs: none relied on
+case-insensitive lookup, so nothing is migrated. The surface registry's
+`case_underscore_fold` (`intToText(n)`, tolerated under D7, pending) is class 2.
+The spec's identifier rule, its L.ident.1 example and D17 note follow, with a new
+L.ident.7; the guides' NAME-001 rule and repair line say names are
+case-sensitive (guide stamps `2026-10-20-7`). The `repair_name_case_const`
+drill's stored diagnostic is re-pinned to the new NAME-001 wording.
+
 ## 2026-10-20-8
 
 **Builtin names are snake_case (D72).** The run-together legacy names are

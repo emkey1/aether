@@ -3651,6 +3651,38 @@ static AST *parsePrimary(AetherParser *p) {
                 freeToken(tok);
                 return NULL;
             }
+            /* D70: builtin names are case-sensitive (and lowercase). The engine
+             * resolves them ignoring case, so `Println(x)` and `SQRT(x)` ran.
+             * Not judged: a user's own fn, the type casts (`Int(x)`, `Real(x)`,
+             * ...) and the engine spellings the TOON/task pre-passes emit. */
+            if (!p->forwardScan && !p->hadError && !p->detachedText) {
+                bool upper = false;
+                for (const char *c = raw; *c; c++) if (isupper((unsigned char)*c)) { upper = true; break; }
+                if (upper && !aetherAstIsTopLevelUserFunction(raw) && !aetherIsNestedFnName(p, raw) &&
+                    strncmp(raw, "Yyjson", 6) != 0 && strcmp(raw, "ThreadStatsJson") != 0 &&
+                    strcmp(raw, "WaitForThread") != 0 && strcmp(raw, "Int") != 0 &&
+                    strcmp(raw, "Real") != 0 && strcmp(raw, "Bool") != 0 && strcmp(raw, "Text") != 0 &&
+                    strcmp(raw, "Float") != 0 && strcmp(raw, "String") != 0) {
+                    char lower[128];
+                    size_t li = 0;
+                    for (; raw[li] && li + 1 < sizeof(lower); li++) lower[li] = (char)tolower((unsigned char)raw[li]);
+                    lower[li] = '\0';
+                    const char *aliased = aliasBuiltinName(lower); /* `lower` itself when no alias */
+                    bool isBuiltin = (aliased && aliased != lower) || getVmBuiltinID(lower) >= 0;
+                    bool lowerIsUser = aetherAstIsTopLevelUserFunction(lower);
+                    if (isBuiltin && !lowerIsUser) {
+                        char detail[200], hint[200];
+                        snprintf(detail, sizeof(detail), "identifier '%.64s' not in scope.", raw);
+                        snprintf(hint, sizeof(hint),
+                                 "names are case-sensitive and builtins are lowercase: did you "
+                                 "mean `%s`?", lower);
+                        reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "scope", detail, hint);
+                        p->hadError = true;
+                        freeToken(tok);
+                        return NULL;
+                    }
+                }
+            }
             /* A user's own top-level `fn NAME` shadows an aliased builtin: the
              * text pre-pass leaves such a name verbatim (505cd44), so aliasing
              * it here would call the builtin instead of the user's function. */
@@ -6625,7 +6657,8 @@ static AST *parseFnDecl(AetherParser *p) {
         strncasecmp(p->current.start, p->currentClassName, (size_t)p->current.length) == 0) {
         char detail[200];
         snprintf(detail, sizeof(detail),
-                 "method '%.*s' has the same name as its type '%s' (names ignore case).",
+                 "method '%.*s' has the same name as its type '%s' (two names may not "
+                 "differ only by case).",
                  (int)p->current.length, p->current.start, p->currentClassName);
         reportAetherAstErrorWithCode(p->current.line, "NAME-001", detail,
                                      "rename the method. Aether has no constructor methods: "

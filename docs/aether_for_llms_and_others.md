@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-6*
+*Guide version: 2026-10-20-7*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -108,10 +108,12 @@ If you only read one part of this document, read **Highest-Value Rules** and
     declare the binding `Int` or `Text`. Extract contents with
     `mstream_text(ms) -> Text`; release with `mstream_free(ms)`. HTTP responses
     arrive in an `MStream` out-buffer (see **HTTP requests**).
-23. **NAME-001.** Value names ignore case, like type names, and one name means
-    one thing: do not redeclare a local or a parameter, name a loop variable
-    after a variable already in scope, or give a local or parameter the name
-    of a top-level or imported `const` (`limit` beside `LIMIT`).
+23. **NAME-001.** Names are case-sensitive -- write each one exactly as it was
+    declared (`total` for a `let total`; `Total` is SCOPE-001) -- and two names
+    may not differ only by case. One name means one thing: do not redeclare a
+    local or a parameter, name a loop variable after a variable already in
+    scope, or give a local or parameter the name of a top-level or imported
+    `const` (`limit` beside `LIMIT`).
 24. **MOD-001 / MOD-002.** The canonical import is `use "module_name";`, and
     imported names are used exactly as exported — `use` does not rename.
 25. **FMT-001.** `println` has no placeholders: `println("{} items", n)` and
@@ -512,10 +514,12 @@ let count: Int = 0;
 let label: Text = "Aether";
 ```
 
-Value names ignore case, exactly as type names do: `limit`, `Limit` and `LIMIT`
-are one name. A local or a parameter may therefore not be named like a
-top-level or imported `const` (NAME-001); writing constants in `UPPER_CASE`
-keeps them apart from locals.
+Names are case-sensitive: a reference must be spelled exactly as its
+declaration (`count`, not `Count`, for `let count`; a mismatch is SCOPE-001
+naming the declared spelling), and builtins are lowercase (`println`, never
+`Println`). Two names may not differ only by case (`limit` beside `LIMIT` is
+NAME-001), so give a constant and a local different words, not just different
+case.
 
 `let` bindings are mutable (MUT-001). `let mut` is accepted, redundant, and
 ignored; never generate it.
@@ -1982,7 +1986,7 @@ does not exist — re-read the message rather than inventing a rule for it.
     `xs.join(",")`) → call the function the hint names (`upper(s)`,
     `sorted(xs)`, `join(xs, ",")`)
 - **[NAME-001]** a name declared twice → pick a fresh name, or assign without
-  `let`. Names ignore case, so this covers `let limit` beside `const LIMIT` (top
+  `let`. Two names may not differ only by case, so this covers `let limit` beside `const LIMIT` (top
   level or imported), a parameter named like a const, `x` beside `X`, a `let`
   that redeclares a parameter, and a loop variable named like a variable
   already in scope (the loop would get its own, leaving the outer one

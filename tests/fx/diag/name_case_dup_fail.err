@@ -1,4 +1,4 @@
 name_case_dup_fail.aether:5:
-'total' is the same name as 'Total' (line 4): Aether names ignore case.
+'total' differs from 'Total' (line 4) only by case: two names may not differ only by case.
 name_case_dup_fail.aether:9:
-'Count' is the same name as 'count' (line 8)
+'Count' differs from 'count' (line 8) only by case

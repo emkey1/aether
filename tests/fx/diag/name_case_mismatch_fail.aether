@@ -1,0 +1,19 @@
+// D70: names are case-sensitive. A reference spelled differently from its
+// declaration is SCOPE-001 naming the declared spelling (the engine used to
+// fold case, so each of these ran). Types and values are separate namespaces.
+type Point {
+    x: Int = 0;
+}
+
+fn area(w: Int) -> Int {
+    ret w * 2;
+}
+
+fn main() -> Void {
+    let total: Int = 1;
+    Total = 5;
+    let p: point = new Point();
+    let a: Int = Area(3);
+    fx { println(total, " ", a, " ", p.x); }
+    ret;
+}

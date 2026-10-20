@@ -2730,7 +2730,7 @@ static void scanFnParams(const char *open, int bodyDepth, int line,
                         snprintf(detail, sizeof(detail),
                                  "parameter '%s' is the same name as %s: %sa parameter "
                                  "must not reuse a const or global name.", name, what,
-                                 strcmp(name, g->name) ? "Aether names ignore case, and " : "");
+                                 strcmp(name, g->name) ? "two names may not differ only by case, and " : "");
                         reportNameCollision(line, detail, "rename the parameter.");
                     }
                     free(name);
@@ -2962,8 +2962,8 @@ static void validateNoDuplicateLocals(const char *source) {
                             reportNameCollision(line, detail, NULL);
                         } else if (same) {
                             snprintf(detail, sizeof(detail),
-                                     "'%s' is the same name as '%s' (line %d): Aether names "
-                                     "ignore case.", name, same->name, same->line);
+                                     "'%s' differs from '%s' (line %d) only by case: two names "
+                                     "may not differ only by case.", name, same->name, same->line);
                             reportNameCollision(line, detail, "rename one of them.");
                         } else if (g) {
                             char what[160];
@@ -2971,7 +2971,8 @@ static void validateNoDuplicateLocals(const char *source) {
                             snprintf(detail, sizeof(detail),
                                      "'%s' is the same name as %s: %sa local must not "
                                      "reuse a const or global name.", name, what,
-                                     strcmp(name, g->name) ? "Aether names ignore case, and "
+                                     strcmp(name, g->name) ? "two names may not differ only by "
+                                                             "case, and "
                                                            : "");
                             reportNameCollision(line, detail, "pick a new name for the local.");
                         } else if (outer) {
@@ -3964,6 +3965,164 @@ static void parWalk(const ParIndex *ix, ParAliases *al, const AST *n) {
 /* `break` / `continue` outside a loop reached the backend, which reported it
  * with no code and line 0: "L0: Compiler error: 'break' statement outside of
  * a loop." */
+/* --------------------------------------------------------------------------
+ * D70: names are case-sensitive.
+ *
+ * The shared engine resolves names ignoring case, so `total` reached a `let
+ * Total`, `Println(x)` printed and `new point()` built a `Point`. A reference
+ * must now be spelled exactly as its declaration: a name that matches a
+ * declared one only up to case is SCOPE-001 "did you mean `Total`?". Two
+ * declarations that differ only by case stay NAME-001 (the engine cannot keep
+ * them apart). The pass runs on the parsed program, before rea folds names;
+ * a name declared nowhere in it (an import, a builtin) is left to the passes
+ * that know those, and builtin calls are checked where they are parsed.
+ * -------------------------------------------------------------------------- */
+
+typedef struct {
+    const char **names;
+    int count, cap;
+} CaseNameSet;
+
+static void caseSetAdd(CaseNameSet *s, const char *name) {
+    if (!name || !*name) return;
+    for (int i = 0; i < s->count; i++)
+        if (strcmp(s->names[i], name) == 0) return;
+    if (s->count == s->cap) {
+        int ncap = s->cap ? s->cap * 2 : 64;
+        const char **n = (const char **)realloc(s->names, (size_t)ncap * sizeof(*n));
+        if (!n) return;
+        s->names = n;
+        s->cap = ncap;
+    }
+    s->names[s->count++] = name;
+}
+
+/* 1: declared exactly; 0: declared only in another case (*declared set);
+ * -1: not declared here at all. */
+static int caseLookup(const CaseNameSet *s, const char *name, size_t len, const char **declared) {
+    int found = -1;
+    for (int i = 0; i < s->count; i++) {
+        const char *d = s->names[i];
+        if (strlen(d) != len || strncasecmp(d, name, len) != 0) continue;
+        if (strncmp(d, name, len) == 0) return 1;
+        found = 0;
+        *declared = d;
+    }
+    return found;
+}
+
+static bool caseNameIsInternal(const char *name) {
+    return !name || name[0] == '_' || strcmp(name, "myself") == 0 || strcmp(name, "result") == 0 ||
+           strcmp(name, "self") == 0 || strchr(name, '@') != NULL;
+}
+
+/* Types and values are separate namespaces (`let board: Board` is legal), so
+ * each reference is compared with its own kind of declaration. A record's
+ * fields are neither: FIELD-002 checks them. */
+typedef struct {
+    CaseNameSet values; /* lets, params, consts, functions, methods */
+    CaseNameSet types;
+} CaseDecls;
+
+static void caseCollect(CaseDecls *d, const AST *n) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_RECORD_TYPE:
+            /* fields: skip the declarations, but methods inside still count */
+            for (int i = 0; i < n->child_count; i++)
+                if (n->children[i] && n->children[i]->type != AST_VAR_DECL)
+                    caseCollect(d, n->children[i]);
+            return;
+        case AST_VAR_DECL:
+            for (int i = 0; i < n->child_count; i++) {
+                const AST *v = n->children[i];
+                if (v && v->type == AST_VARIABLE && v->token && v->token->value)
+                    caseSetAdd(&d->values, v->token->value);
+            }
+            break;
+        case AST_CONST_DECL:
+            if (n->token && n->token->value) caseSetAdd(&d->values, n->token->value);
+            break;
+        case AST_TYPE_DECL:
+            if (n->token && n->token->value) caseSetAdd(&d->types, n->token->value);
+            break;
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL:
+            if (n->token && n->token->value) {
+                const char *dot = strrchr(n->token->value, '.');
+                caseSetAdd(&d->values, dot ? dot + 1 : n->token->value);
+            }
+            break;
+        default:
+            break;
+    }
+    caseCollect(d, n->left);
+    caseCollect(d, n->right);
+    caseCollect(d, n->extra);
+    for (int i = 0; i < n->child_count; i++) caseCollect(d, n->children[i]);
+}
+
+static void caseReport(const AST *at, const char *written, size_t len, const char *declared) {
+    char detail[256];
+    snprintf(detail, sizeof(detail),
+             "identifier '%.*s' not in scope: names are case-sensitive, and the one declared "
+             "is '%s'. Did you mean `%s`?",
+             (int)len, written, declared, declared);
+    int line = at && at->token ? at->token->line : 0;
+    reportAetherErrorCoded("SCOPE-001", "scope", line > 0 ? line : 1, detail);
+}
+
+static void caseCheckName(const CaseNameSet *s, const AST *at, const char *name) {
+    if (!name || caseNameIsInternal(name)) return;
+    const char *declared = NULL;
+    size_t len = strlen(name);
+    if (caseLookup(s, name, len, &declared) == 0) caseReport(at, name, len, declared);
+}
+
+static void caseCheckRefs(const CaseDecls *d, const AST *n) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_VAR_DECL:
+            /* the declared names are not references; the type node and the
+             * initializer are */
+            caseCheckRefs(d, n->left);
+            caseCheckRefs(d, n->right);
+            return;
+        case AST_VARIABLE:
+            if (n->token) caseCheckName(&d->values, n, n->token->value);
+            return;
+        case AST_FIELD_ACCESS:
+            caseCheckRefs(d, n->left); /* the field name is FIELD-002's */
+            return;
+        case AST_PROCEDURE_CALL:
+            if (n->token && n->token->value) {
+                const char *dot = strrchr(n->token->value, '.');
+                caseCheckName(&d->values, n, dot ? dot + 1 : n->token->value);
+            }
+            break;
+        case AST_TYPE_IDENTIFIER:
+        case AST_TYPE_REFERENCE:
+        case AST_NEW:
+            if (n->token) caseCheckName(&d->types, n, n->token->value);
+            break;
+        default:
+            break;
+    }
+    caseCheckRefs(d, n->left);
+    caseCheckRefs(d, n->right);
+    caseCheckRefs(d, n->extra);
+    for (int i = 0; i < n->child_count; i++) caseCheckRefs(d, n->children[i]);
+}
+
+static void aetherValidateNameCase(const AST *root) {
+    CaseDecls d;
+    memset(&d, 0, sizeof(d));
+    caseCollect(&d, root);
+    caseCheckRefs(&d, root);
+    free(d.values.names);
+    free(d.types.names);
+}
+
 static void aetherWalkLoopExits(const AST *n, int loopDepth) {
     if (!n) return;
     switch (n->type) {
@@ -4459,6 +4618,8 @@ void aetherPerformSemanticAnalysis(AST *root) {
     /* Effect fence + purity run on the AST (not the source text), so they see
      * the program the compiler will actually build. */
     aetherValidateEffectsAndPurity(root);
+    /* D70: a reference spelled differently from its declaration. */
+    aetherValidateNameCase(root);
     if (pascal_semantic_error_count > errorCountBefore) {
         return;
     }

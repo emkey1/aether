@@ -81,7 +81,9 @@ fn main() -> Void {
 
 An identifier is a letter or `_` followed by letters, digits and `_`. A name
 that starts with `__` is reserved for compiler-generated temps and is NAME-001.
-**Identifiers are case-insensitive**: `count` and `Count` name the same binding.
+**Identifiers are case-sensitive** (D70): a reference must be spelled exactly
+as its declaration, and `Count` for a `let count` is SCOPE-001 naming
+`count`. Builtin names are lower-case.
 Keywords are case-sensitive and lower-case: `Let` is not `let`. The keywords are
 `fn let const type ret if else loop while for in step par fx use mod export new
 nil true false break continue self`, and the operator words `and or not xor div
@@ -95,7 +97,7 @@ yet, not a leniency:
 
 ```aether @ok id=L.ident.1
 fn main() -> Void {
-    let Count: Int = 2;
+    let count: Int = 2;
     let match: Int = 3;
     fx { println(count + match); }
 }
@@ -103,6 +105,13 @@ fn main() -> Void {
 
 ```text
 5
+```
+
+```aether @reject=SCOPE-001 id=L.ident.7
+fn main() -> Void {
+    let count: Int = 2;
+    fx { println(Count); }
+}
 ```
 
 ```aether @reject=SYN-001 id=L.ident.2
@@ -135,8 +144,9 @@ fn main() -> Void {
 3
 ```
 
-Because names fold case, a second binding that differs only in case is a
-collision, and decision D17 makes it NAME-001. The same code covers a local,
+The engine below Aether folds case, so two names that differ only by case
+cannot both exist: a second binding that differs only in case is NAME-001
+(D17, kept under D70). The same code covers a local,
 parameter or loop variable that reuses a top-level const or `let` name (or a
 `use`d module's const), a body-level `let` of a parameter's name, and a loop
 variable named like a visible local. Type/value and fn/value pairs
@@ -1817,7 +1827,8 @@ To be written: the type rules, inference, scope and name resolution, effects
   TYPE-001 (G.MulExpr.3, G.MulExpr.4, G.Range.5).
 - **D15**, homogeneous array-literal inference: accepted, lands in L2
   (G.LetDecl.2 is today's TYPE-001).
-- **D17**, case-insensitive collisions become a coded error (L.ident.4).
+- **D70** (supersedes D17's case folding): names are case-sensitive (L.ident.7);
+  two names that differ only by case stay NAME-001 (L.ident.4).
 - **D12**, `fx` stays an error unless the baseline shows FX-001 is at least 5% of
   first-attempt failures.
 - **D5**, every diagnostic carries a code; **D23**, `length`/`toon_len`

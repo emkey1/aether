@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-6*
+*Guide version: 2026-10-20-7*
 
 Everything needed to write correct Aether in one shot.
 
@@ -72,7 +72,9 @@ Everything needed to write correct Aether in one shot.
 19. **FLOW-001.** Every non-`Void` function must return a value on every
     reachable top-level path. **FLOW-002.** A bare `ret;` in a non-`Void`
     function is an error — give it a value or declare `-> Void`.
-20. **NAME-001.** Names ignore case. Do not redeclare a local or parameter,
+20. **NAME-001.** Names are case-sensitive: spell each exactly as declared
+    (`Total` for `let total` is SCOPE-001), and two may not differ only by
+    case. Do not redeclare a local or parameter,
     name a loop variable after a variable in scope, or name a local or
     parameter after a `const` (`limit` beside `LIMIT`).
     ✗ `loop i in 0..n { }` when `i` is already a variable
@@ -965,7 +967,7 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   - `method '<m>' is not defined on type '<T>'` → define it inside the `type`
   - a genuinely undeclared name → declare it earlier or pass it in
 - **[BUILT-002]** right builtin, wrong argument count → check the arity table.
-- **[NAME-001]** a name declared twice (names ignore case; a loop variable,
+- **[NAME-001]** a name declared twice (or twice up to case; a loop variable,
   local or parameter may not reuse a visible variable or `const`) → pick a
   fresh name, or assign without `let`.
 - **[IMP-001]** a malformed `use` → write `use "module_name";` and call the
@@ -1030,8 +1032,6 @@ Re-read the prompt and match it exactly.
 
 ## Validation checklist
 
-- all output, `toon_parse_file`, task, and `ai_chat` calls inside `fx { ... }`
-  (FX-001)
 - every called helper is listed in this document, not guessed (BUILT-001), with
   the right argument count (BUILT-002)
 - imports verified; exported names used exactly (IMP-001, MOD-001)
@@ -1042,8 +1042,6 @@ Re-read the prompt and match it exactly.
 - object roots: named array extracted (ROOT-001); keys copied exactly (KEY-001);
   a missing intermediate handled deliberately (NEST-001)
 - `toon_len` vs `length` used correctly (LEN-001)
-- `div` for whole-number quotients; a `Real` operand wherever decimals matter;
-  no accidental `Real` → `Int` truncation
 - each `par` branch writes its own record (PAR-001)
 - functions return on every reachable path (FLOW-001)
 

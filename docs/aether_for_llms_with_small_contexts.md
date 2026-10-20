@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-6*
+*Guide version: 2026-10-20-7*
 
 ## Highest-Value Rules
 
@@ -60,7 +60,8 @@
     reachable top-level path.
 20. **FMT-001.** If the prompt specifies exact output, match it exactly:
     spacing, casing, line order, and decimal precision.
-21. **NAME-001.** Names ignore case. Do not redeclare a local or parameter,
+21. **NAME-001.** Names are case-sensitive: spell each exactly as declared,
+    and two may not differ only by case. Do not redeclare a local or parameter,
     name a loop variable after a variable in scope, or name a local or
     parameter after a `const` (`limit` beside `LIMIT`). Pick fresh names.
 22. **MOD-002.** Canonical import form is `use "module_name";`. After import,
@@ -711,7 +712,7 @@ fix:
   - `method '<m>' is not defined on type '<T>'` → define `fn <m>(...)` inside
     `type <T> { ... }`, or fix the call name (methods do not capture; METH-001)
   - a genuinely undeclared / out-of-scope name → declare it earlier or pass it in (SCOPE-001)
-- **[NAME-001]** a name declared twice (names ignore case; a loop variable,
+- **[NAME-001]** a name declared twice (or twice up to case; a loop variable,
   local or parameter may not reuse a visible variable or `const`) → pick a
   fresh name, or assign without `let`.
 - **[IMP-001]** a malformed `use` → write `use "module_name";` and call the

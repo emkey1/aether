@@ -1,0 +1,5 @@
+// D70: builtin names are case-sensitive and lowercase; `Println` ran before.
+fn main() -> Void {
+    fx { Println("hi"); }
+    ret;
+}

@@ -1,0 +1,6 @@
+:14: [SCOPE-001]
+identifier 'Total' not in scope: names are case-sensitive, and the one declared is 'total'. Did you mean `total`?
+:15: [SCOPE-001]
+Did you mean `Point`?
+:16: [SCOPE-001]
+Did you mean `area`?

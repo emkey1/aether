@@ -378,7 +378,7 @@
     {
       "id": "repair_name_case_const",
       "kind": "repair",
-      "diagnostic": "[NAME-001] Aether redeclaration error: 'limit' is the same name as the top-level const 'LIMIT' (line 1): Aether names ignore case, and a local must not reuse a const or global name.",
+      "diagnostic": "[NAME-001] Aether redeclaration error: 'limit' is the same name as the top-level const 'LIMIT' (line 1): two names may not differ only by case, and a local must not reuse a const or global name.",
       "broken_source": "const LIMIT: Int = 3;\n\nfn main() -> Void {\n    let limit: Int = 5;\n    fx {\n        println(limit + LIMIT);\n    }\n    ret;\n}\n",
       "fixed_source": "const LIMIT: Int = 3;\n\nfn main() -> Void {\n    let extra: Int = 5;\n    fx {\n        println(extra + LIMIT);\n    }\n    ret;\n}\n",
       "expected_stdout": "8\n"

@@ -738,16 +738,14 @@
   },
   {
    "id": "case_underscore_fold",
-   "class": 4,
+   "class": 2,
    "spelling": "intToText(n), Int_To_Text(n)",
    "canonical_form": "int_to_text(n)",
    "fixture": "fixtures/case_underscore_fold.aether",
-   "twin": "fixtures/case_underscore_fold.canon.aether",
-   "decided": "D7",
-   "status": "pending",
-   "today": "SCOPE-001",
-   "owner": "W8-19",
-   "note": "only after W8-19 and a capture audit (D7)"
+   "decided": "D70",
+   "status": "holds",
+   "note": "D70 (2026-10-20): names are case-sensitive, so a case or underscore variant of a builtin is not folded to it (D7 had it tolerated)",
+   "code": "SCOPE-001"
   },
   {
    "id": "removed_copy",
