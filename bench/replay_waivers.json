@@ -465,6 +465,18 @@
           "evidence": "SCOPE-001 at its `mstreamfromstring(` call (removed by D55); replayed on the 2026-10-17-1 binary it passes"
         }
       ]
+    },
+    "2026-10-20-5": {
+      "reason": "D8 V-strict (CHANGELOG 2026-10-20-5): a change to an array parameter the function never returns is ARR-001, an error. Backtracking that marks and unmarks its own array parameters as scratch space compiled and passed; it now has to copy the parameter to a local first.",
+      "entries": [
+        {
+          "task_id": "cs_nqueens",
+          "source_sha256": "36a6031b62f520570be1fdc6aa5d1b1605083201ecc64dd7287d50efdc8cf1f2",
+          "transition": "pass->fail",
+          "note": "history/ornith/ornith_cs.json attempt 0: pass->coded_error",
+          "evidence": "solve(row, cols, diag1, diag2, counter) writes cols[col] = 1 / 0 without returning cols; ARR-001 at line 13"
+        }
+      ]
     }
   }
 }

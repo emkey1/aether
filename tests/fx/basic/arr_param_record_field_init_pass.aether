@@ -1,0 +1,27 @@
+// D8 V-strict: naming a record field after an array parameter is not a write
+// to the parameter. `new T { heights: heights }` and `T { heights: heights }`
+// copy the array into the record, which the function returns.
+type LineUp {
+    heights: Int[] = [];
+    swaps: Int = 0;
+}
+
+fn lineUp(heights: Int[]) -> LineUp {
+    let result: LineUp = new LineUp { heights: heights };
+    result.heights[0] = 99;
+    result.swaps = 1;
+    ret result;
+}
+
+fn wrap(heights: Int[]) -> LineUp {
+    let r: LineUp = LineUp { heights: heights, swaps: 2 };
+    ret r;
+}
+
+fn main() -> Void {
+    let h: Int[] = [3, 1];
+    let a: LineUp = lineUp(h);
+    let b: LineUp = wrap(h);
+    fx { println(a.heights[0], " ", a.swaps, " ", b.swaps, " ", h[0]); }
+    ret;
+}

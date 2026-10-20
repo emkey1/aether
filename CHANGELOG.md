@@ -12,6 +12,44 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-5
+
+**Arrays are values, strictly (D8 V-strict).** A change to an array parameter
+that the function never returns is now ARR-001, an **error** -- an element
+(`xs[i] = v`), a nested element (`grid[r][c] = v`), an append or resize
+(`xs = xs + [v]`), or a reassignment (`xs = sorted(xs)`) -- in any function, not
+just a `Void` one. It was a warning for an index write in a `Void` function
+only, so a non-Void helper that sorted its parameter in place (the fine-tunes'
+heap-sort miss, runs 6 and 7) compiled and printed the unsorted input. The
+message says "Return it and reassign: `xs = f(xs)`", and for scratch work
+"copy it to a local first". A call statement that throws away the array a call
+returns after taking one (`sortDesc(xs);`, `sorted(xs);`) is ARR-001 too. A
+nested function's by-reference capture (D64) is exempt: its writes are seen.
+A record field named after the parameter (`new LineUp { heights: heights }`)
+is not a write to it (`tests/fx/basic/arr_param_record_field_init_pass`).
+A `Map[Text, T]` parameter (D68) is a value the same way: an un-returned write
+to one (`m[k] = v`, `remove(m, k)`), D68's warning, is now this error, worded
+for maps (`Return it and reassign: m = f(m)`), and so is a discarded returned
+map; `tests/fx/map/map_param_write_warn_pass` is now `map_param_write_fail`.
+
+Programs that wrote an array parameter as scratch space no longer compile; copy
+the parameter to a local (`let work: Int[] = xs;`). Migrated: the training corpus's
+`67_bitboard_twelve_queens` (its manifest sha updated; same output), three
+`tests/fx/lower` copy fixtures (they now return the written parameter and bind
+the result; same output), the old warning test (now
+`tests/fx/diag/arr001_void_index_write_fail`) and `arr001_nested_write_warn_pass`
+(now `_fail`), and five repair drills in `training/seed_repair_pairs*.json`
+that taught the silent version (`repair_array_inplace_mutation`,
+`repair_sort_helper_mutates_param`, `repair_arrvalue_heap_sort_void`,
+`repair_arrvalue_reverse_void`, `repair_arrvalue_grid_mark_void`): they were
+`behavioral` (runs, prints the unsorted input) and are now `repair` drills on
+the ARR-001 error. The replay case `cs_nqueens__36a6031b` (backtracking that marks
+and unmarks its parameter arrays) is a declared break in `tests/replay/WAIVED`.
+The guides say ARR-001 is an error (guide stamps `2026-10-20-3`); the full
+guide's list of emitted codes gains REC-001 (missed in `2026-10-20-3`) and
+FUNC-001. The guide-snippet gate now gives a fragment its arrays (`xs`, `table`,
+...) as locals rather than parameters.
+
 ## 2026-10-20-4
 
 **A map type: `Map[Text, T]`** (decision D68, superseding D47; pscal-core

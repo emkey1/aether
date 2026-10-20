@@ -3094,27 +3094,6 @@ if ! cmp -s $OUT/aether_else_if_expression_expected.out $OUT/aether_else_if_expr
     exit 1
 fi
 
-# ARR-001: mutating an array parameter in a Void function warns (arrays are
-# value-copied at the call boundary, unlike records) but must NOT fail the
-# build -- this is a warning, not an error. The warning goes to stderr, so the
-# two streams are captured apart and stdout is compared exactly.
-"$AETHER_BIN" --no-cache "$TESTS_DIR/array_mutation_warning_pass.aether" >$OUT/aether_array_mutation_warning_pass.out 2>$OUT/aether_array_mutation_warning_pass.err
-if [ $? -ne 0 ]; then
-    echo "ARR-001 must warn, not fail the build" >&2
-    cat $OUT/aether_array_mutation_warning_pass.out $OUT/aether_array_mutation_warning_pass.err >&2
-    exit 1
-fi
-if ! grep -q "warning: \[ARR-001\]" $OUT/aether_array_mutation_warning_pass.err; then
-    echo "missing ARR-001 warning" >&2
-    cat $OUT/aether_array_mutation_warning_pass.err >&2
-    exit 1
-fi
-if ! printf 'xs[0]=1\n' | cmp -s - $OUT/aether_array_mutation_warning_pass.out; then
-    echo "unexpected array-mutation-warning program output (caller's array should be unchanged)" >&2
-    cat $OUT/aether_array_mutation_warning_pass.out >&2
-    exit 1
-fi
-
 # Array slicing sugar `xs[a..b]`: half-open range, works as a let-binding
 # initializer and directly as a call argument; does not disturb the source
 # array (confirms it copies rather than aliasing).

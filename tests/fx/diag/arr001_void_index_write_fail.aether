@@ -1,0 +1,13 @@
+// D8 V-strict: writing an array parameter that the function never returns is
+// ARR-001, an error (it was a warning until 2026-10-20): arrays are values, so
+// the caller would never see the change.
+fn noop_mutate(arr: Int[]) -> Void {
+    arr[0] = 999;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    noop_mutate(xs);
+    fx { println("xs[0]=", xs[0]); }
+    ret;
+}

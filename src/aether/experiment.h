@@ -86,6 +86,8 @@ const char *aetherDumpTypesTarget(void);
 /* Runs the active arms over the analysed program (after rea's semantic pass,
  * before the type dump). A no-op with every flag at its default and no log. */
 void aetherRunExperiments(AST *root);
+/* D8 V-strict: ARR-001 errors for un-returned writes to array parameters. */
+void aetherValidateArrayParamWrites(AST *root);
 
 /* The arms that must act before rea's semantic pass (arrays=ref moves rvalue
  * arguments of by-reference parameters into temporaries). */

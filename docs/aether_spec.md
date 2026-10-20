@@ -1856,8 +1856,11 @@ fn main() -> Void {
 To be written: evaluation order, the value model, integers, Text, printing and
 run-time errors. Open rows:
 
-- **D8**, array semantics (value copies today, deep for nested arrays since
-  `2026-10-16-5`; V-strict vs by-ref pending).
+- **D8**, array semantics: V-strict. Arrays are values (copies are deep for
+  nested arrays since `2026-10-16-5`); a function that changes an array
+  parameter (an element, a nested element, an append or a reassignment) and
+  never returns it is ARR-001, an error, and so is a call statement that throws
+  away the array returned by a call it passed an array to.
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
 - **D24**, record and tuple `==` compare field by field (slot by slot for a
   tuple), recursing into nested records and arrays; `same(a, b)` is identity
@@ -1867,6 +1870,33 @@ run-time errors. Open rows:
   both used to be silent.
 - **D33**, print widths and Bool spelling; **D46**, `println` puts nothing
   between its arguments.
+
+```aether @reject=ARR-001 id=D.arrparam.1
+fn bump(xs: Int[]) -> Void {
+    xs[0] = xs[0] + 1;
+}
+fn main() -> Void {
+    let xs: Int[] = [1];
+    bump(xs);
+    fx { println(xs[0]); }
+}
+```
+
+```aether @ok id=D.arrparam.2
+fn bump(xs: Int[]) -> Int[] {
+    xs[0] = xs[0] + 1;
+    ret xs;
+}
+fn main() -> Void {
+    let xs: Int[] = [1];
+    xs = bump(xs);
+    fx { println(xs[0]); }
+}
+```
+
+```text
+2
+```
 
 ```aether @trap=ARR-003 id=D.index.1
 fn main() -> Void {

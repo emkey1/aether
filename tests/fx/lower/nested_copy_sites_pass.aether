@@ -5,8 +5,8 @@
 // body writes through two indices. Each write below lands
 // in a copy, so `a` still prints its original cells.
 type Box { data: Int[][]; }
-fn poke(t: Int[][]) -> Int { t[0][0] = 77; ret 0; }
-fn poke3(t: Int[][][]) -> Int { t[0][0][0] = 77; ret 0; }
+fn poke(t: Int[][]) -> Int[][] { t[0][0] = 77; ret t; }
+fn poke3(t: Int[][][]) -> Int[][][] { t[0][0][0] = 77; ret t; }
 fn ident(t: Int[][]) -> Int[][] { ret t; }
 fn grow(t: Int[][]) -> Int[][] { ret t + [[5]]; }
 fn mk(lit: Bool) -> Int[][] {
@@ -25,7 +25,7 @@ fn show(label: Text, a: Int[][]) -> Void {
 }
 fn check(lit: Bool) -> Void {
     let a: Int[][] = mk(lit);
-    let x: Int = poke(a);
+    let x: Int[][] = poke(a);
     let b: Int[][] = a;
     b[0][0] = 9;
     let c: Int[][] = [];
@@ -53,7 +53,7 @@ fn check(lit: Bool) -> Void {
     let n: Int[][][] = [];
     n = n + [a];
     n[0][1][1] = 9;
-    x = poke3(n);
+    let x3: Int[][][] = poke3(n);
     let bx: Box = new Box { data: a };
     bx.data[0][0] = 9;
     if lit { show("literal rows", a); } else { show("appended rows", a); }

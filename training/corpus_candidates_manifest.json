@@ -13299,7 +13299,7 @@
     {
       "source_path": "/tmp/corpus_new6/67_bitboard_twelve_queens.aether",
       "repo_path": "training/corpus_candidates/67_bitboard_twelve_queens.aether",
-      "sha256": "050b2a90e60fd6a120b1e86e1d4ccc2f79d183c311aeb7be92073582c37d4d68",
+      "sha256": "51e2b73cf80b77788e5ee4a957450e609e054c2c25a764369076180055f08811",
       "stdout": "12-queens solution count: 14200\nFirst solution:\nQ . . . . . . . . . . . \n. . Q . . . . . . . . . \n. . . . Q . . . . . . . \n. . . . . . . Q . . . . \n. . . . . . . . . Q . . \n. . . . . . . . . . . Q \n. . . . . Q . . . . . . \n. . . . . . . . . . Q . \n. Q . . . . . . . . . . \n. . . . . . Q . . . . . \n. . . . . . . . Q . . . \n. . . Q . . . . . . . . \n",
       "metadata": {
         "include_in_training": false,

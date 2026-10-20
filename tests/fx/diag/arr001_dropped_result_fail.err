@@ -1,0 +1,5 @@
+:9: [ARR-001]
+the array sortDesc() returns is thrown away
+`xs = sortDesc(xs)`
+:10: [ARR-001]
+the array sorted() returns is thrown away

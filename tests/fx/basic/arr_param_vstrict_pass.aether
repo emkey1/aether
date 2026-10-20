@@ -1,0 +1,25 @@
+// D8 V-strict: these shapes change an array parameter and stay legal, because
+// the change reaches the caller (returned, or returned in a tuple) or the
+// function works on a local copy.
+fn doubled(xs: Int[]) -> Int[] {
+    loop i in 0..length(xs) { xs[i] = xs[i] * 2; }
+    ret xs;
+}
+
+fn withCount(xs: Int[]) -> (Int[], Int) {
+    xs = xs + [0];
+    ret (xs, length(xs));
+}
+
+fn median(xs: Int[]) -> Int {
+    let work: Int[] = sorted(xs);
+    ret work[length(work) div 2];
+}
+
+fn main() -> Void {
+    let a: Int[] = [3, 1, 2];
+    a = doubled(a);
+    let (b, n) = withCount(a);
+    fx { println(a[0], " ", a[1], " ", a[2], " ", n, " ", length(b), " ", median([5, 1, 9])); }
+    ret;
+}

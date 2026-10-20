@@ -4,7 +4,7 @@
 // a literal-built source always copied.
 let shared: Int[] = [];
 fn wrapShared() -> Int[][] { ret [shared]; }
-fn poke(g: Int[][]) -> Void { g[0][0] = 30; ret; }
+fn poke(g: Int[][]) -> Int[][] { g[0][0] = 30; ret g; }
 fn main() -> Void {
     let xs: Int[] = [];
     xs = xs + [1];
@@ -27,7 +27,7 @@ fn main() -> Void {
     n[0][1] = 93;
     let deep: Int[][][] = [[xs]];
     deep[0][0][0] = 92;
-    poke([xs]);
+    let poked: Int[][] = poke([xs]);
     fx {
         println(xs[0], " ", xs[1], " ", lit[0], " ", lit[1]);
         println(g[0][0], " ", g[1][0], " ", g[1][1], " ", h[0][0]);

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-2*
+*Guide version: 2026-10-20-3*
 
 ## Highest-Value Rules
 
@@ -404,10 +404,10 @@ fn doubleAll(arr: Int[]) -> Int[] {
 xs = doubleAll(xs);
 ```
 
-A `Void` function that writes into an array parameter and never returns it
-gets an `[ARR-001]` warning (compiles fine, but almost certainly not what you
-meant) -- this is exactly the array/record asymmetry above: the identical
-pattern on a record parameter works, because records are pointer-backed.
+Changing an array parameter that the function never returns is an `[ARR-001]`
+error, and so is a call statement that drops the returned array
+(`sortDesc(xs);`): write `xs = f(xs)`, or copy to a local for scratch work. The
+same write on a record parameter works, because records are pointer-backed.
 
 A loop variable is scoped to its loop, so a later loop may reuse the name; it
 may not reuse the name of a variable already in scope (NAME-001).

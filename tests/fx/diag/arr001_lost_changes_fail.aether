@@ -1,0 +1,20 @@
+// D8 V-strict: an append or a reassignment of an array parameter the function
+// never returns is ARR-001: arrays are values, so the caller's `xs` would never
+// change.
+fn grow(xs: Int[]) -> Void {
+    xs = xs + [1];
+    ret;
+}
+
+fn reset(xs: Int[]) -> Int {
+    xs = [];
+    ret 0;
+}
+
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 2];
+    grow(xs);
+    let r: Int = reset(xs);
+    fx { println(xs[0], r); }
+    ret;
+}

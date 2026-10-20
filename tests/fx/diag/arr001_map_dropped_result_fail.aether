@@ -1,0 +1,12 @@
+// D8 with D68: a map is a value like an array, so a call statement that hands
+// over a map and drops the map it returns leaves `m` unchanged: ARR-001.
+fn withKey(m: Map[Text, Int], k: Text) -> Map[Text, Int] {
+    m[k] = 1;
+    ret m;
+}
+
+fn main() -> Void {
+    let m: Map[Text, Int] = {};
+    withKey(m, "a");
+    fx { println(length(m)); }
+}

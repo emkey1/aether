@@ -1764,6 +1764,34 @@ static void ruleRecordCompare(RuleCtx *c, const AST *e, const AetherTypeEnv *env
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
     if (ruleMapExpr(c, e, env)) return;
+    /* D8 V-strict: a call statement that hands over an array and throws away
+     * the array it returns (`sortDesc(xs);`, `sorted(xs);`) leaves xs as it
+     * was, because arrays are values. A map (D68) is a value the same way. */
+    AetherTypeKind retKind = aetherTypeOf(e, env).kind;
+    if (use->kind == AETHER_USE_NONE && e->type == AST_PROCEDURE_CALL &&
+        (retKind == AETHER_T_ARRAY || retKind == AETHER_T_MAP)) {
+        int isMap = retKind == AETHER_T_MAP;
+        for (int i = 0; i < e->child_count; i++) {
+            const AST *a = e->children[i];
+            if (!a || aetherTypeOf(a, env).kind != retKind) continue;
+            char shown[96], detail[768];
+            const char *fname = callName(e);
+            if (fname && strncasecmp(fname, "aether_", 7) == 0) fname += 7;
+            if (a->type == AST_VARIABLE && a->token && a->token->value)
+                snprintf(shown, sizeof(shown), "%s", a->token->value);
+            else
+                snprintf(shown, sizeof(shown), isMap ? "m" : "xs");
+            snprintf(detail, sizeof(detail),
+                     "the %s %s() returns is thrown away. %s are values, so the call "
+                     "cannot change `%s` itself: return it and reassign, `%s = %s(%s%s)`.",
+                     isMap ? "map" : "array", fname ? fname : "f", isMap ? "Maps" : "Arrays",
+                     shown, shown, fname ? fname : "f", shown, e->child_count > 1 ? ", ..." : "");
+            int line = nodeLine(e);
+            aetherSemanticReportCoded("ARR-001", "array-mutation", line > 0 ? line : 1, detail, 1);
+            c->reported++;
+            break;
+        }
+    }
     if (e->type == AST_BINARY_OP && e->token &&
         (e->token->type == TOKEN_EQUAL || e->token->type == TOKEN_NOT_EQUAL)) {
         ruleRecordCompare(c, e, env);

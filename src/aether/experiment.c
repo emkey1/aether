@@ -383,6 +383,7 @@ typedef struct {
     const char *name;
     int rank;
     int returned;
+    int reported; /* error mode: one ARR-001 per parameter per function */
 } ArrParam;
 
 static void arrCollectReturns(const AST *n, ArrParam *ps, int np) {
@@ -410,9 +411,37 @@ static void arrCollectReturns(const AST *n, ArrParam *ps, int np) {
 typedef struct {
     AetherArraysRule rule;
     const char *fnKind;
+    int asError; /* D8 V-strict, the default since 2026-10-20: ARR-001 is an error */
 } ArrCtx;
 
-static void arrReport(const ArrCtx *c, const ArrParam *p, const char *kind, int line) {
+static void arrReport(const ArrCtx *c, ArrParam *p, const char *kind, int line) {
+    if (c->asError) {
+        if (p->returned || p->reported) return;
+        p->reported = 1;
+        const char *what = "changed";
+        if (strcmp(kind, "index") == 0) what = "has an element written";
+        else if (strcmp(kind, "nested") == 0) what = "has a nested element written";
+        else if (strcmp(kind, "resize") == 0) what = "is appended to or resized";
+        else if (strcmp(kind, "reassign") == 0) what = "is reassigned";
+        else if (strcmp(kind, "map") == 0) what = "is written";
+        char detail[400];
+        if (p->rank == 0) /* a Map[Text, T] parameter (D68) */
+            snprintf(detail, sizeof(detail),
+                     "map parameter '%s' %s here, but the function never returns it. Maps "
+                     "are values: the caller keeps its own copy and never sees this change. "
+                     "Return it and reassign: `m = f(m)`. For scratch work, copy it to a "
+                     "local first.",
+                     p->name, what);
+        else
+            snprintf(detail, sizeof(detail),
+                     "array parameter '%s' %s here, but the function never returns it. Arrays "
+                     "are values: the caller keeps its own copy and never sees this change. "
+                     "Return it and reassign: `xs = f(xs)`. For scratch work, copy it to a local "
+                     "first (`let work: Int[] = %s;`).",
+                     p->name, what, p->name);
+        aetherSemanticReportCoded("ARR-001", "array-mutation", line, detail, 1);
+        return;
+    }
     logRow("arr", line, p->name, kind, c->fnKind, p->returned ? "returned" : "lost");
     if (c->rule != AETHER_ARRAYS_VSTRICT || p->returned) return;
     /* The shipped ARR-001 already warns on an index write, direct or nested
@@ -481,7 +510,16 @@ static void arrScanWrites(const AST *n, const ArrCtx *c, ArrParam *ps, int np) {
     }
     arrScanWrites(n->left, c, ps, np);
     arrScanWrites(n->right, c, ps, np);
-    arrScanWrites(n->extra, c, ps, np);
+    if (n->type == AST_NEW && n->extra && n->extra->type == AST_COMPOUND) {
+        /* `new T { heights: heights }`: each init is ASSIGN(field-name VARIABLE,
+         * value), and the field name is not a write to a same-named parameter. */
+        for (int i = 0; i < n->extra->child_count; i++) {
+            const AST *init = n->extra->children[i];
+            arrScanWrites(init && init->type == AST_ASSIGN ? init->right : init, c, ps, np);
+        }
+    } else {
+        arrScanWrites(n->extra, c, ps, np);
+    }
     for (int i = 0; i < n->child_count; i++) arrScanWrites(n->children[i], c, ps, np);
 }
 
@@ -494,7 +532,7 @@ static int arrayTypeRank(const AST *typeNode) {
     return r ? r : 1;
 }
 
-static void arrWalkFunctions(const AST *n, AetherArraysRule rule) {
+static void arrWalkFunctionsMode(const AST *n, AetherArraysRule rule, int asError) {
     if (!n) return;
     if ((n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) &&
         (n->right || n->extra)) {
@@ -505,12 +543,16 @@ static void arrWalkFunctions(const AST *n, AetherArraysRule rule) {
             if (!d || d->type != AST_VAR_DECL ||
                 (d->var_type != TYPE_ARRAY && d->var_type != TYPE_MAP))
                 continue;
+            /* A by-reference parameter (a nested fn's written capture, D64) is
+             * the caller's variable: its writes are seen. */
+            if (asError && d->by_ref) continue;
             for (int j = 0; j < d->child_count && np < 64; j++) {
                 const char *nm = varName(d->children[j]);
                 if (!nm) continue;
                 ps[np].name = nm;
                 ps[np].rank = d->var_type == TYPE_MAP ? 0 : arrayTypeRank(d->right);
                 ps[np].returned = 0;
+                ps[np].reported = 0;
                 np++;
             }
         }
@@ -519,14 +561,29 @@ static void arrWalkFunctions(const AST *n, AetherArraysRule rule) {
             ArrCtx c;
             c.rule = rule;
             c.fnKind = n->type == AST_FUNCTION_DECL ? "value" : "void";
+            c.asError = asError;
             arrCollectReturns(body, ps, np);
             arrScanWrites(body, &c, ps, np);
         }
     }
-    arrWalkFunctions(n->left, rule);
-    arrWalkFunctions(n->right, rule);
-    arrWalkFunctions(n->extra, rule);
-    for (int i = 0; i < n->child_count; i++) arrWalkFunctions(n->children[i], rule);
+    arrWalkFunctionsMode(n->left, rule, asError);
+    arrWalkFunctionsMode(n->right, rule, asError);
+    arrWalkFunctionsMode(n->extra, rule, asError);
+    for (int i = 0; i < n->child_count; i++) arrWalkFunctionsMode(n->children[i], rule, asError);
+}
+
+static void arrWalkFunctions(const AST *n, AetherArraysRule rule) {
+    arrWalkFunctionsMode(n, rule, 0);
+}
+
+/* D8 V-strict (accepted 2026-10-20): an un-returned write to an array
+ * parameter -- an element, a nested element, an append or resize, or a
+ * reassignment -- is ARR-001, an error. It was a warning for an index write
+ * in a Void function only, so the fine-tunes' in-place heap sort (a non-Void
+ * helper writing its parameter) printed the unsorted input. */
+void aetherValidateArrayParamWrites(AST *root) {
+    if (!root || aetherExperiment()->arrays == AETHER_ARRAYS_REF) return;
+    arrWalkFunctionsMode(root, AETHER_ARRAYS_VSTRICT, 1);
 }
 
 /* arrays=ref: an rvalue cannot bind to a by-reference parameter, so each one

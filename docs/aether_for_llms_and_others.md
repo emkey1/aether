@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-2*
+*Guide version: 2026-10-20-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1256,12 +1256,13 @@ fn doubleAll(arr: Int[]) -> Int[] {
 xs = doubleAll(xs);
 ```
 
-A `Void` function that indexes into an array parameter to assign a value
-(`arr[i] = v`, or `grid[r][c] = v` on a nested one), and never returns that
-array, gets a compile-time `[ARR-001]` warning (the
-build still succeeds -- it's a warning, not an error -- but the diagnostic is
-almost always pointing at a real bug: the mutation the code appears to
-intend can never be observed by the caller).
+A function that changes an array parameter -- an element (`arr[i] = v`), a
+nested element (`grid[r][c] = v`), an append or a reassignment -- and never
+returns it is a compile-time `[ARR-001]` error, and so is a call statement that
+throws away the array it returns (`sortDesc(xs);`, `sorted(xs);`): the caller
+would never see the change. Return it and reassign, `xs = f(xs)`. For scratch
+work inside a function, copy the parameter to a local first
+(`let work: Int[] = xs;`) and change the copy.
 
 ## Standard helpers
 
@@ -1953,7 +1954,7 @@ The compiler tags most rejections with a stable code in brackets and usually a
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, MS-001, TYPE-001, TYPE-002, TUP-001, FLOW-001, FLOW-002,
 FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-002, ARR-001, ARR-002,
-NARROW-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
+REC-001, FUNC-001, NARROW-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
 below map onto them. Run-time errors (ARR-003, CON-001, `AETH-RUNTIME-*`) carry their
 own message and hint. A compile-time code you receive that is not on this list
 does not exist — re-read the message rather than inventing a rule for it.
@@ -2088,9 +2089,10 @@ does not exist — re-read the message rather than inventing a rule for it.
   tuple-returning function, return a record instead and read its fields.
 - **[BUILT-002]** a listed builtin called with the wrong number of arguments →
   use the count in its signature (`formatfloat(r, 2)`, never a width slot).
-- **[ARR-001]** (warning) a `Void` function writes into an array or map
-  parameter (`xs[i] = v`, `grid[r][c] = v`, `m[k] = v`) and never returns it →
-  return it and reassign at the call site.
+- **[ARR-001]** a function changes an array or map parameter it never returns
+  (`xs[i] = v`, `grid[r][c] = v`, `m[k] = v`, an append), or a call's returned
+  array or map is thrown away (`sortDesc(xs);`) → return it and reassign,
+  `xs = f(xs)`; for scratch work, copy it to a local first.
 - **[NARROW-001]** (warning) a `Real` stored in an `Int` target → the fraction
   is discarded; use a `Real` target, or `int(...)` when truncating is intended.
 - **[FMT-001]** a placeholder in a `println` string — `"{}"`, `{name}`, `{0}`,

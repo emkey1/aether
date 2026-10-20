@@ -1,8 +1,8 @@
 // D8 experiment fixture: textbook Lomuto quicksort, whose swaps write into an
 // array parameter, plus a grid helper, an append helper that returns its
-// parameter, a whole-value copy of a parameter and an rvalue argument. Today
-// (value semantics) the sort is lost; arrays=ref sorts in place; V-strict
-// warns at every write the caller never sees.
+// parameter, a whole-value copy of a parameter and an rvalue argument. Under
+// V-strict, the default since 2026-10-20 (D8), the lost writes are ARR-001
+// errors; arrays=ref sorts in place.
 fn partition(xs: Int[], lo: Int, hi: Int) -> Int {
     let p: Int = xs[hi];
     let i: Int = lo;

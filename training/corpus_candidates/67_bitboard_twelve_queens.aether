@@ -41,11 +41,12 @@ fn searchQueens(
 
     let occupied: Int = (columns | descendingDiagonals | ascendingDiagonals) & mask;
     let available: Int = mask ^ occupied;
+    let current: Int[] = placement;
 
     loop available != 0 {
         let bit: Int = available & (0 - available);
         available = available ^ bit;
-        placement[row] = columnOfBit(bit, boardSize);
+        current[row] = columnOfBit(bit, boardSize);
 
         searchQueens(
             row + 1,
@@ -54,7 +55,7 @@ fn searchQueens(
             columns | bit,
             (descendingDiagonals | bit) << 1,
             (ascendingDiagonals | bit) >> 1,
-            placement,
+            current,
             result
         );
     }

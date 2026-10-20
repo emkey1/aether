@@ -60,13 +60,12 @@ check_warn() {
 }
 
 # D8: array parameters (W8-09).
-check arr_params.aether ""               0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
-check arr_params.aether "arrays=value"   0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
-check arr_params.aether "arrays=vstrict" 0 "5381 g=0 a=4 b=5 s0=0 a0=5 t=6"
+# V-strict shipped as the default on 2026-10-20 (D8): ARR-001 is an error for
+# every un-returned write, so only the by-reference arm still runs this.
+check arr_params.aether ""               1 "code:ARR-001"
+check arr_params.aether "arrays=value"   1 "code:ARR-001"
+check arr_params.aether "arrays=vstrict" 1 "code:ARR-001"
 check arr_params.aether "arrays=ref"     0 "1358 g=1 a=5 b=5 s0=0 a0=1 t=6"
-# The shipped ARR-001 flags mark()'s nested write (2026-10-16-5).
-check_warn arr_params.aether ""               ARR-001 1
-check_warn arr_params.aether "arrays=vstrict" ARR-001 5
 
 # D39: discarded values and tail expressions (W4-03 arms).
 check tail_expr.aether ""             1 "code:FLOW-001"

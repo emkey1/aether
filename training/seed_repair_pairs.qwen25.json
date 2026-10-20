@@ -230,8 +230,8 @@
     },
     {
       "id": "repair_array_inplace_mutation",
-      "kind": "behavioral",
-      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'xs' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "kind": "repair",
+      "diagnostic": "[ARR-001] Aether array-mutation error: array parameter 'xs' has an element written here, but the function never returns it. Arrays are values: the caller keeps its own copy and never sees this change. Return it and reassign: `xs = f(xs)`. For scratch work, copy it to a local first (`let work: Int[] = xs;`).",
       "broken_source": "fn sortVals(xs: Int[]) -> Void {\n    loop i in 0..length(xs) {\n        loop j in 0..length(xs) - 1 {\n            if xs[j] > xs[j + 1] {\n                let tmp: Int = xs[j];\n                xs[j] = xs[j + 1];\n                xs[j + 1] = tmp;\n            }\n        }\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let vals: Int[] = [42, 7, 19];\n    sortVals(vals);\n    fx {\n        loop i in 0..length(vals) {\n            println(vals[i]);\n        }\n    }\n    ret;\n}\n",
       "fixed_source": "fn sortVals(xs: Int[]) -> Int[] {\n    loop i in 0..length(xs) {\n        loop j in 0..length(xs) - 1 {\n            if xs[j] > xs[j + 1] {\n                let tmp: Int = xs[j];\n                xs[j] = xs[j + 1];\n                xs[j + 1] = tmp;\n            }\n        }\n    }\n    ret xs;\n}\n\nfn main() -> Void {\n    let vals: Int[] = [42, 7, 19];\n    vals = sortVals(vals);\n    fx {\n        loop i in 0..length(vals) {\n            println(vals[i]);\n        }\n    }\n    ret;\n}\n",
       "expected_stdout": "7\n19\n42\n"
@@ -490,8 +490,8 @@
     },
     {
       "id": "repair_sort_helper_mutates_param",
-      "kind": "behavioral",
-      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'xs' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "kind": "repair",
+      "diagnostic": "[ARR-001] Aether array-mutation error: array parameter 'xs' has an element written here, but the function never returns it. Arrays are values: the caller keeps its own copy and never sees this change. Return it and reassign: `xs = f(xs)`. For scratch work, copy it to a local first (`let work: Int[] = xs;`).",
       "broken_source": "fn insertionSort(xs: Int[]) -> Void {\n    loop i in 1..length(xs) {\n        let key: Int = xs[i];\n        let j: Int = i - 1;\n        loop j >= 0 && xs[j] > key {\n            xs[j + 1] = xs[j];\n            j = j - 1;\n        }\n        xs[j + 1] = key;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let xs: Int[] = [9, 4, 7, 1];\n    insertionSort(xs);\n    fx { println(xs[0], \" \", xs[1], \" \", xs[2], \" \", xs[3]); }\n    ret;\n}\n",
       "fixed_source": "fn insertionSort(input: Int[]) -> Int[] {\n    let xs: Int[] = input;\n    loop i in 1..length(xs) {\n        let key: Int = xs[i];\n        let j: Int = i - 1;\n        loop j >= 0 && xs[j] > key {\n            xs[j + 1] = xs[j];\n            j = j - 1;\n        }\n        xs[j + 1] = key;\n    }\n    ret xs;\n}\n\nfn main() -> Void {\n    let xs: Int[] = [9, 4, 7, 1];\n    xs = insertionSort(xs);\n    fx { println(xs[0], \" \", xs[1], \" \", xs[2], \" \", xs[3]); }\n    ret;\n}\n",
       "expected_stdout": "1 4 7 9\n"
@@ -737,24 +737,24 @@
     },
     {
       "id": "repair_arrvalue_heap_sort_void",
-      "kind": "behavioral",
-      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'weights' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "kind": "repair",
+      "diagnostic": "[ARR-001] Aether array-mutation error: array parameter 'weights' has an element written here, but the function never returns it. Arrays are values: the caller keeps its own copy and never sees this change. Return it and reassign: `xs = f(xs)`. For scratch work, copy it to a local first (`let work: Int[] = weights;`).",
       "broken_source": "fn siftDown(weights: Int[], start: Int, size: Int) -> Void {\n    let root: Int = start;\n    loop 2 * root + 1 < size {\n        let child: Int = 2 * root + 1;\n        if child + 1 < size && weights[child + 1] > weights[child] {\n            child = child + 1;\n        }\n        if weights[root] >= weights[child] {\n            ret;\n        }\n        let tmp: Int = weights[root];\n        weights[root] = weights[child];\n        weights[child] = tmp;\n        root = child;\n    }\n    ret;\n}\n\nfn heapSort(weights: Int[]) -> Void {\n    let n: Int = length(weights);\n    let i: Int = n div 2 - 1;\n    loop i >= 0 {\n        siftDown(weights, i, n);\n        i = i - 1;\n    }\n    let last: Int = n - 1;\n    loop last > 0 {\n        let top: Int = weights[0];\n        weights[0] = weights[last];\n        weights[last] = top;\n        siftDown(weights, 0, last);\n        last = last - 1;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let dogs: Int[] = [23, 8, 31, 12, 27, 5];\n    heapSort(dogs);\n    fx {\n        print(\"kennel weights:\");\n        loop w in dogs {\n            print(\" \", w);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
       "fixed_source": "fn siftDown(weights: Int[], start: Int, size: Int) -> Int[] {\n    let root: Int = start;\n    loop 2 * root + 1 < size {\n        let child: Int = 2 * root + 1;\n        if child + 1 < size && weights[child + 1] > weights[child] {\n            child = child + 1;\n        }\n        if weights[root] >= weights[child] {\n            ret weights;\n        }\n        let tmp: Int = weights[root];\n        weights[root] = weights[child];\n        weights[child] = tmp;\n        root = child;\n    }\n    ret weights;\n}\n\nfn heapSort(weights: Int[]) -> Int[] {\n    let n: Int = length(weights);\n    let i: Int = n div 2 - 1;\n    loop i >= 0 {\n        weights = siftDown(weights, i, n);\n        i = i - 1;\n    }\n    let last: Int = n - 1;\n    loop last > 0 {\n        let top: Int = weights[0];\n        weights[0] = weights[last];\n        weights[last] = top;\n        weights = siftDown(weights, 0, last);\n        last = last - 1;\n    }\n    ret weights;\n}\n\nfn main() -> Void {\n    let dogs: Int[] = [23, 8, 31, 12, 27, 5];\n    dogs = heapSort(dogs);\n    fx {\n        print(\"kennel weights:\");\n        loop w in dogs {\n            print(\" \", w);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
       "expected_stdout": "kennel weights: 5 8 12 23 27 31\n"
     },
     {
       "id": "repair_arrvalue_reverse_void",
-      "kind": "behavioral",
-      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'stops' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "kind": "repair",
+      "diagnostic": "[ARR-001] Aether array-mutation error: array parameter 'stops' has an element written here, but the function never returns it. Arrays are values: the caller keeps its own copy and never sees this change. Return it and reassign: `xs = f(xs)`. For scratch work, copy it to a local first (`let work: Int[] = stops;`).",
       "broken_source": "fn reverseStops(stops: Int[]) -> Void {\n    let i: Int = 0;\n    let j: Int = length(stops) - 1;\n    loop i < j {\n        let tmp: Int = stops[i];\n        stops[i] = stops[j];\n        stops[j] = tmp;\n        i = i + 1;\n        j = j - 1;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let stops: Int[] = [1, 4, 7, 9, 12];\n    reverseStops(stops);\n    fx {\n        print(\"elevator going down:\");\n        loop s in stops {\n            print(\" \", s);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
       "fixed_source": "fn reverseStops(stops: Int[]) -> Int[] {\n    let i: Int = 0;\n    let j: Int = length(stops) - 1;\n    loop i < j {\n        let tmp: Int = stops[i];\n        stops[i] = stops[j];\n        stops[j] = tmp;\n        i = i + 1;\n        j = j - 1;\n    }\n    ret stops;\n}\n\nfn main() -> Void {\n    let stops: Int[] = [1, 4, 7, 9, 12];\n    stops = reverseStops(stops);\n    fx {\n        print(\"elevator going down:\");\n        loop s in stops {\n            print(\" \", s);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
       "expected_stdout": "elevator going down: 12 9 7 4 1\n"
     },
     {
       "id": "repair_arrvalue_grid_mark_void",
-      "kind": "behavioral",
-      "diagnostic": "[ARR-001] Aether array-mutation warning: array parameter 'field' is mutated here, but arrays are value-copied at the call boundary, so this change is not visible to the caller; return the array explicitly if the caller should see the update.",
+      "kind": "repair",
+      "diagnostic": "[ARR-001] Aether array-mutation error: array parameter 'field' has a nested element written here, but the function never returns it. Arrays are values: the caller keeps its own copy and never sees this change. Return it and reassign: `xs = f(xs)`. For scratch work, copy it to a local first (`let work: Int[] = field;`).",
       "broken_source": "fn harvestRow(field: Int[][], row: Int) -> Void {\n    loop c in 0..length(field[row]) {\n        field[row][c] = 0;\n    }\n    ret;\n}\n\nfn main() -> Void {\n    let field: Int[][] = [[3, 5, 2], [4, 4, 1], [6, 2, 2]];\n    harvestRow(field, 1);\n    let remaining: Int = 0;\n    loop row in field {\n        remaining = remaining + sum(row);\n    }\n    fx {\n        println(\"bushels left in the field: \", remaining);\n    }\n    ret;\n}\n",
       "fixed_source": "fn harvestRow(field: Int[][], row: Int) -> Int[][] {\n    loop c in 0..length(field[row]) {\n        field[row][c] = 0;\n    }\n    ret field;\n}\n\nfn main() -> Void {\n    let field: Int[][] = [[3, 5, 2], [4, 4, 1], [6, 2, 2]];\n    field = harvestRow(field, 1);\n    let remaining: Int = 0;\n    loop row in field {\n        remaining = remaining + sum(row);\n    }\n    fx {\n        println(\"bushels left in the field: \", remaining);\n    }\n    ret;\n}\n",
       "expected_stdout": "bushels left in the field: 20\n"

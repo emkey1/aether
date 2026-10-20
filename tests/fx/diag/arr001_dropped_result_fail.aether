@@ -1,0 +1,13 @@
+// D8 V-strict: a call statement that throws away the array a call returns
+// after taking one is ARR-001: the call cannot change `xs` itself.
+fn sortDesc(xs: Int[]) -> Int[] {
+    ret sorted_desc(xs);
+}
+
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 2];
+    sortDesc(xs);
+    sorted(xs);
+    fx { println(xs[0]); }
+    ret;
+}

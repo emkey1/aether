@@ -1,0 +1,4 @@
+:5: [ARR-001]
+array parameter 'xs' is appended to or resized here
+:10: [ARR-001]
+array parameter 'xs' is reassigned here

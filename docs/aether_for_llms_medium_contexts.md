@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-2*
+*Guide version: 2026-10-20-3*
 
 Everything needed to write correct Aether in one shot.
 
@@ -568,12 +568,13 @@ fn doubleAll(arr: Int[]) -> Int[] {
     loop i in 0..length(arr) {
         arr[i] = arr[i] * 2;
     }
-    ret arr;                       // required -- in-place writes are invisible otherwise
+    ret arr;                       // required
 }
 ```
 
-A `Void` function that writes into an array parameter and never returns it draws
-an `[ARR-001]` warning; the same pattern on a *record* parameter works.
+Changing an array parameter you never return is an `[ARR-001]` error, as is a
+call statement that drops the returned array (`sortDesc(xs);`). Scratch work:
+copy to a local first. A *record* parameter may be changed in place.
 
 `println` cannot print a whole array (`TYPE-001`). Print the elements:
 `fx { loop x in xs { print(x, " "); } println(""); }`.
@@ -993,8 +994,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[REC-001]** `==` on a type that contains itself → `same(a, b)` or compare fields.
 - **[TUP-001]** tuple misuse → destructure a direct call, or bind and read one
   field; never chain onto the call.
-- **[ARR-001]** (warning) a `Void` function mutating an array or map parameter →
-  return it and reassign at the call site.
+- **[ARR-001]** an array or map parameter changed but never returned, or a
+  returned array or map dropped → `xs = f(xs)`.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
   fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
 - **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
@@ -1037,7 +1038,6 @@ Re-read the prompt and match it exactly.
   the right argument count (BUILT-002)
 - imports verified; exported names used exactly (IMP-001, MOD-001)
 - all parameters typed; array literals annotated (TYPE-001)
-- `ret` not `return`; `type` not `class` (SYN-001)
 - no field or method named after an Aether keyword; no constructor method
 - no arithmetic on or cross-assignment of TOON handles; every doc closed
 - stream bindings declared `MStream`; bodies read via `mstream_text` (MS-001)

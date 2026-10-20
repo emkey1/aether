@@ -1,5 +1,5 @@
-// ARR-001 covers a write through two indices too: a nested array parameter is
-// copied with its rows, so the Void helper's write never reaches the caller,
+// D8 V-strict: a write through two indices into an array parameter the
+// function never returns is ARR-001, an error (a warning until 2026-10-20),
 // whether the grid's rows were built by appending or written as a literal.
 fn mark(seen: Bool[][], r: Int, c: Int) -> Void {
     seen[r][c] = true;

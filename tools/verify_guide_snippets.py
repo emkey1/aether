@@ -135,11 +135,15 @@ fn snippetFrag(ready: Bool, score: Int, index: Int, total: Int, count: Int,
           j: Int, id: Text, pct: Real, s: Text, url: Text, n: Int,
           rows: Int, cols: Int, path: Text, value: Int, answer: Int,
           successful: Int, amount: Int, name: Text, status: Text, ok: Int,
-          raw: Text, code: Int, table: Int[][],
+          raw: Text, code: Int,
           a: TallyRec, b: TallyRec,
-          xs: Int[], items: Int[], ys: Int[], root: ToonNode, row: ToonNode, doc: ToonDoc,
+          root: ToonNode, row: ToonNode, doc: ToonDoc,
           tx: Tx) -> Void {
 """
+# The fragment's arrays are locals, declared on the opening line (so fragment
+# lines keep their numbers): a fragment that changes `xs` or `table` must not be
+# changing an array parameter it never returns, which is ARR-001 since D8.
+ARRAY_LOCALS = [("table", "Int[][]"), ("xs", "Int[]"), ("items", "Int[]"), ("ys", "Int[]")]
 MAIN = "\nfn main() -> Void {\n    ret;\n}\n"
 # A declaration block may also hold top-level statements (script mode); the
 # trivial main is then called explicitly, since a `fn main` beside top-level
@@ -198,13 +202,19 @@ def run_src(workdir, src, tag):
 
 
 def context_for(src):
-    """CONTEXT minus the parameters the fragment binds itself. A `let`, `const`
-    or loop variable that reuses a parameter's name is NAME-001 (W4-22), so a
-    fragment that declares `doc` or `n` must not also receive it. Names fold
-    case. Line numbers are unchanged: a dropped parameter leaves its comma."""
+    """CONTEXT minus the parameters the fragment binds itself, plus the array
+    locals it does not. A `let`, `const` or loop variable that reuses a
+    parameter's name is NAME-001 (W4-22), so a fragment that declares `doc` or
+    `n` must not also receive it. Names fold case. Line numbers are unchanged:
+    a dropped parameter leaves its comma, and the locals share the `{` line."""
     bound = {m.lower() for m in re.findall(
         r"^\s*(?:let|const)\s+(?:mut\s+)?([A-Za-z_]\w*)", src, re.M)}
     bound |= {m.lower() for m in re.findall(r"\bloop\s+([A-Za-z_]\w*)\s+in\b", src)}
+    lets = " ".join(f"let {n}: {t} = [];" for n, t in ARRAY_LOCALS if n not in bound)
+    return _context_params(bound).rstrip("\n") + (" " + lets if lets else "") + "\n"
+
+
+def _context_params(bound):
     if not bound:
         return CONTEXT
     head, sep, params = CONTEXT.partition("fn snippetFrag(")
