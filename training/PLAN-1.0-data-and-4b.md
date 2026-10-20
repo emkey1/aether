@@ -47,8 +47,12 @@ Before `v1-20261021` is built, author a targeted pack (an agent, as for run 6's 
 - **HTTP:** cannot run offline in the gate. Either compile-only pairs, if the builder gains such a mode, or pairs
   whose output does not depend on the network (building requests, setting headers, error handling with no server).
   Decide when authoring and record the choice.
-- **Size:** about 5-10 pairs per family, so each name the model should know appears at least once or twice; plus
-  repair drills from the old names (D72) to the new ones.
+- **Size:** about 5-10 pairs per family, so each name the model should know appears at least once or twice.
+- **No old-name repair drills (owner, 2026-10-20):**
+  - Models trained on 1.0 data start from stock Qwen and never see the removed names as outputs.
+  - Every removed name is SCOPE-001 with a hint naming the replacement.
+  - Drills would spend budget re-exposing retired vocabulary.
+  - If porting pre-1.0 code becomes a real use, a few "update this program" pairs can be added then.
 - **Prerequisite:** the review session's builtin-surface tests (requested 2026-10-20, before the 1.0-beta1 tag), so the
   names the pack teaches are known to be wired correctly.
 
