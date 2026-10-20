@@ -77,6 +77,36 @@ def workdir():
         yield pathlib.Path(name)
 
 
+UNSANDBOXED_BASELINE = "AETHER_BENCH_UNSANDBOXED_BASELINE"
+
+
+@contextlib.contextmanager
+def baseline_opt_out(value: str | None):
+    """$AETHER_BENCH_UNSANDBOXED_BASELINE set to value (None: unset) for the
+    block, then put back, so one test's choice never leaks into the next."""
+    saved = os.environ.get(UNSANDBOXED_BASELINE)
+    if value is None:
+        os.environ.pop(UNSANDBOXED_BASELINE, None)
+    else:
+        os.environ[UNSANDBOXED_BASELINE] = value
+    try:
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop(UNSANDBOXED_BASELINE, None)
+        else:
+            os.environ[UNSANDBOXED_BASELINE] = saved
+
+
+def repo_programs_baseline():
+    """How this repo's own Python programs run: the py_refs references and the
+    tests' inline snippets, never model output. On macOS they run under
+    sandbox-exec, as a board's would. Elsewhere there is no baseline sandbox and
+    the harness refuses every baseline program (it fails closed, 2026-10-09), so
+    they take the recorded opt-out; a board run never gets it from here."""
+    return baseline_opt_out(None if sys.platform == "darwin" else "1")
+
+
 def write_json(path: pathlib.Path, payload) -> pathlib.Path:
     path.write_text(json.dumps(payload, indent=2), encoding="utf-8")
     return path
@@ -634,7 +664,8 @@ def test_run_captured_times_out_without_raising_and_caps_output():
 
 def test_python_lane_timeout_is_rc_124():
     task = adb.Task(task_id="loop", title="loop", prompt="", expected_stdout="", timeout_seconds=1)
-    run = adb.run_python_task(task, "while True:\n    pass\n")
+    with repo_programs_baseline():
+        run = adb.run_python_task(task, "while True:\n    pass\n")
     assert run["returncode"] == 124 and run["timed_out"] is True
     assert adb.derive_failure_fingerprint({"generated_ok": True, "run": run}, "loop") == "timeout:loop"
 
@@ -644,10 +675,10 @@ def _sandbox_task(task_id: str, expected: str = "") -> "adb.Task":
                     files={"data.txt": "42\n"})
 
 
+@baseline_opt_out(None)
 def test_python_baseline_runs_sandboxed():
     if sys.platform != "darwin":
         raise Skipped("the baseline sandbox is sandbox-exec, macOS only")
-    os.environ.pop("AETHER_BENCH_UNSANDBOXED_BASELINE", None)
     ok = adb.run_python_task(_sandbox_task("ok", "42 hi\n"),
                              "import math\nopen('note.txt', 'w').write('hi')\n"
                              "print(open('data.txt').read().strip(), open('note.txt').read())\n")
@@ -670,11 +701,11 @@ def test_python_baseline_runs_sandboxed():
     assert info["mechanism"] == "sandbox-exec" and len(info["profile_sha256"]) == 64
 
 
+@baseline_opt_out(None)
 def test_python_baseline_fails_closed_without_a_sandbox():
     real_which = adb.shutil.which
     adb.shutil.which = lambda name, *a, **k: None if name == "sandbox-exec" else real_which(name, *a, **k)
     try:
-        os.environ.pop("AETHER_BENCH_UNSANDBOXED_BASELINE", None)
         run = adb.run_python_task(_sandbox_task("nosandbox", "x\n"), "print('x')\n")
         assert run.get("infra_failed") and run["returncode"] == -1 and "sandbox" in run["stderr"], run
         assert run["stdout"] == "", run  # never ran
@@ -683,6 +714,7 @@ def test_python_baseline_fails_closed_without_a_sandbox():
         adb.shutil.which = real_which
 
 
+@baseline_opt_out(None)
 def test_baseline_board_runs_the_sandbox_preflight_and_refuses_without_it():
     if sys.platform != "darwin":
         raise Skipped("the baseline sandbox is sandbox-exec, macOS only")
@@ -1194,7 +1226,8 @@ def test_stdin_task_reads_three_lines():
         assert next(c for _, _, c in all_cases(report))["run"]["exact_stdout_match"] is True
     from_file = adb.Task(task_id="f", title="f", prompt="", expected_stdout="three|two|one\n",
                          files={"in.txt": "one\ntwo\nthree\n"}, stdin={"file": "in.txt"})
-    py = adb.run_python_task(from_file, "import sys\nprint('|'.join(reversed(sys.stdin.read().split())))\n")
+    with repo_programs_baseline():
+        py = adb.run_python_task(from_file, "import sys\nprint('|'.join(reversed(sys.stdin.read().split())))\n")
     assert py["exact_stdout_match"] is True, py
 
 
@@ -1391,7 +1424,9 @@ def test_board_python_references_agree_without_a_compiler():
 
     bad = {}
     for name in oracle_check.BOARD_MANIFESTS:
-        for task_id, result in oracle_check.check_python_references(adb.load_tasks(BENCH_DIR / name)).items():
+        with repo_programs_baseline():
+            results = oracle_check.check_python_references(adb.load_tasks(BENCH_DIR / name))
+        for task_id, result in results.items():
             if not result["ok"]:
                 bad[f"{name}:{task_id}"] = result["detail"]
     assert not bad, bad
@@ -1429,7 +1464,8 @@ def test_trap_suite_shape():
 def test_trap_python_references_match_without_a_compiler():
     import aether_oracle_check as oracle_check
 
-    results = oracle_check.check_python_references(adb.load_tasks(TRAPS))
+    with repo_programs_baseline():
+        results = oracle_check.check_python_references(adb.load_tasks(TRAPS))
     assert len(results) == 24 and all(r["ok"] for r in results.values()), \
         {k: v["detail"] for k, v in results.items() if not v["ok"]}
 
@@ -1551,7 +1587,8 @@ def test_generated_files_are_deterministic_and_sha_checked():
 def test_scale_python_references_match():
     import aether_oracle_check as oracle_check
 
-    results = oracle_check.check_python_references(adb.load_tasks(SCALE))
+    with repo_programs_baseline():
+        results = oracle_check.check_python_references(adb.load_tasks(SCALE))
     assert len(results) == 8 and all(r["ok"] for r in results.values()), \
         {k: v["detail"] for k, v in results.items() if not v["ok"]}
 
