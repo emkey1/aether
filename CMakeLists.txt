@@ -84,6 +84,20 @@ if(NOT AETHER_LANG_VERSION)
 endif()
 message(STATUS "Aether language version: ${AETHER_LANG_VERSION}")
 
+# Release label (D75): `1.0-beta1`, `1.0`, `1.01-dev`, ... in RELEASE beside
+# VERSION. The date version stays the first token after "Version:" for tools;
+# the label follows it in parentheses: "Version: 2026-10-20-11 (1.0-beta1)".
+set(AETHER_RELEASE_LABEL "")
+if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/RELEASE")
+    file(STRINGS "${CMAKE_CURRENT_SOURCE_DIR}/RELEASE" AETHER_RELEASE_LABEL LIMIT_COUNT 1)
+    set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS
+        "${CMAKE_CURRENT_SOURCE_DIR}/RELEASE")
+endif()
+if(AETHER_RELEASE_LABEL)
+    message(STATUS "Aether release label: ${AETHER_RELEASE_LABEL}")
+    add_compile_definitions(PSCAL_RELEASE_LABEL="${AETHER_RELEASE_LABEL}")
+endif()
+
 # Which published image this binary was built for, e.g.
 # pscal-rootfs-2026.09.19.1. Passed in by the rootfs build; a developer build
 # leaves it "untagged". Passed rather than discovered with `git describe` on

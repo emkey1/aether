@@ -6,6 +6,9 @@ distinguishing multiple such changes on a single day. The value lives in
 [`VERSION`](VERSION), is reported by `aether --version`, and is stamped into every
 benchmark result for traceability.
 
+A release label (D75: `1.0-beta1`, `1.0`, `1.01-dev`, ...) lives in [`RELEASE`](RELEASE)
+and follows the date in `aether --version`; a release gets its own line here.
+
 Bump it with `tools/bump_version.py` **only** when a change alters what programs
 compile or how they run — a syntax, semantic, or builtin change — and never on a
 plain rebuild. Because the stamp is checked in, every node that builds a given
@@ -13,6 +16,13 @@ commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-20-11
+
+**Release `1.0-beta1`** (D75): this version closes the 2026-10-20 review round
+(D4, D8, D24, D68, D69, D70, D72, D73, D74) and is the first 1.0 beta, tagged
+`1.0-beta1`. The label lives in `RELEASE`; `--version` prints it after the date
+version, which stays the first token after `Version:` for tools: `Aether
+Compiler Version: 2026-10-20-11 (1.0-beta1)`. Fixes during the beta are
+`1.0-beta2`, and so on.
 
 **An imported module follows the importer's effect rules (D69).** The walk that
 enforces FX-001 and ANN-001 ran before `use`d modules were loaded, so it never
