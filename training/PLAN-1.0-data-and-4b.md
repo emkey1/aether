@@ -29,10 +29,34 @@ Nothing below is generated before then.
   - MiMo with the guide via T'Ra, plus a second MiMo pass on what the base cannot solve.
 - **Harvest:** with per-pair solver tags. Check pairs, pack reports, commit.
 
+## 2b. Standard-library breadth pack (owner, 2026-10-20: required before the next iteration)
+
+A coverage check after D72 found the training data uses only 9 of the 60 renamed builtins.
+- Unused: all 21 SQLite functions, 16 of 19 HTTP functions, all 13 socket functions, and others.
+- The benchmark (193 reference solutions) and the published model's 457 programs use only `format_float` /
+  `formatfloat`. So a fine-tune barely knows whole subsystems.
+
+Before `v1-20261021` is built, author a targeted pack (an agent, as for run 6's pack; never from benchmark task text):
+- **Scope:** every builtin family in the official builtin list, with priority on the never-used ones.
+- **Verification:** every pair must compile and print its expected output under the dataset gates. That decides
+  what can be included with real output:
+  - SQLite against an in-memory database: create, insert with binds, queries, column accessors, error handling.
+  - Sockets over loopback, if deterministic.
+  - Environment and directory calls, with deterministic output only.
+  - File operations in the sandbox; the D73 `try_` variants.
+- **HTTP:** cannot run offline in the gate. Either compile-only pairs, if the builder gains such a mode, or pairs
+  whose output does not depend on the network (building requests, setting headers, error handling with no server).
+  Decide when authoring and record the choice.
+- **Size:** about 5-10 pairs per family, so each name the model should know appears at least once or twice; plus
+  repair drills from the old names (D72) to the new ones.
+- **Prerequisite:** the review session's builtin-surface tests (requested 2026-10-20, before the 1.0-beta1 tag), so the
+  names the pack teaches are known to be wired correctly.
+
 ## 3. Dataset `v1-20261021`
 
 - **Contents:** everything the run-7 dataset had, migrated to 1.0 by the review round, plus:
   - the 18 map seed pairs from D68;
+  - the standard-library breadth pack (2b);
   - any further map pairs;
   - the new batch.
 - **Python pairs:** capped at about 13% of instruction records (the run-7 share).
