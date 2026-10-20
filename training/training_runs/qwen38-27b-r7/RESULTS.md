@@ -124,6 +124,7 @@ release (`tools/replay_bench.py`, zero GPU):
 | 2026-10-19-3 (as published) | 107 | 109 | 108 | |
 | 2026-10-20-1 … -7 | 107 | 109 | 108 | nothing; D8 turned one silently wrong heap sort into a coded error (still a miss) |
 | 2026-10-20-8 (D72) | 99 | 97 | 99 | every flip is `formatfloat`, renamed `format_float` by D72 (SCOPE-001 with a hint naming it) |
+| 2026-10-20-9, -10 (D70 case-sensitive names, D74 Real formatting) | 99 | 97 | 99 | no further first-attempt flips; the 3 repair-round flips (s2, s3) are `formatfloat` too. No bench task expects a default-formatted Real, so D74 cannot flip a pass |
 
 - **Owner decision (2026-10-20):** no `formatfloat` alias.
 - **For users on Aether 1.0:** the model card gets a note that the compiler's hint fixes the rename in one repair round.
