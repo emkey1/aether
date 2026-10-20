@@ -1,0 +1,17 @@
+// get_env, get_env_int, get_current_dir and file_exists, run: the variables come
+// from the fixture's .env (1.0-beta2).
+fn main() -> Void {
+    fx {
+        println("text: ", get_env("AETHER_FX_ENV_TEXT"));
+        println("unset: [", get_env("AETHER_FX_SURELY_UNSET"), "]");
+        println("int: ", get_env_int("AETHER_FX_ENV_INT", -1));
+        println("int unset: ", get_env_int("AETHER_FX_SURELY_UNSET", -1));
+        println("int bad: ", get_env_int("AETHER_FX_ENV_BAD", -1));
+        let cwd: Text = get_current_dir();
+        println("cwd: ", length(cwd) > 0, " ", starts_with(cwd, "/"));
+        write_file("here.txt", "x");
+        println("exists: ", file_exists("here.txt"), " ", file_exists("missing.txt"), " ",
+                file_exists(cwd + "/here.txt"));
+    }
+    ret;
+}

@@ -1,0 +1,14 @@
+bound: true
+listen: 0
+poll before connect: 0
+connect: 0
+poll after connect: 1
+accepted: true
+peer: 127.0.0.1
+sent: 4
+server got: ping
+sent stream: 4
+client got: pong
+last error: true
+dns localhost: true
+bind any: 0

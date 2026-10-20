@@ -24,7 +24,7 @@ jobs:
           submodules: recursive
           fetch-depth: 0          # aether_doc_refs resolves commits in all three repos
       - name: Toolchain
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libcurl4-openssl-dev
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libcurl4-openssl-dev libsqlite3-dev
       - name: Python packages for the doc gates
         run: python3 -m pip install --user -r tools/requirements-docs.txt
       - name: Tokenizer cache

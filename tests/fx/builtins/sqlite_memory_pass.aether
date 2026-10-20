@@ -1,0 +1,39 @@
+// The SQLite builtins against an in-memory database: every one of the 21 is
+// called, so a wrong alias, arity or engine binding fails here (1.0-beta2).
+fn main() -> Void {
+    fx {
+        let db: Int = sqlite_open(":memory:");
+        println("open ok: ", db >= 0);
+        println("exec create: ", sqlite_exec(db, "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, score REAL, note TEXT)"));
+
+        let ins: Int = sqlite_prepare(db, "INSERT INTO t (id, name, score, note) VALUES (?, ?, ?, ?)");
+        println("bind int: ", sqlite_bind_int(ins, 1, 7));
+        println("bind text: ", sqlite_bind_text(ins, 2, "ada"));
+        println("bind double: ", sqlite_bind_double(ins, 3, 2.5));
+        println("bind null: ", sqlite_bind_null(ins, 4));
+        println("step insert: ", sqlite_step(ins));
+        println("changes: ", sqlite_changes(db));
+        println("last rowid: ", sqlite_last_insert_rowid(db));
+        println("reset: ", sqlite_reset(ins));
+        println("clear bindings: ", sqlite_clear_bindings(ins));
+        sqlite_bind_int(ins, 1, 7);
+        sqlite_bind_text(ins, 2, "dup");
+        println("step duplicate key: ", sqlite_step(ins));
+        println("errmsg: ", sqlite_errmsg(db));
+        println("finalize insert: ", sqlite_finalize(ins));
+
+        let q: Int = sqlite_prepare(db, "SELECT id, name, score, note FROM t ORDER BY id");
+        println("columns: ", sqlite_column_count(q));
+        println("names: ", sqlite_column_name(q, 0), " ", sqlite_column_name(q, 1), " ",
+                sqlite_column_name(q, 2), " ", sqlite_column_name(q, 3));
+        println("step row: ", sqlite_step(q));
+        println("types: ", sqlite_column_type(q, 0), " ", sqlite_column_type(q, 1), " ",
+                sqlite_column_type(q, 2), " ", sqlite_column_type(q, 3));
+        println("row: ", sqlite_column_int(q, 0), " ", sqlite_column_text(q, 1), " ",
+                sqlite_column_double(q, 2));
+        println("step done: ", sqlite_step(q));
+        println("finalize query: ", sqlite_finalize(q));
+        println("close: ", sqlite_close(db));
+    }
+    ret;
+}

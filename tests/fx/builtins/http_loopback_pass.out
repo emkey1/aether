@@ -1,0 +1,9 @@
+http status: 200 body: hello header: beta2 error: 0
+to file: 200 hello over curl
+
+last headers: true last error: []
+await: 200 hello over curl
+
+async to file: true true 200 hello over curl
+
+cancelled

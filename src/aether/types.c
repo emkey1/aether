@@ -575,6 +575,29 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"yyjsongetindex", AETHER_T_HANDLE, "ToonNode"},
     {"mstreamcreate", AETHER_T_HANDLE, "MStream"}, {"mstreamfromstring", AETHER_T_HANDLE, "MStream"},
     {"socketreceive", AETHER_T_HANDLE, "MStream"},
+    /* The rest of the network surface (1.0-beta2), as builtins_json types it. */
+    {"httperrorcode", AETHER_T_INT, NULL}, {"httprequesttofile", AETHER_T_INT, NULL},
+    {"httprequestasync", AETHER_T_INT, NULL}, {"httpawait", AETHER_T_INT, NULL},
+    {"httptryawait", AETHER_T_INT, NULL}, {"httprequestasynctofile", AETHER_T_INT, NULL},
+    {"httpgetasyncprogress", AETHER_T_INT, NULL}, {"httpgetasynctotal", AETHER_T_INT, NULL},
+    {"socketconnect", AETHER_T_INT, NULL}, {"socketbind", AETHER_T_INT, NULL},
+    {"socketbindaddr", AETHER_T_INT, NULL}, {"socketlisten", AETHER_T_INT, NULL},
+    {"socketsend", AETHER_T_INT, NULL}, {"socketpoll", AETHER_T_INT, NULL},
+    {"socketlasterror", AETHER_T_INT, NULL},
+    {"socketpeeraddr", AETHER_T_TEXT, NULL}, {"dnslookup", AETHER_T_TEXT, NULL},
+    /* SQLite (pscal-core ext_builtins/sqlite), on in every standalone build
+     * since 1.0-beta2. */
+    {"sqliteopen", AETHER_T_INT, NULL}, {"sqliteclose", AETHER_T_INT, NULL},
+    {"sqliteexec", AETHER_T_INT, NULL}, {"sqliteprepare", AETHER_T_INT, NULL},
+    {"sqlitestep", AETHER_T_INT, NULL}, {"sqlitefinalize", AETHER_T_INT, NULL},
+    {"sqlitereset", AETHER_T_INT, NULL}, {"sqliteclearbindings", AETHER_T_INT, NULL},
+    {"sqlitebindint", AETHER_T_INT, NULL}, {"sqlitebinddouble", AETHER_T_INT, NULL},
+    {"sqlitebindtext", AETHER_T_INT, NULL}, {"sqlitebindnull", AETHER_T_INT, NULL},
+    {"sqlitecolumncount", AETHER_T_INT, NULL}, {"sqlitecolumnint", AETHER_T_INT, NULL},
+    {"sqlitechanges", AETHER_T_INT, NULL}, {"sqlitelastinsertrowid", AETHER_T_INT, NULL},
+    {"sqlitecolumntype", AETHER_T_TEXT, NULL}, {"sqlitecolumnname", AETHER_T_TEXT, NULL},
+    {"sqlitecolumntext", AETHER_T_TEXT, NULL}, {"sqliteerrmsg", AETHER_T_TEXT, NULL},
+    {"sqlitecolumndouble", AETHER_T_REAL, NULL},
     /* Text[] */
     {"split", RET_TEXT_ARRAY, NULL}, {"aether_read_lines", RET_TEXT_ARRAY, NULL},
     {"aether_try_read_lines_list", RET_TEXT_ARRAY, NULL},
@@ -623,6 +646,54 @@ static const BuiltinRet *findBuiltin(const char *name) {
         if (strcasecmp(name, kBuiltinReturns[i].name) == 0) return &kBuiltinReturns[i];
     }
     return NULL;
+}
+
+/* Documented parameter types of the environment, working-directory, DNS,
+ * HTTP, socket and SQLite builtins (1.0-beta2), which the engine only checked at run
+ * time: an argument of another type is TYPE-001 at compile time. One letter
+ * per parameter: I Int, T Text, B Bool, R Real, M MStream; `?` leaves a parameter the
+ * engine accepts in several forms unchecked (a request body: Text, MStream or
+ * nil; socket_send's data: Text or MStream; http_set_option's value: Int or
+ * Text by key). Keyed by the engine name the
+ * call node carries after aliasing. */
+typedef struct { const char *name; const char *params; } BuiltinParamSpec;
+static const BuiltinParamSpec kBuiltinParamSpecs[] = {
+    {"getenv", "T"}, {"getenvint", "TI"}, {"dnslookup", "T"},
+    {"httpclose", "I"}, {"httpsetheader", "ITT"}, {"httprequest", "ITT?M"},
+    {"httperrorcode", "I"}, {"httplasterror", "I"}, {"httpgetheader", "IT"},
+    {"httpgetlastheaders", "I"}, {"httpclearheaders", "I"}, {"httpsetoption", "IT?"},
+    {"httprequesttofile", "ITT?T"}, {"httprequestasync", "ITT?"}, {"httpisdone", "I"},
+    {"httpcancel", "I"}, {"httpawait", "IM"}, {"httptryawait", "IM"},
+    {"httprequestasynctofile", "ITT?T"}, {"httpgetasyncprogress", "I"}, {"httpgetasynctotal", "I"},
+    {"socketcreate", "II"}, {"socketconnect", "ITI"}, {"socketbind", "II"},
+    {"socketbindaddr", "ITI"}, {"socketlisten", "II"}, {"socketaccept", "I"},
+    {"socketpeeraddr", "I"}, {"socketsend", "I?"}, {"socketreceive", "II"},
+    {"socketsetblocking", "IB"}, {"socketpoll", "III"}, {"socketclose", "I"},
+    {"sqliteopen", "T"}, {"sqliteclose", "I"}, {"sqliteexec", "IT"}, {"sqliteprepare", "IT"},
+    {"sqlitefinalize", "I"}, {"sqlitestep", "I"}, {"sqlitereset", "I"}, {"sqliteclearbindings", "I"},
+    {"sqlitecolumncount", "I"}, {"sqlitecolumntype", "II"}, {"sqlitecolumnname", "II"},
+    {"sqlitecolumnint", "II"}, {"sqlitecolumndouble", "II"}, {"sqlitecolumntext", "II"},
+    {"sqlitebindint", "III"}, {"sqlitebinddouble", "IIR"}, {"sqlitebindtext", "IIT"},
+    {"sqlitebindnull", "II"}, {"sqlitechanges", "I"}, {"sqlitelastinsertrowid", "I"},
+    {"sqliteerrmsg", "I"},
+};
+
+static int builtinParamSpecType(const char *name, int index, AetherType *out) {
+    if (!name) return 0;
+    for (size_t i = 0; i < sizeof(kBuiltinParamSpecs) / sizeof(kBuiltinParamSpecs[0]); i++) {
+        if (strcasecmp(name, kBuiltinParamSpecs[i].name) != 0) continue;
+        const char *spec = kBuiltinParamSpecs[i].params;
+        if (index < 0 || (size_t)index >= strlen(spec)) return 0;
+        switch (spec[index]) {
+            case 'I': *out = mk(AETHER_T_INT); return 1;
+            case 'T': *out = mk(AETHER_T_TEXT); return 1;
+            case 'B': *out = mk(AETHER_T_BOOL); return 1;
+            case 'R': *out = mk(AETHER_T_REAL); return 1;
+            case 'M': *out = mkNamed(AETHER_T_HANDLE, "MStream"); return 1;
+            default: return 0;
+        }
+    }
+    return 0;
 }
 
 /* Builtin parameters whose type is fixed, for argument uses. Returns the
@@ -1106,6 +1177,8 @@ static void walkCallArgs(Walker *w, AST *e, AetherUse use) {
         } else if (fn) {
             if (i < np) walkValue(w, e, a, sinkUse(params[i], "arg"));
             else walkExpr(w, a, useOf(AETHER_USE_CALL_ARG));
+        } else if (!e->left && builtinParamSpecType(name, i, &params[0])) {
+            walkValue(w, e, a, sinkUse(params[0], "builtin-param"));
         } else {
             AetherTypeKind k = builtinParamKind(name, i);
             if (k != AETHER_T_UNKNOWN) walkValue(w, e, a, sinkUse(mk(k), "builtin-arg"));
@@ -1490,7 +1563,7 @@ static const char *sinkWhere(const char *label) {
     if (!strcmp(label, "let") || !strcmp(label, "const")) return "this binding is declared";
     if (!strcmp(label, "assign")) return "the assignment target is";
     if (!strcmp(label, "ret")) return "the function returns";
-    if (!strcmp(label, "arg")) return "this parameter is";
+    if (!strcmp(label, "arg") || !strcmp(label, "builtin-param")) return "this parameter is";
     if (!strcmp(label, "element")) return "the array's elements are";
     if (!strcmp(label, "field-init")) return "this field is";
     if (!strcmp(label, "map-value") || !strcmp(label, "map-literal") ||

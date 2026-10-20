@@ -48,6 +48,7 @@ graphics builtins for real produces a different inventory, so --check exits 77
 points either mode at another copy of the full guide.
 """
 import argparse
+import concurrent.futures
 import difflib
 import json
 import os
@@ -127,6 +128,32 @@ def dump_builtins():
         return json.loads(out.stdout)
 
 
+def callable_entries(entries):
+    """The entries an Aether program can actually call in this build. The
+    listing also carries the engine's dispatch-table names with no handler or
+    no routine type (kind "unknown": the SDL family in a build without SDL);
+    each of those is probed with a one-line program and dropped when the
+    compiler rejects the name, so the appendix never lists a name that is not
+    there."""
+    probe = [e for e in entries if e.get("kind") == "unknown"]
+    if not probe:
+        return entries
+
+    def rejected(name):
+        src = f"fn main() -> Void {{\n    fx {{\n        {name}();\n    }}\n    ret;\n}}\n"
+        with tempfile.TemporaryDirectory() as td:
+            path = os.path.join(td, "probe.aether")
+            with open(path, "w") as fh:
+                fh.write(src)
+            out = subprocess.run([AETHER, "--no-cache", "--no-run", path],
+                                 capture_output=True, text=True, timeout=60)
+        return f"'{name}' not in scope" in out.stderr
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
+        gone = {e["name"] for e, bad in zip(probe, pool.map(lambda e: rejected(e["name"]), probe)) if bad}
+    return [e for e in entries if e["name"] not in gone]
+
+
 # A name the prose documents looks like `foo(` inside backticks -- that is how
 # every signature in the math, conversion, arity, and helper tables is written.
 # Only the hand-written body counts, so scan up to the generated block.
@@ -149,6 +176,11 @@ def build_sections(entries, in_prose):
         if (e.get("category") or "") in SKIP_CATEGORIES:
             continue
         name = e["name"]
+        if name != name.lower():
+            # A camelCase engine name (apiSend, dosExec): since D70 a program
+            # must write the registered lowercase spelling.
+            name = name.lower()
+            e = dict(e, name=name)
         if name.lower() in removed or name.lower().startswith(HIDDEN_PREFIXES):
             continue
         if name in backend_names and name not in {x.get("backend_name") for x in [e]}:
@@ -283,7 +315,7 @@ def main():
     ap.add_argument("--guide", default=GUIDE, help="full guide to regenerate or check")
     args = ap.parse_args()
 
-    entries = dump_builtins()
+    entries = callable_entries(dump_builtins())
 
     with open(args.guide, encoding="utf-8") as fh:
         text = fh.read()

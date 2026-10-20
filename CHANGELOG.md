@@ -15,6 +15,66 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-12
+
+**The whole builtin surface is checked, and what the check found is fixed**
+(1.0-beta2 work; the release label is `1.0-beta2dev`). Of the 60 builtins D72
+renamed, 45 were called by no test or example, so nothing showed that a
+documented name reached a working engine function. `tools/check_builtin_surface.py`
+(ctest `aether_builtin_surface`) now generates its programs from the tables:
+every documented signature in the builtin listing, each overload with and
+without its defaults, must compile with its documented arity, argument types and
+return type (185 shapes); every other name the appendix lists must resolve
+(197); every removed spelling (D55, D61, D66, D72; 102) must fail with
+SCOPE-001 and a hint naming its replacement. `tests/fx/builtins` runs the
+families offline: SQLite on `:memory:`, sockets and DNS over loopback, a real
+HTTP GET through libcurl against an in-process loopback server plus the
+file and async forms, and `get_env`, `get_env_int` (from a new `.env` fixture
+sidecar), `get_current_dir` and `file_exists`.
+
+Fixed:
+- **SQLite and `ai_chat` were in no shipped build.** The standalone build used
+  pscal-core's minimal configuration, so `sqlite_*` (21 builtins in the full
+  guide's appendix) and `ai_chat` (in all three guides) were SCOPE-001 on every
+  host and grader; only the PBuild umbrella compiled them. Both are now on by
+  default (`AETHER_ENABLE_SQLITE`; `ai_chat` with curl). A Linux build needs the
+  libsqlite3 development package (CI installs it). A build configured without
+  one says so: "identifier 'sqlite_open' not in scope: SQLite support is not
+  built into this compiler.", with the configure flag as the hint.
+- **The async HTTP builtins were unusable.** `http_request_async` and
+  `http_request_async_to_file` returned an engine task value that no Aether type
+  holds, so the documented `let id: Int = http_request_async(...)` stopped with
+  "Cannot assign TASK to integer". Under Aether they return the task id as an
+  Int, and `http_await`, `http_try_await`, `http_is_done`, `http_cancel`,
+  `http_get_async_progress` and `http_get_async_total` take it; `http_is_done`
+  returns the documented Bool.
+- **Wrong documented types.** `sqlite_column_type` returns the storage class as
+  Text (`"INTEGER"`, `"FLOAT"`, `"TEXT"`, `"BLOB"`, `"NULL"`), not Int;
+  `http_set_option` takes an Int or a Text value by key. `task_stats()` returns
+  records with no Aether type: the guide now says to count them
+  (`length(task_stats())`) and read fields through `task_stats_json()`.
+- **`sqlite_finalize` stopped the program** after a failed step: it reported
+  the statement's last error (a UNIQUE violation, say) as its own failure. It
+  now returns that code like `sqlite_step` and `sqlite_reset`.
+- **Compile-time checks for 57 builtins.** The environment, working-directory,
+  DNS, HTTP, socket and SQLite builtins had no arity check and no argument
+  types, so `get_env()` or `socket_connect(s, 80, "host")` compiled and failed
+  at run time. Each now has BUILT-002 arity (from the engine's own argument
+  guards) and TYPE-001 for an argument of the wrong type ("this parameter is
+  Text, but this value is Int"); their return types are in the type oracle, so
+  `let ct: Int = sqlite_column_type(q, 0);` is TYPE-001.
+- **A cold cached run lost the file and line of a run-time error.** The first
+  run of a program with the cache on (the default) printed run-time errors
+  without the `file:line:` prefix that `--no-cache` and a warm run print: a
+  cache miss reset the compiled chunk and dropped its source path (rea). The
+  newly built-in `ai_chat` made the run-time line-mapping test run under the
+  pin gate's cold-cache lap, which found it.
+- **The listing and the appendix.** The listing (and so `builtin_info` and the
+  appendix) had no entry for the 13 `socket_*` builtins or `dns_lookup`; it has
+  them now. The appendix no longer lists names this build does not register
+  (the SDL family in a build without SDL), and lists the camelCase engine names
+  (`apiSend`, `dosExec`, ...) in the lowercase spelling D70 requires.
+
 ## 2026-10-20-11
 
 **Release `1.0-beta1`** (D75): this version closes the 2026-10-20 review round

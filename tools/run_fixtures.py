@@ -17,6 +17,7 @@ going over all of them:
   .rc         expected exit status (default 0)
   .in         stdin (default empty)
   .flags      extra aether flags, whitespace separated
+  .env        KEY=VALUE lines added to the program's environment
   .cap        needs curl, yyjson, openai or sdl; skipped on a build without it
 
 Each fixture runs with --no-cache in its own directory under a private temp
@@ -68,19 +69,20 @@ def find_fixtures():
     return found
 
 
-def run(cmd, stdin, cwd):
+def run(cmd, stdin, cwd, env=None):
     try:
-        p = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, timeout=TIMEOUT)
+        p = subprocess.run(cmd, input=stdin, capture_output=True, cwd=cwd, timeout=TIMEOUT,
+                           env=env)
         return p.returncode, p.stdout, p.stderr.decode("utf-8", "replace")
     except subprocess.TimeoutExpired:
         return "timeout", b"", ""
 
 
-def diag_codes(aether, flags, src, stdin, cwd, run_err):
+def diag_codes(aether, flags, src, stdin, cwd, run_err, env=None):
     """(code set, number of JSON records with code null)."""
     codes = set(TAG.findall(run_err)) | set(RUNTIME_TAG.findall(run_err))
     nulls = 0
-    _, _, err = run([aether, "--no-cache", "--diagnostics-json"] + flags + [src], stdin, cwd)
+    _, _, err = run([aether, "--no-cache", "--diagnostics-json"] + flags + [src], stdin, cwd, env)
     text = err.strip()
     if text.startswith(("[", "{")):
         try:
@@ -123,13 +125,21 @@ def check(name, aether, work, update):
     want_rc = int(rc_text.strip()) if rc_text and rc_text.strip() else 0
     stdin = read(base + ".in", "rb") or b""
     flags = (read(base + ".flags") or "").split()
+    env = None
+    env_text = read(base + ".env")
+    if env_text:
+        env = dict(os.environ)
+        for line in env_text.splitlines():
+            if "=" in line and not line.lstrip().startswith("#"):
+                key, value = line.split("=", 1)
+                env[key.strip()] = value
     if want_out is None and not err_lines and want_codes is None and not update:
         return "FAIL", ["asserts nothing: add .out, .err or .codes"], []
 
     cwd = tempfile.mkdtemp(prefix=os.path.basename(name) + "_", dir=work)
     shutil.copy(src, os.path.join(cwd, os.path.basename(src)))
     local = os.path.basename(src)
-    rc, out, err = run([aether, "--no-cache"] + flags + [local], stdin, cwd)
+    rc, out, err = run([aether, "--no-cache"] + flags + [local], stdin, cwd, env)
     problems, diffs = [], []
     if rc == "timeout":
         return "FAIL", [f"no exit within {TIMEOUT} s"], []
@@ -149,7 +159,7 @@ def check(name, aether, work, update):
             problems.append(f"stderr lacks {ln!r}")
     got_codes, nulls = None, 0
     if want_codes is not None or update:
-        got_codes, nulls = diag_codes(aether, flags, local, stdin, cwd, err)
+        got_codes, nulls = diag_codes(aether, flags, local, stdin, cwd, err, env)
         if want_codes is not None and got_codes != want_codes:
             problems.append(f"codes {sorted(got_codes)}, want {sorted(want_codes)}")
         if nulls and (want_codes is not None or got_codes):

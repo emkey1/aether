@@ -53,6 +53,19 @@ option(AETHER_ENABLE_CURL "Build aether with the pscal-core libcurl networking b
 if(AETHER_ENABLE_CURL)
     set(PSCAL_CURL ON CACHE BOOL "Enable libcurl networking in pscal-core (forced by aether)" FORCE)
 endif()
+# SQLite and ai_chat: documented Aether surface (`sqlite_*` in the full guide's
+# appendix, `ai_chat` in all three guides) that only the PBuild umbrella used to
+# compile in, so every shipped standalone build lacked them (1.0-beta2). ON by
+# default; a Linux build needs the libsqlite3 development package. Configure
+# with -DAETHER_ENABLE_SQLITE=OFF for a build without them, which then says so
+# for each call instead of an "identifier not in scope".
+option(AETHER_ENABLE_SQLITE "Build aether with the pscal-core SQLite builtins" ON)
+if(AETHER_ENABLE_SQLITE)
+    set(PSCAL_SQLITE ON CACHE BOOL "Enable SQLite builtins in pscal-core (forced by aether)" FORCE)
+endif()
+if(AETHER_ENABLE_CURL)
+    set(PSCAL_OPENAI ON CACHE BOOL "Enable the OpenAI chat builtin in pscal-core (forced by aether)" FORCE)
+endif()
 FetchContent_Declare(pscal_core SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/pscal-core)
 FetchContent_MakeAvailable(pscal_core)
 FetchContent_Declare(rea SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/external/rea)
@@ -299,6 +312,17 @@ else()
     set_tests_properties(aether_builtin_appendix PROPERTIES
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
         SKIP_RETURN_CODE 77
+        LABELS "guide")
+
+    # The whole builtin surface, generated from the tables (1.0-beta2): every
+    # documented signature compiles with its arity and types, every listed name
+    # resolves, every removed spelling is SCOPE-001 naming its replacement.
+    add_test(NAME aether_builtin_surface
+             COMMAND ${Python3_EXECUTABLE}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_builtin_surface.py)
+    set_tests_properties(aether_builtin_surface PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        TIMEOUT 600
         LABELS "guide")
 
     # Medium <= 15,000 o200k tokens, whole document (staged per D6; small, full

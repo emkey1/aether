@@ -3689,6 +3689,35 @@ static AST *parsePrimary(AetherParser *p) {
             const char *canonical = (aetherAstIsTopLevelUserFunction(raw) ||
                                      aetherIsNestedFnName(p, raw))
                                         ? raw : aliasBuiltinName(raw);
+            /* An optional engine backend this build was configured without
+             * (1.0-beta2): name the missing support instead of reporting the
+             * engine spelling as an unknown identifier. */
+            if (canonical != raw && strcmp(canonical, raw) != 0 && !p->forwardScan &&
+                getVmBuiltinID(canonical) < 0) {
+                const char *what = NULL, *how = NULL;
+                if (strncmp(canonical, "sqlite", 6) == 0) {
+                    what = "SQLite support";
+                    how = "rebuild aether with -DAETHER_ENABLE_SQLITE=ON (on Linux, install the "
+                          "libsqlite3 development package first)";
+                } else if (strncmp(canonical, "http", 4) == 0 || strncmp(canonical, "socket", 6) == 0 ||
+                           strcmp(canonical, "dnslookup") == 0) {
+                    what = "networking (libcurl) support";
+                    how = "rebuild aether with -DAETHER_ENABLE_CURL=ON";
+                } else if (strcmp(canonical, "openaichatcompletions") == 0) {
+                    what = "the ai_chat builtin";
+                    how = "rebuild aether with -DAETHER_ENABLE_CURL=ON, which also builds ai_chat";
+                }
+                if (what) {
+                    char detail[200];
+                    snprintf(detail, sizeof(detail),
+                             "identifier '%.64s' not in scope: %s is not built into this compiler.",
+                             raw, what);
+                    reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "scope", detail, how);
+                    p->hadError = true;
+                    freeToken(tok);
+                    return NULL;
+                }
+            }
             if (canonical != raw && strcmp(canonical, raw) != 0) {
                 surfaceAlias = strdup(raw);
                 freeToken(tok);

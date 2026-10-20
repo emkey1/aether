@@ -1,0 +1,7 @@
+text: hello world
+unset: []
+int: 42
+int unset: -1
+int bad: -1
+cwd: true true
+exists: true false true

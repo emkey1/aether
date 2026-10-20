@@ -1,0 +1,49 @@
+// The socket builtins over loopback in one thread (1.0-beta2): the client's
+// connect completes in the listen backlog before accept, so nothing blocks.
+// Every socket_* builtin and dns_lookup is called.
+fn main() -> Void {
+    let port: Int = 24557;
+    let last: Int = 24757;
+    let bound: Bool = false;
+    let srv: Int = -1;
+    fx {
+        srv = socket_create(0);
+        loop !bound && port < last {
+            if socket_bind_addr(srv, "127.0.0.1", port) == 0 {
+                bound = true;
+            } else {
+                port = port + 1;
+            }
+        }
+        println("bound: ", bound);
+        println("listen: ", socket_listen(srv, 4));
+        socket_set_blocking(srv, false);
+        println("poll before connect: ", socket_poll(srv, 50, 1));
+        let cli: Int = socket_create(0, 4);
+        println("connect: ", socket_connect(cli, "127.0.0.1", port));
+        println("poll after connect: ", socket_poll(srv, 2000, 1));
+        socket_set_blocking(srv, true);
+        let conn: Int = socket_accept(srv);
+        println("accepted: ", conn >= 0);
+        println("peer: ", socket_peer_addr(conn));
+        println("sent: ", socket_send(cli, "ping"));
+        let ms: MStream = socket_receive(conn, 64);
+        println("server got: ", mstream_text(ms));
+        mstream_free(ms);
+        let reply: MStream = mstream_from_text("pong");
+        println("sent stream: ", socket_send(conn, reply));
+        mstream_free(reply);
+        let back: MStream = socket_receive(cli, 64);
+        println("client got: ", mstream_text(back));
+        mstream_free(back);
+        println("last error: ", socket_last_error() >= 0);
+        socket_close(conn);
+        socket_close(cli);
+        socket_close(srv);
+        println("dns localhost: ", length(dns_lookup("localhost")) > 0);
+        let spare: Int = socket_create(0);
+        println("bind any: ", socket_bind(spare, 0));
+        socket_close(spare);
+    }
+    ret;
+}

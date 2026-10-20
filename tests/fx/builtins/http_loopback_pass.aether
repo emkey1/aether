@@ -1,0 +1,88 @@
+// The HTTP builtins through libcurl, offline (1.0-beta2): a real HTTP/1.0 GET
+// against a one-shot server on loopback (one par branch serves, the other
+// fetches), then the file and async forms against a file:// URL.
+type Reply {
+    status: Int = 0;
+    body: Text = "";
+    header: Text = "";
+    errorCode: Int = -1;
+}
+
+fn serve(listenSock: Int) -> Void {
+    fx {
+        let conn: Int = socket_accept(listenSock);
+        let req: MStream = socket_receive(conn, 4096);
+        mstream_free(req);
+        socket_send(conn, "HTTP/1.0 200 OK\r\nContent-Type: text/plain\r\nX-Aether: beta2\r\nContent-Length: 5\r\nConnection: close\r\n\r\nhello");
+        socket_close(conn);
+        socket_close(listenSock);
+    }
+    ret;
+}
+
+fn fetch(port: Int, r: Reply) -> Void {
+    fx {
+        let s: Int = http_session();
+        http_set_header(s, "X-Test", "1");
+        http_set_option(s, "timeout_ms", 5000);
+        http_set_option(s, "user_agent", "aether-fixture");
+        let out: MStream = mstream_new();
+        r.status = http_request(s, "GET", "http://127.0.0.1:" + int_to_text(port) + "/", "", out);
+        r.body = mstream_text(out);
+        r.header = http_get_header(s, "X-Aether");
+        r.errorCode = http_error_code(s);
+        mstream_free(out);
+        http_clear_headers(s);
+        http_close(s);
+    }
+    ret;
+}
+
+fn main() -> Void {
+    let port: Int = 25557;
+    let last: Int = 25757;
+    let bound: Bool = false;
+    let srv: Int = -1;
+    let r: Reply = new Reply();
+    fx {
+        srv = socket_create(0);
+        loop !bound && port < last {
+            if socket_bind_addr(srv, "127.0.0.1", port) == 0 {
+                bound = true;
+            } else {
+                port = port + 1;
+            }
+        }
+        socket_listen(srv, 1);
+    }
+    par {
+        serve(srv);
+        fetch(port, r);
+    }
+    fx {
+        println("http status: ", r.status, " body: ", r.body, " header: ", r.header, " error: ", r.errorCode);
+
+        write_file("page.txt", "hello over curl\n");
+        let url: Text = "file://" + get_current_dir() + "/page.txt";
+        let s: Int = http_session();
+        println("to file: ", http_request_to_file(s, "GET", url, "", "copy.txt"), " ", read_file("copy.txt"));
+        println("last headers: ", length(http_get_last_headers(s)) >= 0, " last error: [", http_last_error(s), "]");
+        let id: Int = http_request_async(s, "GET", url, "");
+        let out: MStream = mstream_new();
+        println("await: ", http_await(id, out), " ", mstream_text(out));
+        mstream_free(out);
+        let id2: Int = http_request_async_to_file(s, "GET", url, "", "copy2.txt");
+        let out2: MStream = mstream_new();
+        loop !http_is_done(id2) {
+            sleep(5);
+        }
+        println("async to file: ", http_get_async_total(id2) >= -1, " ", http_get_async_progress(id2) >= 0, " ",
+                http_try_await(id2, out2), " ", read_file("copy2.txt"));
+        mstream_free(out2);
+        let id3: Int = http_request_async(s, "GET", url, "");
+        http_cancel(id3);
+        println("cancelled");
+        http_close(s);
+    }
+    ret;
+}

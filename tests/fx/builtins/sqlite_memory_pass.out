@@ -1,0 +1,22 @@
+open ok: true
+exec create: 0
+bind int: 0
+bind text: 0
+bind double: 0
+bind null: 0
+step insert: 101
+changes: 1
+last rowid: 7
+reset: 0
+clear bindings: 0
+step duplicate key: 19
+errmsg: UNIQUE constraint failed: t.id
+finalize insert: 19
+columns: 4
+names: id name score note
+step row: 100
+types: INTEGER TEXT FLOAT NULL
+row: 7 ada 2.5
+step done: 101
+finalize query: 0
+close: 0
