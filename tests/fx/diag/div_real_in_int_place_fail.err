@@ -1,0 +1,11 @@
+:7: [TYPE-001]
+an index needs an Int
+:8: [TYPE-001]
+:10: [TYPE-001]
+a loop range bound needs an Int
+:11: [TYPE-001]
+:12: [TYPE-001]
+:13: [TYPE-001]
+int_to_text() needs an Int
+:14: [TYPE-001]
+:15: [TYPE-001]

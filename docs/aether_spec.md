@@ -1006,6 +1006,16 @@ fn main() -> Void {
 }
 ```
 
+Every part of a range is an Int place (D18): a bound or step computed with `/`
+is TYPE-001; write `a div b`.
+
+```aether @reject=TYPE-001 id=G.Range.5
+fn main() -> Void {
+    let n: Int = 7;
+    loop i in 0..n / 2 { fx { print(i); } }
+}
+```
+
 ```aether @ok id=G.WhileStmt.1
 fn main() -> Void {
     let i: Int = 0;
@@ -1475,9 +1485,11 @@ fn main() -> Void {
 }
 ```
 
-Int / Int is decision D4, still being measured; today it yields a Real:
+Int / Int is always a Real (decision D4, B+); `a div b` is the integer
+quotient. A Real where only an Int works -- an operand of `%` or `div`, an
+index, a range bound or step, `int_to_text` -- is TYPE-001:
 
-```aether @bug=D4 now=ok id=G.MulExpr.3
+```aether @ok id=G.MulExpr.3
 fn main() -> Void {
     fx { println(7 / 2); }
 }
@@ -1485,6 +1497,14 @@ fn main() -> Void {
 
 ```text
 3.500000
+```
+
+```aether @reject=TYPE-001 id=G.MulExpr.4
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let n: Int = 3;
+    fx { println(xs[n / 2]); }
+}
 ```
 
 ```aether @ok id=G.Unary.1
@@ -1793,7 +1813,8 @@ fn main() -> Void {
 To be written: the type rules, inference, scope and name resolution, effects
 (`fx`, `@pure`) and contracts. Open rows that decide parts of it:
 
-- **D4**, Int / Int: pending its probe (G.MulExpr.3 pins today's Real result).
+- **D4**, Int / Int: B+, always a Real; a Real in an Int-only place is
+  TYPE-001 (G.MulExpr.3, G.MulExpr.4, G.Range.5).
 - **D15**, homogeneous array-literal inference: accepted, lands in L2
   (G.LetDecl.2 is today's TYPE-001).
 - **D17**, case-insensitive collisions become a coded error (L.ident.4).

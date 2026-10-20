@@ -1,0 +1,7 @@
+// D4 B+ (accepted 2026-10-20): Int/Int `/` is always Real, so 7 / 2 == 3 is
+// false; `div` is the integer quotient. (Was backlog probe div_compare.)
+fn main() -> Void {
+    let a: Int = 7;
+    let b: Int = 2;
+    if a / b == 3 { fx { println("eq3"); } } else { fx { println("not eq3"); } }
+}

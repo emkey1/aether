@@ -1,6 +1,6 @@
 fn is_prime(n: Int) -> Bool {
     if n < 2 { ret false; }
-    loop i in 2..sqrt(n) {
+    loop i in 2..int(sqrt(n)) + 1 {
         if n % i == 0 { ret false; }
     }
     ret true;

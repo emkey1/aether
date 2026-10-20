@@ -12,6 +12,32 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-6
+
+**Int / Int is Real, and a Real in an Int-only place is an error (D4 B+, D18).**
+`/` on two Ints keeps giving a Real (Python 3's reading: `7 / 2` is `3.5`), and
+`a div b` is the integer quotient. A quotient that reaches a place only an Int
+can fill is now TYPE-001 naming `a div b`, where it used to truncate silently:
+an **array or Text index** (`xs[n / 2]` indexed with 1 for 3.5 / 2) and **every
+part of a loop range**, both bounds and the step (`loop i in 0..7 / 2` ran four
+times, to 3.5). `%`, `div`, shifts and `int_to_text` were already coded. A typed
+sink keeps its D1 behaviour (`let q: Int = a / b;` truncates).
+
+Also fixed: a postfix on a Text literal was dropped, so `"abcd"[i]` and
+`"abcd"[1..3]` gave the whole literal; they index and slice now.
+
+Migrated: one harvested training-corpus program (not canonical, no oracle, so
+excluded from datasets) looped `2..sqrt(n)`; it now loops
+`2..int(sqrt(n)) + 1`, which also stops it listing 4, 9, 25 and 49 as primes
+(its golden is corrected and its manifest sha updated).
+
+Backlog probe div_range_bound (W4-42) flips to TYPE-001 and moves to
+`tests/fx/diag`; div_compare (`7 / 2 == 3` is false) is the decided behaviour
+under B+ and moves to `tests/fx/basic/div_int_int_is_real_pass`. The spec's
+G.MulExpr.3 is an `@ok` example; G.MulExpr.4 and G.Range.5 pin the new errors.
+The guides' TYPE-001 repair lines name the index and the range bound (guide
+stamps `2026-10-20-4`).
+
 ## 2026-10-20-5
 
 **Arrays are values, strictly (D8 V-strict).** A change to an array parameter

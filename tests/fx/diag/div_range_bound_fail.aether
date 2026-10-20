@@ -1,0 +1,7 @@
+// D4 B+ / D18: a loop range bound computed with `/` is Real, which is a coded
+// error (it ran to 3.5, i.e. 4 times). Write `a div b`. (Was a backlog probe.)
+fn main() -> Void {
+    let n: Int = 0;
+    loop i in 0..7 / 2 { n = n + 1; }
+    fx { println(n); }
+}

@@ -33,8 +33,10 @@ check() {
 }
 
 # D4: Int / Int (W8-08).
-check div_demand.aether ""             0 "x=3 half=3 loops=4 pick=40"
-check div_demand.aether "div=current"  0 "x=3 half=3 loops=4 pick=40"
+# D4 B+ shipped as the default (2026-10-20): the quotient in a range bound is
+# TYPE-001 there; the integer arms still run it.
+check div_demand.aether ""             1 "code:TYPE-001"
+check div_demand.aether "div=current"  1 "code:TYPE-001"
 check div_demand.aether "div=int"      0 "x=3 half=3 loops=3 pick=40"
 check div_demand.aether "div=intplus"  0 "x=3 half=3 loops=3 pick=40"
 check div_demand.aether "div=realplus" 1 "code:DIV-001"

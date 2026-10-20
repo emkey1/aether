@@ -3470,7 +3470,10 @@ static AST *parsePrimary(AetherParser *p) {
     }
     /* String literal (with adjacent-literal concatenation, like rea) */
     if (p->current.type == REA_TOKEN_STRING) {
-        return parseStringLiteral(p);
+        /* Postfix too: `"abcd"[i]` indexed nothing -- the literal came back
+         * whole and the `[i]` was dropped. */
+        AST *lit = parseStringLiteral(p);
+        return lit ? parsePostfix(p, lit) : NULL;
     }
     /* nil literal -> AST_NIL (rea parseFactor REA_TOKEN_NIL). In an `==`/`!=`
      * comparison against an opaque TOON handle (ToonDoc/ToonNode) it is rewritten

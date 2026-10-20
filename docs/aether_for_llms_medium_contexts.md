@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-3*
+*Guide version: 2026-10-20-4*
 
 Everything needed to write correct Aether in one shot.
 
@@ -973,12 +973,11 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   exports directly.
 - **[TYPE-001]** a type cannot be inferred → annotate it, including untyped array
   literals. Also `println` of a whole array, `int()` of a `Text`, and a `Real`
-  where an `Int` is needed (`%`, `div`).
+  where an `Int` is needed (`%`, `div`, an index, a range bound): `/` is Real,
+  so write `a div b`.
 - **[TYPE-002]** a type name that does not exist, in any position (declaration
   order does not matter) → use `Int`, `Real`, `Text`, `Bool`, `Void`, `T[]`, or
-  a `type` you declared. The message names the Aether
-  spelling when there is one (`Double` → `Real`, `Integer` → `Int`, `Char` →
-  `Text`, `int` → `Int`).
+  a `type` you declared; the message names the Aether spelling.
 - **[TOON-001]** handle misuse → go through `toon_root(doc)` (rule 6).
 - **[MS-001]** stream misuse → declare stream bindings `MStream` (rule 23).
 - **[FIELD-002]** `Unknown field` → use the exact declared name.

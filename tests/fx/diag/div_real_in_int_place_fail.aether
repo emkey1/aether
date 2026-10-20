@@ -1,0 +1,18 @@
+// D4 B+: `/` is always Real, so a quotient reaching an Int-only place is a
+// coded TYPE-001 naming `a div b`: an array or Text index, every part of a
+// range (bounds and step), int_to_text and `%`.
+fn main() -> Void {
+    let xs: Int[] = [10, 20, 30, 40];
+    let n: Int = 4;
+    let a: Int = xs[n / 2];
+    xs[n / 3] = 1;
+    let t: Int = 0;
+    loop i in 0..n / 2 { t = t + i; }
+    loop j in n / 4..n { t = t + j; }
+    loop k in 0..n step n / 2 { t = t + k; }
+    let s: Text = int_to_text(n / 2);
+    let m: Int = n / 2 % 2;
+    let ch: Text = "abcd"[n / 2];
+    fx { println(a, t, s, m, ch); }
+    ret;
+}

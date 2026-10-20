@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-3*
+*Guide version: 2026-10-20-4*
 
 ## Highest-Value Rules
 
@@ -718,7 +718,8 @@ fix:
   exports directly (MOD-002).
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
   array literal, `let xs: Int[] = [...]`). Also `println` of a whole array,
-  `int()` of a `Text`, and a `Real` where an `Int` is needed (`%`, `div`).
+  `int()` of a `Text`, and a `Real` where an `Int` is needed (`%`, `div`, an
+  index, a loop range bound): write `a div b`.
 - **[TYPE-002]** a type name that does not exist, in any position (declaration
   order does not matter) → use `Int`, `Real`, `Text`, `Bool`, `Void`, `T[]`, or
   a `type` you declared. The message names the Aether

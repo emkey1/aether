@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-3*
+*Guide version: 2026-10-20-4*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -2001,8 +2001,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   over `items`. Also
   a value of the wrong kind, where the message names the fix: `println` of
   a whole array, `int()` of a `Text`, and a `Real` where an `Int` is required
-  (an operand of `%`, `div` or a shift, a `Text` index, `int_to_text`, `chr`,
-  `copy`).
+  (an operand of `%`, `div` or a shift, an array or `Text` index, a loop range
+  bound or step, `int_to_text`, `chr`, `copy`): `/` always gives a `Real`, so
+  an integer quotient is `a div b`.
 - **[TYPE-002]** a type *name* that does not exist, in any position (binding,
   parameter, return type, record field, tuple item) and at any array depth — it
   is neither a builtin nor a `type` you declared or imported; declaration order

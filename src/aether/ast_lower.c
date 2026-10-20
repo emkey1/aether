@@ -2848,6 +2848,9 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
         free(nameBuf);
         return NULL;
     }
+    /* D4 B+ / D18: a bound is an Int place, so a Real one (`0..n / 2`) is a
+     * coded error on the typed pass; registering marks it as a bound there. */
+    aetherAstRegisterRangeBound(low);
     ReaToken dots = p->current;
     aetherAdvance(p); /* consume '..' */
     aetherNoteOperator(p, &dots);
@@ -2917,6 +2920,7 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
             free(nameBuf);
             return NULL;
         }
+        aetherAstRegisterRangeBound(step);
         if (aetherConstIntValue(step, &stepLit)) {
             if (stepLit == 0) {
                 reportAetherAstError(aetherSemanticGetSourcePath(), stepLine, "parser",

@@ -1852,14 +1852,19 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
         reportRealInIntPosition(c, e, use->kind == AETHER_USE_MOD ? "`%`" : "`div`");
         return;
     }
-    /* A Text index only: an ARRAY index truncates a Real today and a replayed
-     * passing program relies on it (`xs[n / 2]` in a quick sort), so that one
-     * waits for the D4 rule, under which an index is an Int context. */
-    if (realRulesOn() && e->type == AST_ARRAY_ACCESS && e->child_count == 1 &&
-        isTextual(aetherTypeOf(e->left, env)) &&
-        aetherTypeOf(e->children[0], env).kind == AETHER_T_REAL) {
-        reportRealInIntPosition(c, e->children[0], "a Text index");
-        return;
+    /* D4 B+: `/` is always Real, so a quotient that reaches an Int-only place
+     * is a coded error rather than a silent truncation: an index (array or
+     * Text; `xs[n / 2]` used to index 1 for 3.5 / 2 = 1.75) and a range bound
+     * (D18: `loop i in 0..n / 2`, its lower bound and its step). */
+    if (realRulesOn() && aetherTypeOf(e, env).kind == AETHER_T_REAL) {
+        if (use->kind == AETHER_USE_INDEX) {
+            reportRealInIntPosition(c, e, "an index");
+            return;
+        }
+        if (use->kind == AETHER_USE_RANGE_BOUND || aetherAstIsRangeBound(e)) {
+            reportRealInIntPosition(c, e, "a loop range bound");
+            return;
+        }
     }
     if (realRulesOn() && e->type == AST_BINARY_OP && e->token &&
         (e->token->type == TOKEN_SHL || e->token->type == TOKEN_SHR) &&
