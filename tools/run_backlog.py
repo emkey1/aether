@@ -32,7 +32,9 @@ Manifest columns (tab separated): slug, outcome, anchor, guide lines, note.
           behaviour (printed when the probe flips), or `-`
 Sidecars: <slug>.in (stdin), <slug>.flags (extra aether flags), <slug>.cap
 (needs curl, yyjson, openai or sdl: skipped on a build without it), <slug>.out
-(stdout for `passes`).
+(stdout for `passes`), <slug>.hint (for a `fails:<CODE>` probe whose defect is
+the hint text: a substring the first error record's hint must still contain;
+once it does not, the probe is observed as `fails:<CODE>, hint fixed`).
 
 Usage: python3 tools/run_backlog.py [--aether BIN] [--only SLUG ...] [--observe] [-v]
   --observe  print each probe's observed class as a manifest outcome, no gate
@@ -158,18 +160,18 @@ def run(cmd, stdin, cwd):
 
 
 def first_error_code(aether, flags, src, stdin, cwd):
-    """(saw JSON, code of the first error-severity record or None)."""
+    """(saw JSON, code of the first error-severity record or None, its hint)."""
     _, _, err = run([aether, "--no-cache", "--diagnostics-json"] + flags + [src], stdin, cwd)
     try:
         records = json.loads(err.strip())
     except json.JSONDecodeError:
-        return False, None
+        return False, None, ""
     if isinstance(records, dict):
         records = records.get("diagnostics", [records])
     for r in records if isinstance(records, list) else []:
         if isinstance(r, dict) and r.get("severity", "error") == "error":
-            return True, r.get("code")
-    return True, None
+            return True, r.get("code"), r.get("hint") or ""
+    return True, None, ""
 
 
 def observe(e, aether, work):
@@ -193,8 +195,12 @@ def observe(e, aether, work):
         return "crash", out, head
     if rc == 0:
         return "rc0", out, head
-    _, code = first_error_code(aether, flags, src, stdin, cwd)
+    _, code, hint = first_error_code(aether, flags, src, stdin, cwd)
     if code:
+        if os.path.exists(base + ".hint"):
+            with open(base + ".hint", encoding="utf-8") as fh:
+                if fh.read().strip() not in hint:
+                    return f"fails:{code}, hint fixed", out, head
         return f"fails:{code}", out, head
     crc, _, _ = run([aether, "--no-cache", "--no-run"] + flags + [src], stdin, cwd)
     return ("uncoded-compile" if crc != 0 else "uncoded-runtime"), out, head

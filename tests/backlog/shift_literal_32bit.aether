@@ -1,0 +1,8 @@
+// Backlog probe: a literal shift folds at 32 bits (`1 << 32` is 0, `3 << 30` negative),
+// while the same shift on a variable is 64-bit.
+// Correct behaviour: prints 4294967296 3221225472 4294967296.
+fn main() -> Void {
+    let one: Int = 1;
+    let k: Int = 32;
+    fx { println(1 << 32, " ", 3 << 30, " ", one << k); }
+}

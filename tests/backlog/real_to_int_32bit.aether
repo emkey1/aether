@@ -1,0 +1,6 @@
+// Backlog probe: int() of a Real past 2^31 wraps at 32 bits.
+// Correct behaviour: prints 5000000000.
+fn main() -> Void {
+    let r: Real = 5000000000.0;
+    fx { println(int(r)); }
+}

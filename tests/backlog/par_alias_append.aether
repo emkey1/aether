@@ -1,0 +1,14 @@
+// Backlog probe: two par branches append to one record's Text through an alias (`let b = a`);
+// PAR-001 compares argument names only, and the VM double-releases the string (exit 133).
+// One par block crashes in ~97% of runs; eight in a row crash every time and stay under 1 s.
+// Correct behaviour: a coded PAR-001 at compile time.
+type S { t: Text; }
+fn grow(s: S, k: Int) -> Void { loop i in 0..k { s.t = s.t + "x"; } }
+fn main() -> Void {
+    let a: S = new S();
+    let b: S = a;
+    loop r in 0..8 {
+        par { grow(a, 5000); grow(b, 5000); }
+    }
+    fx { println(length(a.t)); }
+}

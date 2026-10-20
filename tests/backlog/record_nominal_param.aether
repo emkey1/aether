@@ -1,0 +1,9 @@
+// Backlog probe: a call passes a Q where the parameter is a P, and p.x reads Q's slot.
+// Correct behaviour: a coded type error (Q is not P).
+type P { x: Int = 0; }
+type Q { name: Text = "q"; }
+fn show(p: P) -> Int { ret p.x; }
+fn main() -> Void {
+    let q: Q = new Q();
+    fx { println(show(q)); }
+}

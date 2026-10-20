@@ -1,0 +1,6 @@
+// Backlog probe: ENTRY-001 for `fn main(args: Text[])` hints at paramcount()/paramstr(),
+// which D55 removed. The code is right; the hint is the defect (entry_hint_paramstr.hint).
+// Correct behaviour: ENTRY-001 with a hint that names a builtin that still exists.
+fn main(args: Text[]) -> Void {
+    fx { println(length(args)); }
+}

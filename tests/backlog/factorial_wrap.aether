@@ -1,0 +1,5 @@
+// Backlog probe: factorial(25) wraps instead of trapping like `*` does.
+// Correct behaviour: a coded overflow error.
+fn main() -> Void {
+    fx { println(factorial(25)); }
+}

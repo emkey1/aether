@@ -1,0 +1,12 @@
+// Backlog probe: a method named like its own type, ignoring case (`fn c` in `type C`),
+// compiles and dies with "Local slot index 1 out of range".
+// Correct behaviour: prints 100, or a coded compile-time error.
+type C {
+    n: Int = 0;
+    fn c(k: Int) -> Void { self.n = self.n + k; }
+}
+fn main() -> Void {
+    let box: C = new C();
+    box.c(100);
+    fx { println(box.n); }
+}

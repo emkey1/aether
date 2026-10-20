@@ -1,0 +1,8 @@
+// Backlog probe: `let c = n * y` with n: Int and y: Real infers Int and truncates 7.5.
+// Correct behaviour: infers Real and prints 7.500000.
+fn main() -> Void {
+    let y: Real = 2.5;
+    let n: Int = 3;
+    let c = n * y;
+    fx { println(c); }
+}

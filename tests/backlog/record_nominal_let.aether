@@ -1,0 +1,8 @@
+// Backlog probe: a record of one type is accepted where another is declared.
+// Correct behaviour: a coded type error (B is not A).
+type A { x: Int; }
+type B { y: Text; }
+fn main() -> Void {
+    let a: A = new B { y: "hi" };
+    fx { println(a.x); }
+}

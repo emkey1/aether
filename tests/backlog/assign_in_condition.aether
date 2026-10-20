@@ -1,0 +1,6 @@
+// Backlog probe: `if x = 2` assigns and takes the branch.
+// Correct behaviour: a coded error pointing at `==`.
+fn main() -> Void {
+    let x: Int = 1;
+    if x = 2 { fx { println("taken x=", x); } } else { fx { println("not taken"); } }
+}

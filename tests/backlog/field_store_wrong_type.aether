@@ -1,0 +1,8 @@
+// Backlog probe: storing a Text into an Int field is accepted, and `a.x + 1` concatenates.
+// Correct behaviour: a coded type error.
+type A { x: Int; }
+fn main() -> Void {
+    let a: A = new A();
+    a.x = "hello";
+    fx { println(a.x + 1); }
+}

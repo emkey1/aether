@@ -1,0 +1,8 @@
+// Backlog probe (W4-20): tuple == compares identity, so two equal tuples differ.
+// Correct behaviour: REC-001, or prints same.
+fn pair() -> (Int, Int) { ret (1, 2); }
+fn main() -> Void {
+    let t1 = pair();
+    let t2 = pair();
+    if t1 == t2 { fx { println("same"); } } else { fx { println("differ"); } }
+}

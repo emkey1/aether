@@ -1,0 +1,6 @@
+// Backlog probe: sum() over [MAX, 1] wraps instead of trapping like `+` does.
+// Correct behaviour: a coded overflow error.
+fn main() -> Void {
+    let xs: Int[] = [9223372036854775807, 1];
+    fx { println(sum(xs)); }
+}
