@@ -1,0 +1,4 @@
+// D68: Dict[str, int] is not Aether; the hint names Map[Text, T].
+fn main() -> Void {
+    let d: Dict[Text, Int] = {};
+}

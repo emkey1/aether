@@ -1,0 +1,18 @@
+// The same count with D47's parallel arrays.
+fn main() -> Void {
+    let ks: Text[] = [];
+    let vs: Int[] = [];
+    loop w in split("to be or not to be", " ") {
+        let at = index_of(ks, w);
+        if at < 0 {
+            ks = ks + [w];
+            vs = vs + [1];
+        } else {
+            vs[at] = vs[at] + 1;
+        }
+    }
+    loop i in 0..length(ks) {
+        fx { println(ks[i], " ", vs[i]); }
+    }
+    fx { println(contains(ks, "be"), " ", contains(ks, "is"), " ", length(ks)); }
+}

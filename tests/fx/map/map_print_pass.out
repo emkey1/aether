@@ -1,0 +1,7 @@
+{"half": 0.5, "one": 1.0, "third": 0.3333333333333333, "big": 1e+20, "small": 0.0001, "tiny": 1e-05}
+{"t": true, "f": false}
+{"q": "say \"hi\"", "path": "a\\b", "nl": "x\ny"}
+{"words": ["to", "be"], "none": []}
+{"outer": {"inner": 1}, "empty": {}}
+{}
+m = {"outer": {"inner": 1}, "empty": {}}

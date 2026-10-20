@@ -418,9 +418,16 @@ static void arrReport(const ArrCtx *c, const ArrParam *p, const char *kind, int 
     /* The shipped ARR-001 already warns on an index write, direct or nested
      * (`g[r][c] = v`, since 2026-10-16-5), in a Void fn. */
     if (strcmp(c->fnKind, "void") == 0 &&
-        (strcmp(kind, "index") == 0 || strcmp(kind, "nested") == 0))
+        (strcmp(kind, "index") == 0 || strcmp(kind, "nested") == 0 || strcmp(kind, "map") == 0))
         return;
     char detail[320];
+    if (strcmp(kind, "map") == 0)
+        snprintf(detail, sizeof(detail),
+                 "map parameter '%s' is written here but never returned, so the caller "
+                 "never sees the change; under V-strict this is an error. Return it and "
+                 "reassign (`m = f(m)`), or copy it to a local first.",
+                 p->name);
+    else
     snprintf(detail, sizeof(detail),
              "array parameter '%s' is written here (%s) but never returned, so the caller "
              "never sees the change; under V-strict this is an error. Return it and "
@@ -451,6 +458,17 @@ static void arrScanWrites(const AST *n, const ArrCtx *c, ArrParam *ps, int np) {
             if (indices == 1 && ps[i].rank > 1) kind = "nested"; /* a whole row of a grid */
             arrReport(c, &ps[i], kind, nodeLineOf(n));
         }
+    }
+    /* D68: a write to a map parameter (`m[k] = v`, `remove(m, k)`, a write
+     * into a stored value) is the same lost write. */
+    if (n->type == AST_PROCEDURE_CALL && n->token && n->token->value && !n->left &&
+        n->child_count >= 1 &&
+        (!strcmp(n->token->value, "aether_map_set") || !strcmp(n->token->value, "aether_map_remove") ||
+         !strcmp(n->token->value, "aether_map_take"))) {
+        int indices = 0;
+        const char *root = indexRoot(n->children[0], &indices);
+        for (int i = 0; root && i < np; i++)
+            if (sameName(ps[i].name, root)) arrReport(c, &ps[i], "map", nodeLineOf(n));
     }
     if (n->type == AST_PROCEDURE_CALL && n->token && n->token->value &&
         strcasecmp(n->token->value, "setlength") == 0 && n->child_count >= 1) {
@@ -484,12 +502,14 @@ static void arrWalkFunctions(const AST *n, AetherArraysRule rule) {
         int np = 0;
         for (int i = 0; i < n->child_count && np < 64; i++) {
             const AST *d = n->children[i];
-            if (!d || d->type != AST_VAR_DECL || d->var_type != TYPE_ARRAY) continue;
+            if (!d || d->type != AST_VAR_DECL ||
+                (d->var_type != TYPE_ARRAY && d->var_type != TYPE_MAP))
+                continue;
             for (int j = 0; j < d->child_count && np < 64; j++) {
                 const char *nm = varName(d->children[j]);
                 if (!nm) continue;
                 ps[np].name = nm;
-                ps[np].rank = arrayTypeRank(d->right);
+                ps[np].rank = d->var_type == TYPE_MAP ? 0 : arrayTypeRank(d->right);
                 ps[np].returned = 0;
                 np++;
             }

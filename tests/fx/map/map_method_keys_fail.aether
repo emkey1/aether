@@ -1,0 +1,5 @@
+// D68 + D71: m.keys() is keys(m).
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    loop k in m.keys() { }
+}

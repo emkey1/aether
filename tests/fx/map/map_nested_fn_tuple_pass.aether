@@ -1,0 +1,24 @@
+// D68 with D64: a nested fn that writes an enclosing map changes that map
+// (the capture is by reference, as for any written local). A map can be an
+// item of a tuple return.
+fn tally() -> Int {
+    let m: Map[Text, Int] = {};
+    fn add(k: Text) -> Void {
+        m[k] = get(m, k, 0) + 1;
+    }
+    add("a");
+    add("a");
+    add("b");
+    ret m["a"] * 10 + length(m);
+}
+
+fn split_counts(words: Text[]) -> (Map[Text, Int], Int) {
+    let m: Map[Text, Int] = {};
+    loop w in words { m[w] = get(m, w, 0) + 1; }
+    ret (m, length(words));
+}
+
+fn main() -> Void {
+    let (counts, total) = split_counts(split("x y x", " "));
+    fx { println(tally(), " ", counts, " ", total); }
+}

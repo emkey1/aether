@@ -1,0 +1,5 @@
+// D68: a map has no slices.
+fn main() -> Void {
+    let m: Map[Text, Int] = {};
+    let v = m["a".."c"];
+}

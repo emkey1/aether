@@ -1528,6 +1528,85 @@
    "decided": "D58",
    "status": "holds",
    "hint": "all x in xs: cond"
+  },
+  {
+   "id": "map_type",
+   "class": 1,
+   "spelling": "Map[Text, T], {\"k\": v}, m[k], m[k] = v, has, get, remove, keys, values, length, loop k in m",
+   "canonical_form": "Map[Text, T]",
+   "fixture": "fixtures/map_type.aether",
+   "twin": "fixtures/map_type.canon.aether",
+   "decided": "D68",
+   "status": "holds",
+   "note": "insertion order; a value like an array; the twin is D47's parallel-array idiom, which it replaces"
+  },
+  {
+   "id": "map_in",
+   "class": 1,
+   "spelling": "k in m, k not in m",
+   "canonical_form": "has(m, k), !has(m, k)",
+   "fixture": "fixtures/map_in.aether",
+   "twin": "fixtures/map_in.canon.aether",
+   "decided": "D68",
+   "status": "holds",
+   "note": "only on a map; `in` has no other infix use, and a non-map right operand parses as before"
+  },
+  {
+   "id": "map_length_property",
+   "class": 4,
+   "spelling": "m.length, m.len",
+   "canonical_form": "length(m)",
+   "fixture": "fixtures/map_length_property.aether",
+   "twin": "fixtures/map_length_property.canon.aether",
+   "decided": "D68",
+   "status": "holds",
+   "note": "as for an array; not taught"
+  },
+  {
+   "id": "method_map",
+   "class": 2,
+   "spelling": "m.get(k), m.keys(), m.values(), m.items(), m.pop(k), m.has(k), m.size()",
+   "canonical_form": "get(m, k, default), keys(m), values(m), loop k in m, remove(m, k), has(m, k), length(m)",
+   "fixture": "fixtures/method_map.aether",
+   "code": "SCOPE-001",
+   "decided": "D68",
+   "status": "holds",
+   "hint": "get(m, k, default)",
+   "note": "D71: no method calls on builtins"
+  },
+  {
+   "id": "alias_dict",
+   "class": 2,
+   "spelling": "dict(), Dict(), HashMap()",
+   "canonical_form": "let m: Map[Text, Int] = {};",
+   "fixture": "fixtures/alias_dict.aether",
+   "code": "SCOPE-001",
+   "decided": "D68",
+   "status": "holds",
+   "hint": "Map[Text, Int]"
+  },
+  {
+   "id": "type_dict",
+   "class": 2,
+   "spelling": "Dict[K, V], HashMap<K, V>, Map<K, V>, Set[T]",
+   "canonical_form": "Map[Text, T]; a set is Map[Text, Bool]",
+   "fixture": "fixtures/type_dict.aether",
+   "code": "TYPE-002",
+   "decided": "D68",
+   "status": "holds",
+   "hint": "Map[Text, T]"
+  },
+  {
+   "id": "map_int_key",
+   "class": 2,
+   "spelling": "Map[Int, T]",
+   "canonical_form": "Map[Text, T] with int_to_text(k)",
+   "fixture": "fixtures/map_int_key.aether",
+   "code": "TYPE-001",
+   "decided": "D68",
+   "status": "holds",
+   "hint": "Map[Text, T]",
+   "note": "Int keys follow only if measured demand appears"
   }
  ]
 }

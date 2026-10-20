@@ -204,7 +204,635 @@ bool aetherLowerStdlibCall(AetherParser *p, AST *call, int line) {
     if (strcmp(fn, "aether_sorted_by") == 0 || strcmp(fn, "aether_sorted_by_desc") == 0) {
         return aetherLowerSortedBy(p, call, fn + strlen("aether_"), line);
     }
+    /* D68: `length(m)` on a map. */
+    if (strcasecmp(fn, "length") == 0 && call->child_count == 1) {
+        char *mt = aetherMapTypeNameOfExpr(p, call->children[0]);
+        if (mt) {
+            free(mt);
+            free(call->token->value);
+            call->token->value = strdup("aether_map_length");
+            call->token->length = strlen(call->token->value);
+            setTypeAST(call, TYPE_INT64);
+        }
+        return true;
+    }
+    /* D68: the map functions' result types, for the backend. */
+    if (strncmp(fn, "aether_map_", 11) == 0) {
+        if (strcmp(fn, "aether_map_has") == 0) setTypeAST(call, TYPE_BOOLEAN);
+        else if (strcmp(fn, "aether_map_keys") == 0 || strcmp(fn, "aether_map_values") == 0)
+            setTypeAST(call, TYPE_ARRAY);
+        else if (strcmp(fn, "aether_map_get_or") == 0 && call->child_count >= 1) {
+            char *mt = aetherMapTypeNameOfExpr(p, call->children[0]);
+            char *vt = aetherMapValueTypeName(mt);
+            setTypeAST(call, aetherVarTypeForTypeName(vt));
+            if (call->child_count == 3) {
+                AST *d = aetherMapHoistComposite(p, call->children[2], vt, line);
+                if (d && d != call->children[2]) {
+                    call->children[2] = d;
+                    d->parent = call;
+                }
+            }
+            free(mt);
+            free(vt);
+        }
+    }
     return true;
+}
+
+/* ------------------------------------------------------------------ */
+/* Maps (D68): `Map[Text, T]`                                          */
+/* ------------------------------------------------------------------ */
+
+/* The front end spells a map type "Map[Text, T]" in its binding tables (T is
+ * itself a type name, so "Map[Text, Int[]]" and "Map[Text, Map[Text, Int]]"
+ * nest). Every map operation lowers to an Aether-private engine builtin
+ * (pscal-core ext_builtins/strings/stdlib.c): `m[k]` reads through
+ * aether_map_get(m, k, "m"), `m[k] = v` is the statement aether_map_set(m, k,
+ * v), and a write into a stored value (`m[k][i] = v`, `m[a][b] = v`,
+ * `m[k].f = v`) moves the value into a temp with aether_map_take, writes the
+ * temp as any variable is written, and moves it back with aether_map_put. */
+
+bool aetherTypeNameIsMap(const char *name) {
+    if (!name) return false;
+    size_t n = strlen(name);
+    return n > 5 && strncmp(name, "Map[", 4) == 0 && name[n - 1] == ']' &&
+           !aetherTypeNameIsArray(name);
+}
+
+/* "Map[Text, Int[]]" -> "Int[]" (malloc'd), or NULL. */
+char *aetherMapValueTypeName(const char *mapName) {
+    if (!aetherTypeNameIsMap(mapName)) return NULL;
+    const char *inner = mapName + 4;
+    size_t n = strlen(mapName);
+    const char *end = mapName + n - 1; /* the closing ']' */
+    int depth = 0;
+    const char *comma = NULL;
+    for (const char *c = inner; c < end; c++) {
+        if (*c == '[') depth++;
+        else if (*c == ']') depth--;
+        else if (*c == ',' && depth == 0) { comma = c; break; }
+    }
+    if (!comma) return NULL;
+    const char *v = comma + 1;
+    while (v < end && *v == ' ') v++;
+    size_t len = (size_t)(end - v);
+    while (len > 0 && v[len - 1] == ' ') len--;
+    if (len == 0) return NULL;
+    char *out = (char *)malloc(len + 1);
+    if (!out) return NULL;
+    memcpy(out, v, len);
+    out[len] = '\0';
+    return out;
+}
+
+char *aetherMapTypeNameOf(const char *valueName) {
+    if (!valueName) return NULL;
+    size_t n = strlen("Map[Text, ") + strlen(valueName) + 2;
+    char *out = (char *)malloc(n);
+    if (out) snprintf(out, n, "Map[Text, %s]", valueName);
+    return out;
+}
+
+/* The engine VarType a value of the named Aether type has. */
+VarType aetherVarTypeForTypeName(const char *name) {
+    if (!name) return TYPE_UNKNOWN;
+    if (aetherTypeNameIsArray(name)) return TYPE_ARRAY;
+    if (aetherTypeNameIsMap(name)) return TYPE_MAP;
+    const char *reaName = NULL;
+    VarType vt = TYPE_UNKNOWN;
+    if (mapAetherType(name, strlen(name), &reaName, &vt)) return vt;
+    AST *resolved = lookupType(name);
+    bool isRecord = resolved != NULL;
+    releaseTransientTypeNode(resolved);
+    return isRecord ? TYPE_POINTER : TYPE_UNKNOWN;
+}
+
+/* The type node of a map: AST_TYPE_IDENTIFIER named by the full Aether type
+ * name, TYPE_MAP, with the value type's node on `right` (makeValueForType
+ * reads the value type from it). Takes ownership of `valueNode`. */
+AST *aetherBuildMapTypeNode(const char *mapName, AST *valueNode, int line) {
+    Token *tok = newToken(TOKEN_IDENTIFIER, mapName, line, 0);
+    AST *node = newASTNode(AST_TYPE_IDENTIFIER, tok);
+    freeToken(tok);
+    setTypeAST(node, TYPE_MAP);
+    if (valueNode) setRight(node, valueNode);
+    return node;
+}
+
+/* A map's type node from its name ("Map[Text, Int]"), or NULL. */
+AST *aetherBuildMapTypeNodeFromName(const char *name, size_t len, int line, VarType *outType) {
+    char *full = (char *)malloc(len + 1);
+    if (!full) return NULL;
+    memcpy(full, name, len);
+    full[len] = '\0';
+    char *valueName = aetherMapValueTypeName(full);
+    if (!valueName) { free(full); return NULL; }
+    VarType vvt = TYPE_UNKNOWN;
+    AST *valueNode = buildTypeNodeFromName(valueName, strlen(valueName), line, &vvt);
+    free(valueName);
+    if (!valueNode) { free(full); return NULL; }
+    AST *node = aetherBuildMapTypeNode(full, valueNode, line);
+    free(full);
+    if (outType) *outType = TYPE_MAP;
+    return node;
+}
+
+/* The value-type code (an engine VarType) a map literal passes to
+ * aether_map_of as its first argument. */
+void aetherSetMapLiteralCode(AST *lit, VarType vt) {
+    if (!lit || lit->child_count < 1 || !lit->children[0]) return;
+    AST *code = lit->children[0];
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", (int)vt);
+    if (code->token) {
+        free(code->token->value);
+        code->token->value = strdup(buf);
+        code->token->length = strlen(buf);
+    }
+    code->i_val = (int)vt;
+}
+
+bool aetherIsMapLiteral(const AST *n) {
+    return n && n->type == AST_PROCEDURE_CALL && !n->left && n->token && n->token->value &&
+           strcmp(n->token->value, "aether_map_of") == 0 && n->child_count >= 1;
+}
+
+bool aetherIsMapGet(const AST *n) {
+    return n && n->type == AST_PROCEDURE_CALL && !n->left && n->token && n->token->value &&
+           strcmp(n->token->value, "aether_map_get") == 0 && n->child_count >= 2;
+}
+
+static bool aetherIsMapCallNamed(const AST *n, const char *name) {
+    return n && n->type == AST_PROCEDURE_CALL && !n->left && n->token && n->token->value &&
+           strcmp(n->token->value, name) == 0;
+}
+
+/* A composite literal (`[a, b]`, `[]`, `new P { x: 1 }`) is built by a
+ * declaration's initializer, not by a builtin's argument: bind it to a temp
+ * hoisted ahead of the statement and pass the temp. `typeName` is the type
+ * the map stores (NULL: infer it from the literal). */
+AST *aetherMapHoistComposite(AetherParser *p, AST *value, const char *typeName, int line) {
+    if (!p || !value || p->forwardScan) return value;
+    bool composite = (value->type == AST_NEW && value->extra) || value->type == AST_ARRAY_LITERAL;
+    if (!composite) return value;
+    char *tn = typeName ? strdup(typeName) : inferLetTypeName(p, value);
+    if (!tn) return value;
+    static int litSerial = 0;
+    char name[48];
+    snprintf(name, sizeof(name), "__aether_mlit_%d", ++litSerial);
+    AST *decl = buildTypedLetDecl(name, tn, value, line);
+    if (!decl) { free(tn); return NULL; }
+    if (p->bindings) bindingTableSet(p->bindings, name, tn);
+    VarType vt = decl->var_type;
+    AST *hoist = newASTNode(AST_COMPOUND, NULL);
+    hoist->i_val = 1;
+    addChild(hoist, decl);
+    AST *ref = buildVarRef(name, vt, line);
+    aetherEmitLiteralUnalias(p, hoist, ref, decl->left,
+                             aetherTypeNameIsArray(tn) ? aetherTypeNameRank(tn) : -1, line);
+    free(tn);
+    pushPendingObjLit(p, hoist);
+    return ref;
+}
+
+/* A map read used as a record receiver (`m[k].x`, `m[k].area()`): the
+ * backend types a field access only through a variable, so the read is bound
+ * to a temp hoisted ahead of the statement (records are pointers, so the temp
+ * is the stored record itself). */
+AST *aetherMapHoistRead(AetherParser *p, AST *get, int line) {
+    if (!p || !aetherIsMapGet(get) || p->forwardScan) return get;
+    char *tn = inferLetTypeName(p, get);
+    if (!tn) return get;
+    static int readSerial = 0;
+    char name[48];
+    snprintf(name, sizeof(name), "__aether_mr_%d", ++readSerial);
+    AST *decl = buildTypedLetDecl(name, tn, get, line);
+    if (!decl) { free(tn); return NULL; }
+    if (p->bindings) bindingTableSet(p->bindings, name, tn);
+    VarType vt = decl->var_type;
+    free(tn);
+    AST *hoist = newASTNode(AST_COMPOUND, NULL);
+    hoist->i_val = 1;
+    addChild(hoist, decl);
+    pushPendingObjLit(p, hoist);
+    return buildVarRef(name, vt, line);
+}
+
+/* Every `<map read>.field` in a just-parsed postfix chain that is not a
+ * store target. */
+AST *aetherMapHoistFieldReceivers(AetherParser *p, AST *node) {
+    if (!node) return node;
+    if (node->type == AST_FIELD_ACCESS || node->type == AST_ARRAY_ACCESS) {
+        AST *l = aetherMapHoistFieldReceivers(p, node->left);
+        if (node->type == AST_FIELD_ACCESS && aetherIsMapGet(l)) {
+            int line = node->token ? node->token->line : 0;
+            l = aetherMapHoistRead(p, l, line);
+        }
+        if (l != node->left) {
+            node->left = NULL;
+            setLeft(node, l);
+        }
+        return node;
+    }
+    if (aetherIsMapGet(node) && node->child_count >= 1) {
+        AST *b = aetherMapHoistFieldReceivers(p, node->children[0]);
+        if (b != node->children[0]) {
+            node->children[0] = b;
+            if (b) b->parent = node;
+        }
+    }
+    return node;
+}
+
+bool aetherChainHasMapGet(const AST *lv) {
+    while (lv) {
+        if (aetherIsMapGet(lv)) return true;
+        if (lv->type == AST_ARRAY_ACCESS || lv->type == AST_FIELD_ACCESS) lv = lv->left;
+        else return false;
+    }
+    return false;
+}
+
+/* The source spelling of a map expression for the missing-key message:
+ * `counts`, `self.counts`, `groups[...]`, else "m". */
+static void aetherMapExprText(const AST *e, char *buf, size_t n) {
+    if (!buf || n == 0) return;
+    buf[0] = '\0';
+    if (!e) { snprintf(buf, n, "m"); return; }
+    if (e->type == AST_VARIABLE && e->token && e->token->value) {
+        const char *v = e->token->value;
+        snprintf(buf, n, "%s", (strcasecmp(v, "myself") == 0 || strcasecmp(v, "my") == 0) ? "self" : v);
+        return;
+    }
+    if (e->type == AST_FIELD_ACCESS && e->token && e->token->value) {
+        char left[96];
+        aetherMapExprText(e->left, left, sizeof(left));
+        snprintf(buf, n, "%s.%s", left, e->token->value);
+        return;
+    }
+    if (e->type == AST_ARRAY_ACCESS || aetherIsMapGet(e)) {
+        char left[96];
+        aetherMapExprText(aetherIsMapGet(e) ? e->children[0] : e->left, left, sizeof(left));
+        snprintf(buf, n, "%s[...]", left);
+        return;
+    }
+    snprintf(buf, n, "m");
+}
+
+static AST *aetherBuildStringConst(const char *text, int line) {
+    Token *tok = newToken(TOKEN_STRING_CONST, text ? text : "", line, 0);
+    AST *node = newASTNode(AST_STRING, tok);
+    freeToken(tok);
+    node->i_val = (int)strlen(text ? text : "");
+    setTypeAST(node, inferStringLiteralType(text ? text : "", strlen(text ? text : "")));
+    return node;
+}
+
+static AST *aetherBuildCall(const char *name, int line) {
+    Token *tok = newToken(TOKEN_IDENTIFIER, name, line, 0);
+    AST *call = newASTNode(AST_PROCEDURE_CALL, tok);
+    freeToken(tok);
+    setTypeAST(call, TYPE_UNKNOWN);
+    return call;
+}
+
+static AST *aetherBuildCallStmt(AST *call) {
+    AST *stmt = newASTNode(AST_EXPR_STMT, call->token);
+    setLeft(stmt, call);
+    return stmt;
+}
+
+/* The map type name of `base`, or NULL. */
+char *aetherMapTypeNameOfExpr(AetherParser *p, AST *base) {
+    char *t = aetherInferSliceBaseTypeName(p, base);
+    if (t && aetherTypeNameIsMap(t)) return t;
+    free(t);
+    return NULL;
+}
+
+/* `base[key]` on a map: aether_map_get(base, key, "<base>"). Takes ownership
+ * of both. A non-Text key is TYPE-001. */
+AST *aetherBuildMapGet(AetherParser *p, AST *base, AST *key, const char *mapType, int line) {
+    char text[128];
+    aetherMapExprText(base, text, sizeof(text));
+    AST *call = aetherBuildCall("aether_map_get", line);
+    addChild(call, base);
+    addChild(call, key);
+    addChild(call, aetherBuildStringConst(text, line));
+    char *valueName = aetherMapValueTypeName(mapType);
+    setTypeAST(call, aetherVarTypeForTypeName(valueName));
+    free(valueName);
+    return call;
+}
+
+static bool aetherSimpleEqual(const AST *a, const AST *b) {
+    if (!a || !b || a->type != b->type || !a->token || !b->token || !a->token->value ||
+        !b->token->value)
+        return false;
+    if (a->type != AST_STRING && a->type != AST_VARIABLE && a->type != AST_NUMBER) return false;
+    return strcmp(a->token->value, b->token->value) == 0;
+}
+
+/* Two lvalue chains that name the same place: variables, fields, simple
+ * indexes and simple map keys. */
+static bool aetherChainEqual(const AST *a, const AST *b) {
+    if (!a || !b) return false;
+    if (aetherIsMapGet(a) || aetherIsMapGet(b)) {
+        return aetherIsMapGet(a) && aetherIsMapGet(b) &&
+               aetherSimpleEqual(a->children[1], b->children[1]) &&
+               aetherChainEqual(a->children[0], b->children[0]);
+    }
+    if (a->type != b->type) return false;
+    switch (a->type) {
+        case AST_VARIABLE:
+            return aetherSimpleEqual(a, b);
+        case AST_FIELD_ACCESS:
+            return a->token && b->token && a->token->value && b->token->value &&
+                   strcmp(a->token->value, b->token->value) == 0 &&
+                   aetherChainEqual(a->left, b->left);
+        case AST_ARRAY_ACCESS:
+            if (a->child_count != b->child_count) return false;
+            for (int i = 0; i < a->child_count; i++)
+                if (!aetherSimpleEqual(a->children[i], b->children[i])) return false;
+            return aetherChainEqual(a->left, b->left);
+        default:
+            return false;
+    }
+}
+
+static bool aetherIsSimpleOperand(const AST *e) {
+    return e && (e->type == AST_NUMBER || e->type == AST_STRING || e->type == AST_BOOLEAN ||
+                 e->type == AST_NIL ||
+                 (e->type == AST_VARIABLE && e->token && e->token->value &&
+                  strncmp(e->token->value, "__aether_", 9) != 0));
+}
+
+/* `let NAME: TYPE = init;` registered in the binding table. */
+static AST *aetherMapTempDecl(AetherParser *p, const char *name, const char *typeName, AST *init,
+                              int line) {
+    AST *decl = buildTypedLetDecl(name, typeName, init, line);
+    if (decl && p->bindings) bindingTableSet(p->bindings, name, typeName);
+    return decl;
+}
+
+/* The deepest (closest to the root) map read in an lvalue chain, and the
+ * slot that holds it. */
+static AST *aetherDeepestMapGet(AST **slot, AST ***outSlot) {
+    AST *found = NULL;
+    AST **foundSlot = NULL;
+    while (slot && *slot) {
+        AST *cur = *slot;
+        if (aetherIsMapGet(cur)) {
+            found = cur;
+            foundSlot = slot;
+            slot = &cur->children[0];
+        } else if (cur->type == AST_ARRAY_ACCESS || cur->type == AST_FIELD_ACCESS) {
+            slot = &cur->left;
+        } else {
+            break;
+        }
+    }
+    *outSlot = foundSlot;
+    return found;
+}
+
+static void aetherReplaceSlot(AST **slot, AST *parent, AST *with) {
+    *slot = with;
+    if (with) with->parent = parent;
+}
+
+/* Bracket `inner` (a statement over `__aether_mt_N`, built by buildInner from
+ * the chain with the map read replaced by the temp) with take/put on the map
+ * read `g`. Takes ownership of `g`. */
+typedef AST *(*AetherMapInnerFn)(AetherParser *p, AST *tempRef, void *ctx);
+
+static AST *aetherMapTakePut(AetherParser *p, AST *g, AetherMapInnerFn buildInner, void *ctx,
+                             AST *outer, int line) {
+    AST *base = g->children[0];
+    AST *key = g->children[1];
+    AST *nameLit = g->child_count >= 3 ? g->children[2] : NULL;
+    if (!aetherIsLValueChain(base)) {
+        reportAetherAstErrorWithCode(line, "TYPE-001",
+                                     "only a map held in a variable, field or element can be "
+                                     "written; this map is the result of an expression.",
+                                     "bind it first: `let m2 = <expr>; m2[k] = v;`.");
+        p->hadError = true;
+        return NULL;
+    }
+    char *mapType = aetherMapTypeNameOfExpr(p, base);
+    char *valueType = aetherMapValueTypeName(mapType);
+    free(mapType);
+    if (!valueType) {
+        reportAetherAstErrorWithCode(line, "TYPE-001",
+                                     "cannot name the type of this map to write into it.",
+                                     "declare the map with its type: `let m: Map[Text, T] = {};`.");
+        p->hadError = true;
+        return NULL;
+    }
+    static int takeSerial = 0;
+    int serial = ++takeSerial;
+    /* A computed key is evaluated once, before the take. */
+    if (!aetherIsSimpleOperand(key)) {
+        char kname[48];
+        snprintf(kname, sizeof(kname), "__aether_mk_%d", serial);
+        g->children[1] = NULL;
+        addChild(outer, aetherMapTempDecl(p, kname, "Text", key, line));
+        key = buildVarRef(kname, TYPE_UNICODE_STRING, line);
+        g->children[1] = key;
+        key->parent = g;
+    }
+    char tname[48];
+    snprintf(tname, sizeof(tname), "__aether_mt_%d", serial);
+    AST *tdecl = aetherMapTempDecl(p, tname, valueType, NULL, line);
+    VarType tvt = aetherVarTypeForTypeName(valueType);
+    free(valueType);
+    if (!tdecl) return NULL;
+    addChild(outer, tdecl);
+
+    AST *take = aetherBuildCall("aether_map_take", line);
+    addChild(take, copyAST(base));
+    addChild(take, copyAST(key));
+    addChild(take, buildVarRef(tname, tvt, line));
+    if (nameLit) addChild(take, copyAST(nameLit));
+    setTypeAST(take, TYPE_VOID);
+    addChild(outer, aetherBuildCallStmt(take));
+
+    AST *inner = buildInner(p, buildVarRef(tname, tvt, line), ctx);
+    if (!inner) return NULL;
+    addChild(outer, inner);
+
+    AST *put = aetherBuildCall("aether_map_put", line);
+    addChild(put, copyAST(base));
+    addChild(put, copyAST(key));
+    addChild(put, buildVarRef(tname, tvt, line));
+    setTypeAST(put, TYPE_VOID);
+    addChild(outer, aetherBuildCallStmt(put));
+    freeAST(g);
+    return outer;
+}
+
+typedef struct {
+    AST *assign;      /* the assignment, its map read replaced by the temp */
+    AST **gSlot;      /* where the map read sat in assign's tree */
+    AST *gParent;
+    AST **lmSlot;     /* `m[k] = m[k] + ...`: the `+` chain's left end */
+    AST *lmParent;
+} AetherMapAssignCtx;
+
+static AST *aetherMapInnerAssign(AetherParser *p, AST *tempRef, void *vctx) {
+    AetherMapAssignCtx *c = (AetherMapAssignCtx *)vctx;
+    aetherReplaceSlot(c->gSlot, c->gParent, tempRef);
+    /* `X = X + ...`: the `+` chain starts from the rewritten target. */
+    if (c->lmSlot) aetherReplaceSlot(c->lmSlot, c->lmParent, copyAST(c->assign->left));
+    return aetherLowerAssignStatement(p, c->assign);
+}
+
+/* `m[k] = v`, `m[k] += v`, `m[k][i] = v`, `m[a][b] = v`, `m[k].f = v`. */
+AST *aetherLowerMapStore(AetherParser *p, AST *assign) {
+    int line = assign->token ? assign->token->line : 0;
+    TokenType op = assign->token ? assign->token->type : TOKEN_ASSIGN;
+    /* A compound store into the stored value (`m[k].f += 1`, `m[k][i] += 1`)
+     * stays compound: the write after the take is an ordinary one. */
+    if (op != TOKEN_ASSIGN && !aetherIsMapGet(assign->left)) op = TOKEN_ASSIGN;
+    if (op != TOKEN_ASSIGN) {
+        /* `x OP= v` -> `x = x OP v`. */
+        Token *opTok = newToken(op, assign->token->value ? assign->token->value : "+", line, 0);
+        AST *bin = newASTNode(AST_BINARY_OP, opTok);
+        freeToken(opTok);
+        setLeft(bin, copyAST(assign->left));
+        setRight(bin, assign->right);
+        setTypeAST(bin, assign->left->var_type);
+        assign->right = NULL;
+        setRight(assign, bin);
+        assign->token->type = TOKEN_ASSIGN;
+        free(assign->token->value);
+        assign->token->value = strdup("=");
+    }
+    AST **gSlot = NULL;
+    AST *g = aetherDeepestMapGet(&assign->left, &gSlot);
+    if (!g) return assign;
+    AST *gParent = (gSlot == &assign->left) ? assign : g->parent;
+    AST *rhs = assign->right;
+
+    AetherMapAssignCtx ctx;
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.assign = assign;
+    ctx.gSlot = gSlot;
+    ctx.gParent = gParent;
+
+    if (rhs && rhs->type == AST_BINARY_OP && rhs->token && rhs->token->type == TOKEN_PLUS) {
+        AST *lm = rhs;
+        while (lm->left && lm->left->type == AST_BINARY_OP && lm->left->token &&
+               lm->left->token->type == TOKEN_PLUS)
+            lm = lm->left;
+        char *tt = (g == assign->left) ? NULL : inferLetTypeName(p, assign->left);
+        bool arrayTarget = (g == assign->left) ? g->var_type == TYPE_ARRAY
+                                               : aetherTypeNameIsArray(tt);
+        free(tt);
+        if (arrayTarget && aetherChainEqual(lm->left, assign->left)) {
+            /* `m[k] = m[k] + [v]`: append to the taken value in place. */
+            AST *dup = lm->left;
+            lm->left = NULL;
+            freeAST(dup);
+            ctx.lmSlot = &lm->left;
+            ctx.lmParent = lm;
+        }
+    }
+    if (g == assign->left && !ctx.lmSlot) {
+        /* A plain store: aether_map_set(base, key, value). */
+        AST *base = g->children[0];
+        if (!aetherIsLValueChain(base)) {
+            reportAetherAstErrorWithCode(line, "TYPE-001",
+                                         "only a map held in a variable, field or element can "
+                                         "be written; this map is the result of an expression.",
+                                         "bind it first: `let m2 = <expr>; m2[k] = v;`.");
+            p->hadError = true;
+            freeAST(assign);
+            return NULL;
+        }
+        AST *set = aetherBuildCall("aether_map_set", line);
+        g->children[0] = NULL;
+        addChild(set, base);
+        addChild(set, g->children[1]);
+        g->children[1] = NULL;
+        assign->right = NULL;
+        {
+            char *mt = aetherMapTypeNameOfExpr(p, base);
+            char *vt = aetherMapValueTypeName(mt);
+            addChild(set, aetherMapHoistComposite(p, rhs, vt, line));
+            free(mt);
+            free(vt);
+        }
+        setTypeAST(set, TYPE_VOID);
+        freeAST(assign); /* frees g too */
+        return aetherBuildCallStmt(set);
+    }
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1; /* splice into the surrounding block */
+    /* A write into the stored value. A computed right side (it may read the
+     * map) is evaluated before the take. */
+    if (!ctx.lmSlot && rhs && !aetherIsSimpleOperand(rhs)) {
+        char *rtype = inferLetTypeName(p, rhs);
+        if (!rtype) rtype = inferLetTypeName(p, assign->left);
+        if (rtype) {
+            static int valSerial = 0;
+            char vname[48];
+            snprintf(vname, sizeof(vname), "__aether_mv_%d", ++valSerial);
+            assign->right = NULL;
+            AST *vdecl = aetherMapTempDecl(p, vname, rtype, rhs, line);
+            VarType vvt = aetherVarTypeForTypeName(rtype);
+            free(rtype);
+            if (!vdecl) { freeAST(outer); return NULL; }
+            addChild(outer, vdecl);
+            setRight(assign, buildVarRef(vname, vvt, line));
+        }
+    }
+    *gSlot = NULL;
+    AST *r = aetherMapTakePut(p, g, aetherMapInnerAssign, &ctx, outer, line);
+    if (!r) { freeAST(outer); return NULL; }
+    return r;
+}
+
+typedef struct {
+    AST *call;   /* the mutating call, its map read replaced by the temp */
+    AST **gSlot;
+    AST *gParent;
+} AetherMapCallCtx;
+
+static AST *aetherMapInnerCall(AetherParser *p, AST *tempRef, void *vctx) {
+    (void)p;
+    AetherMapCallCtx *c = (AetherMapCallCtx *)vctx;
+    aetherReplaceSlot(c->gSlot, c->gParent, tempRef);
+    return aetherLowerMapMutatorStmt(p, c->call);
+}
+
+/* A statement call that writes its first argument (`remove(m, k)`) where the
+ * argument is reached through a map read (`remove(m["a"], k)`). */
+AST *aetherLowerMapMutatorStmt(AetherParser *p, AST *call) {
+    if (!call || call->child_count < 1) return call;
+    AST **gSlot = NULL;
+    AST *g = aetherDeepestMapGet(&call->children[0], &gSlot);
+    if (!g) {
+        AST *stmt = newASTNode(AST_EXPR_STMT, call->token);
+        setLeft(stmt, call);
+        return stmt;
+    }
+    int line = call->token ? call->token->line : 0;
+    AetherMapCallCtx ctx;
+    ctx.call = call;
+    ctx.gSlot = gSlot;
+    ctx.gParent = (gSlot == &call->children[0]) ? call : g->parent;
+    *gSlot = NULL;
+    AST *outer = newASTNode(AST_COMPOUND, NULL);
+    outer->i_val = 1;
+    AST *r = aetherMapTakePut(p, g, aetherMapInnerCall, &ctx, outer, line);
+    if (!r) { freeAST(outer); return NULL; }
+    return r;
+}
+
+bool aetherIsMapMutatorCall(const AST *e) {
+    return aetherIsMapCallNamed(e, "aether_map_remove") && e->child_count >= 1 &&
+           aetherChainHasMapGet(e->children[0]);
 }
 
 /* ------------------------------------------------------------------ */

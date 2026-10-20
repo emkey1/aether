@@ -933,6 +933,10 @@ the language:
 - **If HOFs are ever needed:** the named-dispatch idea above, not lambdas.
 
 ### No map / dictionary type — *decided 2026-08-06*
+**Superseded 2026-10-20 by D68:** `Map[Text, T]` shipped in language
+2026-10-20-4 (docs/proposals/2026-10-20-map-type.md). The record below is
+kept as history.
+
 There is no `Map`, `Dict`, or set type, and none is planned. Use two parallel
 arrays and a linear scan, or a `type` with an array field — the idiom already
 documented in the medium guide under **Lookup tables**. Rationale, in the order

@@ -1,0 +1,16 @@
+// D68: `k in m` is has(m, k) and `k not in m` is !has(m, k) when m is a map.
+fn main() -> Void {
+    let seen: Map[Text, Bool] = {};
+    let out = "";
+    loop w in split("a b a c b d", " ") {
+        if w not in seen {
+            seen[w] = true;
+            out = out + w;
+        }
+    }
+    let m: Map[Text, Int] = {"x": 1};
+    fx {
+        println(out, " ", length(seen));
+        println("x" in m, " ", "y" in m, " ", "y" not in m, " ", "x" in m && m["x"] == 1);
+    }
+}

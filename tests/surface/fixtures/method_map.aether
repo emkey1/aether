@@ -1,0 +1,5 @@
+// D68 + D71: a map has no methods; m.get(k) names get(m, k, default).
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    fx { println(m.get("a")); }
+}

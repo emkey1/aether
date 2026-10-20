@@ -3169,6 +3169,13 @@ static const AetherBuiltinArity kAetherBuiltinArity[] = {
     {"aether_mstream_append_text", 26, 2, 2},
     {"aether_mstream_length", 21, 1, 1},
     {"aether_mstream_load", 19, 1, 1},
+    /* Maps (D68). */
+    {"aether_map_has", 14, 2, 2},
+    {"aether_map_get_or", 17, 3, 3},
+    {"aether_map_remove", 17, 2, 2},
+    {"aether_map_keys", 15, 1, 1},
+    {"aether_map_values", 17, 1, 1},
+    {"aether_map_length", 17, 1, 1},
 };
 
 static void aetherCheckBuiltinArity(const AST *node,
@@ -3608,6 +3615,31 @@ static void aetherScanArrayParamMutation(const AST *node, const char **paramName
             }
         }
     }
+    /* D68: a map parameter written through a map builtin (`m[k] = v`,
+     * `remove(m, k)`, a write into a stored value). */
+    if (node->type == AST_PROCEDURE_CALL && !node->left && node->token && node->token->value &&
+        node->child_count >= 1 &&
+        (strcmp(node->token->value, "aether_map_set") == 0 ||
+         strcmp(node->token->value, "aether_map_remove") == 0 ||
+         strcmp(node->token->value, "aether_map_take") == 0)) {
+        const AST *mroot = node->children[0];
+        while (mroot && (mroot->type == AST_ARRAY_ACCESS || mroot->type == AST_FIELD_ACCESS))
+            mroot = mroot->left;
+        if (mroot && mroot->type == AST_VARIABLE && mroot->token && mroot->token->value) {
+            for (i = 0; i < paramCount; i++) {
+                if (paramNames[i] && strcmp(paramNames[i], mroot->token->value) == 0) {
+                    char detail[256];
+                    snprintf(detail, sizeof(detail),
+                             "map parameter '%s' is changed here, but maps are values like "
+                             "arrays, so this change is not visible to the caller; return the "
+                             "map and reassign: `m = f(m)`.",
+                             mroot->token->value);
+                    reportAetherWarning("array-mutation", aetherAstNodeLine(node), detail);
+                    break;
+                }
+            }
+        }
+    }
     aetherScanArrayParamMutation(node->left, paramNames, paramCount);
     aetherScanArrayParamMutation(node->right, paramNames, paramCount);
     aetherScanArrayParamMutation(node->extra, paramNames, paramCount);
@@ -3635,7 +3667,8 @@ static void aetherWalkArrayParamMutation(const AST *node) {
             AST *paramDecl = node->children[i];
             /* A by-reference parameter (a nested fn's written capture, D64)
              * is the caller's variable: the write is visible. */
-            if (paramDecl && paramDecl->var_type == TYPE_ARRAY && !paramDecl->by_ref &&
+            if (paramDecl && (paramDecl->var_type == TYPE_ARRAY || paramDecl->var_type == TYPE_MAP) &&
+                !paramDecl->by_ref &&
                 paramDecl->child_count > 0 && paramDecl->children[0] &&
                 paramDecl->children[0]->type == AST_VARIABLE &&
                 paramDecl->children[0]->token && paramDecl->children[0]->token->value) {
@@ -4206,8 +4239,8 @@ static const char *aetherCollectionTypeAdvice(const char *name) {
     }
     for (i = 0; i < sizeof(mapNames) / sizeof(mapNames[0]); i++) {
         if (strcasecmp(name, mapNames[i]) == 0) {
-            return "there is no map, dict, or set type -- use two parallel arrays "
-                   "and a linear scan, or a `type` with array fields.";
+            return "a map is spelled `Map[Text, T]` (Text keys), e.g. `Map[Text, Int]`; "
+                   "for a set of Text, use `Map[Text, Bool]`.";
         }
     }
     return NULL;

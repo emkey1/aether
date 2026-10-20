@@ -1,0 +1,4 @@
+// D68: a literal key that is not Text.
+fn main() -> Void {
+    let m = {1: "one"};
+}

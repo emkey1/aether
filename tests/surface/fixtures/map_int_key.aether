@@ -1,0 +1,4 @@
+// D68: keys are Text in this release.
+fn main() -> Void {
+    let m: Map[Int, Text] = {};
+}

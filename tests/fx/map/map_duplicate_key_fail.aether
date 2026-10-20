@@ -1,0 +1,4 @@
+// D68: a key written twice in one literal is a compile error.
+fn main() -> Void {
+    let m = {"a": 1, "b": 2, "a": 3};
+}

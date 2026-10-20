@@ -1,0 +1,5 @@
+// D68 + D71: no methods on a map; the hint names the function.
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    let v = m.get("a");
+}

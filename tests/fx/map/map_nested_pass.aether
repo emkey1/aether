@@ -1,0 +1,37 @@
+// D68: maps of maps and maps of arrays. Writes reach into the stored value:
+// `m[a][b] = v`, `m[a][b] += v`, `m[k][i] = v`, and the append idiom
+// `m[k] = m[k] + [v]` grows the stored array in place.
+fn main() -> Void {
+    let nest: Map[Text, Map[Text, Int]] = {"x": {"p": 1}, "y": {}};
+    nest["x"]["q"] = 2;
+    nest["y"]["r"] = 3;
+    nest["x"]["p"] += 10;
+    nest["z"] = {"s": 4};
+    remove(nest["x"], "q");
+    fx {
+        println(nest);
+        println(nest["x"]["p"], " ", length(nest["y"]), " ", has(nest["z"], "s"));
+    }
+
+    let groups: Map[Text, Int[]] = {"even": [], "odd": []};
+    loop i in 0..9 {
+        if i mod 2 == 0 {
+            groups["even"] = groups["even"] + [i];
+        } else {
+            groups["odd"] = groups["odd"] + [i];
+        }
+    }
+    groups["odd"][0] = 99;
+    fx { println(groups); println(length(groups["even"]), " ", groups["odd"][1]); }
+
+    let deep: Map[Text, Map[Text, Int[]]] = {};
+    deep["a"] = {};
+    deep["a"]["b"] = [1];
+    deep["a"]["b"] = deep["a"]["b"] + [2, 3];
+    deep["a"]["b"][2] = 30;
+    fx { println(deep); }
+
+    let grid: Map[Text, Int[][]] = {"g": [[1, 2], [3, 4]]};
+    grid["g"][1][0] = 7;
+    fx { println(grid); }
+}

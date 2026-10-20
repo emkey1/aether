@@ -214,7 +214,7 @@ bool aetherCheckPrintPlaceholders(AetherParser *p, AST *call, const char *surfac
 /* Int, Real, Text, Bool (and their accepted spellings) or any array. */
 bool aetherIsBuiltinValueTypeName(const char *t) {
     if (!t || !*t) return false;
-    if (aetherTypeNameIsArray(t)) return true;
+    if (aetherTypeNameIsArray(t) || aetherTypeNameIsMap(t)) return true;
     return strcmp(t, "Int") == 0 || strcmp(t, "Real") == 0 || strcmp(t, "Text") == 0 ||
            strcmp(t, "Bool") == 0 || strcmp(t, "Float") == 0 || strcmp(t, "String") == 0;
 }
@@ -252,6 +252,26 @@ static const char *foreignMethodHint(const char *recvType, const char *m, char *
     char key[72];
     snprintf(key, sizeof(key), " %s ", m);
     for (char *k = key; *k; k++) *k = (char)tolower((unsigned char)*k);
+    /* D68 / D71: a map's operations are functions. */
+    if (aetherTypeNameIsMap(recvType)) {
+        if (strstr(" get getordefault get_or_default getor ", key))
+            return "write `get(m, k, default)`, or `m[k]` when the key is surely there";
+        if (strstr(" keys keyset key_set ", key)) return "write `keys(m)` (a Text[] in insertion order)";
+        if (strstr(" values ", key)) return "write `values(m)`";
+        if (strstr(" items entries iter iteritems ", key))
+            return "loop over the keys: `loop k in m { ... m[k] ... }`";
+        if (strstr(" pop remove delete del erase discard ", key))
+            return "write `remove(m, k)` (read `m[k]` first if you need the value)";
+        if (strstr(" has haskey has_key contains containskey contains_key includes exists ", key))
+            return "write `has(m, k)`";
+        if (strstr(" size count len length ", key)) return "write `length(m)`";
+        if (strstr(" set put insert add update setdefault set_default ", key))
+            return "write `m[k] = v;` (it inserts or replaces)";
+        if (strstr(" clear ", key)) return "assign an empty map: `m = {};`";
+        if (strstr(" copy clone ", key)) return "assign it: `let m2 = m;` (maps are values)";
+        return "a map has no methods: use `m[k]`, `has(m, k)`, `get(m, k, d)`, `remove(m, k)`, "
+               "`keys(m)`, `values(m)` and `length(m)`";
+    }
     if (isText || isArray) {
         const char *what = isText ? "s" : "xs";
         const char *arg = isText ? "x" : "v";

@@ -1,0 +1,5 @@
+// D68: == compares two maps of the same type; a map is not an Int.
+fn main() -> Void {
+    let m: Map[Text, Int] = {};
+    if m == 0 { }
+}

@@ -170,6 +170,9 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "aether_mstream_length", "Int" }, { "aether_round_to", "Real" },
         { "split", "Text[]" }, { "aether_read_lines", "Text[]" }, { "aether_args", "Text[]" },
         { "aether_mstream_load", "MStream" },
+        /* Maps (D68); the generic ones are typed in inferLetTypeName. */
+        { "aether_map_has", "Bool" }, { "aether_map_length", "Int" },
+        { "aether_map_keys", "Text[]" },
         /* Bool-returning. */
         { "hasextbuiltin", "Bool" }, { "YyjsonGetBoolOr", "Bool" },
         { "YyjsonGetBool", "Bool" }, { "YyjsonIsNull", "Bool" },
@@ -207,6 +210,40 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
         if (rt) return strdup(rt);
         rt = inferBuiltinReturnTypeName(init->token->value);
         if (rt) return strdup(rt);
+        /* D68: a map literal, a map read and values(m). */
+        if (!init->left && aetherIsMapLiteral(init)) {
+            if (init->child_count < 3) return NULL; /* `{}`: from its declaration */
+            char *vt = inferLetTypeName(p, init->children[2]);
+            for (int i = 4; vt && strcmp(vt, "Int") == 0 && i < init->child_count; i += 2) {
+                char *o = inferLetTypeName(p, init->children[i]);
+                if (o && strcmp(o, "Real") == 0) {
+                    free(vt);
+                    vt = o;
+                    o = NULL;
+                }
+                free(o);
+            }
+            char *mt = aetherMapTypeNameOf(vt);
+            free(vt);
+            return mt;
+        }
+        if (!init->left && init->child_count >= 1 && init->token->value &&
+            (strcmp(init->token->value, "aether_map_get") == 0 ||
+             strcmp(init->token->value, "aether_map_get_or") == 0 ||
+             strcmp(init->token->value, "aether_map_values") == 0) &&
+            !aetherAstIsTopLevelUserFunction(init->token->value)) {
+            char *mt = aetherMapTypeNameOfExpr(p, init->children[0]);
+            char *vt = aetherMapValueTypeName(mt);
+            free(mt);
+            if (vt && strcmp(init->token->value, "aether_map_values") == 0) {
+                size_t n = strlen(vt);
+                char *arr = (char *)malloc(n + 3);
+                if (arr) snprintf(arr, n + 3, "%s[]", vt);
+                free(vt);
+                return arr;
+            }
+            return vt;
+        }
         /* Argument-typed helpers: sorted(xs) is an xs, sum(xs) an element. */
         if (!init->left && init->child_count >= 1 &&
             !aetherAstIsTopLevelUserFunction(init->token->value)) {

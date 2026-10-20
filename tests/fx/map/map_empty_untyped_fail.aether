@@ -1,0 +1,4 @@
+// D68: `{}` has no value type to infer; it needs a declared type.
+fn main() -> Void {
+    let m = {};
+}

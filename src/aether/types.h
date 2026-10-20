@@ -32,14 +32,15 @@ typedef enum {
     AETHER_T_NIL,
     AETHER_T_HANDLE, /* ToonDoc / ToonNode / MStream / File; lowered to Int or a stream */
     AETHER_T_RECORD, /* a `type`, a tuple (__AetherTupleN) */
-    AETHER_T_ARRAY
+    AETHER_T_ARRAY,
+    AETHER_T_MAP     /* Map[Text, T] (D68); name is the full type name */
 } AetherTypeKind;
 
 typedef struct {
     AetherTypeKind kind;
     AetherTypeKind elem; /* AETHER_T_ARRAY: element kind (UNKNOWN for `[]`) */
     int rank;            /* AETHER_T_ARRAY: number of [] */
-    const char *name;    /* RECORD, HANDLE, or the element record of an array */
+    const char *name;    /* RECORD, HANDLE, MAP, or the element record/map of an array */
 } AetherType;
 
 /* How the value of an expression is used by its parent. */

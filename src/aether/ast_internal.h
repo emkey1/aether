@@ -254,6 +254,9 @@ typedef struct {
     int nestedFnCap;
     int nextNestedFnId;
     AST *liftedDecls;
+    /* D68: the declared map type a map literal being parsed is bound to
+     * (`let m: Map[Text, Int[]] = {...}`), so `[]` values have a type. */
+    const char *expectedMapType;
 } AetherParser;
 
 /* One right-hand operand of a left-nested array-`+` chain, in APPLY order.
@@ -303,6 +306,9 @@ AST *parseExpr(AetherParser *p);
 AST *buildContractGuard(AetherParser *p, const char *exprText,
                        const char *kind, const char *fnName, int line);
 AST *parseStatement(AetherParser *p);
+AST *aetherLowerAssignStatement(AetherParser *p, AST *expr);
+void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
+                                  const char *hint);
 /* AETHER_EXPERIMENT=tail=reject (D39 census): true, after reporting SYN-001,
  * when `current` starts another expression on the line of the token before
  * it with no `;` between them (`let t: Int = price qty;`). False otherwise,
@@ -334,6 +340,7 @@ AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, in
 AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line);
 AST *aetherBuildIntConst(long v, int line);
 AST *buildVarRef(const char *name, VarType vt, int line);
+AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init, int line);
 AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *other,
                       char *otherTypeName, int line, AST *src);
 int aetherConcatChainLength(AetherParser *p, const AST *expr);
@@ -403,5 +410,25 @@ bool aetherCheckRemovedBuiltin(AetherParser *p, const char *raw, int line);
 void aetherRecordFieldSlot(AetherParser *p, const char *typeName, const char *field, int slot);
 bool aetherLowerStdlibCall(AetherParser *p, AST *call, int line);
 char *aetherStdlibPrelude(const char *source);
+
+/* Maps (D68), ast_stdlib.c. Type names are "Map[Text, T]". */
+bool aetherTypeNameIsMap(const char *name);
+char *aetherMapValueTypeName(const char *mapName);
+char *aetherMapTypeNameOf(const char *valueName);
+VarType aetherVarTypeForTypeName(const char *name);
+AST *aetherBuildMapTypeNode(const char *mapName, AST *valueNode, int line);
+AST *aetherBuildMapTypeNodeFromName(const char *name, size_t len, int line, VarType *outType);
+bool aetherIsMapGet(const AST *n);
+bool aetherIsMapLiteral(const AST *n);
+void aetherSetMapLiteralCode(AST *lit, VarType vt);
+bool aetherChainHasMapGet(const AST *lv);
+char *aetherMapTypeNameOfExpr(AetherParser *p, AST *base);
+AST *aetherBuildMapGet(AetherParser *p, AST *base, AST *key, const char *mapType, int line);
+AST *aetherLowerMapStore(AetherParser *p, AST *assign);
+AST *aetherLowerMapMutatorStmt(AetherParser *p, AST *call);
+bool aetherIsMapMutatorCall(const AST *e);
+AST *aetherMapHoistComposite(AetherParser *p, AST *value, const char *typeName, int line);
+AST *aetherMapHoistRead(AetherParser *p, AST *get, int line);
+AST *aetherMapHoistFieldReceivers(AetherParser *p, AST *node);
 
 #endif /* AETHER_AST_INTERNAL_H */

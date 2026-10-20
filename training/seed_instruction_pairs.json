@@ -2025,6 +2025,114 @@
       "prompt": "Write an Aether program that splits the line `42,7x,,  9 ,1000,-5` on commas, trims each field and accepts it only when `is_digit` is true for the whole trimmed field (so the empty field and `-5` are rejected). Print `'<field>' valid` or `'<field>' invalid` for each trimmed field in order, then `N valid fields, total T` with the count and the sum of the valid fields.",
       "solution": "fn main() -> Void {\n    let line: Text = \"42,7x,,  9 ,1000,-5\";\n    let fields: Text[] = split(line, \",\");\n    let total: Int = 0;\n    let valid: Int = 0;\n    fx {\n        loop f in fields {\n            let t: Text = trim(f);\n            if is_digit(t) {\n                total = total + parse_int(t);\n                valid = valid + 1;\n                println(\"'\", t, \"' valid\");\n            } else {\n                println(\"'\", t, \"' invalid\");\n            }\n        }\n        println(valid, \" valid fields, total \", total);\n    }\n    ret;\n}\n",
       "expected_stdout": "'42' valid\n'7x' invalid\n'' invalid\n'9' valid\n'1000' valid\n'-5' invalid\n3 valid fields, total 1051\n"
+    },
+    {
+      "id": "map_word_count_order",
+      "prompt": "Write an Aether program with a `@pure` function `countWords(text: Text) -> Map[Text, Int]` that splits `text` on single spaces and counts each word in a `Map[Text, Int]`. In `main`, count the words of `red green red blue green red` and print one line `<word>: <count>` per word in first-seen order by looping over the map.",
+      "solution": "@pure\nfn countWords(text: Text) -> Map[Text, Int] {\n    let counts: Map[Text, Int] = {};\n    loop w in split(text, \" \") {\n        counts[w] = get(counts, w, 0) + 1;\n    }\n    ret counts;\n}\n\nfn main() -> Void {\n    let counts = countWords(\"red green red blue green red\");\n    fx {\n        loop w in counts {\n            println(w, \": \", counts[w]);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "red: 3\ngreen: 2\nblue: 1\n"
+    },
+    {
+      "id": "map_inventory_restock",
+      "prompt": "Write an Aether program that keeps an inventory in a `Map[Text, Int]` starting as `{\"bolt\": 12, \"nut\": 30, \"washer\": 5}`. Apply the deliveries `nut +10`, `gear +4` and the sales `bolt -7`, `washer -5` (a delivery of an unknown item adds it). Remove every item whose stock reaches 0, then print the map with `println`.",
+      "solution": "fn apply(stock: Map[Text, Int], item: Text, delta: Int) -> Map[Text, Int] {\n    stock[item] = get(stock, item, 0) + delta;\n    if stock[item] == 0 {\n        remove(stock, item);\n    }\n    ret stock;\n}\n\nfn main() -> Void {\n    let stock: Map[Text, Int] = {\"bolt\": 12, \"nut\": 30, \"washer\": 5};\n    stock = apply(stock, \"nut\", 10);\n    stock = apply(stock, \"gear\", 4);\n    stock = apply(stock, \"bolt\", -7);\n    stock = apply(stock, \"washer\", -5);\n    fx {\n        println(stock);\n    }\n    ret;\n}\n",
+      "expected_stdout": "{\"bolt\": 5, \"nut\": 40, \"gear\": 4}\n"
+    },
+    {
+      "id": "map_group_by_initial",
+      "prompt": "Write an Aether program that groups the words `kiwi apple fig avocado kale banana` by their first letter in a `Map[Text, Text[]]`, creating each group the first time its letter is seen. Print one line per group, in first-seen order, as `<letter>: <words joined with \", \">`.",
+      "solution": "fn main() -> Void {\n    let groups: Map[Text, Text[]] = {};\n    loop w in split(\"kiwi apple fig avocado kale banana\", \" \") {\n        let first: Text = w[..1];\n        if !has(groups, first) {\n            groups[first] = [];\n        }\n        groups[first] = groups[first] + [w];\n    }\n    fx {\n        loop k in groups {\n            println(k, \": \", join(groups[k], \", \"));\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "k: kiwi, kale\na: apple, avocado\nf: fig\nb: banana\n"
+    },
+    {
+      "id": "map_missing_key_default",
+      "prompt": "Write an Aether program with a `Map[Text, Real]` of prices `{\"tea\": 2.5, \"cake\": 3.75}`. For each of the items `tea`, `scone`, `cake`, print `<item> <price>` using `get` with a default of `0.0` for an item that is not on the menu, then print `on menu: <n>` where n counts the items found with `has`.",
+      "solution": "fn main() -> Void {\n    let prices: Map[Text, Real] = {\"tea\": 2.5, \"cake\": 3.75};\n    let found: Int = 0;\n    fx {\n        loop item in split(\"tea scone cake\", \" \") {\n            println(item, \" \", get(prices, item, 0.0):0:2);\n            if has(prices, item) {\n                found = found + 1;\n            }\n        }\n        println(\"on menu: \", found);\n    }\n    ret;\n}\n",
+      "expected_stdout": "tea 2.50\nscone 0.00\ncake 3.75\non menu: 2\n"
+    },
+    {
+      "id": "map_value_copy",
+      "prompt": "Write an Aether program that shows a map is a value. Make `a: Map[Text, Int] = {\"x\": 1}`, copy it with `let b = a;`, set `b[\"x\"] = 2` and `b[\"y\"] = 3`, then print `a` and `b` on separate lines. Then pass `a` to a function `withZ(m: Map[Text, Int]) -> Map[Text, Int]` that adds key `z` with value 26 and returns the map; print `a` again before and after assigning the result back to `a`.",
+      "solution": "fn withZ(m: Map[Text, Int]) -> Map[Text, Int] {\n    m[\"z\"] = 26;\n    ret m;\n}\n\nfn main() -> Void {\n    let a: Map[Text, Int] = {\"x\": 1};\n    let b = a;\n    b[\"x\"] = 2;\n    b[\"y\"] = 3;\n    let c = withZ(a);\n    fx {\n        println(a);\n        println(b);\n        println(a, \" \", length(c));\n    }\n    a = c;\n    fx {\n        println(a);\n    }\n    ret;\n}\n",
+      "expected_stdout": "{\"x\": 1}\n{\"x\": 2, \"y\": 3}\n{\"x\": 1} 2\n{\"x\": 1, \"z\": 26}\n"
+    },
+    {
+      "id": "map_nested_scores",
+      "prompt": "Write an Aether program that records quiz scores per student and per quiz in a `Map[Text, Map[Text, Int]]`. Record `ana q1 7`, `ben q1 5`, `ana q2 9`, `ben q2 6`, `cy q1 8` (create a student's inner map the first time they appear). Print each student with the sum of their scores as `<student> total <n>`, in first-seen order.",
+      "solution": "fn main() -> Void {\n    let scores: Map[Text, Map[Text, Int]] = {};\n    let rows: Text[] = [\"ana q1 7\", \"ben q1 5\", \"ana q2 9\", \"ben q2 6\", \"cy q1 8\"];\n    loop row in rows {\n        let parts: Text[] = split(row, \" \");\n        if !has(scores, parts[0]) {\n            scores[parts[0]] = {};\n        }\n        scores[parts[0]][parts[1]] = parse_int(parts[2]);\n    }\n    fx {\n        loop student in scores {\n            let total: Int = sum(values(scores[student]));\n            println(student, \" total \", total);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "ana total 16\nben total 11\ncy total 8\n"
+    },
+    {
+      "id": "map_records_by_id",
+      "prompt": "Write an Aether program with a type `Task { title: Text; done: Bool; }` stored in a `Map[Text, Task]` keyed by id. Add tasks `t1` (write report), `t2` (fix bug) and `t3` (review), all not done. Mark `t2` done by assigning `tasks[\"t2\"].done = true`, then print each task as `<id> [x] <title>` when done and `<id> [ ] <title>` otherwise, in insertion order.",
+      "solution": "type Task {\n    title: Text;\n    done: Bool;\n}\n\nfn main() -> Void {\n    let tasks: Map[Text, Task] = {};\n    tasks[\"t1\"] = new Task { title: \"write report\", done: false };\n    tasks[\"t2\"] = new Task { title: \"fix bug\", done: false };\n    tasks[\"t3\"] = new Task { title: \"review\", done: false };\n    tasks[\"t2\"].done = true;\n    fx {\n        loop id in tasks {\n            let mark: Text = if tasks[id].done { \"[x]\" } else { \"[ ]\" };\n            println(id, \" \", mark, \" \", tasks[id].title);\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "t1 [ ] write report\nt2 [x] fix bug\nt3 [ ] review\n"
+    },
+    {
+      "id": "map_char_frequency",
+      "prompt": "Write an Aether program that counts how often each letter occurs in `mississippi` using a `Map[Text, Int]`, then prints the letters in alphabetical order as `<letter>=<count>` separated by single spaces on one line. Sort the keys with `sorted(keys(m))`.",
+      "solution": "fn main() -> Void {\n    let counts: Map[Text, Int] = {};\n    loop ch in \"mississippi\" {\n        counts[ch] = get(counts, ch, 0) + 1;\n    }\n    let parts: Text[] = [];\n    loop k in sorted(keys(counts)) {\n        parts = parts + [k + \"=\" + int_to_text(counts[k])];\n    }\n    fx {\n        println(join(parts, \" \"));\n    }\n    ret;\n}\n",
+      "expected_stdout": "i=4 m=1 p=2 s=4\n"
+    },
+    {
+      "id": "map_seen_set_dedupe",
+      "prompt": "Write an Aether program that removes duplicates from `3 1 3 2 1 5 2` while keeping the first occurrence of each number. Use a `Map[Text, Bool]` as a set of numbers already seen and test membership with `k not in seen`. Print the kept numbers on one line separated by spaces, then `unique: <n>`.",
+      "solution": "fn main() -> Void {\n    let seen: Map[Text, Bool] = {};\n    let kept: Text[] = [];\n    loop n in split(\"3 1 3 2 1 5 2\", \" \") {\n        if n not in seen {\n            seen[n] = true;\n            kept = kept + [n];\n        }\n    }\n    fx {\n        println(join(kept, \" \"));\n        println(\"unique: \", length(seen));\n    }\n    ret;\n}\n",
+      "expected_stdout": "3 1 2 5\nunique: 4\n"
+    },
+    {
+      "id": "map_invert_lookup",
+      "prompt": "Write an Aether program that builds a `Map[Text, Text]` from country to capital with `France -> Paris`, `Japan -> Tokyo`, `Peru -> Lima`, then builds the inverse map from capital to country by looping over the first map. Print `Tokyo is in <country>` using the inverse map, then print the inverse map itself.",
+      "solution": "fn main() -> Void {\n    let capital: Map[Text, Text] = {\"France\": \"Paris\", \"Japan\": \"Tokyo\", \"Peru\": \"Lima\"};\n    let country: Map[Text, Text] = {};\n    loop c in capital {\n        country[capital[c]] = c;\n    }\n    fx {\n        println(\"Tokyo is in \", country[\"Tokyo\"]);\n        println(country);\n    }\n    ret;\n}\n",
+      "expected_stdout": "Tokyo is in Japan\n{\"Paris\": \"France\", \"Tokyo\": \"Japan\", \"Lima\": \"Peru\"}\n"
+    },
+    {
+      "id": "map_max_value_key",
+      "prompt": "Write an Aether program with a `@pure` function `busiest(visits: Map[Text, Int]) -> Text` that returns the key with the largest value (the first one in insertion order on a tie). Call it with `{\"mon\": 40, \"tue\": 55, \"wed\": 55, \"thu\": 12}` and print `busiest: <day>`, then print the total of all values with `sum(values(...))`.",
+      "solution": "@pure\nfn busiest(visits: Map[Text, Int]) -> Text {\n    let best: Text = \"\";\n    let bestCount: Int = -1;\n    loop day in visits {\n        if visits[day] > bestCount {\n            best = day;\n            bestCount = visits[day];\n        }\n    }\n    ret best;\n}\n\nfn main() -> Void {\n    let visits: Map[Text, Int] = {\"mon\": 40, \"tue\": 55, \"wed\": 55, \"thu\": 12};\n    fx {\n        println(\"busiest: \", busiest(visits));\n        println(\"total: \", sum(values(visits)));\n    }\n    ret;\n}\n",
+      "expected_stdout": "busiest: tue\ntotal: 162\n"
+    },
+    {
+      "id": "map_equality_order",
+      "prompt": "Write an Aether program that shows map equality ignores insertion order. Build `a = {\"x\": 1, \"y\": 2}` and `b = {\"y\": 2, \"x\": 1}` as `Map[Text, Int]` and print `a == b`. Then set `b[\"y\"] = 3` and print `a == b` again, then print `a != b`.",
+      "solution": "fn main() -> Void {\n    let a: Map[Text, Int] = {\"x\": 1, \"y\": 2};\n    let b: Map[Text, Int] = {\"y\": 2, \"x\": 1};\n    fx {\n        println(a == b);\n    }\n    b[\"y\"] = 3;\n    fx {\n        println(a == b);\n        println(a != b);\n    }\n    ret;\n}\n",
+      "expected_stdout": "true\nfalse\ntrue\n"
+    },
+    {
+      "id": "map_running_balance",
+      "prompt": "Write an Aether program that processes the transactions `alice +50`, `bob +20`, `alice -15`, `carol +5`, `bob -20` into a `Map[Text, Int]` of balances (an unknown account starts at 0; parse the signed amount with `parse_int`). Print every account as `<name>: <balance>` in first-seen order, then `accounts at zero: <n>`.",
+      "solution": "fn main() -> Void {\n    let balances: Map[Text, Int] = {};\n    let txs: Text[] = [\"alice +50\", \"bob +20\", \"alice -15\", \"carol +5\", \"bob -20\"];\n    loop tx in txs {\n        let parts: Text[] = split(tx, \" \");\n        let amount: Int = parse_int(parts[1]);\n        balances[parts[0]] = get(balances, parts[0], 0) + amount;\n    }\n    let zero: Int = 0;\n    fx {\n        loop name in balances {\n            println(name, \": \", balances[name]);\n            if balances[name] == 0 {\n                zero = zero + 1;\n            }\n        }\n        println(\"accounts at zero: \", zero);\n    }\n    ret;\n}\n",
+      "expected_stdout": "alice: 35\nbob: 0\ncarol: 5\naccounts at zero: 1\n"
+    },
+    {
+      "id": "map_key_from_int",
+      "prompt": "Write an Aether program that counts dice rolls `3 6 3 1 6 6` in a `Map[Text, Int]`. Map keys are Text, so convert each Int roll with `int_to_text` before using it as a key. Then print the count for every face from 1 to 6 as `face <n>: <count>`, using `get` with a default of 0 for faces never rolled.",
+      "solution": "fn main() -> Void {\n    let rolls: Int[] = [3, 6, 3, 1, 6, 6];\n    let counts: Map[Text, Int] = {};\n    loop r in rolls {\n        let key: Text = int_to_text(r);\n        counts[key] = get(counts, key, 0) + 1;\n    }\n    fx {\n        loop face in 1..7 {\n            println(\"face \", face, \": \", get(counts, int_to_text(face), 0));\n        }\n    }\n    ret;\n}\n",
+      "expected_stdout": "face 1: 1\nface 2: 0\nface 3: 2\nface 4: 0\nface 5: 0\nface 6: 3\n"
+    },
+    {
+      "id": "map_remove_and_reinsert_order",
+      "prompt": "Write an Aether program that demonstrates map order. Start with `{\"a\": 1, \"b\": 2, \"c\": 3}` as a `Map[Text, Int]`, overwrite `a` with 10 (its position stays), remove `b`, then insert `b` again with 20 (it moves to the end). Print the map after each of the three changes, and finally print `keys(m)` joined with `-`.",
+      "solution": "fn main() -> Void {\n    let m: Map[Text, Int] = {\"a\": 1, \"b\": 2, \"c\": 3};\n    m[\"a\"] = 10;\n    fx {\n        println(m);\n    }\n    remove(m, \"b\");\n    fx {\n        println(m);\n    }\n    m[\"b\"] = 20;\n    fx {\n        println(m);\n        println(join(keys(m), \"-\"));\n    }\n    ret;\n}\n",
+      "expected_stdout": "{\"a\": 10, \"b\": 2, \"c\": 3}\n{\"a\": 10, \"c\": 3}\n{\"a\": 10, \"c\": 3, \"b\": 20}\na-c-b\n"
+    },
+    {
+      "id": "map_word_lengths_real",
+      "prompt": "Write an Aether program that computes the average word length per first letter for the words `sun sky moon mars star`. Keep two maps keyed by first letter: total letters (`Map[Text, Int]`) and word count (`Map[Text, Int]`), then build a `Map[Text, Real]` of averages and print it with `println`.",
+      "solution": "fn main() -> Void {\n    let letters: Map[Text, Int] = {};\n    let words: Map[Text, Int] = {};\n    loop w in split(\"sun sky moon mars star\", \" \") {\n        let k: Text = w[..1];\n        letters[k] = get(letters, k, 0) + length(w);\n        words[k] = get(words, k, 0) + 1;\n    }\n    let avg: Map[Text, Real] = {};\n    loop k in letters {\n        avg[k] = letters[k] * 1.0 / words[k];\n    }\n    fx {\n        println(avg);\n    }\n    ret;\n}\n",
+      "expected_stdout": "{\"s\": 3.3333333333333335, \"m\": 4.0}\n"
+    },
+    {
+      "id": "map_config_lines",
+      "prompt": "Write an Aether program that parses the config lines `host=example.org`, `port=8080`, `debug=true`, `port=9090` into a `Map[Text, Text]` (a later line overwrites an earlier one), then prints `port is <value>`, `has user: <bool>` and `entries: <n>`. Split each line on `=`.",
+      "solution": "fn main() -> Void {\n    let lines: Text[] = [\"host=example.org\", \"port=8080\", \"debug=true\", \"port=9090\"];\n    let config: Map[Text, Text] = {};\n    loop line in lines {\n        let kv: Text[] = split(line, \"=\");\n        config[kv[0]] = kv[1];\n    }\n    fx {\n        println(\"port is \", config[\"port\"]);\n        println(\"has user: \", has(config, \"user\"));\n        println(\"entries: \", length(config));\n    }\n    ret;\n}\n",
+      "expected_stdout": "port is 9090\nhas user: false\nentries: 3\n"
+    },
+    {
+      "id": "map_tally_votes_winner",
+      "prompt": "Write an Aether program that tallies the votes `oak pine oak birch pine oak` in a `Map[Text, Int]` with `m[k] += 1` after setting a new candidate to 0, prints the full tally with `println`, and then prints `winner: <name>` for the candidate with the most votes.",
+      "solution": "fn main() -> Void {\n    let votes: Map[Text, Int] = {};\n    loop v in split(\"oak pine oak birch pine oak\", \" \") {\n        if !has(votes, v) {\n            votes[v] = 0;\n        }\n        votes[v] += 1;\n    }\n    let winner: Text = \"\";\n    loop name in votes {\n        if winner == \"\" || votes[name] > votes[winner] {\n            winner = name;\n        }\n    }\n    fx {\n        println(votes);\n        println(\"winner: \", winner);\n    }\n    ret;\n}\n",
+      "expected_stdout": "{\"oak\": 3, \"pine\": 2, \"birch\": 1}\nwinner: oak\n"
     }
   ]
 }

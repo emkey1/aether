@@ -1,0 +1,5 @@
+// D68 + D71: m.pop(k) is remove(m, k).
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    m.pop("a");
+}

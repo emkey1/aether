@@ -1,0 +1,17 @@
+// D68 + D8: maps are values like arrays, so a Void function that changes its
+// map parameter changes only its own copy (ARR-001); return the map instead.
+fn lose(m: Map[Text, Int]) -> Void {
+    m["lost"] = 1;
+}
+
+fn keep(m: Map[Text, Int]) -> Map[Text, Int] {
+    m["kept"] = 1;
+    ret m;
+}
+
+fn main() -> Void {
+    let a: Map[Text, Int] = {};
+    lose(a);
+    a = keep(a);
+    fx { println(a); }
+}

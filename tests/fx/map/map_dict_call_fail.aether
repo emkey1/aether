@@ -1,0 +1,4 @@
+// D68: dict() is Python; the hint names the Aether form.
+fn main() -> Void {
+    let d = dict();
+}

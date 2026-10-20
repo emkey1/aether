@@ -1,0 +1,8 @@
+// D68 + D24: map == compares values structurally, so maps whose values are a
+// self-referential record type are REC-001, as the records are.
+type Node { v: Int; next: Node; }
+fn main() -> Void {
+    let a: Map[Text, Node] = {};
+    let b: Map[Text, Node] = {};
+    fx { println(a == b); }
+}

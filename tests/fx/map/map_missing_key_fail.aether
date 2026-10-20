@@ -1,0 +1,8 @@
+// D68: reading a key the map does not hold is a runtime error naming the key
+// and both ways to ask first.
+fn main() -> Void {
+    let ages: Map[Text, Int] = {"ann": 31};
+    fx { println(ages["ann"]); }
+    let d: Int = ages["dee"];
+    fx { println(d); }
+}

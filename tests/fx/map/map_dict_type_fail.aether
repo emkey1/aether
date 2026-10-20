@@ -1,0 +1,4 @@
+// D68: another language spelling of the map type names Map[Text, T].
+fn main() -> Void {
+    let d: Dict[Text, Int] = {};
+}

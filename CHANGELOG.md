@@ -12,6 +12,69 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-4
+
+**A map type: `Map[Text, T]`** (decision D68, superseding D47; pscal-core
+c0abe3e). A language-level container like arrays: Text keys, values of any one
+type (`Int`, `Real`, `Text`, `Bool`, a record, an array, another map).
+Nothing that compiled before changes meaning, except the names below that
+now resolve.
+
+- **Surface.** The type `Map[Text, T]` anywhere a type goes (`Map[Text, Int[]]`,
+  `Map[Text, Map[Text, Int]]`, `Map[Text, P][]`); the literal
+  `{"k": v, ...}` and the empty `{}`, which needs a declared type; `m[k]`
+  (a missing key is a run-time error: `key "dee" is not in the map; use
+  has(ages, "dee") or get(ages, "dee", default)`); `m[k] = v` and the
+  compound forms; writes into a stored value (`m[k][i] = v`, `m[a][b] = v`,
+  `m[k].f = v`, `remove(m[a], k)`), which need the key; `has(m, k)`,
+  `get(m, k, default)`, `remove(m, k)` (a no-op when absent), `keys(m)`,
+  `values(m)`, `length(m)` and `m.length`; `loop k in m` (a snapshot of the
+  keys); `k in m` and `k not in m` as `has(m, k)` / `!has(m, k)`.
+- **Semantics.** Insertion order everywhere (keys, values, loop, printing):
+  overwriting keeps a key's place, remove then re-insert moves it to the end.
+  A map is a value like an array (D8): `let b = m;` and a call copy it
+  (copy-on-write in the engine, so a copy costs nothing until written), arrays
+  stored in a map are copied with it, and a function that changes a map
+  returns it; a nested fn that writes an enclosing map changes it (D64).
+  An un-returned write to a map parameter is ARR-001, as for an
+  array (a warning in a `Void` fn today; in the V-strict arm,
+  `AETHER_EXPERIMENT=arrays=vstrict`, for any un-returned write). Records stored
+  in a map are shared, as in an array of records. `==`/`!=` compare key sets
+  and values, ignoring order, by D24's structural path (record values field by
+  field). `println(m)` prints `{"ann": 31, "bob":
+  27}`: Text quoted and escaped, a Real in its shortest round-trip form (D74:
+  `0.5`, `1.0`, `1e+20`), arrays and nested maps inside. Every map operation is
+  pure (`@pure` may build and change its own maps).
+- **Judgment calls the proposal left open** (recorded in the proposal and the
+  D68 row). `k in m` is accepted as sugar for `has(m, k)`, with `k not in m`:
+  `in` has no other infix use in an expression, and the operand is parsed
+  tentatively, so any non-map right operand parses exactly as before. A `{`
+  that starts a statement opens a block; one directly after `if`, `loop`,
+  `while` or `elif` is that statement's body (`if { }` stays SYN-001);
+  elsewhere `{` is a map literal when it is followed by `}` or by an
+  expression and `:`, so `if x == { ... }` keeps its SYN-001.
+- **Diagnostics.** TYPE-001: a non-Text key (`m[k]` with an Int `k`, a literal
+  key, `Map[Int, T]`), a value of the wrong type (`m[k] = v`, a literal value,
+  `get`'s default), `{}` with no declared type, `==` against a non-map,
+  ordering or arithmetic on a map, a slice of a map, printing a map of
+  records. NAME-001: a key written twice in one literal. REC-001: `==` on maps
+  whose values are a self-referential record type. SCOPE-001 with a
+  hint naming the function: `m.get(k)`, `m.keys()`, `m.items()`, `m.pop(k)`
+  and every other method spelling (D71), and `dict()`, `has_key`, `get_or`,
+  `map_get`. TYPE-002 naming `Map[Text, T]`: `Dict[..]`, `HashMap<..>`,
+  `Map<..>`; `Set[..]` names `Map[Text, Bool]`. BUILT-002: `get(m, k)`.
+- **Names.** `has`, `get`, `remove`, `keys` and `values` are Aether aliases of
+  the engine-private `aether_map_*` builtins; a program's own `fn` of the same
+  name still wins. No other front end sees them.
+- **Performance.** A 20,000-word tally over 2,000 keys runs in about 0.2 s
+  (D47 measured 9.9 s for the record-of-parallel-arrays idiom).
+
+Fixtures: `tests/fx/map/` (every operation and error, nested maps, records as
+values, value semantics, insertion order, `==`, printing). Surface registry
+entries `map_type`, `map_in`, `map_length_property`, `method_map`,
+`alias_dict`, `type_dict`, `map_int_key`. No archived benchmark attempt or
+corpus program used a map, so no replay waiver.
+
 ## 2026-10-20-3
 
 **Records and tuples compare by value (D24).** `a == b` on two records was a

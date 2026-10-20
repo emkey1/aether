@@ -1,0 +1,11 @@
+// D68: Map[Text, T] for a word count, in first-seen order.
+fn main() -> Void {
+    let counts: Map[Text, Int] = {};
+    loop w in split("to be or not to be", " ") {
+        counts[w] = get(counts, w, 0) + 1;
+    }
+    loop k in counts {
+        fx { println(k, " ", counts[k]); }
+    }
+    fx { println(has(counts, "be"), " ", has(counts, "is"), " ", length(counts)); }
+}

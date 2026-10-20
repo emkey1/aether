@@ -1,0 +1,30 @@
+// D68: Map[Text, T] -- literal, read, write, has, get, remove, length, keys,
+// values, loop and printing, all in insertion order.
+fn main() -> Void {
+    let ages: Map[Text, Int] = {"ann": 31, "bob": 27};
+    ages["cid"] = 40;
+    ages["ann"] = 32;
+    let a: Int = ages["ann"];
+    let d: Int = get(ages, "dee", 0);
+    let b: Int = get(ages, "bob", 0);
+    fx {
+        println(a, " ", d, " ", b, " ", length(ages));
+        println(has(ages, "bob"), " ", has(ages, "dee"));
+        println(ages);
+    }
+    remove(ages, "bob");
+    remove(ages, "nobody");
+    loop k in ages {
+        fx { println(k, "=", ages[k]); }
+    }
+    let ks: Text[] = keys(ages);
+    let vs: Int[] = values(ages);
+    fx {
+        println(join(ks, ","), " ", sum(vs));
+        println(ages.length);
+    }
+    let empty: Map[Text, Real] = {};
+    fx { println(empty, " ", length(empty)); }
+    let inferred = {"x": 1.5, "y": 2};
+    fx { println(inferred); }
+}

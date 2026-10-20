@@ -1,0 +1,4 @@
+// D68: there is no set type; Map[Text, Bool] serves.
+fn main() -> Void {
+    let s: Set[Text] = {};
+}

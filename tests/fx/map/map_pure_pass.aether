@@ -1,0 +1,32 @@
+// D68: map operations are pure: a @pure function may build, read and change
+// its own maps. A global map is written in place.
+let registry: Map[Text, Int] = {"boot": 1};
+
+@pure
+fn tally(words: Text[]) -> Map[Text, Int] {
+    let counts: Map[Text, Int] = {};
+    loop w in words {
+        counts[w] = get(counts, w, 0) + 1;
+    }
+    ret counts;
+}
+
+@pure
+fn top(counts: Map[Text, Int]) -> Text {
+    let best = "";
+    let bestN = -1;
+    loop k in counts {
+        if counts[k] > bestN { best = k; bestN = counts[k]; }
+    }
+    ret best;
+}
+
+fn main() -> Void {
+    let c = tally(split("the cat and the hat and the bat", " "));
+    registry["run"] = 2;
+    fx {
+        println(c);
+        println(top(c));
+        println(registry);
+    }
+}

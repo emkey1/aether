@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    fx { println(has(m, "a"), " ", has(m, "b"), " ", !has(m, "b")); }
+}

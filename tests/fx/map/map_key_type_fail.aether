@@ -1,0 +1,4 @@
+// D68: Map[Int, T] is not a type in this release (Text keys only).
+fn main() -> Void {
+    let m: Map[Int, Text] = {};
+}

@@ -1,0 +1,8 @@
+// D68: a write into a stored value needs the key to be there: m[k][i] = v
+// on a missing k is the same runtime error as a read.
+fn main() -> Void {
+    let groups: Map[Text, Int[]] = {"a": [1]};
+    groups["a"][0] = 5;
+    groups["b"][0] = 6;
+    fx { println(groups); }
+}

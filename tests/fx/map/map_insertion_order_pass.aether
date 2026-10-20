@@ -1,0 +1,28 @@
+// D68: iteration order is insertion order. Re-assigning a key keeps its
+// place; remove then re-insert moves it to the end. keys() and values() agree.
+fn main() -> Void {
+    let o: Map[Text, Int] = {"c": 3, "a": 1, "b": 2};
+    o["a"] = 10;
+    remove(o, "c");
+    o["c"] = 30;
+    o["d"] = 4;
+    fx { println(o); }
+    let ks = keys(o);
+    let vs = values(o);
+    loop i in 0..length(ks) {
+        fx { println(ks[i], " ", vs[i]); }
+    }
+    // Many keys, many removals: order still holds after the table compacts.
+    let big: Map[Text, Int] = {};
+    loop i in 0..200 { big[int_to_text(i)] = i; }
+    loop i in 0..200 {
+        if i mod 3 != 0 { remove(big, int_to_text(i)); }
+    }
+    let first = "";
+    let n = 0;
+    loop k in big {
+        if n < 5 { first = first + k + " "; }
+        n += 1;
+    }
+    fx { println(n, " ", first); }
+}

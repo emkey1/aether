@@ -509,9 +509,10 @@ Member     = Field | Method ;
 Field      = Ident ":" Type [ "=" Literal ] ";" ;
 Method     = { Annotation } "fn" Ident "(" [ "self" { "," Param } | Params ] ")" "->" ReturnType Block ;
 ConstDecl  = "const" Ident [ ":" TypeName ] "=" Expr ";" ;
-Type       = TypeName { "[" "]" } ;
+Type       = ( TypeName | MapType ) { "[" "]" } ;
 TypeName   = "Int" | "Real" | "Text" | "Bool" | "Void" | "ToonDoc" | "ToonNode"
            | "MStream" | Ident ;
+MapType    = "Map" "[" "Text" "," Type "]" ;
 ```
 
 A record type's fields are `name: Type;`, one per declaration, with an optional
@@ -519,6 +520,52 @@ literal default. Inside a method the receiver is `self`, written as the first
 parameter or left implicit; fields are read and written through it, never as
 bare names (METH-001: methods do not capture outer locals either). A `type` or `const` may also be declared inside a block.
 `T[]` is a dynamic array of `T`; `T[][]` an array of arrays.
+
+`Map[Text, T]` (decision D68) maps Text keys to values of any type `T`, records,
+arrays and maps included. Like an array it is a value: `let b = a;` and a call
+copy it, and a function that changes a map returns it (`m = f(m)`; an
+un-returned write to a map parameter is ARR-001, as for arrays). Iteration is in
+insertion order: overwriting a key keeps its place, removing and re-inserting
+moves it to the end. Keys are Text in this release: any other key type, and an
+Int key in `m[k]`, is TYPE-001. `m[k]` reads a key that must be present (a
+missing key stops the program with a run-time error naming it), `m[k] = v`
+inserts or overwrites, and the functions are `has(m, k)`, `get(m, k, default)`,
+`remove(m, k)` (no-op when absent), `keys(m)`, `values(m)` (both in insertion
+order) and `length(m)`. `loop k in m` visits a snapshot of the keys. `==`
+compares key sets and values, ignoring order. `println(m)` prints
+`{"k": v, ...}` in insertion order, Text quoted and Real in its shortest
+round-trip form; a map whose values are records has no printed form (TYPE-001).
+Every map operation is pure. There are no methods on a map (`m.get(k)` is
+SCOPE-001 naming the function), and `Dict[...]`, `Set[...]` are TYPE-002.
+
+```aether @ok id=G.MapType.1
+fn add(m: Map[Text, Int], w: Text) -> Map[Text, Int] {
+    m[w] = get(m, w, 0) + 1;
+    ret m;
+}
+fn main() -> Void {
+    let counts: Map[Text, Int] = {};
+    loop w in split("b a b", " ") { counts = add(counts, w); }
+    let groups: Map[Text, Text[]] = {"short": []};
+    groups["short"] = groups["short"] + ["ab"];
+    remove(counts, "zz");
+    fx {
+        println(counts, " ", has(counts, "a"), " ", length(counts));
+        println(keys(counts)[0], " ", groups);
+    }
+}
+```
+
+```text
+{"b": 2, "a": 1} true 2
+b {"short": ["ab"]}
+```
+
+```aether @reject=TYPE-001 id=G.MapType.2
+fn main() -> Void {
+    let byId: Map[Int, Text] = {};
+}
+```
 
 ```aether @ok id=G.TypeDecl.1
 type Point {
@@ -1134,7 +1181,7 @@ BitOrExpr  = BitXorExpr { "|" BitXorExpr } ;
 BitXorExpr = BitAndExpr { ( "^" | "xor" ) BitAndExpr } ;
 BitAndExpr = EqExpr { "&" EqExpr } ;
 EqExpr     = RelExpr [ ( "==" | "!=" ) RelExpr ] ;
-RelExpr    = ShiftExpr [ ( "<" | "<=" | ">" | ">=" ) ShiftExpr ] ;
+RelExpr    = ShiftExpr [ ( "<" | "<=" | ">" | ">=" | [ "not" ] "in" ) ShiftExpr ] ;
 ShiftExpr  = AddExpr { ( "<<" | ">>" ) AddExpr } ;
 AddExpr    = MulExpr { ( "+" | "-" ) MulExpr } ;
 MulExpr    = Unary { ( "*" | "/" | "div" | "%" | "mod" ) Unary } ;
@@ -1142,7 +1189,8 @@ Unary      = ( "-" | "!" | "not" ) Unary | Postfix ;
 Postfix    = Primary { "." Ident [ "(" [ Args ] ")" ] | "." Digits
            | "[" Expr [ ".." [ AddExpr ] ] "]" | "[" ".." AddExpr "]" } ;
 Primary    = Literal | Ident | Call | "(" Expr ")" | ArrayLit | RecordLit
-           | NewExpr | Quantifier | "self" | "nil" ;
+           | MapLit | NewExpr | Quantifier | "self" | "nil" ;
+MapLit     = "{" [ Expr ":" Expr { "," Expr ":" Expr } [ "," ] ] "}" ;
 Quantifier = ( "all" | "any" ) Ident "in" ( Range | AddExpr ) ":" Expr ;
 Call       = Ident "(" [ Args ] ")" ;
 Args       = Arg { "," Arg } ;
@@ -1361,6 +1409,20 @@ fn main() -> Void {
     let i: Int = 5;
     fx { println(0 <= i < 3); }
 }
+```
+
+`k in m` is `has(m, k)` and `k not in m` is `!has(m, k)` when `m` is a map
+(D68); `in` tests nothing else.
+
+```aether @ok id=G.RelExpr.4
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    fx { println("a" in m, " ", "b" in m, " ", "b" not in m); }
+}
+```
+
+```text
+true false true
 ```
 
 ```aether @ok id=G.ShiftExpr.1
@@ -1616,6 +1678,38 @@ fn main() -> Void {
 
 ```text
 3 05
+```
+
+A map literal (D68) is `{"k": v, ...}`; its keys are Text and its values one
+type. `{}` is the empty map and needs a declared type (`let m: Map[Text, Int] =
+{};`); a key written twice is NAME-001. A `{` that starts a statement opens a
+block, and one directly after `if`, `loop` or `while` is that statement's body,
+so a literal never stands there; elsewhere `{` followed by `}` or by an
+expression and `:` is a map.
+
+```aether @ok id=G.MapLit.1
+fn main() -> Void {
+    let prices: Map[Text, Real] = {"tea": 2, "cake": 3.5};
+    let nested: Map[Text, Map[Text, Int]] = {"a": {"x": 1}, "b": {}};
+    nested["b"]["y"] = 2;
+    fx { println(prices, " ", nested["b"]["y"], " ", {"k": true} == {"k": true}); }
+}
+```
+
+```text
+{"tea": 2.0, "cake": 3.5} 2 true
+```
+
+```aether @reject=TYPE-001 id=G.MapLit.2
+fn main() -> Void {
+    let m = {};
+}
+```
+
+```aether @reject=NAME-001 id=G.MapLit.3
+fn main() -> Void {
+    let m = {"a": 1, "a": 2};
+}
 ```
 
 ```aether @ok id=G.RecordLit.1

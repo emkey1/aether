@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-1*
+*Guide version: 2026-10-20-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -159,10 +159,10 @@ when unsure about a type, add it explicitly.
 - anonymous functions, inline `fn(...) -> T { ... }` literals, lambdas, or
   passing a function as a value; `task_spawn` / `task_queue` take a builtin
   *name* as `Text`, and there is no `map` / `filter` / `reduce` (FUNC-001)
-- a map, dict, or set type, or helpers over one (`map_get`, `keys`, `Map[K,V]`).
-  There is no keyed container: use two parallel arrays and a linear scan, or a
-  `type` with an array field — see **Standard helpers**. For keys coming from a
-  parsed payload, the TOON node is already keyed (BUILT-001)
+- another language's map spellings: `dict()`, `Dict[str, int]`, `HashMap<..>`,
+  `Set[T]`, `m.get(k)`, `m.keys()`, `m.items()`, `m.pop(k)`. The map type is
+  `Map[Text, T]` and its operations are functions: `get(m, k, d)`, `keys(m)`,
+  `remove(m, k)`, `loop k in m` (SCOPE-001, TYPE-002) — see **Maps**
 - names that were never declared, or locals reused outside their scope
   (SCOPE-001)
 - arithmetic on `ToonDoc` or `ToonNode`, or assigning one where the other is
@@ -288,11 +288,12 @@ the exit status. A file with both a `fn main` and top-level statements is
 | `Void` | — | return type for procedures |
 | `ToonDoc`, `ToonNode` | — | opaque handles (TOON-001) |
 | `MStream` | — | opaque memory-stream handle (MS-001) |
+| `Map[Text, T]` | `{"k": v}`, `{}` | Text keys, values of type `T`; see **Maps** |
 
 `Float` and `String` lower identically to `Real` and `Text`, so they are correct
 if you write them; the canonical spellings are still `Real` and `Text`. Those two
 are the *only* foreign type names accepted. Every other one — `Double`,
-`Integer`, `Long`, `Boolean`, `List`, `Map`, `Set`, Pascal's `Char`, `Byte`,
+`Integer`, `Long`, `Boolean`, `List`, `Dict`, `Set`, Pascal's `Char`, `Byte`,
 `Word` and `Str`, and lowercase spellings such as `int` or `string` — is a
 `TYPE-002` error naming the Aether spelling or shape you wanted. A type name is checked
 against the builtins above plus the `type` declarations in your program and its
@@ -1342,25 +1343,65 @@ fn evensDoubled(xs: Int[]) -> Int[] {
 }
 ```
 
-**Lookup tables.** There is no map or dictionary type. Use two parallel arrays
-and a linear scan (`index_of(keys, key)` finds the slot), or a `type` with an
-array field:
+### Maps
+
+`Map[Text, T]` maps Text keys to values of one type `T` (any type: `Int`,
+`Real`, `Text`, `Bool`, a record, an array, another map). Use it for counting,
+grouping and lookups by name.
 
 ```aether
 @pure
-fn lookup(keys: Text[], values: Int[], key: Text) -> Int {
-    loop i in 0..length(keys) {
-        if keys[i] == key {
-            ret values[i];
-        }
+fn word_counts(words: Text[]) -> Map[Text, Int] {
+    let counts: Map[Text, Int] = {};
+    loop w in words {
+        counts[w] = get(counts, w, 0) + 1;
     }
-    ret -1;
+    ret counts;
+}
+
+fn main() -> Void {
+    let counts = word_counts(split("the cat and the hat", " "));
+    let ages: Map[Text, Int] = {"ann": 31, "bob": 27};
+    ages["cid"] = 40;               // insert or overwrite
+    remove(ages, "bob");            // nothing happens if absent
+    let groups: Map[Text, Text[]] = {};
+    loop w in split("apple avocado bean", " ") {
+        let k = w[..1];
+        if !has(groups, k) { groups[k] = []; }
+        groups[k] = groups[k] + [w];
+    }
+    fx {
+        println(counts["the"], " ", length(counts));   // 2 4
+        loop k in ages { println(k, "=", ages[k]); }   // ann=31, cid=40
+        println(groups);           // {"a": ["apple", "avocado"], "b": ["bean"]}
+    }
 }
 ```
 
+- `m[k]` reads a key that must be there; a missing key stops the program with
+  a run-time error naming it. Test first with `has(m, k)` (or `k in m`, `k not
+  in m`), or read with a default: `get(m, k, default)`.
+- `m[k] = v` inserts or overwrites; `m[k] += 1` and writes into a stored value
+  (`m[k][i] = v`, `m[a][b] = v`, `m[k].field = v`) need the key to be there.
+- `keys(m)` and `values(m)` are arrays in insertion order; `loop k in m` visits
+  a snapshot of the keys in that order; `length(m)` counts entries. Overwriting
+  a key keeps its place; `remove` then re-insert moves it to the end. For
+  sorted output, loop over `sorted(keys(m))`.
+- `{}` needs a declared type: `let m: Map[Text, Int] = {};`. A literal's values
+  are one type, keys are Text (`m[int_to_text(i)]` for a number), and a key
+  written twice in one literal is NAME-001.
+- A map is a **value**, like an array: `let b = m;` and a call copy it. A
+  function that changes a map returns it, `m = add(m, w)`; a write to a map
+  parameter that is not returned is lost (ARR-001).
+- `==` compares keys and values, ignoring order. `println(m)` prints
+  `{"ann": 31, "cid": 40}` in insertion order; a map of records does not print
+  (loop and print the fields).
+- There are no methods on a map and no set type: a set of Text is
+  `Map[Text, Bool]`.
+
 For keys that arrive from a parsed payload rather than from your own code,
-prefer the TOON accessors (`toon_get_int_or`, `toon_has_key`) over copying the
-payload into parallel arrays — the node is already a keyed structure.
+the TOON accessors (`toon_get_int_or`, `toon_has_key`) read the node directly —
+it is already keyed.
 
 ## Structured data: TOON
 
@@ -1969,8 +2010,8 @@ does not exist — re-read the message rather than inventing a rule for it.
   `Bool`, `Void`, `T[]`, or one of your own `type` names. The message names the
   Aether spelling whenever one exists (`Double` → `Real`, `Integer` → `Int`,
   `Boolean` → `Bool`, `Char` → `Text`, `Byte` / `Word` → `Int`, lowercase `int` →
-  `Int`), and for `List` / `Map` / `Set` it names the shape instead:
-  an array is `T[]`, and there is no map type at all. `Float` and `String` are
+  `Int`), and for `List` / `Dict` / `Set` it names the shape instead:
+  an array is `T[]`, a map `Map[Text, T]`, a set `Map[Text, Bool]`. `Float` and `String` are
   the two foreign spellings that are *accepted*, as aliases of `Real` and `Text`.
 - **[TOON-001]** a `ToonDoc` / `ToonNode` handle misuse → check handle types; do
   not mix, do arithmetic on, or cross-assign them. A handle is not an array:
@@ -2047,9 +2088,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   tuple-returning function, return a record instead and read its fields.
 - **[BUILT-002]** a listed builtin called with the wrong number of arguments →
   use the count in its signature (`formatfloat(r, 2)`, never a width slot).
-- **[ARR-001]** (warning) a `Void` function writes into an array parameter
-  (`xs[i] = v`, `grid[r][c] = v`) and never returns it → return the array and
-  reassign at the call site.
+- **[ARR-001]** (warning) a `Void` function writes into an array or map
+  parameter (`xs[i] = v`, `grid[r][c] = v`, `m[k] = v`) and never returns it →
+  return it and reassign at the call site.
 - **[NARROW-001]** (warning) a `Real` stored in an `Int` target → the fraction
   is discarded; use a `Real` target, or `int(...)` when truncating is intended.
 - **[FMT-001]** a placeholder in a `println` string — `"{}"`, `{name}`, `{0}`,
@@ -2332,7 +2373,7 @@ fn main() -> Void {
 
 *Generated by `tools/gen_builtin_appendix.py`. Do not edit by hand.*
 
-Every builtin this compiler exposes: **151** with a signature below, **54** whose signatures are in the tables earlier in this document, and **228** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
+Every builtin this compiler exposes: **156** with a signature below, **54** whose signatures are in the tables earlier in this document, and **228** more by name only. If a helper appears in none of the three, it does not exist — inline the logic instead of reaching for it.
 
 `fx` marks a builtin as effectful: it must be called inside an `fx { ... }` block and may not be called from a `@pure` function (FX-001).
 
@@ -2399,9 +2440,13 @@ Safe to call exactly as written.
 | Signature | Effect |
 |---|---|
 | `count(xs: T[], v: T) -> Int; count(s: Text, x: Text) -> Int` | pure |
+| `get(m: Map[Text, T], k: Text, default: T) -> T` | pure |
+| `has(m: Map[Text, T], k: Text) -> Bool` | pure |
+| `keys(m: Map[Text, T]) -> Text[]` | pure |
 | `len(arrayOrText) -> Int` | pure |
 | `max_of(xs: T[]) -> T` | pure |
 | `min_of(xs: T[]) -> T` | pure |
+| `remove(m: Map[Text, T], k: Text) -> Void` | pure |
 | `reversed(xs: T[]) -> T[]; reversed(s: Text) -> Text` | pure |
 | `same(a: T, b: T) -> Bool` | pure |
 | `sorted(xs: T[]) -> T[]` | pure |
@@ -2409,6 +2454,7 @@ Safe to call exactly as written.
 | `sorted_by_desc(xs: R[], "field") -> R[]` | pure |
 | `sorted_desc(xs: T[]) -> T[]` | pure |
 | `sum(xs: Int[]) -> Int; sum(xs: Real[]) -> Real` | pure |
+| `values(m: Map[Text, T]) -> T[]` | pure |
 
 **Conversion**
 

@@ -1,0 +1,5 @@
+// D68: get(m, k, default) -- the default has the value type.
+fn main() -> Void {
+    let m: Map[Text, Int] = {};
+    let v = get(m, "a", "none");
+}

@@ -1,0 +1,5 @@
+// D68: `k in m` and `k not in m` on a map.
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    fx { println("a" in m, " ", "b" in m, " ", "b" not in m); }
+}

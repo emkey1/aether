@@ -1,0 +1,38 @@
+// D68: records as values (shared, as in an array of records), a map field in
+// a record, an array of maps, and methods on a stored record.
+type Item {
+    name: Text;
+    qty: Int;
+    fn total(price: Int) -> Int { ret self.qty * price; }
+}
+
+type Shop {
+    name: Text;
+    stock: Map[Text, Int];
+}
+
+fn main() -> Void {
+    let items: Map[Text, Item] = {};
+    items["apple"] = new Item { name: "apple", qty: 3 };
+    items["pear"] = new Item { name: "pear", qty: 5 };
+    items["apple"].qty = 4;
+    items["pear"].qty += 1;
+    let p = items["pear"];
+    fx {
+        println(items["apple"].qty, " ", p.qty, " ", items["apple"].total(2));
+        println(length(items));
+    }
+    loop k in items {
+        fx { println(k, ": ", items[k].name, " x", items[k].qty); }
+    }
+
+    let shop = new Shop { name: "corner", stock: {"tea": 2} };
+    shop.stock["milk"] = 7;
+    shop.stock["tea"] += 1;
+    fx { println(shop.name, " ", shop.stock); }
+
+    let days: Map[Text, Int][] = [{"mon": 1}, {"tue": 2}];
+    days[1]["wed"] = 3;
+    days = days + [{"thu": 4}];
+    fx { println(length(days), " ", days[1], " ", days[2]); }
+}

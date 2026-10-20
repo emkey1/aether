@@ -1199,6 +1199,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->pendingAnnotName[0] = '\0';
     p->pendingAnnotLine = 0;
     p->pendingObjLits = NULL;
+    p->expectedMapType = NULL;
     p->pendingObjLitCount = 0;
     p->pendingObjLitCapacity = 0;
     p->nextObjLitId = 0;
@@ -1504,6 +1505,13 @@ static const char *aliasBuiltinName(const char *name) {
         { "mstream_load", "aether_mstream_load" },
         { "read_line", "aether_read_line" },
         { "read_all_stdin", "aether_read_all_stdin" },
+        /* D68: the map functions. `length(m)` stays `length` here and is
+         * retargeted by argument type (aetherLowerStdlibCall). */
+        { "has", "aether_map_has" },
+        { "get", "aether_map_get_or" },
+        { "remove", "aether_map_remove" },
+        { "keys", "aether_map_keys" },
+        { "values", "aether_map_values" },
     };
     if (!name) return name;
     for (size_t i = 0; i < sizeof(aliases) / sizeof(aliases[0]); i++) {
@@ -1516,8 +1524,6 @@ static const char *aliasBuiltinName(const char *name) {
 
 /* Copy the current token's lexeme into a freshly allocated pscal identifier
  * Token (mirrors rea copyCurrentTokenAsIdentifier). */
-static void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
-                                         const char *hint);
 
 static Token *currentAsIdentifier(AetherParser *p) {
     size_t len = (size_t)p->current.length;
@@ -1717,6 +1723,11 @@ AST *buildTypeNodeFromName(const char *name, size_t len, int line, VarType *outT
         *outType = TYPE_ARRAY;
         return arrType;
     }
+    /* `Map[Text, T]` (D68). */
+    if (len > 5 && strncmp(name, "Map[", 4) == 0 && name[len - 1] == ']') {
+        AST *mapNode = aetherBuildMapTypeNodeFromName(name, len, line, outType);
+        if (mapNode) return mapNode;
+    }
     return buildTypeNode(name, len, line, outType);
 }
 
@@ -1731,6 +1742,197 @@ AST *buildTypeNodeFromName(const char *name, size_t len, int line, VarType *outT
  * "Int[]"), matching the rewriter's binding-table convention so `.len`/array
  * inference resolve. Returns NULL on allocation failure. */
 static AST *parseTypeWithArraySuffix(AetherParser *p, VarType *outType,
+                                     char **outAetherName);
+
+/* A rewind point for a speculative look ahead (D68's `{` and `in`). */
+typedef struct {
+    ReaToken current;
+    ReaToken queue[3];
+    int queueHead, queueCount;
+    ReaLexer lexer;
+    int prevLine;
+    const char *prevStart;
+    int prevLength;
+    bool rawPrevIsTail;
+} AetherParseMark;
+
+static AetherParseMark aetherMarkSave(const AetherParser *p) {
+    AetherParseMark m;
+    m.current = p->current;
+    m.queue[0] = p->queue[0]; m.queue[1] = p->queue[1]; m.queue[2] = p->queue[2];
+    m.queueHead = p->queueHead;
+    m.queueCount = p->queueCount;
+    m.lexer = p->lexer;
+    m.prevLine = p->prevLine;
+    m.prevStart = p->prevStart;
+    m.prevLength = p->prevLength;
+    m.rawPrevIsTail = p->rawPrevIsTail;
+    return m;
+}
+
+static void aetherMarkRestore(AetherParser *p, const AetherParseMark *m) {
+    p->current = m->current;
+    p->queue[0] = m->queue[0]; p->queue[1] = m->queue[1]; p->queue[2] = m->queue[2];
+    p->queueHead = m->queueHead;
+    p->queueCount = m->queueCount;
+    p->lexer = m->lexer;
+    p->prevLine = m->prevLine;
+    p->prevStart = m->prevStart;
+    p->prevLength = m->prevLength;
+    p->rawPrevIsTail = m->rawPrevIsTail;
+}
+
+/* The token `ahead` places after `current`, without consuming anything. */
+static ReaToken aetherPeekTokenAt(AetherParser *p, int ahead) {
+    AetherParseMark mark = aetherMarkSave(p);
+    for (int i = 0; i < ahead; i++) aetherAdvance(p);
+    ReaToken next = p->current;
+    aetherMarkRestore(p, &mark);
+    return next;
+}
+
+static ReaToken aetherPeekToken(AetherParser *p) { return aetherPeekTokenAt(p, 1); }
+
+static bool aetherCurrentLexemeIs(const AetherParser *p, const char *word) {
+    size_t n = strlen(word);
+    return p->current.type == REA_TOKEN_IDENTIFIER && (size_t)p->current.length == n &&
+           strncmp(p->current.start, word, n) == 0;
+}
+
+/* `Map` followed by `[`: the D68 map type. */
+static bool aetherAtMapTypeName(AetherParser *p) {
+    if (!aetherCurrentLexemeIs(p, "Map")) return false;
+    /* `Map[]` is an array of a user type named Map. */
+    return aetherPeekToken(p).type == REA_TOKEN_LEFT_BRACKET &&
+           aetherPeekTokenAt(p, 2).type != REA_TOKEN_RIGHT_BRACKET;
+}
+
+/* Another language's map type (`Dict[str, int]`, `HashMap<..>`, `Map<..>`,
+ * `dict[...]`): TYPE-002 naming `Map[Text, T]`. */
+static bool aetherRejectForeignMapType(AetherParser *p) {
+    static const char *const names[] = { "Map", "map", "Dict", "dict", "Dictionary",
+                                         "HashMap", "Hashmap", "hashmap", "TreeMap",
+                                         "Record", "Object", "Set", "set", "HashSet" };
+    bool known = false;
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        if (aetherCurrentLexemeIs(p, names[i])) { known = true; break; }
+    }
+    if (!known) return false;
+    ReaToken next = aetherPeekToken(p);
+    bool generic = next.type == REA_TOKEN_LESS ||
+                   (next.type == REA_TOKEN_LEFT_BRACKET &&
+                    aetherPeekTokenAt(p, 2).type != REA_TOKEN_RIGHT_BRACKET);
+    if (!generic) return false;
+    if ((aetherCurrentLexemeIs(p, "Record") || aetherCurrentLexemeIs(p, "Object")) &&
+        next.type != REA_TOKEN_LESS)
+        return false;
+    char detail[200];
+    bool isSet = aetherCurrentLexemeIs(p, "Set") || aetherCurrentLexemeIs(p, "set") ||
+                 aetherCurrentLexemeIs(p, "HashSet");
+    snprintf(detail, sizeof(detail), "unknown type '%.*s%s...'; %s",
+             (int)p->current.length, p->current.start,
+             next.type == REA_TOKEN_LESS ? "<" : "[",
+             isSet ? "there is no set type: a set of Text is `Map[Text, Bool]`."
+                   : "a map is spelled `Map[Text, T]`.");
+    reportAetherAstErrorWithCode(p->current.line, "TYPE-002", detail,
+                                 isSet ? "for example `let seen: Map[Text, Bool] = {};`, then "
+                                         "`seen[k] = true;` and `has(seen, k)`."
+                                       : "for example `let counts: Map[Text, Int] = {};` "
+                                         "(keys are Text).");
+    p->hadError = true;
+    /* Skip the rest of the type so the declaration's own errors do not cascade. */
+    int depth = 0;
+    aetherAdvance(p);
+    while (p->current.type != REA_TOKEN_EOF) {
+        if (p->current.type == REA_TOKEN_LEFT_BRACKET || p->current.type == REA_TOKEN_LESS) depth++;
+        else if (p->current.type == REA_TOKEN_RIGHT_BRACKET || p->current.type == REA_TOKEN_GREATER) {
+            depth--;
+            if (depth <= 0) { aetherAdvance(p); break; }
+        } else if (p->current.type == REA_TOKEN_SEMICOLON || p->current.type == REA_TOKEN_EQUAL) {
+            break;
+        }
+        aetherAdvance(p);
+    }
+    return true;
+}
+
+/* `Map[KEY, VALUE]`; current is `Map`. Key must be Text in this release. */
+static AST *aetherParseMapType(AetherParser *p, char **outName) {
+    int line = p->current.line;
+    *outName = NULL;
+    aetherAdvance(p); /* Map */
+    aetherAdvance(p); /* [ */
+    if (!aetherTokenIsIdentifierLike(&p->current)) {
+        reportAetherAstErrorWithCode(line, "SYN-001", "expected `Map[Text, T]`.",
+                                     "for example `Map[Text, Int]`.");
+        p->hadError = true;
+        return NULL;
+    }
+    VarType kvt = TYPE_UNKNOWN;
+    char *keyName = NULL;
+    AST *keyNode = parseTypeWithArraySuffix(p, &kvt, &keyName);
+    if (!keyNode) { free(keyName); return NULL; }
+    freeAST(keyNode);
+    if (!keyName || (strcmp(keyName, "Text") != 0 && strcmp(keyName, "String") != 0)) {
+        char detail[200];
+        snprintf(detail, sizeof(detail),
+                 "a map's keys are Text in this release, so `Map[%s, ...]` is not a type; "
+                 "write `Map[Text, T]`.", keyName ? keyName : "?");
+        reportAetherAstErrorWithCode(line, "TYPE-001", detail,
+                                     keyName && strcmp(keyName, "Int") == 0
+                                         ? "use Text keys: `m[int_to_text(k)]`, or an array "
+                                           "indexed by the Int."
+                                         : "use Text keys: `Map[Text, T]`.");
+        p->hadError = true;
+        free(keyName);
+        return NULL;
+    }
+    free(keyName);
+    if (p->current.type != REA_TOKEN_COMMA) {
+        reportAetherAstErrorWithCode(p->current.line, "SYN-001",
+                                     "expected `,` and the value type in `Map[Text, T]`.",
+                                     "for example `Map[Text, Int]`.");
+        p->hadError = true;
+        return NULL;
+    }
+    aetherAdvance(p); /* , */
+    if (!aetherTokenIsIdentifierLike(&p->current)) {
+        reportAetherAstErrorWithCode(p->current.line, "SYN-001",
+                                     "expected the value type in `Map[Text, T]`.",
+                                     "for example `Map[Text, Int]`.");
+        p->hadError = true;
+        return NULL;
+    }
+    VarType vvt = TYPE_UNKNOWN;
+    char *valueName = NULL;
+    AST *valueNode = parseTypeWithArraySuffix(p, &vvt, &valueName);
+    if (!valueNode) { free(valueName); return NULL; }
+    if (vvt == TYPE_VOID) {
+        reportAetherAstErrorWithCode(line, "TYPE-001", "a map cannot hold Void values.",
+                                     "for a set of keys, use `Map[Text, Bool]`.");
+        p->hadError = true;
+        freeAST(valueNode);
+        free(valueName);
+        return NULL;
+    }
+    if (p->current.type != REA_TOKEN_RIGHT_BRACKET) {
+        reportAetherAstErrorWithCode(p->current.line, "SYN-001",
+                                     "expected `]` to close `Map[Text, T]`.", NULL);
+        p->hadError = true;
+        freeAST(valueNode);
+        free(valueName);
+        return NULL;
+    }
+    aetherAdvance(p); /* ] */
+    char *full = aetherMapTypeNameOf(valueName);
+    free(valueName);
+    if (!full) { freeAST(valueNode); return NULL; }
+    AST *node = aetherBuildMapTypeNode(full, valueNode, line);
+    *outName = full;
+    return node;
+}
+
+static AST *parseTypeWithArraySuffix(AetherParser *p, VarType *outType,
                                      char **outAetherName) {
     /* Capture the base Aether type name for the binding form. */
     size_t baseLen = (size_t)p->current.length;
@@ -1740,9 +1942,23 @@ static AST *parseTypeWithArraySuffix(AetherParser *p, VarType *outType,
     aetherName[baseLen] = '\0';
 
     VarType vt = TYPE_UNKNOWN;
-    AST *typeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vt);
-    if (!typeNode) { free(aetherName); if (outAetherName) *outAetherName = NULL; return NULL; }
-    aetherAdvance(p); /* consume the base type name */
+    AST *typeNode = NULL;
+    if (aetherAtMapTypeName(p)) {
+        /* `Map[Text, T]` (D68), with its own trailing `[]` suffixes below. */
+        free(aetherName);
+        typeNode = aetherParseMapType(p, &aetherName);
+        if (!typeNode) { if (outAetherName) *outAetherName = NULL; return NULL; }
+        vt = TYPE_MAP;
+    } else {
+        if (aetherRejectForeignMapType(p)) {
+            free(aetherName);
+            if (outAetherName) *outAetherName = NULL;
+            return NULL;
+        }
+        typeNode = buildTypeNode(p->current.start, p->current.length, p->current.line, &vt);
+        if (!typeNode) { free(aetherName); if (outAetherName) *outAetherName = NULL; return NULL; }
+        aetherAdvance(p); /* consume the base type name */
+    }
 
     while (p->current.type == REA_TOKEN_LEFT_BRACKET) {
         aetherAdvance(p); /* consume '[' */
@@ -1920,6 +2136,7 @@ static void registerFunctionSymbol(AST *func, const char *name, VarType vtype, b
 /* ------------------------------------------------------------------ */
 
 static AST *parseFnDecl(AetherParser *p);
+static AST *parseConditional(AetherParser *p);
 static AST *aetherParseNestedFn(AetherParser *p);
 static void collectPendingAnnotations(AetherParser *p);
 static void aetherFreePending(AetherPendingContracts *pending);
@@ -2374,6 +2591,19 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 freeAST(node);
                 return NULL;
             }
+            if (p->current.type == AE_TOKEN_DOTDOT && index) {
+                char *mt = aetherMapTypeNameOfExpr(p, node);
+                if (mt) {
+                    reportAetherAstErrorWithCode(openLine, "TYPE-001",
+                            "a map has no slices: index it with a Text key, `m[k]`.",
+                            "to visit some keys, loop over `keys(m)` and test each one.");
+                    free(mt);
+                    p->hadError = true;
+                    freeAST(index);
+                    freeAST(node);
+                    return NULL;
+                }
+            }
             if (p->current.type == AE_TOKEN_DOTDOT) {
                 /* Slice sugar: base[lo..hi]. NOT a first-class Range value --
                  * docs/ideas_and_todo.md's array-slicing entry explicitly
@@ -2433,6 +2663,15 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 snprintf(msg, sizeof(msg), "expected ']' to close index expression (opened at line %d).", openLine);
                 reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser", msg, NULL);
                 p->hadError = true;
+            }
+            /* D68: `m[k]` on a map reads through aether_map_get. */
+            {
+                char *mt = aetherMapTypeNameOfExpr(p, node);
+                if (mt) {
+                    node = aetherBuildMapGet(p, node, index, mt, openLine);
+                    free(mt);
+                    continue;
+                }
             }
             /* ARR-002: a second index applied to a variable declared with only
              * one `[]` (aetherCheckArrayRankIndex, ast_checks.c). */
@@ -2498,6 +2737,36 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
                 releaseTransientTypeNode(rtyNode);
             }
         }
+        /* D68: a map has `.length` / `.len` like an array; anything else is a
+         * method spelling with a hint naming the function (D71). */
+        if (!recvIsUserRecord && recvTypeName && aetherTypeNameIsMap(recvTypeName) &&
+            nameTok->value) {
+            bool isLen = strcmp(nameTok->value, "len") == 0 || strcmp(nameTok->value, "length") == 0;
+            if (isLen) {
+                free(recvTypeName);
+                if (p->current.type == REA_TOKEN_LEFT_PAREN) {
+                    AST *discard = parseArgList(p);
+                    if (discard) freeAST(discard);
+                }
+                int lline = nameTok->line;
+                freeToken(nameTok);
+                Token *lenTok = newToken(TOKEN_IDENTIFIER, "aether_map_length", lline, 0);
+                AST *call = newASTNode(AST_PROCEDURE_CALL, lenTok);
+                freeToken(lenTok);
+                addChild(call, node);
+                setTypeAST(call, TYPE_INT64);
+                node = call;
+                continue;
+            }
+            aetherCheckBuiltinMethod(p, recvTypeName, nameTok->value,
+                                     p->current.type == REA_TOKEN_LEFT_PAREN, false, NULL,
+                                     nameTok->line);
+            free(recvTypeName);
+            freeToken(nameTok);
+            freeAST(node);
+            p->hadError = true;
+            return NULL;
+        }
         bool recvIsArrayOrText = recvTypeName &&
             (aetherTypeNameIsArray(recvTypeName) || strcmp(recvTypeName, "Text") == 0 ||
              strcmp(recvTypeName, "String") == 0);
@@ -2538,6 +2807,11 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
         }
         free(recvTypeName);
         recvTypeName = NULL;
+        if (p->current.type == REA_TOKEN_LEFT_PAREN && aetherIsMapGet(node)) {
+            /* D68: `m[k].method()` on a stored record. */
+            node = aetherMapHoistRead(p, node, nameTok->line);
+            if (!node) { freeToken(nameTok); return NULL; }
+        }
         if (p->current.type == REA_TOKEN_LEFT_PAREN) {
             /* method call recv.method(args). */
             const char *cls = NULL;
@@ -2669,6 +2943,11 @@ static AST *parsePostfix(AetherParser *p, AST *base) {
             node = fa;
         }
     }
+    /* D68: `m[k].f` read (not stored): bind the map read to a temp. */
+    if (p->current.type != REA_TOKEN_EQUAL && p->current.type != REA_TOKEN_PLUS_EQUAL &&
+        p->current.type != REA_TOKEN_MINUS_EQUAL && p->current.type != REA_TOKEN_STAR_EQUAL &&
+        p->current.type != REA_TOKEN_SLASH_EQUAL && p->current.type != REA_TOKEN_PERCENT_EQUAL)
+        node = aetherMapHoistFieldReceivers(p, node);
     return node;
 }
 
@@ -2834,6 +3113,162 @@ static bool aetherAtQuantifier(AetherParser *p) {
     return hit;
 }
 
+/* `{"k": v, ...}` -> aether_map_of(VALUE-TYPE-CODE, k1, v1, ...). The code is
+ * the engine VarType of the values (the typed pass sets it from a declared
+ * map type, which a `{}` needs). Duplicate literal keys are an error. */
+/* Is the `{` at `current` a map literal: `{}`, or `{` KEY `:` ...? The key
+ * is parsed once, silently, and the parser rewound. */
+static bool aetherAtMapLiteral(AetherParser *p) {
+    /* Right after `if`/`while`/`loop`/`elif` the `{` is the body of a header
+     * whose condition is missing (`if { }` is SYN-001), never a map. */
+    if (p->prevStart && p->prevLength > 0) {
+        static const char *const heads[] = { "if", "while", "loop", "elif", "until" };
+        for (size_t i = 0; i < sizeof(heads) / sizeof(heads[0]); i++) {
+            if ((size_t)p->prevLength == strlen(heads[i]) &&
+                strncmp(p->prevStart, heads[i], (size_t)p->prevLength) == 0)
+                return false;
+        }
+    }
+    if (aetherPeekToken(p).type == REA_TOKEN_RIGHT_BRACE) return true;
+    if (p->forwardScan) return true;
+    AetherParseMark rewind = aetherMarkSave(p);
+    bool savedErr = p->hadError;
+    int mark = p->pendingObjLitCount;
+    int diagCount = g_aetherAstDiagCount;
+    int muted = aetherMuteStderr();
+    aetherAdvance(p); /* { */
+    AST *key = parseConditional(p);
+    bool isMap = key && !p->hadError && p->current.type == REA_TOKEN_COLON;
+    aetherUnmuteStderr(muted);
+    g_aetherAstDiagCount = diagCount;
+    if (key) freeAST(key);
+    AST *hoists = aetherTakePendingHoists(p, mark);
+    if (hoists) freeAST(hoists);
+    aetherMarkRestore(p, &rewind);
+    p->hadError = savedErr;
+    return isMap;
+}
+
+static AST *aetherParseMapLiteral(AetherParser *p) {
+    int line = p->current.line;
+    aetherAdvance(p); /* { */
+    Token *tok = newToken(TOKEN_IDENTIFIER, "aether_map_of", line, 0);
+    AST *call = newASTNode(AST_PROCEDURE_CALL, tok);
+    freeToken(tok);
+    AST *code = aetherBuildIntConst(0, line);
+    addChild(call, code);
+    VarType valueVt = TYPE_UNKNOWN;
+    bool anyReal = false;
+    /* The value type, when a typed declaration names it. */
+    char *expectedValue = p->expectedMapType ? aetherMapValueTypeName(p->expectedMapType) : NULL;
+    const char *outerExpected = p->expectedMapType;
+    while (p->current.type != REA_TOKEN_RIGHT_BRACE && p->current.type != REA_TOKEN_EOF) {
+        int keyLine = p->current.line;
+        AST *key = parseExpr(p);
+        if (!key) {
+            if (!p->hadError) aetherReportMissingExpr(p, "as a map key");
+            p->hadError = true;
+            freeAST(call);
+            return NULL;
+        }
+        if (p->current.type != REA_TOKEN_COLON) {
+            if (!p->hadError) {
+                reportAetherAstErrorWithCode(p->current.line, "SYN-001",
+                        "expected `:` after a map key: a map literal is `{\"key\": value, ...}`.",
+                        p->current.type == REA_TOKEN_EQUAL
+                            ? "write `\"key\": value`, not `key = value`."
+                            : "a block cannot stand where a value is expected.");
+            }
+            p->hadError = true;
+            freeAST(key);
+            freeAST(call);
+            return NULL;
+        }
+        aetherAdvance(p); /* : */
+        p->expectedMapType = aetherTypeNameIsMap(expectedValue) ? expectedValue : NULL;
+        AST *value = parseExpr(p);
+        p->expectedMapType = outerExpected;
+        if (!value) {
+            free(expectedValue);
+            if (!p->hadError) aetherReportMissingExpr(p, "as a map value");
+            p->hadError = true;
+            freeAST(key);
+            freeAST(call);
+            return NULL;
+        }
+        char *keyType = inferLetTypeName(p, key);
+        if (keyType && strcmp(keyType, "Text") != 0 && strcmp(keyType, "String") != 0 &&
+            !p->hadError && !p->forwardScan) {
+            char detail[200];
+            snprintf(detail, sizeof(detail),
+                     "a map key is Text (`Map[Text, T]`), but this key is %s.", keyType);
+            reportAetherAstErrorWithCode(keyLine, "TYPE-001", detail,
+                                         strcmp(keyType, "Int") == 0
+                                             ? "write the key as Text: `\"1\"`, or "
+                                               "`int_to_text(k)`."
+                                             : "use a Text key.");
+            p->hadError = true;
+        }
+        free(keyType);
+        if (key->type == AST_STRING && key->token && key->token->value && !p->hadError &&
+            !p->forwardScan) {
+            for (int i = 1; i < call->child_count; i += 2) {
+                const AST *k = call->children[i];
+                if (k && k->type == AST_STRING && k->token && k->token->value &&
+                    strcmp(k->token->value, key->token->value) == 0) {
+                    char detail[200];
+                    snprintf(detail, sizeof(detail),
+                             "the key \"%.64s\" appears twice in this map literal.",
+                             key->token->value);
+                    reportAetherAstErrorWithCode(keyLine, "NAME-001", detail,
+                                                 "keep one entry per key.");
+                    p->hadError = true;
+                    break;
+                }
+            }
+        }
+        char *valueType = inferLetTypeName(p, value);
+        if (valueType) {
+            VarType vt = aetherVarTypeForTypeName(valueType);
+            if (vt == TYPE_DOUBLE) anyReal = true;
+            if (valueVt == TYPE_UNKNOWN) valueVt = vt;
+            free(valueType);
+        }
+        addChild(call, key);
+        addChild(call, aetherMapHoistComposite(p, value, expectedValue, keyLine));
+        if (p->current.type == REA_TOKEN_COMMA) {
+            aetherAdvance(p);
+            continue;
+        }
+        if (p->current.type != REA_TOKEN_RIGHT_BRACE) {
+            if (!p->hadError) {
+                reportAetherAstErrorWithCode(p->current.line, "SYN-001",
+                        "expected `,` or `}` in a map literal.",
+                        "a map literal is `{\"key\": value, ...}`.");
+            }
+            p->hadError = true;
+            freeAST(call);
+            return NULL;
+        }
+    }
+    if (p->current.type != REA_TOKEN_RIGHT_BRACE) {
+        if (!p->hadError) {
+            reportAetherAstErrorWithCode(line, "SYN-001", "unterminated map literal: expected `}`.",
+                                         NULL);
+        }
+        p->hadError = true;
+        freeAST(call);
+        return NULL;
+    }
+    aetherAdvance(p); /* } */
+    if (anyReal && (valueVt == TYPE_INT64 || valueVt == TYPE_INT32)) valueVt = TYPE_DOUBLE;
+    if (expectedValue) valueVt = aetherVarTypeForTypeName(expectedValue);
+    free(expectedValue);
+    aetherSetMapLiteralCode(call, valueVt);
+    setTypeAST(call, TYPE_MAP);
+    return call;
+}
+
 static AST *parsePrimary(AetherParser *p) {
     /* `all x in xs: cond` / `any i in a..b: cond` (D58). */
     if (aetherAtQuantifier(p)) {
@@ -2891,6 +3326,16 @@ static AST *parsePrimary(AetherParser *p) {
             p->hadError = true;
         }
         return expr;
+    }
+    /* Map literal `{"k": v, ...}` and the empty `{}` (D68). In statement
+     * position `{` opens a block (parseStatementInner sees it first). Where an
+     * operand is missing before a block (`if x == { ... }`), the `{` is not a
+     * map: a literal is `{}` or a key expression followed by `:`
+     * (aetherAtMapLiteral), so that case keeps its SYN-001. */
+    if (p->current.type == REA_TOKEN_LEFT_BRACE && aetherAtMapLiteral(p)) {
+        AST *lit = aetherParseMapLiteral(p);
+        if (!lit) return NULL;
+        return parsePostfix(p, lit);
     }
     /* Array literal `[a, b, c]` (and the empty `[]`). Mirrors rea parseFactor's
      * REA_TOKEN_LEFT_BRACKET branch: AST_ARRAY_LITERAL (var_type TYPE_ARRAY) with
@@ -3455,9 +3900,68 @@ static const char *aetherRelOpText(ReaTokenType t) {
     }
 }
 
+/* D68: `k in m` is has(m, k) and `k not in m` is !has(m, k), when the right
+ * operand is a map. `in` has no other infix use in an expression (a loop or
+ * quantifier header consumes its own `in` before parsing an expression), so
+ * the operand is parsed once tentatively, silently, to learn its type; any
+ * other right operand leaves the parse exactly as it was. */
+static AST *aetherTryParseMapMembership(AetherParser *p, AST *left) {
+    bool negate = isAetherKeyword(&p->current, "not");
+    if (negate) {
+        ReaToken next = aetherPeekToken(p);
+        if (!(next.type == REA_TOKEN_IDENTIFIER && next.length == 2 &&
+              strncmp(next.start, "in", 2) == 0))
+            return NULL;
+    } else if (!isAetherKeyword(&p->current, "in")) {
+        return NULL;
+    }
+    if (p->forwardScan) return NULL;
+    AetherParseMark rewind = aetherMarkSave(p);
+    bool savedErr = p->hadError;
+    int mark = p->pendingObjLitCount;
+    int diagCount = g_aetherAstDiagCount;
+    int muted = aetherMuteStderr();
+    aetherAdvance(p);
+    if (negate) aetherAdvance(p);
+    AST *probe = parseShift(p);
+    char *mt = (probe && !p->hadError) ? aetherMapTypeNameOfExpr(p, probe) : NULL;
+    aetherUnmuteStderr(muted);
+    g_aetherAstDiagCount = diagCount;
+    if (probe) freeAST(probe);
+    AST *probeHoists = aetherTakePendingHoists(p, mark);
+    if (probeHoists) freeAST(probeHoists);
+    aetherMarkRestore(p, &rewind);
+    p->hadError = savedErr;
+    if (!mt) return NULL;
+    free(mt);
+    int line = p->current.line;
+    aetherAdvance(p);
+    if (negate) aetherAdvance(p);
+    AST *mapExpr = parseShift(p);
+    if (!mapExpr) return NULL;
+    Token *tok = newToken(TOKEN_IDENTIFIER, "aether_map_has", line, 0);
+    AST *call = newASTNode(AST_PROCEDURE_CALL, tok);
+    freeToken(tok);
+    addChild(call, mapExpr);
+    addChild(call, left);
+    setTypeAST(call, TYPE_BOOLEAN);
+    aetherAstRegisterCallSurfaceName(call, "has");
+    if (!negate) return call;
+    Token *notTok = newToken(TOKEN_NOT, "!", line, 0);
+    AST *neg = newASTNode(AST_UNARY_OP, notTok);
+    freeToken(notTok);
+    setLeft(neg, call);
+    setTypeAST(neg, TYPE_BOOLEAN);
+    return neg;
+}
+
 static AST *parseComparison(AetherParser *p) {
     AST *node = parseShift(p);
     if (!node) return NULL;
+    {
+        AST *member = aetherTryParseMapMembership(p, node);
+        if (member) node = member;
+    }
     bool leftBareNot = (node == g_aetherBareNot);
     int count = 0;
     const char *firstOp = NULL;
@@ -3809,7 +4313,7 @@ AST *parseExpr(AetherParser *p) {
     AST *left = parseConditional(p);
     if (!left) return NULL;
     if ((left->type == AST_VARIABLE || left->type == AST_FIELD_ACCESS ||
-         left->type == AST_ARRAY_ACCESS) &&
+         left->type == AST_ARRAY_ACCESS || aetherIsMapGet(left)) &&
         (p->current.type == REA_TOKEN_EQUAL ||
          p->current.type == REA_TOKEN_PLUS_EQUAL ||
          p->current.type == REA_TOKEN_MINUS_EQUAL ||
@@ -4606,7 +5110,10 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             p->current = nameSave;
             init = parseExpr(p);
         } else {
+            const char *savedExpected = p->expectedMapType;
+            p->expectedMapType = aetherTypeNameIsMap(declaredTypeName) ? declaredTypeName : NULL;
             init = parseExpr(p);
+            p->expectedMapType = savedExpected;
         }
         if (!init) {
             aetherReportMissingExpr(p, NULL);
@@ -4720,6 +5227,21 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
             return NULL;
         }
         char *inferred = inferLetTypeName(p, init);
+        if (!inferred && aetherIsMapLiteral(init)) {
+            /* D68: `{}` has no value type to infer. */
+            char detail[200];
+            snprintf(detail, sizeof(detail),
+                     "`{}` needs a declared type: '%s' has no value type to infer.",
+                     nameTok->value ? nameTok->value : "");
+            char hint[200];
+            snprintf(hint, sizeof(hint), "write `let %s: Map[Text, Int] = {};` with the value "
+                     "type you mean.", nameTok->value ? nameTok->value : "m");
+            reportAetherAstErrorWithCode(kwLine, "TYPE-001", detail, hint);
+            p->hadError = true;
+            freeToken(nameTok);
+            freeAST(init);
+            return NULL;
+        }
         if (!inferred) {
             const char *vn = nameTok->value ? nameTok->value : "";
             char detail[256];
@@ -5141,8 +5663,8 @@ static bool aetherNextContinuesIdentifierStatement(ReaTokenType next) {
 }
 
 /* D39 census arms (AETHER_EXPERIMENT=tail=..., src/aether/experiment.h). */
-static void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
-                                         const char *hint) {
+void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
+                                  const char *hint) {
     const char *path = aetherSemanticGetSourcePath();
     aetherDiagf("%s:%d: [%s] Aether parser error: %s\n", path ? path : "<aether>",
                 line > 0 ? line : 1, code, detail);
@@ -5254,6 +5776,203 @@ static int aetherTailRetIn(AetherParser *p, AST *stmt, AST **slot) {
     *slot = ret;
     freeAST(stmt);
     return 1;
+}
+
+/* An assignment statement, after parseExpr: the array append/concat
+ * lowerings, the un-alias steps, and (D68) a store into a map. Also called by
+ * the map store lowering for the write it brackets with take/put. */
+AST *aetherLowerAssignStatement(AetherParser *p, AST *expr) {
+    if (aetherChainHasMapGet(expr->left)) {
+        return aetherLowerMapStore(p, expr);
+    }
+    /* Array append: `target = src + [items...]` (an array literal of any
+     * length). Lower it to the rewriter's setlength + indexed-assign
+     * expansion -- one pair per item -- whether `src` is `target` itself
+     * (the original self-reassignment idiom, `xs = xs + [v];`) or a
+     * different array (`target = src + [v];` / `let target: T[] = src +
+     * [v];` below) -- any shape but a single-element literal previously
+     * fell through to a raw `ARRAY + ARRAY_LITERAL` binary op the VM has
+     * no operator for ("Operands must be numbers for arithmetic operation
+     * '+'... Got ARRAY and ARRAY"). `target` must still be an assignable
+     * lvalue chain; `src` can be any expression of the right array type. */
+    AST *target = expr->left;
+    AST *rhs = expr->right;
+
+    /* Chained concat in assignment position: `d = [0] + d + [3];`. The two
+     * single-operand branches below each peel exactly one operand, so a
+     * chain left a raw array `+` for the VM ("Got ARRAY and ARRAY") -- the
+     * same defect the declaration and `ret` paths had. Handled here only
+     * when there are 2+ operands; a single operand falls through to the
+     * original, well-tested branches. */
+    if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
+        rhs->token->type == TOKEN_PLUS && aetherIsLValueChain(target) &&
+        aetherConcatChainLength(p, rhs) >= 2) {
+        AST *probe = rhs;
+        AetherConcatOperand *ops = NULL;
+        int opCount = 0;
+        if (aetherCollectConcatChain(p, &probe, &ops, &opCount) && opCount >= 2) {
+            int line = expr->token ? expr->token->line : p->current.line;
+            AST *outer = newASTNode(AST_COMPOUND, NULL);
+            outer->i_val = 1;
+
+            /* Any operand that READS the destination must be captured before
+             * the copy below overwrites it -- see aetherExprReadsLValue. The
+             * base is safe: `target = base` reads it before assigning. */
+            for (int i = 0; i < opCount; i++) {
+                /* Appended elements likewise see the destination before any
+                 * operand grows it (aetherHoistAppendItem). */
+                for (int k = 0; k < ops[i].itemCount; k++) {
+                    ops[i].items[k] = aetherHoistAppendItem(p, outer, target,
+                                                            ops[i].items[k], line);
+                }
+                if (!ops[i].other || !aetherExprReadsLValue(ops[i].other, target)) continue;
+                VarType preVt = TYPE_UNKNOWN;
+                AST *preTypeNode = buildTypeNodeFromName(ops[i].otherTypeName,
+                                                         strlen(ops[i].otherTypeName),
+                                                         line, &preVt);
+                if (!preTypeNode) continue;
+                static int chainPreSerial = 0;
+                char preName[64];
+                snprintf(preName, sizeof(preName), "__aether_concat_cpre_%d_%d",
+                         line, ++chainPreSerial);
+                AST *preDecl = newASTNode(AST_VAR_DECL, NULL);
+                addChild(preDecl, buildVarRef(preName, preVt, line));
+                setLeft(preDecl, ops[i].other);
+                setRight(preDecl, preTypeNode);
+                setTypeAST(preDecl, preVt);
+                addChild(outer, preDecl);
+                ops[i].other = buildVarRef(preName, preVt, line);
+            }
+
+            if (!aetherLValueEqual(target, probe)) {
+                Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
+                AST *copyAssign = newASTNode(AST_ASSIGN, aTok);
+                setLeft(copyAssign, copyAST(target));
+                setRight(copyAssign, probe);
+                setTypeAST(copyAssign, target->var_type);
+                AST *copyStmt = newASTNode(AST_EXPR_STMT, copyAssign->token);
+                setLeft(copyStmt, copyAssign);
+                addChild(outer, copyStmt);
+            } else {
+                freeAST(probe);
+            }
+
+            bool ok = true;
+            for (int i = 0; i < opCount && ok; i++) {
+                ok = aetherEmitConcatOperand(p, outer, target, &ops[i]);
+            }
+            if (!ok) {
+                aetherFreeConcatOperands(ops, opCount, true);
+                freeAST(outer);
+                freeAST(expr);
+                return NULL;
+            }
+            aetherFreeConcatOperands(ops, opCount, false);
+            expr->right = NULL;
+            freeAST(expr); /* target was copied; the `+` shells are gone */
+            return outer;
+        }
+        /* Guarded by aetherConcatChainLength >= 2 above, so this is only
+         * reached on an allocation failure inside the collector. */
+        aetherFreeConcatOperands(ops, opCount, true);
+        freeAST(probe);
+        expr->right = NULL;
+        freeAST(expr);
+        p->hadError = true;
+        return NULL;
+    }
+
+    if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
+        rhs->token->type == TOKEN_PLUS &&
+        rhs->right && rhs->right->type == AST_ARRAY_LITERAL &&
+        aetherIsLValueChain(target)) {
+        int line = expr->token ? expr->token->line : p->current.line;
+        /* Move the elements out of the literal so they survive the free. */
+        int itemCount = rhs->right->child_count;
+        AST **items = itemCount > 0 ? (AST **)malloc(sizeof(AST *) * (size_t)itemCount) : NULL;
+        for (int i = 0; i < itemCount; i++) {
+            items[i] = rhs->right->children[i];
+            rhs->right->children[i] = NULL;
+            if (items[i]) items[i]->parent = NULL;
+        }
+        rhs->right->child_count = 0;
+        AST *result = buildArrayAppend(p, expr, target, items, itemCount, line, rhs->left);
+        free(items);
+        return result;
+    }
+    /* General concatenation: `target = src + other;` where `other` is an
+     * array-*valued expression*, not a literal (e.g. `ys = ys + two;`).
+     * Only fire when `other`'s inferred type is manifestly an array
+     * ("[]"-suffixed) -- this must not intercept ordinary Text/Int/Real
+     * `+` (string concatenation, arithmetic), which already work as raw
+     * VM ops and must keep working unchanged. */
+    if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
+        rhs->token->type == TOKEN_PLUS &&
+        rhs->right && rhs->right->type != AST_ARRAY_LITERAL &&
+        aetherIsLValueChain(target)) {
+        char *otherTypeName = inferLetTypeName(p, rhs->right);
+        if (otherTypeName && aetherTypeNameIsArray(otherTypeName)) {
+            int line = expr->token ? expr->token->line : p->current.line;
+            AST *other = rhs->right;
+            rhs->right = NULL;
+            other->parent = NULL;
+            return buildArrayConcat(p, expr, target, other, otherTypeName, line, rhs->left);
+        }
+        free(otherTypeName);
+    }
+    /* Plain array assignment: `target = src;` where `target` is
+     * array-typed and `src` may share storage (see buildArrayUnaliasStmt).
+     * Same value-semantics guarantee as the `let` path: splice the
+     * un-alias step after the assignment so a later `target[i] = v`
+     * cannot silently mutate `src` (or vice versa). */
+    if (target && rhs && expr->token && expr->token->type == TOKEN_ASSIGN &&
+        aetherIsLValueChain(target) && aetherArrayInitMayAlias(rhs)) {
+        /* Array-typed? Prefer the LHS's inferred type; when it can't be
+         * named at parse time (a field access -- there is no parser-side
+         * field-type table), fall back to the RHS: a well-typed program
+         * never assigns an array-valued RHS to a non-array lvalue. */
+        char *lhsTypeName = inferLetTypeName(p, target);
+        bool isArrayAssign;
+        int assignRank = -1;
+        if (lhsTypeName) {
+            isArrayAssign = aetherTypeNameIsArray(lhsTypeName);
+            if (isArrayAssign) assignRank = aetherTypeNameRank(lhsTypeName);
+        } else {
+            char *rhsTypeName = inferLetTypeName(p, rhs);
+            isArrayAssign = rhsTypeName && aetherTypeNameIsArray(rhsTypeName);
+            if (isArrayAssign) assignRank = aetherTypeNameRank(rhsTypeName);
+            free(rhsTypeName);
+        }
+        free(lhsTypeName);
+        if (isArrayAssign) {
+            int line = expr->token->line;
+            AST *outer = newASTNode(AST_COMPOUND, NULL);
+            outer->i_val = 1; /* splice into the surrounding block */
+            addChild(outer, expr);
+            addChild(outer, buildArrayUnaliasStmtRank(target, assignRank, line));
+            return outer;
+        }
+    }
+    /* W4-47: `b = new Box { data: xs };`, `g = [xs];` -- un-alias the
+     * literal's array parts at their new home, as the let path does. */
+    if (target && rhs && expr->token && expr->token->type == TOKEN_ASSIGN &&
+        aetherIsLValueChain(target) &&
+        (rhs->type == AST_ARRAY_LITERAL || (rhs->type == AST_NEW && rhs->extra))) {
+        int line = expr->token->line;
+        char *lhsTypeName = inferLetTypeName(p, target);
+        int lhsRank = aetherTypeNameIsArray(lhsTypeName) ? aetherTypeNameRank(lhsTypeName) : -1;
+        free(lhsTypeName);
+        AST *outer = newASTNode(AST_COMPOUND, NULL);
+        outer->i_val = 1; /* splice into the surrounding block */
+        addChild(outer, expr);
+        aetherEmitLiteralUnalias(p, outer, target, rhs, lhsRank, line);
+        if (outer->child_count > 1) return outer;
+        outer->children[0] = NULL;
+        outer->child_count = 0;
+        expr->parent = NULL;
+        freeAST(outer);
+    }
+    return expr; /* assignments act as statements directly */
 }
 
 static AST *parseStatementInner(AetherParser *p) {
@@ -5440,194 +6159,10 @@ static AST *parseStatementInner(AetherParser *p) {
         aetherAdvance(p);
     }
     if (expr->type == AST_ASSIGN) {
-        /* Array append: `target = src + [items...]` (an array literal of any
-         * length). Lower it to the rewriter's setlength + indexed-assign
-         * expansion -- one pair per item -- whether `src` is `target` itself
-         * (the original self-reassignment idiom, `xs = xs + [v];`) or a
-         * different array (`target = src + [v];` / `let target: T[] = src +
-         * [v];` below) -- any shape but a single-element literal previously
-         * fell through to a raw `ARRAY + ARRAY_LITERAL` binary op the VM has
-         * no operator for ("Operands must be numbers for arithmetic operation
-         * '+'... Got ARRAY and ARRAY"). `target` must still be an assignable
-         * lvalue chain; `src` can be any expression of the right array type. */
-        AST *target = expr->left;
-        AST *rhs = expr->right;
-
-        /* Chained concat in assignment position: `d = [0] + d + [3];`. The two
-         * single-operand branches below each peel exactly one operand, so a
-         * chain left a raw array `+` for the VM ("Got ARRAY and ARRAY") -- the
-         * same defect the declaration and `ret` paths had. Handled here only
-         * when there are 2+ operands; a single operand falls through to the
-         * original, well-tested branches. */
-        if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
-            rhs->token->type == TOKEN_PLUS && aetherIsLValueChain(target) &&
-            aetherConcatChainLength(p, rhs) >= 2) {
-            AST *probe = rhs;
-            AetherConcatOperand *ops = NULL;
-            int opCount = 0;
-            if (aetherCollectConcatChain(p, &probe, &ops, &opCount) && opCount >= 2) {
-                int line = expr->token ? expr->token->line : p->current.line;
-                AST *outer = newASTNode(AST_COMPOUND, NULL);
-                outer->i_val = 1;
-
-                /* Any operand that READS the destination must be captured before
-                 * the copy below overwrites it -- see aetherExprReadsLValue. The
-                 * base is safe: `target = base` reads it before assigning. */
-                for (int i = 0; i < opCount; i++) {
-                    /* Appended elements likewise see the destination before any
-                     * operand grows it (aetherHoistAppendItem). */
-                    for (int k = 0; k < ops[i].itemCount; k++) {
-                        ops[i].items[k] = aetherHoistAppendItem(p, outer, target,
-                                                                ops[i].items[k], line);
-                    }
-                    if (!ops[i].other || !aetherExprReadsLValue(ops[i].other, target)) continue;
-                    VarType preVt = TYPE_UNKNOWN;
-                    AST *preTypeNode = buildTypeNodeFromName(ops[i].otherTypeName,
-                                                             strlen(ops[i].otherTypeName),
-                                                             line, &preVt);
-                    if (!preTypeNode) continue;
-                    static int chainPreSerial = 0;
-                    char preName[64];
-                    snprintf(preName, sizeof(preName), "__aether_concat_cpre_%d_%d",
-                             line, ++chainPreSerial);
-                    AST *preDecl = newASTNode(AST_VAR_DECL, NULL);
-                    addChild(preDecl, buildVarRef(preName, preVt, line));
-                    setLeft(preDecl, ops[i].other);
-                    setRight(preDecl, preTypeNode);
-                    setTypeAST(preDecl, preVt);
-                    addChild(outer, preDecl);
-                    ops[i].other = buildVarRef(preName, preVt, line);
-                }
-
-                if (!aetherLValueEqual(target, probe)) {
-                    Token *aTok = newToken(TOKEN_ASSIGN, "=", line, 0);
-                    AST *copyAssign = newASTNode(AST_ASSIGN, aTok);
-                    setLeft(copyAssign, copyAST(target));
-                    setRight(copyAssign, probe);
-                    setTypeAST(copyAssign, target->var_type);
-                    AST *copyStmt = newASTNode(AST_EXPR_STMT, copyAssign->token);
-                    setLeft(copyStmt, copyAssign);
-                    addChild(outer, copyStmt);
-                } else {
-                    freeAST(probe);
-                }
-
-                bool ok = true;
-                for (int i = 0; i < opCount && ok; i++) {
-                    ok = aetherEmitConcatOperand(p, outer, target, &ops[i]);
-                }
-                if (!ok) {
-                    aetherFreeConcatOperands(ops, opCount, true);
-                    freeAST(outer);
-                    freeAST(expr);
-                    return NULL;
-                }
-                aetherFreeConcatOperands(ops, opCount, false);
-                expr->right = NULL;
-                freeAST(expr); /* target was copied; the `+` shells are gone */
-                return outer;
-            }
-            /* Guarded by aetherConcatChainLength >= 2 above, so this is only
-             * reached on an allocation failure inside the collector. */
-            aetherFreeConcatOperands(ops, opCount, true);
-            freeAST(probe);
-            expr->right = NULL;
-            freeAST(expr);
-            p->hadError = true;
-            return NULL;
-        }
-
-        if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
-            rhs->token->type == TOKEN_PLUS &&
-            rhs->right && rhs->right->type == AST_ARRAY_LITERAL &&
-            aetherIsLValueChain(target)) {
-            int line = expr->token ? expr->token->line : p->current.line;
-            /* Move the elements out of the literal so they survive the free. */
-            int itemCount = rhs->right->child_count;
-            AST **items = itemCount > 0 ? (AST **)malloc(sizeof(AST *) * (size_t)itemCount) : NULL;
-            for (int i = 0; i < itemCount; i++) {
-                items[i] = rhs->right->children[i];
-                rhs->right->children[i] = NULL;
-                if (items[i]) items[i]->parent = NULL;
-            }
-            rhs->right->child_count = 0;
-            AST *result = buildArrayAppend(p, expr, target, items, itemCount, line, rhs->left);
-            free(items);
-            return result;
-        }
-        /* General concatenation: `target = src + other;` where `other` is an
-         * array-*valued expression*, not a literal (e.g. `ys = ys + two;`).
-         * Only fire when `other`'s inferred type is manifestly an array
-         * ("[]"-suffixed) -- this must not intercept ordinary Text/Int/Real
-         * `+` (string concatenation, arithmetic), which already work as raw
-         * VM ops and must keep working unchanged. */
-        if (target && rhs && rhs->type == AST_BINARY_OP && rhs->token &&
-            rhs->token->type == TOKEN_PLUS &&
-            rhs->right && rhs->right->type != AST_ARRAY_LITERAL &&
-            aetherIsLValueChain(target)) {
-            char *otherTypeName = inferLetTypeName(p, rhs->right);
-            if (otherTypeName && aetherTypeNameIsArray(otherTypeName)) {
-                int line = expr->token ? expr->token->line : p->current.line;
-                AST *other = rhs->right;
-                rhs->right = NULL;
-                other->parent = NULL;
-                return buildArrayConcat(p, expr, target, other, otherTypeName, line, rhs->left);
-            }
-            free(otherTypeName);
-        }
-        /* Plain array assignment: `target = src;` where `target` is
-         * array-typed and `src` may share storage (see buildArrayUnaliasStmt).
-         * Same value-semantics guarantee as the `let` path: splice the
-         * un-alias step after the assignment so a later `target[i] = v`
-         * cannot silently mutate `src` (or vice versa). */
-        if (target && rhs && expr->token && expr->token->type == TOKEN_ASSIGN &&
-            aetherIsLValueChain(target) && aetherArrayInitMayAlias(rhs)) {
-            /* Array-typed? Prefer the LHS's inferred type; when it can't be
-             * named at parse time (a field access -- there is no parser-side
-             * field-type table), fall back to the RHS: a well-typed program
-             * never assigns an array-valued RHS to a non-array lvalue. */
-            char *lhsTypeName = inferLetTypeName(p, target);
-            bool isArrayAssign;
-            int assignRank = -1;
-            if (lhsTypeName) {
-                isArrayAssign = aetherTypeNameIsArray(lhsTypeName);
-                if (isArrayAssign) assignRank = aetherTypeNameRank(lhsTypeName);
-            } else {
-                char *rhsTypeName = inferLetTypeName(p, rhs);
-                isArrayAssign = rhsTypeName && aetherTypeNameIsArray(rhsTypeName);
-                if (isArrayAssign) assignRank = aetherTypeNameRank(rhsTypeName);
-                free(rhsTypeName);
-            }
-            free(lhsTypeName);
-            if (isArrayAssign) {
-                int line = expr->token->line;
-                AST *outer = newASTNode(AST_COMPOUND, NULL);
-                outer->i_val = 1; /* splice into the surrounding block */
-                addChild(outer, expr);
-                addChild(outer, buildArrayUnaliasStmtRank(target, assignRank, line));
-                return outer;
-            }
-        }
-        /* W4-47: `b = new Box { data: xs };`, `g = [xs];` -- un-alias the
-         * literal's array parts at their new home, as the let path does. */
-        if (target && rhs && expr->token && expr->token->type == TOKEN_ASSIGN &&
-            aetherIsLValueChain(target) &&
-            (rhs->type == AST_ARRAY_LITERAL || (rhs->type == AST_NEW && rhs->extra))) {
-            int line = expr->token->line;
-            char *lhsTypeName = inferLetTypeName(p, target);
-            int lhsRank = aetherTypeNameIsArray(lhsTypeName) ? aetherTypeNameRank(lhsTypeName) : -1;
-            free(lhsTypeName);
-            AST *outer = newASTNode(AST_COMPOUND, NULL);
-            outer->i_val = 1; /* splice into the surrounding block */
-            addChild(outer, expr);
-            aetherEmitLiteralUnalias(p, outer, target, rhs, lhsRank, line);
-            if (outer->child_count > 1) return outer;
-            outer->children[0] = NULL;
-            outer->child_count = 0;
-            expr->parent = NULL;
-            freeAST(outer);
-        }
-        return expr; /* assignments act as statements directly */
+        return aetherLowerAssignStatement(p, expr);
+    }
+    if (aetherIsMapMutatorCall(expr)) {
+        return aetherLowerMapMutatorStmt(p, expr);
     }
     AST *stmt = newASTNode(AST_EXPR_STMT, expr->token);
     setLeft(stmt, expr);
@@ -7166,7 +7701,12 @@ static void nestedCollectWrites(AetherNestedWalk *w, AetherNestedFn *f, const AS
     } else if (nestedIsCall(n) && n->child_count > 0 &&
                (strcasecmp(n->token->value, "setlength") == 0 ||
                 strcasecmp(n->token->value, "inc") == 0 ||
-                strcasecmp(n->token->value, "dec") == 0)) {
+                strcasecmp(n->token->value, "dec") == 0 ||
+                /* D68: the map writers (`m[k] = v`, `remove(m, k)`, a write
+                 * into a stored value) change the map variable. */
+                strcmp(n->token->value, "aether_map_set") == 0 ||
+                strcmp(n->token->value, "aether_map_remove") == 0 ||
+                strcmp(n->token->value, "aether_map_take") == 0)) {
         root = nestedWriteRoot(n->children[0]);
     }
     AetherNestedVis *v = (root && !nameSetHas(own, root)) ? nestedVisFind(f->vis, f->visCount, root)

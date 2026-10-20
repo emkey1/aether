@@ -1,0 +1,5 @@
+// D68: get takes a default; m[k] reads a key that must be there.
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1};
+    let v = get(m, "a");
+}

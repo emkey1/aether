@@ -614,7 +614,6 @@ static int aetherAppendTargetRank(AetherParser *p, const AST *target) {
     return rank;
 }
 
-static AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init, int line);
 
 /* The variable an lvalue chain is rooted at: `xs` for `xs`, `o.xs`, `g[i].xs`. */
 static const AST *aetherLValueRoot(const AST *lv) {
@@ -2534,7 +2533,7 @@ static AST *buildCounterPost(const char *name, AST *delta, int line) {
 
 /* Typed `let NAME: TypeName = init;` (the explicitly typed binding shape
  * parseLetDeclAfterKeyword emits). `init` ownership transfers. */
-static AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init, int line) {
+AST *buildTypedLetDecl(const char *name, const char *typeName, AST *init, int line) {
     VarType vt = TYPE_UNKNOWN;
     AST *typeNode = buildTypeNodeFromName(typeName, strlen(typeName), line, &vt);
     if (!typeNode) { if (init) freeAST(init); return NULL; }
@@ -2578,6 +2577,17 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line,
      * have no name here, so `loop x in o.items` was "cannot infer the type of
      * the collection" while the same field bound to a typed local looped. */
     char *collType = aetherInferSliceBaseTypeName(p, coll);
+    /* D68: `loop k in m` visits a snapshot of the keys, in insertion order. */
+    if (collType && aetherTypeNameIsMap(collType)) {
+        Token *kt = newToken(TOKEN_IDENTIFIER, "aether_map_keys", line, 0);
+        AST *keysCall = newASTNode(AST_PROCEDURE_CALL, kt);
+        freeToken(kt);
+        addChild(keysCall, coll);
+        setTypeAST(keysCall, TYPE_ARRAY);
+        coll = keysCall;
+        free(collType);
+        collType = strdup("Text[]");
+    }
     char elemBuf[128];
     const char *elemType = NULL;
     bool isToon = false;

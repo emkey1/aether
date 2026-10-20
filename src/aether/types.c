@@ -45,6 +45,112 @@ int aetherOracleIsInt(AetherType t) { return t.kind == AETHER_T_INT; }
 int aetherOracleIsReal(AetherType t) { return t.kind == AETHER_T_REAL; }
 
 static int isNumeric(AetherType t) { return t.kind == AETHER_T_INT || t.kind == AETHER_T_REAL; }
+
+/* ------------------------------------------------------------------ */
+/* Map types (D68): "Map[Text, T]" names, interned for the program     */
+/* ------------------------------------------------------------------ */
+
+static const char *internName(const char *n, size_t len) {
+    static char **names = NULL;
+    static int count = 0, cap = 0;
+    for (int i = 0; i < count; i++)
+        if (strlen(names[i]) == len && strncmp(names[i], n, len) == 0) return names[i];
+    if (count == cap) {
+        int ncap = cap ? cap * 2 : 16;
+        char **g = (char **)realloc(names, (size_t)ncap * sizeof(char *));
+        if (!g) return NULL;
+        names = g;
+        cap = ncap;
+    }
+    char *c = (char *)malloc(len + 1);
+    if (!c) return NULL;
+    memcpy(c, n, len);
+    c[len] = '\0';
+    names[count++] = c;
+    return c;
+}
+
+static int isMapName(const char *n, size_t len) {
+    return n && len > 5 && strncmp(n, "Map[", 4) == 0 && n[len - 1] == ']';
+}
+
+static AetherType scalarFromTypeName(const char *n, VarType fallback);
+
+/* An Aether type from its spelling ("Int", "P[]", "Map[Text, Int[]]"). */
+static AetherType typeFromAetherName(const char *n, size_t len) {
+    if (!n || len == 0) return mk(AETHER_T_UNKNOWN);
+    int rank = 0;
+    while (len >= 2 && n[len - 2] == '[' && n[len - 1] == ']') {
+        rank++;
+        len -= 2;
+    }
+    AetherType base;
+    if (isMapName(n, len)) {
+        base = mkNamed(AETHER_T_MAP, internName(n, len));
+    } else {
+        char buf[128];
+        if (len >= sizeof(buf)) return mk(AETHER_T_UNKNOWN);
+        memcpy(buf, n, len);
+        buf[len] = '\0';
+        if (!strcmp(buf, "Int")) base = mk(AETHER_T_INT);
+        else if (!strcmp(buf, "Real") || !strcmp(buf, "Float")) base = mk(AETHER_T_REAL);
+        else if (!strcmp(buf, "Text") || !strcmp(buf, "String")) base = mk(AETHER_T_TEXT);
+        else if (!strcmp(buf, "Bool")) base = mk(AETHER_T_BOOL);
+        else if (!strcmp(buf, "MStream") || !strcmp(buf, "ToonDoc") || !strcmp(buf, "ToonNode"))
+            base = mkNamed(AETHER_T_HANDLE, internName(buf, len));
+        else base = mkNamed(AETHER_T_RECORD, internName(buf, len));
+    }
+    if (rank == 0) return base;
+    AetherType t = mk(AETHER_T_ARRAY);
+    t.rank = rank;
+    t.elem = base.kind;
+    t.name = base.name;
+    return t;
+}
+
+/* The value type of a map type; UNKNOWN when the map's name is unknown. */
+static AetherType mapValueType(AetherType m) {
+    if (m.kind != AETHER_T_MAP || !m.name) return mk(AETHER_T_UNKNOWN);
+    const char *n = m.name;
+    size_t len = strlen(n);
+    const char *end = n + len - 1;
+    int depth = 0;
+    const char *comma = NULL;
+    for (const char *c = n + 4; c < end; c++) {
+        if (*c == '[') depth++;
+        else if (*c == ']') depth--;
+        else if (*c == ',' && depth == 0) { comma = c; break; }
+    }
+    if (!comma) return mk(AETHER_T_UNKNOWN);
+    const char *v = comma + 1;
+    while (v < end && *v == ' ') v++;
+    return typeFromAetherName(v, (size_t)(end - v));
+}
+
+static AetherType mapTypeOfValue(AetherType v) {
+    char vn[160];
+    if (v.kind == AETHER_T_UNKNOWN || v.kind == AETHER_T_VOID || v.kind == AETHER_T_NIL)
+        return mk(AETHER_T_MAP);
+    if (v.kind == AETHER_T_CHAR) v.kind = AETHER_T_TEXT;
+    aetherTypeFormat(v, vn, sizeof(vn));
+    char full[200];
+    snprintf(full, sizeof(full), "Map[Text, %s]", vn);
+    return mkNamed(AETHER_T_MAP, internName(full, strlen(full)));
+}
+
+/* Does a map type (or an array of them) contain a record anywhere? Such a
+ * map has no printed form. */
+static int typeHoldsRecord(AetherType t, int depth) {
+    if (depth > 8) return 0;
+    if (t.kind == AETHER_T_RECORD) return 1;
+    if (t.kind == AETHER_T_ARRAY) {
+        if (t.elem == AETHER_T_RECORD) return 1;
+        if (t.elem == AETHER_T_MAP) return typeHoldsRecord(mkNamed(AETHER_T_MAP, t.name), depth + 1);
+        return 0;
+    }
+    if (t.kind == AETHER_T_MAP) return typeHoldsRecord(mapValueType(t), depth + 1);
+    return 0;
+}
 static int isTextual(AetherType t) { return t.kind == AETHER_T_TEXT || t.kind == AETHER_T_CHAR; }
 
 static AetherType fromVarType(VarType vt) {
@@ -76,6 +182,8 @@ static AetherType fromVarType(VarType vt) {
         }
         case TYPE_POINTER: case TYPE_RECORD:
             return mk(AETHER_T_RECORD);
+        case TYPE_MAP:
+            return mk(AETHER_T_MAP);
         default:
             return mk(AETHER_T_UNKNOWN);
     }
@@ -106,6 +214,10 @@ AetherType aetherTypeFromTypeNode(const AST *n, VarType fallback) {
     if (!n) return fromVarType(fallback);
     switch (n->type) {
         case AST_TYPE_IDENTIFIER:
+            if (n->var_type == TYPE_MAP) {
+                const char *tn = n->token ? n->token->value : NULL;
+                return tn ? mkNamed(AETHER_T_MAP, internName(tn, strlen(tn))) : mk(AETHER_T_MAP);
+            }
             return scalarFromTypeName(n->token ? n->token->value : NULL, n->var_type);
         case AST_TYPE_REFERENCE:
             if (n->token && n->token->value) {
@@ -149,6 +261,7 @@ static const char *kindName(AetherTypeKind k) {
         case AETHER_T_HANDLE: return "Handle";
         case AETHER_T_RECORD: return "Record";
         case AETHER_T_ARRAY: return "Array";
+        case AETHER_T_MAP: return "Map";
         default: return "?";
     }
 }
@@ -156,7 +269,8 @@ static const char *kindName(AetherTypeKind k) {
 const char *aetherTypeFormat(AetherType t, char *buf, size_t n) {
     if (!buf || n == 0) return "";
     if (t.kind == AETHER_T_ARRAY) {
-        const char *el = (t.elem == AETHER_T_RECORD || t.elem == AETHER_T_HANDLE) && t.name
+        const char *el = (t.elem == AETHER_T_RECORD || t.elem == AETHER_T_HANDLE ||
+                          t.elem == AETHER_T_MAP) && t.name
                              ? t.name : kindName(t.elem);
         size_t used = (size_t)snprintf(buf, n, "%s", el);
         for (int i = 0; i < t.rank && used + 2 < n; i++) {
@@ -166,7 +280,8 @@ const char *aetherTypeFormat(AetherType t, char *buf, size_t n) {
         }
         return buf;
     }
-    if ((t.kind == AETHER_T_RECORD || t.kind == AETHER_T_HANDLE) && t.name) {
+    if ((t.kind == AETHER_T_RECORD || t.kind == AETHER_T_HANDLE || t.kind == AETHER_T_MAP) &&
+        t.name) {
         snprintf(buf, n, "%s", t.name);
         return buf;
     }
@@ -174,9 +289,21 @@ const char *aetherTypeFormat(AetherType t, char *buf, size_t n) {
     return buf;
 }
 
+/* Two map types agree when their value types do; an unnamed map (`{}`)
+ * agrees with any. */
+static AetherAgreement mapAgreement(const char *want, const char *have) {
+    if (!want || !have) return AETHER_AGREE_COMPAT;
+    if (strcmp(want, have) == 0) return AETHER_AGREE_EXACT;
+    AetherAgreement a = aetherTypeAgreement(mapValueType(mkNamed(AETHER_T_MAP, want)),
+                                            mapValueType(mkNamed(AETHER_T_MAP, have)));
+    if (a == AETHER_AGREE_NARROW) return AETHER_AGREE_MISMATCH;
+    return a;
+}
+
 AetherAgreement aetherTypeAgreement(AetherType want, AetherType have) {
     if (have.kind == AETHER_T_UNKNOWN || want.kind == AETHER_T_UNKNOWN) return AETHER_AGREE_UNKNOWN;
     if (want.kind == have.kind) {
+        if (want.kind == AETHER_T_MAP) return mapAgreement(want.name, have.name);
         if (want.kind == AETHER_T_RECORD) {
             if (!want.name || !have.name) return AETHER_AGREE_COMPAT;
             return strcasecmp(want.name, have.name) == 0 ? AETHER_AGREE_EXACT : AETHER_AGREE_MISMATCH;
@@ -189,6 +316,7 @@ AetherAgreement aetherTypeAgreement(AetherType want, AetherType have) {
                 if (want.elem == AETHER_T_RECORD && want.name && have.name &&
                     strcasecmp(want.name, have.name) != 0)
                     return AETHER_AGREE_MISMATCH;
+                if (want.elem == AETHER_T_MAP) return mapAgreement(want.name, have.name);
                 return AETHER_AGREE_EXACT;
             }
             if ((want.elem == AETHER_T_TEXT && have.elem == AETHER_T_CHAR) ||
@@ -673,9 +801,53 @@ static AetherType typeOfBinary(const AST *e, const AetherTypeEnv *env) {
     }
 }
 
+static AetherType typeOfMapCall(const AST *e, const AetherTypeEnv *env, int *handled) {
+    const char *n = callName(e);
+    *handled = 0;
+    if (!n || e->left || strncmp(n, "aether_map_", 11) != 0) return mk(AETHER_T_UNKNOWN);
+    *handled = 1;
+    if (!strcmp(n, "aether_map_of")) {
+        if (e->child_count < 3) return mk(AETHER_T_MAP);
+        AetherType v = aetherTypeOf(e->children[2], env);
+        for (int i = 4; i < e->child_count && v.kind == AETHER_T_INT; i += 2)
+            if (aetherTypeOf(e->children[i], env).kind == AETHER_T_REAL) v = mk(AETHER_T_REAL);
+        return mapTypeOfValue(v);
+    }
+    AetherType m = e->child_count >= 1 ? aetherTypeOf(e->children[0], env) : mk(AETHER_T_UNKNOWN);
+    if (!strcmp(n, "aether_map_get") || !strcmp(n, "aether_map_get_or")) return mapValueType(m);
+    if (!strcmp(n, "aether_map_has")) return mk(AETHER_T_BOOL);
+    if (!strcmp(n, "aether_map_length")) return mk(AETHER_T_INT);
+    if (!strcmp(n, "aether_map_keys")) {
+        AetherType t = mk(AETHER_T_ARRAY);
+        t.rank = 1;
+        t.elem = AETHER_T_TEXT;
+        return t;
+    }
+    if (!strcmp(n, "aether_map_values")) {
+        AetherType v = mapValueType(m);
+        if (v.kind == AETHER_T_UNKNOWN) return v;
+        AetherType t = mk(AETHER_T_ARRAY);
+        if (v.kind == AETHER_T_ARRAY) {
+            t.rank = v.rank + 1;
+            t.elem = v.elem;
+        } else {
+            t.rank = 1;
+            t.elem = v.kind;
+        }
+        t.name = v.name;
+        return t;
+    }
+    return mk(AETHER_T_VOID);
+}
+
 static AetherType typeOfCall(const AST *e, const AetherTypeEnv *env) {
     const AST *fn = lookupCallee(e, env);
     if (fn) return functionReturnType(fn);
+    {
+        int handled = 0;
+        AetherType mt = typeOfMapCall(e, env, &handled);
+        if (handled) return mt;
+    }
     const BuiltinRet *b = findBuiltin(callName(e));
     if (!b) return mk(AETHER_T_UNKNOWN);
     if (b->ret == RET_TEXT_ARRAY) {
@@ -882,7 +1054,41 @@ static int isWriteCall(const AST *e) {
     return e && (e->type == AST_WRITE || e->type == AST_WRITELN);
 }
 
-static void walkCallArgs(Walker *w, AST *e) {
+/* D68: a map builtin's value argument is a sink of the map's value type. */
+static int walkMapCallArgs(Walker *w, AST *e, AetherUse use) {
+    const char *name = callName(e);
+    if (e->type != AST_PROCEDURE_CALL || e->left || !name || strncmp(name, "aether_map_", 11) != 0)
+        return 0;
+    if (!strcmp(name, "aether_map_of")) {
+        AetherType vt = mk(AETHER_T_UNKNOWN);
+        if (use.kind == AETHER_USE_SINK && use.want.kind == AETHER_T_MAP) vt = mapValueType(use.want);
+        for (int i = 0; i < e->child_count; i++) {
+            AST *a = e->children[i];
+            if (!a) continue;
+            if (i >= 2 && i % 2 == 0 && vt.kind != AETHER_T_UNKNOWN)
+                walkValue(w, e, a, sinkUse(vt, "map-literal"));
+            else
+                walkExpr(w, a, useOf(AETHER_USE_OTHER));
+        }
+        return 1;
+    }
+    AetherType vt = e->child_count >= 1 ? mapValueType(aetherTypeOf(e->children[0], &w->env))
+                                        : mk(AETHER_T_UNKNOWN);
+    for (int i = 0; i < e->child_count; i++) {
+        AST *a = e->children[i];
+        if (!a) continue;
+        if (i == 2 && vt.kind != AETHER_T_UNKNOWN && !strcmp(name, "aether_map_set"))
+            walkValue(w, e, a, sinkUse(vt, "map-value"));
+        else if (i == 2 && vt.kind != AETHER_T_UNKNOWN && !strcmp(name, "aether_map_get_or"))
+            walkValue(w, e, a, sinkUse(vt, "map-default"));
+        else
+            walkExpr(w, a, useOf(AETHER_USE_BUILTIN_ARG));
+    }
+    return 1;
+}
+
+static void walkCallArgs(Walker *w, AST *e, AetherUse use) {
+    if (walkMapCallArgs(w, e, use)) return;
     const AST *fn = (e->type == AST_PROCEDURE_CALL) ? lookupCallee(e, &w->env) : NULL;
     AetherType params[64];
     int np = fn ? functionParamTypes(fn, params, 64) : 0;
@@ -961,7 +1167,7 @@ static void walkExprInner(Walker *w, AST *e, AetherUse use) {
         case AST_PROCEDURE_CALL:
         case AST_WRITE:
         case AST_WRITELN:
-            walkCallArgs(w, e);
+            walkCallArgs(w, e, use);
             return;
         case AST_ARRAY_ACCESS:
             walkExpr(w, e->left, useOf(AETHER_USE_OTHER));
@@ -1279,16 +1485,58 @@ static const char *sinkWhere(const char *label) {
     if (!strcmp(label, "arg")) return "this parameter is";
     if (!strcmp(label, "element")) return "the array's elements are";
     if (!strcmp(label, "field-init")) return "this field is";
+    if (!strcmp(label, "map-value") || !strcmp(label, "map-literal") ||
+        !strcmp(label, "map-default"))
+        return "the map's values are";
     return NULL;
+}
+
+static int isMapLiteralCall(const AST *e) {
+    const char *n = callName(e);
+    return e && e->type == AST_PROCEDURE_CALL && !e->left && n && !strcmp(n, "aether_map_of");
+}
+
+static VarType varTypeOfOracle(AetherType t) {
+    switch (t.kind) {
+        case AETHER_T_INT: return TYPE_INT64;
+        case AETHER_T_REAL: return TYPE_DOUBLE;
+        case AETHER_T_TEXT: case AETHER_T_CHAR: return TYPE_UNICODE_STRING;
+        case AETHER_T_BOOL: return TYPE_BOOLEAN;
+        case AETHER_T_ARRAY: return TYPE_ARRAY;
+        case AETHER_T_MAP: return TYPE_MAP;
+        case AETHER_T_RECORD: return TYPE_POINTER;
+        default: return TYPE_UNKNOWN;
+    }
+}
+
+/* D68: a map literal bound to a declared map type stores that value type
+ * (aether_map_of's first argument), so `{}` and Int values into a Real map
+ * are typed by the declaration. */
+static void fixMapLiteralCode(const AST *value, AetherType want) {
+    if (!isMapLiteralCall(value) || want.kind != AETHER_T_MAP || !want.name) return;
+    VarType vt = varTypeOfOracle(mapValueType(want));
+    if (vt == TYPE_UNKNOWN || value->child_count < 1 || !value->children[0]) return;
+    AST *code = value->children[0];
+    char buf[16];
+    snprintf(buf, sizeof(buf), "%d", (int)vt);
+    if (code->token) {
+        free(code->token->value);
+        code->token->value = strdup(buf);
+        code->token->length = strlen(buf);
+    }
+    code->i_val = (int)vt;
 }
 
 static void ruleSinkMismatch(RuleCtx *c, const AST *value, const AetherUse *use,
                              const AetherTypeEnv *env) {
+    fixMapLiteralCode(value, use->want);
+    /* A map literal's values are each judged against the value type. */
+    if (isMapLiteralCall(value) && use->want.kind == AETHER_T_MAP) return;
     const char *where = sinkWhere(use->sinkLabel);
     if (!where) return;
     AetherType have = aetherTypeOf(value, env);
     if (aetherTypeAgreement(use->want, have) != AETHER_AGREE_MISMATCH) return;
-    char want[96], got[96], detail[320];
+    char want[160], got[160], detail[640];
     aetherTypeFormat(use->want, want, sizeof(want));
     aetherTypeFormat(have, got, sizeof(got));
     int scalars = use->want.kind != AETHER_T_RECORD && use->want.kind != AETHER_T_ARRAY &&
@@ -1366,6 +1614,115 @@ static int recordReaches(const char *from, const char *target, const char **seen
     return 0;
 }
 
+static int recordIsSelfReferential(const char *name);
+
+/* D68: map keys are Text; a map is not an array, a number or another type. */
+static int ruleMapExpr(RuleCtx *c, AST *e, const AetherTypeEnv *env) {
+    const char *n = callName(e);
+    if (e->type == AST_PROCEDURE_CALL && !e->left && n && strncmp(n, "aether_map_", 11) == 0 &&
+        strcmp(n, "aether_map_of") != 0 && e->child_count >= 2 &&
+        (!strcmp(n, "aether_map_get") || !strcmp(n, "aether_map_get_or") ||
+         !strcmp(n, "aether_map_has") || !strcmp(n, "aether_map_set") ||
+         !strcmp(n, "aether_map_remove") || !strcmp(n, "aether_map_take"))) {
+        AetherType m = aetherTypeOf(e->children[0], env);
+        AetherType k = aetherTypeOf(e->children[1], env);
+        if (m.kind != AETHER_T_MAP && m.kind != AETHER_T_UNKNOWN) {
+            char got[160], detail[320];
+            aetherTypeFormat(m, got, sizeof(got));
+            snprintf(detail, sizeof(detail),
+                     "%s works on a map (`Map[Text, T]`), but this value is %s.",
+                     !strcmp(n, "aether_map_has") ? "has" : !strcmp(n, "aether_map_remove")
+                         ? "remove" : !strcmp(n, "aether_map_get_or") ? "get" : "this",
+                     got);
+            ruleReport(c, e->children[0], detail);
+            return 1;
+        }
+        if (k.kind != AETHER_T_UNKNOWN && !isTextual(k)) {
+            char got[160], mt[160], detail[480];
+            aetherTypeFormat(k, got, sizeof(got));
+            aetherTypeFormat(m.kind == AETHER_T_MAP && m.name ? m : mkNamed(AETHER_T_MAP, "Map[Text, T]"),
+                             mt, sizeof(mt));
+            snprintf(detail, sizeof(detail),
+                     "a map key is Text (`%s`), but this key is %s.%s", mt, got,
+                     k.kind == AETHER_T_INT ? " Convert it with int_to_text(k)." : "");
+            ruleReport(c, e->children[1], detail);
+            return 1;
+        }
+        return 0;
+    }
+    if (e->type == AST_ARRAY_ACCESS && aetherTypeOf(e->left, env).kind == AETHER_T_MAP) {
+        ruleReport(c, e,
+                   "this map is indexed where its type cannot be named at parse time; bind it "
+                   "to a typed local first: `let m: Map[Text, T] = ...; m[k]`.");
+        return 1;
+    }
+    if (e->type == AST_BINARY_OP && e->token) {
+        AetherType l = aetherTypeOf(e->left, env), r = aetherTypeOf(e->right, env);
+        if (l.kind != AETHER_T_MAP && r.kind != AETHER_T_MAP) return 0;
+        TokenType tt = e->token->type;
+        char lt[160], rt[160], detail[640];
+        aetherTypeFormat(l, lt, sizeof(lt));
+        aetherTypeFormat(r, rt, sizeof(rt));
+        if (tt == TOKEN_EQUAL || tt == TOKEN_NOT_EQUAL) {
+            if (l.kind == AETHER_T_UNKNOWN || r.kind == AETHER_T_UNKNOWN) return 0;
+            if (aetherTypeAgreement(l, r) != AETHER_AGREE_MISMATCH &&
+                aetherTypeAgreement(r, l) != AETHER_AGREE_MISMATCH) {
+                /* D24: values compare structurally, so a map of a
+                 * self-referential record type is REC-001, as the record is. */
+                AetherType v = mapValueType(l.kind == AETHER_T_MAP ? l : r);
+                while (v.kind == AETHER_T_MAP) v = mapValueType(v);
+                const char *rn = (v.kind == AETHER_T_RECORD ||
+                                  (v.kind == AETHER_T_ARRAY && v.elem == AETHER_T_RECORD)) ? v.name : NULL;
+                if (rn && recordIsSelfReferential(rn)) {
+                    snprintf(detail, sizeof(detail),
+                             "`==` compares maps by their values, and the values' type %s reaches "
+                             "itself through its fields, so the comparison could recurse without "
+                             "end. Compare the keys and the fields you mean.",
+                             rn);
+                    int line = nodeLine(e);
+                    aetherSemanticReportCoded("REC-001", "record-compare", line > 0 ? line : 1,
+                                              detail, 1);
+                    c->reported++;
+                    return 1;
+                }
+                return 0;
+            }
+            snprintf(detail, sizeof(detail),
+                     "cannot compare %s with %s: `==` compares two maps of the same type.", lt, rt);
+            ruleReport(c, e, detail);
+            return 1;
+        }
+        if (tt == TOKEN_LESS || tt == TOKEN_LESS_EQUAL || tt == TOKEN_GREATER ||
+            tt == TOKEN_GREATER_EQUAL) {
+            ruleReport(c, e, "maps have no order: compare them only with `==` and `!=`.");
+            return 1;
+        }
+        if (tt == TOKEN_PLUS || tt == TOKEN_MINUS || tt == TOKEN_MUL || tt == TOKEN_SLASH ||
+            tt == TOKEN_INT_DIV || tt == TOKEN_MOD) {
+            snprintf(detail, sizeof(detail),
+                     "a map is not a number or Text (%s %s %s): to add an entry write "
+                     "`m[k] = v;`; to merge maps, loop over the keys of one.",
+                     lt, e->token->value ? e->token->value : "?", rt);
+            ruleReport(c, e, detail);
+            return 1;
+        }
+    }
+    if (isWriteCall(e)) {
+        for (int i = 0; i < e->child_count; i++) {
+            const AST *a = e->children[i];
+            if (a && a->type == AST_FORMATTED_EXPR) a = a->left;
+            AetherType t = a ? aetherTypeOf(a, env) : mk(AETHER_T_UNKNOWN);
+            if (t.kind == AETHER_T_MAP && typeHoldsRecord(t, 0)) {
+                ruleReport(c, e,
+                           "a map whose values are records has no printed form: loop over "
+                           "its keys and print the fields (`loop k in m { ... m[k].f ... }`).");
+                return 1;
+            }
+        }
+    }
+    return 0;
+}
+
 static int recordIsSelfReferential(const char *name) {
     const char *seen[64];
     return name && recordReaches(name, name, seen, 0);
@@ -1406,6 +1763,7 @@ static void ruleRecordCompare(RuleCtx *c, const AST *e, const AetherTypeEnv *env
 
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
+    if (ruleMapExpr(c, e, env)) return;
     if (e->type == AST_BINARY_OP && e->token &&
         (e->token->type == TOKEN_EQUAL || e->token->type == TOKEN_NOT_EQUAL)) {
         ruleRecordCompare(c, e, env);

@@ -1,0 +1,7 @@
+// D68: map keys are Text in this release; an Int key is TYPE-001 naming
+// Map[Text, T].
+fn main() -> Void {
+    let m: Map[Text, Int] = {};
+    let k: Int = 3;
+    m[k] = 1;
+}

@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1, "b": 2};
+    fx { println(length(m)); }
+}

@@ -1,0 +1,4 @@
+// D68: every value of a literal must be the value type.
+fn main() -> Void {
+    let m: Map[Text, Int] = {"a": 1, "b": "two"};
+}

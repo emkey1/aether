@@ -1,0 +1,23 @@
+// D68: println(m) prints {"k": v, ...} in insertion order. Text is quoted,
+// a Real prints in its shortest round-trip form (D74), arrays and nested maps
+// print inside.
+fn main() -> Void {
+    let r: Map[Text, Real] = {"half": 0.5, "one": 1, "third": 1.0 / 3.0};
+    r["big"] = 1e20;
+    r["small"] = 0.0001;
+    r["tiny"] = 0.00001;
+    let b: Map[Text, Bool] = {"t": true, "f": false};
+    let t: Map[Text, Text] = {"q": "say \"hi\"", "path": "a\\b", "nl": "x\ny"};
+    let a: Map[Text, Text[]] = {"words": ["to", "be"], "none": []};
+    let m: Map[Text, Map[Text, Int]] = {"outer": {"inner": 1}, "empty": {}};
+    let e: Map[Text, Int] = {};
+    fx {
+        println(r);
+        println(b);
+        println(t);
+        println(a);
+        println(m);
+        println(e);
+        println("m = ", m);
+    }
+}

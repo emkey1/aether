@@ -1,0 +1,38 @@
+// D68 + D8: maps are values like arrays. `let b = a` copies, a parameter is
+// a copy, a function that changes a map returns it, and arrays stored in a
+// map are copied with it.
+fn add_word(m: Map[Text, Int], w: Text) -> Map[Text, Int] {
+    m[w] = get(m, w, 0) + 1;
+    ret m;
+}
+
+fn with_zero(m: Map[Text, Int]) -> Map[Text, Int] {
+    let local = m;
+    local["zero"] = 0;
+    ret local;
+}
+
+fn main() -> Void {
+    let a: Map[Text, Int] = {"x": 1};
+    let b = a;
+    b["x"] = 2;
+    b["y"] = 3;
+    fx { println(a, " ", b); }
+
+    let counts: Map[Text, Int] = {};
+    loop w in split("to be or not to be", " ") { counts = add_word(counts, w); }
+    let z = with_zero(counts);
+    fx { println(counts); println(length(z), " ", length(counts)); }
+
+    let g: Map[Text, Int[]] = {"p": [1, 2]};
+    let h = g;
+    h["p"][0] = 99;
+    fx { println(g, " ", h); }
+
+    let xs: Int[] = [5, 6];
+    g["q"] = xs;
+    xs[0] = -5;
+    let read = g["q"];
+    read[1] = -6;
+    fx { println(g["q"][0], " ", g["q"][1], " ", xs[0], " ", read[1]); }
+}

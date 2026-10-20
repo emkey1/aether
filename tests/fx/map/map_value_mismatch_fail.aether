@@ -1,0 +1,5 @@
+// D68: m[k] = v checks v against the value type (TYPE-001, as for arrays).
+fn main() -> Void {
+    let m: Map[Text, Int] = {};
+    m["a"] = "x";
+}

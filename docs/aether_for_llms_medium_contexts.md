@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-1*
+*Guide version: 2026-10-20-2*
 
 Everything needed to write correct Aether in one shot.
 
@@ -247,10 +247,10 @@ fn main() -> Void {
   comments compile, but generate `//`.
 - Text literals are double-quoted; escapes: `\"`, `\\`, `\n`, `\t`.
 - Types: `Int`, `Real`, `Text`, `Bool` (`true` / `false`), `Void`, plus the
-  opaque handles `ToonDoc`, `ToonNode`, `MStream`. `Float` and `String`
-  are accepted spellings of `Real` and `Text`. Every other foreign spelling —
-  `Double`, `Integer`, `Boolean`, `Char`, `List`, `Map`, lowercase `int` — is a
-  `TYPE-002` error.
+  opaque handles `ToonDoc`, `ToonNode`, `MStream`; `T[]` and `Map[Text, T]`.
+  `Float` and `String` are accepted spellings of `Real` and `Text`. Every other
+  foreign spelling — `Double`, `Integer`, `Boolean`, `Char`, `List`, `Dict`,
+  lowercase `int` — is a `TYPE-002` error.
 - `println(boolValue)` prints `true` or `false`.
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`/`not`, `&&`/`and`, `||`/`or`
   (short-circuit). `==` / `!=` compare arrays, records and tuples by value,
@@ -621,20 +621,28 @@ fn evensDoubled(xs: Int[]) -> Int[] {
 }
 ```
 
-**Lookup tables.** There is no map or dictionary type. Use two parallel arrays
-and a linear scan, or a `type` with an array field:
+## Maps
+
+`Map[Text, T]`: Text keys, values of any one type. A value like an array: a
+function that changes a map returns it.
 
 ```aether
 @pure
-fn lookup(keys: Text[], values: Int[], key: Text) -> Int {
-    loop i in 0..length(keys) {
-        if keys[i] == key {
-            ret values[i];
-        }
+fn word_counts(words: Text[]) -> Map[Text, Int] {
+    let counts: Map[Text, Int] = {};    // `{}` needs a declared type
+    loop w in words {
+        counts[w] = get(counts, w, 0) + 1;
     }
-    ret -1;
+    ret counts;
 }
 ```
+
+- `{"a": 1, "b": 2}` literal; `m[k] = v` inserts or overwrites
+- `m[k]` needs the key (a missing one stops the program): test `has(m, k)` /
+  `k in m`, or read `get(m, k, default)`
+- `remove(m, k)`, `length(m)`; `keys(m)`, `values(m)`, `loop k in m` and
+  `println(m)` follow insertion order; `==` compares contents
+- no methods (`m.get(k)`, `m.items()`), no `dict`; a set is `Map[Text, Bool]`
 
 ## Structured data: TOON
 
@@ -985,8 +993,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[REC-001]** `==` on a type that contains itself → `same(a, b)` or compare fields.
 - **[TUP-001]** tuple misuse → destructure a direct call, or bind and read one
   field; never chain onto the call.
-- **[ARR-001]** (warning) a `Void` function mutating an array parameter → return
-  the array and reassign at the call site.
+- **[ARR-001]** (warning) a `Void` function mutating an array or map parameter →
+  return it and reassign at the call site.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
   fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
 - **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
