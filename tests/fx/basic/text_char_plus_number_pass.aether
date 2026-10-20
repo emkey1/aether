@@ -1,0 +1,9 @@
+fn main() -> Void {
+    let s: Text = "abc";
+    let n: Int = 1;
+    let t: Text = s[0] + n;
+    fx { println(t); }
+    fx { println(s[1] + 2); }
+    fx { println(n + s[2]); }
+    fx { println(s[0] + s[1]); }
+}

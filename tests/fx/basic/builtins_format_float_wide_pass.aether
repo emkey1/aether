@@ -1,0 +1,11 @@
+// format_float formatted into a fixed 128-byte buffer: a value needing
+// more (1e200 with 2 decimals is 203 characters) was a runtime error.
+fn main() -> Void {
+    let x: Real = 1.0e200;
+    let y: Real = 3.25;
+    fx {
+        println(length(format_float(x, 2)));
+        println(format_float(y, 1));
+    }
+    ret;
+}

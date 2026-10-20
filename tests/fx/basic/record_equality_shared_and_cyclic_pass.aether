@@ -1,0 +1,32 @@
+type Node { tag: Int = 0; kids: Map[Text, Node]; }
+fn build(n: Int, leaf: Int) -> Node {
+    let mut cur: Node = new Node { tag: leaf, kids: {} };
+    let mut i: Int = 0;
+    while i < n {
+        let next: Node = new Node { tag: i, kids: {} };
+        next.kids["l"] = cur;
+        next.kids["r"] = cur;
+        cur = next;
+        i = i + 1;
+    }
+    ret cur;
+}
+fn main() -> Void {
+    let a: Node = build(60, 1);
+    let b: Node = build(60, 1);
+    let c: Node = build(60, 2);
+    fx { println(a == b); }
+    fx { println(a == c); }
+    fx { println(a != c); }
+    let x: Node = new Node { tag: 1, kids: {} };
+    let y: Node = new Node { tag: 2, kids: {} };
+    x.kids["self"] = x;
+    y.kids["self"] = y;
+    fx { println(x == y); }
+    let p: Node = new Node { tag: 1, kids: {} };
+    let q: Node = new Node { tag: 1, kids: {} };
+    p.kids["self"] = p;
+    q.kids["self"] = q;
+    fx { println(p == q); }
+    ret;
+}
