@@ -55,6 +55,23 @@ Before `v1-20261021` is built, author a targeted pack (an agent, as for run 6's 
   - If porting pre-1.0 code becomes a real use, a few "update this program" pairs can be added then.
 - **Prerequisite:** the review session's builtin-surface tests (requested 2026-10-20, before the 1.0-beta1 tag), so the
   names the pack teaches are known to be wired correctly.
+- **Done (2026-10-20, on 1.0-beta2):** 84 pairs (`stdlib_*` ids) appended to `training/seed_instruction_pairs.json`.
+  - Families: SQLite 14, HTTP 13, files 10, sockets 9, math 7, environment/arguments/stdin 6, tasks 4, collections
+    4, clock 3, capability probes 3, ai_chat 2, random 2, conversion 2, strings 2, TOON 2, MStream 1.
+  - Usage in the training data, counted over the 213 names in the guide appendix (its signature list plus its
+    "documented earlier" list): 127 were used before the pack, 211 after it. All 60 D72 names are now used, against 9
+    before.
+  - Not taught: `task_status` (the appendix types it `Int`, the guide's prose says `Bool`, and `println` prints it
+    as `true`) and `task_result` (its only useful targets are pre-D72 backend names such as `"dnslookup"`).
+  - HTTP without a network: `data:` URLs, `file://` + `get_current_dir()`, a one-shot stub on 127.0.0.1 served from a
+    `par` branch, and a refused connection to port 1. Each async request in flight has its own session: async jobs
+    sharing a session crashed about 1 run in 100. Async byte counters are printed only as `>= 0`, because they can
+    lag behind `http_is_done`.
+  - Environment-dependent values are printed only as facts that hold on every machine: a variable is set, a
+    fallback was used, a timing or random-draw range check passed. Stdin is read only on a branch that a
+    command-line argument selects, and the gate passes no arguments.
+  - Every pair passed on both the 1.0-beta2 build and pscal-core 18d2c80. The network, task and clock pairs were also
+    run 50 times each under parallel load.
 
 ## 3. Dataset `v1-20261021`
 
