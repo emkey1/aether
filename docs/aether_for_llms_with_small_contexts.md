@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-7*
+*Guide version: 2026-10-20-8*
 
 ## Highest-Value Rules
 
@@ -280,8 +280,8 @@ fx {
 }
 ```
 
-`println(realValue)` defaults to 6 decimals; use `value:0:2` style when exact
-output matters. Integer quotient: `a div b` (`7 div 2` is `3`), never `/`.
+`println(realValue)` prints the shortest exact form (`2.5`, `100.0`); use
+`value:0:2` style when fixed decimals matter. Integer quotient: `a div b` (`7 div 2` is `3`), never `/`.
 For decimals use a `Real` operand:
 
 ```aether
@@ -309,7 +309,7 @@ let n: Int = parse_int(parts[0]);          // Text -> Int
 let r: Real = parse_float("3.5");          // Text -> Real
 let ok: Bool = parse_bool("true");         // Text -> Bool
 let s: Text = int_to_text(99);             // Int  -> Text
-let f: Text = format_float(3.14159, 2);     // Real -> Text  "3.14" (real_to_text(r) = 6 dp)
+let f: Text = format_float(3.14159, 2);     // Real -> Text  "3.14" (real_to_text: as printed)
 let code: Int = ord("A");                  // Text(1 char) -> Int  65
 let ch: Text = chr(65);                    // Int -> Text(1 char)  "A"
 let (v, good) = try_parse_int("12x");      // checked: (0, false); " 42" -> (42, true)

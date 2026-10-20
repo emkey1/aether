@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-7*
+*Guide version: 2026-10-20-8*
 
 Everything needed to write correct Aether in one shot.
 
@@ -132,7 +132,7 @@ real logic, never hard-coded expected output.
 | Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Int → Text | `int_to_text(n)` | — | `n.toString()`, `itoa(n)` |
-| Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (always 6 dp) | `format_float(r, 0, prec)`; `r:0:prec` as a value |
+| Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (as printed) | `format_float(r, 0, prec)`; `r:0:prec` as a value |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001` for a `Text`) |
 | Array / TOON length | `length(xs)` / `toon_len(node)` | `len(xs)`, `xs.len` | crossing the two |
 | Method call | `counter.bump()` | — | `bump(counter)`; class syntax |
@@ -151,7 +151,7 @@ let r: Real = parse_float("3.5");          // Text  -> Real
 let ok: Bool = parse_bool("true");         // Text  -> Bool
 let s: Text = int_to_text(99);             // Int   -> Text
 let f: Text = format_float(3.14159, 2);     // Real  -> Text    "3.14"
-let g: Text = real_to_text(3.14159);          // Real  -> Text    always 6 dp
+let g: Text = real_to_text(3.14159);          // Real  -> Text    "3.14159"
 let code: Int = ord("A");                  // 1-char Text -> Int  65
 let ch: Text = chr(65);                    // Int -> 1-char Text  "A"
 let t: Int = int(3.7);                     // Real/Bool -> Int, truncating
@@ -184,10 +184,8 @@ right the first time:
 | Helper | Arity | Note |
 |---|---|---|
 | `format_float(v)` / `format_float(v, prec)` | 1 or 2 | never 3 — no width slot |
-| `real_to_text(v)` | 1 | always 6 decimals |
 | `clamp(x, lo, hi)` | 3 | |
 | `min(a, b)` / `max(a, b)` | 2 | |
-| `ord(ch)` / `chr(n)` / `trim(s)` | 1 | |
 | `parse_int` / `parse_float` / `parse_bool` | 1 | |
 
 **Math surface.** `arctan` not `atan`, `ln` not `log`. Trig takes radians.
@@ -477,7 +475,8 @@ fx {
 }
 ```
 
-`println(realValue)` defaults to six decimals. Use `value:width:precision` when
+`println(realValue)` prints the shortest exact form (`2.5`, `100.0`,
+`0.30000000000000004`). Use `value:width:precision` when
 exact output matters; width `0` means "precision only". That spec works **only
 inside `print`/`println`** — to build a `Text`, use `format_float`.
 

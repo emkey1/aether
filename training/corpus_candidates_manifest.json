@@ -1902,7 +1902,7 @@
       "source_path": "/Users/mke/PBuild/Tests/aether_specialization/corpus_candidates/27_real_formatting",
       "repo_path": "training/corpus_candidates/27_real_formatting",
       "sha256": "50db0ce2acefb28659b0ddb21cafb131814644044d1ae04c4ebbc6e2af0e6bfb",
-      "stdout": "2.718280\n2.72\n   2.718\n",
+      "stdout": "2.71828\n2.72\n   2.718\n",
       "metadata": {
         "canonical": true,
         "oracle": "reviewed",
@@ -1912,7 +1912,11 @@
           "real",
           "formatting"
         ],
-        "notes": "default Real format (6 decimals) vs value:width:precision"
+        "notes": "default Real format (6 decimals) vs value:width:precision",
+        "recaptured": {
+          "aether_version": "Aether Compiler Version: 2026-10-20-10 (latest tag: untagged)",
+          "date": "2026-10-20"
+        }
       }
     },
     {
@@ -7384,7 +7388,7 @@
       "source_path": "/Users/mke/PBuild/Tests/aether_specialization/corpus_candidates/64_negative_real_formatting",
       "repo_path": "training/corpus_candidates/64_negative_real_formatting",
       "sha256": "f3b5ea07d7341ec0fffb1f7abbeb67b9d1e44a645bdda07d90e97c1846a8a78c",
-      "stdout": "Default: -0.500000\nPrec=3: -0.500\nRight-align:      -0.50\nDefault: -2.345600\nPrec=3: -2.346\nRight-align:      -2.35\nDefault: 10.123450\nPrec=3: 10.123\nRight-align:      10.12\n",
+      "stdout": "Default: -0.5\nPrec=3: -0.500\nRight-align:      -0.50\nDefault: -2.3456\nPrec=3: -2.346\nRight-align:      -2.35\nDefault: 10.12345\nPrec=3: 10.123\nRight-align:      10.12\n",
       "metadata": {
         "canonical": true,
         "oracle": "reviewed",
@@ -7395,7 +7399,11 @@
           "formatting",
           "output"
         ],
-        "notes": "Negative real formatting and width/precision examples."
+        "notes": "Negative real formatting and width/precision examples.",
+        "recaptured": {
+          "aether_version": "Aether Compiler Version: 2026-10-20-10 (latest tag: untagged)",
+          "date": "2026-10-20"
+        }
       }
     },
     {
@@ -7633,7 +7641,7 @@
       "source_path": "/Users/mke/PBuild/Tests/aether_specialization/corpus_candidates/77_real_format_grid",
       "repo_path": "training/corpus_candidates/77_real_format_grid",
       "sha256": "bfcddea8006bbb7e16622c845b6c16aa70e115aac108d97a6e2c1691cda83e97",
-      "stdout": "pos default=3.141590 p2=3.14 w10=      3.14\nneg default=-2.500000 p2=-2.50 w10=     -2.50\n",
+      "stdout": "pos default=3.14159 p2=3.14 w10=      3.14\nneg default=-2.5 p2=-2.50 w10=     -2.50\n",
       "metadata": {
         "canonical": true,
         "oracle": "reviewed",
@@ -7644,7 +7652,11 @@
           "formatting",
           "padding"
         ],
-        "notes": "Formatting grid for default and padded real output."
+        "notes": "Formatting grid for default and padded real output.",
+        "recaptured": {
+          "aether_version": "Aether Compiler Version: 2026-10-20-10 (latest tag: untagged)",
+          "date": "2026-10-20"
+        }
       }
     },
     {
@@ -10168,7 +10180,7 @@
       "source_path": "/tmp/aether_harvest/06-29b_sched_m5_olmo3_think_00_Demonstrate_a_record_type_with.aether",
       "repo_path": "training/corpus_candidates/06-29b_sched_m5_olmo3_think_00_Demonstrate_a_record_type_with.aether",
       "sha256": "0a8b7bb05b2e8ff09b654506e8b196259239d287047ece1b515cedfc1eca40af",
-      "stdout": "Initial balance: 100.000000\nBalance after depositing $50: 150.000000\nWithdrew $30 successfully\n",
+      "stdout": "Initial balance: 100.0\nBalance after depositing $50: 150.0\nWithdrew $30 successfully\n",
       "metadata": {
         "canonical": false,
         "oracle": "none",
@@ -10176,7 +10188,11 @@
         "assumption_bearing": false,
         "tags": [
           "harvested_idea_miner_2026-07-19"
-        ]
+        ],
+        "recaptured": {
+          "aether_version": "Aether Compiler Version: 2026-10-20-10 (latest tag: untagged)",
+          "date": "2026-10-20"
+        }
       }
     },
     {
@@ -10822,7 +10838,7 @@
       "source_path": "/tmp/aether_harvest/07-19b_host-d_qwen3_5_9b_02_Bank_account_record_with_metho.aether",
       "repo_path": "training/corpus_candidates/07-19b_host-d_qwen3_5_9b_02_Bank_account_record_with_metho.aether",
       "sha256": "b5a5dbb6921d0c66796dec22ee6b3ab7f0ce76ed61a374291915de9e06945290",
-      "stdout": "Bank Account Simulation\nAccount: ACC-12345\nAfter depositing $1000: ACC-12345 = 1000.00\nAfter depositing $500: 1500.000000 balance\nWithdrawal of $300: 1200.000000 remaining\nWithdrawal of $200: 1000.000000 remaining\nFinal balance: 1000.00\n",
+      "stdout": "Bank Account Simulation\nAccount: ACC-12345\nAfter depositing $1000: ACC-12345 = 1000.00\nAfter depositing $500: 1500.0 balance\nWithdrawal of $300: 1200.0 remaining\nWithdrawal of $200: 1000.0 remaining\nFinal balance: 1000.00\n",
       "metadata": {
         "canonical": false,
         "oracle": "none",
@@ -10830,7 +10846,11 @@
         "assumption_bearing": false,
         "tags": [
           "harvested_idea_miner_2026-07-19"
-        ]
+        ],
+        "recaptured": {
+          "aether_version": "Aether Compiler Version: 2026-10-20-10 (latest tag: untagged)",
+          "date": "2026-10-20"
+        }
       }
     },
     {
@@ -13235,11 +13255,15 @@
       "source_path": "/tmp/corpus_new5/62_physarum_routing.aether",
       "repo_path": "training/corpus_candidates/62_physarum_routing.aether",
       "sha256": "91fdb186d33bea72bb4f7dbcc760a07c55dc4cad617fc6b3af636b918c09260b",
-      "stdout": "=== Physarum Maze Routing ===\n6 nodes; source 0, sink 5\nRoute A (short): 0-1-5      Route B (long): 0-2-3-4-5\nAll tube conductivities start at 1.0\n\nAfter 10 steps:\n  Route A tubes: 0-1: 28.925465  1-5: 28.925465\n  Route B tubes: 0-2: 4.045558  2-3: 4.045558  3-4: 4.045558  4-5: 4.045558\nAfter 20 steps:\n  Route A tubes: 0-1: 836.682554  1-5: 836.682554\n  Route B tubes: 0-2: 16.366537  2-3: 16.366537  3-4: 16.366537  4-5: 16.366537\nAfter 30 steps:\n  Route A tubes: 0-1: 24201.432355  1-5: 24201.432355\n  Route B tubes: 0-2: 66.211772  2-3: 66.211772  3-4: 66.211772  4-5: 66.211772\n\nMean conductivity -- short route: 24201.432355, long route: 66.211772\nShort route dominates: true\nThe mold has collapsed onto the shortest path 0 -> 1 -> 5.\n",
+      "stdout": "=== Physarum Maze Routing ===\n6 nodes; source 0, sink 5\nRoute A (short): 0-1-5      Route B (long): 0-2-3-4-5\nAll tube conductivities start at 1.0\n\nAfter 10 steps:\n  Route A tubes: 0-1: 28.9254654976  1-5: 28.9254654976\n  Route B tubes: 0-2: 4.04555773570791  2-3: 4.045557735707911  3-4: 4.045557735707912  4-5: 4.045557735707912\nAfter 20 steps:\n  Route A tubes: 0-1: 836.6825542528485  1-5: 836.6825542528485\n  Route B tubes: 0-2: 16.366537392946114  2-3: 16.36653739294612  3-4: 16.36653739294612  4-5: 16.36653739294612\nAfter 30 steps:\n  Route A tubes: 0-1: 24201.43235548462  1-5: 24201.43235548462\n  Route B tubes: 0-2: 66.21177195678592  2-3: 66.21177195678595  3-4: 66.21177195678595  4-5: 66.21177195678595\n\nMean conductivity -- short route: 24201.43235548462, long route: 66.21177195678595\nShort route dominates: true\nThe mold has collapsed onto the shortest path 0 -> 1 -> 5.\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
-        "oracle": "reviewed"
+        "oracle": "reviewed",
+        "recaptured": {
+          "aether_version": "Aether Compiler Version: 2026-10-20-10 (latest tag: untagged)",
+          "date": "2026-10-20"
+        }
       }
     },
     {

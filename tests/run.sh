@@ -657,7 +657,7 @@ fi
 if grep -qx "yyjson unavailable" $OUT/aether_inferred_bindings_pass.out; then
     :
 else
-    printf 'Aether\n42\n3.500000\ntrue\n2\n' >$OUT/aether_inferred_bindings_expected.out
+    printf 'Aether\n42\n3.5\ntrue\n2\n' >$OUT/aether_inferred_bindings_expected.out
     if ! cmp -s $OUT/aether_inferred_bindings_expected.out $OUT/aether_inferred_bindings_pass.out; then
         echo "unexpected inferred binding output" >&2
         cat $OUT/aether_inferred_bindings_pass.out >&2
@@ -724,7 +724,7 @@ if ! cmp -s $OUT/aether_len_property_expected.out $OUT/aether_len_property_pass.
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$NUMERIC_EXPR_INFERENCE_PASS_FIXTURE" >$OUT/aether_numeric_expr_inference_pass.out
-printf '8.000000\n' >$OUT/aether_numeric_expr_inference_expected.out
+printf '8.0\n' >$OUT/aether_numeric_expr_inference_expected.out
 if ! cmp -s $OUT/aether_numeric_expr_inference_expected.out $OUT/aether_numeric_expr_inference_pass.out; then
     echo "unexpected numeric expression inference output" >&2
     cat $OUT/aether_numeric_expr_inference_pass.out >&2
@@ -819,7 +819,7 @@ if ! cmp -s $OUT/aether_continue_loop_var_reuse_expected.out $OUT/aether_continu
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$EXTENSION_CALL_ALIAS_PASS_FIXTURE" >$OUT/aether_extension_call_alias_pass.out
-printf '5.000000\n4\n' >$OUT/aether_extension_call_alias_expected.out
+printf '5.0\n4\n' >$OUT/aether_extension_call_alias_expected.out
 if ! cmp -s $OUT/aether_extension_call_alias_expected.out $OUT/aether_extension_call_alias_pass.out; then
     echo "unexpected extension call alias output" >&2
     cat $OUT/aether_extension_call_alias_pass.out >&2
@@ -1129,7 +1129,7 @@ if ! printf '7\n' | cmp -s - $OUT/aether_type_init_paren_pass.out; then
     exit 1
 fi
 "$AETHER_BIN" --no-cache "$TYPE_METHOD_CONTRACTS_PASS_FIXTURE" >$OUT/aether_type_method_contracts_pass.out
-printf 'circle=78.539816\nrect=24.000000\n' >$OUT/aether_type_method_contracts_expected.out
+printf 'circle=78.53981625\nrect=24.0\n' >$OUT/aether_type_method_contracts_expected.out
 if ! cmp -s $OUT/aether_type_method_contracts_expected.out $OUT/aether_type_method_contracts_pass.out; then
     echo "unexpected type method contract output" >&2
     cat $OUT/aether_type_method_contracts_pass.out >&2
@@ -1776,7 +1776,7 @@ fi
 # functions. Under the old program-flat tables this drew a false [TYPE-001] on
 # sum_real and mis-typed `let b = label;` as Int (a hard compile error).
 "$AETHER_BIN" --no-cache "$SCOPED_BINDINGS_PASS_FIXTURE" >$OUT/aether_scoped_bindings_pass.out
-printf '42\nanswer\n2.500000\n3\nscoped\n42\n' >$OUT/aether_scoped_bindings_expected.out
+printf '42\nanswer\n2.5\n3\nscoped\n42\n' >$OUT/aether_scoped_bindings_expected.out
 if ! cmp -s $OUT/aether_scoped_bindings_expected.out $OUT/aether_scoped_bindings_pass.out; then
     echo "unexpected scoped bindings output (regression: cross-function binding leakage / shadowed global not restored)" >&2
     cat $OUT/aether_scoped_bindings_pass.out >&2
@@ -1909,7 +1909,7 @@ fi
 # The negatives are the FIELD-003 constant boundary and the TYPE-001 type
 # mismatch, both coded so --diagnostics-json feeds the guide map.
 "$AETHER_BIN" --no-cache "$TYPE_FIELD_DEFAULT_PASS_FIXTURE" >$OUT/aether_type_field_default_pass.out
-printf '3\ndef\n9\nover\n1.500000\non\n' >$OUT/aether_type_field_default_expected.out
+printf '3\ndef\n9\nover\n1.5\non\n' >$OUT/aether_type_field_default_expected.out
 if ! cmp -s $OUT/aether_type_field_default_expected.out $OUT/aether_type_field_default_pass.out; then
     echo "unexpected constant field default output (regression: defaults / override / unset / capacity)" >&2
     cat $OUT/aether_type_field_default_pass.out >&2
@@ -2505,7 +2505,7 @@ fi
 # registered, and `ret (...)` was misparsed as a plain parenthesized
 # expression -- SYN-001 "expected ')' to close parenthesized expression").
 "$AETHER_BIN" --no-cache "$TUPLE_MULTILINE_SIGNATURE_PASS_FIXTURE" >$OUT/aether_tuple_multiline_signature_pass.out 2>&1
-printf '7.000000\n12.000000\n' >$OUT/aether_tuple_multiline_signature_expected.out
+printf '7.0\n12.0\n' >$OUT/aether_tuple_multiline_signature_expected.out
 if ! cmp -s $OUT/aether_tuple_multiline_signature_expected.out $OUT/aether_tuple_multiline_signature_pass.out; then
     echo "unexpected multi-line-signature tuple-return output" >&2
     cat $OUT/aether_tuple_multiline_signature_pass.out >&2
@@ -2528,11 +2528,11 @@ if ! printf '15\n' | cmp -s - $OUT/aether_ret_recursion_pass.out; then
     exit 1
 fi
 # `ret expr` must coerce to the declared return type like every other typed
-# sink: a `-> Int` body ending in Int/Int division returns 24, not 24.000000,
-# and a `-> Real` body returning an Int promotes to 5.000000 -- regression
+# sink: a `-> Int` body ending in Int/Int division returns 24, not 24.0,
+# and a `-> Real` body returning an Int promotes to 5.0 -- regression
 # for the returnFromCall coercion gap fixed in pscal-core.
 "$AETHER_BIN" --no-cache "$RET_INT_DIVISION_PASS_FIXTURE" >$OUT/aether_ret_int_division_pass.out 2>&1
-printf 'mean = 24\npromoted = 5.000000\n' >$OUT/aether_ret_int_division_expected.out
+printf 'mean = 24\npromoted = 5.0\n' >$OUT/aether_ret_int_division_expected.out
 if ! cmp -s $OUT/aether_ret_int_division_expected.out $OUT/aether_ret_int_division_pass.out; then
     echo "unexpected ret int-division coercion output" >&2
     cat $OUT/aether_ret_int_division_pass.out >&2
@@ -3042,7 +3042,7 @@ fi
 # ASCII indexing plus a multi-byte UTF-8 codepoint and a whitespace char trimmed
 # to empty.
 "$AETHER_BIN" --no-cache "$TESTS_DIR/text_index_char_builtins_pass.aether" >$OUT/aether_text_index_char_builtins_pass.out
-printf '5\n5.000000\nfalse\n5\n\xc3\xa9\n\n' >$OUT/aether_text_index_char_builtins_expected.out
+printf '5\n5.0\nfalse\n5\n\xc3\xa9\n\n' >$OUT/aether_text_index_char_builtins_expected.out
 if ! cmp -s $OUT/aether_text_index_char_builtins_expected.out $OUT/aether_text_index_char_builtins_pass.out; then
     echo "unexpected output for Text-index char passed into parse_int/parse_float/parse_bool/trim" >&2
     cat $OUT/aether_text_index_char_builtins_pass.out >&2
@@ -3225,7 +3225,7 @@ fi
 # runs, including formatfloat's one-argument form (which its published signature
 # does not advertise), and a user fn / method may shadow a table name freely.
 "$AETHER_BIN" --no-cache "$TESTS_DIR/builtin_arity_pass.aether" >$OUT/aether_builtin_arity_pass.out
-printf '87.46 87.456700 87.456700\n3 2 9\n65 B ell\n2 x\n7 true 2\n' >$OUT/aether_builtin_arity_expected.out
+printf '87.46 87.456700 87.4567\n3 2 9\n65 B ell\n2 x\n7 true 2\n' >$OUT/aether_builtin_arity_expected.out
 if ! cmp -s $OUT/aether_builtin_arity_expected.out $OUT/aether_builtin_arity_pass.out; then
     echo "unexpected builtin-arity output (BUILT-002 table rejecting a valid arity?)" >&2
     cat $OUT/aether_builtin_arity_pass.out >&2

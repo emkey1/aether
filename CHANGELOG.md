@@ -12,6 +12,32 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-10
+
+**A Real prints in its shortest round-trip form (D74).** The default text of a
+Real -- `println(r)`, `"x=" + r`, `real_to_text(r)` -- was six fixed decimals
+(`2.500000`, `0.300000` for `0.1 + 0.2`, `1e20` as 21 digits). It is now
+Python's `repr`: the shortest digits that read back as the same value, with a
+whole value keeping `.0` and scientific form when the point sits more than 16
+places right or 4 left of the first digit: `2.5`, `100.0`,
+`0.30000000000000004`, `1e+20`, `1e-05`. Fixed decimals stay with explicit
+formatting, which is unchanged: `format_float(x, 2)` and `println(x:0:2)`.
+`real_to_text` follows the default (it was always six decimals). Engine:
+pscal-core prints Reals with `pscalFormatRealRepr` when the front end is
+Aether; other front ends keep `%f`.
+
+**Recaptured** (every one checked to differ only in the formatting of a Real):
+13 fixture `.out` files, 12 expected outputs in `tests/run.sh`, four in
+`tests/experiments/run.sh`, the guide
+program goldens (`docs/guide_goldens.json`), two example goldens, the spec's
+example outputs and six training-corpus goldens (`recapture_expected.py
+--accept`; 731 ok, 0 drifted after). No benchmark task's `expected_stdout`
+prints a default-format Real (all 234 checked), so none is recaptured; archived
+attempts that printed one with `println` can now match. The guides and the
+card describe the new form (guide stamps `2026-10-20-8`, card `2026-10-20-2`).
+The `repair_float_formatting` drill printed `19.99`, which the default form now
+gets right; it is repointed to `20.5` (prints `20.5`, wants `20.50`).
+
 ## 2026-10-20-9
 
 **Names are case-sensitive (D70, superseding D17's case folding).** The shared

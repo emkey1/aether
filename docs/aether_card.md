@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-20-1*
+*Card version: 2026-10-20-2*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -180,8 +180,8 @@ with `let (n, ok) = try_parse_int(t);`.
 
 - `println(a, b)` prints its arguments with **no separator**, then a newline;
   `print` adds no newline.
-- A `Real` prints with 6 decimals: `println(2.5)` prints `2.500000`;
-  `format_float(2.5, 1)` is `"2.5"`.
+- A `Real` prints in its shortest exact form (`println(2.5)` prints `2.5`);
+  `format_float(x, 2)` fixes the decimals.
 
 ## Diagnostics
 

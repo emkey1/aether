@@ -177,7 +177,7 @@ fn main() -> Void {
 ```
 
 ```text
-255 1000 18000000000 250.000000 0.500000
+255 1000 18000000000 250.0 0.5
 ```
 
 ```aether @ok id=L.lit.2
@@ -754,7 +754,7 @@ fn main() -> Void {
 ```
 
 ```text
-2 1.500000 t false
+2 1.5 t false
 ```
 
 ```aether @reject=TYPE-002 id=G.TypeName.2
@@ -1470,7 +1470,7 @@ fn main() -> Void {
 ```
 
 ```text
--2 3.500000 ab
+-2 3.5 ab
 ```
 
 ```aether @reject=SYN-001 id=G.AddExpr.2
@@ -1486,7 +1486,7 @@ fn main() -> Void {
 ```
 
 ```text
-3 -3 1 -1 4.500000
+3 -3 1 -1 4.5
 ```
 
 ```aether @reject=SYN-001 id=G.MulExpr.2
@@ -1506,7 +1506,7 @@ fn main() -> Void {
 ```
 
 ```text
-3.500000
+3.5
 ```
 
 ```aether @reject=TYPE-001 id=G.MulExpr.4
@@ -1807,7 +1807,7 @@ fn main() -> Void {
 ```
 
 ```text
-42 1.500000 t false
+42 1.5 t false
 ```
 
 ```aether @reject=SYN-001 id=G.Literal.2
@@ -2113,7 +2113,7 @@ fn main() -> Void {
 ```
 
 ```text
-1.500000x2
+1.5x2
 ```
 
 ```aether @ok id=LEN.trailing.1
@@ -2167,7 +2167,7 @@ fn main() -> Void {
 ```
 
 ```text
-2223 AB 1.500000
+2223 AB 1.5
 ```
 
 ### 6.1 Removed forms

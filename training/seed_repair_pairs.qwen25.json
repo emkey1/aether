@@ -35,10 +35,10 @@
     {
       "id": "repair_float_formatting",
       "kind": "behavioral",
-      "diagnostic": "Formatting issue: default Real printing is verbose; use `value:width:precision` inside `println` when exact decimals matter.",
-      "broken_source": "fn main() -> Void {\n    let amount: Real = 19.99;\n    fx {\n        println(\"Amount: \", amount);\n    }\n    ret;\n}\n",
-      "fixed_source": "fn main() -> Void {\n    let amount: Real = 19.99;\n    fx {\n        println(\"Amount: \", amount:0:2);\n    }\n    ret;\n}\n",
-      "expected_stdout": "Amount: 19.99\n"
+      "diagnostic": "Formatting issue: default Real printing gives the shortest form (`20.5`), not a fixed number of decimals; use `value:width:precision` inside `println` when exact decimals matter.",
+      "broken_source": "fn main() -> Void {\n    let amount: Real = 20.5;\n    fx {\n        println(\"Amount: \", amount);\n    }\n    ret;\n}\n",
+      "fixed_source": "fn main() -> Void {\n    let amount: Real = 20.5;\n    fx {\n        println(\"Amount: \", amount:0:2);\n    }\n    ret;\n}\n",
+      "expected_stdout": "Amount: 20.50\n"
     },
     {
       "id": "repair_nested_fn_par_shared_local",

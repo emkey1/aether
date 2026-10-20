@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-7*
+*Guide version: 2026-10-20-8*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -218,7 +218,7 @@ Generate the canonical form unless preserving existing code.
 | Sort | `sorted(xs)`, `sorted_by(rs, "field")` | — | `xs.sort()`, a hand-written insertion sort |
 | Real type name | `Real` | `Float` | `Double`, `Number` (TYPE-002) |
 | Text type name | `Text` | `String` | `Str`, `Char` (TYPE-002) |
-| Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (always 6 dp) | `format_float(r, 0, prec)` (a width argument is `[BUILT-002]`); `r:0:prec` as a value (it is `println`-only) |
+| Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (shortest, as printed) | `format_float(r, 0, prec)` (a width argument is `[BUILT-002]`); `r:0:prec` as a value (it is `println`-only) |
 | Numeric cast | `int(x)` (`Real` → `Int`, truncating) | `Int(x)`, `real(n)` / `Real(n)`, `bool(n)` / `Bool(n)` | `int(text)` (`TYPE-001`; use `parse_int`) |
 | Char → Int code | `ord(ch)` | — | `int(ch)` (`TYPE-001`: it casts `Real`/`Bool`, not `Text`) |
 | Int code → Char | `chr(code)` | — | inventing a lookup table |
@@ -862,11 +862,12 @@ fx {
 }
 ```
 
-`println(realValue)` uses the backend default (6 decimals). For stable decimal
-output use `value:width:precision`; width `0` means "precision only". The
-`value:width:precision` spec works **only inside `print`/`println` arguments**.
-To capture a formatted Real as `Text` (to return from a helper or concatenate),
-use `format_float(value, precision)` or `real_to_text(value)` (always 6 decimals).
+`println(realValue)` prints the shortest form that reads back as the same
+value, as Python does: `2.5`, `100.0`, `0.30000000000000004`, `1e+20`; so do
+`"x=" + r` and `real_to_text(r)`. For fixed decimals use `value:width:precision`;
+width `0` means "precision only". The `value:width:precision` spec works **only
+inside `print`/`println` arguments**. To capture a formatted Real as `Text` (to
+return from a helper or concatenate), use `format_float(value, precision)`.
 
 `println(a, b)` writes its arguments with **nothing between them**, then a
 newline: `println(1, 2)` prints `12`. Put the separators in yourself
@@ -877,10 +878,10 @@ line its own `println`.
 |---|---|---|
 | percentage | `value:0:2` | `95.50` |
 | right-aligned | `value:10:2` | `     95.50` |
-| default | `value` | `3.141593` |
+| default | `value` | `3.14159` |
 
 Division: `/` on two `Int`s gives a `Real` (`println(7 / 2)` prints
-`3.500000`). An `Int` binding, field, array element, parameter or `-> Int`
+`3.5`). An `Int` binding, field, array element, parameter or `-> Int`
 `ret` truncates only the final value, so `a / 2 * 2` gives back `a`, and a
 quotient used where an `Int` is required — an operand of `%` or `div`, a
 `Text` index, `int_to_text` — is a `TYPE-001` error. Write `div` for an
