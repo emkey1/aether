@@ -50,11 +50,11 @@ Nothing below is generated before then.
    - The published 27B writes Aether for many more tasks, verified on the 1.0 compiler and against Python, which
      gives the 4B far more examples than the guided solvers can produce.
    - The 27B was trained before 1.0, so its outputs pass only where 1.0 accepts them. The compiler filters the rest.
-**Run order on the training host** (owner, 2026-10-20). The 27B does not need redoing before the first small model:
-`qwen35-4b-v1` uses no 27B output.
-1. `qwen35-4b-v1`.
-2. `qwen38-27b-v1`: the 27B refreshed on the same 1.0 dataset. It is the candidate public update and the new
-   teacher, since the published 27B never learned maps or the 1.0 names.
+**Run order on the training host** (owner, revised 2026-10-20: the Hugging Face update ships within a day or two
+of 1.0-beta1, so the 27B refresh goes first):
+1. `qwen38-27b-v1`: the 27B refreshed on the 1.0 dataset. It replaces the published model as a new revision of the
+   same repos, which also retires its `formatfloat` habit (D72), and it is the new teacher.
+2. `qwen35-4b-v1`: on the same dataset. It uses no 27B output, so it can follow at once.
 3. `qwen35-4b-v2`: the 4B plus the refreshed 27B's verified programs; one change from v1.
 
 3. **`qwen38-27b-v1` (see the run order above):** a 27B refresh on the 1.0 dataset, if a published model that knows maps and the 1.0
