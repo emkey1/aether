@@ -17,6 +17,11 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-20-12
 
+**Release `1.0-beta2`** (D75): the second 1.0 beta, tagged `1.0-beta2`;
+`--version` prints `Aether Compiler Version: 2026-10-20-12 (1.0-beta2)`. It is
+the builtin-surface work below on top of `1.0-beta1`. The next dev label is
+`1.0-beta3dev`.
+
 **The whole builtin surface is checked, and what the check found is fixed**
 (1.0-beta2 work; the release label is `1.0-beta2dev`). Of the 60 builtins D72
 renamed, 45 were called by no test or example, so nothing showed that a
