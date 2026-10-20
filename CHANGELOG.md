@@ -12,6 +12,28 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-20-11
+
+**An imported module follows the importer's effect rules (D69).** The walk that
+enforces FX-001 and ANN-001 ran before `use`d modules were loaded, so it never
+saw a module's body or its functions: a module function could call `println`
+outside `fx`, a module's `@pure` export could call an effectful helper, and a
+`@pure` function could call a module export that performs effects, all with no
+diagnostic (an in-file `mod` block was always checked). Each loaded module is
+now walked once modules are in, its diagnostics naming the module's own file,
+and a `@pure` function's call to a name not declared in its file is judged
+against the module functions. ARR-001 (D8) reaches module functions the same
+way, and the type-oracle rules that already walked modules (REC-001, the
+discarded array result, the Real-index rule) now name the module's file
+instead of the importer's. `fx` stays local (D69): a function that holds its own
+`fx` block may still be called from anywhere but a `@pure` function, across a
+module boundary too.
+
+Fixtures: `tests/module_effects_fail` (FX-001 and ANN-001 in the module, ANN-001
+in the importer), `tests/module_effects_pass` and `tests/module_arr_param_fail`,
+checked in `tests/run.sh`. The full guide's Modules rules and the spec's
+modules section say so (full guide stamp `2026-10-20-9`).
+
 ## 2026-10-20-10
 
 **A Real prints in its shortest round-trip form (D74).** The default text of a

@@ -1,0 +1,8 @@
+// D69 with D8: an imported module's function that writes its array parameter
+// without returning it is ARR-001, reported against this file.
+mod ArrParamMod {
+    export fn zeroFirst(xs: Int[]) -> Int {
+        xs[0] = 0;
+        ret length(xs);
+    }
+}

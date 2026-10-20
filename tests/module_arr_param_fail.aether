@@ -1,0 +1,8 @@
+use "module_arr_param_mod";
+
+fn main() -> Void {
+    let a: Int[] = [3, 1, 2];
+    let n: Int = zeroFirst(a);
+    fx { println(n, " ", a[0]); }
+    ret;
+}

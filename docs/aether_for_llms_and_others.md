@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-8*
+*Guide version: 2026-10-20-9*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1685,6 +1685,10 @@ Hard rules:
 - file naming: `mod PascalCaseName` lives in a snake_case file consumed as
   `use "pascal_case_name";` (e.g. `mod ModuleConsts` → `use "module_consts";`)
 - when combining purity with module export, write `@pure` above `export fn`
+- a module follows the same effect rules as your file: its effects need
+  `fx`, its functions may not write an array parameter they never return
+  (ARR-001), and a `@pure` function cannot call an export that performs
+  effects (ANN-001)
 - for generated code, assume modules export `const` and `fn`; do not generate
   exported `type` blocks
 - if the task provides a module, copy its export names exactly; do not invent

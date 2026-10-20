@@ -1,0 +1,16 @@
+// D69: effects through an imported module. The module's own breaches are
+// reported against the module file; a @pure function here that calls the
+// module's effectful export is ANN-001 here, as it is for a local function.
+use "module_effects_mod";
+
+@pure
+fn compute(x: Int) -> Int {
+    ret x + note("in pure");
+}
+
+fn main() -> Void {
+    let v: Int = compute(3);
+    let w: Int = EffectsMod.twice(2);
+    fx { println(v, " ", w); }
+    ret;
+}

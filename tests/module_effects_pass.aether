@@ -1,0 +1,15 @@
+// D69: fx stays local through a module. An export that holds its own fx block
+// is called from main with no fx around the call, and a @pure function may
+// call the module's @pure exports, bare or qualified.
+use "module_effects_ok_mod";
+
+@pure
+fn compute(x: Int) -> Int {
+    ret quad(x) + EffectsOk.twice(1);
+}
+
+fn main() -> Void {
+    let n: Int = note("hi");
+    fx { println(compute(3), " ", n); }
+    ret;
+}

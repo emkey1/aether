@@ -1,0 +1,14 @@
+mod EffectsOk {
+    export fn note(msg: Text) -> Int {
+        fx { println("note: ", msg); }
+        ret 1;
+    }
+    @pure
+    export fn twice(x: Int) -> Int {
+        ret x * 2;
+    }
+    @pure
+    export fn quad(x: Int) -> Int {
+        ret twice(twice(x));
+    }
+}

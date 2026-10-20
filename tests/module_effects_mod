@@ -1,0 +1,20 @@
+// D69: an imported module follows the importer's effect rules. Each function
+// below breaks one, and the diagnostics must name this file.
+mod EffectsMod {
+    export fn note(msg: Text) -> Int {
+        fx { println("note: ", msg); }
+        ret 1;
+    }
+    export fn bare(msg: Text) -> Int {
+        println("bare: ", msg);
+        ret 2;
+    }
+    @pure
+    export fn twice(x: Int) -> Int {
+        ret x + noisy();
+    }
+    fn noisy() -> Int {
+        fx { println("noisy"); }
+        ret 0;
+    }
+}

@@ -21,5 +21,9 @@ int aetherIsNameTypedBuiltin(const char *name);
  * increments the semantic error count; a warning does not. */
 void aetherSemanticReportCoded(const char *code, const char *kind, int line,
                                const char *detail, int isError);
+/* The file name diagnostics are reported under, swapped while a walk visits
+ * an imported module (unlike aetherSemanticSetSourcePath, it leaves rea's
+ * import state alone). Returns the previous one. */
+const char *aetherSemanticSwapReportPath(const char *path);
 
 #endif

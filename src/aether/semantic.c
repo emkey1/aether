@@ -3234,6 +3234,58 @@ static void aetherCheckBuiltinArity(const AST *node,
     }
 }
 
+/* D69: a call inside a @pure function whose callee is not declared in this
+ * file may name an imported module's export, and modules load only after this
+ * walk (reaPerformSemanticAnalysis). Such calls wait here and are judged once
+ * the modules are in (aetherValidateModuleEffects). */
+typedef struct {
+    char *canonical;
+    char *display;
+    char *pureFn;
+    int line;
+} AetherDeferredPurityCall;
+
+static AetherDeferredPurityCall *g_aether_deferred_purity = NULL;
+static size_t g_aether_deferred_purity_count = 0;
+static size_t g_aether_deferred_purity_cap = 0;
+static int g_aether_defer_unknown_callees = 0;
+
+static void aetherDeferPurityCall(const char *canonical, const char *display,
+                                  const char *pureFn, int line) {
+    if (g_aether_deferred_purity_count == g_aether_deferred_purity_cap) {
+        size_t cap = g_aether_deferred_purity_cap ? g_aether_deferred_purity_cap * 2 : 8;
+        AetherDeferredPurityCall *grown = (AetherDeferredPurityCall *)realloc(
+            g_aether_deferred_purity, cap * sizeof(*grown));
+        if (!grown) return;
+        g_aether_deferred_purity = grown;
+        g_aether_deferred_purity_cap = cap;
+    }
+    AetherDeferredPurityCall *d = &g_aether_deferred_purity[g_aether_deferred_purity_count];
+    d->canonical = strdup(canonical);
+    d->display = strdup(display ? display : canonical);
+    d->pureFn = strdup(pureFn);
+    d->line = line;
+    if (!d->canonical || !d->display || !d->pureFn) {
+        free(d->canonical);
+        free(d->display);
+        free(d->pureFn);
+        return;
+    }
+    g_aether_deferred_purity_count++;
+}
+
+static void aetherFreeDeferredPurityCalls(void) {
+    for (size_t i = 0; i < g_aether_deferred_purity_count; i++) {
+        free(g_aether_deferred_purity[i].canonical);
+        free(g_aether_deferred_purity[i].display);
+        free(g_aether_deferred_purity[i].pureFn);
+    }
+    free(g_aether_deferred_purity);
+    g_aether_deferred_purity = NULL;
+    g_aether_deferred_purity_count = 0;
+    g_aether_deferred_purity_cap = 0;
+}
+
 static void aetherCheckCallNode(const AST *node,
                                 const char *canonical,
                                 int fxDepth,
@@ -3288,13 +3340,17 @@ static void aetherCheckCallNode(const AST *node,
             reportAetherError("purity", line, detail);
         } else {
             int calleePure = 0;
-            if (aetherAstLookupFunctionPurity(canonical, &calleePure) && !calleePure) {
-                snprintf(detail,
-                         sizeof(detail),
-                         "pure function '%s' cannot call non-pure function '%s'.",
-                         pureFnName,
-                         display);
-                reportAetherError("purity", line, detail);
+            if (aetherAstLookupFunctionPurity(canonical, &calleePure)) {
+                if (!calleePure) {
+                    snprintf(detail,
+                             sizeof(detail),
+                             "pure function '%s' cannot call non-pure function '%s'.",
+                             pureFnName,
+                             display);
+                    reportAetherError("purity", line, detail);
+                }
+            } else if (g_aether_defer_unknown_callees) {
+                aetherDeferPurityCall(canonical, display, pureFnName, line);
             }
         }
     }
@@ -3378,7 +3434,43 @@ static void aetherWalkEffectsAndPurity(const AST *node, int fxDepth, const char 
 }
 
 static void aetherValidateEffectsAndPurity(const AST *root) {
+    aetherFreeDeferredPurityCalls();
+    g_aether_defer_unknown_callees = 1;
     aetherWalkEffectsAndPurity(root, 0, NULL);
+    g_aether_defer_unknown_callees = 0;
+}
+
+/* D69: an imported module follows the same effect rules as the importer. Its
+ * AST is separate and loads only during reaPerformSemanticAnalysis, so the
+ * walk above never saw it: a module function could call `println` with no
+ * `fx`, a module's @pure export could call an effectful helper, and a @pure
+ * function could call an effectful export, all silently. Each module is walked
+ * under its own path (as aetherValidateTypeNames does), then the importer's
+ * deferred @pure calls are judged against the now-registered module
+ * functions. */
+static void aetherValidateModuleEffects(const AST *root) {
+    int moduleCount = aetherGetLoadedModuleCount();
+    for (int i = 0; i < moduleCount; i++) {
+        const AST *m = aetherGetModuleAST(i);
+        if (!m || m == root) continue;
+        const char *savedPath = g_aether_source_path;
+        const char *path = aetherGetModulePath(i);
+        if (path) g_aether_source_path = path;
+        aetherWalkEffectsAndPurity(m, 0, NULL);
+        g_aether_source_path = savedPath;
+    }
+    for (size_t i = 0; i < g_aether_deferred_purity_count; i++) {
+        const AetherDeferredPurityCall *d = &g_aether_deferred_purity[i];
+        int calleePure = 0;
+        if (aetherAstLookupFunctionPurity(d->canonical, &calleePure) && !calleePure) {
+            char detail[256];
+            snprintf(detail, sizeof(detail),
+                     "pure function '%s' cannot call non-pure function '%s'.",
+                     d->pureFn, d->display);
+            reportAetherError("purity", d->line, detail);
+        }
+    }
+    aetherFreeDeferredPurityCalls();
 }
 
 /* NARROW-001 (warning): a Real-valued expression stored into an Int target.
@@ -4637,6 +4729,9 @@ void aetherPerformSemanticAnalysis(AST *root) {
      * first point at which any other unresolved type name is known to be wrong
      * rather than early. */
     aetherValidateTypeNames(root);
+    /* D69: imported modules are in now; check their effects and the
+     * importer's @pure calls into them. */
+    aetherValidateModuleEffects(root);
     /* NARROW-001 is likewise a warning and never touches the error counter.
      * It must run AFTER reaPerformSemanticAnalysis: a bare AST_VARIABLE
      * reference and a call to a user function both still carry TYPE_UNKNOWN
@@ -4648,7 +4743,21 @@ void aetherPerformSemanticAnalysis(AST *root) {
     aetherRunExperiments(root);
     /* Coded errors hosted on the type oracle (types.c aetherTypedRules), on a
      * program the passes above accepted. */
-    if (pascal_semantic_error_count == errorCountBefore) aetherValidateArrayParamWrites(root);
+    if (pascal_semantic_error_count == errorCountBefore) {
+        aetherValidateArrayParamWrites(root);
+        /* D69: an imported module's functions follow ARR-001 too, reported
+         * under the module's own path. */
+        int moduleCount = aetherGetLoadedModuleCount();
+        for (int i = 0; i < moduleCount; i++) {
+            AST *m = aetherGetModuleAST(i);
+            if (!m || m == root) continue;
+            const char *savedPath = g_aether_source_path;
+            const char *path = aetherGetModulePath(i);
+            if (path) g_aether_source_path = path;
+            aetherValidateArrayParamWrites(m);
+            g_aether_source_path = savedPath;
+        }
+    }
     if (pascal_semantic_error_count == errorCountBefore) aetherWalkLoopExits(root, 0);
     if (pascal_semantic_error_count == errorCountBefore) aetherValidateParRaces(root);
     if (pascal_semantic_error_count == errorCountBefore) aetherTypedRules(root);
@@ -4670,6 +4779,12 @@ void aetherSemanticSetSourcePath(const char *path) {
 
 const char *aetherSemanticGetSourcePath(void) {
     return g_aether_source_path;
+}
+
+const char *aetherSemanticSwapReportPath(const char *path) {
+    const char *previous = g_aether_source_path;
+    g_aether_source_path = path;
+    return previous;
 }
 
 int aetherGetLoadedModuleCount(void) {

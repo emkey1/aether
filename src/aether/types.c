@@ -1410,7 +1410,12 @@ void aetherTypedWalk(AST *root, const AetherTypedVisitor *visitor) {
     indexProgram(root, 1);
     for (int i = 0; i < modules; i++) {
         AST *m = aetherGetModuleAST(i);
-        if (m && m != root) walkStmt(&w, m);
+        if (!m || m == root) continue;
+        /* A rule's diagnostic names the module's file, not the importer's. */
+        const char *path = aetherGetModulePath(i);
+        const char *saved = path ? aetherSemanticSwapReportPath(path) : NULL;
+        walkStmt(&w, m);
+        if (path) aetherSemanticSwapReportPath(saved);
     }
     walkStmt(&w, root);
     free(w.env.items);

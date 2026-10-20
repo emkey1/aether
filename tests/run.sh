@@ -78,6 +78,9 @@ FUNCTION_EMPTY_RETURN_FAIL_FIXTURE="$TESTS_DIR/function_empty_return_fail.aether
 UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_json_fail.aether"
 UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE="$TESTS_DIR/unknown_type_annotation_fail.aether"
 UNKNOWN_MODULE_TYPE_FAIL_FIXTURE="$TESTS_DIR/unknown_module_type_fail.aether"
+MODULE_EFFECTS_FAIL_FIXTURE="$TESTS_DIR/module_effects_fail.aether"
+MODULE_EFFECTS_PASS_FIXTURE="$TESTS_DIR/module_effects_pass.aether"
+MODULE_ARR_PARAM_FAIL_FIXTURE="$TESTS_DIR/module_arr_param_fail.aether"
 FIELD_UNKNOWN_CODED_FAIL_FIXTURE="$TESTS_DIR/field_unknown_coded_fail.aether"
 UNKNOWN_TYPE_NAME_FAIL_FIXTURE="$TESTS_DIR/unknown_type_name_fail.aether"
 UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE="$TESTS_DIR/unknown_type_scalar_fail.aether"
@@ -308,6 +311,9 @@ for fixture in \
     "$UNKNOWN_TYPE_ANNOTATION_JSON_FAIL_FIXTURE" \
     "$UNKNOWN_TYPE_ANNOTATION_FAIL_FIXTURE" \
     "$UNKNOWN_MODULE_TYPE_FAIL_FIXTURE" \
+    "$MODULE_EFFECTS_FAIL_FIXTURE" \
+    "$MODULE_EFFECTS_PASS_FIXTURE" \
+    "$MODULE_ARR_PARAM_FAIL_FIXTURE" \
     "$FIELD_UNKNOWN_CODED_FAIL_FIXTURE" \
     "$UNKNOWN_TYPE_NAME_FAIL_FIXTURE" \
     "$UNKNOWN_TYPE_SCALAR_FAIL_FIXTURE" \
@@ -2214,6 +2220,46 @@ fi
 if ! grep -q "unknown_module_type_mod:6: \[TYPE-002\].*unknown type 'MissingInModule'" $OUT/aether_unknown_module_type.out; then
     echo "missing module-attributed TYPE-002 for an unknown type inside an imported module" >&2
     cat $OUT/aether_unknown_module_type.out >&2
+    exit 1
+fi
+
+# D69: an imported module follows the importer's effect rules. The walk that
+# enforces FX-001 and ANN-001 ran before modules were loaded, so a module could
+# call println with no fx, a module's @pure export could call an effectful
+# helper, and a @pure function could call an effectful export, all silently.
+if "$AETHER_BIN" --no-cache "$MODULE_EFFECTS_FAIL_FIXTURE" >$OUT/aether_module_effects_fail.out 2>&1; then
+    echo "expected FX-001/ANN-001 through an imported module but program succeeded (D69)" >&2
+    exit 1
+fi
+for expected in \
+    "module_effects_mod:9: \[FX-001\].*call to 'println' requires an fx block" \
+    "module_effects_mod:14: \[ANN-001\].*pure function 'twice' cannot call non-pure function 'noisy'" \
+    "module_effects_fail.aether:8: \[ANN-001\].*pure function 'compute' cannot call non-pure function 'note'"
+do
+    if ! grep -q "$expected" $OUT/aether_module_effects_fail.out; then
+        echo "missing D69 diagnostic: $expected" >&2
+        cat $OUT/aether_module_effects_fail.out >&2
+        exit 1
+    fi
+done
+if ! "$AETHER_BIN" --no-cache "$MODULE_EFFECTS_PASS_FIXTURE" >$OUT/aether_module_effects_pass.out 2>&1; then
+    echo "module effects pass fixture failed (D69: fx stays local through a module)" >&2
+    cat $OUT/aether_module_effects_pass.out >&2
+    exit 1
+fi
+if [ "$(cat $OUT/aether_module_effects_pass.out)" != "$(printf 'note: hi\n14 1')" ]; then
+    echo "module effects pass fixture printed the wrong output" >&2
+    cat $OUT/aether_module_effects_pass.out >&2
+    exit 1
+fi
+# ...and ARR-001 (D8), against the module's own file.
+if "$AETHER_BIN" --no-cache "$MODULE_ARR_PARAM_FAIL_FIXTURE" >$OUT/aether_module_arr_param_fail.out 2>&1; then
+    echo "expected ARR-001 inside an imported module but program succeeded (D69)" >&2
+    exit 1
+fi
+if ! grep -q "module_arr_param_mod:5: \[ARR-001\].*array parameter 'xs' has an element written here" $OUT/aether_module_arr_param_fail.out; then
+    echo "missing module-attributed ARR-001 (D69)" >&2
+    cat $OUT/aether_module_arr_param_fail.out >&2
     exit 1
 fi
 

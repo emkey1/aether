@@ -2015,6 +2015,13 @@ To be written: module files and name visibility. Rows:
   the top level.
 - **D25**, imports: IMP-001 when a module is missing. Today a missing module is
   ignored.
+- **D69**, effects through modules (shipped, language `2026-10-20-11`): an
+  imported module is checked like the importing file -- FX-001 for an effect
+  outside `fx`, ANN-001 for a `@pure` function that calls a function
+  performing effects (a module export included), ARR-001 for an un-returned
+  array-parameter write -- and its diagnostics name the module's own file.
+  `fx` stays local: a function holding its own `fx` block may be called from
+  anywhere but a `@pure` function, across a module boundary too.
 
 ```aether @reject=ENTRY-001 id=P.entry.1
 fn helper() -> Int { ret 1; }
