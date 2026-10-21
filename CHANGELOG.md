@@ -15,6 +15,25 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-9
+
+**Run-time error locations print the path as given** (1.0-beta5dev, a pscal-core
+fix). A run-time error's `path:line:` prefix went through a helper that shortens
+test paths for disassembly output, and it dropped every leading `/`:
+`aether /tmp/p.aether` printed `tmp/p.aether:1: Runtime Error: Division by zero
+(integer).` and `tmp/p.aether:1: write_file: cannot open ...`, a relative path
+that does not exist, while the compile-time diagnostics on the same file kept the
+`/`. A file under a directory named `Tests` lost even more
+(`/x/Tests/sub/p.aether` printed `sub/p.aether`). The run-time prefix is now the
+path exactly as `aether` was given it, the string compile-time diagnostics print;
+a relative path prints as before, so the guides, the manual and every golden are
+unchanged. The `raw` field of a run-time `--diagnostics-json` record carries the
+same path (its `file` field already did). Engine change: pscal-core 853ad3d.
+Fixtures: `tests/fx/diag/runtime_abs_path_fail` and
+`runtime_abs_path_tests_dir_fail`, run by their absolute path through the
+fixture runner's new `.abspath` sidecar. pin_gate: corpus A/B 745 programs, 734
+compared, 734 same, 0 unexplained diffs (11 nondeterministic left out).
+
 ## 2026-10-21-8
 
 **Release `1.0-beta4`** (D75): the fourth 1.0 beta, tagged `1.0-beta4`;

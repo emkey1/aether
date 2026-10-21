@@ -24,6 +24,7 @@ fresh; printf '' > $T/fx/diag/narrow_warn_pass.codes; expect_fail ".codes warnin
 fresh; printf '2\n' > $T/fx/diag/scope_unknown_fail.rc; expect_fail ".rc" diag/scope_unknown_fail
 fresh; printf '3\n4\n\n' > $T/fx/basic/stdin_sum.in; expect_fail ".in" basic/stdin_sum
 fresh; echo "--no-run" > $T/fx/basic/record_method.flags; expect_fail ".flags" basic/record_method
+fresh; rm $T/fx/diag/runtime_abs_path_fail.abspath; expect_fail ".abspath" diag/runtime_abs_path_fail
 fresh; mkdir -p $T/fx/diag; printf 'fn main() -> Void {\n    let x: Int = 1;\n    x.frobnicate();\n}\n' > $T/fx/diag/null_code.aether; printf "FIELD-002\n" > $T/fx/diag/null_code.codes; printf '1\n' > $T/fx/diag/null_code.rc; expect_fail "code:null forbidden" diag/null_code
 fresh; rm $T/fx/basic/record_method.out; expect_fail "asserts nothing" basic/record_method
 fresh; echo sdl > $T/fx/net/http_session_denied.cap; out=$(run net/http_session_denied)

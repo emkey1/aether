@@ -1,0 +1,12 @@
+// A run-time error names the program by the path aether was given, as the
+// compile-time diagnostics do. An absolute path lost its leading "/" here
+// ("tmp/p.aether:5: Runtime Error: ..."), a relative path that doesn't exist.
+fn ratio(a: Int, b: Int) -> Int {
+    ret a / b;
+}
+
+fn main() -> Void {
+    let r: Int = ratio(7, 0);
+    fx { println(r); }
+    ret;
+}

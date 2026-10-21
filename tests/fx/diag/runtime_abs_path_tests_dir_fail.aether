@@ -1,0 +1,7 @@
+// Under a directory named Tests the run-time location kept only what followed
+// it ("sub/p.aether:5: write_file: ..."): a shortening meant for disassembly
+// goldens, not for error locations.
+fn main() -> Void {
+    fx { write_file("/nonexistent-aether-fixture-dir/out.txt", "x"); }
+    ret;
+}

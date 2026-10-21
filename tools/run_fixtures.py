@@ -20,6 +20,9 @@ going over all of them:
   .flags      extra aether flags, whitespace separated
   .env        KEY=VALUE lines added to the program's environment
   .cap        needs curl, yyjson, openai or sdl; skipped on a build without it
+  .abspath    present: run the program by its absolute path, not its basename,
+              from the subdirectory the file names (empty: the fixture's own
+              directory); `{SRC}` in .err stands for that path
 
 Each fixture runs with --no-cache in its own directory under a private temp
 dir. A fixture must assert something: .out, .err or .codes.
@@ -138,8 +141,14 @@ def check(name, aether, work, update):
         return "FAIL", ["asserts nothing: add .out, .err or .codes"], []
 
     cwd = tempfile.mkdtemp(prefix=os.path.basename(name) + "_", dir=work)
-    shutil.copy(src, os.path.join(cwd, os.path.basename(src)))
     local = os.path.basename(src)
+    abspath_text = read(base + ".abspath")
+    if abspath_text is not None:
+        where = os.path.join(os.path.abspath(cwd), abspath_text.strip())
+        os.makedirs(where, exist_ok=True)
+        local = os.path.join(where, local)
+        err_lines = [ln.replace("{SRC}", local) for ln in err_lines]
+    shutil.copy(src, os.path.join(cwd, local))
     rc, out, err = run([aether, "--no-cache"] + flags + [local], stdin, cwd, env)
     problems, diffs = [], []
     if rc == "timeout":

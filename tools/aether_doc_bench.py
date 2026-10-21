@@ -2995,8 +2995,9 @@ TIMEOUT_RETURNCODE = 124
 # random per case, so leaving it in kept identical failures from clustering,
 # showed the model a meaningless path, and leaked the account's temp dir into
 # reports.
-# The VM's runtime errors print the path without its leading "/", hence the
-# match from any token start rather than from a "/".
+# Before language 2026-10-21-9 the VM's runtime errors printed the path without
+# its leading "/", and archived reports keep that form, hence the match from any
+# token start rather than from a "/".
 _RUN_DIR_RE = re.compile(
     r"(?<![^\s:'\"(\[=])[^\s:'\"()\[\]]*?(?:aether|python|rust)-doc-bench-[A-Za-z0-9_]+/"
 )
