@@ -1,0 +1,2463 @@
+{
+  "replay_binary": {
+    "aether_bin": "~/aether-models/grader/aether",
+    "aether_bin_resolved": "~/aether-models/grader/aether",
+    "binary_sha256": "c56c9b56b0cc96765d0b9625945710a54fd391204961d194f5fcdc37603ce377",
+    "aether_version": "2026-10-20-12",
+    "aether_version_raw": "Aether Compiler Version: 2026-10-20-12 (1.0-beta3dev)",
+    "language_version": "2026-10-20-12",
+    "binary_commit": null,
+    "binary_dirty": false,
+    "standalone_build": true,
+    "aether_args": []
+  },
+  "reports": [
+    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_spec.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/tuned__cs.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_nontoon.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz"
+  ],
+  "skipped_cases": {},
+  "attempts_replayed": 151,
+  "programs_run": 148,
+  "run_seconds": 0.26,
+  "tallies": {
+    "first": {
+      "attempts": 126,
+      "old_pass": 108,
+      "new_pass": 99,
+      "fail_to_pass": 0,
+      "pass_to_fail": 9,
+      "into_silent_wrong": 0,
+      "transitions": {
+        "pass->coded_error": 9,
+        "silent_wrong->coded_error": 2,
+        "uncoded_error->coded_error": 1
+      }
+    },
+    "repair": {
+      "attempts": 25,
+      "old_pass": 12,
+      "new_pass": 10,
+      "fail_to_pass": 0,
+      "pass_to_fail": 2,
+      "into_silent_wrong": 0,
+      "transitions": {
+        "pass->coded_error": 2,
+        "silent_wrong->coded_error": 2
+      }
+    }
+  },
+  "waived": [],
+  "unwaived": [
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "algo_record_pipeline",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "530dec60c35c74fa512e97eb7ef07696b8010c8c4f50abc3bc41972f2fe3c0ec",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "algo_record_pipeline.aether:103: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_monthly_spend",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "807cf4e957ea9a3203dd0e3354f5d519a982e54a5afa82a83e36106ac590d7a8",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_monthly_spend.aether:56: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_nontoon.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_inventory_rollup",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "64043f9864710c736e34785210daf9b41a68bff1492ae16429fc6673e747298d",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_inventory_rollup.aether:43: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard_expense_outliers",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "86c77b6434e0baabc1d4885850d184fcccb64e8b0364b867a69cc3fe2842c5f6",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard_expense_outliers.aether:37: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_sensor_windows",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "f578659a0be00311ed05fb9b9a3302409046215725c9f50e74963988576977ab",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_sensor_windows.aether:25: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_grade_bands",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "39eb733c0de1c6ca426964abe8b32bdc60d4c806b3f5ebfa7fd11b8257e626ac",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_grade_bands.aether:66: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "real_format_circle",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "2ad5d6a8eb07f9f41ea61c6bc119824123c5c52e595bf33946f5c876ed87f6c4",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "real_format_circle.aether:12: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "percentage_format",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "2d46879ae0d51112ddc2d94eaf9721c30cb32df47a1b1cb154a7c00c725c6db6",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "percentage_format.aether:6: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "real_mean_format",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "573cac8b64b5adf48218f3cf7734ce3e0a3cbb961ce1f4aafff5d17526fa5ab7",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "real_mean_format.aether:9: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    }
+  ],
+  "flips": [
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "algo_record_pipeline",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "530dec60c35c74fa512e97eb7ef07696b8010c8c4f50abc3bc41972f2fe3c0ec",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "algo_record_pipeline.aether:103: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_cell_kinds",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "7f03cded0890e64fe4402943f6c67bb86c99a9d114eda701dfd5577a1f186eae",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_cell_kinds.aether:16: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_meter_validation",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "a356ee616b0a658b6f5b018765a5b0b4d2b543ef9613853c933b7600ff2c928b",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_meter_validation.aether:60: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_monthly_spend",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "807cf4e957ea9a3203dd0e3354f5d519a982e54a5afa82a83e36106ac590d7a8",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_monthly_spend.aether:56: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_nontoon.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_inventory_rollup",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "64043f9864710c736e34785210daf9b41a68bff1492ae16429fc6673e747298d",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_inventory_rollup.aether:43: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard_expense_outliers",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "86c77b6434e0baabc1d4885850d184fcccb64e8b0364b867a69cc3fe2842c5f6",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard_expense_outliers.aether:37: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_sensor_windows",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "f578659a0be00311ed05fb9b9a3302409046215725c9f50e74963988576977ab",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_sensor_windows.aether:25: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_grade_bands",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "39eb733c0de1c6ca426964abe8b32bdc60d4c806b3f5ebfa7fd11b8257e626ac",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_grade_bands.aether:66: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "real_format_circle",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "2ad5d6a8eb07f9f41ea61c6bc119824123c5c52e595bf33946f5c876ed87f6c4",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "real_format_circle.aether:12: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "percentage_format",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "2d46879ae0d51112ddc2d94eaf9721c30cb32df47a1b1cb154a7c00c725c6db6",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "percentage_format.aether:6: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "real_mean_format",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "573cac8b64b5adf48218f3cf7734ce3e0a3cbb961ce1f4aafff5d17526fa5ab7",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "real_mean_format.aether:9: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ],
+      "transition": "pass->fail"
+    }
+  ],
+  "moves": [
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "algo_record_pipeline",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "530dec60c35c74fa512e97eb7ef07696b8010c8c4f50abc3bc41972f2fe3c0ec",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "algo_record_pipeline.aether:103: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_cell_kinds",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "85eb4e32a03e8032aebb8ef0d46d7639879d26e9589ea759d3eff82845b51433",
+      "base_version": "2026-10-19-3",
+      "old_class": "silent_wrong",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_cell_kinds.aether:17: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_cell_kinds",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "7f03cded0890e64fe4402943f6c67bb86c99a9d114eda701dfd5577a1f186eae",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_cell_kinds.aether:16: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_score_ranking",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "80a50e2e2e454b7e89911f8cada87b21246a3a0e853795c911af3aee46d45147",
+      "base_version": "2026-10-19-3",
+      "old_class": "silent_wrong",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_score_ranking.aether:85: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_score_ranking",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "4759412eb6146a0ab5f1b4d3e1ce87cd15b2620154df5d4689c358749c8bee17",
+      "base_version": "2026-10-19-3",
+      "old_class": "silent_wrong",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_score_ranking.aether:85: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_score_ranking",
+      "repeat_index": 0,
+      "attempt": 2,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "4759412eb6146a0ab5f1b4d3e1ce87cd15b2620154df5d4689c358749c8bee17",
+      "base_version": "2026-10-19-3",
+      "old_class": "silent_wrong",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_score_ranking.aether:85: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_meter_validation",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "790008805cf9553da7130027c38123df8e2843fd9f5f9509c6342246ac98e4ef",
+      "base_version": "2026-10-19-3",
+      "old_class": "uncoded_error",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_meter_validation.aether:40: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_meter_validation",
+      "repeat_index": 0,
+      "attempt": 1,
+      "kind": "repair",
+      "basis": "current",
+      "source_sha256": "a356ee616b0a658b6f5b018765a5b0b4d2b543ef9613853c933b7600ff2c928b",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_meter_validation.aether:60: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "doc": "none",
+      "task_id": "sealed_toon_monthly_spend",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "807cf4e957ea9a3203dd0e3354f5d519a982e54a5afa82a83e36106ac590d7a8",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "sealed_toon_monthly_spend.aether:56: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_nontoon.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_inventory_rollup",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "64043f9864710c736e34785210daf9b41a68bff1492ae16429fc6673e747298d",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_inventory_rollup.aether:43: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard_expense_outliers",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "86c77b6434e0baabc1d4885850d184fcccb64e8b0364b867a69cc3fe2842c5f6",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard_expense_outliers.aether:37: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_sensor_windows",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "f578659a0be00311ed05fb9b9a3302409046215725c9f50e74963988576977ab",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_sensor_windows.aether:25: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "hard2_grade_bands",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "39eb733c0de1c6ca426964abe8b32bdc60d4c806b3f5ebfa7fd11b8257e626ac",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "hard2_grade_bands.aether:66: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "real_format_circle",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "2ad5d6a8eb07f9f41ea61c6bc119824123c5c52e595bf33946f5c876ed87f6c4",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "real_format_circle.aether:12: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "percentage_format",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "2d46879ae0d51112ddc2d94eaf9721c30cb32df47a1b1cb154a7c00c725c6db6",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "percentage_format.aether:6: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    },
+    {
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/tuned__v2_pos.json.gz",
+      "destination": "qwen38-27b-r7-s3-tuned",
+      "doc": "none",
+      "task_id": "real_mean_format",
+      "repeat_index": 0,
+      "attempt": 0,
+      "kind": "first",
+      "basis": "current",
+      "source_sha256": "573cac8b64b5adf48218f3cf7734ce3e0a3cbb961ce1f4aafff5d17526fa5ab7",
+      "base_version": "2026-10-19-3",
+      "old_class": "pass",
+      "new_class": "coded_error",
+      "new_returncode": 1,
+      "new_stderr_head": [
+        "real_mean_format.aether:9: [SCOPE-001] Aether scope parser error: identifier 'formatfloat' not in scope."
+      ]
+    }
+  ],
+  "task_classes": [
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_bignum_add",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_binary_search_bounds",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_bracket_validate",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_dijkstra_path",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_edit_distance_script",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_interval_merge_gaps",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_knapsack_items",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_lcs_reconstruct",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_lru_eviction",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_merge_k_sorted",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_record_pipeline",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_sliding_window_max",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_topo_sort_cycle",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "algo_union_find_components",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "array_minmax",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "array_value_semantics",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "bitwise_permission_flags",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "clamp_scores",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "classify_scores",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "concat_chain_partition",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "contract_guarded_spread",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "contract_normalize",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "count_by_category",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_bfs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_binary_search",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_bubble_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_coin_change",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_collatz",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_dijkstra",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_edit_distance",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_factorial",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_fibonacci",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_fizzbuzz",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_gcd",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_hanoi",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_lcs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_lis",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_merge_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_nqueens",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_quick_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_sieve_primes",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "cs_substring",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "digit_separators_sum",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "dynamic_array_rollup",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "eligibility_bool_logic",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "field_defaults_gauge",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "file_csv_roundtrip",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_config_defaults",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_event_sessionize",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_expr_eval",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_grade_bands",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_heap_sort",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_inventory_rollup",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_matrix_spiral",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_rle_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_route_legs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard2_sensor_windows",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_account_ledger",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_append_growth",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_collatz_recursion",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_expense_outliers",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_log_levels",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_payroll_nested",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_sensor_streak",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_turnstile_fsm",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hard_word_lengths",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hello_const_name",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "hello_fx",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "inline_if_average",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "inventory_status",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "jagged_nested_grid",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "loop_until_threshold",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "method_self_state",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "module_const_import",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "module_function_import",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "module_pure_export",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "money_cents_report",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "mstream_field_parse",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "mstream_roundtrip",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "nested_multiply_grid",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "par_shard_tally",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "parallel_array_wordcount",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "percentage_format",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "range_loop_squares",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "real_format_circle",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "real_mean_format",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "recursion_factorial",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_mstream_file_roundtrip",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_mstream_percent_encode",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_mstream_toon_body",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_cell_kinds",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_cluster_inventory",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_contact_audit",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_effective_config",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_meter_validation",
+      "attempts": 1,
+      "old": {
+        "uncoded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_monthly_spend",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_region_net",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_reorder_packs",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "sealed_toon_score_ranking",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_csv_quoting",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_duration_phrase",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_greedy_wrap",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_histogram_bins",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_league_table",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_leap_year_rules",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_ledger_rounding",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_luhn_checksum",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_nearest_rank_percentile",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_roman_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_semver_order",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "spec_tokenizer_positions",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "string_checks",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "text_slice_tokenize",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "toon_deep_nested",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "toon_fleet_rollup",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "toon_inline_extract",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "toon_parse_file_simple",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "toon_safe_nested_codes",
+      "attempts": 1,
+      "old": {
+        "coded_error": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "toon_type_probe",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "tuple_destructure",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "tuple_order_post",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "tuple_recursive_digits",
+      "attempts": 1,
+      "old": {
+        "silent_wrong": 1
+      },
+      "new": {
+        "silent_wrong": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "tuple_stats_pipeline",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "two_type_methods",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "type_init_point",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "first",
+      "doc": "none",
+      "task_id": "val_checked_ledger",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "algo_dijkstra_path",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "algo_edit_distance_script",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "contract_guarded_spread",
+      "attempts": 2,
+      "old": {
+        "coded_error": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "cs_edit_distance",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "file_csv_roundtrip",
+      "attempts": 2,
+      "old": {
+        "coded_error": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "hard_sensor_streak",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "mstream_roundtrip",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "par_shard_tally",
+      "attempts": 2,
+      "old": {
+        "coded_error": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_mstream_file_roundtrip",
+      "attempts": 2,
+      "old": {
+        "coded_error": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_mstream_toon_body",
+      "attempts": 2,
+      "old": {
+        "coded_error": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_toon_cell_kinds",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_toon_cluster_inventory",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_toon_effective_config",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_toon_meter_validation",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "sealed_toon_score_ranking",
+      "attempts": 2,
+      "old": {
+        "silent_wrong": 2
+      },
+      "new": {
+        "coded_error": 2
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "spec_greedy_wrap",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "toon_safe_nested_codes",
+      "attempts": 2,
+      "old": {
+        "coded_error": 1,
+        "pass": 1
+      },
+      "new": {
+        "coded_error": 1,
+        "pass": 1
+      }
+    },
+    {
+      "kind": "repair",
+      "doc": "none",
+      "task_id": "tuple_recursive_digits",
+      "attempts": 1,
+      "old": {
+        "pass": 1
+      },
+      "new": {
+        "pass": 1
+      }
+    }
+  ],
+  "gate": "first"
+}
