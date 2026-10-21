@@ -19,8 +19,9 @@
 #   umbrella     with --umbrella or PSCAL_UMBRELLA: a scratch umbrella tree with
 #                components/ at the candidates (aether = this working tree),
 #                built, then ctest pascal/clike/rea/aether/pscalvm_frontend/
-#                json2bc, the exsh and pscalasm suites, vm_fx_policy and
-#                vm_thread_stress. Skipped, not failed, without an umbrella.
+#                json2bc, the exsh and pscalasm suites, vm_fx_policy,
+#                vm_thread_stress and vm_stack_growth_stress. Skipped, not
+#                failed, without an umbrella.
 #   d19          the D19 Pascal/CLike wrap probes (report only), with the
 #                umbrella's pascal/clike or --pascal-bin/--clike-bin
 #   corpus-ab    tools/corpus_ab.py, the base binary (aether HEAD at HEAD's
@@ -344,7 +345,7 @@ build_umbrella() {  # build_umbrella TREE
     cmake_configure -S "$1" -B "$1/build" -DCMAKE_BUILD_TYPE=Release $UMB_CMAKE_ARGS \
     && cmake --build "$1/build" -j "$JOBS"
 }
-UMB_SUITES="ctest Tests/run_exsh_tests.sh Tests/run_pscalasm_tests.sh Tests/vm_fx_policy/run.sh Tests/vm_thread_stress/run.sh"
+UMB_SUITES="ctest Tests/run_exsh_tests.sh Tests/run_pscalasm_tests.sh Tests/vm_fx_policy/run.sh Tests/vm_thread_stress/run.sh Tests/vm_stack_growth_stress/run.sh"
 umb_suite_name() {
     [ "$1" = ctest ] && { echo umbrella-ctest; return; }
     echo "umbrella-$(echo "$1" | sed -e 's#^Tests/##' -e 's#/run\.sh$##' -e 's#^run_##' -e 's#_tests\.sh$##' -e 's#_#-#g')"
