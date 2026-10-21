@@ -91,6 +91,12 @@ def removed_names():
     return names
 
 
+# Engine names that are themselves the Aether spelling, although an alias also
+# names them: `len` and `string_len` alias `length`, the name the guide teaches.
+# The backend-name rule in build_sections would otherwise drop `length` from
+# the appendix, which then said the core builtin does not exist.
+CANONICAL_BACKEND_NAMES = {"length"}
+
 # Front-end internals: try_parse_int / try_parse_real are declared over the
 # aetherparse* builtins, and the helpers' engine names are aether_<name>.
 HIDDEN_PREFIXES = ("aetherparse", "aether_")
@@ -129,12 +135,13 @@ def dump_builtins():
 
 
 def callable_entries(entries):
-    """The entries an Aether program can actually call in this build. The
-    listing also carries the engine's dispatch-table names with no handler or
-    no routine type (kind "unknown": the SDL family in a build without SDL);
-    each of those is probed with a one-line program and dropped when the
-    compiler rejects the name, so the appendix never lists a name that is not
-    there."""
+    """The entries an Aether program can actually call in this build. A
+    listing from an engine before pscal-core's 2026-10-21 filter also carries
+    the dispatch-table names with no handler or no routine type (kind
+    "unknown": the SDL family in a build without SDL); each of those is probed
+    with a one-line program and dropped when the compiler rejects the name, so
+    the appendix never lists a name that is not there. A current engine leaves
+    them out of builtins_json itself."""
     probe = [e for e in entries if e.get("kind") == "unknown"]
     if not probe:
         return entries
@@ -186,9 +193,7 @@ def build_sections(entries, in_prose):
         hidden = name.lower().startswith(HIDDEN_PREFIXES) and e.get("source") != "aether_alias"
         if name.lower() in removed or hidden:
             continue
-        if name in backend_names and name not in {x.get("backend_name") for x in [e]}:
-            pass
-        if name in backend_names:
+        if name in backend_names and name not in CANONICAL_BACKEND_NAMES:
             continue
         prev = best.get(name)
         # Prefer the entry carrying a signature.
@@ -282,8 +287,9 @@ def render(documented, above, name_only):
 
 
 # The graphics builtins are compiled in only on SDL builds. The standalone build
-# still lists them, as placeholders whose kind is "unknown"; an SDL build
-# registers them for real (kind function/procedure, category "graphics").
+# leaves them out of builtins_json (no handler; older engines listed them as
+# placeholders of kind "unknown"); an SDL build registers them for real (kind
+# function/procedure, category "graphics").
 GRAPHICS_PROBES = {"initgraph", "glclear", "putpixel", "playsound", "updatescreen"}
 
 SKIP = 77

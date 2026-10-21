@@ -146,6 +146,10 @@ const char *aetherRemovedBuiltinHint(const char *name) {
     return NULL;
 }
 
+bool aetherBuiltinNameRemoved(const char *name) {
+    return aetherRemovedBuiltinHint(name) != NULL;
+}
+
 /* A call to a removed builtin, by the spelling the user wrote (before any
  * alias). A user's own `fn NAME` is not ours to judge. Reports SCOPE-001 and
  * returns true when the call is rejected. */

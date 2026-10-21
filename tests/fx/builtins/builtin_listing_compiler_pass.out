@@ -1,0 +1,21 @@
+int_to_text listed=true
+task_cancel listed=true
+task_pause listed=true
+task_resume listed=true
+task_set_name listed=true
+file_exists listed=true
+sqlite_open listed=true
+http_request listed=true
+length listed=true
+apisend listed=true
+fileexists listed=false info=null
+sqliteopen listed=false info=null
+httprequest listed=false info=null
+dnslookup listed=false info=null
+inttostr listed=false info=null
+copy listed=false info=null
+getcurrentdir listed=false info=null
+mstreamcreate listed=false info=null
+task_result returns T
+dns_lookup result is Text: true
+-42

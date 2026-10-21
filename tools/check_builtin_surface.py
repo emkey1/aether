@@ -82,6 +82,7 @@ def return_binding(ret: str, call: str) -> tuple[str, str | None]:
     """The statement that binds `call` to its documented return type."""
     r = ret.strip()
     r = re.split(r"\s+in\s+[\[(]", r)[0].strip()  # "Int in [0,n)" -> "Int"
+    r = re.sub(r"\s+\([^()]*\)$", "", r)           # "T (the target's result)" -> "T"
     r = re.sub(r"\bT\b|\bR\b", "Int", r)
     if r == "Void":
         return f"{call};", None

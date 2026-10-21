@@ -89,5 +89,8 @@ int aetherAstIsBuiltinTypeName(const char *name);
 /* The engine name an Aether builtin name aliases, or NULL (run-time lookups:
  * task_spawn targets, has_builtin). */
 const char *aetherRuntimeBuiltinAlias(const char *name);
+/* True for an engine builtin name Aether removed (D55, D72: the table in
+ * ast_stdlib.c); builtins_json and builtin_info leave these out. */
+bool aetherBuiltinNameRemoved(const char *name);
 
 #endif

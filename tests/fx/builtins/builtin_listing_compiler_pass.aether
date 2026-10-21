@@ -1,0 +1,36 @@
+// builtins_json and builtin_info list what the compiler accepts (1.0-beta4dev).
+// They listed the engine spellings Aether rejects (fileexists, sqliteopen,
+// httprequest, copy: SCOPE-001 since D55/D72) as Aether-visible, and left out
+// aliases the compiler takes (int_to_text, task_cancel, task_pause,
+// task_resume, task_set_name). task_result was documented `-> Int`; it is the
+// target builtin's own result, untyped (Text for dns_lookup).
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse(builtins_json());
+    let root: ToonNode = toon_root(doc);
+    let all: Text[] = [];
+    loop i in 0..toon_len(root) {
+        all = all + [toon_get_text_or(toon_at(root, i), "name", "")];
+    }
+    toon_close(doc);
+    let added: Text[] = ["int_to_text", "task_cancel", "task_pause", "task_resume", "task_set_name",
+                         "file_exists", "sqlite_open", "http_request", "length", "apisend"];
+    let rejected: Text[] = ["fileexists", "sqliteopen", "httprequest", "dnslookup", "inttostr",
+                            "copy", "getcurrentdir", "mstreamcreate"];
+    fx {
+        loop name in added {
+            println(name, " listed=", contains(all, name));
+        }
+        loop name in rejected {
+            println(name, " listed=", contains(all, name), " info=", builtin_info(name));
+        }
+        let info: ToonDoc = toon_parse(builtin_info("task_result"));
+        println("task_result returns ", toon_get_text_or(toon_root(info), "return_type", "?"));
+        toon_close(info);
+        let t: Int = task_spawn("dns_lookup", "resolver", "localhost");
+        task_wait(t);
+        let addr: Text = task_result(t, true);
+        println("dns_lookup result is Text: ", length(addr) > 0);
+        println(int_to_text(-42));
+    }
+    ret;
+}

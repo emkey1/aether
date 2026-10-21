@@ -60,4 +60,6 @@ void aetherInstallFrontendHooks(void) {
     /* Builtin names given at run time (task_spawn("dns_lookup", ...),
      * has_builtin("core", "file_exists")) take the Aether spellings. */
     registerBuiltinNameAlias(FRONTEND_KIND_AETHER, aetherRuntimeBuiltinAlias);
+    /* The builtin listings name only what a program can call. */
+    registerBuiltinNameRejected(FRONTEND_KIND_AETHER, aetherBuiltinNameRemoved);
 }

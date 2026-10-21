@@ -15,6 +15,32 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-4
+
+**The builtin listing matches the compiler** (1.0-beta4dev): `builtins_json()`
+and `builtin_info()` (and so the full guide's appendix) list what a program can
+call, as it must be spelled. No program compiles differently; what these two
+builtins return changes. Engine half in pscal-core (`registerBuiltinNameRejected`),
+fixture `builtin_listing_compiler_pass`.
+
+- **Added:** `int_to_text`, `task_cancel`, `task_pause`, `task_resume` and
+  `task_set_name`, which the compiler always accepted, were absent from the
+  listing; they have entries with signatures now.
+- **Dropped:** the 162 engine names a call to which is SCOPE-001: the
+  Pascal-era builtins (D55: `copy`, `pos`, `inttostr`, the File sequence), the
+  run-together spellings D72 renamed (`fileexists`, `sqliteopen`,
+  `httprequest`, `dnslookup`, `getcurrentdir`, ...), and the SDL placeholders
+  of a build without SDL (`initgraph`). They were listed as `vm_builtin`, that
+  is Aether-visible; `builtin_info` on one is now `null`, as for any unknown
+  name. A camelCase engine name is listed in lower case (`apisend`), the
+  spelling D70 accepts. `sleep`, `delay` and the other accepted names stay.
+- **`task_result`** was documented `-> Int`. It returns the target builtin's
+  own result, untyped (Text for `"dns_lookup"`); the listing says `T` and the
+  signature names what it is.
+- Tools: the appendix lists `length` again (`len` aliases it, and the
+  generator dropped every alias target); `tools/aether_caps.py` detects curl by
+  `http_request` as well as the engine spelling it no longer sees.
+
 ## 2026-10-21-3
 
 **`--deny proc` no longer stops a program from ending** (1.0-beta4dev). The

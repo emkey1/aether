@@ -47,8 +47,10 @@ def detect(aether, timeout=30):
     real = {e.get("name") for e in entries
             if isinstance(e, dict) and e.get("kind") not in (None, "unknown")}
     # A build without the backend still lists its names, as kind "unknown"
-    # placeholders (see tools/gen_builtin_appendix.py).
-    if "httprequest" in real:
+    # placeholders (see tools/gen_builtin_appendix.py); an engine from
+    # 2026-10-21 on leaves those out, and lists HTTP under its Aether name only
+    # (the engine spelling `httprequest` is SCOPE-001 since D72).
+    if "httprequest" in real or "http_request" in real:
         caps.add("curl")
     if "initgraph" in real or any(isinstance(e, dict) and e.get("category") == "graphics"
                                   for e in entries):
