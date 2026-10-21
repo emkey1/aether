@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-21-5*
+*Guide version: 2026-10-21-6*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -284,7 +284,7 @@ the exit status. A file with both a `fn main` and top-level statements is
 
 | Type | Literals | Notes |
 |---|---|---|
-| `Int` | `42`, `-1` | integer arithmetic |
+| `Int` | `42`, `-1` | 64-bit signed: -9223372036854775808 to 9223372036854775807; a result outside that range stops the program with `Integer overflow` |
 | `Real` | `3.5` | `/` always yields a `Real`; `Float` is an accepted alias |
 | `Text` | `"hi"` | string type; `String` is an accepted alias |
 | `Bool` | `true`, `false` | `println(flag)` prints `true` or `false` |
@@ -314,7 +314,7 @@ guessing conversion helpers or `Text + Int` coercions.
 | Modulo | `%` (example: `7 % 3` = `1`); the result takes the dividend's sign (`-7 % 3` = `-1`), so test odd with `n % 2 != 0` and wrap an index with `(i % n + n) % n` |
 | Comparison | `== != < <= > >=` |
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
-| Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`) |
+| Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`); there is no `~`: bitwise NOT is `x ^ -1` |
 | Text | `+` concatenation (convert numbers with `int_to_text` / `format_float` first); `==` equality |
 | Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
 
@@ -1052,7 +1052,7 @@ Additional verified `Text` builtins (all pure, no `fx` needed). Positions are
 | Builtin | Effect |
 |---|---|
 | `s[i]` | the character at `i`; **0-based**, like arrays (`s[0]` is the first) |
-| `s[a..b]` | substring from `a` up to but not including `b`, like `arr[a..b]` |
+| `s[a..b]` | substring from `a` up to but not including `b`, like `arr[a..b]`; a `b` past the end is cut at the end (an array slice is an error instead) |
 | `s[a..]` / `s[..b]` | from `a` to the end / the first `b` characters; past the end gives `""` |
 | `s[i] = "x"` | replace the character at `i` with a one-character `Text` |
 | `loop ch in s { ... }` | each character in turn, as a one-character `Text` |
@@ -1221,8 +1221,9 @@ let rest: Int[] = ys[1..]; // open end: elements 1 to the end; ys[..2] is ys[0..
 - `xs[a..b]` slices out a **copy** of elements `a` through `b - 1`
   (half-open, same convention as `loop i in a..b`). Either bound may be left
   out: `xs[a..]` runs to the end (`queue = queue[1..];` drops the head) and
-  `xs[..b]` starts at 0. A start past the end, or after the stop, is a run-time
-  `ARR-003`. This is sugar scoped to indexing brackets, not a first-class Range
+  `xs[..b]` starts at 0. A negative start, a start after the stop, or a stop
+  past `length(xs)` is a run-time `ARR-003` (`Text` slices are cut at the end
+  instead). This is sugar scoped to indexing brackets, not a first-class Range
   value -- `a..b` has no meaning outside `[...]`, and a `loop` range still needs
   both bounds
 - `length(xs)` canonical; `len(xs)` and `xs.len` accepted
