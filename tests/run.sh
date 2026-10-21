@@ -2727,7 +2727,7 @@ if "$AETHER_BIN" --no-cache --deny net "$SOCKET_EFFECTS_PASS_FIXTURE" >$OUT/aeth
     echo "expected --deny net to stop socketcreate but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "builtin 'socketcreate' denied by --deny/PSCAL_VM_DENY policy" $OUT/aether_socket_deny_net.out; then
+if ! grep -qF "[AETH-RUNTIME-DENIED] socket_create is denied by --deny net in this run" $OUT/aether_socket_deny_net.out; then
     echo "missing --deny net socketcreate denial message" >&2
     cat $OUT/aether_socket_deny_net.out >&2
     exit 1
@@ -2752,7 +2752,7 @@ for thread_fixture in "$THREAD_POOL_DENY_PASS_FIXTURE" "$TASK_DENY_PASS_FIXTURE"
         cat $OUT/aether_thread_deny_net.out >&2
         exit 1
     fi
-    if ! grep -q "builtin 'dnslookup' denied by --deny/PSCAL_VM_DENY policy" $OUT/aether_thread_deny_net.out; then
+    if ! grep -qF "[AETH-RUNTIME-DENIED] dns_lookup is denied by --deny net in this run" $OUT/aether_thread_deny_net.out; then
         echo "missing threaded dnslookup denial message for $thread_fixture" >&2
         cat $OUT/aether_thread_deny_net.out >&2
         exit 1

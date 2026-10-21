@@ -2360,7 +2360,7 @@ for your own functions, use `par`.
 code you have not read yet, such as a program a model just wrote: the program
 compiles as usual, and stops with an error at the first call the list denies.
 
-```aether @trap flags=--deny,net
+```aether @trap=AETH-RUNTIME-DENIED flags=--deny,net
 fn main() -> Void {
     fx {
         println("starting");
@@ -2372,11 +2372,13 @@ fn main() -> Void {
 
 ```text
 starting
-prog.aether:4: VM Error: builtin 'httpsession' denied by --deny/PSCAL_VM_DENY policy (effect mask 0x2 intersects denied 0x2).
+prog.aether:4: [AETH-RUNTIME-DENIED] http_session is denied by --deny net in this run: network access is not allowed.
 [Error Location] Offset: 34, Line: 4
 ```
 
-The message names the builtin by the engine's internal spelling. The classes,
+The message names the builtin as the program wrote it and the class that
+refused it. A refused `proc` call adds a hint: `par` runs your own functions in
+parallel and is not affected by any class. The classes,
 separated by commas (`--deny net,proc`), are:
 
 | Class | Refuses |

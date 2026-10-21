@@ -1,1 +1,3 @@
-builtin 'thread_spawn_named' denied by --deny
+[AETH-RUNTIME-DENIED] task_spawn is denied by --deny proc in this run: starting tasks and threads is not allowed.
+hint: to run your own functions in parallel, use `par { f(a); g(b); }`.
+!thread_spawn_named
