@@ -699,28 +699,22 @@ AST *buildArrayAppend(AetherParser *p, AST *assign, AST *target, AST **items, in
     return outer;
 }
 
-/* `if (HI < LO) { writeln(stderr, "[ARR-003] slice start ", LO, " is past its end ", HI,
- * " ..."); halt(1); }` -- an array slice whose start is past its end. setlength
- * used to fail on the negative width with the uncoded backend line "SetLength:
- * array length must be non-negative." (`xs[2..1]`, or `xs[4..]` on 3 elements).
- * `lo` and `hi` are only read (copied); they are temps or call-free here. */
-static AST *buildSliceOrderGuard(const AST *lo, const AST *hi, int line) {
-    Token *ltTok = newToken(TOKEN_LESS, "<", line, 0);
-    AST *cond = newASTNode(AST_BINARY_OP, ltTok);
-    setLeft(cond, copyAST((AST *)hi));
-    setRight(cond, copyAST((AST *)lo));
-    setTypeAST(cond, TYPE_BOOLEAN);
-
+/* `if (COND) { writeln(stderr, PARTS...); halt(1); }` -- one array-slice bounds
+ * guard. A NULL entry in `parts` takes the next of `vals` (only read: copied).
+ * Each guard turns a bad bound into a slice message: the copy loop's own
+ * ARR-003 named an element index and hinted at appending rows, which fits a
+ * loop, not `xs[1..99]` or `xs[-1..2]`. `cond` is consumed. */
+static AST *buildSliceGuard(AST *cond, const char *const *parts, int nparts,
+                            const AST *const *vals, int line) {
     Token *errTok = newToken(TOKEN_IDENTIFIER, "stderr", line, 0);
     AST *errNode = newASTNode(AST_VARIABLE, errTok);
     setTypeAST(errNode, TYPE_FILE);
     AST *writelnNode = newASTNode(AST_WRITELN, NULL);
     addChild(writelnNode, errNode);
-    const char *parts[] = {"[ARR-003] slice start ", NULL, " is past its end ", NULL,
-                           ": `xs[a..b]` needs a <= b, and `xs[a..]` needs a <= length(xs)."};
-    for (int i = 0; i < 5; i++) {
+    int v = 0;
+    for (int i = 0; i < nparts; i++) {
         if (!parts[i]) {
-            addChild(writelnNode, copyAST((AST *)(i == 1 ? lo : hi)));
+            addChild(writelnNode, copyAST((AST *)vals[v++]));
             continue;
         }
         Token *strTok = newToken(TOKEN_STRING_CONST, parts[i], line, 0);
@@ -744,6 +738,49 @@ static AST *buildSliceOrderGuard(const AST *lo, const AST *hi, int line) {
     setLeft(ifNode, cond);
     setRight(ifNode, thenBlock);
     return ifNode;
+}
+
+/* `L OP R` as a Bool test over copies of `l` and `r`. */
+static AST *buildSliceCompare(TokenType op, const char *lexeme, const AST *l, const AST *r,
+                              int line) {
+    Token *opTok = newToken(op, lexeme, line, 0);
+    AST *cond = newASTNode(AST_BINARY_OP, opTok);
+    setLeft(cond, copyAST((AST *)l));
+    setRight(cond, copyAST((AST *)r));
+    setTypeAST(cond, TYPE_BOOLEAN);
+    return cond;
+}
+
+/* The three guards an array slice `base[LO..HI]` runs before its copy loop:
+ * the start after the end (setlength used to fail on the negative width with
+ * the uncoded "SetLength: array length must be non-negative."), a negative
+ * start, and an end past the array's length. `base` is a plain variable or
+ * the hoisted temp, so `length(base)` is cheap. Appended to `outer`. */
+static void addSliceBoundsGuards(AST *outer, const AST *base, const AST *lo, const AST *hi,
+                                 int line) {
+    static const char *const orderParts[] = {
+        "[ARR-003] slice start ", NULL, " is past its end ", NULL,
+        ": `xs[a..b]` needs a <= b, and `xs[a..]` needs a <= length(xs)."};
+    const AST *orderVals[] = {lo, hi};
+    addChild(outer, buildSliceGuard(buildSliceCompare(TOKEN_LESS, "<", hi, lo, line),
+                                    orderParts, 5, orderVals, line));
+
+    AST *zero = buildIntLiteral(0, line);
+    static const char *const negParts[] = {
+        "[ARR-003] slice start ", NULL, " is negative: `xs[a..b]` needs 0 <= a."};
+    const AST *negVals[] = {lo};
+    addChild(outer, buildSliceGuard(buildSliceCompare(TOKEN_LESS, "<", lo, zero, line),
+                                    negParts, 3, negVals, line));
+    freeAST(zero);
+
+    AST *len = buildLengthCall(base, line);
+    static const char *const endParts[] = {
+        "[ARR-003] slice end ", NULL, " is past the array's length ", NULL,
+        ": `xs[a..b]` needs b <= length(xs) (a Text slice is cut at its end instead)."};
+    const AST *endVals[] = {hi, len};
+    addChild(outer, buildSliceGuard(buildSliceCompare(TOKEN_GREATER, ">", hi, len, line),
+                                    endParts, 5, endVals, line));
+    freeAST(len);
 }
 
 /* Lower `base[lo..hi]` (slice sugar -- see the parsePostfix call site) into a
@@ -987,7 +1024,7 @@ AST *buildArraySlice(AetherParser *p, AST *base, AST *lo, AST *hi, int line) {
     setRight(widthExpr, copyAST(lo));
     setTypeAST(widthExpr, TYPE_INTEGER);
 
-    addChild(outer, buildSliceOrderGuard(lo, hi, line));
+    addSliceBoundsGuards(outer, base, lo, hi, line);
 
     /* setlength(__aether_slice_N, HI - LO); */
     Token *sliceRefTok1 = newToken(TOKEN_IDENTIFIER, tempName, line, 0);
@@ -3267,14 +3304,17 @@ AST *parseParBlock(AetherParser *p) {
          * statement (e.g. `x = 5;` -> AST_ASSIGN, or an `fx { }` block) would
          * otherwise be wrapped in a spawn node and surface later as codegen's terse
          * "spawn expects procedure call" -- emitted twice, once with a bogus L0.
-         * Reject it here with the legacy rewriter's exact diagnostic + repair hint
-         * (translate.c: "only direct call statements are allowed inside par blocks.")
-         * so the AST path's error UX matches byte for byte: a single diagnostic on
-         * the correct line. */
+         * Reject it here with the legacy rewriter's message (translate.c: "only
+         * direct call statements are allowed inside par blocks.") on the correct
+         * line. The hint shows the shape: "direct call statement" alone did not
+         * tell an agent testing the language what to write. */
         if (!call || call->type != AST_PROCEDURE_CALL) {
             reportAetherAstError(aetherSemanticGetSourcePath(), callLine, "par",
                                  "only direct call statements are allowed inside par blocks.",
-                                 "move side effects into direct calls inside `par { ... }`.");
+                                 "every statement in `par { ... }` is a call of a function: put "
+                                 "the work, printing included, in a `fn` and call it, e.g. "
+                                 "`par { work(a, r1); work(b, r2); }`, then print the results "
+                                 "after the block.");
             p->hadError = true;
             if (call) freeAST(call);
             freeAST(block);

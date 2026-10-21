@@ -1,0 +1,8 @@
+// A negative slice start stops with a slice ARR-003, not the copy loop's
+// "array index -1 is out of bounds" and its hint about appending rows.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let from: Int = -1;
+    let ys: Int[] = xs[from..2];
+    fx { println(length(ys)); }
+}

@@ -1,0 +1,11 @@
+// A bounded array slice whose end is past the array's length stops with a
+// slice ARR-003. The copy loop used to fail on the first missing element with
+// "array index 3 is out of bounds" and a hint about appending rows, which
+// named neither the slice nor its bound. A Text slice is cut at its end.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let t: Text = "hello";
+    fx { println("[", t[3..99], "]"); }
+    let ys: Int[] = xs[1..99];
+    fx { println(length(ys)); }
+}

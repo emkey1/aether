@@ -1,0 +1,2 @@
+only direct call statements are allowed inside par blocks
+`par { work(a, r1); work(b, r2); }`

@@ -1405,7 +1405,9 @@ sorted: 1 3 4 5 6 9
 - `xs[i]` reads and `xs[i] = v;` writes. An index outside the array stops the
   program with `ARR-003` (below).
 - `xs[a..b]` is a copy of elements `a` to `b - 1`; either bound may be left
-  out.
+  out. A negative start, a start after the end, or an end past `length(xs)`
+  stops the program with an `ARR-003` that names the slice bound; a `Text`
+  slice is cut short instead.
 - `==` compares two arrays element by element.
 - The helpers `sum`, `min_of`, `max_of`, `sorted`, `sorted_desc`,
   `reversed`, `contains`, `index_of` and `count` work on `Int[]`, `Real[]` and

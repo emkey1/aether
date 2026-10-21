@@ -1,0 +1,7 @@
+// Only calls may stand in a `par` block. The hint used to say only "move side
+// effects into direct calls", which did not show an agent what to write.
+fn main() -> Void {
+    par {
+        fx { println("a"); }
+    }
+}
