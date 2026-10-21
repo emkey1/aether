@@ -1,0 +1,6 @@
+`\u{D800}` is half of a UTF-16 surrogate pair, not a character.
+`\u{110000}` is past U+10FFFF, the last Unicode code point.
+`\u{D83D}` is half of a UTF-16 surrogate pair, not a character.
+`\u{FFFFFFFFFFFFFFFFFFFFFFFF}` is past U+10FFFF
+hint: write the code point (`\u{1F600}`)
+hint: `\u{...}` takes hex digits naming a code point

@@ -179,8 +179,9 @@ fn main() -> Void {
 - **Real**: digits with a `.` and an optional exponent (`2.5e2`). `.5` and `2.`
   are accepted.
 - **Text**: `"..."` or `'...'`, on one line. Escapes: `\n`, `\t`, `\r`, `\"`,
-  `\\`, `\xNN` (one byte), `\uXXXX` and `\UXXXXXXXX` (a code point, stored as
-  UTF-8). An unknown escape keeps its backslash. Adjacent Text literals join.
+  `\\`, `\xNN` (one byte), `\uXXXX`, `\UXXXXXXXX` and `\u{H..H}` (a code point,
+  stored as UTF-8). An unknown escape keeps its backslash. Adjacent Text
+  literals join.
 - **Bool**: `true`, `false` (lower case). **nil** is the empty record reference.
 - There are no binary (`0b`) or octal literals.
 
@@ -279,6 +280,28 @@ is rejected:
 ```aether @reject=SYN-001 id=L.lit.11
 fn main() -> Void {
     fx { println("\uD800"); }
+}
+```
+
+`\u{H..H}`, the Rust, JavaScript and Swift spelling, names a code point with any
+number of hex digits in the braces, so `\u{1F600}` and `\u{0001F600}` are
+`\U0001F600`. Braces hold a whole code point, so a surrogate is rejected as in
+`L.lit.11` and two braced halves do not join. Braces with no hex digits or no
+closing `}` keep the escape as written:
+
+```aether @ok id=L.lit.12
+fn main() -> Void {
+    fx { println("caf\u{e9} ", length("\u{1F600}"), " \u{1F600} \u{0001F600} \u{name}"); }
+}
+```
+
+```text
+café 1 😀 😀 \u{name}
+```
+
+```aether @reject=SYN-001 id=L.lit.13
+fn main() -> Void {
+    fx { println("\u{110000}"); }
 }
 ```
 

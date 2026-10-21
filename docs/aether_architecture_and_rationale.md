@@ -443,7 +443,8 @@ meaning costs nothing. Decision **D7** replaced it with four classes:
    `new T { ... }` canonical), Text + number (left-to-right stringify),
    `+= -= *= /= %=`, `Int()`/`Real()`/`Bool()` casts, `exit(n)`, `xs.length` on
    an array or Text (W6-05), a matching tuple annotation (W4-25), `[v; n]`
-   (language 2026-10-17-4; a record value is TYPE-001); and, decided but not
+   (language 2026-10-17-4; a record value is TYPE-001), the braced escape
+   `\u{1F600}` beside `\U0001F600` (D79); and, decided but not
    shipped yet, `..=` and `x:.2`.
 2. **Rejected with a coded diagnostic that names the Aether form.** `elif`,
    `foreach`, `match`/`switch`, `return`/`class`/`import`, comma-separated

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""D78 evidence: which committed programs hold a `\\u` / `\\U` Text escape.
+"""D78 and D79 evidence: which committed programs hold a `\\u` / `\\U` Text escape.
 
 Counts, over every Aether source the repo keeps (tests, examples, the guides'
 and spec's code, training pairs and datasets, archived benchmark attempts), the
@@ -7,7 +7,9 @@ escapes whose meaning D78 changes:
 
   full   `\\u` + 4 hex digits or `\\U` + 8: kept as written before, decoded now
          (or SYN-001 when the value is a lone surrogate or past U+10FFFF)
-  brace  `\\u{...}` (the Rust / JavaScript spelling): unchanged, kept as written
+  brace  `\\u{...}` (the Rust / JavaScript / Swift spelling): kept as written
+         under D78, decoded since D79 (SYN-001 for a surrogate or a value past
+         U+10FFFF)
 
 A program's source sits in a plain file (.aether, .md) or inside JSON, where
 its backslash is doubled (.json, .jsonl, .gz). Run from the repo root:

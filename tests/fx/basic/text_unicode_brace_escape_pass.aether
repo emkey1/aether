@@ -1,0 +1,15 @@
+// `\u{1F600}`, the Rust / JavaScript / Swift spelling of a Unicode escape,
+// decodes to UTF-8 like `\U0001F600` (D79). Until 2026-10-21 it was kept as
+// written: "\u{1F600}" printed those 9 characters.
+fn main() -> Void {
+    let s: Text = "caf\u{e9}";
+    fx {
+        println(s, " ", length(s), " ", s == "caf\u00e9");
+        println("\u{1F600} ", length("\u{1F600}"), " ", "\u{1F600}" == "\U0001F600");
+        println("\u{41}\u{000042}", '\u{43}', " \u{20ac} \u{0001F600} ", length("\u{10FFFF}"));
+        // No hex run, no closing brace, or a split literal: an unknown escape,
+        // kept as written.
+        println("\u{} \u{name} \u{41 \U{41} \\u{41} " "\u{1F" "600}");
+    }
+    ret;
+}

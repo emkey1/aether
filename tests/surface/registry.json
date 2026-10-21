@@ -1654,6 +1654,17 @@
    "status": "holds",
    "hint": "sqlite_open",
    "note": "D72 (2026-10-20): builtin names are snake_case; the run-together spellings are removed"
+  },
+  {
+   "id": "unicode_brace_escape",
+   "class": 1,
+   "spelling": "\"\\u{1F600}\" (Rust / JavaScript / Swift)",
+   "canonical_form": "\"\\U0001F600\"",
+   "fixture": "fixtures/unicode_brace_escape.aether",
+   "twin": "fixtures/unicode_brace_escape.canon.aether",
+   "decided": "D79",
+   "status": "holds",
+   "note": "any hex digit count; a surrogate or a value past U+10FFFF is SYN-001; kept as written until 2026-10-21-7"
   }
  ]
 }
