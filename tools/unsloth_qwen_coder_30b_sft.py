@@ -62,6 +62,28 @@ TARGET_MODULES = [
 ]
 
 
+def describe_lora_coverage(model) -> dict:
+    """Where LoRA attached, by kind of layer, and the trainable share. For an MoE this answers whether the routed
+    experts are trained or only attention and the shared expert (a family's dense target names miss fused experts)."""
+    groups: dict[str, int] = {}
+    for name, _ in model.named_modules():
+        if not name.endswith("lora_A"):
+            continue
+        kind = ("routed experts" if ".experts." in name or name.split(".lora_A")[0].endswith(".experts")
+                else "shared expert" if "shared_expert" in name
+                else "attention" if any(k in name for k in ("self_attn", "linear_attn", "attention"))
+                else "mlp")
+        groups[kind] = groups.get(kind, 0) + 1
+    for name, param in model.named_parameters():
+        if "lora" in name and param.requires_grad and ".experts" in name and "lora_A" not in name:
+            groups.setdefault("routed experts (parameters)", 0)
+            groups["routed experts (parameters)"] += 1
+    trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
+    total = sum(p.numel() for p in model.parameters())
+    return {"lora_modules": groups, "trainable_params": trainable, "total_params": total,
+            "trainable_pct": round(100 * trainable / max(total, 1), 4)}
+
+
 def find_resumable_checkpoint(output_dir: Path) -> str | None:
     """Return the highest-step checkpoint dir with an intact trainer_state.json, or None.
 
@@ -593,6 +615,8 @@ def main() -> int:
         use_rslora=False,
         loftq_config=None,
     )
+    lora_coverage = describe_lora_coverage(model)
+    print(f"LoRA coverage: {json.dumps(lora_coverage)}", flush=True)
 
     train_dataset = Dataset.from_list(train_records)
     eval_dataset = Dataset.from_list(eval_records)
@@ -695,6 +719,8 @@ def main() -> int:
         "learning_rate": args.learning_rate,
         "load_in_4bit": args.load_in_4bit,
         "load_in_8bit": args.load_in_8bit,
+        "lora_target_modules": target_modules,
+        "lora_coverage": lora_coverage,
         "local_files_only": args.local_files_only,
         "dtype": args.dtype,
         "device_map": args.device_map,

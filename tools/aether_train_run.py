@@ -108,6 +108,12 @@ def load_run(path: pathlib.Path, families_path: pathlib.Path = FAMILIES_PATH) ->
         raise SystemExit(f"{path}: precision must be one of {', '.join(PRECISION_FLAGS)}")
     run["image"] = run.get("image") or family["image"]
     run["lora"] = {"r": 32, "alpha": 64, "dropout": 0.0} | run.get("lora", {})
+    # A run may name its own LoRA targets (an MoE's fused expert weights, `gate_up_proj`, are not in the
+    # family's dense list); otherwise the family's list applies.
+    targets = run["lora"].get("target_modules")
+    if targets is not None and (not isinstance(targets, list) or not targets
+                                or not all(isinstance(t, str) and t for t in targets)):
+        raise SystemExit(f"{path}: lora.target_modules must be a non-empty list of module names")
     run["train"] = {"epochs": 3, "learning_rate": 1e-4, "batch_size": 1, "grad_accum": 8, "seed": 3407,
                     "early_stopping_patience": 2, "early_stopping_threshold": 0.0} | run.get("train", {})
     run["dataset"] = {"repair_manifest": "training/seed_repair_pairs.json"} | run["dataset"]
@@ -188,7 +194,7 @@ def trainer_argv(run: dict) -> list[str]:
         "--lora-r", str(lora["r"]),
         "--lora-alpha", str(lora["alpha"]),
         "--lora-dropout", str(lora["dropout"]),
-        "--target-modules", ",".join(fam["target_modules"]),
+        "--target-modules", ",".join(lora.get("target_modules") or fam["target_modules"]),
         "--instruction-part", fam["instruction_part"].replace("\n", "\\n"),
         "--response-part", fam["response_part"].replace("\n", "\\n"),
         "--chat-template-kwargs", json.dumps(fam.get("chat_template_kwargs") or {}),

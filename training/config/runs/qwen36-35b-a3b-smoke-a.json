@@ -1,0 +1,47 @@
+{
+  "_note": "MoE smoke test A (2026-10-21): Qwen3.6-35B-A3B, 4-bit as the July MoE runs (bf16 loading ran out of memory on the 121 GB unified host: the loader stages a CPU copy), the family's dense targets, 20 steps on v1-20261021. Measures what LoRA attaches to, memory and loss; not scored.",
+  "tag": "qwen36-35b-a3b-smoke-a",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.6-35B-A3B",
+  "base_model": "/storage/models/Qwen3.6-35B-A3B-Instruct",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 60,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 3,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 10,
+    "max_steps": 20
+  },
+  "dataset": {
+    "id": "v1-20261021",
+    "version": "2026-10-20-12",
+    "aether_version": "2026-10-20-12",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-20-12",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {}
+  }
+}

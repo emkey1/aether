@@ -84,6 +84,17 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("--no-load-in-4bit", argv)
         self.assertIn("--no-load-in-4bit", tr.trainer_argv(self.load(precision="16bit")))
 
+    def test_lora_targets_default_to_the_family_and_a_run_may_override(self):
+        argv = tr.trainer_argv(self.load())
+        family = argv[argv.index("--target-modules") + 1].split(",")
+        self.assertIn("q_proj", family)
+        moe = family + ["gate_up_proj"]
+        argv = tr.trainer_argv(self.load(lora={"target_modules": moe}))
+        self.assertEqual(argv[argv.index("--target-modules") + 1].split(","), moe)
+        for bad in ([], "q_proj", [""]):
+            with self.assertRaises(SystemExit):
+                self.load(lora={"target_modules": bad})
+
     def test_eval_split_size_and_cadence_are_optional(self):
         argv = tr.trainer_argv(self.load())
         self.assertNotIn("--eval-cases", argv)
