@@ -1,0 +1,1 @@
+builtin 'thread_spawn_named' denied by --deny

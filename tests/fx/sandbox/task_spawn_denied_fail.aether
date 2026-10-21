@@ -1,0 +1,9 @@
+// The control: --deny proc still stops spawning a task.
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("dnslookup", "w", "localhost");
+        task_wait(t);
+        println("task=", task_result(t, true));
+    }
+    ret;
+}

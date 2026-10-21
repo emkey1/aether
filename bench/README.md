@@ -374,7 +374,9 @@ Each task currently defines:
 - optional `sandbox_allow`: effect classes this one task takes back from the
   run's `--sandbox-deny` list. Only `["proc"]` is accepted (the oracle lint
   rejects anything else, `net` above all); it is for tasks graded on
-  `exit(n)` / `halt(n)`, so the rest of the suite keeps `net,proc`.
+  `exit(n)` / `halt(n)`, so the rest of the suite keeps `net,proc`. Since
+  language 2026-10-21-3, `--deny` no longer gates `halt`/`exit`, so it
+  matters only to runs and replays on older binaries.
 
 Entries with `should_fail: true` are negative-tier compiler invariants (a fixed
 `program` plus `expected_error_code`), not tasks; the harness skips them.

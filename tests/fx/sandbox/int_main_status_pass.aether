@@ -1,0 +1,17 @@
+// `fn main() -> Int` sets the exit status through a compiler-injected halt.
+// Under the benchmark's and the MCP runner's --deny flags that halt was
+// denied (proc-class), so a correct program printed its output and exited 1.
+// Ending the program is no longer something --deny withholds.
+fn total(xs: Int[]) -> Int {
+    let s: Int = 0;
+    loop x in xs {
+        s = s + x;
+    }
+    ret s;
+}
+
+fn main() -> Int {
+    let t: Int = total([1, 2, 3]);
+    fx { println("total ", t); }
+    ret t - 3;
+}

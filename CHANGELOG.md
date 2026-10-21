@@ -15,6 +15,26 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-3
+
+**`--deny proc` no longer stops a program from ending** (1.0-beta4dev). The
+sandbox classed `halt` and `exit` as process control, so under `--deny proc`
+they raised "builtin 'halt' denied" and the program exited 1. Three
+compiler-written exits go through `halt`, so this hit programs that never call
+it: `fn main() -> Int` (its `ret n;` is the exit status), a failed `@pre` or
+`@post` guard, and a slice-bounds guard. The benchmark harness and the MCP
+runner run every program under `--deny net,proc`. A correct Int-main program
+scored as a failure there. A broken contract's run ended on the sandbox's
+message, not CON-001, so the repair feedback named the wrong problem (9 such
+runs in the archived boards). An explicit `exit(n)` or `halt(n)` failed the
+same way, which is why the bench's exit-status trap task had to take `proc`
+back. Ending a program withholds nothing a program could not do by
+returning, so `--deny` no longer gates `halt` and `exit` (pscal-core, every
+front end). Spawning threads and tasks stays proc-class and denied.
+`tests/fx/sandbox` checks Int main, `exit(n)`, a failed `@post` and, as the
+control, a denied `task_spawn`. The umbrella's `Tests/vm_fx_policy` checks
+Pascal's `halt` and `ThreadPoolSubmit`.
+
 ## 2026-10-21-2
 
 **Release `1.0-beta3`** (D75): the third 1.0 beta, tagged `1.0-beta3`;

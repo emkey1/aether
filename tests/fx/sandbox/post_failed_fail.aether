@@ -1,0 +1,15 @@
+// A failed contract ends the program through a compiler-injected halt. Under
+// --deny proc the halt was denied, and the run's last error was the sandbox's,
+// not the contract's: model repair feedback named the wrong problem.
+@post result >= 10
+fn bump(x: Int) -> Int {
+    ret x + 1;
+}
+
+fn main() -> Void {
+    fx {
+        println("before");
+        println(bump(3));
+    }
+    ret;
+}

@@ -1,0 +1,19 @@
+// exit(n) from a helper ends the program with status n under --deny proc too.
+fn check(v: Int) -> Int {
+    if v < 0 {
+        fx {
+            println("error: negative ", v);
+            exit(2);
+        }
+    }
+    ret v;
+}
+
+fn main() -> Void {
+    let values: Int[] = [4, -1, 9];
+    loop v in values {
+        let c: Int = check(v);
+        fx { println("ok ", c); }
+    }
+    ret;
+}
