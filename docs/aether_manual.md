@@ -496,6 +496,9 @@ fn main() -> Void {
 - `int(x)` truncates a `Real` toward zero. `round` rounds half away from zero.
   `round`, `trunc`, `floor` and `ceil` return `Int`.
 - `&`, `|`, `^` (also spelled `xor`), `<<` and `>>` work on `Int` bits.
+  Shifts do not check overflow: `<<` drops bits shifted past bit 63, so
+  `1 << 63` is the minimum `Int` and `1 << 64` is `0`. `>>` keeps the sign,
+  and a negative shift amount stops the program.
 - Integer overflow and division by zero (of `Int` or `Real`, with `div`, `/`
   or `%`) stop the program with a coded run-time error,
   `AETH-RUNTIME-INT-OVERFLOW` or `AETH-RUNTIME-DIV-ZERO`, rather than wrapping

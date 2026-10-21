@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-21-7*
+*Guide version: 2026-10-21-8*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -314,7 +314,7 @@ guessing conversion helpers or `Text + Int` coercions.
 | Modulo | `%` (example: `7 % 3` = `1`); the result takes the dividend's sign (`-7 % 3` = `-1`), so test odd with `n % 2 != 0` and wrap an index with `(i % n + n) % n` |
 | Comparison | `== != < <= > >=` |
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
-| Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`); there is no `~`: bitwise NOT is `x ^ -1` |
+| Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`); there is no `~`: bitwise NOT is `x ^ -1`. `<<` drops bits shifted past bit 63 with no overflow error (`1 << 63` is the minimum `Int`, `1 << 64` is `0`); `>>` keeps the sign (`-16 >> 2` = `-4`); a negative shift amount stops the program |
 | Text | `+` concatenation (convert numbers with `int_to_text` / `format_float` first); `==` equality |
 | Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
 
