@@ -15,6 +15,26 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-6
+
+**`\u` and `\U` Text escapes decode** (D78, 1.0-beta4dev). The spec and the full
+guide list `\uNNNN` as an escape, but the front end kept it as written:
+`println("caf\u00e9")` printed `caf\u00e9` and `length("caf\u00e9")` was 9.
+Now `\u` with exactly 4 hex digits and `\U` with exactly 8 write that code point
+as UTF-8, so the same program prints `café` and the length is 4. A UTF-16
+surrogate pair, `\uD83D\uDE00` as JSON writes an emoji, joins into one
+character. With fewer hex digits the escape is still unknown and kept as
+written, so `"C:\users"` prints as before. An escape with all its digits that
+names no character is SYN-001: a lone surrogate (`\uD800`) or a value past
+U+10FFFF (`\U00110000`). The hint names the whole pair, the 8-digit code point
+or the character itself. No committed program, golden, seed pair or archived
+benchmark attempt holds such an escape (census in
+`results/decisions/d78_unicode_escape_2026-10-21.md`), and the paired replay has
+no unwaived regression. Fixtures: `tests/fx/basic/text_unicode_escape_pass` and
+`tests/fx/diag/text_unicode_escape_fail`. Spec §1.3 lists every escape and runs
+the decode (`L.lit.10`) and the rejection (`L.lit.11`). The manual's Literals
+section shows `\u00e9` and `\U0001F600`.
+
 ## 2026-10-21-5
 
 **PARAM-001: a scalar parameter used as a shared cursor** (D77, 1.0-beta4dev; a

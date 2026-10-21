@@ -1,0 +1,4 @@
+`\uD800` is half of a UTF-16 surrogate pair, not a character.
+`\U00110000` is past U+10FFFF, the last Unicode code point.
+`\uDE00` is half of a UTF-16 surrogate pair, not a character.
+hint: write the whole pair

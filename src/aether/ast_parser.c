@@ -2073,10 +2073,63 @@ static AST *parseTypeWithArraySuffix(AetherParser *p, VarType *outType,
 }
 
 /* ------------------------------------------------------------------ */
-/* String unescaping (verbatim from rea parser.c reaUnescapeString)    */
+/* String unescaping (from rea parser.c reaUnescapeString, plus \u/\U) */
 /* ------------------------------------------------------------------ */
 
-static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len) {
+/* The value of exactly `count` hex digits at src[at..]; false if the text
+ * ends first or any of them is not a hex digit. */
+static bool aetherHexRun(const char *src, size_t len, size_t at, size_t count,
+                         unsigned long *out) {
+    if (at > len || len - at < count) return false;
+    unsigned long val = 0;
+    for (size_t k = 0; k < count; k++) {
+        char h = src[at + k];
+        int d;
+        if (h >= '0' && h <= '9') d = h - '0';
+        else if (h >= 'a' && h <= 'f') d = h - 'a' + 10;
+        else if (h >= 'A' && h <= 'F') d = h - 'A' + 10;
+        else return false;
+        val = val * 16 + (unsigned long)d;
+    }
+    *out = val;
+    return true;
+}
+
+/* UTF-8 encode a Unicode scalar value (at most 4 bytes); returns the length. */
+static size_t aetherPutUtf8(char *out, unsigned long cp) {
+    if (cp < 0x80) {
+        out[0] = (char)cp;
+        return 1;
+    }
+    if (cp < 0x800) {
+        out[0] = (char)(0xC0 | (cp >> 6));
+        out[1] = (char)(0x80 | (cp & 0x3F));
+        return 2;
+    }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | (cp >> 12));
+        out[1] = (char)(0x80 | ((cp >> 6) & 0x3F));
+        out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | (cp >> 18));
+    out[1] = (char)(0x80 | ((cp >> 12) & 0x3F));
+    out[2] = (char)(0x80 | ((cp >> 6) & 0x3F));
+    out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+/* `\uXXXX` and `\UXXXXXXXX` become UTF-8 (D78); a high surrogate followed by
+ * a `\u` low surrogate joins into one character, the JSON spelling of an
+ * emoji. With fewer hex digits the escape is unknown and kept as written
+ * (`"C:\users"`). A lone surrogate or a value past U+10FFFF is kept as
+ * written too, and the first one's offset and length come back in
+ * *bad_at / *bad_len (left 0 when there is none) for the caller's SYN-001. */
+static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len,
+                                  size_t *bad_at, size_t *bad_len) {
+    if (bad_at) *bad_at = 0;
+    if (bad_len) *bad_len = 0;
+    /* No decoded escape is longer than its source text. */
     char *buf = (char *)malloc(len + 1);
     if (!buf) return NULL;
     size_t j = 0;
@@ -2111,6 +2164,36 @@ static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len) 
                         buf[j++] = '\\';
                         buf[j++] = n;
                     }
+                    break;
+                }
+                case 'u':
+                case 'U': {
+                    size_t esc = i - 1;
+                    size_t digits = (n == 'u') ? 4 : 8;
+                    unsigned long cp = 0;
+                    if (!aetherHexRun(src, len, i + 1, digits, &cp)) {
+                        buf[j++] = '\\';
+                        buf[j++] = n;
+                        break;
+                    }
+                    i += digits;
+                    unsigned long lo = 0;
+                    if (n == 'u' && cp >= 0xD800 && cp <= 0xDBFF && i + 2 < len &&
+                        src[i + 1] == '\\' && src[i + 2] == 'u' &&
+                        aetherHexRun(src, len, i + 3, 4, &lo) && lo >= 0xDC00 && lo <= 0xDFFF) {
+                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                        i += 6;
+                    }
+                    if ((cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) {
+                        if (bad_len && *bad_len == 0) {
+                            if (bad_at) *bad_at = esc;
+                            *bad_len = i + 1 - esc;
+                        }
+                        memcpy(buf + j, src + esc, i + 1 - esc);
+                        j += i + 1 - esc;
+                        break;
+                    }
+                    j += aetherPutUtf8(buf + j, cp);
                     break;
                 }
                 default:
@@ -2260,8 +2343,35 @@ static AST *parseStringLiteral(AetherParser *p) {
         }
         size_t innerLen = tokenLen - 2;
         size_t unescapedLen = 0;
-        char *segment = aetherUnescapeString(p->current.start + 1, innerLen, &unescapedLen);
+        size_t badAt = 0, badLen = 0;
+        char *segment = aetherUnescapeString(p->current.start + 1, innerLen, &unescapedLen,
+                                             &badAt, &badLen);
         if (!segment) { free(buffer); return NULL; }
+        if (badLen > 0) {
+            /* A `\u` / `\U` escape with all its hex digits that names no
+             * character. Reported here; the literal keeps it as written so
+             * parsing goes on without a follow-on error. */
+            const char *esc = p->current.start + 1 + badAt;
+            unsigned long cp = 0;
+            aetherHexRun(esc, badLen, 2, esc[1] == 'u' ? 4 : 8, &cp);
+            char detail[192];
+            if (cp > 0x10FFFF) {
+                snprintf(detail, sizeof(detail),
+                         "`%.*s` is past U+10FFFF, the last Unicode code point.",
+                         (int)badLen, esc);
+                reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
+                        "`\\U` takes 8 hex digits naming a code point: "
+                        "`\\U0001F600`, up to `\\U0010FFFF`.");
+            } else {
+                snprintf(detail, sizeof(detail),
+                         "`%.*s` is half of a UTF-16 surrogate pair, not a character.",
+                         (int)badLen, esc);
+                reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
+                        "write the whole pair (`\\uD83D\\uDE00`), the code point "
+                        "(`\\U0001F600`), or the character itself.");
+            }
+            p->hadError = true;
+        }
 
         size_t required = totalLen + unescapedLen + 1;
         if (required > capacity) {

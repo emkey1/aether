@@ -1,0 +1,9 @@
+// A `\u` / `\U` escape with all its hex digits that names no character is
+// SYN-001 (D78): a lone UTF-16 surrogate, or a code point past U+10FFFF.
+fn main() -> Void {
+    fx {
+        println("a\uD800b");
+        println("\U00110000");
+        println("\uDE00\uD83D");
+    }
+}
