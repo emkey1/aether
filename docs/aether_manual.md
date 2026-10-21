@@ -433,6 +433,7 @@ fn main() -> Void {
         println(42, " ", -7, " ", 0xFF, " ", 1_000_000);
         println(3.5, " ", 2.5e2, " ", .5, " ", 100.0, " ", 0.1 + 0.2);
         println("say \"hi\"", " ", 'single', " ", "ab" "cd", " ", "café \x41");
+        println("caf\u00e9 ", length("caf\u00e9"), " \U0001F600");
         println(true, " ", false, " ", !true);
     }
 }
@@ -442,6 +443,7 @@ fn main() -> Void {
 42 -7 255 1000000
 3.5 250.0 0.5 100.0 0.30000000000000004
 say "hi" single abcd café A
+café 4 😀
 true false false
 ```
 
@@ -449,8 +451,12 @@ true false false
   are no binary or octal literals.
 - Text literals use double or single quotes and stay on one line. Source files
   are UTF-8, so a literal may hold any character. The escapes are `\n`, `\t`,
-  `\r`, `\"`, `\\` and `\xNN` (`\x41` is `A`); an unknown escape keeps its
-  backslash. Two literals written side by side join into one.
+  `\r`, `\"`, `\\`, `\xNN` (one byte: `\x41` is `A`), and `\uXXXX` or
+  `\UXXXXXXXX` (a Unicode code point: `\u00e9` is `é`, one character long). A
+  JSON-style surrogate pair, `\uD83D\uDE00`, joins into one character; half a
+  pair is a `SYN-001` error. An unknown escape keeps its backslash, and so does
+  `\u` with fewer than four hex digits, so `"C:\users"` prints as written. Two
+  literals written side by side join into one.
 - A `Real` prints in the shortest form that reads back as the same value, as
   Python prints it: `100.0`, `250.0`, `0.30000000000000004`.
 

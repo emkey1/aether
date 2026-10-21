@@ -1,0 +1,13 @@
+// `\uXXXX` and `\UXXXXXXXX` decode to UTF-8 (D78). Until 2026-10-21 they were
+// kept as written: "caf\u00e9" printed `caf\u00e9` and its length was 9.
+fn main() -> Void {
+    let s: Text = "caf\u00e9";
+    fx {
+        println(s, " ", length(s), " ", s[3], " ", s == "café");
+        println("\u20AC \U0001F600 \uD83D\uDE00 ", length("\uD83D\uDE00"), " ", length("\U0001F600"));
+        println("\u0041\U00000042", '\u0043', "\u00" "e9");
+        // Fewer hex digits: an unknown escape, kept as written.
+        println("C:\users\bob \u12 \U1F600 \\u00e9");
+    }
+    ret;
+}

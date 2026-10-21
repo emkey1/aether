@@ -178,8 +178,9 @@ fn main() -> Void {
   (`0xffffffffffffffff` is -1).
 - **Real**: digits with a `.` and an optional exponent (`2.5e2`). `.5` and `2.`
   are accepted.
-- **Text**: `"..."` or `'...'`, on one line. Escapes: `\n`, `\t`, `\"`, `\\`,
-  `\uXXXX`. An unknown escape keeps its backslash. Adjacent Text literals join.
+- **Text**: `"..."` or `'...'`, on one line. Escapes: `\n`, `\t`, `\r`, `\"`,
+  `\\`, `\xNN` (one byte), `\uXXXX` and `\UXXXXXXXX` (a code point, stored as
+  UTF-8). An unknown escape keeps its backslash. Adjacent Text literals join.
 - **Bool**: `true`, `false` (lower case). **nil** is the empty record reference.
 - There are no binary (`0b`) or octal literals.
 
@@ -255,6 +256,30 @@ fn main() -> Void {
 
 ```text
 -9223372036854775808 9223372036854775807 -1
+```
+
+`\uXXXX` (4 hex digits) and `\UXXXXXXXX` (8) name a code point, so `length`
+counts the result once. A UTF-16 surrogate pair, `\uD83D\uDE00`, joins into one
+character. With fewer hex digits the escape is unknown and keeps its backslash
+(`C:\users`):
+
+```aether @ok id=L.lit.10
+fn main() -> Void {
+    fx { println("caf\u00e9 ", length("caf\u00e9"), " \U0001F600 \uD83D\uDE00 C:\users"); }
+}
+```
+
+```text
+café 4 😀 😀 C:\users
+```
+
+An escape that names no character, a lone surrogate or a value past U+10FFFF,
+is rejected:
+
+```aether @reject=SYN-001 id=L.lit.11
+fn main() -> Void {
+    fx { println("\uD800"); }
+}
 ```
 
 ---
