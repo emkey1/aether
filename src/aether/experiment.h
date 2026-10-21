@@ -88,6 +88,8 @@ const char *aetherDumpTypesTarget(void);
 void aetherRunExperiments(AST *root);
 /* D8 V-strict: ARR-001 errors for un-returned writes to array parameters. */
 void aetherValidateArrayParamWrites(AST *root);
+/* PARAM-001 (D77): warns on a scalar parameter used as a cursor the caller expects to advance. */
+void aetherValidateParamCursor(AST *root);
 
 /* The arms that must act before rea's semantic pass (arrays=ref moves rvalue
  * arguments of by-reference parameters into temporaries). */

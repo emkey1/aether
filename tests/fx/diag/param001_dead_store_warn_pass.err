@@ -1,0 +1,4 @@
+warning: [PARAM-001]
+is a copy
+!error
+=1 'pos' of 'nextField'

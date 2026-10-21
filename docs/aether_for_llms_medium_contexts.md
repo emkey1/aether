@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-21-1*
+*Guide version: 2026-10-21-2*
 
 Everything needed to write correct Aether in one shot.
 
@@ -357,16 +357,9 @@ fn main() -> Void {
 }
 ```
 
-The limits, all reported as `TUP-001`:
-
-- Destructuring works only on a **direct call to a top-level tuple-returning
-  function**, not on a method, an undefined helper, or a nested expression.
-- An index at or past the arity (`t.2` on a 2-tuple) is a **compile-time** error,
-  not a crash.
-- Methods cannot return tuples.
-
-When any of those bite, return a record instead and read its fields — records
-have none of these restrictions:
+Beyond rule 21's limits, an index at or past the arity (`t.2` on a 2-tuple) is
+a compile-time `TUP-001`. When a limit bites, return a record instead and read
+its fields — records have none of these restrictions:
 
 ```aether
 type Pair {
@@ -575,6 +568,8 @@ fn doubleAll(arr: Int[]) -> Int[] {
 Changing an array parameter you never return is an `[ARR-001]` error, as is a
 call statement that drops the returned array (`sortDesc(xs);`). Scratch work:
 copy to a local first. A *record* parameter may be changed in place.
+An `Int` or `Text` parameter is a copy too: a parser helper that advances `pos`
+never moves the caller's `pos` (`[PARAM-001]`).
 
 `println` cannot print a whole array (`TYPE-001`). Print the elements:
 `fx { loop x in xs { print(x, " "); } println(""); }`.
@@ -997,6 +992,9 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   returned array or map dropped → `xs = f(xs)`.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
   fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
+- **[PARAM-001]** (warning) a helper advances a parameter the caller expects to
+  move → return it, `let (v, next) = f(s, pos); pos = next;`, or use a nested
+  `fn` that assigns the enclosing `pos`.
 - **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
   build rows as arrays, or index once with a computed offset
   (`grid[r * width + c]`).

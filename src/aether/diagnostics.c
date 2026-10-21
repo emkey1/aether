@@ -57,6 +57,11 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         if (strcmp(kind, "narrowing") == 0) {
             return "NARROW-001";
         }
+        /* A scalar parameter its caller expects to move (D77): a warning,
+         * emitted explicitly by experiment.c; kind-based backstop only. */
+        if (strcmp(kind, "parameter") == 0) {
+            return "PARAM-001";
+        }
         if (strcmp(kind, "redeclaration") == 0) {
             return "NAME-001";
         }

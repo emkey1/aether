@@ -1,0 +1,20 @@
+// PARAM-001 (D77), the dead shape: `pos = pos + 1` skips the separator in the
+// callee's own copy, and nothing reads it again, so the caller re-reads the
+// same field. It still compiles and runs (a warning), printing the wrong split.
+fn nextField(line: Text, pos: Int) -> Text {
+    let start: Int = pos;
+    loop pos < length(line) && line[pos] != ";" {
+        pos = pos + 1;
+    }
+    let field: Text = line[start..pos];
+    pos = pos + 1;
+    ret field;
+}
+
+fn main() -> Void {
+    let line: Text = "red;green;blue";
+    let pos: Int = 0;
+    let first: Text = nextField(line, pos);
+    let second: Text = nextField(line, pos);
+    fx { println(first, " ", second); }
+}

@@ -1,0 +1,23 @@
+// PARAM-001 (D77), the stuck shape: the loop's condition reads `pos`, and only
+// readWord changes it, in its own copy. Without the guard the loop never ends.
+fn readWord(text: Text, pos: Int) -> Text {
+    let start: Int = pos;
+    loop pos < length(text) && text[pos] != " " {
+        pos = pos + 1;
+    }
+    ret text[start..pos];
+}
+
+fn main() -> Void {
+    let text: Text = "one two three";
+    let pos: Int = 0;
+    let words: Int = 0;
+    loop pos < length(text) {
+        let word: Text = readWord(text, pos);
+        words = words + 1;
+        if words == 3 {
+            break;
+        }
+    }
+    fx { println(words); }
+}

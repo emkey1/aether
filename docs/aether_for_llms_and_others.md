@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-21-2*
+*Guide version: 2026-10-21-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1270,6 +1270,13 @@ would never see the change. Return it and reassign, `xs = f(xs)`. For scratch
 work inside a function, copy the parameter to a local first
 (`let work: Int[] = xs;`) and change the copy.
 
+Scalar parameters (`Int`, `Real`, `Bool`, `Text`) are copies too: a parser
+helper that advances its `pos` never moves the caller's `pos`, so every level
+re-reads from the start. Return the new position with the value
+(`-> (Int, Int)`, then `let (v, next) = f(s, pos); pos = next;`), or write the
+helpers as nested `fn`s that assign the enclosing `pos`, or keep the cursor in a
+record field; the compiler warns `[PARAM-001]` on the shapes it can see.
+
 ## Standard helpers
 
 The helpers models most often reach for exist. They are pure, they return a
@@ -1976,7 +1983,7 @@ The compiler tags most rejections with a stable code in brackets and usually a
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, MS-001, TYPE-001, TYPE-002, TUP-001, FLOW-001, FLOW-002,
 FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-002, ARR-001, ARR-002,
-REC-001, FUNC-001, NARROW-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
+REC-001, FUNC-001, NARROW-001, PARAM-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
 below map onto them. Run-time errors (ARR-003, CON-001, `AETH-RUNTIME-*`) carry their
 own message and hint. A compile-time code you receive that is not on this list
 does not exist — re-read the message rather than inventing a rule for it.
@@ -2118,6 +2125,11 @@ does not exist — re-read the message rather than inventing a rule for it.
   `xs = f(xs)`; for scratch work, copy it to a local first.
 - **[NARROW-001]** (warning) a `Real` stored in an `Int` target → the fraction
   is discarded; use a `Real` target, or `int(...)` when truncating is intended.
+- **[PARAM-001]** (warning) a function changes a scalar parameter its caller
+  expects to move (`pos = pos + 1` in a parser helper) → the parameter is a
+  copy: return it with the result (`-> (Int, Int)`, `let (v, next) = f(s, pos);
+  pos = next;`), or make the helper a nested `fn` that assigns the enclosing
+  `pos`, or keep the cursor in a record field.
 - **[FMT-001]** a placeholder in a `println` string — `"{}"`, `{name}`, `{0}`,
   `{:.2}`, `${}`, `%d` / `%.2f`, or an `f"..."` literal → `println` has no
   placeholders: pass the values as arguments (`println("n = ", n)`) and format

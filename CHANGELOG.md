@@ -15,6 +15,35 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-5
+
+**PARAM-001: a scalar parameter used as a shared cursor** (D77, 1.0-beta4dev; a
+warning, so every program compiles and runs as before, and stderr gains the
+warning where it fires). A function that advances an `Int` or `Text` parameter
+its caller expects to move compiles and prints wrong numbers: the parameter is
+a copy. A recursive-descent parser that threads `pos: Int` through its levels
+re-reads from the start at every level. The compiler now warns, once per callee
+parameter, when the assigned, un-returned parameter shows one of three shapes:
+
+- **dead**: a self-update (`pos = pos + 1`, `buf = buf + s`) that nothing reads
+  again, reported at that update (in a module's own file for a module export);
+- **thread**: a function advancing its own such parameter passes it to a callee
+  that advances it too, then reads it in a condition or an index before writing
+  it;
+- **stuck**: the call is in a loop whose condition reads the argument, and the
+  loop body never writes it.
+
+The message names the parameter and the function and gives the fixes: return
+the position with the result (`-> (Int, Int)`, `let (v, next) = f(s, pos);
+pos = next;`), a nested fn that assigns the enclosing cursor (D64), or a record
+field. A parameter used as the callee's own scratch counter (`gcd(a, b)`,
+`siftDown(heap, i, n)`) stays silent, as do by-reference captures. Measured
+before shipping: 0 of 6,393 known-correct programs that compile, 3 archived
+silent-wrong attempts (`results/decisions/d77_param_cursor_2026-10-21.md`).
+Fixtures `tests/fx/diag/param001_*`. The three guides list PARAM-001 in their
+repair rules; full and medium say scalar parameters are copies in their arrays
+section.
+
 ## 2026-10-21-4
 
 **The builtin listing matches the compiler** (1.0-beta4dev): `builtins_json()`

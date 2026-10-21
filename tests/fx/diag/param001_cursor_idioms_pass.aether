@@ -1,0 +1,79 @@
+// PARAM-001 (D77) stays silent on the three correct ways to share a cursor: a
+// tuple that returns the new position, a nested fn that assigns the enclosing
+// cursor (D64), and a record field (records are shared by reference).
+fn readNumber(text: Text, pos: Int) -> (Int, Int) {
+    let value: Int = 0;
+    loop pos < length(text) && is_digit(text[pos]) {
+        value = value * 10 + parse_int(text[pos]);
+        pos = pos + 1;
+    }
+    ret (value, pos);
+}
+
+fn sumByTuple(text: Text) -> Int {
+    let pos: Int = 0;
+    let total: Int = 0;
+    loop pos < length(text) {
+        if text[pos] == "," {
+            pos = pos + 1;
+        } else {
+            let (value, next) = readNumber(text, pos);
+            total = total + value;
+            pos = next;
+        }
+    }
+    ret total;
+}
+
+fn sumByNested(text: Text) -> Int {
+    let pos: Int = 0;
+    let total: Int = 0;
+    fn readValue() -> Int {
+        let value: Int = 0;
+        loop pos < length(text) && is_digit(text[pos]) {
+            value = value * 10 + parse_int(text[pos]);
+            pos = pos + 1;
+        }
+        ret value;
+    }
+    loop pos < length(text) {
+        if text[pos] == "," {
+            pos = pos + 1;
+        } else {
+            total = total + readValue();
+        }
+    }
+    ret total;
+}
+
+type Cursor {
+    text: Text = "";
+    pos: Int = 0;
+}
+
+fn readFrom(c: Cursor) -> Int {
+    let value: Int = 0;
+    loop c.pos < length(c.text) && is_digit(c.text[c.pos]) {
+        value = value * 10 + parse_int(c.text[c.pos]);
+        c.pos = c.pos + 1;
+    }
+    ret value;
+}
+
+fn sumByRecord(text: Text) -> Int {
+    let c: Cursor = new Cursor { text: text };
+    let total: Int = 0;
+    loop c.pos < length(c.text) {
+        if c.text[c.pos] == "," {
+            c.pos = c.pos + 1;
+        } else {
+            total = total + readFrom(c);
+        }
+    }
+    ret total;
+}
+
+fn main() -> Void {
+    let text: Text = "12,30,4";
+    fx { println(sumByTuple(text), " ", sumByNested(text), " ", sumByRecord(text)); }
+}

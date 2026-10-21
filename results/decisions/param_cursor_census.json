@@ -1,0 +1,78 @@
+{
+  "table": {
+    "correct/PARAM-001": 0,
+    "correct/compiles": 6393,
+    "correct/naive": 64,
+    "failing/PARAM-001": 6,
+    "failing/compiles": 1042,
+    "failing/naive": 19,
+    "mixed/PARAM-001": 0,
+    "mixed/compiles": 13,
+    "mixed/naive": 0
+  },
+  "hits": [
+    {
+      "status": "failing",
+      "group": "tests",
+      "id": "tests/fx/diag/param001_dead_store_warn_pass.aether",
+      "task": null,
+      "sha256": "68183e506d2365fa149f5e4cdc9e6cca3d9d2d5cb55300d38471b70e756ef22e",
+      "warnings": [
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'nextField' is a copy: this update is never read again, and the caller never sees it. Return it with th"
+      ]
+    },
+    {
+      "status": "failing",
+      "group": "tests",
+      "id": "tests/fx/diag/param001_stuck_loop_warn_pass.aether",
+      "task": null,
+      "sha256": "307f16c61ce008a72236b394fe538ff87fbd521607ee9cfb55fb71dacedf7d68",
+      "warnings": [
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'readWord' is a copy: this loop's condition reads 'pos', and only 'readWord' changes it, which the call"
+      ]
+    },
+    {
+      "status": "failing",
+      "group": "tests",
+      "id": "tests/fx/diag/param001_thread_warn_pass.aether",
+      "task": null,
+      "sha256": "83d401a5cc5b6e36e8c196ed69a1215e5cb9b9b519985e99a2d7faee462e4f1d",
+      "warnings": [
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'readNumber' is a copy: 'readNumber' changes 'pos' but 'sumList' never sees it, and reads 'pos' next as"
+      ]
+    },
+    {
+      "status": "failing",
+      "group": "archived",
+      "id": "afm3__tasks_v2_pos.json.gz:mstream_roundtrip:0",
+      "task": "mstream_roundtrip (silent_wrong)",
+      "sha256": "e3f5948e01242e6abbfd09a1eda30934bf7bc14629513bd08f3b36438e489428",
+      "warnings": [
+        "[PARAM-001] Aether parameter warning: parameter 'buf' of 'write_buffer' is a copy: this update is never read again, and the caller never sees it. Return it (`->"
+      ]
+    },
+    {
+      "status": "failing",
+      "group": "archived",
+      "id": "tuned__hard_nontoon.json.gz:hard2_expr_eval:0",
+      "task": "hard2_expr_eval (silent_wrong)",
+      "sha256": "cfd643dbe3c20c1b2162fe8c0cecdbff5a34a583d0fb2a87accbdc4f0f1ec9a6",
+      "warnings": [
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'parseFactor' is a copy: this update is never read again, and the caller never sees it. Return it with ",
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'parseTerm' is a copy: 'parseTerm' changes 'pos' but 'parseExpr' never sees it, and reads 'pos' next as"
+      ]
+    },
+    {
+      "status": "failing",
+      "group": "archived",
+      "id": "tuned__hard_nontoon.json.gz:hard2_expr_eval:0",
+      "task": "hard2_expr_eval (silent_wrong)",
+      "sha256": "c7b9ab3f349e44c72aa70aed518d0a0120c03fb928247c93d1b5d870ac914b64",
+      "warnings": [
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'parseTerm' is a copy: 'parseTerm' changes 'pos' but 'parseExpr' never sees it, and reads 'pos' next as",
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'parseFactor' is a copy: 'parseFactor' changes 'pos' but 'parseTerm' never sees it, and reads 'pos' nex",
+        "[PARAM-001] Aether parameter warning: parameter 'pos' of 'parseExpr' is a copy: 'parseExpr' changes 'pos' but 'parseFactor' never sees it, and reads 'pos' next "
+      ]
+    }
+  ]
+}

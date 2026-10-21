@@ -1958,6 +1958,11 @@ run-time errors. Open rows:
   parameter (an element, a nested element, an append or a reassignment) and
   never returns it is ARR-001, an error, and so is a call statement that throws
   away the array returned by a call it passed an array to.
+- **D77**, scalar parameters (`Int`, `Real`, `Bool`, `Text`) are copies too: a
+  callee's assignment to one never reaches the caller. PARAM-001 warns when the
+  write was evidently meant for the caller: a self-update that nothing reads
+  again, a cursor threaded through callees that each advance it, or a loop
+  whose condition only the callee's copy could change.
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
 - **D24**, record and tuple `==` compare field by field (slot by slot for a
   tuple), recursing into nested records and arrays; `same(a, b)` is identity
@@ -1993,6 +1998,26 @@ fn main() -> Void {
 
 ```text
 2
+```
+
+```aether @ok id=D.paramcopy.1 warn=PARAM-001
+fn skipWord(s: Text, pos: Int) -> Int {
+    loop pos < length(s) && s[pos] != " " {
+        pos = pos + 1;
+    }
+    let skipped: Int = pos;
+    pos = pos + 1;
+    ret skipped;
+}
+fn main() -> Void {
+    let pos: Int = 0;
+    let end: Int = skipWord("ab cd", pos);
+    fx { println(pos, " ", end); }
+}
+```
+
+```text
+0 2
 ```
 
 ```aether @trap=ARR-003 id=D.index.1

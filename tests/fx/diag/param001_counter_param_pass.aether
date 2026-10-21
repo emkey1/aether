@@ -1,0 +1,70 @@
+// PARAM-001 (D77) stays silent on a parameter used as the callee's own scratch
+// counter, which is the common, correct use, including when the caller reads
+// its own variable again after the call (it means its unchanged value).
+fn gcd(a: Int, b: Int) -> Int {
+    loop b != 0 {
+        let t: Int = b;
+        b = a % b;
+        a = t;
+    }
+    ret a;
+}
+
+fn siftDown(heap: Int[], i: Int, n: Int) -> Int[] {
+    loop 2 * i + 1 < n {
+        let c: Int = 2 * i + 1;
+        if c + 1 < n && heap[c + 1] > heap[c] {
+            c = c + 1;
+        }
+        if heap[i] >= heap[c] {
+            break;
+        }
+        let t: Int = heap[i];
+        heap[i] = heap[c];
+        heap[c] = t;
+        i = c;
+    }
+    ret heap;
+}
+
+fn digitSum(n: Int) -> Int {
+    let s: Int = 0;
+    loop n > 0 {
+        s = s + n % 10;
+        n = n div 10;
+    }
+    ret s;
+}
+
+fn countdown(n: Int, label: Text) -> Text {
+    if n <= 0 {
+        ret label;
+    }
+    n = n - 1;
+    label = label + int_to_text(n);
+    ret countdown(n, label);
+}
+
+fn main() -> Void {
+    let a: Int = 48;
+    let b: Int = 36;
+    let g: Int = gcd(a, b);
+    let heap: Int[] = [3, 9, 4, 7, 1];
+    let i: Int = length(heap) div 2 - 1;
+    loop i >= 0 {
+        heap = siftDown(heap, i, length(heap));
+        i = i - 1;
+    }
+    let n: Int = 1234;
+    let sums: Text = "";
+    loop n > 0 {
+        sums = sums + int_to_text(digitSum(n)) + " ";
+        n = n div 10;
+    }
+    fx {
+        println("gcd(", a, ", ", b, ") = ", g);
+        println("heap top ", heap[0]);
+        println(sums);
+        println(countdown(3, "go:"));
+    }
+}

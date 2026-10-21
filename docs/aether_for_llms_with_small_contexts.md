@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-20-8*
+*Guide version: 2026-10-21-1*
 
 ## Highest-Value Rules
 
@@ -748,6 +748,9 @@ fix:
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target (`let n: Int
   = 3.7;`, `n = random();`) → the fraction is discarded. Use a `Real` target, or
   `int(...)` if truncating is intended.
+- **[PARAM-001]** (warning) a helper advances a parameter (`pos = pos + 1`) the
+  caller expects to move → parameters are copies: return it,
+  `let (v, next) = f(s, pos); pos = next;`.
 - **[ARR-002]** a one-dimensional array indexed twice (`let dp: Int[] = [];`
   then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
   as its own `Int[]`, or index once with `dp[r * width + c]`.

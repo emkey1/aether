@@ -1,0 +1,5 @@
+warning: [PARAM-001]
+is a copy
+!error
+=1 'pos' of 'readWord'
+loop never advances

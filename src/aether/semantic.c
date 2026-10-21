@@ -4886,6 +4886,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
             g_aether_source_path = savedPath;
         }
     }
+    if (pascal_semantic_error_count == errorCountBefore) aetherValidateParamCursor(root);
     if (pascal_semantic_error_count == errorCountBefore) aetherWalkLoopExits(root, 0);
     if (pascal_semantic_error_count == errorCountBefore) aetherValidateParRaces(root);
     if (pascal_semantic_error_count == errorCountBefore) aetherTypedRules(root);

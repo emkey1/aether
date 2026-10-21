@@ -586,6 +586,501 @@ void aetherValidateArrayParamWrites(AST *root) {
     arrWalkFunctionsMode(root, AETHER_ARRAYS_VSTRICT, 1);
 }
 
+/* ------------------------------------------------------------------ */
+/* PARAM-001: a scalar parameter used as a shared cursor (D77)         */
+/* ------------------------------------------------------------------ */
+
+/* A scalar parameter is a copy. A callee that advances `pos` and a caller that
+ * reads its own `pos` again expecting it to have moved compile, run, and print
+ * wrong numbers: a recursive-descent parser written with an Int cursor
+ * re-reads from the start at every level. A callee that assigns a parameter as
+ * a scratch counter is common and correct, so an assigned, un-returned
+ * parameter is not enough. It warns, once per callee parameter, on one of
+ * three shapes that show the write was meant for the caller:
+ *
+ *  dead     the callee updates the parameter from itself (`pos = pos + 1`,
+ *           `buf = buf + s`) and that value is never read again: the update
+ *           can only have been meant for the caller.
+ *  thread   a function that assigns its own cursor parameter without
+ *           returning it passes it to a callee that does the same, then reads
+ *           it in a condition or an index before writing it.
+ *  stuck    a call inside a loop passes v to such a parameter, the loop's
+ *           condition reads v, and nothing in the loop body writes v.
+ *
+ * Measured on every archived benchmark attempt, the training data and the
+ * test corpus before it shipped:
+ * results/decisions/d77_param_cursor_2026-10-21.md. */
+
+#define PC_MAX_PARAMS 32
+
+typedef struct {
+    const char *name;
+    VarType type;
+    int scalar;    /* Int, Real, Bool, Text, Char: a value copy */
+    int byRef;     /* a nested fn's written capture (D64): the caller's variable */
+    int assigned;  /* the body assigns it */
+    int retPlain;  /* `ret q`, a tuple slot `q`, or the @post `result = q` */
+    int deadLine;  /* a self-update (`q = q + 1`) whose value is never read; 0: none */
+    int reported;
+} PcParam;
+
+typedef struct {
+    const char *name;
+    const AST *body;
+    const char *path;   /* the module it came from, NULL for the program */
+    const char *module; /* that module's name: calls into it read `Module.fn` */
+    int isVoid;
+    VarType result;
+    PcParam params[PC_MAX_PARAMS];
+    int np;
+} PcFn;
+
+typedef struct {
+    PcFn *fns;
+    int count, cap;
+} PcIndex;
+
+static int pcIsScalarType(VarType t) {
+    switch (t) {
+        case TYPE_INT8: case TYPE_UINT8: case TYPE_INT16: case TYPE_UINT16:
+        case TYPE_INT32: case TYPE_UINT32: case TYPE_INT64: case TYPE_UINT64:
+        case TYPE_BYTE: case TYPE_WORD: case TYPE_DOUBLE: case TYPE_FLOAT:
+        case TYPE_LONG_DOUBLE: case TYPE_BOOLEAN: case TYPE_CHAR: case TYPE_WIDECHAR:
+        case TYPE_STRING: case TYPE_UNICODE_STRING: case TYPE_ENUM:
+            return 1;
+        default:
+            return 0;
+    }
+}
+
+static const char *pcTypeName(VarType t) {
+    switch (t) {
+        case TYPE_DOUBLE: case TYPE_FLOAT: case TYPE_LONG_DOUBLE: return "Real";
+        case TYPE_BOOLEAN: return "Bool";
+        case TYPE_STRING: case TYPE_UNICODE_STRING: return "Text";
+        case TYPE_CHAR: case TYPE_WIDECHAR: return "Char";
+        default: return "Int";
+    }
+}
+
+static int pcIsFn(const AST *n) {
+    return n && (n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL);
+}
+
+static const AST *pcBody(const AST *fn) {
+    return fn->type == AST_FUNCTION_DECL ? fn->extra : fn->right;
+}
+
+static int pcReads(const AST *n, const char *name) {
+    if (!n || pcIsFn(n)) return 0;
+    if (n->type == AST_VARIABLE) return sameName(varName(n), name);
+    if (n->type == AST_FIELD_ACCESS) return pcReads(n->left, name); /* .right names the field */
+    if (pcReads(n->left, name) || pcReads(n->right, name) || pcReads(n->extra, name)) return 1;
+    for (int i = 0; i < n->child_count; i++)
+        if (pcReads(n->children[i], name)) return 1;
+    return 0;
+}
+
+/* `x op= e` lowers to an ASSIGN whose token is the operator. */
+static int pcIsCompoundAssign(const AST *n) {
+    return n->type == AST_ASSIGN && n->token && n->token->value && strcmp(n->token->value, "=") != 0;
+}
+
+/* An assignment to `name` that reads it: `q = q + 1`, `q += k`, `q = next(q)`. */
+static int pcIsSelfUpdate(const AST *n, const char *name) {
+    return n->type == AST_ASSIGN && sameName(varName(n->left), name) &&
+           (pcIsCompoundAssign(n) || pcReads(n->right, name));
+}
+
+static void pcScanCallee(const AST *n, PcFn *f) {
+    if (!n || pcIsFn(n)) return;
+    if (n->type == AST_ASSIGN && n->left) {
+        for (int i = 0; i < f->np; i++)
+            if (sameName(varName(n->left), f->params[i].name)) f->params[i].assigned = 1;
+        /* A tuple slot `__aether_retobj_N.itemK = q` or the @post `result = q`. */
+        const AST *lv = n->left;
+        if ((lv->type == AST_FIELD_ACCESS && varName(lv->left) &&
+             strncmp(varName(lv->left), "__aether_retobj_", 16) == 0) ||
+            sameName(varName(lv), "result")) {
+            for (int i = 0; i < f->np; i++)
+                if (sameName(varName(n->right), f->params[i].name)) f->params[i].retPlain = 1;
+        }
+    }
+    if (n->type == AST_RETURN) {
+        for (int i = 0; i < f->np; i++)
+            if (sameName(varName(n->left), f->params[i].name)) f->params[i].retPlain = 1;
+    }
+    pcScanCallee(n->left, f);
+    pcScanCallee(n->right, f);
+    pcScanCallee(n->extra, f);
+    for (int i = 0; i < n->child_count; i++) pcScanCallee(n->children[i], f);
+}
+
+/* Backward liveness of one parameter over the structured body: is it read
+ * again after this point? Records the first self-update whose value is not. */
+typedef struct {
+    const char *name;
+    int record; /* 0 while a loop iterates to its fixpoint */
+    int deadLine;
+} PcLive;
+
+static int pcLiveBefore(PcLive *L, const AST *n, int after, int exitLive, int headLive) {
+    if (!n || pcIsFn(n)) return after;
+    switch (n->type) {
+        case AST_COMPOUND: {
+            int live = after;
+            for (int i = n->child_count - 1; i >= 0; i--)
+                live = pcLiveBefore(L, n->children[i], live, exitLive, headLive);
+            return live;
+        }
+        case AST_BREAK:
+            return exitLive;
+        case AST_CONTINUE:
+            return headLive;
+        case AST_RETURN:
+            return pcReads(n->left, L->name);
+        case AST_ASSIGN:
+            if (sameName(varName(n->left), L->name)) {
+                int self = pcIsSelfUpdate(n, L->name);
+                if (self && !after && L->record) {
+                    int line = nodeLineOf(n);
+                    if (!L->deadLine || line < L->deadLine) L->deadLine = line;
+                }
+                return self;
+            }
+            return after || pcReads(n, L->name);
+        case AST_IF:
+            return pcReads(n->left, L->name) || pcLiveBefore(L, n->right, after, exitLive, headLive) ||
+                   (n->extra ? pcLiveBefore(L, n->extra, after, exitLive, headLive) : after);
+        case AST_WHILE: {
+            int saved = L->record, head = 0;
+            L->record = 0;
+            for (int iter = 0; iter < 4; iter++) {
+                int h = pcReads(n->left, L->name) || after || pcLiveBefore(L, n->right, head, after, head);
+                if (h == head) break;
+                head = h;
+            }
+            L->record = saved;
+            (void)pcLiveBefore(L, n->right, head, after, head);
+            return head;
+        }
+        default:
+            /* A declaration, a call, an expression statement: reads only. A
+             * by-reference argument (a nested fn's capture) counts as a read. */
+            return after || pcReads(n, L->name);
+    }
+}
+
+static void pcIndexFns(PcIndex *x, const AST *n, const char *path, const char *module) {
+    if (!n) return;
+    if (pcIsFn(n) && pcBody(n) && n->token && n->token->value) {
+        if (x->count == x->cap) {
+            int cap = x->cap ? x->cap * 2 : 32;
+            PcFn *g = (PcFn *)realloc(x->fns, (size_t)cap * sizeof(*g));
+            if (!g) return;
+            x->fns = g;
+            x->cap = cap;
+        }
+        PcFn *f = &x->fns[x->count++];
+        memset(f, 0, sizeof(*f));
+        f->name = n->token->value;
+        f->body = pcBody(n);
+        f->path = path;
+        f->module = module;
+        f->isVoid = n->type == AST_PROCEDURE_DECL;
+        f->result = n->var_type;
+        for (int i = 0; i < n->child_count; i++) {
+            const AST *d = n->children[i];
+            if (!d || d->type != AST_VAR_DECL) continue;
+            for (int j = 0; j < d->child_count && f->np < PC_MAX_PARAMS; j++) {
+                PcParam *p = &f->params[f->np++];
+                p->name = varName(d->children[j]);
+                p->type = d->var_type;
+                p->scalar = pcIsScalarType(d->var_type);
+                p->byRef = d->by_ref;
+            }
+        }
+        pcScanCallee(f->body, f);
+        for (int i = 0; i < f->np; i++) {
+            PcParam *p = &f->params[i];
+            if (!p->name || !p->scalar || p->byRef || !p->assigned || p->retPlain) continue;
+            PcLive L = {p->name, 1, 0};
+            (void)pcLiveBefore(&L, f->body, 0, 0, 0);
+            p->deadLine = L.deadLine;
+            /* AETHER_EXPERIMENT_LOG: every lost parameter, the naive rule's population. */
+            logRow("param-lost", nodeLineOf(n), f->name, p->name, path ? path : "-",
+                   p->deadLine ? "dead" : "live");
+        }
+    }
+    pcIndexFns(x, n->left, path, module);
+    pcIndexFns(x, n->right, path, module);
+    pcIndexFns(x, n->extra, path, module);
+    for (int i = 0; i < n->child_count; i++) pcIndexFns(x, n->children[i], path, module);
+}
+
+static PcFn *pcLookup(const PcIndex *x, const AST *call) {
+    const char *name = call->token ? call->token->value : NULL;
+    if (!name) return NULL;
+    for (int i = x->count - 1; i >= 0; i--)
+        if (!x->fns[i].module && sameName(x->fns[i].name, name)) return &x->fns[i];
+    /* `Module.fn` names an imported module's export. */
+    const char *dot = strrchr(name, '.');
+    for (int i = x->count - 1; dot && i >= 0; i--) {
+        const PcFn *f = &x->fns[i];
+        if (f->module && strlen(f->module) == (size_t)(dot - name) &&
+            strncasecmp(f->module, name, (size_t)(dot - name)) == 0 && sameName(f->name, dot + 1))
+            return &x->fns[i];
+    }
+    return NULL;
+}
+
+/* A parameter whose writes are lost: an assigned, un-returned scalar copy. */
+static int pcLost(const PcParam *p) {
+    return p->name && p->scalar && !p->byRef && p->assigned && !p->retPlain;
+}
+
+/* Does `n` write v: directly, or by passing it to a by-reference parameter
+ * (a nested fn's written capture)? */
+static int pcWrites(const PcIndex *x, const AST *n, const char *v) {
+    if (!n || pcIsFn(n)) return 0;
+    if (n->type == AST_ASSIGN && sameName(varName(n->left), v)) return 1;
+    if (n->type == AST_PROCEDURE_CALL) {
+        const PcFn *g = pcLookup(x, n);
+        for (int i = 0; g && i < n->child_count && i < g->np; i++)
+            if (g->params[i].byRef && sameName(varName(n->children[i]), v)) return 1;
+    }
+    if (pcWrites(x, n->left, v) || pcWrites(x, n->right, v) || pcWrites(x, n->extra, v)) return 1;
+    for (int i = 0; i < n->child_count; i++)
+        if (pcWrites(x, n->children[i], v)) return 1;
+    return 0;
+}
+
+/* The first access to v in evaluation order, after `call` when it is inside. */
+enum { PC_NONE = 0, PC_READ, PC_WRITE, PC_SELF };
+
+typedef struct {
+    const PcIndex *index;
+    const char *v;
+    const AST *call;
+    int passed;    /* the walk is past the call */
+    int keyed;     /* a read used in a condition or an index */
+} PcScan;
+
+static int pcFirst(PcScan *s, const AST *n, int keyed) {
+    if (!n || pcIsFn(n)) return PC_NONE;
+    if (n == s->call) {
+        s->passed = 1;
+        return PC_NONE;
+    }
+    int r;
+    switch (n->type) {
+        case AST_VARIABLE:
+            if (s->passed && sameName(varName(n), s->v)) {
+                s->keyed = keyed;
+                return PC_READ;
+            }
+            return PC_NONE;
+        case AST_FIELD_ACCESS:
+            return pcFirst(s, n->left, keyed);
+        case AST_ASSIGN:
+            if (sameName(varName(n->left), s->v)) {
+                int before = s->passed;
+                if (before && pcIsCompoundAssign(n)) return PC_SELF;
+                r = pcFirst(s, n->right, keyed);
+                if (r == PC_READ) return before ? PC_SELF : PC_WRITE;
+                if (r) return r;
+                return s->passed ? PC_WRITE : PC_NONE;
+            }
+            if ((r = pcFirst(s, n->right, keyed))) return r;
+            return pcFirst(s, n->left, keyed);
+        case AST_VAR_DECL:
+            return pcFirst(s, n->left, keyed);
+        case AST_IF:
+        case AST_WHILE:
+            if ((r = pcFirst(s, n->left, 1))) return r;
+            if ((r = pcFirst(s, n->right, keyed))) return r;
+            return n->type == AST_IF ? pcFirst(s, n->extra, keyed) : PC_NONE;
+        case AST_ARRAY_ACCESS:
+            if ((r = pcFirst(s, n->left, keyed))) return r;
+            for (int i = 0; i < n->child_count; i++)
+                if ((r = pcFirst(s, n->children[i], 1))) return r;
+            return PC_NONE;
+        case AST_PROCEDURE_CALL: {
+            const PcFn *g = pcLookup(s->index, n);
+            for (int i = 0; i < n->child_count; i++) {
+                const AST *a = n->children[i];
+                if (s->passed && g && i < g->np && g->params[i].byRef && sameName(varName(a), s->v))
+                    return PC_WRITE; /* a nested fn may write its capture */
+                if ((r = pcFirst(s, a, keyed))) return r;
+            }
+            return PC_NONE;
+        }
+        default:
+            break;
+    }
+    if ((r = pcFirst(s, n->left, keyed))) return r;
+    if ((r = pcFirst(s, n->right, keyed))) return r;
+    if ((r = pcFirst(s, n->extra, keyed))) return r;
+    for (int i = 0; i < n->child_count; i++)
+        if ((r = pcFirst(s, n->children[i], keyed))) return r;
+    return PC_NONE;
+}
+
+/* Where the call's statement sits: the enclosing statement lists, innermost
+ * last, each with the loop whose body it is (NULL for any other block). */
+typedef struct {
+    const AST *list;
+    int index;
+    const AST *loop;
+} PcFrame;
+
+/* The first access to v after the call: the rest of its statement, the
+ * statements after it in each enclosing list, and a loop's condition and the
+ * top of its body when that body ends. Sets *keyed for a read used in a
+ * condition or an index. */
+static int pcNextAccess(const PcIndex *x, const char *v, const AST *call, const PcFrame *fr, int nfr,
+                        int *keyed) {
+    PcScan s = {x, v, call, 0, 0};
+    int r = pcFirst(&s, fr[nfr - 1].list->children[fr[nfr - 1].index], 0);
+    s.passed = 1;
+    for (int f = nfr - 1; !r && f >= 0; f--) {
+        const AST *list = fr[f].list;
+        int broke = 0;
+        for (int i = fr[f].index + 1; !r && i < list->child_count; i++) {
+            const AST *st = list->children[i];
+            if (st && st->type == AST_BREAK) {
+                broke = 1;
+                break;
+            }
+            r = pcFirst(&s, st, 0);
+            if (!r && st && st->type == AST_RETURN) return PC_NONE;
+        }
+        if (!r && fr[f].loop && !broke) {
+            r = pcFirst(&s, fr[f].loop->left, 1);
+            for (int i = 0; !r && i <= fr[f].index; i++) r = pcFirst(&s, list->children[i], 0);
+        }
+    }
+    *keyed = s.keyed;
+    return r;
+}
+
+typedef struct {
+    const PcIndex *index;
+    const PcFn *fn; /* the function whose body is walked */
+    PcFrame frames[64];
+    int nframes;
+} PcWalk;
+
+/* `path`: the file of `line`, NULL for the program being compiled. */
+static void pcReport(const PcFn *g, PcParam *q, const char *path, int line, const char *what) {
+    if (q->reported) return;
+    q->reported = 1;
+    const char *t = pcTypeName(q->type);
+    char fix[360];
+    if (g->isVoid)
+        snprintf(fix, sizeof(fix), "Return it (`-> %s`) and assign it at the call (`%s = %s(...);`)", t,
+                 q->name, g->name);
+    else
+        snprintf(fix, sizeof(fix),
+                 "Return it with the result (`-> (%s, %s)`) and assign it at the call "
+                 "(`let (value, next) = %s(...); %s = next;`)",
+                 pcIsScalarType(g->result) ? pcTypeName(g->result) : "T", t, g->name, q->name);
+    char detail[900];
+    snprintf(detail, sizeof(detail),
+             "parameter '%s' of '%s' is a copy: %s. %s, or make '%s' a nested fn that assigns the "
+             "enclosing '%s', or keep the cursor in a record field.",
+             q->name, g->name, what, fix, g->name, q->name);
+    const char *saved = path ? aetherSemanticSwapReportPath(path) : NULL;
+    logRow("param", line, g->name, q->name, what, "warn");
+    aetherSemanticReportCoded("PARAM-001", "parameter", line, detail, 0);
+    if (path) aetherSemanticSwapReportPath(saved);
+}
+
+static void pcCheckCall(PcWalk *w, const AST *call) {
+    PcFn *g = pcLookup(w->index, call);
+    if (!g || w->nframes == 0) return;
+    for (int k = 0; k < call->child_count && k < g->np; k++) {
+        PcParam *q = &g->params[k];
+        const char *v = varName(call->children[k]);
+        if (!v || !pcLost(q) || q->reported || strncmp(v, "__aether", 8) == 0) continue;
+        /* stuck: the innermost loop whose condition reads v never writes v. */
+        for (int f = w->nframes - 1; f >= 0; f--) {
+            const AST *loop = w->frames[f].loop;
+            if (!loop || !pcReads(loop->left, v)) continue;
+            if (!pcWrites(w->index, loop->right, v)) {
+                char what[320];
+                snprintf(what, sizeof(what),
+                         "this loop's condition reads '%s', and only '%s' changes it, which the "
+                         "caller never sees, so the loop never advances",
+                         v, g->name);
+                pcReport(g, q, NULL, nodeLineOf(call), what);
+            }
+            break;
+        }
+        if (q->reported) continue;
+        /* thread: the caller's own cursor parameter, read before it is written. */
+        const PcParam *own = NULL;
+        for (int i = 0; w->fn && i < w->fn->np; i++)
+            if (sameName(w->fn->params[i].name, v)) own = &w->fn->params[i];
+        if (!own || !pcLost(own)) continue;
+        int keyed = 0;
+        if (pcNextAccess(w->index, v, call, w->frames, w->nframes, &keyed) == PC_READ && keyed) {
+            char what[320];
+            snprintf(what, sizeof(what),
+                     "'%s' changes '%s' but '%s' never sees it, and reads '%s' next as if it had "
+                     "moved",
+                     g->name, q->name, w->fn->name, v);
+            pcReport(g, q, NULL, nodeLineOf(call), what);
+        }
+    }
+}
+
+static void pcWalk(PcWalk *w, const AST *n, const AST *loopOfList) {
+    if (!n || pcIsFn(n)) return;
+    if (n->type == AST_PROCEDURE_CALL) pcCheckCall(w, n);
+    if (n->type == AST_COMPOUND) {
+        for (int i = 0; i < n->child_count && w->nframes < 64; i++) {
+            w->frames[w->nframes++] = (PcFrame){n, i, loopOfList};
+            pcWalk(w, n->children[i], NULL);
+            w->nframes--;
+        }
+        return;
+    }
+    pcWalk(w, n->left, NULL);
+    pcWalk(w, n->right, n->type == AST_WHILE ? n : NULL);
+    pcWalk(w, n->extra, NULL);
+    for (int i = 0; i < n->child_count; i++) pcWalk(w, n->children[i], NULL);
+}
+
+void aetherValidateParamCursor(AST *root) {
+    if (!root) return;
+    PcIndex x = {NULL, 0, 0};
+    pcIndexFns(&x, root, NULL, NULL);
+    int programFns = x.count;
+    int moduleCount = aetherGetLoadedModuleCount();
+    for (int i = 0; i < moduleCount; i++) {
+        AST *m = aetherGetModuleAST(i);
+        if (m && m != root) pcIndexFns(&x, m, aetherGetModulePath(i), aetherGetModuleName(i));
+    }
+    /* dead: per callee, in the file that declares it. */
+    for (int i = 0; i < x.count; i++) {
+        PcFn *f = &x.fns[i];
+        for (int k = 0; k < f->np; k++)
+            if (f->params[k].deadLine && pcLost(&f->params[k]))
+                pcReport(f, &f->params[k], f->path, f->params[k].deadLine,
+                         "this update is never read again, and the caller never sees it");
+    }
+    /* stuck and thread: at the program's call sites. */
+    for (int i = 0; i < programFns; i++) {
+        PcWalk w;
+        memset(&w, 0, sizeof(w));
+        w.index = &x;
+        w.fn = &x.fns[i];
+        pcWalk(&w, x.fns[i].body, NULL);
+    }
+    free(x.fns);
+}
+
 /* arrays=ref: an rvalue cannot bind to a by-reference parameter, so each one
  * moves into a temporary declared just before its statement. A call in a
  * `while` condition is re-evaluated each turn and cannot be hoisted; it is

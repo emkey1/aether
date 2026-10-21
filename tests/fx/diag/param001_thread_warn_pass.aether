@@ -1,0 +1,32 @@
+// PARAM-001 (D77), the thread shape: sumList and readNumber each advance their
+// own copy of `pos`, and sumList reads its `pos` in the loop condition after
+// the call as if readNumber had moved it. Each level re-reads from its start.
+fn readNumber(text: Text, pos: Int) -> Int {
+    let value: Int = 0;
+    loop pos < length(text) && is_digit(text[pos]) {
+        value = value * 10 + parse_int(text[pos]);
+        pos = pos + 1;
+    }
+    ret value;
+}
+
+fn sumList(text: Text, pos: Int) -> Int {
+    let total: Int = 0;
+    let guard: Int = 0;
+    loop pos < length(text) && guard < 3 {
+        if text[pos] == "," {
+            pos = pos + 1;
+        } else {
+            total = total + readNumber(text, pos);
+            if pos < length(text) && text[pos] == "," {
+                pos = pos + 1;
+            }
+        }
+        guard = guard + 1;
+    }
+    ret total;
+}
+
+fn main() -> Void {
+    fx { println(sumList("12,30,4", 0)); }
+}
