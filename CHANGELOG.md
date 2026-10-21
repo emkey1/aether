@@ -17,6 +17,20 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-21-9
 
+**Release `1.0-beta5`** (D75): the fifth 1.0 beta, tagged `1.0-beta5`;
+`--version` prints `Aether Compiler Version: 2026-10-21-9 (1.0-beta5)`. On top
+of `1.0-beta4` it carries the run-time path fix below and the diagnostics that
+an agent's review of 1.0-beta4 asked for. Those are messages only, so no
+language version marks them:
+- division and modulo by zero and integer overflow print
+  `[AETH-RUNTIME-DIV-ZERO]` and `[AETH-RUNTIME-INT-OVERFLOW]` with a hint;
+- a run-time error's hint is part of its `--diagnostics-json` record;
+- array slices out of range get their own `ARR-003` messages;
+- PAR-002's hint shows a `par` block.
+
+The full guide (stamp `2026-10-21-7`) states the `Int` range, bitwise NOT and
+how slice ends behave. The next dev label is `1.0-beta6dev`.
+
 **Run-time error locations print the path as given** (1.0-beta5dev, a pscal-core
 fix). A run-time error's `path:line:` prefix went through a helper that shortens
 test paths for disassembly output, and it dropped every leading `/`:
