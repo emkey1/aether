@@ -20,6 +20,10 @@ is a list of directives, one per line, and every other line is ignored.
 `--fake-flip` (pass it with --aether-arg) reverses every printed line: a
 stand-in for a deliberately broken semantics arm, for the replay gate's tests.
 
+A program with no directives that calls `socket_create(` is the oracle's
+sandbox probe (aether_oracle_check.SANDBOX_PROBE): under `--deny` with `net` it
+is refused on stderr the way the real VM refuses it, and exits 1.
+
 `--version` prints "Aether Compiler Version: $FAKE_AETHER_VERSION" (default
 2026-10-06-1+fake000). With $FAKE_AETHER_LOG set, every call appends one JSON
 line {"argv": [...]} to that file, so a test can see exactly which binary and
@@ -49,13 +53,18 @@ def main(argv: list[str]) -> int:
     diagnostics_json = "--diagnostics-json" in argv
     flip = "--fake-flip" in argv
     program = None
+    deny = ""
     skip_next = False
-    for arg in argv:
+    for i, arg in enumerate(argv):
         if skip_next:
             skip_next = False
             continue
         if arg == "--deny":
+            deny = argv[i + 1] if i + 1 < len(argv) else ""
             skip_next = True
+            continue
+        if arg.startswith("--deny="):
+            deny = arg.split("=", 1)[1]
             continue
         if arg.startswith("-"):
             continue
@@ -65,9 +74,15 @@ def main(argv: list[str]) -> int:
         print("fake_aether: no program given", file=sys.stderr)
         return 2
 
+    source = pathlib.Path(program).read_text(encoding="utf-8")
+    if "//!" not in source and "socket_create(" in source and "net" in deny.split(","):
+        print(f"{program}:3: VM Error: builtin 'socketcreate' denied by --deny/PSCAL_VM_DENY "
+              "policy (fake_aether).", file=sys.stderr)
+        return 1
+
     status = 0
     directives = 0
-    for line in pathlib.Path(program).read_text(encoding="utf-8").splitlines():
+    for line in source.splitlines():
         stripped = line.strip()
         if not stripped.startswith("//!"):
             continue
