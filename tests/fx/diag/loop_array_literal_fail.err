@@ -1,0 +1,2 @@
+cannot infer the type of the array literal in `loop b in [...]`
+`let items: Int[] = [...];`, then write `loop b in items { ... }`

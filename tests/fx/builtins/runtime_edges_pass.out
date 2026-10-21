@@ -1,0 +1,5 @@
+socket_create(5)=-1 error set=true
+mkdir=0 again=0 rmdir=0
+missing: type=[] null=false int=false has=false
+null: type=[null] null=true
+542 49 751 397 46 690 65 511 299 871 1273297400

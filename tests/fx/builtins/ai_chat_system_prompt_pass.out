@@ -1,0 +1,4 @@
+[You are a terse gardener.] valid=true messages=2 first=system:You are a terse gardener. temperature=false
+["temperature": 0] valid=true messages=1 first=user:When should I repot my fig? temperature=true
+[{"temperature": 0}] valid=true messages=1 first=user:When should I repot my fig? temperature=true
+[] valid=true messages=1 first=user:When should I repot my fig? temperature=false

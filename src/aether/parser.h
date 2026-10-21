@@ -86,5 +86,8 @@ void aetherAstClearSemanticRegistries(void);
  * Case-sensitive, exactly like a declaration. semantic.c's TYPE-002 check
  * uses it so a name is judged by Aether's type table, not rea's resolver. */
 int aetherAstIsBuiltinTypeName(const char *name);
+/* The engine name an Aether builtin name aliases, or NULL (run-time lookups:
+ * task_spawn targets, has_builtin). */
+const char *aetherRuntimeBuiltinAlias(const char *name);
 
 #endif

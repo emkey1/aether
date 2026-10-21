@@ -1,0 +1,6 @@
+a.txt: status=200 before=7/7 after=7/7 text=alpha 1
+b.txt: status=200 before=6/6 after=6/6 text=beta 2
+c.txt: status=200 before=7/7 after=7/7 text=gamma 3
+file: 20/20 status=200
+cancelled=1 done=true
+still done=true

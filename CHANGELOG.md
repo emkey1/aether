@@ -15,6 +15,54 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-2
+
+**Standard-library defects the stdlib training pack found** (1.0-beta3dev):
+engine fixes in pscal-core and front-end fixes here, each with a fixture in
+`tests/fx/`. Every one of the 84 `stdlib_*` seed pairs keeps its output.
+
+- **Async HTTP** (engine). Progress read after `http_await` raced the
+  worker's slot reset: with three requests in flight on one session,
+  `http_get_async_total` read 0 while the progress read 7, or both read 0. A
+  request's final counters now stay readable after it is awaited or
+  cancelled, and a `file://` request reports the file's size as its total (it
+  read 0). `http_is_done` on a cancelled request is `true` from the cancel on;
+  by Int id it read `false` forever once the slot was released. Every builtin
+  that takes a session now holds that session's lock: since pscal-core d65d981
+  async workers no longer write the session, which fixed the 1.0-beta2 crash
+  (SIGTRAP in `httpAsyncFinish`, 4 in 400 runs here), and the lock covers what
+  is left, an await or a request on another thread
+  (`http_async_progress_pass`).
+- **Builtin names given at run time take the Aether spellings.**
+  `has_builtin("core", "file_exists")`, `("sqlite", "sqlite_open")`,
+  `("core", "println")` and the other documented names answered `false`
+  while the engine spellings D72 removed answered `true`; `task_spawn` and
+  `task_queue` stopped with "unknown builtin identifier" on `"dns_lookup"` or
+  `"sleep"`. The engine spellings still work (`builtin_names_runtime_pass`).
+- **`task_status` returns `Bool`** (D76): `let ok: Bool = task_status(h);`
+  compiles, and an `Int` binding is TYPE-001 with a hint naming the Bool. It
+  was typed `Int` although the engine returned a Bool.
+- **`ai_chat`'s third parameter is a system prompt**, as documented: it is sent
+  as a system message ahead of `messages`. It was spliced into the request as
+  JSON fields, so a prompt made the request invalid JSON. Text that is JSON
+  object fields (`"temperature": 0`) is still merged, so every request that
+  worked before is sent unchanged (`ai_chat_system_prompt_pass`).
+- `socket_create` of a type other than 0 (TCP) or 1 (UDP) is `-1`; it made a
+  TCP socket. Unseeded `random` gives the same numbers on every platform: the
+  engine used libc `rand_r`, so glibc hosts drew differently from macOS; the
+  macOS sequence is kept (`runtime_edges_pass`).
+- Diagnostics: `elif` is SYN-001 once (it was reported again by each
+  enclosing block, three times inside a loop in `fx`), and `loop b in [0, 255]`
+  names the typed binding to write (`let items: Int[] = [...];`) instead of
+  "cannot infer the type of the collection".
+- Docs: the full guide corrects `http_request`'s transport-error value and
+  lists the error classes and 5xx behaviour, `builtins_json()`'s shape (an
+  array of objects), `mkdir` of an existing directory (`0`), SQL errors in
+  `sqlite_exec`/`sqlite_prepare` (they stop the program; `sqlite_errmsg`
+  serves a failed `sqlite_step`; turning them into return codes would break
+  the beta freeze and is left to an owner decision) and a missing `toon_key`
+  (a missing node, not a null one).
+
 ## 2026-10-21-1
 
 **Two defects found during the 2026-10-20 VM-audit compiler fixes** (1.0-beta3dev),

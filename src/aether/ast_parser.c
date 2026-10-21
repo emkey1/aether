@@ -1174,6 +1174,7 @@ static void aetherParserInit(AetherParser *p, const char *source,
     p->currentFunctionType = TYPE_VOID;
     p->functionDepth = 0;
     p->hadError = false;
+    p->foreignReportedAt = NULL;
     p->currentClassName = NULL;
     p->currentMethodIndex = 0;
     p->currentModuleName = NULL;
@@ -1582,6 +1583,14 @@ static const char *aliasBuiltinName(const char *name) {
         }
     }
     return name;
+}
+
+/* The alias table above for builtin names that arrive at run time, as data
+ * (task_spawn targets, has_builtin): the engine name, or NULL for a name with
+ * no alias. Registered with the engine by aetherInstallFrontendHooks. */
+const char *aetherRuntimeBuiltinAlias(const char *name) {
+    const char *canonical = aliasBuiltinName(name);
+    return (canonical && canonical != name && strcmp(canonical, name) != 0) ? canonical : NULL;
 }
 
 /* Copy the current token's lexeme into a freshly allocated pscal identifier
@@ -5042,6 +5051,30 @@ static char *aetherHintNameOf(AetherParser *p, AST *e) {
     return inferLetTypeName(p, e);
 }
 
+/* The element type an array literal's elements agree on (Real for an Int and
+ * Real mix), for a hint; NULL when they disagree or one cannot be typed. */
+char *aetherArrayLiteralElementHint(AetherParser *p, AST *lit) {
+    if (!lit || lit->type != AST_ARRAY_LITERAL || lit->child_count == 0) return NULL;
+    char *first = NULL;
+    bool numeric = true;
+    for (int i = 0; i < lit->child_count; i++) {
+        char *el = aetherHintNameOf(p, lit->children[i]);
+        if (!el) { free(first); return NULL; }
+        if (strcmp(el, "Int") != 0 && strcmp(el, "Real") != 0) numeric = false;
+        if (!first) {
+            first = el;
+        } else if (strcmp(first, el) != 0) {
+            free(el);
+            if (!numeric) { free(first); return NULL; }
+            free(first);
+            first = strdup("Real");
+        } else {
+            free(el);
+        }
+    }
+    return first;
+}
+
 /* `s[i]` on a Text `s` (one character), not an element of a Text[]. */
 static bool aetherIsTextCharIndex(AetherParser *p, AST *e) {
     if (!e || e->type != AST_ARRAY_ACCESS || !e->left) return false;
@@ -6432,10 +6465,13 @@ static AST *parseStatementInner(AetherParser *p) {
         const AetherForeignKeyword *fk = aetherForeignStatementKeyword(&p->current);
         if (fk && (fk->always ||
                    !aetherNextContinuesIdentifierStatement(aetherPeekNextTokenType(p)))) {
-            char detail[128];
-            snprintf(detail, sizeof(detail), "'%s' is not Aether syntax.", fk->word);
-            reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
-                                 detail, fk->hint);
+            if (p->foreignReportedAt != p->current.start) {
+                char detail[128];
+                snprintf(detail, sizeof(detail), "'%s' is not Aether syntax.", fk->word);
+                reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                                     detail, fk->hint);
+                p->foreignReportedAt = p->current.start;
+            }
             p->hadError = true;
             return NULL;
         }

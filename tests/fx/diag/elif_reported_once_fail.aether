@@ -1,0 +1,20 @@
+// `elif` is SYN-001 once: every enclosing block stopped at the same token and
+// reported it again, three times for an `if` inside a loop inside `fx`.
+fn f(x: Int) -> Int {
+    fx {
+        loop x > 0 {
+            if x > 5 {
+                println("big");
+            } elif x > 2 {
+                println("mid");
+            } else {
+                println("small");
+            }
+        }
+    }
+    ret x;
+}
+
+fn main() -> Void {
+    ret;
+}

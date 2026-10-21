@@ -1,0 +1,27 @@
+// Builtin names given at run time take the Aether spellings (1.0-beta3):
+// has_builtin found only the engine names, so every documented Aether name
+// below answered false, and task_spawn("dns_lookup", ...) stopped with
+// "unknown builtin identifier". The engine spellings keep working.
+fn main() -> Void {
+    fx {
+        println(has_builtin("core", "file_exists"), " ", has_builtin("sqlite", "sqlite_open"), " ",
+                has_builtin("network", "http_request"), " ", has_builtin("core", "println"), " ",
+                has_builtin("core", "toon_parse"), " ", has_builtin("core", "dns_lookup"));
+        println(has_builtin("core", "int_to_text"), " ", has_builtin("core", "has_toon"), " ",
+                has_builtin("core", "sqrt"), " ", has_builtin("core", "task_cancel"), " ",
+                has_builtin("core", "no_such_builtin"));
+        println(has_builtin("sqlite", "sqliteopen"), " ", has_builtin("network", "HttpRequest"));
+
+        let t: Int = task_spawn("dns_lookup", "resolver", "localhost");
+        println("dns_lookup wait=", task_wait(t));
+        let addr: Text = task_result(t, true);
+        println("resolved=", length(addr) > 0);
+        let nap: Int = task_spawn("sleep", "nap", 5);
+        println("sleep wait=", task_wait(nap));
+        let pooled: Int = task_queue("dns_lookup", "pooled", "localhost");
+        println("queued wait=", task_wait(pooled));
+        let old: Int = task_spawn("delay", "old", 5);
+        println("delay wait=", task_wait(old));
+    }
+    ret;
+}

@@ -223,6 +223,10 @@ typedef struct {
     const char *exprAfterOpAt;
     int exprAfterOpLine;
     const char *stmtStartAt;
+    /* The foreign keyword (`elif`, `return`, ...) last reported: every
+     * enclosing block stops at the same token, and each used to report it
+     * again (`elif` printed SYN-001 once per nesting level). */
+    const char *foreignReportedAt;
     bool detachedText;
     /* A contract clause's sub-parser whose hoists the guard splices ahead of
      * its test (buildContractGuard): quantifiers (D58) lower through them. */
@@ -374,6 +378,7 @@ const char *aetherTypeNameForVarType(VarType vt);
 char *inferLetTypeName(AetherParser *p, AST *init);
 char *aetherInferSliceBaseTypeName(AetherParser *p, AST *base);
 char *aetherLetOperandTypeName(AetherParser *p, AST *e);
+char *aetherArrayLiteralElementHint(AetherParser *p, AST *lit);
 char *aetherSliceBaseMissingFieldOwner(AetherParser *p, AST *base);
 bool aetherIsEnclosingTypeField(AetherParser *p, const char *name);
 bool aetherTypeNameIsArray(const char *name);

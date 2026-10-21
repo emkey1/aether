@@ -9,7 +9,8 @@ going over all of them:
   .out        exact stdout (bytes)
   .unordered  present: compare stdout with .out as a multiset of lines (par)
   .err        one substring per line that stderr must contain; a line starting
-              with `!` is a substring stderr must NOT contain
+              with `!` is a substring stderr must NOT contain, and one starting
+              with `=1 ` a substring stderr must contain exactly once
   .codes      the exact set of diagnostic codes: the --diagnostics-json
               records' codes plus the [CODE] tags in the run's stderr (the JSON
               is written only on failure, so warnings come from the tags). A
@@ -155,6 +156,10 @@ def check(name, aether, work, update):
         if ln.startswith("!"):
             if ln[1:] in err:
                 problems.append(f"stderr contains forbidden {ln[1:]!r}")
+        elif ln.startswith("=1 "):
+            seen = err.count(ln[3:])
+            if seen != 1:
+                problems.append(f"stderr has {ln[3:]!r} {seen} times, want once")
         elif ln not in err:
             problems.append(f"stderr lacks {ln!r}")
     got_codes, nulls = None, 0

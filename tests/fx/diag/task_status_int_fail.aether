@@ -1,0 +1,11 @@
+// Binding task_status to an Int is TYPE-001 since D76, with a hint naming
+// the fix: it returns Bool.
+fn main() -> Void {
+    fx {
+        let h: Int = task_spawn("sleep", "nap", 5);
+        sleep(50);
+        let st: Int = task_status(h);
+        println(st);
+    }
+    ret;
+}

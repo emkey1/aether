@@ -1,0 +1,11 @@
+// A loop over an array literal is TYPE-001 (an array literal is never
+// inferred), and the hint names the typed binding to write, with the
+// elements' type.
+fn main() -> Void {
+    fx {
+        loop b in [0, 255] {
+            println(b);
+        }
+    }
+    ret;
+}

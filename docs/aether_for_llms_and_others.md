@@ -1,6 +1,6 @@
 # Aether for Humans and LLMs
 
-*Guide version: 2026-10-20-11*
+*Guide version: 2026-10-21-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -917,7 +917,7 @@ roll, pass the bound — `random(n)`. This now raises `[NARROW-001]`.
 
 `randomize()` seeds from the clock. Each thread derives its own stream, so
 `par` branches draw independent numbers; with no `randomize()` call a run is
-reproducible.
+reproducible, and prints the same numbers on every platform.
 
 `abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
 `round`/`trunc`/`floor`/`ceil` always return `Int`.
@@ -1436,6 +1436,7 @@ Golden shape rules:
 | root / close | `toon_root(doc)`, `toon_close(doc)` |
 | object field / array element | `toon_key(node, key)`, `toon_at(node, i)` |
 | defaulted field node | `toon_key_or(node, key, fallback)` — pair it with `toon_null()`, an always-null node (`toon_is_null` is true) |
+| missing key | `toon_key(node, "absent")` is a *missing* node, not a null one: every `toon_is_*` is false and `toon_type` is `""`; test `toon_has_key` first, or use `toon_key_or` |
 | TOON array length | `toon_len(node)` |
 | typed field get | `toon_get_text(node, key)`, `toon_get_int(node, key)`, `toon_get_real(node, key)`, `toon_get_bool(node, key)` |
 | typed field get w/ fallback | `toon_get_text_or(node, key, fb)`, `toon_get_int_or(node, key, fb)`, `toon_get_real_or(node, key, fb)`, `toon_get_bool_or(node, key, fb)` — `fb` when the key is missing, null or of another type (an Int satisfies `toon_get_real_or`) |
@@ -1614,9 +1615,9 @@ are a lower-level handle API over runtime builtins.
 
 Compact aliases over shared runtime helpers; all are effectful — call inside
 `fx` (FX-001) — except the `has_*` probes, which are pure. `task_spawn` /
-`task_queue` dispatch an allow-listed runtime *builtin* by name (for example
-`"delay"`), not a user-defined function; passing your own function name is an
-error. To parallelize your own functions, use `par` (above).
+`task_queue` dispatch an allow-listed runtime *builtin* by its Aether name
+(for example `"sleep"` or `"dns_lookup"`), not a user-defined function;
+passing your own function name is an error. To parallelize your own functions, use `par` (above).
 
 Core signatures:
 
@@ -1634,14 +1635,19 @@ Core signatures:
 - `task_stats() -> Array`: worker-pool records with no Aether type, so count
   them (`length(task_stats())`) and read fields through `task_stats_json()`
 - `task_stats_json() -> Text`
-- `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`
+- `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`:
+  `messages` is a JSON array of `{"role": ..., "content": ...}` objects;
+  `system` is sent as a system message ahead of them. Text that is JSON object
+  fields instead (`"\"temperature\": 0"`) is merged into the request
+  object, not sent as a message
 - `aether_version() -> Text`: this compiler's version, as `aether --version`
   prints it after "Version:", e.g. `"2026-10-20-14 (1.0-beta3)"`: the language
   version, then the release label. Pure, and fixed for a given compiler.
 - probes: `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`.
-  `has_builtin` answers "can I call this?" across both the extended and the core
-  builtin registries; a core builtin matches on the function name whatever
-  category you pass, since core builtins are not filed under one
+  `has_builtin` answers "can I call this?" for the names this guide uses
+  (`has_builtin("sqlite", "sqlite_open")`), across both the extended and the
+  core builtin registries; a core builtin matches on the function name
+  whatever category you pass, since core builtins are not filed under one
 
 Use `sleep(ms)` for a blocking millisecond pause. It is the compact Aether
 spelling for the shared PSCAL `delay(ms)` builtin and is effectful, so it must
@@ -1657,7 +1663,9 @@ files/env, tasks/`par`, contracts, modules). The runtime also exposes many more
 **custom builtins** that no static guide could anticipate. Rather than list them
 all, discover them:
 
-- `builtins_json()` → JSON array of every Aether-visible builtin name
+- `builtins_json()` → a JSON array with one object per Aether-visible builtin
+  (`name`, `kind`, `category`, `effectful`, `return_type`, ...), not an
+  array of names: read `toon_get_text(toon_at(root, i), "name")`
 - `builtins_json(true)` → richer metadata per builtin (`signature`,
   `return_type`, `effectful`, `usage`, `category`)
 - `builtin_info(name)` → the metadata for one builtin
@@ -2217,7 +2225,7 @@ inside `fx`.
 | `get_env(name)` | `(Text) -> Text` (empty if unset) |
 | `get_env_int(name, fallback)` | `(Text, Int) -> Int` |
 | `get_current_dir()` | `() -> Text` |
-| `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno) |
+| `mkdir(path)` / `rmdir(path)` | `(Text) -> Int` (0 on success, else errno; `mkdir` of a directory that already exists is `0`) |
 
 `write_file` and `append_file` write exactly the text given: end each line with
 `"\n"` yourself. A blank line read from stdin is `""` too, so to process all of
@@ -2241,7 +2249,11 @@ fn main() -> Void {
 ```
 
 Database builtins (`sqlite_*`) are effectful too; they are outside the curated
-surface, and their signatures are in the appendix.
+surface, and their signatures are in the appendix. A SQL error in
+`sqlite_exec` or `sqlite_prepare` (a syntax error, a missing table) stops the
+program with the SQLite message. `sqlite_step` returns SQLite's result code
+instead (`100` a row, `101` done, `19` a constraint failure), and
+`sqlite_errmsg(db)` then reads the message.
 
 ## HTTP requests and memory streams (MS-001)
 
@@ -2252,7 +2264,7 @@ an `MStream` — an opaque memory-stream handle (never `Int`, never `Text`).
 | Builtin | Signature | fx? |
 |---|---|---|
 | `http_session()` | `() -> Int` (session handle, `-1` on failure) | yes |
-| `http_request(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status, `-1` on transport error) | yes |
+| `http_request(session, method, url, body, out)` | `(Int, Text, Text, Text, MStream) -> Int` (HTTP status; a negative error class on a transport error, below) | yes |
 | `http_set_header(session, name, value)` | `(Int, Text, Text) -> Void` | yes |
 | `http_close(session)` | `(Int) -> Void` | yes |
 | `mstream_new()` | `() -> MStream` | no (pure memory) |
@@ -2290,6 +2302,14 @@ fn main() -> Void {
   `print(out)` and never `let body: Int = ...`
 - `body` (arg 4) is the request payload — pass `""` for GET
 - a JSON response pairs naturally with TOON: `toon_parse(mstream_text(out))`
+- a transport error (no HTTP response at all) returns the negated error class,
+  which `http_error_code(session)` also reads as a positive number, with the
+  libcurl message in `http_last_error(session)`: `1` generic, `2` I/O, `3`
+  timeout, `4` TLS, `5` name resolution, `6` connection (`-6` for a refused
+  connection, `-5` for an unknown host)
+- an HTTP error status is still a status: a 404 or a 503 comes back as `404` or
+  `503` with the response body in `out`. For a 5xx, `http_error_code` is `1`
+  and `http_last_error` reads `"HTTP status 503"`
 - `MStream` handles are opaque: no arithmetic, no cross-assignment with
   `ToonDoc`/`ToonNode`/`Int` (MS-001)
 
@@ -2303,7 +2323,7 @@ not exist. All `socket_*` calls and `dns_lookup` are effectful (FX-001, inside
 
 | Builtin | Signature | Notes |
 |---|---|---|
-| `socket_create(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`); `family`: `4` = IPv4 (default), `6` = IPv6 |
+| `socket_create(type[, family])` | `(Int, Int?) -> Int` (socket handle, `-1` on failure) | `type`: `0` = TCP (`SOCK_STREAM`), `1` = UDP (`SOCK_DGRAM`), any other type is `-1`; `family`: `4` = IPv4 (default), `6` = IPv6 |
 | `socket_connect(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | resolves `host` (hostname or literal address) and connects |
 | `socket_bind(socket, port)` | `(Int, Int) -> Int` (`0`/`-1`) | binds on all local interfaces (`INADDR_ANY`) |
 | `socket_bind_addr(socket, host, port)` | `(Int, Text, Int) -> Int` (`0`/`-1`) | binds to one specific local address |
@@ -2631,7 +2651,7 @@ Safe to call exactly as written.
 | `task_spawn(target: Text, name: Text, arg) -> Int` | `fx` |
 | `task_stats() -> Array` | `fx` |
 | `task_stats_json() -> Text` | `fx` |
-| `task_status(handle: Int, consume: Bool = false) -> Int` | `fx` |
+| `task_status(handle: Int, consume: Bool = false) -> Bool` | `fx` |
 | `task_wait(handle: Int) -> Int` | `fx` |
 
 **Text**

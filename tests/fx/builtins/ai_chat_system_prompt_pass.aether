@@ -1,0 +1,106 @@
+// ai_chat's third parameter is a system prompt, as documented (1.0-beta3).
+// The engine spliced it into the request as extra JSON fields, so a prompt
+// made the request invalid JSON. Text that is JSON object fields is still
+// spliced, exactly as before. A one-shot stub on loopback captures each
+// request body.
+fn readRequest(conn: Int) -> Text {
+    let got: Text = "";
+    let done: Bool = false;
+    fx {
+        loop !done {
+            let ms: MStream = socket_receive(conn, 4096);
+            let n: Int = mstream_length(ms);
+            got = got + mstream_text(ms);
+            mstream_free(ms);
+            let headEnd: Int = index_of(got, "\r\n\r\n");
+            if n == 0 {
+                done = true;
+            } else if headEnd >= 0 {
+                let want: Int = 0;
+                loop line in split(got[..headEnd], "\r\n") {
+                    if starts_with(lower(line), "content-length:") {
+                        want = parse_int(trim(line[15..]));
+                    }
+                }
+                done = length(got) - headEnd - 4 >= want;
+            }
+        }
+    }
+    ret got;
+}
+
+type Captured {
+    text: Text = "";
+}
+
+fn chatStub(listenSock: Int, request: Captured) -> Void {
+    fx {
+        let conn: Int = socket_accept(listenSock);
+        let req: Text = readRequest(conn);
+        request.text = req[index_of(req, "\r\n\r\n") + 4..];
+        let body: Text = "{\"choices\":[{\"message\":{\"role\":\"assistant\",\"content\":\"ok\"}}]}";
+        socket_send(conn, "HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: " + int_to_text(length(body))
+                    + "\r\nConnection: close\r\n\r\n" + body);
+        socket_close(conn);
+        socket_close(listenSock);
+    }
+    ret;
+}
+
+fn ask(port: Int, third: Text, reply: Captured) -> Void {
+    let messages: Text = "[{\"role\":\"user\",\"content\":\"When should I repot my fig?\"}]";
+    fx {
+        reply.text = ai_chat("garden-mini", messages, third, "local-test-key", "http://127.0.0.1:" + int_to_text(port) + "/v1");
+    }
+    ret;
+}
+
+fn listenOn(start: Int, port: Captured) -> Int {
+    let p: Int = start;
+    let sock: Int = -1;
+    let bound: Bool = false;
+    fx {
+        sock = socket_create(0);
+        loop !bound && p < start + 200 {
+            if socket_bind_addr(sock, "127.0.0.1", p) == 0 {
+                bound = true;
+            } else {
+                p = p + 1;
+            }
+        }
+        socket_listen(sock, 1);
+    }
+    port.text = int_to_text(p);
+    ret sock;
+}
+
+fn exchange(start: Int, third: Text) -> Void {
+    let portBox: Captured = new Captured();
+    let sock: Int = listenOn(start, portBox);
+    let request: Captured = new Captured();
+    let reply: Captured = new Captured();
+    let port: Int = parse_int(portBox.text);
+    par {
+        chatStub(sock, request);
+        ask(port, third, reply);
+    }
+    let sentDoc: ToonDoc = toon_parse(request.text);
+    let sent: ToonNode = toon_root(sentDoc);
+    let msgs: ToonNode = toon_key(sent, "messages");
+    let first: ToonNode = toon_at(msgs, 0);
+    fx {
+        println("[", third, "] valid=", !toon_is_null(sent), " messages=", toon_len(msgs),
+                " first=", toon_get_text_or(first, "role", "?"), ":", toon_get_text_or(first, "content", "?"),
+                " temperature=", toon_has_key(sent, "temperature"));
+    }
+    toon_close(sentDoc);
+    ret;
+}
+
+fn main() -> Void {
+    exchange(29100, "You are a terse gardener.");
+    exchange(29300, "\"temperature\": 0");
+    exchange(29500, "{\"temperature\": 0}");
+    exchange(29700, "");
+    ret;
+}

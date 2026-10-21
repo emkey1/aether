@@ -1,0 +1,49 @@
+// Async HTTP progress, completion and cancellation, offline (1.0-beta3).
+// Three requests in flight on one session: the progress counters a request
+// finished with stay readable after it is awaited (they read 7/0 or 0/0 at
+// random before: the worker reset its slot under the poll), a file:// request
+// reports the file's size as its total (0 before), and a cancelled request is
+// done from the moment of the cancel and stays done (by Int id it read "not
+// done" forever once its slot was released).
+fn main() -> Void {
+    let urls: Text[] = ["data:,alpha%201", "data:,beta%202", "data:,gamma%203"];
+    let files: Text[] = ["a.txt", "b.txt", "c.txt"];
+    fx {
+        let session: Int = http_session();
+        let ids: Int[] = [];
+        loop i in 0..length(urls) {
+            ids = ids + [http_request_async_to_file(session, "GET", urls[i], "", files[i])];
+        }
+        loop !http_is_done(ids[0]) || !http_is_done(ids[1]) || !http_is_done(ids[2]) {
+            sleep(1);
+        }
+        let out: MStream = mstream_new();
+        loop i in 0..3 {
+            let before: Text = int_to_text(http_get_async_progress(ids[i])) + "/" + int_to_text(http_get_async_total(ids[i]));
+            let status: Int = http_try_await(ids[i], out);
+            println(files[i], ": status=", status, " before=", before, " after=", http_get_async_progress(ids[i]), "/",
+                    http_get_async_total(ids[i]), " text=", read_file(files[i]));
+        }
+
+        write_file("page.html", "<h1>a</h1>\n<p>b</p>\n");
+        let local: Int = http_request_async(session, "GET", "file://" + get_current_dir() + "/page.html", "");
+        loop !http_is_done(local) {
+            sleep(1);
+        }
+        println("file: ", http_get_async_progress(local), "/", http_get_async_total(local), " status=", http_await(local, out));
+
+        let quick: Int = http_request_async(session, "GET", "data:,soon", "");
+        let ok: Int = http_cancel(quick);
+        println("cancelled=", ok, " done=", http_is_done(quick));
+        sleep(50);
+        println("still done=", http_is_done(quick));
+
+        mstream_free(out);
+        http_close(session);
+        delete_file("page.html");
+        loop f in files {
+            delete_file(f);
+        }
+    }
+    ret;
+}

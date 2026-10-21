@@ -2637,6 +2637,20 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line,
                          "`loop %s in self.%s { ... }`.", collName, name, collName);
                 reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration",
                                      detail, hint);
+            } else if (coll->type == AST_ARRAY_LITERAL) {
+                /* An array literal is never inferred (the inference policy),
+                 * here as in `let xs = [1, 2];`: name the binding to write. */
+                char *elem = aetherArrayLiteralElementHint(p, coll);
+                char hint[200];
+                snprintf(detail, sizeof(detail),
+                         "cannot infer the type of the array literal in `loop %s in [...]`.",
+                         name);
+                snprintf(hint, sizeof(hint),
+                         "bind it to a typed `let` first: `let items: %s[] = [...];`, then "
+                         "write `loop %s in items { ... }`.", elem ? elem : "Int", name);
+                free(elem);
+                reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration", detail,
+                                     hint);
             } else {
                 snprintf(detail, sizeof(detail),
                          "cannot infer the type of the collection in `loop %s in ...`.", name);

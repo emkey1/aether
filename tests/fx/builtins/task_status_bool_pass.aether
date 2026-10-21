@@ -1,0 +1,16 @@
+// task_status returns Bool (D76): it was typed Int, so the documented
+// `let ok: Bool = task_status(h)` was TYPE-001 while println printed true.
+fn main() -> Void {
+    fx {
+        let h: Int = task_spawn("sleep", "nap", 5);
+        sleep(100);
+        let ok: Bool = task_status(h);
+        println("ok=", ok, " not ok=", !ok);
+        let h2: Int = task_spawn("sleep", "nap2", 5);
+        sleep(100);
+        if task_status(h2) {
+            println("succeeded");
+        }
+    }
+    ret;
+}

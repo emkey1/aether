@@ -1,0 +1,27 @@
+// Small run-time edges fixed or documented in 1.0-beta3:
+// - socket_create of a type other than 0 (TCP) or 1 (UDP) is -1 (it made a
+//   TCP socket);
+// - mkdir of a directory that already exists is 0 (documented);
+// - toon_key of a missing key is a missing node, neither null nor any other
+//   kind (documented);
+// - random without randomize() repeats the same numbers on every platform
+//   (libc rand_r gave glibc hosts different numbers from macOS).
+fn main() -> Void {
+    fx {
+        println("socket_create(5)=", socket_create(5), " error set=", socket_last_error() != 0);
+        println("mkdir=", mkdir("edges_dir"), " again=", mkdir("edges_dir"), " rmdir=", rmdir("edges_dir"));
+        let doc: ToonDoc = toon_parse("{\"a\": null, \"b\": 1}");
+        let root: ToonNode = toon_root(doc);
+        let missing: ToonNode = toon_key(root, "zz");
+        println("missing: type=[", toon_type(missing), "] null=", toon_is_null(missing), " int=", toon_is_int(missing),
+                " has=", toon_has_key(root, "zz"));
+        println("null: type=[", toon_type(toon_key(root, "a")), "] null=", toon_is_null(toon_key(root, "a")));
+        toon_close(doc);
+        let draws: Text = "";
+        loop i in 0..10 {
+            draws = draws + int_to_text(random(1000)) + " ";
+        }
+        println(draws, random(3000000000));
+    }
+    ret;
+}

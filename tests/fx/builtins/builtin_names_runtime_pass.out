@@ -1,0 +1,8 @@
+true true true true true true
+true true true true false
+true true
+dns_lookup wait=0
+resolved=true
+sleep wait=0
+queued wait=0
+delay wait=0

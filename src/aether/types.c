@@ -531,7 +531,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"yyjsongetint", AETHER_T_INT, NULL}, {"yyjsongetintor", AETHER_T_INT, NULL}, {"httpsession", AETHER_T_INT, NULL},
     {"httprequest", AETHER_T_INT, NULL}, {"waitforthread", AETHER_T_INT, NULL},
     {"thread_spawn_named", AETHER_T_INT, NULL}, {"thread_pool_submit", AETHER_T_INT, NULL},
-    {"thread_lookup", AETHER_T_INT, NULL}, {"thread_get_status", AETHER_T_INT, NULL},
+    {"thread_lookup", AETHER_T_INT, NULL},
     {"threadpoolsubmit", AETHER_T_INT, NULL}, {"socketcreate", AETHER_T_INT, NULL},
     {"socketaccept", AETHER_T_INT, NULL}, {"sizeof", AETHER_T_INT, NULL},
     /* Not listed: thread_get_result / threadgetresult. builtins_json says Int,
@@ -568,6 +568,9 @@ static const BuiltinRet kBuiltinReturns[] = {
     {"fileexists", AETHER_T_BOOL, NULL},
     {"eof", AETHER_T_BOOL, NULL}, {"parse_bool", AETHER_T_BOOL, NULL}, {"odd", AETHER_T_BOOL, NULL},
     {"httpisdone", AETHER_T_BOOL, NULL},
+    /* task_status: the engine returns a Bool (true when the task succeeded).
+     * Typed Int before D76, so `let ok: Bool = task_status(h)` was TYPE-001. */
+    {"thread_get_status", AETHER_T_BOOL, NULL},
     /* Handles */
     {"yyjsonread", AETHER_T_HANDLE, "ToonDoc"}, {"yyjsonreadfile", AETHER_T_HANDLE, "ToonDoc"},
     {"aether_try_toon_read_file", AETHER_T_HANDLE, "ToonDoc"},
@@ -1622,6 +1625,16 @@ static void ruleSinkMismatch(RuleCtx *c, const AST *value, const AetherUse *use,
     aetherTypeFormat(have, got, sizeof(got));
     int scalars = use->want.kind != AETHER_T_RECORD && use->want.kind != AETHER_T_ARRAY &&
                   have.kind != AETHER_T_RECORD && have.kind != AETHER_T_ARRAY;
+    const char *vn = callName(value);
+    if (vn && !strcasecmp(vn, "thread_get_status") && have.kind == AETHER_T_BOOL) {
+        /* D76: task_status was documented `-> Int` until 2026-10-21. */
+        snprintf(detail, sizeof(detail),
+                 "type mismatch: %s %s, but task_status returns Bool (true when the task "
+                 "succeeded). Declare it Bool, or test it directly: `if task_status(h) { ... }`.",
+                 where, want);
+        ruleReport(c, value, detail);
+        return;
+    }
     snprintf(detail, sizeof(detail), "type mismatch: %s %s, but this value is %s. %s",
              where, want, got,
              scalars ? "Convert it explicitly (int_to_text, parse_int, int, ...) or fix "

@@ -6,6 +6,8 @@
 #include "aether/semantic.h"
 #include "rea/state.h"
 #include "rea/frontend_hooks.h"
+#include "backend_ast/builtin.h"
+#include "common/frontend_kind.h"
 
 static int g_aether_verbose_compatibility_diagnostics = 0;
 
@@ -55,4 +57,7 @@ void aetherInstallFrontendHooks(void) {
         .unknownIdentifierHint = aetherUnknownIdentifierHint,
     };
     reaSetFrontendHooks(&hooks);
+    /* Builtin names given at run time (task_spawn("dns_lookup", ...),
+     * has_builtin("core", "file_exists")) take the Aether spellings. */
+    registerBuiltinNameAlias(FRONTEND_KIND_AETHER, aetherRuntimeBuiltinAlias);
 }
