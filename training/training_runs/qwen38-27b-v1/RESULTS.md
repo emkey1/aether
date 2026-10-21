@@ -106,8 +106,8 @@ Both are in tasks_hard_nontoon:
   missed, chiefly invented builtin names (`ints_to_text`, `toon_text_array`, `mstream_from_file`, `isDigit`) and
   MStream file calls outside `fx`. The other 5 are two TYPE-001s, a TUP-001 and two silently wrong outputs; all 5
   pass after repair.
-  - `isDigit` got no hint (only `isdigit` maps to `is_digit`), and both repairs failed. A general
-    camelCase→snake_case SCOPE-001 hint was filed for the compiler.
+  - `isDigit` got no hint on 2026-10-20-12 (only `isdigit` mapped to `is_digit`), and both repairs failed. Since
+    aether c8ae1c5 (2026-10-21) SCOPE-001 hints the snake_case form of any camelCase name.
 - **Maps are trained but not yet measured.** 81 training records use `Map[...]`; no main-suite program does,
   because those tasks predate maps and arrays solve them. The benchmark does not yet measure map fluency.
 - **Python got worse on the first attempt** (85 → 67 of 126); see above. It fits the catastrophic-forgetting reading
