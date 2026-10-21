@@ -1,0 +1,4 @@
+fn main() -> Void {
+    let s: Text = "caf\u{e9} \u{1F600}";
+    fx { println(s, " ", length(s)); }
+}

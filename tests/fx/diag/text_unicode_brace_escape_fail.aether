@@ -1,0 +1,11 @@
+// A `\u{...}` escape that names no character is SYN-001 (D79), as `\u` and
+// `\U` are under D78: a UTF-16 surrogate (braces hold a whole code point, so
+// a pair does not join), or a value past U+10FFFF.
+fn main() -> Void {
+    fx {
+        println("a\u{D800}b");
+        println("\u{110000}");
+        println("\u{D83D}\u{DE00}");
+        println("\u{FFFFFFFFFFFFFFFFFFFFFFFF}");
+    }
+}

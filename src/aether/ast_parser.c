@@ -2095,6 +2095,30 @@ static bool aetherHexRun(const char *src, size_t len, size_t at, size_t count,
     return true;
 }
 
+/* `{H..H}` at src[at..]: one or more hex digits closed by `}`, the body of a
+ * `\u{1F600}` escape (D79). Any digit count is taken (`\u{0001F600}`, Swift's
+ * leading zeros); the value stops growing once it is past U+10FFFF, so it
+ * cannot overflow. Returns the index of the `}`, or 0 when the text at src[at]
+ * is not that shape. */
+static size_t aetherBraceHex(const char *src, size_t len, size_t at,
+                             unsigned long *out) {
+    if (at >= len || src[at] != '{') return 0;
+    unsigned long val = 0;
+    size_t k = at + 1;
+    for (; k < len; k++) {
+        char h = src[k];
+        int d;
+        if (h >= '0' && h <= '9') d = h - '0';
+        else if (h >= 'a' && h <= 'f') d = h - 'a' + 10;
+        else if (h >= 'A' && h <= 'F') d = h - 'A' + 10;
+        else break;
+        if (val <= 0x10FFFF) val = val * 16 + (unsigned long)d;
+    }
+    if (k == at + 1 || k >= len || src[k] != '}') return 0;
+    *out = val;
+    return k;
+}
+
 /* UTF-8 encode a Unicode scalar value (at most 4 bytes); returns the length. */
 static size_t aetherPutUtf8(char *out, unsigned long cp) {
     if (cp < 0x80) {
@@ -2121,9 +2145,11 @@ static size_t aetherPutUtf8(char *out, unsigned long cp) {
 
 /* `\uXXXX` and `\UXXXXXXXX` become UTF-8 (D78); a high surrogate followed by
  * a `\u` low surrogate joins into one character, the JSON spelling of an
- * emoji. With fewer hex digits the escape is unknown and kept as written
- * (`"C:\users"`). A lone surrogate or a value past U+10FFFF is kept as
- * written too, and the first one's offset and length come back in
+ * emoji. `\u{1F600}`, the Rust / JavaScript / Swift spelling, does the same
+ * with any number of hex digits in the braces (D79). With fewer hex digits,
+ * or braces that hold no hex run or never close, the escape is unknown and
+ * kept as written (`"C:\users"`). A lone surrogate or a value past U+10FFFF is
+ * kept as written too, and the first one's offset and length come back in
  * *bad_at / *bad_len (left 0 when there is none) for the caller's SYN-001. */
 static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len,
                                   size_t *bad_at, size_t *bad_len) {
@@ -2171,18 +2197,25 @@ static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len,
                     size_t esc = i - 1;
                     size_t digits = (n == 'u') ? 4 : 8;
                     unsigned long cp = 0;
-                    if (!aetherHexRun(src, len, i + 1, digits, &cp)) {
+                    size_t close = (n == 'u') ? aetherBraceHex(src, len, i + 1, &cp) : 0;
+                    if (close > 0) {
+                        /* A braced value is the whole code point: no surrogate
+                         * pair joins (Rust and Swift reject `\u{D83D}` too). */
+                        i = close;
+                    } else if (!aetherHexRun(src, len, i + 1, digits, &cp)) {
                         buf[j++] = '\\';
                         buf[j++] = n;
                         break;
-                    }
-                    i += digits;
-                    unsigned long lo = 0;
-                    if (n == 'u' && cp >= 0xD800 && cp <= 0xDBFF && i + 2 < len &&
-                        src[i + 1] == '\\' && src[i + 2] == 'u' &&
-                        aetherHexRun(src, len, i + 3, 4, &lo) && lo >= 0xDC00 && lo <= 0xDFFF) {
-                        cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
-                        i += 6;
+                    } else {
+                        i += digits;
+                        unsigned long lo = 0;
+                        if (n == 'u' && cp >= 0xD800 && cp <= 0xDBFF && i + 2 < len &&
+                            src[i + 1] == '\\' && src[i + 2] == 'u' &&
+                            aetherHexRun(src, len, i + 3, 4, &lo) && lo >= 0xDC00 &&
+                            lo <= 0xDFFF) {
+                            cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                            i += 6;
+                        }
                     }
                     if ((cp >= 0xD800 && cp <= 0xDFFF) || cp > 0x10FFFF) {
                         if (bad_len && *bad_len == 0) {
@@ -2348,27 +2381,33 @@ static AST *parseStringLiteral(AetherParser *p) {
                                              &badAt, &badLen);
         if (!segment) { free(buffer); return NULL; }
         if (badLen > 0) {
-            /* A `\u` / `\U` escape with all its hex digits that names no
-             * character. Reported here; the literal keeps it as written so
-             * parsing goes on without a follow-on error. */
+            /* A `\u` / `\U` / `\u{...}` escape with all its hex digits that
+             * names no character. Reported here; the literal keeps it as
+             * written so parsing goes on without a follow-on error. */
             const char *esc = p->current.start + 1 + badAt;
+            bool braced = esc[1] == 'u' && esc[2] == '{';
             unsigned long cp = 0;
-            aetherHexRun(esc, badLen, 2, esc[1] == 'u' ? 4 : 8, &cp);
+            if (braced) aetherBraceHex(esc, badLen, 2, &cp);
+            else aetherHexRun(esc, badLen, 2, esc[1] == 'u' ? 4 : 8, &cp);
             char detail[192];
             if (cp > 0x10FFFF) {
                 snprintf(detail, sizeof(detail),
                          "`%.*s` is past U+10FFFF, the last Unicode code point.",
                          (int)badLen, esc);
                 reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
-                        "`\\U` takes 8 hex digits naming a code point: "
-                        "`\\U0001F600`, up to `\\U0010FFFF`.");
+                        braced ? "`\\u{...}` takes hex digits naming a code point: "
+                                 "`\\u{1F600}`, up to `\\u{10FFFF}`."
+                               : "`\\U` takes 8 hex digits naming a code point: "
+                                 "`\\U0001F600`, up to `\\U0010FFFF`.");
             } else {
                 snprintf(detail, sizeof(detail),
                          "`%.*s` is half of a UTF-16 surrogate pair, not a character.",
                          (int)badLen, esc);
                 reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
-                        "write the whole pair (`\\uD83D\\uDE00`), the code point "
-                        "(`\\U0001F600`), or the character itself.");
+                        braced ? "write the code point (`\\u{1F600}`) or the character "
+                                 "itself; braces hold a whole code point, not half a pair."
+                               : "write the whole pair (`\\uD83D\\uDE00`), the code point "
+                                 "(`\\U0001F600`), or the character itself.");
             }
             p->hadError = true;
         }

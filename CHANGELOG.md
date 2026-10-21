@@ -15,6 +15,28 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-7
+
+**`\u{1F600}` Text escapes decode** (D79, 1.0-beta4dev; reverses D78's
+`\u{...}` clause). Rust, JavaScript and Swift write a Unicode escape with
+braces, and a model that writes `"\u{1F600}"` means the emoji, but the front end
+kept it as written: `println("\u{1F600}")` printed the 9 characters
+`\u{1F600}`, silently. Now `\u{` + hex digits + `}` writes that code point as
+UTF-8 with any number of digits (`\u{e9}`, `\u{1F600}`, Swift's
+`\u{0001F600}`), so the same program prints the emoji and its `length` is 1.
+Braces hold a whole code point: a surrogate (`\u{D800}`; two braced halves do
+not join) or a value past U+10FFFF (`\u{110000}`) is SYN-001 with a hint naming
+`\u{1F600}` or the character itself, as D78 does for `\u` and `\U`. Braces with
+no hex digits or no closing `}` (`\u{}`, `\u{name}`) stay an unknown escape kept
+as written. Before the change no committed program, golden, seed pair or
+archived benchmark attempt held a brace escape (census in
+`results/decisions/d79_unicode_brace_escape_2026-10-21.md`), and the paired
+replay report is identical to the D78 binary's, attempt for attempt. Fixtures:
+`tests/fx/basic/text_unicode_brace_escape_pass` and
+`tests/fx/diag/text_unicode_brace_escape_fail`; the surface registry pins it as
+`unicode_brace_escape` (class 1). Spec §1.3 runs the decode (`L.lit.12`) and the
+rejection (`L.lit.13`); the manual's Literals section shows `\u{1F600}`.
+
 ## 2026-10-21-6
 
 **`\u` and `\U` Text escapes decode** (D78, 1.0-beta4dev). The spec and the full
