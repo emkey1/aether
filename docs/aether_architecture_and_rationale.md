@@ -8,8 +8,8 @@ awkward ones. It is deliberately separate from:
   *vision* (goals, phases), written 2026-06. Historical: where it and this
   document disagree, this document and the decision register win.
 - [`docs/aether_for_llms_and_others.md`](aether_for_llms_and_others.md) — the
-  *reference guide* fed to models and humans who just want to write Aether.
-  Descriptive, not rationale.
+  full LLM guide, the large-context tier of the three guides written to be
+  pasted into a model's prompt. Descriptive, not rationale.
 
 This document is the third leg: the *as-built* engineering rationale. If you are
 about to change the compiler, add a builtin, edit the corpus, or wonder "why on

@@ -1,6 +1,6 @@
-# Aether for Humans and LLMs
+# Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-21-3*
+*Guide version: 2026-10-21-4*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
