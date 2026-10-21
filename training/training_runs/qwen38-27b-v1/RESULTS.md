@@ -37,11 +37,11 @@ that passed was never repaired, so replayed columns give no after-repair count.
 
 | suite | run 7, replayed | **v1** | guided base, 1.0 |
 |---|---|---|---|
-| tasks_v2_pos (35) | 31 | **35 (35)** | pending |
-| tasks_hard_v2 (14) | 10 | **14 (14)** | pending |
-| tasks_hard_nontoon (5) | 3 | 3 (4) | pending |
-| tasks_cs (19) | 18 | **19 (19)** | pending |
-| **total** | **62** (as published: 68) | **71 (72), 97% (99%)** | pending |
+| tasks_v2_pos (35) | 31 | **35 (35)** | 33 (35) |
+| tasks_hard_v2 (14) | 10 | **14 (14)** | 13 (13) |
+| tasks_hard_nontoon (5) | 3 | 3 (4) | 4 (4) |
+| tasks_cs (19) | 18 | **19 (19)** | 17 (18) |
+| **total** | **62** (as published: 68) | **71 (72), 97% (99%)** | 67 (70) |
 
 Run 7's seeds replay to 62 (`-s2`) and 61 (`-s3`) on the main suites.
 
@@ -49,11 +49,11 @@ Run 7's seeds replay to 62 (`-s2`) and 61 (`-s3`) on the main suites.
 
 | suite | run 7, replayed | **v1** | guided base, 1.0 |
 |---|---|---|---|
-| tasks_frontier (15) | 10 | 9 (12) | pending |
-| tasks_frontier_algo (14) | 10 | 10 (13) | pending |
-| tasks_frontier_spec (12) | 12 | 10 (12) | pending |
-| tasks_sealed_toon (12) | 5 | 8 (9) | pending |
-| **total** | **37** (as published: 39) | **37 (46), 70% (87%)** | pending |
+| tasks_frontier (15) | 10 | 9 (12) | 15 (15) |
+| tasks_frontier_algo (14) | 10 | 10 (13) | 10 (13) |
+| tasks_frontier_spec (12) | 12 | 10 (12) | 12 (12) |
+| tasks_sealed_toon (12) | 5 | 8 (9) | 10 (12) |
+| **total** | **37** (as published: 39) | **37 (46), 70% (87%)** | 47 (52) |
 
 Run 7's seeds replay to 35 (`-s2`) and 38 (`-s3`) on the held-out suites.
 
@@ -95,6 +95,10 @@ Both are in tasks_hard_nontoon:
 
 ## Reading
 
+- **Against the guided base on 1.0** (the untrained model reading the ~14K-token 1.0-beta2 guide): v1 with no
+  guide is ahead on the main suites, 71 against 67, and behind on the held-out suites, 37 against 47. That is the
+  same picture as run 7 against the guided base on 2026-10-19-3 (68 vs 67, 39 vs 47); the guided base itself barely
+  moved with the new guide (67 (70) and 47 (52), against 67 (71) and 47 (51)).
 - **v1 replaces run 7.** On one grader (2026-10-20-12) it gains 9 main-suite first attempts (71 against 62) and ties
   on the held-out suites (37 against 37; run 7's seeds span 35-38).
   - 6 of the 9 are tasks run 7 lost only to `formatfloat` (D72); v1 passes all six, never writes the old name, and

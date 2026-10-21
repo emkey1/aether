@@ -1,0 +1,16 @@
+# Guided base on Aether 1.0-beta2 (2026-10-21)
+
+The untrained Qwen3.8-27B (bf16, Ollama on the scoring Mac) with the 1.0-beta2 medium guide in every prompt, on all
+eight suites, graded on 2026-10-20-12. It is the guided comparison for `qwen38-27b-v1`.
+
+- Guide: `docs/aether_for_llms_medium_contexts.md` at tag `1.0-beta2` (sha256 d8d22bb0b0418c78…). The reports name it
+  `card`, because the scoring script passes it as a custom document.
+- Settings: T=0, seed 42, one repeat, two repair rounds, thinking off, 32K context.
+- One frontier_algo case failed in the infrastructure; it was re-run with `--resume` and is measured.
+
+| | first attempt (after repair) |
+|---|---|
+| main (73) | 67 (70) |
+| held-out (53) | 47 (52) |
+
+On the 2026-10-19-3 guide and grader it scored 67 (71) and 47 (51) (`../guided-qwen38-27b-20261018/`).
