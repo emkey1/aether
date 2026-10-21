@@ -17,6 +17,20 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-21-8
 
+**Release `1.0-beta4`** (D75): the fourth 1.0 beta, tagged `1.0-beta4`;
+`--version` prints `Aether Compiler Version: 2026-10-21-8 (1.0-beta4)`. It is
+the changes from 2026-10-21-3 to 2026-10-21-8 on top of `1.0-beta3`:
+- `--deny proc` no longer stops a program from ending, so `fn main() -> Int`
+  and failed contracts exit with their own status under the benchmark's and the
+  MCP runner's sandbox;
+- the builtin listing matches the compiler;
+- PARAM-001 (D77);
+- `\u`, `\U` and `\u{...}` Text escapes (D78, D79);
+- `try_sqlite_exec` / `try_sqlite_prepare`;
+- a hint for `mod(a, b)`, `div(a, b)` and `xor(a, b)`.
+
+The next dev label is `1.0-beta5dev`.
+
 **Checked SQL: `try_sqlite_exec` and `try_sqlite_prepare`** (1.0-beta4dev, a
 D75 beta addition). `sqlite_exec` and `sqlite_prepare` stop the program on a
 SQL error (a syntax error, a missing table, a constraint), and they still do:
