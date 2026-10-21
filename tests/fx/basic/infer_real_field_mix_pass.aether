@@ -1,0 +1,20 @@
+// An inferred `let` over Int and a Real field is Real, as with a Real local
+// (inferred_real_mix_pass). The parser did not name the field, so `n + p.r`
+// was typed Int and printed 5 for 5.5 with no warning.
+type Rate {
+    r: Real;
+
+    fn scaled(n: Int) -> Real {
+        let v = self.r * n;
+        ret v;
+    }
+}
+
+fn main() -> Void {
+    let p: Rate = new Rate { r: 2.5 };
+    let n: Int = 3;
+    let sum = n + p.r;
+    let twice = p.r * 2;
+    let less = p.r - n;
+    fx { println(sum, " ", twice, " ", less, " ", p.scaled(3)); }
+}

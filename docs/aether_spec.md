@@ -172,7 +172,10 @@ fn main() -> Void {
 ### 1.3 Literals
 
 - **Int**: decimal digits, or `0x` hex digits; `_` between digits is ignored.
-  Values are 64-bit.
+  Values are 64-bit. A decimal literal past 9223372036854775807 or a hex one
+  with more than 16 significant digits is rejected; `-9223372036854775808` is
+  the smallest Int, and a hex literal is a 64-bit pattern
+  (`0xffffffffffffffff` is -1).
 - **Real**: digits with a `.` and an optional exponent (`2.5e2`). `.5` and `2.`
   are accepted.
 - **Text**: `"..."` or `'...'`, on one line. Escapes: `\n`, `\t`, `\"`, `\\`,
@@ -226,6 +229,32 @@ fn main() -> Void {
     let s: Text = "abc;
     fx { println(s); }
 }
+```
+
+An Int literal that does not fit 64 bits is rejected, not clamped (this one
+used to print 9223372036854775807):
+
+```aether @reject=SYN-001 id=L.lit.7
+fn main() -> Void {
+    let x: Int = 18446744073709551615;
+    fx { println(x); }
+}
+```
+
+```aether @reject=SYN-001 id=L.lit.8
+fn main() -> Void {
+    fx { println(0x1ffffffffffffffff); }
+}
+```
+
+```aether @ok id=L.lit.9
+fn main() -> Void {
+    fx { println(-9223372036854775808, " ", 9223372036854775807, " ", 0xffffffffffffffff); }
+}
+```
+
+```text
+-9223372036854775808 9223372036854775807 -1
 ```
 
 ---
@@ -1877,6 +1906,32 @@ fn main() -> Void {
     let n: Int = 3;
     let s = "n=" + n;
 }
+```
+
+`s[i]` is a one-character Text, so `s[i] + 1` is the same form (it used to fail
+in the backend with an uncoded type mismatch):
+
+```aether @bug=D7 now=TYPE-001 id=S.textplus.4
+fn main() -> Void {
+    let s: Text = "abc";
+    let x = s[0] + 1;
+}
+```
+
+`+` over Text operands alone infers Text, whether or not a literal is among
+them:
+
+```aether @ok id=S.textplus.5
+fn main() -> Void {
+    let s: Text = "ab";
+    let t: Text = "cd";
+    let joined = s + t + s[0];
+    fx { println(joined); }
+}
+```
+
+```text
+abcda
 ```
 
 A `Real` stored into an `Int` truncates, with the NARROW-001 warning (never an

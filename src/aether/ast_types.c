@@ -305,7 +305,7 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
             free(base);
         }
     }
-    /* Mixed string/non-string arithmetic (e.g. `tag + 1`, Text + Int) has no
+    /* Mixed string/non-string `+` (e.g. `tag + 1`, Text + Int) has no
      * inferable result type -> NULL, so the caller emits "cannot infer" like the
      * rewriter. Checked before the var_type fallback below, which would otherwise
      * name the operation's (misleading) promoted type. */
@@ -313,11 +313,23 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
         const char *bop = init->token->value;
         if (strcmp(bop, "+") == 0 || strcmp(bop, "-") == 0 || strcmp(bop, "*") == 0 ||
             strcmp(bop, "div") == 0 || strcmp(bop, "mod") == 0) {
-            char *lt = inferLetTypeName(p, init->left);
-            char *rt = inferLetTypeName(p, init->right);
+            char *lt = aetherLetOperandTypeName(p, init->left);
+            char *rt = aetherLetOperandTypeName(p, init->right);
             int lStr = lt && (strcmp(lt, "Text") == 0 || strcmp(lt, "str") == 0);
             int rStr = rt && (strcmp(rt, "Text") == 0 || strcmp(rt, "str") == 0);
-            int mixed = lt && rt && (lStr != rStr);
+            int plus = strcmp(bop, "+") == 0;
+            /* `-`, `*`, `div` and `mod` with a Text operand fall through: the
+             * typed pass rejects them with a TYPE-001 that names ord() and
+             * parse_int(), which says more than "cannot infer". */
+            int mixed = plus && lt && rt && (lStr != rStr);
+            /* `+` with a Text operand joins Text, whatever the other side is
+             * (types.c typeOfBinary). The var_type fallback below follows the
+             * parse-time operand types, which are unknown for a name, a field
+             * or a call, so `let x = a + b;` with two Text bindings was typed
+             * Int and failed in the backend with the uncoded "Cannot assign
+             * UNICODESTRING to integer"; `s + t + s` was Int + Text and got
+             * the Text-plus-a-number hint. */
+            int textJoin = plus && !mixed && (lStr || rStr);
             /* Int and Real mix to Real, whichever side the Real is on. The
              * var_type fallback below follows the left operand, so `let c =
              * n * y;` with an Int `n` and a Real `y` was typed Int and
@@ -330,6 +342,7 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
             free(lt);
             free(rt);
             if (mixed) return NULL;
+            if (textJoin) return strdup("Text");
             if (realMix) return strdup("Real");
         }
     }
@@ -441,6 +454,24 @@ char *aetherInferSliceBaseTypeName(AetherParser *p, AST *base) {
         default:
             return NULL;
     }
+}
+
+/* The Aether type name of an operand of an arithmetic operator in an inferred
+ * binding, or NULL: aetherInferSliceBaseTypeName (inferLetTypeName, then a
+ * record field, `self` or a method result), then a Text index. `s[i]` is a
+ * one-character Text (types.c types it Char), but neither names it, so
+ * `let x = s[0] + 1;` fell through to the Int default and failed in the
+ * backend with the uncoded "Cannot assign UNICODESTRING to integer" while
+ * `s[0] + 2` printed "a2"; a Real field left `let c = o.r * n;` an Int that
+ * truncated 7.5 to 7. Used for operands only, so an inferred `let c = s[0];`
+ * or `let x = o.f;` keeps what inferLetTypeName says. */
+char *aetherLetOperandTypeName(AetherParser *p, AST *e) {
+    char *t = aetherInferSliceBaseTypeName(p, e);
+    if (t || !e || e->type != AST_ARRAY_ACCESS || !e->left || e->child_count > 1) return t;
+    char *base = aetherLetOperandTypeName(p, e->left);
+    if (base && (strcmp(base, "Text") == 0 || strcmp(base, "str") == 0)) return base;
+    free(base);
+    return NULL;
 }
 
 /* For the slice diagnostic: when `base` is `recv.field`, `recv` is a record

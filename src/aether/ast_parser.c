@@ -3343,6 +3343,86 @@ static AST *aetherParseMapLiteral(AetherParser *p) {
     return call;
 }
 
+/* The digits of an Int literal token with its `_` separators dropped and its
+ * leading zeros skipped (a hex token without its `0x`), in `buf`. False for a
+ * Real literal or a token too long for `buf`. */
+static bool aetherIntLiteralDigits(const ReaToken *t, char *buf, size_t cap, bool *hex) {
+    const char *s = t->start;
+    size_t len = t->length;
+    *hex = len > 2 && s[0] == '0' && (s[1] == 'x' || s[1] == 'X');
+    if (*hex) {
+        s += 2;
+        len -= 2;
+    }
+    size_t j = 0;
+    for (size_t i = 0; i < len; i++) {
+        char c = s[i];
+        if (c == '_' || (j == 0 && c == '0')) continue;
+        if (!*hex && (c == '.' || c == 'e' || c == 'E')) return false;
+        if (j + 1 >= cap) return false;
+        buf[j++] = c;
+    }
+    buf[j] = '\0';
+    return true;
+}
+
+/* An Int literal past 64 bits used to clamp with no word: atoll made
+ * 18446744073709551615 and 9223372036854775808 into 9223372036854775807, and
+ * strtoull made a 17-digit hex literal all ones (-1). Reports SYN-001 (a
+ * malformed literal, as `0b101` is) and returns true when `t` does not fit.
+ * Hex keeps its 64-bit reading (0xffffffffffffffff is -1). Pascal's qword
+ * literals are pscal-core's (decimalLiteralAboveInt64) and never come here. */
+static bool aetherRejectIntLiteralOutOfRange(AetherParser *p, const ReaToken *t) {
+    char digits[64];
+    bool hex = false;
+    bool tooLong = !aetherIntLiteralDigits(t, digits, sizeof(digits), &hex);
+    if (tooLong) {
+        /* A Real literal, or more digits than fit `digits`: only the latter
+         * is out of range. */
+        bool real = false;
+        for (size_t i = 0; !hex && i < t->length; i++)
+            if (t->start[i] == '.' || t->start[i] == 'e' || t->start[i] == 'E') real = true;
+        if (real) return false;
+    } else {
+        size_t n = strlen(digits);
+        if (hex ? n <= 16 : (n < 19 || (n == 19 && strcmp(digits, "9223372036854775807") <= 0)))
+            return false;
+    }
+    char shown[48];
+    int len = (int)t->length;
+    if (len > 40) snprintf(shown, sizeof(shown), "%.40s...", t->start);
+    else snprintf(shown, sizeof(shown), "%.*s", len, t->start);
+    char detail[200];
+    if (hex) {
+        snprintf(detail, sizeof(detail),
+                 "Int literal `%s` is out of range: an Int is 64 bits, at most 16 hex digits.",
+                 shown);
+        reportAetherAstErrorWithCode(t->line, "SYN-001", detail,
+                                     "drop the extra digits; Aether has no wider integer type.");
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "Int literal `%s` is out of range: an Int is 64 bits, at most "
+                 "9223372036854775807.", shown);
+        char hint[160];
+        if (len > 40) snprintf(hint, sizeof(hint), "for a larger number write a Real literal: add `.0`.");
+        else snprintf(hint, sizeof(hint), "for a larger number write a Real literal (`%s.0`).", shown);
+        reportAetherAstErrorWithCode(t->line, "SYN-001", detail, hint);
+    }
+    p->hadError = true;
+    return true;
+}
+
+/* `-9223372036854775808` is the smallest Int, and its magnitude alone is not
+ * an Int: the unary minus folds it into one literal before the range check
+ * sees 2^63 (atoll used to read it as -9223372036854775807). */
+static bool aetherIsInt64MinMagnitude(const ReaToken *t) {
+    char digits[64];
+    bool hex = false;
+    return t->type == REA_TOKEN_NUMBER &&
+           aetherIntLiteralDigits(t, digits, sizeof(digits), &hex) && !hex &&
+           strcmp(digits, "9223372036854775808") == 0;
+}
+
 static AST *parsePrimary(AetherParser *p) {
     /* `all x in xs: cond` / `any i in a..b: cond` (D58). */
     if (aetherAtQuantifier(p)) {
@@ -3361,6 +3441,13 @@ static AST *parsePrimary(AetherParser *p) {
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
+        if (aetherIsInt64MinMagnitude(&p->current)) {
+            Token *tok = newToken(TOKEN_INTEGER_CONST, "-9223372036854775808", p->current.line, 0);
+            aetherAdvance(p);
+            AST *node = newASTNode(AST_NUMBER, tok);
+            setTypeAST(node, TYPE_INT64);
+            return node;
+        }
         AST *right = parsePrimary(p);
         if (!right) return NULL;
         Token *tok = newToken(TOKEN_MINUS, "-", op.line, 0);
@@ -3511,6 +3598,15 @@ static AST *parsePrimary(AetherParser *p) {
     }
     /* Numeric literal */
     if (p->current.type == REA_TOKEN_NUMBER) {
+        if (aetherRejectIntLiteralOutOfRange(p, &p->current)) {
+            /* Reported; a 0 in its place lets the parse go on without a
+             * second, derived error. */
+            Token *tok = newToken(TOKEN_INTEGER_CONST, "0", p->current.line, 0);
+            aetherAdvance(p);
+            AST *node = newASTNode(AST_NUMBER, tok);
+            setTypeAST(node, TYPE_INT64);
+            return node;
+        }
         size_t len = p->current.length;
         const char *start = p->current.start;
         TokenType ttype = TOKEN_INTEGER_CONST;
@@ -4946,6 +5042,15 @@ static char *aetherHintNameOf(AetherParser *p, AST *e) {
     return inferLetTypeName(p, e);
 }
 
+/* `s[i]` on a Text `s` (one character), not an element of a Text[]. */
+static bool aetherIsTextCharIndex(AetherParser *p, AST *e) {
+    if (!e || e->type != AST_ARRAY_ACCESS || !e->left) return false;
+    char *base = aetherLetOperandTypeName(p, e->left);
+    bool text = base && strcmp(base, "Text") == 0;
+    free(base);
+    return text;
+}
+
 static void aetherInferHint(AetherParser *p, AST *init, const char *vn, char *hint, size_t n) {
     if (init && init->type == AST_ARRAY_LITERAL) {
         if (init->child_count == 0) {
@@ -4982,11 +5087,20 @@ static void aetherInferHint(AetherParser *p, AST *init, const char *vn, char *hi
     }
     if (init && init->type == AST_BINARY_OP && init->token && init->token->value &&
         strcmp(init->token->value, "+") == 0) {
-        char *lt = inferLetTypeName(p, init->left);
-        char *rt = inferLetTypeName(p, init->right);
-        bool text = (lt && strcmp(lt, "Text") == 0) || (rt && strcmp(rt, "Text") == 0);
+        char *lt = aetherLetOperandTypeName(p, init->left);
+        char *rt = aetherLetOperandTypeName(p, init->right);
+        bool lText = lt && strcmp(lt, "Text") == 0, rText = rt && strcmp(rt, "Text") == 0;
+        bool text = lText || rText;
         free(lt);
         free(rt);
+        /* `s[i] + 1` is most often a character-code step written C-style. */
+        if ((lText && aetherIsTextCharIndex(p, init->left)) ||
+            (rText && aetherIsTextCharIndex(p, init->right))) {
+            snprintf(hint, n, "`s[i]` is a one-character Text and `+` joins Text (`\"a\" + 1` "
+                     "is `\"a1\"`): for its code write `let %s: Int = ord(s[i]) + 1;`, for the "
+                     "Text `let %s: Text = ...;`.", vn, vn);
+            return;
+        }
         if (text) {
             snprintf(hint, n, "add an explicit type: `let %s: Text = ...;` (Text + a number "
                      "builds a Text).", vn);

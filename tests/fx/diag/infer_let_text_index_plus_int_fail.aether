@@ -1,0 +1,9 @@
+// `s[i]` is a one-character Text, and `+` with a number joins Text, so an
+// inferred binding of it is TYPE-001 like `let x = "a" + 1;`. It used to be
+// typed Int and fail in the backend with the uncoded "Type mismatch: Cannot
+// assign UNICODESTRING to integer." The hint names ord() for the code.
+fn main() -> Void {
+    let s: Text = "abc";
+    let x = s[0] + 1;
+    fx { println(x); }
+}

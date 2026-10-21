@@ -15,6 +15,49 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-1
+
+**Two defects found during the 2026-10-20 VM-audit compiler fixes** (1.0-beta3dev),
+both bugs under the beta freeze.
+
+- **An Int literal that does not fit 64 bits is SYN-001** (spec §1.3, `L.lit.7`
+  to `L.lit.9`). It used to clamp with no word: `18446744073709551615` and
+  `9223372036854775808` both printed 9223372036854775807, a whole-number
+  literal past that bound in a `Real` binding became 9.223372036854776e+18, and
+  a hex literal with more than 16 significant digits read as all ones (-1). The
+  message gives the bound, and for a decimal literal the hint names the Real
+  spelling (`9223372036854775808.0`). `-9223372036854775808`, the smallest Int,
+  now reads as itself; it used to give -9223372036854775807. A hex literal of up to
+  16 digits keeps its 64-bit pattern (`0xffffffffffffffff` is -1), and leading
+  zeros do not count. Pascal's qword literals are unchanged (pscal-core), and so
+  is Rea.
+- **An inferred `let` over `+` now follows the typed pass.** The parser's
+  inference typed `+` from the operands' parse-time types, which are unknown for a
+  name, a field or a call, so with no literal in the expression it fell back to
+  Int:
+  - `let x = a + b;` with two Text bindings, and `p.first + p.last`, `s + f()`,
+    `s[0] + s[1]`, failed in the backend with the uncoded "Type mismatch: Cannot
+    assign UNICODESTRING to integer". These now infer Text (S.textplus.5).
+  - `s + t + s` was reported as Text plus a number. It now infers Text.
+  - `let x = s[0] + 1;` failed with that same uncoded line, while `s[0] + 2`
+    printed "a2". `s[i]` is a one-character Text, so this is the inferred
+    Text-plus-number form: TYPE-001 like `let x = "a" + 1;` (S.textplus.4, D7
+    still open). The hint names `ord(s[i]) + 1` for the character code and
+    `let x: Text` for the join. A Text field plus a number (`it.name + 1`) gets
+    the same TYPE-001.
+  - **Silent-wrong:** a Real field was not named either, so `let v = n + p.r;`
+    was typed Int and truncated (5.5 printed 5, `p.r - n` printed 0 for -0.5).
+    It is now Real, as it already was with a Real local.
+
+  `-`, `*`, `div` and `mod` with a Text operand now reach the typed pass's
+  TYPE-001 ("`-` needs numbers ...", naming `ord` and `parse_int`) instead of
+  "cannot infer". An inferred `let c = s[0];` or `let x = o.f;` is unchanged.
+
+Fixtures: `basic/int_literal_edges_pass`, `diag/int_literal_out_of_range_fail`,
+`diag/int_literal_hex_out_of_range_fail`, `diag/int_literal_for_real_fail`,
+`basic/infer_let_text_join_pass`, `basic/infer_real_field_mix_pass`,
+`diag/infer_let_text_index_plus_int_fail`, `diag/infer_let_text_field_plus_int_fail`.
+
 ## 2026-10-20-14
 
 **`aether_version()`** (D75, a 1.0-beta addition; release label still

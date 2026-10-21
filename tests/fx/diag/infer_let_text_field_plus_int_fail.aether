@@ -1,0 +1,11 @@
+// A Text field plus a number in an inferred binding is TYPE-001, like a Text
+// local. It used to be typed Int and fail in the backend uncoded.
+type Item {
+    name: Text;
+}
+
+fn main() -> Void {
+    let it: Item = new Item { name: "box" };
+    let label = it.name + 1;
+    fx { println(label); }
+}

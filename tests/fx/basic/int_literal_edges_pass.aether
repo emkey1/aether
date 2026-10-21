@@ -1,0 +1,22 @@
+// The Int literals at the 64-bit edges. `-9223372036854775808` is the smallest
+// Int: the minus folds into the literal, as 2^63 alone is out of range (it
+// used to read as -9223372036854775807). Leading zeros do not count against
+// the range, and a 16-digit hex literal keeps its 64-bit reading.
+const LOWEST: Int = -9223372036854775808;
+
+type Bounds {
+    lo: Int = -9223372036854775808;
+    hi: Int = 9_223_372_036_854_775_807;
+}
+
+fn main() -> Void {
+    let b: Bounds = new Bounds();
+    let edges: Int[] = [-9223372036854775808, 9223372036854775807];
+    let padded: Int = 000000000000000000000042;
+    fx {
+        println(LOWEST, " ", b.lo, " ", b.hi);
+        println(edges[0], " ", edges[1], " ", -9223372036854775808 + 1, " ", padded);
+        println(0xffffffffffffffff, " ", 0x00000000000000000000ff, " ", 0x7fffffffffffffff);
+        println(LOWEST == b.lo, " ", b.hi + LOWEST);
+    }
+}

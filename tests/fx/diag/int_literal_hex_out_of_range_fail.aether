@@ -1,0 +1,7 @@
+// A hex Int literal wider than 64 bits (17 significant digits) is SYN-001.
+// It used to read as all ones and print -1. Sixteen digits keep their 64-bit
+// reading (int_literal_edges_pass).
+fn main() -> Void {
+    let h: Int = 0x1ffffffffffffffff;
+    fx { println(h); }
+}

@@ -1,0 +1,7 @@
+// A whole-number literal is an Int even where a Real is wanted, so one past
+// 64 bits is SYN-001 there too (it used to clamp to 9.223372036854776e+18).
+// The hint names the Real spelling.
+fn main() -> Void {
+    let r: Real = 99999999999999999999999;
+    fx { println(r); }
+}

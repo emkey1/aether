@@ -373,6 +373,7 @@ VarType resolveConditionalType(AST *thenExpr, AST *elseExpr);
 const char *aetherTypeNameForVarType(VarType vt);
 char *inferLetTypeName(AetherParser *p, AST *init);
 char *aetherInferSliceBaseTypeName(AetherParser *p, AST *base);
+char *aetherLetOperandTypeName(AetherParser *p, AST *e);
 char *aetherSliceBaseMissingFieldOwner(AetherParser *p, AST *base);
 bool aetherIsEnclosingTypeField(AetherParser *p, const char *name);
 bool aetherTypeNameIsArray(const char *name);

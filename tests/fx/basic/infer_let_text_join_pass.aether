@@ -1,0 +1,36 @@
+// An inferred `let` over `+` with a Text operand is Text, as the typed pass
+// says. With no literal in the expression the parser used to type these Int,
+// and each failed in the backend with the uncoded "Cannot assign
+// UNICODESTRING to integer"; `s + t + s` got a Text-plus-a-number hint.
+type Person {
+    first: Text;
+    last: Text;
+
+    fn full() -> Text {
+        let joined = self.first + self.last;
+        ret joined;
+    }
+}
+
+fn suffix() -> Text {
+    ret "!";
+}
+
+fn main() -> Void {
+    let s: Text = "ab";
+    let t: Text = "cd";
+    let words: Text[] = ["xy", "z"];
+    let p: Person = new Person { first: "Ada", last: "L" };
+    let a = s + t;
+    let b = s[0] + s[1];
+    let c = s + t + s;
+    let d = s[1] + s;
+    let e = p.first + p.last;
+    let f = s + suffix();
+    let g = words[0][1] + words[1];
+    fx {
+        println(a, " ", b, " ", c, " ", d);
+        println(e, " ", f, " ", g, " ", p.full());
+        println(string_len(a + b));
+    }
+}

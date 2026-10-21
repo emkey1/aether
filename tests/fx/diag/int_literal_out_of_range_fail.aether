@@ -1,0 +1,8 @@
+// An Int literal past 64 bits is SYN-001. Both of these used to clamp with no
+// word and print 9223372036854775807 (atoll), so a hash seed or a "big number"
+// constant silently became a different value.
+fn main() -> Void {
+    let x: Int = 18446744073709551615;
+    let y: Int = 9223372036854775808;
+    fx { println(x, " ", y); }
+}

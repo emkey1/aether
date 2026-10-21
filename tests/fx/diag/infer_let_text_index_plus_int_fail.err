@@ -1,0 +1,5 @@
+:7: [TYPE-001]
+cannot infer the type of 'x'
+`let x: Int = ord(s[i]) + 1;`
+!UNICODESTRING
+!Type mismatch
