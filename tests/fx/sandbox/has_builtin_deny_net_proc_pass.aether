@@ -1,0 +1,15 @@
+// has_builtin answers "can I call this?" for this run (D80): under --deny net,proc
+// the network and task builtins, and has_ai(), answer false, because calling
+// them would stop with AETH-RUNTIME-DENIED. They answered true before.
+fn main() -> Void {
+    let probes: Text[] = ["http:http_session", "network:dns_lookup", "network:socket_create",
+                          "tasks:task_spawn", "tasks:task_stats_json", "math:sqrt", "text:upper",
+                          "sqlite:sqlite_open", "io:println", "system:exit"];
+    fx {
+        loop p in probes {
+            let parts: Text[] = split(p, ":");
+            println(p, " ", has_builtin(parts[0], parts[1]));
+        }
+        println("has_ai ", has_ai(), " has_toon ", has_toon());
+    }
+}

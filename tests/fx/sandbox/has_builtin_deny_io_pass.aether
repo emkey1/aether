@@ -1,0 +1,14 @@
+// Under --deny io,clock,random nothing can print, so the answers are bits of the
+// exit status: println 1, read_file 2, sqlite_open 4, clock_ms 8, random 16 are
+// all refused (false) and only sqrt (32) is callable, so the status is 32.
+fn bit(on: Bool, value: Int) -> Int {
+    if on { ret value; }
+    ret 0;
+}
+
+fn main() -> Int {
+    let r: Int = bit(has_builtin("io", "println"), 1) + bit(has_builtin("io", "read_file"), 2)
+        + bit(has_builtin("sqlite", "sqlite_open"), 4) + bit(has_builtin("time", "clock_ms"), 8)
+        + bit(has_builtin("math", "random"), 16) + bit(has_builtin("math", "sqrt"), 32);
+    ret r;
+}

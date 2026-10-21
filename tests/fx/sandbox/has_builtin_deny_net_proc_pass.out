@@ -1,0 +1,11 @@
+http:http_session false
+network:dns_lookup false
+network:socket_create false
+tasks:task_spawn false
+tasks:task_stats_json false
+math:sqrt true
+text:upper true
+sqlite:sqlite_open true
+io:println true
+system:exit true
+has_ai false has_toon true

@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-21-8*
+*Guide version: 2026-10-21-9*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1655,7 +1655,10 @@ Core signatures:
   `has_builtin` answers "can I call this?" for the names this guide uses
   (`has_builtin("sqlite", "sqlite_open")`), across both the extended and the
   core builtin registries; a core builtin matches on the function name
-  whatever category you pass, since core builtins are not filed under one
+  whatever category you pass, since core builtins are not filed under one.
+  Under `--deny` it answers false for a builtin the run refuses (and `has_ai()`
+  under `--deny net`), so `if has_builtin(...) { call }` skips a call that
+  would stop with `[AETH-RUNTIME-DENIED]`
 
 Use `sleep(ms)` for a blocking millisecond pause. It is the compact Aether
 spelling for the shared PSCAL `delay(ms)` builtin and is effectful, so it must

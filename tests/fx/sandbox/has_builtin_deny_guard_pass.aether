@@ -1,0 +1,11 @@
+// The documented guard, `if has_builtin(...) { call }`, under --deny net: it now
+// takes the fallback. It used to go in and stop with AETH-RUNTIME-DENIED.
+fn main() -> Void {
+    fx {
+        if has_builtin("network", "dns_lookup") {
+            println(dns_lookup("localhost"));
+        } else {
+            println("no network in this run");
+        }
+    }
+}

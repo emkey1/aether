@@ -15,6 +15,23 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-10
+
+**`has_builtin` and `has_ai` answer for this run's `--deny`** (D80, 1.0-beta7dev).
+The guides call `has_builtin` the answer to "can I call this?", and the
+documented guard is `if has_builtin("network", "http_request") { ... }`. Under
+`--deny`, the probe answered true for a builtin the policy refuses, so the guard
+went in and the call stopped the program with `[AETH-RUNTIME-DENIED]`. An agent
+running every program under its runner's `--deny net` found
+`has_builtin("http", "http_session")` true and then the call refused. Both probes
+now answer false for a builtin whose effect class the run denies (`net`: the
+`http_*`, `socket_*` and `dns_lookup` families and `has_ai()`; `proc`: `task_*`;
+`io`: printing, files and SQLite; `clock`; `random`). They answer as before with
+no `--deny`. `halt` and `exit` are never refused, so they always answer true;
+`par` is a statement, not a builtin. pscal-core; Aether only. Fixtures:
+`tests/fx/sandbox/has_builtin_deny_*`. The full guide's probes bullet and the
+manual's `--deny` section say so.
+
 ## 2026-10-21-9
 
 **Release `1.0-beta6`** (D75): the sixth 1.0 beta, tagged `1.0-beta6`;

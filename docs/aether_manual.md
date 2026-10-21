@@ -2402,6 +2402,26 @@ Ending the program is never denied: `exit`, `halt`, a `main` that returns a
 status, and the checks behind contracts and slices all work under every
 `--deny` list.
 
+`has_builtin` takes the `--deny` list into account. It answers false for a
+builtin this run refuses, as does `has_ai()` under `--deny net`, so a program
+can check before it calls instead of stopping:
+
+```aether @ok flags=--deny,net
+fn main() -> Void {
+    fx {
+        if has_builtin("network", "dns_lookup") {
+            println(dns_lookup("localhost"));
+        } else {
+            println("no network in this run");
+        }
+    }
+}
+```
+
+```text
+no network in this run
+```
+
 ### Exit status
 
 | Status | When |
