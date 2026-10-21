@@ -17,6 +17,17 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-21-9
 
+**Release `1.0-beta6`** (D75): the sixth 1.0 beta, tagged `1.0-beta6`;
+`--version` prints `Aether Compiler Version: 2026-10-21-9 (1.0-beta6)`. On top
+of `1.0-beta5` it carries one diagnostic. A `--deny` refusal is coded
+`[AETH-RUNTIME-DENIED]` and names the builtin as the program wrote it (`task_spawn`,
+not the engine's `thread_spawn_named`) and the denied class in words ("using
+tasks and threads", "network access"). A refused `proc` call gets a hint that
+`par` runs your own functions in parallel. The old line gave internal names and
+hex effect masks, and an agent read a sandbox refusal as a compiler bug. A
+message only, so the language version is unchanged. The next dev label is
+`1.0-beta7dev`.
+
 **Release `1.0-beta5`** (D75): the fifth 1.0 beta, tagged `1.0-beta5`;
 `--version` prints `Aether Compiler Version: 2026-10-21-9 (1.0-beta5)`. On top
 of `1.0-beta4` it carries the run-time path fix below and the diagnostics that
