@@ -178,10 +178,11 @@ include(GNUInstallDirs)
 install(TARGETS aether RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/
         DESTINATION ${CMAKE_INSTALL_DATADIR}/aether/examples)
-# Only the reader-facing docs install: the three guides, their changelog, the
-# as-built rationale, the language CHANGELOG and the README. Maintainer ledgers,
-# benchmark notes and docs/archive stay in the repo.
+# Only the reader-facing docs install: the human manual, the three guides, their
+# changelog, the as-built rationale, the language CHANGELOG and the README.
+# Maintainer ledgers, benchmark notes and docs/archive stay in the repo.
 install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_manual.md
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_and_others.md
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_medium_contexts.md
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_for_llms_with_small_contexts.md
@@ -302,6 +303,20 @@ else()
                      ${AETHER_GUIDE_DIR}/aether_card.md)
     set_tests_properties(aether_card_snippets PROPERTIES
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        LABELS "guide")
+
+    # The human manual (docs/aether_manual.md), the same gate as the card:
+    # every block compiles, every complete program runs to the ```text block
+    # after it with nothing on stderr, and every tagged block (@ok rc= warn=,
+    # @reject=, @trap) shows exactly what a terminal shows, stderr included.
+    # The manual states its outputs, so it needs no hidden goldens.
+    add_test(NAME aether_manual_snippets
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/verify_guide_snippets.py --run-outputs
+                     ${AETHER_GUIDE_DIR}/aether_manual.md)
+    set_tests_properties(aether_manual_snippets PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        TIMEOUT 300
         LABELS "guide")
 
     # The full guide's generated builtin appendix matches what this build

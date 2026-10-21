@@ -60,6 +60,14 @@ every example (goldens in `tests/example_goldens/`). `--update` on
 `tools/verify_guide_snippets.py --run` or `tests/run_examples.sh --run`
 re-blesses the goldens; read the printed diff before committing.
 
+`aether_manual_snippets` (`verify_guide_snippets.py --run-outputs`, the card's
+gate) runs the human manual: every complete program must print exactly the
+`text` block after it, with nothing on stderr, and a block fenced
+`aether @ok rc=N warn=CODE`, `@reject=CODE` or `@trap` must match what a
+terminal shows, stderr included. A change to a diagnostic's wording or a
+program's output fails it; copy the printed diff into the manual's `text` block
+after reading it. There are no hidden goldens and no `--update`.
+
 `aether_replay` (`tests/run_replay.sh`) replays about 220 real model-written
 benchmark programs frozen in `tests/replay/`. Regenerate them only with
 `python3 tools/export_replay.py` (it reads `bench/results`); a declared
@@ -104,12 +112,17 @@ register D3 ended on 2026-10-13: the B0, B0-small and B0-full baselines are comm
 under `bench/results/`, and guide pass 1 (G1) was adopted after a paired A/B. A guide
 edit now follows the normal rules above; measure it before calling it an improvement.
 
+`docs/aether_manual.md` is the human reference, not a fourth guide: no stamp, no
+token ceiling and no benchmark baseline, so it may carry the build workflow,
+history and design rationale the guides must leave out. Keep it in tutorial
+order, and verify every claim in it against `./build/aether`.
+
 ## Doc map
 
 | Tier | Docs |
 |---|---|
 | As-built | `docs/aether_architecture_and_rationale.md` |
-| Reference | the three guides; `docs/aether_spec.md` (normative skeleton, examples run by `ctest -L spec`); `tests/surface/registry.json` (surface synonyms) |
+| Reference | `docs/aether_manual.md` (the manual for people: tutorial order, rationale and history; every program runs under `aether_manual_snippets`); the three guides (for models); `docs/aether_spec.md` (normative skeleton, examples run by `ctest -L spec`); `tests/surface/registry.json` (surface synonyms) |
 | Decisions and ledgers | `docs/aether_decisions.md`, `CHANGELOG.md`, `docs/aether_guide_changelog.md`, `docs/ideas_and_todo.md`; `results/decisions/` (the measured evidence behind decision rows, with the commands that produced it) |
 | Results | `docs/aether_guided_benchmark.md`, `docs/aether_specialization_findings.md` |
 | Historical (do not trust for current behaviour) | `src/aether/DESIGN.md`, `src/aether/README.md`, `docs/parser_roadmap.md`, `docs/text_zero_based_migration_plan.md`, `docs/archive/` |
