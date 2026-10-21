@@ -1,0 +1,6 @@
+// `div` written as a call: see syn001_operator_word_call_fail.
+fn main() -> Void {
+    let r: Int = div(7, 2);
+    fx { println(r); }
+    ret;
+}

@@ -1262,7 +1262,22 @@ void aetherReportMissingExpr(AetherParser *p, const char *context) {
     } else {
         snprintf(msg, sizeof(msg), "expected an expression, found %s.", found);
     }
-    reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser", msg, NULL);
+    /* An operator word where a value should start is nearly always written as a
+     * call, `mod(a, b)`: the message alone did not say what the word is. */
+    static const struct { const char *word; const char *hint; } kOperatorWords[] = {
+        {"mod", "`mod` is an operator, not a function: write `a % b` (or `a mod b`)."},
+        {"div", "`div` is an operator, not a function: write `a div b` for the integer quotient (`a / b` is a Real)."},
+        {"xor", "`xor` is an operator, not a function: write `a ^ b` (or `a xor b`)."},
+    };
+    const char *hint = NULL;
+    for (size_t i = 0; p->current.start && i < sizeof(kOperatorWords) / sizeof(kOperatorWords[0]); i++) {
+        size_t n = strlen(kOperatorWords[i].word);
+        if ((size_t)p->current.length == n && strncmp(p->current.start, kOperatorWords[i].word, n) == 0) {
+            hint = kOperatorWords[i].hint;
+            break;
+        }
+    }
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "parser", msg, hint);
 }
 
 /* Queue a hoisted object-literal declaration (an i_val==1 AST_COMPOUND from

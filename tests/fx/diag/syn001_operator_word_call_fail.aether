@@ -1,0 +1,9 @@
+// `mod`, `div` and `xor` are operator words. Written as calls, `mod(a, b)`,
+// they were a bare "expected an expression, found 'mod'" that did not say what
+// the word is (reported by an agent testing the language). The hint names the
+// operator form.
+fn main() -> Void {
+    let r: Int = mod(7, 3);
+    fx { println(r); }
+    ret;
+}

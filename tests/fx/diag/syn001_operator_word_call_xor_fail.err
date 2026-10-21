@@ -1,0 +1,1 @@
+hint: `xor` is an operator, not a function: write `a ^ b` (or `a xor b`).

@@ -1,0 +1,6 @@
+// `xor` written as a call: see syn001_operator_word_call_fail.
+fn main() -> Void {
+    let r: Int = xor(6, 3);
+    fx { println(r); }
+    ret;
+}
