@@ -1,0 +1,19 @@
+// camelCase spellings of snake_case names: each SCOPE-001 carries a hint that
+// names the snake_case builtin or the program's own fn. The table's hint (with
+// parameter names) wins where it has one; a name with no snake_case twin
+// (fooBar) gets no hint.
+fn parse_row(t: Text) -> Bool {
+    ret t == "7";
+}
+
+fn main() -> Void {
+    let c: Text = "7";
+    let ms: MStream = mstream_new();
+    let d: Bool = isDigit(c);
+    let a: Bool = isAlpha(c);
+    let n: Int = mstreamLength(ms);
+    let r: Bool = parseRow(c);
+    let s: Text = readAllStdin();
+    let f: Bool = fooBar(c);
+    ret;
+}

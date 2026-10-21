@@ -1,0 +1,12 @@
+identifier 'isDigit' not in scope.
+did you mean 'is_digit(t)'?
+identifier 'isAlpha' not in scope.
+did you mean 'is_alpha(t)'?
+identifier 'mstreamLength' not in scope.
+did you mean 'mstream_length(ms)'?
+identifier 'parseRow' not in scope.
+did you mean 'parse_row(...)'? The program declares `fn parse_row`.
+identifier 'readAllStdin' not in scope.
+did you mean 'read_all_stdin(...)'? Builtin names are snake_case (D72).
+identifier 'fooBar' not in scope.
+!foo_bar

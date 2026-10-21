@@ -1,6 +1,9 @@
 #include "aether/diagnostics.h"
 #include "aether/ast_prepasses.h"
+#include "aether/parser.h"
+#include "backend_ast/builtin.h"
 
+#include <ctype.h>
 #include <stdio.h>
 #include <string.h>
 
@@ -419,8 +422,82 @@ static const AetherNameHint kAetherNameHints[] = {
     { "del", "did you mean 'remove(m, k)'?" },
 };
 
+static const char *aetherNameHintFor(const char *name) {
+    for (size_t i = 0; i < sizeof(kAetherNameHints) / sizeof(kAetherNameHints[0]); i++) {
+        if (strcmp(name, kAetherNameHints[i].wrong) == 0) {
+            return kAetherNameHints[i].hint;
+        }
+    }
+    return NULL;
+}
+
+/* A camelCase spelling of a snake_case name (`isDigit`, `mstreamLength`,
+ * `parseRow` for the program's own `parse_row`). Builtin names are snake_case
+ * (D72), so the table above lists only the run-together lowercase misses; a
+ * model that writes the camelCase form got no hint at all. Converts the name
+ * (an `_` before an uppercase letter that follows a lowercase letter or digit,
+ * or that starts a word after an acronym: `parseJSONLine` -> `parse_json_line`;
+ * all lowercase) and returns, in order: the table's hint for the snake_case
+ * form, the table's hint for the run-together form (`isDigit` -> `isdigit`,
+ * which names the parameters), or "did you mean 'snake(...)'?" when the snake
+ * form is a top-level fn of this program or a builtin. NULL otherwise. The
+ * result lives in a static buffer until the next call (compiles are
+ * single-threaded). */
+static const char *aetherCamelCaseHint(const char *ident) {
+    static char snake[128];
+    static char flat[128];
+    static char hint[320];
+    size_t n = strlen(ident);
+    size_t si = 0, fi = 0;
+    bool interiorUpper = false;
+    const char *found;
+
+    if (n == 0 || n >= 64 || !islower((unsigned char)ident[0])) {
+        return NULL;
+    }
+    for (size_t k = 0; k < n; k++) {
+        unsigned char c = (unsigned char)ident[k];
+        if (!isalnum(c) && c != '_') {
+            return NULL;
+        }
+        if (isupper(c)) {
+            unsigned char prev = (unsigned char)ident[k - 1];
+            unsigned char next = (unsigned char)ident[k + 1];
+            interiorUpper = true;
+            if (prev != '_' && (islower(prev) || isdigit(prev) ||
+                                (isupper(prev) && islower(next)))) {
+                snake[si++] = '_';
+            }
+        }
+        snake[si++] = (char)tolower(c);
+        if (c != '_') {
+            flat[fi++] = (char)tolower(c);
+        }
+    }
+    snake[si] = '\0';
+    flat[fi] = '\0';
+    if (!interiorUpper) {
+        return NULL;
+    }
+    if ((found = aetherNameHintFor(snake)) != NULL || (found = aetherNameHintFor(flat)) != NULL) {
+        return found;
+    }
+    if (aetherAstIsTopLevelUserFunction(snake)) {
+        snprintf(hint, sizeof(hint), "did you mean '%s(...)'? The program declares `fn %s`.",
+                 snake, snake);
+        return hint;
+    }
+    if (!aetherBuiltinNameRemoved(snake) &&
+        (aetherRuntimeBuiltinAlias(snake) != NULL || getVmBuiltinID(snake) >= 0)) {
+        snprintf(hint, sizeof(hint), "did you mean '%s(...)'? Builtin names are snake_case (D72).",
+                 snake);
+        return hint;
+    }
+    return NULL;
+}
+
 const char *aetherUnknownIdentifierHint(const char *ident) {
-    size_t i;
+    const char *hint;
 
     if (!ident) {
         return NULL;
@@ -430,10 +507,8 @@ const char *aetherUnknownIdentifierHint(const char *ident) {
     if (aetherAstPrepassReportedArity(ident)) {
         return "";
     }
-    for (i = 0; i < sizeof(kAetherNameHints) / sizeof(kAetherNameHints[0]); i++) {
-        if (strcmp(ident, kAetherNameHints[i].wrong) == 0) {
-            return kAetherNameHints[i].hint;
-        }
+    if ((hint = aetherNameHintFor(ident)) != NULL) {
+        return hint;
     }
-    return NULL;
+    return aetherCamelCaseHint(ident);
 }
