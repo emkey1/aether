@@ -130,9 +130,16 @@ off by default; build with `-DAETHER_ENABLE_SDL=ON` and see
 
 ## Docs
 
+**Learning Aether?** Read [`docs/aether_manual.md`](docs/aether_manual.md),
+the manual for people: building and running, a tour, every part of the
+language with runnable examples, how to read a diagnostic, and why the
+language looks the way it does. CTest runs every program in it and checks the
+output it shows.
+
 New to the repo, or an agent working in it: start with [`CLAUDE.md`](CLAUDE.md).
 
-The three LLM-facing guides are the product (sizes in o200k tokens, 2026-10-06):
+The three LLM-facing guides are the product, written to be pasted into a
+model's prompt (sizes in o200k tokens, 2026-10-06):
 
 - [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full guide (28,961 tokens; frontier contexts), ending in a generated builtin inventory
 - [`aether_for_llms_medium_contexts.md`](docs/aether_for_llms_medium_contexts.md): the working guide (14,985 tokens, hard ceiling 15,000; ~32K contexts). The benchmark's main tier

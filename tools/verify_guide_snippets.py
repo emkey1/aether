@@ -6,6 +6,7 @@ Usage:
     python3 tools/verify_guide_snippets.py docs/aether_for_llms_medium_contexts.md
     python3 tools/verify_guide_snippets.py --keys-only docs/aether_for_llms_*.md
     python3 tools/verify_guide_snippets.py --run-outputs docs/aether_card.md
+    python3 tools/verify_guide_snippets.py --run-outputs docs/aether_manual.md
     python3 tools/verify_guide_snippets.py --spec docs/aether_spec.md
 
 Every block is compiled with `aether --no-cache --no-run --diagnostics-json`
@@ -26,10 +27,15 @@ The run fails (exit 1) on any of:
   * an EXPECT_FAIL key that matches no block in any guide. The keys are shared
     by all three guides, so this runs when all three are given (or alone, with
     --keys-only, as the CTest aether_guide_snippet_keys does);
-  * with --run-outputs (the card's CTest, aether_card_snippets): a complete
-    program that is not followed by a ```text block holding its output, or
-    whose run exits non-zero or prints anything else. The card states what each
-    program prints, so the gate runs it.
+  * with --run-outputs (aether_card_snippets for the card, and
+    aether_manual_snippets for the human manual): a complete program that is
+    not followed by a ```text block holding its output, or whose run exits
+    non-zero, prints anything else, or writes to stderr (a warning included).
+    The card and the manual state what each
+    program prints, so the gate runs it. A block fenced with one of the
+    spec's tags (```aether @ok, @reject=CODES, @trap) is run too, and its
+    ```text block is checked against what a terminal shows, stderr included;
+    see check_tagged below.
 
 With --run (CTest aether_guide_run) it instead RUNS every complete program
 (a block with its own `fn main`) and the recipe drivers, because a block that
@@ -195,7 +201,7 @@ def output_fences(path):
 def run_src(workdir, src, tag):
     path = os.path.join(workdir, f"{tag}.aether")
     with open(path, "w", encoding="utf-8") as fh:
-        fh.write(src)
+        fh.write(with_free_port(src))
     r = subprocess.run([AETHER, "--no-cache", path], capture_output=True, text=True,
                        timeout=60, cwd=workdir)
     return r.returncode, r.stdout, r.stderr
@@ -317,8 +323,10 @@ def check_guide(path, workdir, tag_prefix, run_outputs=False):
                                     f"after it stating its output\n{excerpt}")
                     continue
                 rrc, got, err = run_src(workdir, full, f"{tag_prefix}_b{k:02d}_L{ln}_run")
-                if rrc != 0 or got != want:
-                    problems.append(f"{where}: ran with exit {rrc}; the card says it prints\n"
+                # stderr must be empty too: a warning the text does not show
+                # (NARROW-001, PARAM-001) belongs in a tagged @ok block.
+                if rrc != 0 or got != want or err.strip():
+                    problems.append(f"{where}: ran with exit {rrc}; the document says it prints\n"
                                     f"{want!r}\nbut it printed\n{got!r}\n{err.strip()[:300]}")
                 else:
                     stats["ran"] += 1
@@ -361,10 +369,18 @@ def free_port():
 PORT_LITERAL = re.compile(r"(let\s+port\s*:\s*Int\s*=\s*)(\d{4,5})(\s*;)")
 
 
+def with_free_port(src):
+    """A socket program's `let port: Int = N;` rewritten to a free port, so
+    concurrent runs do not collide. (This keyed on `socketbind` until D72
+    renamed it `socket_bind`, and so had stopped rewriting anything.)"""
+    if "socket_bind" not in src:
+        return src
+    return PORT_LITERAL.sub(lambda m: f"{m.group(1)}{free_port()}{m.group(3)}", src)
+
+
 def run_program(workdir, src, tag, timeout=RUN_TIMEOUT):
     """(exit status or 'timeout', stdout, stderr) of one complete program."""
-    if "socketbind" in src:
-        src = PORT_LITERAL.sub(lambda m: f"{m.group(1)}{free_port()}{m.group(3)}", src)
+    src = with_free_port(src)
     path = os.path.join(workdir, f"{tag}.aether")
     with open(path, "w", encoding="utf-8") as fh:
         fh.write(src)
@@ -647,6 +663,90 @@ def check_spec(path, strict_bugs=False):
     return 1 if problems or (strict_bugs and flipped) else 0
 
 
+# ---- --run-outputs: tagged blocks --------------------------------------------
+# A reader-facing document (the manual) also shows programs that fail, warn,
+# exit with a status or need arguments. It fences them with the spec's tags (no
+# id needed), and the ```text block after each one is what a terminal shows, so
+# the gate checks all of it:
+#   @ok [rc=N] [warn=CODE]  runs and exits N (default 0); the text is stderr
+#                           then stdout (a compile-time warning prints before
+#                           the run), and warn= requires [CODE] on stderr
+#   @reject=A[,B]           fails to compile with exactly these codes and no
+#                           uncoded record; the text is the compiler's stderr
+#   @trap[=CODE] [rc=N]     compiles, then stops with status N (default 1) and
+#                           [CODE] on stderr; the text is stdout then stderr
+# Attributes: file=NAME (the file the program is saved as, so diagnostics show
+# that name; default prog.aether), flags=a,b (aether options before the file,
+# e.g. flags=--deny,net), args=a,b (the program's arguments) and stdin=TEXT
+# (backslash escapes decoded). `Offset: N` in an [Error Location] line is a
+# bytecode offset, which any codegen change moves, so it is compared as N.
+OFFSET = re.compile(r"Offset: \d+")
+
+
+def check_tagged(path, workdir):
+    """Run the tagged blocks of one document. Returns (count ran, problems)."""
+    name = os.path.basename(path)
+    ran, problems = 0, []
+    for k, ex in enumerate(spec_examples(path)):
+        tag, attrs = ex["tag"], ex["attrs"]
+        where = f"{name}:{ex['line']} (@{tag}{'=' + ex['arg'] if ex['arg'] else ''})"
+        if tag == "bug":
+            problems.append(f"{where}: @bug pins a spec outcome; show what happens today instead")
+            continue
+        if ex["stdout"] is None:
+            problems.append(f"{where}: needs a ```text block showing what a terminal shows")
+            continue
+        d = os.path.join(workdir, f"tagged{k:03d}")
+        os.makedirs(d)
+        if os.path.isdir(GUIDE_MODULES):
+            for mod in sorted(os.listdir(GUIDE_MODULES)):
+                shutil.copy(os.path.join(GUIDE_MODULES, mod), d)
+        fname = attrs.get("file", "prog.aether")
+        with open(os.path.join(d, fname), "w", encoding="utf-8") as fh:
+            fh.write(with_free_port(ex["src"]))
+        flags = [f for f in attrs.get("flags", "").split(",") if f]
+        argv = [a for a in attrs.get("args", "").split(",") if a]
+        stdin = attrs.get("stdin", "").encode("utf-8").decode("unicode_escape")
+
+        def aether(*extra, run_args=()):
+            return subprocess.run([AETHER, "--no-cache", *extra, *flags, fname, *run_args],
+                                  capture_output=True, text=True, timeout=RUN_TIMEOUT,
+                                  cwd=d, input=stdin)
+        try:
+            if tag == "reject":
+                want = set(ex["arg"].split(","))
+                r = aether("--no-run", "--diagnostics-json")
+                recs = parse_records(r.stderr) if r.returncode != 0 else []
+                got = {rec.get("code") for rec in recs if rec.get("code")}
+                if r.returncode == 0 or got != want or any(not rec.get("code") for rec in recs):
+                    problems.append(f"{where}: expected a compile failure with exactly "
+                                    f"{sorted(want)}; got exit {r.returncode}, codes {sorted(got)}"
+                                    f"\n{show(recs, d)}")
+                    continue
+                r = aether()
+                shown = r.stderr
+            else:
+                r = aether(run_args=argv)
+                want_rc = int(attrs.get("rc", "0" if tag == "ok" else "1"))
+                shown = r.stderr + r.stdout if tag == "ok" else r.stdout + r.stderr
+                need = attrs.get("warn") if tag == "ok" else ex["arg"]
+                if r.returncode != want_rc or (need and f"[{need}]" not in r.stderr):
+                    problems.append(f"{where}: expected exit {want_rc}"
+                                    + (f" with [{need}] on stderr" if need else "")
+                                    + f"; got exit {r.returncode}\n{r.stderr.strip()[:300]}")
+                    continue
+        except subprocess.TimeoutExpired:
+            problems.append(f"{where}: timed out after {RUN_TIMEOUT} s")
+            continue
+        if OFFSET.sub("Offset: N", shown) != OFFSET.sub("Offset: N", ex["stdout"]):
+            diff = "".join(difflib.unified_diff(ex["stdout"].splitlines(True),
+                                                shown.splitlines(True), "shown", "actual"))
+            problems.append(f"{where}: the ```text block is not what a terminal shows\n{diff}")
+            continue
+        ran += 1
+    return ran, problems
+
+
 def stale_keys(paths):
     """EXPECT_FAIL / FX_RESCUED keys that match no block in any given guide."""
     blocks = {os.path.basename(p): [src for _, src in parse_blocks(p)] for p in paths}
@@ -694,7 +794,11 @@ def main():
                     shutil.copy(os.path.join(GUIDE_MODULES, mod), workdir)
             for n, path in enumerate(args.guides):
                 stats, problems, notes = check_guide(path, workdir, f"g{n}", args.run_outputs)
-                ran = f"  ran to stated output {stats['ran']}" if args.run_outputs else ""
+                ran = ""
+                if args.run_outputs:
+                    tagged, tagged_problems = check_tagged(path, workdir)
+                    problems += tagged_problems
+                    ran = f"  ran to stated output {stats['ran']}  tagged as shown {tagged}"
                 print(f"{os.path.basename(path)}: blocks {stats['blocks']}  compiled "
                       f"{stats['compiled']}  expected-fail verified {stats['expected_fail']}  "
                       f"fx-rescued (allowlisted) {stats['fx_rescued']}{ran}  "
