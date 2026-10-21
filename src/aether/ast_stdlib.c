@@ -931,6 +931,15 @@ static const struct {
     { "try_toon_parse_file",
       "fn try_toon_parse_file(path: Text) -> (ToonDoc, Bool) { let d: ToonDoc; let ok: Bool = false; "
       "fx { d = aether_try_toon_read_file(path); ok = aether_last_io_ok(); } ret (d, ok); }" },
+    /* Checked SQL (1.0-beta4): sqlite_exec / sqlite_prepare stop the program
+     * on a SQL error; these report it instead, and sqlite_errmsg(db) then
+     * reads SQLite's message. Effectful, like the sqlite_* builtins. */
+    { "try_sqlite_exec",
+      "fn try_sqlite_exec(db: Int, sql: Text) -> (Int, Bool) { let rc: Int = 0; "
+      "fx { rc = aether_try_sqlite_exec(db, sql); } ret (rc, rc == 0); }" },
+    { "try_sqlite_prepare",
+      "fn try_sqlite_prepare(db: Int, sql: Text) -> (Int, Bool) { let st: Int = -1; "
+      "fx { st = aether_try_sqlite_prepare(db, sql); } ret (st, st >= 0); }" },
 };
 
 /* The prelude fns injected into this compile that perform effects (D73). */
@@ -1004,10 +1013,17 @@ char *aetherStdlibPrelude(const char *source) {
         bool called = false, declared = false;
         aetherScanPreludeUse(source, kAetherPreludeFns[i].name, &called, &declared);
         if (!called || declared) continue;
+        /* A build without SQLite has no engine body for the checked SQL
+         * fns: leave them undeclared, so the call is SCOPE-001 with the
+         * "not built into this compiler" hint (aetherNameHintFor). */
+        if (strncmp(kAetherPreludeFns[i].name, "try_sqlite_", 11) == 0 &&
+            getVmBuiltinID("aether_try_sqlite_exec") < 0)
+            continue;
         int n = snprintf(prelude + used, sizeof(prelude) - used, "%s\n", kAetherPreludeFns[i].decl);
         if (n < 0 || (size_t)n >= sizeof(prelude) - used) break;
         used += (size_t)n;
         if (strncmp(kAetherPreludeFns[i].name, "try_read_", 9) == 0 ||
+            strncmp(kAetherPreludeFns[i].name, "try_sqlite_", 11) == 0 ||
             strcmp(kAetherPreludeFns[i].name, "try_toon_parse_file") == 0) {
             if (g_preludeEffectfulCount < 8)
                 g_preludeEffectful[g_preludeEffectfulCount++] = kAetherPreludeFns[i].name;

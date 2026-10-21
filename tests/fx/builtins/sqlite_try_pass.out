@@ -1,0 +1,10 @@
+create: rc=0 ok=true
+insert: rc=0 ok=true changes=2
+missing table: rc=1 ok=false [no such table: nope]
+duplicate key: rc=19 ok=false [UNIQUE constraint failed: plant.name]
+syntax: rc=1 ok=false [near "SELEC": syntax error]
+prepare: ok=true handle>=0=true
+  fern 30.5
+  ivy 12.0
+bad prepare: stmt=-1 ok=false [no such column: colour]
+closed handle: rc=21 ok=false

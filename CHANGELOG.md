@@ -15,6 +15,24 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-21-8
+
+**Checked SQL: `try_sqlite_exec` and `try_sqlite_prepare`** (1.0-beta4dev, a
+D75 beta addition). `sqlite_exec` and `sqlite_prepare` stop the program on a
+SQL error (a syntax error, a missing table, a constraint), and they still do:
+code that does not check keeps failing loudly at the right line. The checked
+forms report it instead, in the shape of `try_read_file`:
+`let (rc, ok) = try_sqlite_exec(db, sql);` gives SQLite's result code (`1` an
+error, `19` a constraint failure) and `rc == 0`;
+`let (stmt, ok) = try_sqlite_prepare(db, sql);` gives a statement handle, or
+`-1` with `ok` false. A database handle that is not open gives `(21, false)`
+and `(-1, false)`. Neither stops the program, and `sqlite_errmsg(db)` then
+reads SQLite's message. Both are effectful (FX-001 outside `fx`), declared
+prelude fns over the Aether-private engine builtins `aether_try_sqlite_exec`
+/ `aether_try_sqlite_prepare` (pscal-core); a build without SQLite leaves them
+undeclared and names the missing support in the SCOPE-001 hint. Fixtures:
+`builtins/sqlite_try_pass`, `diag/sqlite_exec_error_halts_fail`.
+
 ## 2026-10-21-7
 
 **`\u{1F600}` Text escapes decode** (D79, 1.0-beta4dev; reverses D78's

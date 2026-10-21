@@ -166,6 +166,7 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "aether_same", "Bool" }, { "aether_last_io_ok", "Bool" },
         { "aether_try_read_file_text", "Text" }, { "aether_try_read_lines_list", "Text[]" },
         { "aether_try_toon_read_file", "ToonDoc" },
+        { "aether_try_sqlite_exec", "Int" }, { "aether_try_sqlite_prepare", "Int" },
         { "aether_is_digit", "Bool" }, { "aether_is_alpha", "Bool" }, { "aether_is_alnum", "Bool" },
         { "aether_is_space", "Bool" }, { "aether_is_upper", "Bool" }, { "aether_is_lower", "Bool" },
         { "aether_index_of", "Int" }, { "aether_count", "Int" }, { "aether_clock_ms", "Int" },

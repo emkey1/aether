@@ -510,5 +510,11 @@ const char *aetherUnknownIdentifierHint(const char *ident) {
     if ((hint = aetherNameHintFor(ident)) != NULL) {
         return hint;
     }
+    /* The checked SQL fns are prelude fns over engine builtins a build
+     * without SQLite does not have (aetherStdlibPrelude leaves them out). */
+    if (strncmp(ident, "try_sqlite_", 11) == 0 && getVmBuiltinID("aether_try_sqlite_exec") < 0) {
+        return "SQLite support is not built into this compiler: rebuild aether with "
+               "-DAETHER_ENABLE_SQLITE=ON (on Linux, install the libsqlite3 development package first).";
+    }
     return aetherCamelCaseHint(ident);
 }

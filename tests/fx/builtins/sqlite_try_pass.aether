@@ -1,0 +1,33 @@
+// try_sqlite_exec / try_sqlite_prepare (1.0-beta4): a SQL error is reported
+// as (code, false) and never stops the program; sqlite_errmsg(db) then reads
+// SQLite's message. sqlite_exec and sqlite_prepare still stop on one.
+fn main() -> Void {
+    fx {
+        let db: Int = sqlite_open(":memory:");
+        let (rc, ok) = try_sqlite_exec(db, "CREATE TABLE plant (name TEXT PRIMARY KEY, height REAL)");
+        println("create: rc=", rc, " ok=", ok);
+        let (rc2, ok2) = try_sqlite_exec(db, "INSERT INTO plant VALUES ('fern', 30.5), ('ivy', 12.0)");
+        println("insert: rc=", rc2, " ok=", ok2, " changes=", sqlite_changes(db));
+
+        let (bad, badOk) = try_sqlite_exec(db, "INSERT INTO nope VALUES (1)");
+        println("missing table: rc=", bad, " ok=", badOk, " [", sqlite_errmsg(db), "]");
+        let (dup, dupOk) = try_sqlite_exec(db, "INSERT INTO plant VALUES ('fern', 1.0)");
+        println("duplicate key: rc=", dup, " ok=", dupOk, " [", sqlite_errmsg(db), "]");
+        let (syn, synOk) = try_sqlite_exec(db, "SELEC name FROM plant");
+        println("syntax: rc=", syn, " ok=", synOk, " [", sqlite_errmsg(db), "]");
+
+        let (stmt, prepOk) = try_sqlite_prepare(db, "SELECT name, height FROM plant ORDER BY name");
+        println("prepare: ok=", prepOk, " handle>=0=", stmt >= 0);
+        loop sqlite_step(stmt) == 100 {
+            println("  ", sqlite_column_text(stmt, 0), " ", sqlite_column_double(stmt, 1));
+        }
+        sqlite_finalize(stmt);
+        let (noStmt, noOk) = try_sqlite_prepare(db, "SELECT colour FROM plant");
+        println("bad prepare: stmt=", noStmt, " ok=", noOk, " [", sqlite_errmsg(db), "]");
+
+        sqlite_close(db);
+        let (closed, closedOk) = try_sqlite_exec(db, "SELECT 1");
+        println("closed handle: rc=", closed, " ok=", closedOk);
+    }
+    ret;
+}

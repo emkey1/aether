@@ -604,6 +604,7 @@ static const BuiltinRet kBuiltinReturns[] = {
     /* Text[] */
     {"split", RET_TEXT_ARRAY, NULL}, {"aether_read_lines", RET_TEXT_ARRAY, NULL},
     {"aether_try_read_lines_list", RET_TEXT_ARRAY, NULL},
+    {"aether_try_sqlite_exec", AETHER_T_INT, NULL}, {"aether_try_sqlite_prepare", AETHER_T_INT, NULL},
     {"aether_args", RET_TEXT_ARRAY, NULL},
     /* The modern standard surface (pscal-core ext_builtins/strings/stdlib.c) */
     {"aether_upper", AETHER_T_TEXT, NULL}, {"aether_lower", AETHER_T_TEXT, NULL},

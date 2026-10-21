@@ -1,0 +1,10 @@
+// sqlite_exec still stops the program on a SQL error (try_sqlite_exec is the
+// form that reports it): the line after it never runs.
+fn main() -> Void {
+    fx {
+        let db: Int = sqlite_open(":memory:");
+        sqlite_exec(db, "INSERT INTO nope VALUES (1)");
+        println("not reached");
+    }
+    ret;
+}
