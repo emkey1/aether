@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-20-8*
+*Guide version: 2026-10-21-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -1079,7 +1079,7 @@ fn main() -> Void {
 ### HTTP requests
 
 Not present in every build. If the task must degrade cleanly, guard with
-`has_builtin("network", "HttpRequest")`. All effectful. The response body lands
+`has_builtin("network", "http_request")`. All effectful. The response body lands
 in an `MStream` out-buffer.
 
 - `http_session() -> Int`, `http_close(session)`,
