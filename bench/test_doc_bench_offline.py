@@ -1210,12 +1210,12 @@ def test_real_aether_halt_3_passes_an_rc_3_task():
     binary = real_aether_bin()
     task = adb.Task(task_id="halts", title="t", prompt="", expected_stdout="bye\n", expected_returncode=3)
     source = 'fn main() -> Void {\n    fx {\n        println("bye");\n        halt(3);\n    }\n}\n'
-    # halt is a proc-class effect: under the bench's default --deny net,proc it
-    # is refused, so an exit-status task has to run with proc allowed.
-    denied = adb.compile_and_run(task, source, adb.argparse.Namespace(aether_bin=binary, sandbox_deny="net,proc"))
-    assert denied["returncode"] != 3 and "denied" in denied["stderr"], denied
-    run = adb.compile_and_run(task, source, adb.argparse.Namespace(aether_bin=binary, sandbox_deny="net"))
-    assert run["returncode"] == 3 and run["exact_stdout_match"] is True, run
+    # Since language 2026-10-21-3 --deny no longer gates halt and exit, so an
+    # exit-status task passes under the bench's default --deny net,proc too
+    # (tests/fx/sandbox keeps a denied task_spawn as the proc-class control).
+    for deny in ("net,proc", "net"):
+        run = adb.compile_and_run(task, source, adb.argparse.Namespace(aether_bin=binary, sandbox_deny=deny))
+        assert run["returncode"] == 3 and run["exact_stdout_match"] is True, (deny, run)
 
 
 def test_stdin_task_reads_three_lines():
@@ -1861,10 +1861,11 @@ def test_instrument_check_lint_only_runs_without_a_binary():
     assert proc.returncode == 0, proc.stdout + proc.stderr
 
 
-def test_tracked_replay_reproduces_242_to_219_with_every_regression_waived():
+def test_tracked_replay_reproduces_242_to_216_with_every_regression_waived():
     # 2026-10-17-3 (D55): the 32 first attempts that call a removed Pascal-era
     # form (itoa, copy, val, assign, mstreamfromstring) are waived as one class;
-    # it was 242 -> 245 with 8 waived pass->fail before.
+    # it was 242 -> 245 with 8 waived pass->fail before. 2026-10-20-5 (ARR-001)
+    # and 2026-10-20-8 (D72 snake_case) waive 3 more: 242 -> 216, 35 waived.
     binary = real_aether_bin()
     with workdir() as tmp:
         out = tmp / "replay.json"
@@ -1872,10 +1873,10 @@ def test_tracked_replay_reproduces_242_to_219_with_every_regression_waived():
         assert proc.returncode == 0, proc.stdout + proc.stderr
         result = json.loads(out.read_text())
         first = result["tallies"]["first"]
-        assert (first["attempts"], first["old_pass"], first["new_pass"]) == (274, 242, 219), first
-        assert (first["fail_to_pass"], first["pass_to_fail"]) == (9, 32), first
+        assert (first["attempts"], first["old_pass"], first["new_pass"]) == (274, 242, 216), first
+        assert (first["fail_to_pass"], first["pass_to_fail"]) == (9, 35), first
         assert result["unwaived"] == []
-        assert sum(1 for r in result["waived"] if r["kind"] == "first" and r["transition"] == "pass->fail") == 32
+        assert sum(1 for r in result["waived"] if r["kind"] == "first" and r["transition"] == "pass->fail") == 35
 
 
 def _seed_log_calls(log: pathlib.Path) -> list[tuple[str, str]]:
