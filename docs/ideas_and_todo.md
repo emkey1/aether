@@ -885,7 +885,9 @@ backend-conformance `int64_paths` (W5-04) passes.
 `factorial(25)` was 7034535277573963776, `sum([MAX, 1])`, `abs(MIN)` and
 `-MIN` were MIN, `sqr` and `fibonacci(93..)` wrapped. All of them now raise
 the same uncoded `Runtime Error: Integer overflow.` as `+` (pscal-core
-68d4d5b). Still open: that error has no code, for `+` and `*` as for these.
+68d4d5b). Since 2026-10-21 that error, for `+` and `*` as for these, is coded
+`AETH-RUNTIME-INT-OVERFLOW` with a hint, and division or modulo by zero is
+`AETH-RUNTIME-DIV-ZERO` (`tests/fx/diag/*_by_zero_fail`).
 Fixtures
 `tests/fx/diag/{factorial,sum,abs_min,negate_min,sqr,fibonacci}_overflow_fail`.
 

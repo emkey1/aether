@@ -1,0 +1,3 @@
+[AETH-RUNTIME-DIV-ZERO] Division by zero (`/`).
+hint: check the divisor first, e.g. `if b != 0 { x = a / b; }`.
+!Runtime Error

@@ -1,0 +1,8 @@
+// A run-time ARR-003 is one diagnostic: its `hint:` and `help:` lines belong
+// to it. In --diagnostics-json each used to be an entry of its own with code
+// null, because only the compile-time collector folded them in.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let i: Int = 5;
+    fx { println(xs[i]); }
+}

@@ -1,0 +1,3 @@
+[AETH-RUNTIME-DIV-ZERO] Modulo by zero (`%`).
+hint: check the divisor first, e.g. `if b != 0 { r = a % b; }`.
+!Runtime Error

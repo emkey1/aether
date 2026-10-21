@@ -496,10 +496,12 @@ fn main() -> Void {
 - `int(x)` truncates a `Real` toward zero. `round` rounds half away from zero.
   `round`, `trunc`, `floor` and `ceil` return `Int`.
 - `&`, `|`, `^` (also spelled `xor`), `<<` and `>>` work on `Int` bits.
-- Integer overflow and division by zero (of `Int` or `Real`) stop the program
-  with a run-time error, rather than wrapping around or producing infinity:
+- Integer overflow and division by zero (of `Int` or `Real`, with `div`, `/`
+  or `%`) stop the program with a coded run-time error,
+  `AETH-RUNTIME-INT-OVERFLOW` or `AETH-RUNTIME-DIV-ZERO`, rather than wrapping
+  around or producing infinity:
 
-```aether @trap
+```aether @trap=AETH-RUNTIME-INT-OVERFLOW
 fn main() -> Void {
     let big: Int = 9223372036854775807;
     fx { println(big + 1); }
@@ -507,7 +509,8 @@ fn main() -> Void {
 ```
 
 ```text
-prog.aether:3: Runtime Error: Integer overflow.
+prog.aether:3: [AETH-RUNTIME-INT-OVERFLOW] Integer overflow: the result is outside Int's 64-bit range.
+hint: check the operands before the operation, or compute in Real when values get that large.
 [Error Location] Offset: 33, Line: 3
 ```
 
@@ -1787,10 +1790,11 @@ The first line prints `0`: it computed `6 & (1 != 0)`, which is `6 & 1`.
 
 A program that compiles can still stop at run time. Some run-time errors carry
 a code, and often a hint, like compile errors: `ARR-003` for an array index out
-of range, `CON-001` for a broken contract, and `AETH-RUNTIME-...` codes for
+of range, `CON-001` for a broken contract, `AETH-RUNTIME-INT-OVERFLOW` and
+`AETH-RUNTIME-DIV-ZERO` for arithmetic, and `AETH-RUNTIME-...` codes for
 builtins given bad input, such as unparsable JSON ([§19](#19-toon-and-json)).
-Others come from the shared VM and have only a message so far: integer
-overflow, division by zero, a missing map key, a `Text` index out of range.
+Others come from the shared VM and have only a message so far: a missing map
+key, a `Text` index out of range.
 Either way the program stops with exit status 1, and the message names the
 source line (for a contract, the function).
 

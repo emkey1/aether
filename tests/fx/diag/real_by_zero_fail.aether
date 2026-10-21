@@ -1,0 +1,8 @@
+// real by zero stops the program with a coded AETH-RUNTIME-DIV-ZERO and a hint
+// naming the guard; it was an uncoded "Runtime Error: ..." line.
+fn main() -> Void {
+    let a: Real = 7.5; let b: Real = 0.0;
+    fx { println("before"); }
+    let q: Real = a / b;
+    fx { println(q); }
+}

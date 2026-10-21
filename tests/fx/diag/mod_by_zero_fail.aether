@@ -1,0 +1,8 @@
+// mod by zero stops the program with a coded AETH-RUNTIME-DIV-ZERO and a hint
+// naming the guard; it was an uncoded "Runtime Error: ..." line.
+fn main() -> Void {
+    let a: Int = 7; let b: Int = 0;
+    fx { println("before"); }
+    let q: Int = a % b;
+    fx { println(q); }
+}

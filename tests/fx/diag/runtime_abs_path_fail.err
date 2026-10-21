@@ -1,1 +1,1 @@
-{SRC}:5: Runtime Error: Division by zero (integer).
+{SRC}:5: [AETH-RUNTIME-DIV-ZERO] Division by zero (`/`).

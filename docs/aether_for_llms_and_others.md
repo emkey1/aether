@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-21-6*
+*Guide version: 2026-10-21-7*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -284,7 +284,7 @@ the exit status. A file with both a `fn main` and top-level statements is
 
 | Type | Literals | Notes |
 |---|---|---|
-| `Int` | `42`, `-1` | 64-bit signed: -9223372036854775808 to 9223372036854775807; a result outside that range stops the program with `Integer overflow` |
+| `Int` | `42`, `-1` | 64-bit signed: -9223372036854775808 to 9223372036854775807; a result outside that range stops the program with `[AETH-RUNTIME-INT-OVERFLOW]` |
 | `Real` | `3.5` | `/` always yields a `Real`; `Float` is an accepted alias |
 | `Text` | `"hi"` | string type; `String` is an accepted alias |
 | `Bool` | `true`, `false` | `println(flag)` prints `true` or `false` |
@@ -310,7 +310,7 @@ guessing conversion helpers or `Text + Int` coercions.
 
 | Category | Operators |
 |---|---|
-| Arithmetic | `+ - * /` on `Int`/`Real`; `/` always yields a `Real`; `a div b` is the integer quotient |
+| Arithmetic | `+ - * /` on `Int`/`Real`; `/` always yields a `Real`; `a div b` is the integer quotient; a zero divisor (`div`, `/`, `%`) stops the program with `[AETH-RUNTIME-DIV-ZERO]`: test it first |
 | Modulo | `%` (example: `7 % 3` = `1`); the result takes the dividend's sign (`-7 % 3` = `-1`), so test odd with `n % 2 != 0` and wrap an index with `(i % n + n) % n` |
 | Comparison | `== != < <= > >=` |
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
