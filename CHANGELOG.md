@@ -17,6 +17,13 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-21-2
 
+**Release `1.0-beta3`** (D75): the third 1.0 beta, tagged `1.0-beta3`;
+`--version` prints `Aether Compiler Version: 2026-10-21-2 (1.0-beta3)`. It is
+the changes from 2026-10-20-13 to 2026-10-21-2 on top of `1.0-beta2`: the VM
+audit's silent-wrong compiler fixes, `aether_version()`, out-of-range Int
+literals, and the standard-library fixes below (with D76, `task_status ->
+Bool`). The next dev label is `1.0-beta4dev`.
+
 **Standard-library defects the stdlib training pack found** (1.0-beta3dev):
 engine fixes in pscal-core and front-end fixes here, each with a fixture in
 `tests/fx/`. Every one of the 84 `stdlib_*` seed pairs keeps its output.
