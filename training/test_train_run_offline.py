@@ -105,6 +105,16 @@ class ScriptTests(unittest.TestCase):
         for script in (plain, with_py):
             subprocess.run(["bash", "-n"], input=script, text=True, check=True)
 
+    def test_an_over_training_run_exports_its_last_step_and_keeps_epochs(self):
+        argv = tr.trainer_argv(self.load())
+        self.assertNotIn("--no-load-best-model-at-end", argv)
+        self.assertNotIn("--keep-checkpoint-steps", argv)
+        argv = tr.trainer_argv(self.load(train={"early_stopping_patience": 0, "load_best_model_at_end": False,
+                                                "keep_checkpoint_steps": [250, 500]}))
+        self.assertEqual(argv[argv.index("--early-stopping-patience") + 1], "0")
+        self.assertIn("--no-load-best-model-at-end", argv)
+        self.assertEqual(argv[argv.index("--keep-checkpoint-steps") + 1], "250,500")
+
     def test_eval_split_size_and_cadence_are_optional(self):
         argv = tr.trainer_argv(self.load())
         self.assertNotIn("--eval-cases", argv)

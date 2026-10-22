@@ -8,6 +8,7 @@ import importlib.util
 import json
 import math
 import random
+import shutil
 import re
 from pathlib import Path
 
@@ -26,7 +27,7 @@ importlib.util.find_spec = _patched_find_spec
 import torch
 from datasets import Dataset
 from unsloth import FastLanguageModel
-from transformers import AutoTokenizer, EarlyStoppingCallback
+from transformers import AutoTokenizer, EarlyStoppingCallback, TrainerCallback
 from trl import SFTConfig, SFTTrainer
 
 # peft's LoRA layer dispatcher probes is_torchao_available() for every target module
@@ -60,6 +61,31 @@ TARGET_MODULES = [
     "up_proj",
     "down_proj",
 ]
+
+
+class KeepCheckpoints(TrainerCallback):
+    """Copy the adapter (not the optimizer state) of chosen steps' checkpoints to output_dir/keep/, beyond
+    save_total_limit's reach, so a long run leaves its intermediate points to be merged and scored."""
+
+    SKIP = {"optimizer.pt", "scheduler.pt", "rng_state.pth", "training_args.bin"}
+
+    def __init__(self, output_dir: Path, steps: set[int]):
+        self.output_dir, self.steps = Path(output_dir), steps
+
+    def on_save(self, args, state, control, **kwargs):
+        if state.global_step not in self.steps:
+            return
+        src = self.output_dir / f"checkpoint-{state.global_step}"
+        dst = self.output_dir / "keep" / f"checkpoint-{state.global_step}"
+        try:  # keeping is a convenience: a failure here must never stop the training run
+            if src.is_dir() and not dst.exists():
+                dst.mkdir(parents=True)
+                for f in src.iterdir():
+                    if f.is_file() and f.name not in self.SKIP:
+                        shutil.copy2(f, dst / f.name)
+                print(f"kept {dst} (epoch {state.epoch:.3f})", flush=True)
+        except Exception as exc:  # noqa: BLE001
+            print(f"WARNING: could not keep {src}: {exc!r}", flush=True)
 
 
 def describe_lora_coverage(model) -> dict:
@@ -449,6 +475,8 @@ def main() -> int:
     parser.add_argument("--early-stopping-threshold", type=float, default=0.0,
                         help="minimum eval_loss improvement to reset patience. 0.0 (default, legacy) means any uptick counts, which fires on noise for small eval sets.")
     parser.add_argument("--load-best-model-at-end", action="store_true", default=True)
+    parser.add_argument("--keep-checkpoint-steps", default="",
+                        help="comma-separated steps whose adapters are kept in OUTPUT/keep/ (no optimizer state)")
     parser.add_argument("--no-load-best-model-at-end", dest="load_best_model_at_end", action="store_false", help="export the final-step checkpoint instead of the best-eval-loss one")
     parser.add_argument("--margin-tokens", type=int, default=64)
     parser.add_argument("--round-multiple", type=int, default=128)
@@ -694,12 +722,20 @@ def main() -> int:
                     "do not match this model's chat template"
                 )
 
-    trainer.add_callback(
-        EarlyStoppingCallback(
-            early_stopping_patience=args.early_stopping_patience,
-            early_stopping_threshold=args.early_stopping_threshold,
+    # Patience 0 turns early stopping off: the run trains its whole schedule (an over-training study).
+    if args.early_stopping_patience > 0:
+        trainer.add_callback(
+            EarlyStoppingCallback(
+                early_stopping_patience=args.early_stopping_patience,
+                early_stopping_threshold=args.early_stopping_threshold,
+            )
         )
-    )
+    else:
+        print("early stopping: off (patience 0)", flush=True)
+    keep_steps = {int(x) for x in args.keep_checkpoint_steps.split(",") if x.strip()}
+    if keep_steps:
+        trainer.add_callback(KeepCheckpoints(args.output_dir, keep_steps))
+        print(f"keeping the adapters of steps {sorted(keep_steps)} in {args.output_dir / 'keep'}", flush=True)
 
     metadata = {
         "model_id": args.model_id,
@@ -737,6 +773,7 @@ def main() -> int:
         "seed": args.seed,
         "random_state": args.random_state,
         "early_stopping_patience": args.early_stopping_patience,
+        "keep_checkpoint_steps": sorted(keep_steps),
         "early_stopping_threshold": args.early_stopping_threshold,
         "load_best_model_at_end": args.load_best_model_at_end,
         "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,

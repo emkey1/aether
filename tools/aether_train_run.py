@@ -202,6 +202,12 @@ def trainer_argv(run: dict) -> list[str]:
     ]
     if train.get("max_steps"):
         argv += ["--max-steps", str(train["max_steps"])]
+    # An over-training run (early_stopping_patience 0) exports its last step, not its best eval loss, and may
+    # keep chosen steps' adapters (epoch boundaries) to merge and score afterwards.
+    if train.get("load_best_model_at_end") is False:
+        argv += ["--no-load-best-model-at-end"]
+    if train.get("keep_checkpoint_steps"):
+        argv += ["--keep-checkpoint-steps", ",".join(str(int(x)) for x in train["keep_checkpoint_steps"])]
     # The held-out split behind early stopping: 12 records (the trainer default) let two noise-sized
     # eval-loss rises stop run qwen38-27b-modern at 0.35 epoch; a run can ask for more, and evaluate less
     # often to keep the overhead flat.
