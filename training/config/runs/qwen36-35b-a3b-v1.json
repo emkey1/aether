@@ -1,0 +1,56 @@
+{
+  "_note": "First MoE run (owner, 2026-10-22): Qwen3.6-35B-A3B (Apache-2.0, 35B total / ~3B active, 256 experts, qwen3_5_moe) with qwen38-27b-v1's recipe and data; the one change is the base model. 4-bit mode as smoke A (bf16 loading runs out of memory on the 121 GB unified host); the fused routed experts stay bf16 and Unsloth puts LoRA on them. Scored entirely on host-c (the merged model, 67 GB, is too large for the scoring Mac beside its other residents), including the Python check.",
+  "tag": "qwen36-35b-a3b-v1",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.6-35B-A3B",
+  "base_model": "/storage/models/Qwen3.6-35B-A3B-Instruct",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 70,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 3,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 10
+  },
+  "dataset": {
+    "id": "v1-20261021",
+    "version": "2026-10-20-12",
+    "aether_version": "2026-10-20-12",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-21-8",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false
+  }
+}

@@ -95,6 +95,16 @@ class ScriptTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.load(lora={"target_modules": bad})
 
+    def test_python_check_is_scored_on_the_host_only_when_asked(self):
+        import subprocess
+        plain = tr.score_script(self.load())
+        self.assertNotIn("--python-baseline", plain)
+        with_py = tr.score_script(self.load(score={"python_check": True}))
+        self.assertIn("--python-baseline --skip-aether", with_py)
+        self.assertIn('python__$SUITE.done', with_py)
+        for script in (plain, with_py):
+            subprocess.run(["bash", "-n"], input=script, text=True, check=True)
+
     def test_eval_split_size_and_cadence_are_optional(self):
         argv = tr.trainer_argv(self.load())
         self.assertNotIn("--eval-cases", argv)

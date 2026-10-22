@@ -44,6 +44,7 @@
     "max_output_tokens": 8192,
     "suites": {
       "v2_pos": "bench/tasks_v2_pos.json"
-    }
+    },
+    "python_check": false
   }
 }
