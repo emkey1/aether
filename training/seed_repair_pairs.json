@@ -709,11 +709,11 @@
       }
     },
     {
-      "id": "repair_modimport_piano_file_extension",
+      "id": "repair_modimport_piano_misspelled",
       "kind": "repair",
       "diagnostic": "[SCOPE-001] identifier 'centsOff' not in scope.",
-      "broken_source": "use \"piano_tuning\";\n\nfn main() -> Void {\n    let readings: Int[] = [438, 440, 445];\n    fx {\n        loop hz in readings {\n            println(hz, \" Hz: \", centsOff(hz, ConcertA), \" cents\");\n        }\n    }\n    ret;\n}\n",
-      "fixed_source": "use \"piano_tuning.aether\";\n\nfn main() -> Void {\n    let readings: Int[] = [438, 440, 445];\n    fx {\n        loop hz in readings {\n            println(hz, \" Hz: \", centsOff(hz, ConcertA), \" cents\");\n        }\n    }\n    ret;\n}\n",
+      "broken_source": "use \"piano_tunning\";\n\nfn main() -> Void {\n    let readings: Int[] = [438, 440, 445];\n    fx {\n        loop hz in readings {\n            println(hz, \" Hz: \", centsOff(hz, ConcertA), \" cents\");\n        }\n    }\n    ret;\n}\n",
+      "fixed_source": "use \"piano_tuning\";\n\nfn main() -> Void {\n    let readings: Int[] = [438, 440, 445];\n    fx {\n        loop hz in readings {\n            println(hz, \" Hz: \", centsOff(hz, ConcertA), \" cents\");\n        }\n    }\n    ret;\n}\n",
       "expected_stdout": "438 Hz: -7 cents\n440 Hz: 0 cents\n445 Hz: 19 cents\n",
       "files": {
         "piano_tuning.aether": "mod PianoTuning {\n    export const ConcertA: Int = 440;\n\n    @pure\n    export fn centsOff(measured: Int, target: Int) -> Int {\n        ret (measured - target) * 1731 div target;\n    }\n}\n"

@@ -1,0 +1,3 @@
+warning: [IMP-001] module 'scoretools' not found
+[SCOPE-001] identifier 'clampScore' not in scope.
+hint: if 'clampScore' comes from module 'scoretools', that `use` was not found

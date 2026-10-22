@@ -1,0 +1,9 @@
+// `use "score_tools"` finds score_tools.aether, the name people and models give
+// a module file (D82). Only an extensionless file named exactly `score_tools`
+// was found before, and the natural name was a missing import, ignored without
+// a word: its calls then failed with a bare SCOPE-001.
+use "score_tools";
+
+fn main() -> Void {
+    fx { println(clampScore(141), " ", BaseScore); }
+}

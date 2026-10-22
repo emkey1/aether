@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-22-1*
+*Guide version: 2026-10-22-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1701,8 +1701,9 @@ Hard rules:
 
 - write `use "..."` only when the module is provided in the prompt, present in
   the repository, or otherwise verified; otherwise stay self-contained
-- a missing `use` target may be silently ignored in compatibility mode, but
-  its names still do not exist
+- a missing `use` target is the warning IMP-001, naming the files it looked
+  for; its names still do not exist, and a SCOPE-001 for one of them points
+  back at the import
 - canonical import form is `use "module_name";` in new code
 - **MOD-001**: imported names must match exported names exactly; `use` does
   not rename. If a module exports `labelScore`, call
@@ -1711,7 +1712,9 @@ Hard rules:
 - after import, exported constants and helpers may be called directly; prefer
   direct calls like `area(3, 4)` and `Sides` over guessed foreign object APIs
 - file naming: `mod PascalCaseName` lives in a snake_case file consumed as
-  `use "pascal_case_name";` (e.g. `mod ModuleConsts` → `use "module_consts";`)
+  `use "pascal_case_name";` (e.g. `mod ModuleConsts` → `use "module_consts";`);
+  the file may be named `module_consts` or `module_consts.aether`, and an
+  exact-name file wins
 - when combining purity with module export, write `@pure` above `export fn`
 - a module follows the same effect rules as your file: its effects need
   `fx`, its functions may not write an array parameter they never return
@@ -1784,7 +1787,7 @@ Failures report original Aether source lines (`file:line:` prefix in CLI
 mode), not lowered Rea lines; trust the Aether line first.
 `--diagnostics-json` / `--diagnostics-toon` emit structured failures.
 `--verbose-compat` (alias `--verbose-errors`) surfaces normally-quiet
-compatibility shims such as ignored missing imports.
+compatibility shims.
 
 ## Copyable templates
 

@@ -1,0 +1,8 @@
+// A call into a module whose `use` was not found: the IMP-001 warning names the
+// files tried, and the SCOPE-001 hint points back at it (D82). The bare
+// "not in scope" used to be all there was.
+use "scoretools";
+
+fn main() -> Void {
+    fx { println(clampScore(141)); }
+}

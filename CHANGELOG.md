@@ -15,6 +15,38 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-22-2
+
+**`use` finds `name.aether`, and a missing import says so** (D82,
+1.0-beta9dev). `use "score_utils"` found only a file named exactly
+`score_utils`, with no extension. Name the module file `score_utils.aether` (the
+name a person or a model gives it) and the import was missing, and a missing
+import was ignored without a word unless `--verbose-compat` was given. Its
+calls then failed with a bare `SCOPE-001 identifier ... not in scope`. Even the
+guide's own module example failed that way. An agent testing 1.0-beta8 took an
+import for working when the module had never been read.
+
+Now:
+- `use "name"` loads `name` if it exists, and otherwise `name.aether`;
+- a `use` that finds neither is the warning `[IMP-001] module 'name' not
+  found: looked for 'name' and 'name.aether' beside this file, in the working
+  directory and on the import path`, by default;
+- a `SCOPE-001` for a name, with no better hint, says that a missing import may
+  be why.
+
+A stray unused `use` still compiles, with the warning. In
+`--diagnostics-json`/`--diagnostics-toon`, a warning printed before a compile
+error is now a `severity: warning` record with its code (IMP-001, NARROW-001,
+PARAM-001). It used to be an `error` record with `code: null`. rea; Aether
+only, except the JSON severity fix, which reads any front end's `warning:`
+lines. Fixtures `tests/fx/imports/` (the runner's new `.files` sidecar copies a
+module beside the program). The full guide's Modules section, the small guide's
+import line and the manual's chapter 16 say so. The repair drill
+`repair_modimport_piano_file_extension` taught the old pitfall (`use
+"piano_tuning"` failed beside `piano_tuning.aether`), which is now correct code,
+so it becomes `repair_modimport_piano_misspelled`: a misspelled `use
+"piano_tunning"`, fixed to the module's name.
+
 ## 2026-10-22-1
 
 **Release `1.0-beta8`** (D75): the eighth 1.0 beta, tagged `1.0-beta8`;

@@ -19,6 +19,10 @@ going over all of them:
   .in         stdin (default empty)
   .flags      extra aether flags, whitespace separated
   .env        KEY=VALUE lines added to the program's environment
+  .files      lines `SOURCE [DEST]`: files beside the fixture, copied next to the
+              program before it runs (DEST defaults to SOURCE's name). A module
+              is stored as `name.mod`, so the walk does not run it as a fixture,
+              and copied as `name.aether` or `name` for the program's `use`
   .cap        needs curl, yyjson, openai or sdl; skipped on a build without it
   .abspath    present: run the program by its absolute path, not its basename,
               from the subdirectory the file names (empty: the fixture's own
@@ -149,6 +153,12 @@ def check(name, aether, work, update):
         local = os.path.join(where, local)
         err_lines = [ln.replace("{SRC}", local) for ln in err_lines]
     shutil.copy(src, os.path.join(cwd, local))
+    for line in (read(base + ".files") or "").splitlines():
+        parts = line.split()
+        if parts:
+            dest = parts[1] if len(parts) > 1 else os.path.basename(parts[0])
+            shutil.copy(os.path.join(os.path.dirname(src), parts[0]),
+                        os.path.join(os.path.dirname(os.path.join(cwd, local)), dest))
     rc, out, err = run([aether, "--no-cache"] + flags + [local], stdin, cwd, env)
     problems, diffs = [], []
     if rc == "timeout":

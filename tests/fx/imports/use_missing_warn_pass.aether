@@ -1,0 +1,8 @@
+// A `use` that finds nothing is the warning IMP-001, naming what it looked for
+// (D82); it was silent unless --verbose-compat. The program still runs: a stray
+// import is not an error.
+use "helpers";
+
+fn main() -> Void {
+    fx { println("ran"); }
+}

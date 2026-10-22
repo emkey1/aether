@@ -213,7 +213,7 @@ program, where `args()` returns it (§17). Programs conventionally end in
 | `--no-cache` | compile fresh; neither read nor write the bytecode cache |
 | `--verbose` | say whether the cache was used |
 | `--diagnostics-json`, `--diagnostics-toon` | print compile errors as JSON or TOON records (§15) |
-| `--verbose-compat` | also print quiet compatibility warnings, such as an ignored missing import (§16) |
+| `--verbose-compat` | also print quiet compatibility warnings |
 | `--deny LIST` | refuse classes of effects at run time (§21) |
 | `--prune-cache` | delete cache entries whose source file is gone, then exit |
 | `--dump-ext-builtins` | list the extended builtins this build registers |
@@ -1869,19 +1869,22 @@ fn main() -> Void {
 
 How a `use` finds its file:
 
-- `use "geometry";` loads the file named `geometry`, **with no extension**. It
-  does not find a file called `geometry.aether`.
+- `use "geometry";` loads the file named `geometry`, or, if there is none,
+  `geometry.aether`.
 - The file is found next to the file that imports it, or in one of the
   directories listed in the `REA_IMPORT_PATH` environment variable (separated
   by `:`).
 - By convention the file is named after the module in snake_case: `mod
-  Geometry` in `geometry`, `mod ScoreUtils` in `score_utils`.
+  Geometry` in `geometry` or `geometry.aether`, `mod ScoreUtils` in
+  `score_utils.aether`.
 - Names are used exactly as exported; `use` does not rename.
 
-A `use` whose file cannot be found is ignored without a word, and its names
-then fail as undeclared:
+A `use` whose file cannot be found is the warning `IMP-001`, which names the
+files it looked for. The program still compiles if it uses nothing from the
+module; a name it does use fails as undeclared, and the hint points back at
+the import:
 
-```aether @reject=SCOPE-001
+```aether @reject=IMP-001,SCOPE-001
 use "geometri";
 
 fn main() -> Void {
@@ -1890,12 +1893,13 @@ fn main() -> Void {
 ```
 
 ```text
+prog.aether:1: warning: [IMP-001] module 'geometri' not found: looked for 'geometri' and 'geometri.aether' beside this file, in the working directory and on the import path, so its names are not defined.
 prog.aether:4: [SCOPE-001] identifier 'area' not in scope.
+hint: if 'area' comes from module 'geometri', that `use` was not found (see the IMP-001 warning above), so none of its names are defined.
 ```
 
-When you see `SCOPE-001` for a name you expected a module to provide, run
-again with `--verbose-compat`, which adds a line such as
-`prog.aether:1: warning: [IMP-001] Aether ignored missing import 'geometri'.`
+Before 2026-10-22 the missing import was silent unless you passed
+`--verbose-compat`, and only `geometry` (no extension) was found.
 
 A module follows the same rules as the file that uses it: its effects need
 `fx`, its functions may not change an array argument they do not return, and a

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-21-1*
+*Guide version: 2026-10-22-1*
 
 ## Highest-Value Rules
 
@@ -559,7 +559,7 @@ fx { println("a=", a.count, " b=", b.count); }
 Imports are advanced; most generated Aether should be single-file.
 
 - only `use "..."` for real, verified modules; a missing import's symbols do
-  not exist even if the line is silently ignored
+  not exist, and the compiler only warns (IMP-001)
 - **MOD-001**: imported names match exported names exactly — `use` does not
   rename. Module exports `labelScore` → call `labelScore(...)`,
   never a guessed `label(...)`. Module exports `BaseScore` → use `BaseScore`,

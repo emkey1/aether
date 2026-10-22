@@ -47,7 +47,7 @@ during WIP.
 `tests/fx/<dir>/<name>.aether` plus sidecars: `.out` (exact stdout),
 `.unordered` (compare `.out` as a multiset of lines, for `par`), `.err`
 (required stderr substrings; a `!` line is forbidden), `.codes` (the exact
-diagnostic code set; `code: null` fails), `.rc`, `.in`, `.flags`, `.cap`
+diagnostic code set; `code: null` fails), `.rc`, `.in`, `.flags`, `.files` (files copied beside the program, e.g. a `name.mod` module source as `name.aether`), `.cap`
 (curl, yyjson, openai, sdl). `python3 tools/run_fixtures.py --update <name>`
 writes `.out`/`.rc`/`.codes` and prints the diff: review it before committing.
 CTest runs one `aether_fixtures_<dir>` per directory (re-configure after adding

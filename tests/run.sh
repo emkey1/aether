@@ -2098,8 +2098,12 @@ if ! "$AETHER_BIN" --no-cache "$IMPORT_MISSING_FAIL_FIXTURE" >$OUT/aether_import
     cat $OUT/aether_import_missing_fail.out >&2
     exit 1
 fi
-if [ -s $OUT/aether_import_missing_fail.out ]; then
-    echo "default missing import run should be silent" >&2
+# D82: a `use` that is not found is reported by default; it used to be silent
+# unless --verbose-compat, and the program's calls into it then failed with a
+# bare SCOPE-001. The warning names what it looked for.
+IMPORT_MISSING_WARNING="$IMPORT_MISSING_FAIL_FIXTURE:1: warning: [IMP-001] module 'definitely_missing_aether_module' not found: looked for 'definitely_missing_aether_module' and 'definitely_missing_aether_module.aether' beside this file, in the working directory and on the import path, so its names are not defined."
+if ! grep -qxF "$IMPORT_MISSING_WARNING" $OUT/aether_import_missing_fail.out; then
+    echo "missing default IMP-001 warning for a missing import" >&2
     cat $OUT/aether_import_missing_fail.out >&2
     exit 1
 fi
@@ -2108,7 +2112,7 @@ if ! "$AETHER_BIN" --no-cache --verbose-compat "$IMPORT_MISSING_FAIL_FIXTURE" >$
     cat $OUT/aether_import_missing_verbose.out >&2
     exit 1
 fi
-if ! grep -q "^$IMPORT_MISSING_FAIL_FIXTURE:1: warning: \[IMP-001\] Aether ignored missing import 'definitely_missing_aether_module'\.$" $OUT/aether_import_missing_verbose.out; then
+if ! grep -qxF "$IMPORT_MISSING_WARNING" $OUT/aether_import_missing_verbose.out; then
     echo "missing verbose-compat warning for ignored import" >&2
     cat $OUT/aether_import_missing_verbose.out >&2
     exit 1
