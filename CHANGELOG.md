@@ -17,6 +17,15 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-22-2
 
+**Release `1.0-beta10`** (D75): the tenth 1.0 beta, tagged `1.0-beta10`;
+`--version` prints `Aether Compiler Version: 2026-10-22-2 (1.0-beta10)`. On
+top of `1.0-beta9` it carries diagnostics only: the task builtins' refusals
+are coded, as `AETH-RUNTIME-TASK-RUNNING` (`task_status`/`task_result` on a
+running task), `AETH-RUNTIME-TASK-NO-STATUS` and `AETH-RUNTIME-TASK-NO-RESULT`,
+each with a hint and in Aether's words where they spoke of threads and "join".
+`slice(...)` now gets the `s[a..b]` hint. The language version is unchanged.
+The next dev label is `1.0-beta11dev`.
+
 **Release `1.0-beta9`** (D75): the ninth 1.0 beta, tagged `1.0-beta9`;
 `--version` prints `Aether Compiler Version: 2026-10-22-2 (1.0-beta9)`. On top
 of `1.0-beta8` it carries D82, below: `use "name"` also finds `name.aether`, a
