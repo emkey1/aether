@@ -17,6 +17,14 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-22-1
 
+**Release `1.0-beta8`** (D75): the eighth 1.0 beta, tagged `1.0-beta8`;
+`--version` prints `Aether Compiler Version: 2026-10-22-1 (1.0-beta8)`. On top
+of `1.0-beta7` it carries D81, below: `task_result` on a task whose target
+returns nothing is the coded `[AETH-RUNTIME-TASK-NO-RESULT]`, where it was an
+uncoded type mismatch or a printed `<VOID_TYPE>`. The full guide (stamp
+`2026-10-22-1`) also says that BUILT-001 is a rule name and that the compiler
+reports an invented helper as SCOPE-001. The next dev label is `1.0-beta9dev`.
+
 **`task_result` on a task with no result is a coded run-time error** (D81,
 1.0-beta8dev; a silent-wrong fix under D75). `task_result` returns its target
 builtin's own result, and a target that returns nothing (`sleep`) left a VOID
