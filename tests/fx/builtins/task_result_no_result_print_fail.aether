@@ -1,0 +1,8 @@
+// The same through println: it used to print `[<VOID_TYPE>]` and exit 0.
+fn main() -> Void {
+    fx {
+        let t: Int = task_queue("sleep", "nap", 10);
+        println("wait ", task_wait(t));
+        println("[", task_result(t), "]");
+    }
+}

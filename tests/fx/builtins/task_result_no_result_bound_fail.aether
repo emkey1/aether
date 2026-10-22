@@ -1,0 +1,11 @@
+// task_result on a task whose target returns nothing (sleep) is a coded run-time
+// error (D81). Bound to a variable, it used to fail with the uncoded "Type
+// mismatch: Cannot assign VOID to string."
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("sleep", "nap", 10);
+        println("wait ", task_wait(t));
+        let r: Text = task_result(t, true);
+        println("[", r, "]");
+    }
+}

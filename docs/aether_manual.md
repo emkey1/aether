@@ -2350,8 +2350,10 @@ task finished: 0
 
 `task_spawn(builtin, name, argument)` starts a task, `task_wait(handle)` waits
 for it and returns `0` when it succeeded, and `task_result(handle)` reads the
-builtin's own result. Only an allow-listed set of builtins can run this way;
-for your own functions, use `par`.
+builtin's own result. A builtin that returns nothing, such as `sleep`, leaves
+no result, and reading one stops the program with
+`AETH-RUNTIME-TASK-NO-RESULT`. Only an allow-listed set of builtins can run
+this way; for your own functions, use `par`.
 
 ---
 

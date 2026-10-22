@@ -15,6 +15,22 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-22-1
+
+**`task_result` on a task with no result is a coded run-time error** (D81,
+1.0-beta8dev; a silent-wrong fix under D75). `task_result` returns its target
+builtin's own result, and a target that returns nothing (`sleep`) left a VOID
+placeholder in the task's slot. Bound to a variable, it failed with the
+uncoded `Type mismatch: Cannot assign VOID to string.` (`code: null` in
+`--diagnostics-json`). Printed, it showed `<VOID_TYPE>` and the program carried
+on. Both now stop with `[AETH-RUNTIME-TASK-NO-RESULT] task_result: this task's
+target returns nothing, so there is no result to read.` and a hint to wait with
+`task_wait(t)`. A target that returns a value (`dns_lookup`) is unchanged.
+pscal-core; Aether only. Fixtures `tests/fx/builtins/task_result_no_result_*`.
+The full guide's `task_result` bullet and the manual say so. The guide's rule
+11 also says that BUILT-001 is a rule name: the compiler reports an invented
+helper as `SCOPE-001`, with a hint naming the builtin when it knows one.
+
 ## 2026-10-21-10
 
 **Release `1.0-beta7`** (D75): the seventh 1.0 beta, tagged `1.0-beta7`;

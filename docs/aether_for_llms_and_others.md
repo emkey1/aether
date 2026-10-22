@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-21-9*
+*Guide version: 2026-10-22-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -55,7 +55,10 @@ If you only read one part of this document, read **Highest-Value Rules** and
 11. **BUILT-001.** The builtins listed here are the supported, recommended
     surface. Do not invent helpers (`substring`, `to_upper`, `strip`, ...) and
     do not guess names; method spellings (`s.upper()`, `xs.sort()`) are
-    SCOPE-001 — call the function (`upper(s)`, `sorted(xs)`). **The complete inventory is in the appendix at the end
+    SCOPE-001 — call the function (`upper(s)`, `sorted(xs)`). BUILT-001 is this
+    rule's name, not a printed code: an invented helper is SCOPE-001 too, with
+    a hint naming the builtin when the compiler knows one (`to_upper` →
+    `upper(s)`). **The complete inventory is in the appendix at the end
     of this document** — every builtin this compiler exposes, so "if it is not
     listed, it does not exist" is something you can check rather than take on
     faith. `builtins_json()` / `builtin_info(...)` also exist, but those are
@@ -1638,8 +1641,10 @@ Core signatures:
 - `task_status(handle: Int) -> Bool` — readable only once the task has finished
   and before `task_wait`; on a running or an already-joined task it is a
   run-time error
-- `task_result(handle: Int)` — the target builtin's own result (nothing for a
-  procedure such as `"delay"`); a run-time error while the task is still running
+- `task_result(handle: Int)` — the target builtin's own result, of its type
+  (`Text` for `"dns_lookup"`). A target that returns nothing (`"sleep"`) has no
+  result: reading it stops with `[AETH-RUNTIME-TASK-NO-RESULT]`, so wait with
+  `task_wait` instead. A run-time error while the task is still running
 - `task_stats() -> Array`: worker-pool records with no Aether type, so count
   them (`length(task_stats())`) and read fields through `task_stats_json()`
 - `task_stats_json() -> Text`

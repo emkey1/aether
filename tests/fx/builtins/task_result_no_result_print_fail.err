@@ -1,0 +1,3 @@
+[AETH-RUNTIME-TASK-NO-RESULT] task_result: this task's target returns nothing
+hint: wait for it with `task_wait(t)`
+!VOID
