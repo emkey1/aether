@@ -36,12 +36,14 @@
     "variants": [
       "tuned"
     ],
-    "grader_version": "2026-10-20-12",
+    "grader_version": "2026-10-21-8",
     "docs": "none",
     "repeats": 1,
     "repair_attempts": 2,
     "temperature": 0,
     "max_output_tokens": 8192,
-    "suites": {}
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json"
+    }
   }
 }
