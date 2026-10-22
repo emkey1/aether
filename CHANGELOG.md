@@ -17,6 +17,14 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-21-10
 
+**Release `1.0-beta7`** (D75): the seventh 1.0 beta, tagged `1.0-beta7`;
+`--version` prints `Aether Compiler Version: 2026-10-21-10 (1.0-beta7)`. On
+top of `1.0-beta6` it carries D80, below: under `--deny`, `has_builtin` and
+`has_ai` answer false for a builtin the run refuses, so the documented guard
+falls back instead of stopping. The full guide also says what shifts do at the
+edge of `Int` (stamp `2026-10-21-8`) and how `has_builtin` meets `--deny`
+(`2026-10-21-9`). The next dev label is `1.0-beta8dev`.
+
 **`has_builtin` and `has_ai` answer for this run's `--deny`** (D80, 1.0-beta7dev).
 The guides call `has_builtin` the answer to "can I call this?", and the
 documented guard is `if has_builtin("network", "http_request") { ... }`. Under
