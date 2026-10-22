@@ -17,6 +17,13 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-22-2
 
+**Release `1.0-beta9`** (D75): the ninth 1.0 beta, tagged `1.0-beta9`;
+`--version` prints `Aether Compiler Version: 2026-10-22-2 (1.0-beta9)`. On top
+of `1.0-beta8` it carries D82, below: `use "name"` also finds `name.aether`, a
+missing import is the warning IMP-001 by default, naming the files it looked
+for, and a SCOPE-001 points back at it. Warnings in `--diagnostics-json` and
+`--diagnostics-toon` keep their codes. The next dev label is `1.0-beta10dev`.
+
 **`use` finds `name.aether`, and a missing import says so** (D82,
 1.0-beta9dev). `use "score_utils"` found only a file named exactly
 `score_utils`, with no extension. Name the module file `score_utils.aether` (the
