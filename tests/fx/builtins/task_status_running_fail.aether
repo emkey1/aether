@@ -1,0 +1,9 @@
+// task_status on a task still running is a coded error naming task_wait. It
+// was "Thread 1 is still running; join it before querying status.", the
+// engine's wording, with no code.
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("sleep", "nap", 1000);
+        println(task_status(t));
+    }
+}

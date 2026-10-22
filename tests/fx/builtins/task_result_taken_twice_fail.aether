@@ -1,0 +1,11 @@
+// A result read with consume = true is gone; a second read was "Thread 1 has
+// no stored result.".
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("dns_lookup", "w", "localhost");
+        println(task_wait(t));
+        let a: Text = task_result(t, true);
+        let b: Text = task_result(t, true);
+        println(length(a) > 0, " ", b);
+    }
+}

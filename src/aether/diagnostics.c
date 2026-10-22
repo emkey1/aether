@@ -381,6 +381,7 @@ static const AetherNameHint kAetherNameHints[] = {
     { "find", "did you mean 'index_of(s, x)'? -1 when absent." },
     { "substring", "take a slice: `s[a..b]` (from a, up to but not including b)." },
     { "substr", "take a slice: `s[a..b]` (from a, up to but not including b)." },
+    { "slice", "take a slice: `s[a..b]` (from a, up to but not including b)." },
     { "sort", "did you mean 'sorted(xs)'? It returns a new array." },
     { "reverse", "did you mean 'reversed(xs)'? It returns a new array." },
     { "minimum", "did you mean 'min_of(xs)'?" },

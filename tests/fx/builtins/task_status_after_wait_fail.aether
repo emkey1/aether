@@ -1,0 +1,9 @@
+// task_wait consumes the status, so task_status after it has nothing to read.
+// It was "Thread 1 has no stored status.".
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("sleep", "nap", 10);
+        println(task_wait(t));
+        println(task_status(t));
+    }
+}

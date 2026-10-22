@@ -1,0 +1,4 @@
+// A handle that is no task gets the same NO-STATUS error.
+fn main() -> Void {
+    fx { println(task_status(99)); }
+}

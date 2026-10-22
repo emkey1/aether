@@ -1,0 +1,6 @@
+// slice(...) is not a builtin; like substring(...), it gets the hint naming
+// the slice syntax. It was a bare SCOPE-001.
+fn main() -> Void {
+    let s: Text = "abcdef";
+    fx { println(slice(s, 1, 3)); }
+}

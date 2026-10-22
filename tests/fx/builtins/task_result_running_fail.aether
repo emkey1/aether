@@ -1,0 +1,8 @@
+// task_result on a task still running: the same code (it was "... join it
+// before retrieving the result.").
+fn main() -> Void {
+    fx {
+        let t: Int = task_spawn("sleep", "nap", 1000);
+        println(task_result(t));
+    }
+}
