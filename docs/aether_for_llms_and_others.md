@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-22-2*
+*Guide version: 2026-10-24-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -281,7 +281,9 @@ the exit status. A file with both a `fn main` and top-level statements is
 - **Text literals**: double-quoted. Escapes: `\"`, `\\`, `\n`, `\t`, `\r`,
   `\xNN` and `\uNNNN`; `\0` ends the string, and an unknown escape stays as
   written (`\q` prints `\q`).
-- **Statements** end with `;`. Blocks use `{ }`.
+- **Statements** end with `;`. Blocks use `{ }`. Two expressions on one line
+  need an operator or a `;` between them: `a b` is `[SYN-001]`, and so is a
+  statement that only computes a value (`x;`).
 
 ## Primitive types
 
@@ -778,7 +780,9 @@ takes any `Int` expression: a literal step is inlined and a negative one counts
 down (`i > high`), any other step is evaluated once before the loop and its
 sign checked at run time, and a literal `step 0` is rejected. `break` exits the
 nearest loop; `continue` moves to the next element, advancing the counter or
-applying the step. The loop variable is scoped to its loop, so reusing the name
+applying the step. Both bounds and the step are evaluated once, before the first
+pass: changing `n` inside `loop i in 0..n` does not change how many times it
+runs. The loop variable is scoped to its loop, so reusing the name
 in a later loop in the same function is fine.
 
 ### Quantifiers: `all` and `any`
@@ -1012,7 +1016,8 @@ fn clamp(score: Int) -> Int {
 
 - `@pure` functions reject effectful builtins and calls to any function that
   is not itself marked `@pure` — mark every helper a pure function calls
-- `@pre` / `@post` take expressions; `@post` may reference `result`
+- `@pre` / `@post` take expressions; `@post` may reference `result`, the returned
+  value (anywhere else `result` is an ordinary name)
 - a method's `@pre`/`@post` may reference `self.field`, but only when the method
   is declared inside its `type` block (where `self` is implicit); the same
   contract on a top-level `fn` with an explicit `self` parameter fails

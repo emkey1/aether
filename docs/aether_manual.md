@@ -284,7 +284,9 @@ Hello, Aether
   standard output, so it must sit inside one; outside, it is the compile error
   `[FX-001]`.
 - `println` writes its arguments and then a newline. Statements end with `;`,
-  and blocks use braces.
+  and blocks use braces. A `;` at the end of a line may be left out, but two
+  statements on one line need it: `let t: Int = a b;` is `SYN-001`, not `a`
+  followed by a forgotten `b`.
 
 A file with no `fn main` is a script: its top-level statements run in order.
 
@@ -1118,8 +1120,9 @@ odd, below 10: 1 3 5 7 9
 
 - **Range:** `loop i in a..b` counts from `a` up to `b - 1`; the range is
   half-open, so `1..n + 1` is 1 through `n`. `step k` changes the stride, and
-  a negative step counts down. The loop declares `i` itself: do not `let` it
-  first.
+  a negative step counts down. `a`, `b` and the step are evaluated once, before
+  the first pass, so changing `b` inside the loop does not change the count.
+  The loop declares `i` itself: do not `let` it first.
 - **Each:** `loop x in collection` visits the elements of an array, the
   characters of a `Text`, the keys of a map, or the elements of a JSON array.
 - **Condition:** `loop cond { ... }` runs while `cond` is true.
@@ -1293,7 +1296,7 @@ true true true
 | `split(s, sep)`, `join(parts, sep)` | `Text` to `Text[]` and back |
 | `repeat(s, n)`, `reversed(s)` | `s` written `n` times; `s` backwards |
 | `is_digit`, `is_alpha`, `is_alnum`, `is_space`, `is_upper`, `is_lower` | `true` when the text is non-empty and every character is in the ASCII class |
-| `ord(c)`, `chr(n)` | a character's code, and back |
+| `ord(c)`, `chr(n)` | a character's Unicode code point, and back: `chr(233)` is `é` |
 
 Text compares with `==`, `!=` and `<` (by character code, so capitals sort
 before lower case). Every text helper is a function: `upper(s)`, not
@@ -1617,7 +1620,8 @@ Three annotations go directly above a function:
 
 - `@pre condition`: checked when the function is called.
 - `@post condition`: checked when it returns, with the return value available
-  as `result`.
+  as `result`. Only the clause gives `result` that meaning: in the body, and
+  in every other function, `result` is an ordinary name.
 - `@pure`: checked at compile time. The function has no effects and calls only
   pure functions ([§10](#10-effects-and-fx)).
 

@@ -1,0 +1,42 @@
+// D83: a range loop evaluates its bounds and step once, before the first pass.
+// Changing the bound inside the body does not change the trip count. (Was the
+// backlog probe range_bound_reread, W4-33: the bound was re-read every pass,
+// so the first loop ran 5 times.)
+fn main() -> Void {
+    let n: Int = 10;
+    let runs: Int = 0;
+    loop i in 0..n {
+        n = n - 1;
+        runs = runs + 1;
+    }
+
+    // A bound that reads an array the body grows; a slice in the bound.
+    let xs: Int[] = [5, 6, 7, 8];
+    let grew: Int = 0;
+    loop i in 0..len(xs[1..]) {
+        xs = xs + [i];
+        grew = grew + 1;
+    }
+
+    // A run-time step, a counting-down bound changed in the body, `continue`.
+    let s: Int = 1;
+    let down: Int = 0;
+    loop j in 10..0 step s - 2 { down = down + 1; }
+    let m: Int = 3;
+    let up: Int = 0;
+    loop j in m..0 step -1 { m = m - 5; up = up + 1; }
+    let k: Int = 0;
+    let kept: Int = 0;
+    loop j in 0..k + 3 {
+        if j == 1 { continue; }
+        k = k + 1;
+        kept = kept + 1;
+    }
+
+    fx {
+        println(runs, " ", n);
+        println(grew, " ", len(xs));
+        println(down, " ", up, " ", kept, " ", k);
+        println(all q in 0..len(xs): xs[q] >= 0);
+    }
+}

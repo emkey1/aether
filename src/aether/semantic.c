@@ -4166,7 +4166,7 @@ static int caseLookup(const CaseNameSet *s, const char *name, size_t len, const 
 }
 
 static bool caseNameIsInternal(const char *name) {
-    return !name || name[0] == '_' || strcmp(name, "myself") == 0 || strcmp(name, "result") == 0 ||
+    return !name || name[0] == '_' || strcmp(name, "myself") == 0 ||
            strcmp(name, "self") == 0 || strchr(name, '@') != NULL;
 }
 

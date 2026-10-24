@@ -70,11 +70,14 @@ check arr_params.aether "arrays=vstrict" 1 "code:ARR-001"
 check arr_params.aether "arrays=ref"     0 "1358 g=1 a=5 b=5 s0=0 a0=1 t=6"
 
 # D39: discarded values and tail expressions (W4-03 arms).
+# The reject arm became the language on 2026-10-24 (D39 (a)); `accept` is the
+# rule before it.
 check tail_expr.aether ""             1 "code:FLOW-001"
-check tail_expr.aether "tail=current" 1 "code:FLOW-001"
+check tail_expr.aether "tail=accept"  1 "code:FLOW-001"
 check tail_expr.aether "tail=reject"  1 "code:FLOW-001"
 check tail_expr.aether "tail=ret"     0 "bigger=9"
-check juxtapose.aether ""             0 "total=3"
+check juxtapose.aether ""             1 "code:SYN-001"
+check juxtapose.aether "tail=accept"  0 "total=3"
 check juxtapose.aether "tail=reject"  1 "code:SYN-001"
 check juxtapose.aether "tail=ret"     0 "total=3"
 

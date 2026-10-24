@@ -1,6 +1,6 @@
-// D39 experiment fixture: an operator deleted between two operands. Today
-// `price qty` parses as `price` followed by a discarded `qty`; tail=reject
-// makes it SYN-001.
+// D39 experiment fixture: an operator deleted between two operands. Under
+// tail=accept (the rule before D39) `price qty` parses as `price` followed by
+// a discarded `qty`; the shipped rule (tail=reject) makes it SYN-001.
 fn main() -> Void {
     let price: Int = 3;
     let qty: Int = 4;

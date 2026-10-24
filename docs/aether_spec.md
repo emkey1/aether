@@ -877,10 +877,18 @@ ExprStmt   = Expr ";" ;
 `let` bindings are mutable. A `let` without a type is inferred from its
 initializer when that is obviously safe and is otherwise TYPE-001 (§3). `loop`
 alone repeats until `break`; `loop cond` is a while loop; `loop i in a..b` counts
-from `a` up to but not including `b`, by `step` when given; `loop x in xs` visits
+from `a` up to but not including `b`, by `step` when given, with `a`, `b` and the
+step each evaluated once, before the first pass (D83); `loop x in xs` visits
 each element of an array or each character of a Text. `while` and `for` are exact
 synonyms of the corresponding `loop` forms. Effects live in `fx` blocks (FX-001,
 §3). `par` runs each call on its own thread and waits for all of them.
+
+An expression statement must do something: a call, or an assignment. One that
+only computes a value is SYN-001 "this expression has no effect" (in a non-Void
+function, FLOW-001 "value computed and discarded", since Aether has no implicit
+return). Two expressions on one line with no `;` between them are SYN-001
+"missing operator or `=`", so a deleted operator (`a b` for `a * b`) is an error
+rather than `a` followed by a discarded `b` (D39).
 
 ```aether @ok id=G.Block.1
 fn main() -> Void {
@@ -917,6 +925,32 @@ fn main() -> Void {
 ```aether @reject=SYN-001 id=G.Statement.2
 fn main() -> Void {
     var x: Int = 1;
+}
+```
+
+```aether @reject=SYN-001 id=G.Statement.3
+fn main() -> Void {
+    let a: Int = 2;
+    let b: Int = 9;
+    let t: Int = a b;
+    fx { println(t); }
+}
+```
+
+```aether @reject=SYN-001 id=G.Statement.4
+fn main() -> Void {
+    let a: Int = 2;
+    a;
+    fx { println(a); }
+}
+```
+
+```aether @reject=FLOW-001 id=G.Statement.5
+fn twice(n: Int) -> Int {
+    n * 2;
+}
+fn main() -> Void {
+    fx { println(twice(3)); }
 }
 ```
 
@@ -2012,6 +2046,13 @@ run-time errors. Open rows:
   again, a cursor threaded through callees that each advance it, or a loop
   whose condition only the callee's copy could change.
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
+- **D83**, a range loop evaluates its bounds and step once, before the first
+  pass: changing `n` inside `loop i in 0..n` does not change the trip count
+  (D.range.1). `loop x in xs` reads `xs` as the loop runs.
+- **D84**, `result` is an ordinary name. Only in a `@post` clause does it mean
+  the returned value (D.result.1).
+- **D85**, `chr(n)` is the Text of Unicode code point `n`, so `ord(chr(n)) == n`
+  (D.chr.1).
 - **D24**, record and tuple `==` compare field by field (slot by slot for a
   tuple), recursing into nested records and arrays; `same(a, b)` is identity
   and `== nil` stays legal. `==` on a self-referential record type is REC-001,
@@ -2141,6 +2182,49 @@ fn main() -> Int {
 a
 ```
 
+```aether @ok id=D.range.1
+fn main() -> Void {
+    let n: Int = 4;
+    let runs: Int = 0;
+    loop i in 0..n {
+        n = n - 1;
+        runs = runs + 1;
+    }
+    fx { println(runs, " ", n); }
+}
+```
+
+```text
+4 0
+```
+
+```aether @ok id=D.result.1
+let result: Int = 10;
+
+@post result > 10
+fn plus(x: Int) -> Int {
+    ret x + result;
+}
+
+fn main() -> Void {
+    fx { println(plus(5), " ", result); }
+}
+```
+
+```text
+15 10
+```
+
+```aether @ok id=D.chr.1
+fn main() -> Void {
+    fx { println(chr(233), " ", chr(233) == "é", " ", ord(chr(233))); }
+}
+```
+
+```text
+é true 233
+```
+
 ## 5. Program structure and modules (stub)
 
 To be written: module files and name visibility. Rows:
@@ -2213,7 +2297,7 @@ bug. The surface registry (W8-11) will assign each one its synonym class.
 
 | Leniency | Meaning |
 |---|---|
-| a missing `;` at the end of a line | as if the `;` were there |
+| a missing `;` at the end of a line | as if the `;` were there (only at the end of a line: G.Statement.3) |
 | unparenthesised or parenthesised conditions, unbraced `if` bodies | `if (c) stmt` is `if c { stmt }` |
 | `Float`, `String` | `Real`, `Text` |
 | `let mut x` | `let x` (every `let` is mutable) |

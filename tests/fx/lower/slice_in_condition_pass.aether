@@ -1,6 +1,6 @@
 // A slice (or a record literal) in a position that is evaluated on every pass
 // or only sometimes: a loop condition in each spelling, a range loop's upper
-// bound (re-read before every pass), an `else if` condition, the right operand
+// bound (evaluated once since D83), an `else if` condition, the right operand
 // of `&&` and `||`, and a branch of `?:` and of an if-expression. The slice is
 // built in a temp ahead of the statement, and it used to be built once there:
 // `loop total(xs[i..5]) > 5 { i = i + 1; }` never saw `i` change and spun
@@ -75,7 +75,9 @@ fn main() -> Void {
     }
     fx { println("continue/break ", i, " ", skipped); }
 
-    // The upper bound is re-read every pass, with or without a slice in it.
+    // The upper bound is evaluated once (D83), with or without a slice in it:
+    // shrinking k in the body does not shorten the loop. (It was re-read every
+    // pass until 2026-10-24, and these printed 3 3 step 2.)
     let k: Int = 5;
     let runs: Int = 0;
     loop r in 0..length(xs[0..k]) { k = k - 1; runs = runs + 1; }

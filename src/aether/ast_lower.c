@@ -1685,6 +1685,43 @@ static char *aetherRewriteTupleResultRefs(const char *postExpr, const char *temp
     return rewritten;
 }
 
+/* A value-returning function's @post text with each `result` (the word, not
+ * `x.result` and not inside a string literal) renamed to `tempName`, the
+ * per-ret temp its `ret` stages the value in (D84). Caller frees. */
+static char *aetherRewriteResultRefs(const char *postExpr, const char *tempName) {
+    size_t tlen = strlen(tempName);
+    size_t cap = strlen(postExpr) + 64;
+    char *rewritten = (char *)malloc(cap);
+    if (!rewritten) return NULL;
+    size_t w = 0;
+    bool inString = false;
+    const char *s = postExpr;
+    while (*s) {
+        if (inString) {
+            if (*s == '\\' && s[1]) {
+                if (w + 3 >= cap) { cap *= 2; rewritten = (char *)realloc(rewritten, cap); }
+                rewritten[w++] = *s++;
+            } else if (*s == '"') {
+                inString = false;
+            }
+        } else if (*s == '"') {
+            inString = true;
+        } else if (strncmp(s, "result", 6) == 0 &&
+                   (s == postExpr || !(isalnum((unsigned char)s[-1]) || s[-1] == '_' || s[-1] == '.')) &&
+                   !(isalnum((unsigned char)s[6]) || s[6] == '_')) {
+            while (w + tlen + 1 >= cap) { cap *= 2; rewritten = (char *)realloc(rewritten, cap); }
+            memcpy(rewritten + w, tempName, tlen);
+            w += tlen;
+            s += 6;
+            continue;
+        }
+        if (w + 2 >= cap) { cap *= 2; rewritten = (char *)realloc(rewritten, cap); }
+        rewritten[w++] = *s++;
+    }
+    rewritten[w] = '\0';
+    return rewritten;
+}
+
 /* ret (a, b, ...) ;  for a tuple-return function. Lowers to the reentrant
  * record-by-value shape: `__AetherTuple<id> __aether_retobj_<serial> = new
  * __AetherTuple<id>(); __aether_retobj_<serial>.item<k> = expr<k>; [@post guard;]
@@ -2042,10 +2079,11 @@ static AST *buildReturnObjectInit(AetherParser *p, int line) {
  * p->hadError). Callers detect the shape with returnArrayConcatNeedsLowering().
  *
  * `stageResultName` selects the tail: NULL emits the `return <temp>;` above,
- * while a name (`"result"`) emits `<name> = <temp>;` instead and leaves the
- * compound open for the caller to append a @post guard and its own return --
- * that path stages `result` itself, so it needs the concat lowered *before* the
- * guard runs rather than a finished return. */
+ * while a name (the @post per-ret temp, `__aether_post_N`) emits
+ * `<name> = <temp>;` instead and leaves the compound open for the caller to
+ * append a @post guard and its own return -- that path stages the value
+ * itself, so it needs the concat lowered *before* the guard runs rather than a
+ * finished return. */
 static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
                                    const char *stageResultName) {
     int concatLine = value->token->line;
@@ -2144,7 +2182,7 @@ static AST *buildReturnArrayConcat(AetherParser *p, AST *value, int line,
     aetherFreeConcatOperands(ops, opCount, false);
 
     if (stageResultName) {
-        /* result = __aether_ret_concat_<serial>;  (caller appends guard + return) */
+        /* __aether_post_N = __aether_ret_concat_<serial>;  (caller appends guard + return) */
         addChild(outer, buildSimpleAssign(stageResultName,
                                           buildVarRef(tmpName, tmpVt, concatLine),
                                           line));
@@ -2277,7 +2315,8 @@ static AST *parseTupleForwardReturn(AetherParser *p, int line) {
  *
  * Three contract/tuple-aware shapes (MILESTONE 3), matching translate.c:
  *   - tuple-return fn: `ret (a,b);`  -> per-slot writes + [post] + `return;`
- *   - @post on a value fn: `ret e;`  -> `result = e; <post guard>; return result;`
+ *   - @post on a value fn: `ret e;`  -> `let __aether_post_N: T; __aether_post_N = e;
+ *     <post guard, its `result` renamed>; return __aether_post_N;` (D84)
  *   - otherwise: a plain AST_RETURN. */
 AST *parseRet(AetherParser *p) {
     int line = p->current.line;
@@ -2343,44 +2382,70 @@ AST *parseRet(AetherParser *p) {
     /* `ret src + other;` -- array concat/append in return position needs a
      * statement position to splice its lowering into (see
      * buildReturnArrayConcat). Under a @post guard the same lowering runs, but
-     * staged into `result` ahead of the guard, in the branch just below. */
+     * staged into the per-ret temp ahead of the guard, in the branch just below. */
     if (value && !p->currentPostExpr && returnArrayConcatNeedsLowering(p, value)) {
         return buildReturnArrayConcat(p, value, line, NULL);
     }
 
-    /* @post on a value-returning function: stage `result`, check, then return it,
-     * exactly as the rewriter's translateReturnWithPost. */
+    /* @post on a value-returning function: stage the value in a per-ret temp,
+     * check the guard with its `result` renamed to that temp, then return it.
+     * The temp is the front end's own (D84): until 2026-10-24 this staged into
+     * the engine's implicit `result` local, which shadowed every user name
+     * `result` (a global, a parameter) inside every value-returning function. */
     if (p->currentPostExpr && value) {
         /* Captured up front: the concat lowering below consumes (frees) `value`,
-         * and the `return result;` tail still needs the returned type. */
+         * and the `return` tail still needs the returned type. */
         VarType resultVt = value->var_type;
+        char postName[64];
+        snprintf(postName, sizeof(postName), "__aether_post_%d", p->nextObjLitId++);
+        AST *decl = p->currentReturnTypeName
+                        ? buildTypedLetDecl(postName, p->currentReturnTypeName, NULL, line)
+                        : NULL;
+        if (!decl) {
+            reportAetherAstError(aetherSemanticGetSourcePath(), line, "contract",
+                                 "@post needs the function's declared return type to check `result`.",
+                                 NULL);
+            p->hadError = true;
+            freeAST(value);
+            return NULL;
+        }
         AST *outer;
         if (returnArrayConcatNeedsLowering(p, value)) {
             /* `@post ... ret a + b;` -- lower the concat into a temp first, then
-             * stage that into `result`, so the guard sees the finished array
-             * rather than a raw `+` the VM has no operator for. */
-            outer = buildReturnArrayConcat(p, value, line, "result");
-            if (!outer) return NULL;
+             * stage that into the per-ret temp, so the guard sees the finished
+             * array rather than a raw `+` the VM has no operator for. */
+            outer = buildReturnArrayConcat(p, value, line, postName);
+            if (!outer) { freeAST(decl); return NULL; }
+            addChild(outer, NULL); /* grow by one slot: the decl goes first */
+            for (int i = outer->child_count - 1; i > 0; i--) {
+                outer->children[i] = outer->children[i - 1];
+            }
+            outer->children[0] = decl;
+            decl->parent = outer;
         } else {
             outer = newASTNode(AST_COMPOUND, NULL);
             outer->i_val = 1; /* splice into the surrounding block */
-            AST *stage = buildSimpleAssign("result", value, line);
+            addChild(outer, decl);
+            AST *stage = buildSimpleAssign(postName, value, line);
             addChild(outer, stage);
-            /* W4-47: `ret new T { f: xs };` / `ret [xs];` staged into `result`. */
+            /* W4-47: `ret new T { f: xs };` / `ret [xs];` staged into the temp. */
             int rank = aetherTypeNameIsArray(p->currentReturnTypeName)
                            ? aetherTypeNameRank(p->currentReturnTypeName) : -1;
             aetherEmitLiteralUnalias(p, outer, stage->left, value, rank, line);
         }
-        AST *guard = buildContractGuard(p, p->currentPostExpr, "post",
-                                        p->currentFunctionName, line);
+        /* The guard text is re-parsed by a detached sub-parser: the binding
+         * types the temp there (`result.field`, the comparability check). */
+        bindingTableSet(p->bindings, postName, p->currentReturnTypeName);
+        char *rewritten = aetherRewriteResultRefs(p->currentPostExpr, postName);
+        AST *guard = rewritten ? buildContractGuard(p, rewritten, "post",
+                                                    p->currentFunctionName, line)
+                               : NULL;
+        free(rewritten);
         if (!guard) { freeAST(outer); return NULL; }
         addChild(outer, guard);
         Token *retTok = newToken(TOKEN_RETURN, "return", line, 0);
         AST *ret = newASTNode(AST_RETURN, retTok);
-        Token *resTok = newToken(TOKEN_IDENTIFIER, "result", line, 0);
-        AST *resVar = newASTNode(AST_VARIABLE, resTok);
-        setTypeAST(resVar, resultVt);
-        setLeft(ret, resVar);
+        setLeft(ret, buildVarRef(postName, resultVt, line));
         setTypeAST(ret, resultVt);
         addChild(outer, ret);
         return outer;
@@ -2905,12 +2970,11 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
     ReaToken dots = p->current;
     aetherAdvance(p); /* consume '..' */
     aetherNoteOperator(p, &dots);
-    /* The upper bound is re-read before every pass (the test is `NAME < HIGH`),
-     * so its hoists (an array slice or a record literal in it) run there too
-     * (buildWhileWithHoists), not once ahead of the loop. The low bound and a
-     * step are evaluated once; theirs stay ahead of the loop. Backlog W4-33
-     * (tests/backlog/range_bound_reread) is the re-read itself: the fix that
-     * evaluates the bound once must move these hoists back ahead of the loop. */
+    /* Both bounds and the step are evaluated once, before the first pass
+     * (D83): a non-literal upper bound is read into a hidden counter, so
+     * changing `n` in `loop i in 0..n` does not change the trip count. Its
+     * hoists (an array slice or a record literal in it) stay queued with the
+     * low bound's and run once, ahead of the loop. */
     /* `loop i in a.. {`: an open end is a slice form (`xs[a..]`), not a range. */
     if (p->current.type == opener) {
         if (!p->hadError) {
@@ -2924,7 +2988,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
         free(nameBuf);
         return NULL;
     }
-    int highMark = p->pendingObjLitCount;
     AST *high = parseAdd(p);
     if (!high) {
         if (!p->hadError) {
@@ -2936,7 +2999,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
         free(nameBuf);
         return NULL;
     }
-    AST *highHoists = aetherHoistsSpliced(p) ? aetherTakePendingHoists(p, highMark) : NULL;
     if (high->var_type == TYPE_BOOLEAN) {
         reportAetherAstError(aetherSemanticGetSourcePath(), idLine, "parser",
                 "loop range bound must be numeric (Int/Real), not Bool -- "
@@ -2945,7 +3007,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
         p->hadError = true;
         freeAST(low);
         freeAST(high);
-        if (highHoists) freeAST(highHoists);
         free(nameBuf);
         return NULL;
     }
@@ -2967,7 +3028,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
             if (step) freeAST(step);
             freeAST(low);
             freeAST(high);
-            if (highHoists) freeAST(highHoists);
             free(nameBuf);
             return NULL;
         }
@@ -2980,7 +3040,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
                 freeAST(step);
                 freeAST(low);
                 freeAST(high);
-                if (highHoists) freeAST(highHoists);
                 free(nameBuf);
                 return NULL;
             }
@@ -3002,7 +3061,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
             if (step) freeAST(step);
             freeAST(low);
             freeAST(high);
-            if (highHoists) freeAST(highHoists);
             free(nameBuf);
             return NULL;
         }
@@ -3015,13 +3073,26 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
         if (step) freeAST(step);
         freeAST(low);
         freeAST(high);
-        if (highHoists) freeAST(highHoists);
         free(nameBuf);
         return NULL;
     }
 
     AST *outer = newASTNode(AST_COMPOUND, NULL);
     addChild(outer, buildIntCounterDecl(nameBuf, low, idLine));
+
+    /* D83: a literal upper bound is inlined; any other is evaluated once,
+     * after the low bound and before the step, into a hidden counter that
+     * every test reads. */
+    aetherAstRegisterRangeBound(high);
+    char highName[48];
+    bool highHoisted = false;
+    long highLit = 0;
+    if (!aetherConstIntValue(high, &highLit)) {
+        snprintf(highName, sizeof(highName), "__aether_hi_%d", p->nextLoopId++);
+        addChild(outer, buildIntCounterDecl(highName, high, idLine));
+        high = buildVarRef(highName, TYPE_INT64, idLine);
+        highHoisted = true;
+    }
 
     /* A literal step is inlined; any other step expression is evaluated once,
      * before the loop, into a hidden counter. */
@@ -3039,7 +3110,6 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
                                        : buildIntLiteral(stepLit, idLine))
 
     AST *cond;
-    aetherAstRegisterRangeBound(high);
     if (stepSign > 0) {
         cond = buildBinOp(TOKEN_LESS, "<", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine), high,
                           TYPE_BOOLEAN, idLine);
@@ -3057,7 +3127,9 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
                 buildBinOp(TOKEN_LESS, "<", AETHER_STEP_REF(), buildIntLiteral(0, idLine),
                            TYPE_BOOLEAN, idLine),
                 buildBinOp(TOKEN_GREATER, ">", buildVarRef(nameBuf, TYPE_UNKNOWN, idLine),
-                           aetherAstRegisteredRangeBoundCopy(high), TYPE_BOOLEAN, idLine),
+                           highHoisted ? buildVarRef(highName, TYPE_INT64, idLine)
+                                       : aetherAstRegisteredRangeBoundCopy(high),
+                           TYPE_BOOLEAN, idLine),
                 TYPE_BOOLEAN, idLine);
         cond = buildBinOp(TOKEN_OR, "||", up, down, TYPE_BOOLEAN, idLine);
     }
@@ -3074,7 +3146,7 @@ AST *parseLoopRangeWith(AetherParser *p, AetherLoopBodyFn bodyFn, void *bodyCtx)
     AST *whileBody = newASTNode(AST_COMPOUND, NULL);
     addChild(whileBody, body);
     addChild(whileBody, postStmt);
-    addChild(outer, buildWhileWithHoists(cond, highHoists, whileBody, idLine));
+    addChild(outer, buildWhile(cond, whileBody));
 
     free(nameBuf);
     return outer;

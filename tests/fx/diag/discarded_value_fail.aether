@@ -1,0 +1,12 @@
+// D39 (a): a statement that only computes a value is SYN-001 ("this expression
+// has no effect"). A line that starts with an operator still continues the
+// expression above it: `let t: Int = a` then `+ b;` is a + b. Here `b;` on its
+// own line is the mistake.
+fn main() -> Void {
+    let a: Int = 2;
+    let b: Int = 9;
+    let t: Int = a
+        + b;
+    b;
+    fx { println(t); }
+}

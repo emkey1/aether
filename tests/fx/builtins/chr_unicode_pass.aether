@@ -1,0 +1,14 @@
+// D85: chr(n) is the Unicode code point n, so ord(chr(n)) == n. (Was the
+// backlog probe chr_high, W5-18: chr(128..255) made a byte character that
+// printed through CP437, so chr(233) was Θ and did not equal "é".)
+fn main() -> Void {
+    let n: Int = 233;
+    let e: Text = chr(n);
+    let word: Text = "café";
+    fx {
+        println(chr(233));
+        println(e, " ", e == "é", " ", word[3] == chr(233), " ", "caf" + chr(233) == word);
+        println(ord(chr(233)), " ", ord(e), " ", len(e), " ", ord(chr(255)), " ", ord(chr(128)));
+        println(chr(65), chr(952), chr(8364), " ", ord(chr(8364)));
+    }
+}

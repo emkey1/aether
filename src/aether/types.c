@@ -1327,8 +1327,6 @@ static void walkFunction(Walker *w, AST *fn) {
         AST *p = fn->children[i];
         if (p && p->type == AST_VAR_DECL) bindDecl(w, p, declTypeOf(p));
     }
-    /* The @post lowering stores the value in Pascal's implicit `result`. */
-    if (ret.kind != AETHER_T_VOID && ret.kind != AETHER_T_UNKNOWN) envBind(&w->env, "result", ret);
     if (dot) {
         size_t n = (size_t)(dot - name);
         if (n < sizeof(selfBuf)) {
@@ -1369,7 +1367,10 @@ static void walkStmt(Walker *w, AST *s) {
         case AST_VAR_DECL: {
             AetherType t = declTypeOf(s);
             if (s->left) {
-                if (aetherAstDeclHasExplicitType(s)) walkValue(w, s, s->left, sinkUse(t, "let"));
+                /* A range loop's hidden counters (its low bound, its upper
+                 * bound since D83, a run-time step) are range-bound uses. */
+                if (aetherAstIsRangeBound(s->left)) walkExpr(w, s->left, useOf(AETHER_USE_RANGE_BOUND));
+                else if (aetherAstDeclHasExplicitType(s)) walkValue(w, s, s->left, sinkUse(t, "let"));
                 else walkExpr(w, s->left, useOf(AETHER_USE_INFERRED));
             }
             bindDecl(w, s, t);

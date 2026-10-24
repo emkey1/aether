@@ -1,0 +1,10 @@
+// D39 (a): two expressions on one line with no operator between them are
+// SYN-001. (Was the backlog probe tail_expr_return, W4-03: `a b` parsed as
+// `a` followed by a discarded `b`, so pick printed 2 and exit 0.)
+fn pick(a: Int, b: Int) -> Int {
+    let t: Int = a b;
+    ret t;
+}
+fn main() -> Void {
+    fx { println(pick(2, 9)); }
+}

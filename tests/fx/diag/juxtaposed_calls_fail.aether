@@ -1,0 +1,6 @@
+// D39 (a): two calls on one line need a `;` between them. The message quotes
+// `println` as written, not the engine's `writeln`.
+fn main() -> Void {
+    let a: Int = 2;
+    fx { println(a) println(a + 1); }
+}

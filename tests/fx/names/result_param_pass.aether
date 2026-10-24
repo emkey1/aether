@@ -1,0 +1,22 @@
+// D84: with no global of that name, `result` works as a parameter and as a
+// local, and a @post clause's `result` is still the returned value. (A
+// parameter named `result` read as nil before: the engine's implicit `result`
+// local shadowed it.)
+fn twice(result: Int) -> Int {
+    ret result * 2;
+}
+
+fn label() -> Text {
+    let result: Text = "local";
+    ret result + "!";
+}
+
+@post result == 10
+fn padded(x: Int) -> Int {
+    let result: Int = x + 1;
+    ret result * 2;
+}
+
+fn main() -> Void {
+    fx { println(twice(4), " ", label(), " ", padded(4)); }
+}

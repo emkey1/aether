@@ -10,7 +10,7 @@
  *
  *   div=current|int|intplus|realplus|ctx   Int/Int `/` (D4, W8-08)
  *   arrays=value|vstrict|ref               array parameters (D8, W8-09)
- *   tail=current|reject|ret                discarded values, tail exprs (D39, W4-03)
+ *   tail=reject|accept|ret                 discarded values, tail exprs (D39, W4-03)
  *   return=reject|alias                    `return` as a class-4 synonym of `ret` (D7)
  *
  * With the variable unset or empty every flag is at its first value, which is
@@ -59,9 +59,10 @@ typedef enum {
 } AetherArraysRule;
 
 typedef enum {
-    AETHER_TAIL_CURRENT = 0, /* discarded expression statements accepted            */
-    AETHER_TAIL_REJECT,      /* D39 (a): FLOW-001 / SYN-001 for a discarded value,
-                              * SYN-001 for two expressions juxtaposed on a line   */
+    AETHER_TAIL_REJECT = 0,  /* D39 (a), shipped 2026-10-24: FLOW-001 / SYN-001 for a
+                              * discarded value, SYN-001 for two expressions
+                              * juxtaposed on a line                               */
+    AETHER_TAIL_ACCEPT,      /* the rule before D39: discarded statements accepted */
     AETHER_TAIL_RET          /* D39 (b): a final bare value is returned (Rust-style) */
 } AetherTailRule;
 

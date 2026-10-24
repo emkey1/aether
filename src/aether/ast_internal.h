@@ -235,7 +235,7 @@ typedef struct {
      * own lexer counts from 1), for a diagnostic raised inside it; else 0. */
     int detachedLine;
     /* The token before `current` (line, text), for the D39 juxtaposition
-     * arm (AETHER_EXPERIMENT=tail=reject). Set by aetherAdvance. */
+     * rule (aetherTailRejectJuxtaposed). Set by aetherAdvance. */
     int prevLine;
     const char *prevStart;
     int prevLength;
@@ -313,10 +313,10 @@ AST *parseStatement(AetherParser *p);
 AST *aetherLowerAssignStatement(AetherParser *p, AST *expr);
 void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
                                   const char *hint);
-/* AETHER_EXPERIMENT=tail=reject (D39 census): true, after reporting SYN-001,
- * when `current` starts another expression on the line of the token before
- * it with no `;` between them (`let t: Int = price qty;`). False otherwise,
- * and always false with the flag off. */
+/* D39 (a), the shipped rule: true, after reporting SYN-001, when `current`
+ * starts another expression on the line of the token before it with no `;`
+ * between them (`let t: Int = price qty;`). False otherwise, and always false
+ * under AETHER_EXPERIMENT=tail=accept or tail=ret. */
 bool aetherTailRejectJuxtaposed(AetherParser *p);
 AST *parseBlock(AetherParser *p);
 

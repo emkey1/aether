@@ -1,0 +1,34 @@
+// D84: `result` is an ordinary name. Only a @post clause gives it a meaning
+// (the returned value). (Was the backlog probe result_shadow, W4-43: the
+// engine's implicit `result` local shadowed the global in every value-
+// returning function, so peek() printed nil.)
+let result: Int = 42;
+
+fn peek() -> Int {
+    ret result;
+}
+
+fn bump() -> Int {
+    result = result + 1;
+    ret 0;
+}
+
+// In the clause `result` is the returned value; in the body, the global.
+@post result > 42
+fn above(x: Int) -> Int {
+    ret x + result;
+}
+
+type Box {
+    v: Int;
+    fn get() -> Int { ret self.v + result; }
+}
+
+fn main() -> Void {
+    let z: Int = bump();
+    let b: Box = Box { v: 1 };
+    fx {
+        println(peek(), " ", z);
+        println(above(1), " ", b.get());
+    }
+}

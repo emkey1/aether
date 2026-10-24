@@ -15,6 +15,69 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-24-1
+
+Four silent-wrong fixes, each a D75 beta break: before them each program below
+compiled, ran with exit 0 and printed a wrong answer. From the 1.0 readiness
+review's backlog probes (`tests/backlog/`), which now move to `tests/fx/` as
+regression fixtures.
+
+- **A range loop evaluates its bounds once** (D83, W4-33). `loop i in 0..n`
+  re-read `n` before every pass, so `loop i in 0..n { n = n - 1; }` ran 5
+  times instead of 10, and `loop i in 0..len(xs)` over a growing `xs` ran
+  over the new elements. A non-literal upper bound is now read once, after the
+  low bound and before the step, as Python's `range(n)` does, and a slice or
+  record literal in it is built once, ahead of the loop (the 2026-10-15-1 rule
+  that rebuilt it before every test is gone with the re-read). `loop x in xs`
+  is unchanged. Fixtures `lower/range_bound_once_pass` and the range line of
+  `lower/slice_in_condition_pass` (now `5 5 step 4`).
+- **`result` is an ordinary name** (D84, W4-43). pscal-core gave every
+  value-returning Aether function Pascal's implicit `result` local, and the
+  `@post` lowering staged its value there. A global named `result` read as
+  `nil` inside any value-returning function, an assignment to it was lost, and
+  a parameter named `result` read as `nil`. A `@post` `ret` now stages its
+  value in its own temp, and the clause's `result` is renamed to it; the
+  engine's local and scope rule are Pascal-only. Fixtures
+  `names/result_global_pass`, `names/result_param_pass`.
+- **`chr(n)` is the Unicode code point `n`** (D85, W5-18). `chr(128..255)`
+  made a byte that printed through CP437: `chr(233)` was `Θ`, did not equal
+  `"é"`, and `ord(chr(233))` stopped with an uncoded error. It is now `é`,
+  like every code above 255 already was. Fixture `builtins/chr_unicode_pass`.
+- **Two expressions on one line are SYN-001** (D39 (a), W4-03). `let t: Int =
+  a b;` parsed as `let t = a;` and a discarded `b;`, so a deleted operator
+  went unnoticed. The D39 census arm `tail=reject` is now the language:
+  - a token that starts another expression on the same line, with no `;`
+    before it, is `[SYN-001] missing operator or `=` between `a` and `b`?`;
+  - a statement that only computes a value (`b;`, `x + 1;`) is `[SYN-001]
+    this expression has no effect.`, or in a non-Void function
+    `[FLOW-001] value computed and discarded; Aether has no implicit return.`
+  The old rule stays as `AETHER_EXPERIMENT=tail=accept` for census work, and
+  `tail=ret` (D39 (b)) is unchanged and not shipped. Neither check runs after an
+  earlier error, whose recovery would otherwise add a second SYN-001. The
+  2026-10-07 census found no program that compiles today rejected by it, and it
+  turned a deleted binary operator or `=` from a wrong answer with exit 0 in 43%
+  of mutants into a coded error. A line that starts with an operator still
+  continues the line above (`let t: Int = a` then `+ b;`). Fixtures
+  `diag/juxtaposed_expr_fail`, `diag/juxtaposed_calls_fail` (it quotes `println`,
+  not the engine's `writeln`), `diag/discarded_value_fail`; tests/run.sh's
+  missing-value-return check now expects the FLOW-001 "discarded" message.
+
+The spec gains the rules and the examples G.Statement.3, G.Statement.4,
+G.Statement.5, D.range.1, D.result.1 and D.chr.1, and its missing-`;` leniency
+now says "only at the end of a line". The full guide is `2026-10-24-1`
+(Statements, the range-loop paragraph, the contracts list); the manual's
+loops, contracts, Text table and first-program notes say the same. The type
+oracle walks a range loop's hidden counters as range-bound uses, so the D4
+`div=ctx` arm still sees `0..a / b` as an Int demand. external: pscal-core
+8d43311.
+
+Gate on the scoring Mac: pin_gate PASS (corpus A/B 734 of 734 programs
+unchanged), paired replay identical to base (44 waived, 0 unwaived),
+check-gates 7/7, ctest 40/40. Diagnostics census `tests/diag_census/2026-10-24-1`
+against `2026-10-22-2`: 58 more of the 1,500 deletion mutants stop with a coded
+error instead of running, a hinted first error is up 17.8 points on the mutants
+(15.8 overall), coded first error +1.3, `code: null` records -0.7.
+
 ## 2026-10-22-2
 
 **Release `1.0-beta10`** (D75): the tenth 1.0 beta, tagged `1.0-beta10`;

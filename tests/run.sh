@@ -1843,12 +1843,14 @@ if "$AETHER_BIN" --no-cache "$FUNCTION_MISSING_VALUE_RETURN_FAIL_FIXTURE" >$OUT/
     echo "expected missing value return rewrite failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether function parser error: non-Void functions have a fallthrough path with no return value" $OUT/aether_function_missing_value_return_fail.out; then
+# D39 (a): its body's last statement is a bare value, so FLOW-001 names the
+# discarded value (before 2026-10-24 it was the generic fallthrough message).
+if ! grep -q "\[FLOW-001\] Aether parser error: value computed and discarded; Aether has no implicit return." $OUT/aether_function_missing_value_return_fail.out; then
     echo "missing value return rewrite failure message" >&2
     cat $OUT/aether_function_missing_value_return_fail.out >&2
     exit 1
 fi
-if ! grep -q 'hint: every path must end in `ret value;` -- an `if` with no `else`, or a loop that can finish, falls through' $OUT/aether_function_missing_value_return_fail.out; then
+if ! grep -q 'hint: write `ret <expr>;`' $OUT/aether_function_missing_value_return_fail.out; then
     echo "missing value return rewrite failure hint" >&2
     cat $OUT/aether_function_missing_value_return_fail.out >&2
     exit 1

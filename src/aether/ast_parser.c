@@ -6153,7 +6153,7 @@ static bool aetherNextContinuesIdentifierStatement(ReaTokenType next) {
     }
 }
 
-/* D39 census arms (AETHER_EXPERIMENT=tail=..., src/aether/experiment.h). */
+/* D39: discarded values and juxtaposed expressions (src/aether/experiment.h). */
 void reportAetherAstErrorWithCode(int line, const char *code, const char *detail,
                                   const char *hint) {
     const char *path = aetherSemanticGetSourcePath();
@@ -6180,15 +6180,27 @@ static bool aetherCurrentIsStatementWord(const AetherParser *p) {
 }
 
 bool aetherTailRejectJuxtaposed(AetherParser *p) {
-    if (aetherExperiment()->tail != AETHER_TAIL_REJECT || p->forwardScan) return false;
+    /* After an earlier error the parser resyncs mid-expression, and the
+     * tokens it skips to (`size` `(` after a SCOPE-001 on `xs.size()`) are
+     * not a juxtaposition the author wrote: report nothing more. */
+    if (aetherExperiment()->tail != AETHER_TAIL_REJECT || p->forwardScan || p->hadError)
+        return false;
     if (p->current.type == REA_TOKEN_SEMICOLON || p->current.type == REA_TOKEN_RIGHT_BRACE ||
         p->current.type == REA_TOKEN_EOF || p->current.line != p->prevLine)
         return false;
     if (aetherCurrentIsStatementWord(p)) return false;
-    char detail[200];
-    snprintf(detail, sizeof(detail), "missing operator or `=` between `%.*s` and `%.*s`?",
-             p->prevLength > 40 ? 40 : p->prevLength, p->prevStart ? p->prevStart : "",
+    /* Quote each token as written: the alias prepass rewrote `println` to
+     * `writeln` before lexing (aetherAstAliasSurfaceAtLine). */
+    char prevText[48], curText[48];
+    snprintf(prevText, sizeof(prevText), "%.*s", p->prevLength > 40 ? 40 : p->prevLength,
+             p->prevStart ? p->prevStart : "");
+    snprintf(curText, sizeof(curText), "%.*s",
              p->current.length > 40 ? 40 : (int)p->current.length, p->current.start);
+    const char *prevSurface = aetherAstAliasSurfaceAtLine(p->prevLine, prevText);
+    const char *curSurface = aetherAstAliasSurfaceAtLine(p->current.line, curText);
+    char detail[200];
+    snprintf(detail, sizeof(detail), "missing operator or `=` between `%s` and `%s`?",
+             prevSurface ? prevSurface : prevText, curSurface ? curSurface : curText);
     reportAetherAstErrorWithCode(p->current.line, "SYN-001", detail,
                                  "two expressions on one line need an operator between them, "
                                  "or a `;` if they are separate statements.");
@@ -6209,9 +6221,9 @@ static bool aetherIsDiscardableValue(const AST *e) {
     }
 }
 
-/* tail=reject: a value computed and thrown away. */
+/* D39 (a): a value computed and thrown away. */
 static bool aetherTailRejectDiscarded(AetherParser *p, const AST *expr, int line) {
-    if (aetherExperiment()->tail != AETHER_TAIL_REJECT || p->forwardScan ||
+    if (aetherExperiment()->tail != AETHER_TAIL_REJECT || p->forwardScan || p->hadError ||
         !aetherIsDiscardableValue(expr))
         return false;
     /* `pure fn ...`: a foreign modifier word, which keeps today's diagnostic. */

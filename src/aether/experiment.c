@@ -31,7 +31,7 @@ static void usageError(const char *item) {
     fprintf(stderr,
             "AETHER_EXPERIMENT: unknown item '%s'. Expected a comma-separated list of "
             "div=current|int|intplus|realplus|ctx, arrays=value|vstrict|ref, "
-            "tail=current|reject|ret, return=reject|alias.\n",
+            "tail=reject|accept|ret, return=reject|alias.\n",
             item);
     exit(2);
 }
@@ -39,7 +39,7 @@ static void usageError(const char *item) {
 static void loadExperiment(void) {
     static const char *const kDiv[] = {"current", "int", "intplus", "realplus", "ctx"};
     static const char *const kArrays[] = {"value", "vstrict", "ref"};
-    static const char *const kTail[] = {"current", "reject", "ret"};
+    static const char *const kTail[] = {"reject", "accept", "ret"};
     static const char *const kReturn[] = {"reject", "alias"};
     const char *env = getenv("AETHER_EXPERIMENT");
     g_experiment_loaded = 1;
@@ -78,7 +78,7 @@ static void loadExperiment(void) {
     free(copy);
     g_experiment.any = g_experiment.div != AETHER_DIV_CURRENT ||
                        g_experiment.arrays != AETHER_ARRAYS_VALUE ||
-                       g_experiment.tail != AETHER_TAIL_CURRENT ||
+                       g_experiment.tail != AETHER_TAIL_REJECT ||
                        g_experiment.ret != AETHER_RETURN_REJECT;
 }
 
@@ -343,6 +343,11 @@ static int sameName(const char *a, const char *b) {
     return a && b && strcasecmp(a, b) == 0;
 }
 
+/* The temp a @post `ret` stages its value in (D84, parseRet). */
+static int isPostStage(const char *name) {
+    return name && strncmp(name, "__aether_post_", 14) == 0;
+}
+
 /* The array variable an lvalue chain `p[i][j]` is rooted at, and how many
  * ARRAY_ACCESS levels / indices sit above it. */
 static const char *indexRoot(const AST *lv, int *indices) {
@@ -390,14 +395,14 @@ static void arrCollectReturns(const AST *n, ArrParam *ps, int np) {
     if (!n) return;
     if (n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) return;
     /* `ret p;`, a tuple slot `__aether_retobj_N.itemK = p;`, or the @post
-     * lowering's `result = p;` */
+     * lowering's `__aether_post_N = p;` */
     const char *v = NULL;
     if (n->type == AST_RETURN) v = varName(n->left);
     if (n->type == AST_ASSIGN && n->left && n->right) {
         const AST *lv = n->left;
         if ((lv->type == AST_FIELD_ACCESS && varName(lv->left) &&
              strncmp(varName(lv->left), "__aether_retobj_", 16) == 0) ||
-            sameName(varName(lv), "result"))
+            isPostStage(varName(lv)))
             v = varName(n->right);
     }
     for (int i = 0; v && i < np; i++)
@@ -697,11 +702,11 @@ static void pcScanCallee(const AST *n, PcFn *f) {
     if (n->type == AST_ASSIGN && n->left) {
         for (int i = 0; i < f->np; i++)
             if (sameName(varName(n->left), f->params[i].name)) f->params[i].assigned = 1;
-        /* A tuple slot `__aether_retobj_N.itemK = q` or the @post `result = q`. */
+        /* A tuple slot `__aether_retobj_N.itemK = q` or the @post `__aether_post_N = q`. */
         const AST *lv = n->left;
         if ((lv->type == AST_FIELD_ACCESS && varName(lv->left) &&
              strncmp(varName(lv->left), "__aether_retobj_", 16) == 0) ||
-            sameName(varName(lv), "result")) {
+            isPostStage(varName(lv))) {
             for (int i = 0; i < f->np; i++)
                 if (sameName(varName(n->right), f->params[i].name)) f->params[i].retPlain = 1;
         }
