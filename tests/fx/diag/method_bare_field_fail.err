@@ -1,0 +1,7 @@
+:9: [SCOPE-001] Aether scope error: identifier 'v' not in scope: 'v' is a field of Box
+hint: write `self.v`.
+:10: [SCOPE-001]
+:11: [SCOPE-001] Aether scope error: identifier 'items' not in scope
+hint: write `self.items`.
+!Cannot access field
+!Undefined variable

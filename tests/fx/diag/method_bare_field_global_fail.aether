@@ -1,0 +1,12 @@
+// A top-level let named like a field: a bare `limit` in the method read the
+// field off the unset `myself` global and crashed. It is SCOPE-001 now, naming
+// both, since a method reaches the field only as `self.limit`.
+let limit: Int = 10;
+type Gauge {
+    limit: Int;
+    fn over(x: Int) -> Bool { ret x > limit; }
+}
+fn main() -> Void {
+    let g: Gauge = Gauge { limit: 3 };
+    fx { println(g.over(5)); }
+}

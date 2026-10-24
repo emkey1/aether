@@ -4277,6 +4277,214 @@ static void aetherValidateNameCase(const AST *root) {
     free(d.types.names);
 }
 
+/* --------------------------------------------------------------------------
+ * Members are not implicit: inside a method a field is `self.v`, never `v`.
+ *
+ * The shared engine gives a bare name in a method Pascal's meaning, a field
+ * of the hidden global `myself`, which Aether never sets (its receiver is a
+ * parameter). So `ret v + 1;` compiled and stopped at run time with the
+ * uncoded "Cannot access field on a non-record/non-pointer type", `v = x;`
+ * failed with an uncoded "Undefined variable 'v'", and a top-level let named
+ * like a field was shadowed by the same crash. A bare name that is a field of
+ * the method's type, and not one of its parameters or locals, is SCOPE-001
+ * naming `self.v`. Contract clauses are scoped by the parser (`@pre v > 0`
+ * reads `self.v`) and never reach here as a bare name.
+ * -------------------------------------------------------------------------- */
+
+typedef struct {
+    const char *name;            /* the type's name */
+    CaseNameSet fields;
+} BareFieldType;
+
+typedef struct {
+    BareFieldType *types;
+    int count, cap;
+    CaseNameSet globals;         /* top-level lets and consts */
+    const AST *globalDecls[256]; /* their declarations, for the line */
+    int globalCount;
+} BareFieldIndex;
+
+static void bareFieldCollect(BareFieldIndex *ix, const AST *n, bool inRoutine) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_TYPE_DECL:
+            if (n->token && n->token->value && n->left && n->left->type == AST_RECORD_TYPE) {
+                if (ix->count == ix->cap) {
+                    int ncap = ix->cap ? ix->cap * 2 : 16;
+                    BareFieldType *g = (BareFieldType *)realloc(ix->types, (size_t)ncap * sizeof(*g));
+                    if (!g) return;
+                    ix->types = g;
+                    ix->cap = ncap;
+                }
+                BareFieldType *t = &ix->types[ix->count++];
+                memset(t, 0, sizeof(*t));
+                t->name = n->token->value;
+                const AST *rec = n->left;
+                for (int i = 0; i < rec->child_count; i++) {
+                    const AST *f = rec->children[i];
+                    if (!f || f->type != AST_VAR_DECL) continue;
+                    for (int k = 0; k < f->child_count; k++) {
+                        const AST *v = f->children[k];
+                        if (v && v->type == AST_VARIABLE && v->token && v->token->value &&
+                            !caseNameIsInternal(v->token->value))
+                            caseSetAdd(&t->fields, v->token->value);
+                    }
+                }
+            }
+            return;
+        case AST_FUNCTION_DECL:
+        case AST_PROCEDURE_DECL:
+            inRoutine = true;
+            break;
+        case AST_VAR_DECL:
+        case AST_CONST_DECL:
+            if (!inRoutine) {
+                const AST *v = n->type == AST_CONST_DECL ? n : (n->child_count > 0 ? n->children[0] : NULL);
+                const char *name = v && v->token ? v->token->value : NULL;
+                if (name && !caseNameIsInternal(name)) {
+                    caseSetAdd(&ix->globals, name);
+                    if (ix->globalCount < (int)(sizeof(ix->globalDecls) / sizeof(ix->globalDecls[0])))
+                        ix->globalDecls[ix->globalCount++] = n;
+                }
+            }
+            break;
+        default:
+            break;
+    }
+    bareFieldCollect(ix, n->left, inRoutine);
+    bareFieldCollect(ix, n->right, inRoutine);
+    bareFieldCollect(ix, n->extra, inRoutine);
+    for (int i = 0; i < n->child_count; i++) bareFieldCollect(ix, n->children[i], inRoutine);
+}
+
+/* Every name a routine declares (parameters, lets, loop and quantifier
+ * variables, hidden temps): Aether's function scope is flat. */
+static void bareFieldLocals(CaseNameSet *locals, const AST *n) {
+    if (!n) return;
+    if (n->type == AST_VAR_DECL) {
+        for (int i = 0; i < n->child_count; i++) {
+            const AST *v = n->children[i];
+            if (v && v->type == AST_VARIABLE && v->token && v->token->value)
+                caseSetAdd(locals, v->token->value);
+        }
+    }
+    bareFieldLocals(locals, n->left);
+    bareFieldLocals(locals, n->right);
+    bareFieldLocals(locals, n->extra);
+    for (int i = 0; i < n->child_count; i++) bareFieldLocals(locals, n->children[i]);
+}
+
+static int bareFieldGlobalLine(const BareFieldIndex *ix, const char *name) {
+    for (int i = 0; i < ix->globalCount; i++) {
+        const AST *d = ix->globalDecls[i];
+        const AST *v = d->type == AST_CONST_DECL ? d : (d->child_count > 0 ? d->children[0] : NULL);
+        if (v && v->token && v->token->value && strcmp(v->token->value, name) == 0)
+            return v->token->line;
+    }
+    return 0;
+}
+
+static void bareFieldCheckRefs(const BareFieldIndex *ix, const BareFieldType *t,
+                               const CaseNameSet *locals, CaseNameSet *reported, const AST *n) {
+    if (!n) return;
+    switch (n->type) {
+        case AST_VAR_DECL:
+            /* the declared names are not references; the initializer is */
+            bareFieldCheckRefs(ix, t, locals, reported, n->left);
+            return;
+        case AST_FIELD_ACCESS:
+            bareFieldCheckRefs(ix, t, locals, reported, n->left); /* `x.v`: v is a field name */
+            return;
+        case AST_ASSIGN:
+            /* A record literal's `v: value` (`new T { v: self.v + 1 }`) names
+             * the field on its left: only the value is a reference. */
+            if (n->token && n->token->value && strcmp(n->token->value, ":") == 0) {
+                bareFieldCheckRefs(ix, t, locals, reported, n->right);
+                return;
+            }
+            break;
+        case AST_VARIABLE: {
+            const char *name = n->token ? n->token->value : NULL;
+            const char *unused = NULL;
+            if (!name || caseNameIsInternal(name)) return;
+            size_t len = strlen(name);
+            if (caseLookup(&t->fields, name, len, &unused) != 1 ||
+                caseLookup(locals, name, len, &unused) == 1 ||
+                caseLookup(reported, name, len, &unused) == 1)
+                return;
+            caseSetAdd(reported, name);
+            int line = n->token->line > 0 ? n->token->line : 1;
+            char detail[320], hint[200];
+            if (caseLookup(&ix->globals, name, len, &unused) == 1) {
+                snprintf(detail, sizeof(detail),
+                         "'%s' is both a field of %s and a top-level name (line %d), and "
+                         "inside a method a bare '%s' cannot reach the top-level one.",
+                         name, t->name, bareFieldGlobalLine(ix, name), name);
+                snprintf(hint, sizeof(hint),
+                         "write `self.%s` for the field; to use the top-level '%s' in a "
+                         "method, rename the field or the top-level name.", name, name);
+            } else {
+                snprintf(detail, sizeof(detail),
+                         "identifier '%s' not in scope: '%s' is a field of %s, and members are "
+                         "not implicit inside a method.", name, name, t->name);
+                snprintf(hint, sizeof(hint), "write `self.%s`.", name);
+            }
+            fprintf(stderr, "%s:%d: [SCOPE-001] Aether scope error: %s\n",
+                    g_aether_source_path ? g_aether_source_path : "<aether>", line, detail);
+            fprintf(stderr, "hint: %s\n", hint);
+            aetherReportGuideHelp("SCOPE-001");
+            pascal_semantic_error_count++;
+            return;
+        }
+        default:
+            break;
+    }
+    bareFieldCheckRefs(ix, t, locals, reported, n->left);
+    bareFieldCheckRefs(ix, t, locals, reported, n->right);
+    bareFieldCheckRefs(ix, t, locals, reported, n->extra);
+    for (int i = 0; i < n->child_count; i++)
+        bareFieldCheckRefs(ix, t, locals, reported, n->children[i]);
+}
+
+static void bareFieldCheckMethods(const BareFieldIndex *ix, const AST *n) {
+    if (!n) return;
+    if ((n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) && n->token &&
+        n->token->value) {
+        const char *dot = strrchr(n->token->value, '.');
+        if (dot) {
+            size_t tlen = (size_t)(dot - n->token->value);
+            for (int i = 0; i < ix->count; i++) {
+                const BareFieldType *t = &ix->types[i];
+                if (t->fields.count == 0 || strlen(t->name) != tlen ||
+                    strncmp(t->name, n->token->value, tlen) != 0)
+                    continue;
+                CaseNameSet locals = {0}, reported = {0};
+                bareFieldLocals(&locals, n);
+                bareFieldCheckRefs(ix, t, &locals, &reported,
+                                   n->type == AST_FUNCTION_DECL ? n->extra : n->right);
+                free(locals.names);
+                free(reported.names);
+                break;
+            }
+        }
+        return; /* methods are top-level; nothing nests inside one */
+    }
+    bareFieldCheckMethods(ix, n->left);
+    bareFieldCheckMethods(ix, n->right);
+    bareFieldCheckMethods(ix, n->extra);
+    for (int i = 0; i < n->child_count; i++) bareFieldCheckMethods(ix, n->children[i]);
+}
+
+static void aetherValidateBareFieldNames(const AST *root) {
+    BareFieldIndex ix;
+    memset(&ix, 0, sizeof(ix));
+    bareFieldCollect(&ix, root, false);
+    if (ix.count > 0) bareFieldCheckMethods(&ix, root);
+    for (int i = 0; i < ix.count; i++) free(ix.types[i].fields.names);
+    free(ix.types);
+    free(ix.globals.names);
+}
+
 /* Two functions (or two methods of a type) with one name, or names that
  * differ only by case. The engine keeps one routine per name, ignoring case,
  * so the later body silently replaced the earlier one for every call: with
@@ -4839,6 +5047,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
     aetherValidateEffectsAndPurity(root);
     /* D70: a reference spelled differently from its declaration. */
     aetherValidateNameCase(root);
+    aetherValidateBareFieldNames(root);
     aetherValidateDuplicateFunctions(root);
     if (pascal_semantic_error_count > errorCountBefore) {
         return;

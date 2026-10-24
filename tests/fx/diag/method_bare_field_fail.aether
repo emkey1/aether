@@ -1,0 +1,17 @@
+// Members are not implicit: a bare field name inside a method is SCOPE-001
+// naming `self.v`. It compiled and then stopped at run time with the uncoded
+// "Cannot access field on a non-record/non-pointer type" (a read), or failed
+// with an uncoded "Undefined variable 'v'" (a write): the engine read the
+// field off Pascal's hidden `myself` global, which Aether never sets.
+type Box {
+    v: Int;
+    items: Int[];
+    fn get() -> Int { ret v + 1; }
+    fn set(x: Int) -> Void { v = x; }
+    fn count() -> Int { ret len(items); }
+}
+fn main() -> Void {
+    let b: Box = Box { v: 2, items: [1, 2] };
+    b.set(5);
+    fx { println(b.get(), " ", b.count()); }
+}

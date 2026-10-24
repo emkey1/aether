@@ -1,0 +1,3 @@
+:7: [SCOPE-001] Aether scope error: 'limit' is both a field of Gauge and a top-level name (line 4)
+write `self.limit` for the field
+!Cannot access field

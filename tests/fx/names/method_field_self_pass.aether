@@ -1,0 +1,24 @@
+// Inside a method a field is `self.v`. A parameter or a local may share a
+// field's name (the bare name is then that parameter or local), a top-level
+// name not shared with a field reads as itself, a contract may name a field
+// bare (`@pre v > 0` reads self.v), and a record literal names its fields
+// bare (`new Box { v: self.v + 1 }`).
+let scale: Int = 10;
+type Box {
+    v: Int;
+    @pre v > 0
+    fn get() -> Int { ret self.v * scale; }
+    fn with(v: Int) -> Int { ret v + self.v; }
+    fn shadow() -> Int {
+        let v: Int = 7;
+        ret v + self.v;
+    }
+    fn bump() -> Void { self.v = self.v + 1; }
+    fn grown() -> Box { ret new Box { v: self.v + 1 }; }
+}
+fn main() -> Void {
+    let b: Box = Box { v: 2 };
+    b.bump();
+    let g: Box = b.grown();
+    fx { println(b.get(), " ", b.with(5), " ", b.shadow(), " ", g.v); }
+}
