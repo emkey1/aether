@@ -15,6 +15,46 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-24-2
+
+**A `loop x in xs` body may not change `xs`** (D86, `LOOP-001`). A variable, a
+field or an index path was walked in place: the loop re-read its length and
+element on every pass. So in the body:
+- an append (`xs = xs + [x]`) kept the loop going for ever;
+- a shrink stopped it early;
+- a write ahead (`xs[2] = 99`) was seen;
+- a new array (`xs = [7, 8, 9, 10]`) switched the walk to it mid-loop, printing
+  `1 8 9 10`;
+- `r = 1` in `loop x in rows[r]` switched rows.
+
+Python gives the same text two meanings, and Swift and Go see none of it. Each
+of these is now `[LOOP-001] Aether loop error: `loop x in xs` walks `xs`, and
+its body changes it here: a loop may not change the collection it walks.`, on
+the line of the write. It covers:
+- an assignment or append rooted at the collection, or at a path above or
+  below it (`o` or `o.items[i]` for `loop x in o.items`);
+- an assignment to a variable in its index;
+- a call to a nested function that writes it.
+
+The hint gives both rewrites: a worklist walks by index (`let i: Int = 0; loop
+i < len(xs) { ... }`), and a copy walks the old contents (`let snapshot: Int[] =
+xs; loop x in snapshot { ... }`). A map's keys and an expression collection are
+already copied, so their bodies may write. A method that changes the walked field
+through its record is not detected. No program in the tree, and none of the 882
+collection loops the census found in 4,236 programs, writes its collection.
+
+Fixtures `diag/loop_writes_collection_fail`, `diag/loop_writes_index_fail`,
+`diag/loop_nested_fn_writes_fail` and `lower/loop_collection_rewrites_pass`. The
+spec gains the rule and D.foreach.1 and drops "`loop x in xs` reads `xs` as the
+loop runs". The full guide is `2026-10-24-2` (the loop paragraph, LOOP-001 in
+the code list and Repair rules), and the manual's loops section and code table
+follow. Medium and small do not list LOOP-001 yet; that waits for a measured
+guide pass.
+
+Gate on the scoring Mac: paired replay identical to base (44 waived, 0
+unwaived), check-gates 7/7, ctest 40/40. Diagnostics census
+`tests/diag_census/2026-10-24-2` against `2026-10-24-1b`: every rate unchanged.
+
 ## 2026-10-24-1
 
 **Release `1.0-beta11`** (D75): the eleventh 1.0 beta, tagged `1.0-beta11`;

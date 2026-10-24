@@ -1,0 +1,8 @@
+// D86: a call to a nested function that changes the walked collection (a
+// written capture, D64) is LOOP-001 on the call.
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    fn grow(v: Int) -> Void { xs = xs + [v]; }
+    loop x in xs { grow(x); }
+    fx { println(len(xs)); }
+}

@@ -153,6 +153,8 @@ static struct { const AST **items; size_t count; size_t cap; } g_aetherExplicitT
  * the right operand of the loop's `i < b` test, where it reads like any other
  * comparison; the type oracle (types.c) needs to tell the two apart. */
 static struct { const AST **items; size_t count; size_t cap; } g_aetherRangeBounds;
+/* `loop x in COLL` walked in place (LOOP-001, D86). */
+static struct { AetherForeachSite *items; size_t count; size_t cap; } g_aetherForeachSites;
 
 void aetherAstRegisterFxBlock(const AST *block, int line) {
     if (!block) return;
@@ -436,6 +438,34 @@ int aetherAstIsRangeBound(const AST *node) {
     return 0;
 }
 
+void aetherAstRegisterForeach(const AST *body, const AST *coll, const char *loopVar,
+                              const char *collType, const char *elemType, int line) {
+    if (!body || !coll) return;
+    if (g_aetherForeachSites.count == g_aetherForeachSites.cap) {
+        size_t newCap = g_aetherForeachSites.cap ? g_aetherForeachSites.cap * 2 : 16;
+        AetherForeachSite *grown = (AetherForeachSite *)realloc(g_aetherForeachSites.items,
+                                                              newCap * sizeof(*grown));
+        if (!grown) return;
+        g_aetherForeachSites.items = grown;
+        g_aetherForeachSites.cap = newCap;
+    }
+    AetherForeachSite *s = &g_aetherForeachSites.items[g_aetherForeachSites.count++];
+    s->body = body;
+    s->coll = copyAST((AST *)coll);
+    s->loopVar = loopVar ? strdup(loopVar) : NULL;
+    s->collType = collType ? strdup(collType) : NULL;
+    s->elemType = elemType ? strdup(elemType) : NULL;
+    s->line = line;
+}
+
+const AetherForeachSite *aetherAstForeachSiteFor(const AST *body) {
+    if (!body) return NULL;
+    for (size_t i = 0; i < g_aetherForeachSites.count; i++) {
+        if (g_aetherForeachSites.items[i].body == body) return &g_aetherForeachSites.items[i];
+    }
+    return NULL;
+}
+
 int aetherAstNodeIsSynthesizedSubtree(const AST *node) {
     if (!node) return 0;
     for (size_t i = 0; i < g_aetherSynthesized.count; i++) {
@@ -480,6 +510,17 @@ void aetherAstClearSemanticRegistries(void) {
     g_aetherRangeBounds.items = NULL;
     g_aetherRangeBounds.count = 0;
     g_aetherRangeBounds.cap = 0;
+    for (size_t i = 0; i < g_aetherForeachSites.count; i++) {
+        AetherForeachSite *s = &g_aetherForeachSites.items[i];
+        if (s->coll) freeAST(s->coll);
+        free(s->loopVar);
+        free(s->collType);
+        free(s->elemType);
+    }
+    free(g_aetherForeachSites.items);
+    g_aetherForeachSites.items = NULL;
+    g_aetherForeachSites.count = 0;
+    g_aetherForeachSites.cap = 0;
     free((void *)g_aetherExplicitTypedDecls.items);
     g_aetherExplicitTypedDecls.items = NULL;
     g_aetherExplicitTypedDecls.count = 0;

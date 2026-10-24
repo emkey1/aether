@@ -1125,6 +1125,9 @@ odd, below 10: 1 3 5 7 9
   The loop declares `i` itself: do not `let` it first.
 - **Each:** `loop x in collection` visits the elements of an array, the
   characters of a `Text`, the keys of a map, or the elements of a JSON array.
+  Its body may not change the collection it walks (`LOOP-001`): grow a
+  worklist with `loop i < len(xs)` instead, or walk a copy. A map's keys are
+  copied when the loop starts, so the body may change the map.
 - **Condition:** `loop cond { ... }` runs while `cond` is true.
 - **Forever:** `loop { ... }` runs until `break` (or `ret`).
 - `break` leaves the innermost loop; `continue` skips to its next round.
@@ -1757,6 +1760,7 @@ The codes you will meet most often:
 | `ANN-001` | a misplaced annotation, or a `@pure` function with effects | move it; keep effects out of pure code |
 | `FLOW-001` | a function that can end without returning a value | add the missing `ret` |
 | `ARR-001` | an array or map argument changed but not returned | return it and reassign |
+| `LOOP-001` | a `loop x in xs` body that changes `xs` | index a worklist, or walk a copy |
 | `TUP-001` | a tuple used outside its narrow forms | unpack the call, or return a record |
 | `FIELD-002`, `FIELD-003` | an unknown field; a field default that is not a literal | the declared name; set it at construction |
 | `PAR-001`, `PAR-002` | one record shared by two `par` branches; a non-call in `par` | a record per branch; call a function |

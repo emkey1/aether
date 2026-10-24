@@ -1,0 +1,1 @@
+:6: [LOOP-001] Aether loop error: `loop x in xs` walks `xs`, and its body calls `grow` here, a nested function that changes it

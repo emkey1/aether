@@ -1,0 +1,2 @@
+:10: [LOOP-001] Aether loop error: `loop x in rows[r]` walks `rows[r]`, and its body changes `r` here
+hint: copy it first, `let snapshot: Int[] = rows[r]; loop x in snapshot { ... }`

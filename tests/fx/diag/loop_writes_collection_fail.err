@@ -1,0 +1,6 @@
+:9: [LOOP-001] Aether loop error: `loop x in self.items` walks `self.items`
+:15: [LOOP-001]
+:17: [LOOP-001]
+:20: [LOOP-001] Aether loop error: `loop c in s` walks `s`
+hint: to walk it as the body changes it (a worklist, or updating elements), index it: `let i: Int = 0; loop i < len(xs) { let x: Int = xs[i]; ... i = i + 1; }`
+copy them first: `let snapshot: Int[] = xs; loop x in snapshot { ... }`

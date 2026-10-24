@@ -2798,6 +2798,12 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line,
         freeAST(seqProto);
         return NULL;
     }
+    /* D86: a collection walked in place may not be changed by the body; the
+     * semantic pass checks it once nested functions are lifted (LOOP-001). A
+     * quantifier's body is an expression and cannot write. */
+    if (!hoisted && !bodyFn && !p->forwardScan && !p->detachedText) {
+        aetherAstRegisterForeach(body, seqProto, name, collType, elemType, line);
+    }
 
     AST *lenCall;
     AST *elem;

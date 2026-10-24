@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-24-1*
+*Guide version: 2026-10-24-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -782,7 +782,9 @@ sign checked at run time, and a literal `step 0` is rejected. `break` exits the
 nearest loop; `continue` moves to the next element, advancing the counter or
 applying the step. Both bounds and the step are evaluated once, before the first
 pass: changing `n` inside `loop i in 0..n` does not change how many times it
-runs. The loop variable is scoped to its loop, so reusing the name
+runs. A `loop x in xs` body may not change `xs` (`[LOOP-001]`): to grow a
+worklist while walking it, use `loop i < len(xs)`; to walk the old contents,
+copy them first. The loop variable is scoped to its loop, so reusing the name
 in a later loop in the same function is fine.
 
 ### Quantifiers: `all` and `any`
@@ -2000,7 +2002,7 @@ The compiler tags most rejections with a stable code in brackets and usually a
 The codes the compiler actually emits are FX-001, SYN-001, ANN-001, IMP-001,
 SCOPE-001, TOON-001, MS-001, TYPE-001, TYPE-002, TUP-001, FLOW-001, FLOW-002,
 FIELD-002, FIELD-003, PAR-001, PAR-002, NAME-001, BUILT-002, ARR-001, ARR-002,
-REC-001, FUNC-001, NARROW-001, PARAM-001, PREC-001, FMT-001, DIV-002, and ENTRY-001; the finer rule names
+REC-001, FUNC-001, NARROW-001, PARAM-001, PREC-001, FMT-001, DIV-002, LOOP-001, and ENTRY-001; the finer rule names
 below map onto them. Run-time errors (ARR-003, CON-001, `AETH-RUNTIME-*`) carry their
 own message and hint. A compile-time code you receive that is not on this list
 does not exist — re-read the message rather than inventing a rule for it.
@@ -2140,6 +2142,11 @@ does not exist — re-read the message rather than inventing a rule for it.
   (`xs[i] = v`, `grid[r][c] = v`, `m[k] = v`, an append), or a call's returned
   array or map is thrown away (`sortDesc(xs);`) → return it and reassign,
   `xs = f(xs)`; for scratch work, copy it to a local first.
+- **[LOOP-001]** a `loop x in xs` body changes `xs`: an append, an element
+  write, a new array, the index `r` of `loop x in rows[r]`, or a call to a
+  nested fn that writes it → walk a worklist by index, `let i: Int = 0; loop
+  i < len(xs) { let x: Int = xs[i]; ... i = i + 1; }`, or copy first and walk
+  the copy: `let snapshot: Int[] = xs; loop x in snapshot { ... }`.
 - **[NARROW-001]** (warning) a `Real` stored in an `Int` target → the fraction
   is discarded; use a `Real` target, or `int(...)` when truncating is intended.
 - **[PARAM-001]** (warning) a function changes a scalar parameter its caller

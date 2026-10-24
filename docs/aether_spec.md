@@ -879,7 +879,8 @@ initializer when that is obviously safe and is otherwise TYPE-001 (§3). `loop`
 alone repeats until `break`; `loop cond` is a while loop; `loop i in a..b` counts
 from `a` up to but not including `b`, by `step` when given, with `a`, `b` and the
 step each evaluated once, before the first pass (D83); `loop x in xs` visits
-each element of an array or each character of a Text. `while` and `for` are exact
+each element of an array or each character of a Text, and its body may not
+change `xs` (LOOP-001, D86). `while` and `for` are exact
 synonyms of the corresponding `loop` forms. Effects live in `fx` blocks (FX-001,
 §3). `par` runs each call on its own thread and waits for all of them.
 
@@ -2048,7 +2049,15 @@ run-time errors. Open rows:
 - **D18**, range loops; **D19**, 64-bit integers (settled in L0).
 - **D83**, a range loop evaluates its bounds and step once, before the first
   pass: changing `n` inside `loop i in 0..n` does not change the trip count
-  (D.range.1). `loop x in xs` reads `xs` as the loop runs.
+  (D.range.1).
+- **D86**, a `loop x in xs` body may not change `xs`: an assignment or append
+  to it (or to a path above or below it, such as `o` or `o.items[i]` for
+  `loop x in o.items`), an assignment to a variable in its index (`r` in
+  `loop x in rows[r]`), or a call to a nested function that writes it is
+  LOOP-001 (D.foreach.1). A worklist walks by index (`loop i < len(xs)`), and
+  a copy (`let snapshot: T[] = xs;`) walks the old contents. A method that
+  changes the walked field through its record is not detected. `loop k in m`
+  walks a snapshot of the keys, so a map's body may write the map.
 - **D84**, `result` is an ordinary name. Only in a `@post` clause does it mean
   the returned value (D.result.1).
 - **D85**, `chr(n)` is the Text of Unicode code point `n`, so `ord(chr(n)) == n`
@@ -2213,6 +2222,14 @@ fn main() -> Void {
 
 ```text
 15 10
+```
+
+```aether @reject=LOOP-001 id=D.foreach.1
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    loop x in xs { xs = xs + [x]; }
+    fx { println(len(xs)); }
+}
 ```
 
 ```aether @ok id=D.chr.1

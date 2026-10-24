@@ -4475,6 +4475,267 @@ static void bareFieldCheckMethods(const BareFieldIndex *ix, const AST *n) {
     for (int i = 0; i < n->child_count; i++) bareFieldCheckMethods(ix, n->children[i]);
 }
 
+/* --------------------------------------------------------------------------
+ * D86: a `loop x in xs` body may not change xs (LOOP-001).
+ *
+ * A variable, field or index path is walked in place: the loop re-reads its
+ * length and element on every pass. So an append in the body kept the loop
+ * going for ever, a shrink stopped it early, `xs = [7, 8, 9]` switched it to
+ * the new array mid-walk, and changing `r` in `loop x in rows[r]` switched
+ * rows. Python reads the same text differently by case, Swift and Go never
+ * see the change, and no program in the tree relied on any of it. Rejecting
+ * the write keeps both meanings open for later. A write is an assignment or
+ * an append rooted at the collection (or a path above or below it), an
+ * assignment to a variable in its index, or a call to a nested function that
+ * writes the collection (D64: its by-reference capture parameter). A method
+ * call that changes a field through the record is not seen here.
+ * -------------------------------------------------------------------------- */
+
+#define FE_MAX_STEPS 16
+
+typedef struct {
+    const char *root;                /* `xs`, `myself`, `rows` */
+    const char *steps[FE_MAX_STEPS]; /* a field name, or NULL for an index */
+    int stepCount;
+} FePath;
+
+static bool fePath(const AST *n, FePath *out) {
+    const char *rev[FE_MAX_STEPS];
+    int count = 0;
+    while (n && (n->type == AST_FIELD_ACCESS || n->type == AST_ARRAY_ACCESS)) {
+        if (n->type == AST_FIELD_ACCESS) {
+            if (count >= FE_MAX_STEPS || !n->token || !n->token->value) return false;
+            rev[count++] = n->token->value;
+        } else {
+            for (int i = 0; i < n->child_count; i++) {
+                if (count >= FE_MAX_STEPS) return false;
+                rev[count++] = NULL;
+            }
+        }
+        n = n->left;
+    }
+    if (!n || n->type != AST_VARIABLE || !n->token || !n->token->value) return false;
+    out->root = n->token->value;
+    out->stepCount = count;
+    for (int i = 0; i < count; i++) out->steps[i] = rev[count - 1 - i];
+    return true;
+}
+
+/* One path is a prefix of the other, an index matching any index. */
+static bool fePathsOverlap(const FePath *a, const FePath *b) {
+    if (strcmp(a->root, b->root) != 0) return false;
+    int n = a->stepCount < b->stepCount ? a->stepCount : b->stepCount;
+    for (int i = 0; i < n; i++) {
+        if (!a->steps[i] != !b->steps[i]) return false;
+        if (a->steps[i] && strcmp(a->steps[i], b->steps[i]) != 0) return false;
+    }
+    return true;
+}
+
+static void feIndexVars(const AST *n, CaseNameSet *out, bool inIndex) {
+    if (!n) return;
+    if (n->type == AST_VARIABLE && inIndex && n->token && n->token->value)
+        caseSetAdd(out, n->token->value);
+    if (n->type == AST_ARRAY_ACCESS) {
+        feIndexVars(n->left, out, inIndex);
+        for (int i = 0; i < n->child_count; i++) feIndexVars(n->children[i], out, true);
+        return;
+    }
+    feIndexVars(n->left, out, inIndex);
+    feIndexVars(n->right, out, inIndex);
+    feIndexVars(n->extra, out, inIndex);
+    for (int i = 0; i < n->child_count; i++) feIndexVars(n->children[i], out, inIndex);
+}
+
+/* The collection as the user wrote it: `self.items`, `rows[r]`. */
+static void feRender(const AST *n, char *buf, size_t cap) {
+    if (!n || cap == 0) return;
+    size_t len = strlen(buf);
+    if (n->type == AST_VARIABLE && n->token && n->token->value) {
+        const char *name = strcmp(n->token->value, "myself") == 0 ? "self" : n->token->value;
+        snprintf(buf + len, cap - len, "%s", name);
+    } else if (n->type == AST_FIELD_ACCESS && n->token && n->token->value) {
+        feRender(n->left, buf, cap);
+        len = strlen(buf);
+        snprintf(buf + len, cap - len, ".%s", n->token->value);
+    } else if (n->type == AST_ARRAY_ACCESS) {
+        feRender(n->left, buf, cap);
+        for (int i = 0; i < n->child_count; i++) {
+            const AST *ix = n->children[i];
+            len = strlen(buf);
+            const char *text = (ix && (ix->type == AST_VARIABLE || ix->type == AST_NUMBER) &&
+                                ix->token && ix->token->value) ? ix->token->value : "i";
+            snprintf(buf + len, cap - len, "[%s]", text);
+        }
+    }
+}
+
+typedef enum { FE_WRITE, FE_INDEX, FE_NESTED } FeWriteKind;
+
+typedef struct {
+    const AetherForeachSite *site;
+    FePath coll;
+    CaseNameSet indexVars;
+    const AST **fns;
+    int fnCount;
+    bool reported;
+} FeCtx;
+
+static const AST *feFindFn(const FeCtx *c, const char *name) {
+    for (int i = 0; i < c->fnCount; i++)
+        if (c->fns[i]->token && c->fns[i]->token->value && strcmp(c->fns[i]->token->value, name) == 0)
+            return c->fns[i];
+    return NULL;
+}
+
+static void feReport(FeCtx *c, const AST *at, FeWriteKind kind, const char *what) {
+    const AetherForeachSite *s = c->site;
+    char coll[160] = "";
+    feRender(s->coll, coll, sizeof(coll));
+    const char *x = s->loopVar ? s->loopVar : "x";
+    char detail[480], hint[640];
+    if (kind == FE_INDEX) {
+        snprintf(detail, sizeof(detail),
+                 "`loop %s in %s` walks `%s`, and its body changes `%s` here, which picks the "
+                 "collection: a loop may not change the collection it walks.",
+                 x, coll, coll, what);
+        snprintf(hint, sizeof(hint),
+                 "copy it first, `let snapshot: %s = %s; loop %s in snapshot { ... }`, and the "
+                 "body may then change `%s`.",
+                 s->collType ? s->collType : "T[]", coll, x, what);
+    } else {
+        if (kind == FE_NESTED) {
+            snprintf(detail, sizeof(detail),
+                     "`loop %s in %s` walks `%s`, and its body calls `%s` here, a nested function "
+                     "that changes it: a loop may not change the collection it walks.",
+                     x, coll, coll, what);
+        } else {
+            snprintf(detail, sizeof(detail),
+                     "`loop %s in %s` walks `%s`, and its body changes it here: a loop may not "
+                     "change the collection it walks.",
+                     x, coll, coll);
+        }
+        bool toon = s->collType && strcmp(s->collType, "ToonNode") == 0;
+        char lenExpr[200], elemExpr[200];
+        snprintf(lenExpr, sizeof(lenExpr), toon ? "toon_len(%s)" : "len(%s)", coll);
+        if (toon) snprintf(elemExpr, sizeof(elemExpr), "toon_at(%s, i)", coll);
+        else snprintf(elemExpr, sizeof(elemExpr), "%s[i]", coll);
+        snprintf(hint, sizeof(hint),
+                 "to walk it as the body changes it (a worklist, or updating elements), index "
+                 "it: `let i: Int = 0; "
+                 "loop i < %s { let %s: %s = %s; ... i = i + 1; }`; to go over the contents as "
+                 "they were, copy them first: `let snapshot: %s = %s; loop %s in snapshot { ... }`.",
+                 lenExpr, x, s->elemType ? s->elemType : "T", elemExpr,
+                 s->collType ? s->collType : "T[]", coll, x);
+    }
+    int line = aetherAstNodeLine(at);
+    fprintf(stderr, "%s:%d: [LOOP-001] Aether loop error: %s\n",
+            g_aether_source_path ? g_aether_source_path : "<aether>", line > 0 ? line : s->line,
+            detail);
+    fprintf(stderr, "hint: %s\n", hint);
+    aetherReportGuideHelp("LOOP-001");
+    pascal_semantic_error_count++;
+    c->reported = true;
+}
+
+static bool feTouches(const FeCtx *c, const AST *target) {
+    FePath t;
+    return fePath(target, &t) && fePathsOverlap(&t, &c->coll);
+}
+
+static const char *feIndexVarWritten(const FeCtx *c, const AST *target) {
+    const char *unused = NULL;
+    if (!target || target->type != AST_VARIABLE || !target->token || !target->token->value) return NULL;
+    const char *name = target->token->value;
+    return caseLookup(&c->indexVars, name, strlen(name), &unused) == 1 ? name : NULL;
+}
+
+static void feScan(FeCtx *c, const AST *n) {
+    if (!n || c->reported) return;
+    /* A record literal's `items: value` names a field, not a variable. */
+    if (n->type == AST_ASSIGN && n->token && n->token->value && strcmp(n->token->value, ":") == 0) {
+        feScan(c, n->right);
+        return;
+    }
+    if (n->type == AST_ASSIGN && n->left) {
+        const char *ix = NULL;
+        if (feTouches(c, n->left)) { feReport(c, n, FE_WRITE, NULL); return; }
+        if ((ix = feIndexVarWritten(c, n->left)) != NULL) { feReport(c, n, FE_INDEX, ix); return; }
+    } else if (n->type == AST_PROCEDURE_CALL && n->token && n->token->value) {
+        const char *name = n->token->value;
+        if (strcasecmp(name, "setlength") == 0 && n->child_count > 0 && feTouches(c, n->children[0])) {
+            feReport(c, n, FE_WRITE, NULL);
+            return;
+        }
+        const AST *fn = strncmp(name, "__aether_", 9) == 0 ? feFindFn(c, name) : NULL;
+        int arg = 0;
+        for (int i = 0; fn && i < fn->child_count; i++) {
+            const AST *pd = fn->children[i];
+            if (!pd || pd->type != AST_VAR_DECL) continue;
+            for (int k = 0; k < pd->child_count; k++, arg++) {
+                if (!pd->by_ref || arg >= n->child_count) continue;
+                const AST *a = n->children[arg];
+                if (feTouches(c, a) || feIndexVarWritten(c, a)) {
+                    feReport(c, n, FE_NESTED, aetherAstFunctionDisplayName(name));
+                    return;
+                }
+            }
+        }
+    }
+    feScan(c, n->left);
+    feScan(c, n->right);
+    feScan(c, n->extra);
+    for (int i = 0; i < n->child_count; i++) feScan(c, n->children[i]);
+}
+
+static void feCollectFns(const AST *n, const AST ***fns, int *count, int *cap) {
+    if (!n) return;
+    if ((n->type == AST_FUNCTION_DECL || n->type == AST_PROCEDURE_DECL) && n->token &&
+        n->token->value && strncmp(n->token->value, "__aether_", 9) == 0) {
+        if (*count == *cap) {
+            int ncap = *cap ? *cap * 2 : 16;
+            const AST **g = (const AST **)realloc((void *)*fns, (size_t)ncap * sizeof(*g));
+            if (!g) return;
+            *fns = g;
+            *cap = ncap;
+        }
+        (*fns)[(*count)++] = n;
+    }
+    feCollectFns(n->left, fns, count, cap);
+    feCollectFns(n->right, fns, count, cap);
+    feCollectFns(n->extra, fns, count, cap);
+    for (int i = 0; i < n->child_count; i++) feCollectFns(n->children[i], fns, count, cap);
+}
+
+static void feWalkProgram(const AST *n, const AST **fns, int fnCount) {
+    if (!n) return;
+    const AetherForeachSite *site = aetherAstForeachSiteFor(n);
+    if (site && site->coll) {
+        FeCtx c;
+        memset(&c, 0, sizeof(c));
+        c.site = site;
+        c.fns = fns;
+        c.fnCount = fnCount;
+        if (fePath(site->coll, &c.coll)) {
+            feIndexVars(site->coll, &c.indexVars, false);
+            feScan(&c, n);
+        }
+        free(c.indexVars.names);
+    }
+    feWalkProgram(n->left, fns, fnCount);
+    feWalkProgram(n->right, fns, fnCount);
+    feWalkProgram(n->extra, fns, fnCount);
+    for (int i = 0; i < n->child_count; i++) feWalkProgram(n->children[i], fns, fnCount);
+}
+
+static void aetherValidateForeachWrites(const AST *root) {
+    const AST **fns = NULL;
+    int fnCount = 0, fnCap = 0;
+    feCollectFns(root, &fns, &fnCount, &fnCap);
+    feWalkProgram(root, fns, fnCount);
+    free((void *)fns);
+}
+
 static void aetherValidateBareFieldNames(const AST *root) {
     BareFieldIndex ix;
     memset(&ix, 0, sizeof(ix));
@@ -5048,6 +5309,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
     /* D70: a reference spelled differently from its declaration. */
     aetherValidateNameCase(root);
     aetherValidateBareFieldNames(root);
+    aetherValidateForeachWrites(root);
     aetherValidateDuplicateFunctions(root);
     if (pascal_semantic_error_count > errorCountBefore) {
         return;

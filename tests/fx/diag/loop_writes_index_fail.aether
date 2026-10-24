@@ -1,0 +1,13 @@
+// D86: changing the index that picks the collection of `loop x in rows[r]`
+// is LOOP-001 too: the walk used to switch to the other row mid-loop
+// (it printed 1 8 9).
+fn main() -> Void {
+    let rows: Int[][] = [[1, 2, 3], [7, 8, 9]];
+    let r: Int = 0;
+    let seen: Text = "";
+    loop x in rows[r] {
+        seen = seen + int_to_text(x) + " ";
+        r = 1;
+    }
+    fx { println(seen); }
+}

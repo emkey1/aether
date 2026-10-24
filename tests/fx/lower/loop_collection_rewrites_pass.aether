@@ -1,0 +1,45 @@
+// D86: what stays legal around LOOP-001, and the two rewrites its hint gives.
+// A worklist walks by index (`loop i < len(q)` re-reads the length); a
+// snapshot copies first. A body may write another array, another field of
+// the same record, a map it iterates (its keys are a snapshot), and a record
+// literal may name a field like the walked variable. A nested function that
+// only reads the collection is fine.
+type Bag {
+    items: Int[];
+    total: Int;
+    fn sum() -> Int {
+        loop x in self.items { self.total = self.total + x; }
+        ret self.total;
+    }
+}
+type Box { items: Int[]; }
+fn main() -> Void {
+    let q: Int[] = [1];
+    let i: Int = 0;
+    loop i < len(q) {
+        let v: Int = q[i];
+        if v < 8 { q = q + [v * 2]; }
+        i = i + 1;
+    }
+    let xs: Int[] = [1, 2, 3];
+    let snapshot: Int[] = xs;
+    loop x in snapshot { xs = xs + [x * 10]; }
+    let ys: Int[] = [];
+    loop x in xs { ys = ys + [x + 1]; }
+    let m: Map[Text, Int] = {"a": 1, "b": 2};
+    loop k in m { m[k] = m[k] * 10; }
+    let items: Int[] = [4, 5];
+    let boxed: Int = 0;
+    loop x in items {
+        let bx: Box = Box { items: [x] };
+        boxed = boxed + len(bx.items);
+    }
+    fn total() -> Int { let s: Int = 0; loop y in items { s = s + y; } ret s; }
+    let sums: Int = 0;
+    loop x in items { sums = sums + total(); }
+    let b: Bag = Bag { items: [1, 2, 3], total: 0 };
+    fx {
+        println(len(q), " ", len(xs), " ", len(ys), " ", m["a"], " ", m["b"]);
+        println(boxed, " ", sums, " ", b.sum());
+    }
+}

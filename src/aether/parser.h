@@ -50,6 +50,22 @@ int aetherAstLookupFunctionReturnsReal(const char *name, int *returnsReal);
 void aetherAstRegisterRangeBound(const AST *node);
 int aetherAstIsRangeBound(const AST *node);
 
+/* LOOP-001 (D86): a `loop x in COLL` walked in place, a variable, a field or
+ * an index path (an expression and a map are copied first). The semantic pass
+ * (aetherValidateForeachWrites) rejects a body that changes COLL. `coll` is
+ * copied; the body is matched by identity against the finished program. */
+typedef struct {
+    const AST *body;
+    AST *coll;
+    char *loopVar;
+    char *collType;
+    char *elemType;
+    int line;
+} AetherForeachSite;
+void aetherAstRegisterForeach(const AST *body, const AST *coll, const char *loopVar,
+                              const char *collType, const char *elemType, int line);
+const AetherForeachSite *aetherAstForeachSiteFor(const AST *body);
+
 /* Record a top-level (non-method, i.e. not declared inside a `type { ... }`
  * body) function declaration's bare name. Used to let a user's own function
  * shadow a same-named PSCAL vm_builtin for FX-001/ANN-001 purposes: a call

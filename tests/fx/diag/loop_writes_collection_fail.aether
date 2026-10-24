@@ -1,0 +1,23 @@
+// D86: a `loop x in xs` body may not change xs (LOOP-001). The loop walked a
+// variable, field or index path in place, so before D86 an append kept it
+// going for ever, an element write ahead was seen, and a whole new array
+// switched the walk to it mid-loop. Each loop below is rejected on the line
+// of its write.
+type Bag {
+    items: Int[];
+    fn spread() -> Int {
+        loop x in self.items { self.items = self.items + [x]; }
+        ret len(self.items);
+    }
+}
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    loop x in xs { xs = xs + [x * 10]; }
+    loop x in xs {
+        if x == 1 { xs[2] = 99; }
+    }
+    let s: Text = "ab";
+    loop c in s { s = s + c; }
+    let b: Bag = Bag { items: [1] };
+    fx { println(len(xs), " ", s, " ", b.spread()); }
+}
