@@ -17,6 +17,14 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-24-1
 
+**Release `1.0-beta11`** (D75): the eleventh 1.0 beta, tagged `1.0-beta11`;
+`--version` prints `Aether Compiler Version: 2026-10-24-1 (1.0-beta11)`. On
+top of `1.0-beta10` it carries the four silent-wrong fixes below, each a beta
+break: a range loop evaluates its bounds once (D83), `result` is an ordinary
+name outside `@post` (D84), `chr(n)` is the Unicode code point `n` (D85), and
+two expressions on one line, or a statement that only computes a value, are
+SYN-001 (D39 (a)). The next dev label is `1.0-beta12dev`.
+
 Four silent-wrong fixes, each a D75 beta break: before them each program below
 compiled, ran with exit 0 and printed a wrong answer. From the 1.0 readiness
 review's backlog probes (`tests/backlog/`), which now move to `tests/fx/` as
