@@ -90,6 +90,12 @@ Per suite, first attempt (after repair):
   - The difference is near the noise floor. Held-out, which favours epoch 3, may not choose.
   - **Nothing is released yet.** Epoch 2 was cut mid-schedule, so the next run separates "one more pass" from "a fully
     decayed learning rate" (`../qwen36-35b-a3b-e2/`, rule in its config).
+- **Outcome (2026-10-24, see `../qwen36-35b-a3b-e2/RESULTS.md`).**
+  - The 2-epoch schedule matched this run's epoch 2 (held-out 33), so the third pass carries the held-out gain.
+  - The owner chose **this run's final model (epoch 3)** for release, overriding the pre-set rule. The rule decided on
+    a two-task gap on main; this run leads on held-out by six.
+  - The held-out suites were used to choose between two finalists, and its held-out score is reported with that
+    disclosure.
 
 ## Files
 
