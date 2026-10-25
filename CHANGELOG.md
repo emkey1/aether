@@ -17,6 +17,15 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-24-2
 
+**Release `1.0-beta12`** (D75): the twelfth 1.0 beta, tagged `1.0-beta12`;
+`--version` prints `Aether Compiler Version: 2026-10-24-2 (1.0-beta12)`. On
+top of `1.0-beta11` it carries D86, below: a `loop x in xs` body may not change
+`xs` (`LOOP-001`), with the worklist and snapshot rewrites in its hint. It also
+carries a messages-only fix: a bare field name in a method (`ret v + 1;` for
+`self.v`) is `SCOPE-001` naming `self.v`. It used to crash at run time with
+"Cannot access field on a non-record/non-pointer type", or fail with an
+uncoded "Undefined variable". The next dev label is `1.0-beta13dev`.
+
 **A `loop x in xs` body may not change `xs`** (D86, `LOOP-001`). A variable, a
 field or an index path was walked in place: the loop re-read its length and
 element on every pass. So in the body:
