@@ -1,0 +1,11 @@
+// LEN-001 at compile time: `len` handed a TOON handle. It compiled and stopped
+// at run time with the engine's uncoded "Length expects a string or array
+// argument."; now TOON-001 names `toon_len`.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1, 2, 3]");
+    let rows: ToonNode = toon_root(doc);
+    let a: Int = len(rows);
+    let b: Int = len(doc);
+    fx { println(a, " ", b); }
+    toon_close(doc);
+}

@@ -1,0 +1,7 @@
+// `use` belongs at the top level of a file. Inside a function it read as the
+// bare name `use` (SCOPE-001), and from 1.0-beta11 as `use` juxtaposed with a
+// string (SYN-001 "missing operator or `=`"), which hid the real rule.
+fn main() -> Void {
+    use "helpers";
+    fx { println(1); }
+}

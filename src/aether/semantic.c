@@ -2077,6 +2077,65 @@ static void validateOpaqueCallKind(const char *callName,
     }
 }
 
+/* LEN-001 at compile time: `len(n)` / `length(n)` on a variable declared as an
+ * opaque handle. It compiled and stopped at run time with the engine's
+ * uncoded "Length expects a string or array argument."; the type oracle sees
+ * a handle variable only as the Int it is lowered to, so the check lives here
+ * with the handle bindings. */
+static void validateLengthOfHandle(const char *callName,
+                                   size_t callNameLen,
+                                   const char *openParen,
+                                   const char *lineEnd,
+                                   int line,
+                                   const AetherOpaqueBindingTable *opaqueBindings) {
+    const char *argStart;
+    const char *argEnd;
+    const char *after;
+    const AetherOpaqueBinding *binding;
+    char detail[320];
+
+    if (!callName || !openParen || !lineEnd || !opaqueBindings) {
+        return;
+    }
+    if (!((callNameLen == 3 && strncmp(callName, "len", 3) == 0) ||
+          (callNameLen == 6 && strncmp(callName, "length", 6) == 0))) {
+        return;
+    }
+    argStart = skipInlineSpaces(openParen + 1, lineEnd);
+    argEnd = argStart;
+    while (argEnd < lineEnd && (isalnum((unsigned char)*argEnd) || *argEnd == '_')) {
+        argEnd++;
+    }
+    after = skipInlineSpaces(argEnd, lineEnd);
+    if (argEnd == argStart || after >= lineEnd || *after != ')') {
+        return;
+    }
+    binding = findOpaqueBinding(opaqueBindings, argStart, (size_t)(argEnd - argStart));
+    if (!binding) {
+        return;
+    }
+    if (binding->kind == AETHER_HANDLE_MSTREAM) {
+        snprintf(detail, sizeof(detail),
+                 "`%.*s` counts an array, a Text or a map, and '%.*s' is an MStream: its size "
+                 "in bytes is `mstream_length(%.*s)`.",
+                 (int)callNameLen, callName, (int)(argEnd - argStart), argStart,
+                 (int)(argEnd - argStart), argStart);
+    } else if (binding->kind == AETHER_HANDLE_DOC) {
+        snprintf(detail, sizeof(detail),
+                 "`%.*s` counts an array, a Text or a map, and '%.*s' is a ToonDoc: count its "
+                 "root array with `toon_len(toon_root(%.*s))`.",
+                 (int)callNameLen, callName, (int)(argEnd - argStart), argStart,
+                 (int)(argEnd - argStart), argStart);
+    } else {
+        snprintf(detail, sizeof(detail),
+                 "`%.*s` counts an array, a Text or a map, and '%.*s' is a ToonNode: count a "
+                 "TOON array with `toon_len(%.*s)`.",
+                 (int)callNameLen, callName, (int)(argEnd - argStart), argStart,
+                 (int)(argEnd - argStart), argStart);
+    }
+    reportAetherErrorCoded(opaqueHandleCode(binding->kind), "type", line, detail);
+}
+
 static void validateSecondaryHelperArgType(const char *callName,
                                            size_t callNameLen,
                                            const char *openParen,
@@ -2374,6 +2433,12 @@ static void validateAetherSource(const char *source,
                 if (*afterName == '(' &&
                     !(lastWordLen == 2 && strncmp(lastWord, "fn", 2) == 0)) {
                     validateOpaqueCallKind(start,
+                                           nameLen,
+                                           afterName,
+                                           lineEnd,
+                                           line,
+                                           opaqueBindings);
+                    validateLengthOfHandle(start,
                                            nameLen,
                                            afterName,
                                            lineEnd,
@@ -4268,12 +4333,25 @@ static void caseCheckRefs(const CaseDecls *d, const AST *n) {
     for (int i = 0; i < n->child_count; i++) caseCheckRefs(d, n->children[i]);
 }
 
+/* The value names of the program being compiled (they point into its AST),
+ * kept for aetherUnknownIdentifierHint's close-spelling pass. */
+static CaseNameSet g_declaredValues;
+
+size_t aetherSemanticDeclaredValueCount(void) {
+    return (size_t)g_declaredValues.count;
+}
+
+const char *aetherSemanticDeclaredValueAt(size_t i) {
+    return i < (size_t)g_declaredValues.count ? g_declaredValues.names[i] : NULL;
+}
+
 static void aetherValidateNameCase(const AST *root) {
     CaseDecls d;
     memset(&d, 0, sizeof(d));
     caseCollect(&d, root);
     caseCheckRefs(&d, root);
-    free(d.values.names);
+    free(g_declaredValues.names);
+    g_declaredValues = d.values;
     free(d.types.names);
 }
 
@@ -5409,5 +5487,7 @@ char *aetherResolveImportPath(const char *path) {
 
 void aetherSemanticResetState(void) {
     g_aether_source_path = NULL;
+    free(g_declaredValues.names);
+    memset(&g_declaredValues, 0, sizeof(g_declaredValues));
     reaSemanticResetState();
 }

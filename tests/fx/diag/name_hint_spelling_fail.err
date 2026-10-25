@@ -1,0 +1,5 @@
+hint: did you mean 'upper(s)'?
+hint: did you mean 'len(s)'?
+hint: did you mean 'starts_with'?
+hint: did you mean 'counter'?
+!did you mean 'count'

@@ -22,6 +22,7 @@
 #include "core/utils.h"
 #include "aether/experiment.h"
 #include "aether/parser.h"
+#include "vm/vm_fx_policy.h"
 #include "aether/semantic.h"
 
 /* ------------------------------------------------------------------ */
@@ -1893,8 +1894,108 @@ static int ruleTextArithmetic(RuleCtx *c, const AST *e, const AetherTypeEnv *env
     return 1;
 }
 
+/* The name a call was written with: `toon_len`, `len`, not the engine's
+ * `YyjsonGetLength`, `length`. */
+static const char *surfaceCallName(const AST *call) {
+    const char *n = callName(call);
+    const char *s = aetherAstCallSurfaceName(call);
+    if (!s && n && call->token) s = aetherAstAliasSurfaceAtLine(call->token->line, n);
+    if (!s && n) s = pscalAetherNameForBuiltin(n);
+    return s ? s : n;
+}
+
+static bool isToonReaderName(const char *n) {
+    return n && (!strncasecmp(n, "yyjsonget", 9) || !strcasecmp(n, "yyjsonhaskey") ||
+                 !strcasecmp(n, "yyjsonhasindex") || !strcasecmp(n, "yyjsonisnull"));
+}
+
+static bool isToonHandle(AetherType t) {
+    return t.kind == AETHER_T_HANDLE && t.name &&
+           (!strcmp(t.name, "ToonNode") || !strcmp(t.name, "ToonDoc"));
+}
+
+/* LEN-001 at compile time: `len` handed a TOON handle or a scalar, or a TOON
+ * reader (`toon_len`, `toon_at`, `toon_key`, `toon_get_*`) handed an Aether
+ * value. All of these compiled and then stopped with the engine's uncoded
+ * "Length expects a string or array argument." or "YyjsonGetLength expects a
+ * single value handle.", naming no Aether builtin. */
+static int ruleToonCrossing(RuleCtx *c, const AST *e, const AetherTypeEnv *env) {
+    if (e->type != AST_PROCEDURE_CALL || e->child_count < 1) return 0;
+    const char *n = callName(e);
+    if (!n) return 0;
+    const AST *arg = e->children[0];
+    AetherType at = aetherTypeOf(arg, env);
+    if (at.kind == AETHER_T_UNKNOWN) return 0;
+    char argText[96], have[96], detail[512];
+    if (arg->type == AST_VARIABLE && arg->token && arg->token->value)
+        snprintf(argText, sizeof(argText), "'%s'", arg->token->value);
+    else
+        snprintf(argText, sizeof(argText), "its argument");
+    const char *argName = (arg->type == AST_VARIABLE && arg->token && arg->token->value)
+                              ? arg->token->value
+                              : (isToonHandle(at) && !strcmp(at.name, "ToonDoc")) ? "doc"
+                              : isToonHandle(at) ? "node" : "x";
+    aetherTypeFormat(at, have, sizeof(have));
+    const char *shown = surfaceCallName(e);
+    int line = nodeLine(e);
+    if (!strcasecmp(n, "length") && e->child_count == 1) {
+        if (isToonHandle(at)) {
+            if (!strcmp(at.name, "ToonDoc"))
+                snprintf(detail, sizeof(detail),
+                         "`%s` counts an array, a Text or a map, and %s is a ToonDoc: count its "
+                         "root array with `toon_len(toon_root(%s))`.", shown, argText, argName);
+            else
+                snprintf(detail, sizeof(detail),
+                         "`%s` counts an array, a Text or a map, and %s is a ToonNode: count a "
+                         "TOON array with `toon_len(%s)`.", shown, argText, argName);
+            aetherSemanticReportCoded("TOON-001", "type", line > 0 ? line : 1, detail, 1);
+            c->reported++;
+            return 1;
+        }
+        /* Not Int: a handle variable is typed as the Int it lowers to, and
+         * semantic.c names those (validateLengthOfHandle). */
+        if (at.kind == AETHER_T_REAL || at.kind == AETHER_T_BOOL || at.kind == AETHER_T_RECORD) {
+            snprintf(detail, sizeof(detail),
+                     "`%s` counts an array, a Text or a map, and %s is %s.", shown, argText, have);
+            ruleReport(c, e, detail);
+            return 1;
+        }
+        return 0;
+    }
+    bool toonReader = isToonReaderName(n);
+    /* An Int may be a handle variable (handles lower to Int), so only a value
+     * that cannot be one is judged. */
+    if (!toonReader || (at.kind != AETHER_T_ARRAY && at.kind != AETHER_T_TEXT &&
+                        at.kind != AETHER_T_MAP && at.kind != AETHER_T_REAL &&
+                        at.kind != AETHER_T_BOOL && at.kind != AETHER_T_RECORD))
+        return 0;
+    /* `toon_get_int(node, key)` reaches here as the key read nested in the
+     * Int read: name the call the program wrote. */
+    const AST *outer = e;
+    while (outer->parent && outer->parent->type == AST_PROCEDURE_CALL &&
+           outer->parent->child_count > 0 && outer->parent->children[0] == outer &&
+           isToonReaderName(callName(outer->parent)))
+        outer = outer->parent;
+    if (outer != e) shown = surfaceCallName(outer);
+    char fix[256];
+    if (!strcasecmp(n, "yyjsongetlength"))
+        snprintf(fix, sizeof(fix), "count it with `len(%s)`", argName);
+    else if (!strcasecmp(n, "yyjsongetindex"))
+        snprintf(fix, sizeof(fix), "index it with `%s[i]`", argName);
+    else
+        snprintf(fix, sizeof(fix),
+                 "parse TOON or JSON text first: `let doc: ToonDoc = toon_parse(text);`, then "
+                 "read `toon_root(doc)`");
+    snprintf(detail, sizeof(detail), "`%s` reads a TOON node, and %s is %s: %s.", shown, argText,
+             have, fix);
+    aetherSemanticReportCoded("TOON-001", "type", line > 0 ? line : 1, detail, 1);
+    c->reported++;
+    return 1;
+}
+
 static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeEnv *env) {
     RuleCtx *c = (RuleCtx *)vctx;
+    if (ruleToonCrossing(c, e, env)) return;
     if (ruleMapExpr(c, e, env)) return;
     if (ruleTextArithmetic(c, e, env)) return;
     /* D8 V-strict: a call statement that hands over an array and throws away

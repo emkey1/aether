@@ -74,6 +74,9 @@ const AetherForeachSite *aetherAstForeachSiteFor(const AST *body);
 void aetherAstRegisterTopLevelFunction(const char *name);
 /* Returns 1 if `name` names a top-level user-declared function. */
 int aetherAstIsTopLevelUserFunction(const char *name);
+/* The registered top-level functions, in order (for a close-spelling hint). */
+size_t aetherAstTopLevelUserFunctionCount(void);
+const char *aetherAstTopLevelUserFunctionAt(size_t i);
 
 /* Remember the surface spelling of an aliased builtin call (e.g. the user
  * wrote `println`, the AST node says `writeln`) so diagnostics can quote the

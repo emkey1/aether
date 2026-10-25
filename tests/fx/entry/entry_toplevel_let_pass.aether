@@ -1,0 +1,8 @@
+// A top-level `let` or `const` is a declaration, a global, and may sit beside
+// fn main; only a top-level statement (a call, an assignment, a loop, `fx`)
+// is ENTRY-001.
+let greeting: Text = "hello";
+const LIMIT: Int = 3;
+fn main() -> Void {
+    fx { println(greeting, " ", LIMIT); }
+}

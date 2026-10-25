@@ -1,0 +1,3 @@
+:5: [SYN-001] Aether parser error: `use` imports a module at the top level of a file, not inside a function or a block.
+hint: move the `use "...";` line to the top of the file, above the functions.
+!missing operator

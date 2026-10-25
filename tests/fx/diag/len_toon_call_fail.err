@@ -1,0 +1,3 @@
+:5: [TOON-001]
+is a ToonNode: count a TOON array with `toon_len(node)`
+!Length expects

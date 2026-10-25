@@ -1,0 +1,7 @@
+// The same crossing through a call: `len(toon_root(doc))` is a ToonNode the
+// type oracle sees, so it is TOON-001 too.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1, 2, 3]");
+    fx { println(len(toon_root(doc))); }
+    toon_close(doc);
+}

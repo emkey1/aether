@@ -25,5 +25,9 @@ void aetherSemanticReportCoded(const char *code, const char *kind, int line,
  * an imported module (unlike aetherSemanticSetSourcePath, it leaves rea's
  * import state alone). Returns the previous one. */
 const char *aetherSemanticSwapReportPath(const char *path);
+/* The value names the program declares (lets, parameters, consts, functions),
+ * as the D70 case pass collected them, for a close-spelling hint. */
+size_t aetherSemanticDeclaredValueCount(void);
+const char *aetherSemanticDeclaredValueAt(size_t i);
 
 #endif

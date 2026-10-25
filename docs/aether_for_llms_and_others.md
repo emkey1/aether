@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-24-2*
+*Guide version: 2026-10-25-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -256,9 +256,10 @@ fn main() -> Void {
 ```
 
 A program runs `fn main() -> Void`, or `fn main() -> Int`, whose value becomes
-the exit status. A file with both a `fn main` and top-level statements is
-`[ENTRY-001]`, because `main` would never run: put the statements inside
-`main`. To stop early with a status from anywhere, call `fx { halt(n); }`.
+the exit status. A file with both a `fn main` and top-level statements (a call,
+an assignment, a loop, an `fx` block) is `[ENTRY-001]`, because `main` would
+never run: put the statements inside `main`. Top-level `let`, `const`, `type`
+and `use` declarations are fine beside `main`. To stop early with a status from anywhere, call `fx { halt(n); }`.
 
 ## Safe generation algorithm for LLMs
 
@@ -1708,6 +1709,8 @@ Hard rules:
 
 - write `use "..."` only when the module is provided in the prompt, present in
   the repository, or otherwise verified; otherwise stay self-contained
+- `use` lines go at the top level of the file, outside every function; inside a
+  function or a block `use` is `[SYN-001]`
 - a missing `use` target is the warning IMP-001, naming the files it looked
   for; its names still do not exist, and a SCOPE-001 for one of them points
   back at the import
@@ -2090,11 +2093,12 @@ does not exist — re-read the message rather than inventing a rule for it.
   rows may be jagged. Or keep one dimension and index with a computed offset,
   `table[r * width + c]`. A `Text[]` is the exception: `lines[i][0]` is the
   first character of `lines[i]`, not a second dimension.
-- **`Length expects a string or array argument`** or **`YyjsonGetLength expects a
-  single value handle`** *(runtime, no bracketed code)* → `length` was handed a
-  `ToonNode`, or `toon_len` an array or a `Text` (LEN-001). Use
-  `toon_len(node)` for a `ToonNode` and `length(xs)` for an array or a `Text`.
-  Both mistakes compile; only running the program shows them.
+- **[TOON-001]** `len` handed a `ToonNode` or `ToonDoc`, or `toon_len`,
+  `toon_at` or a `toon_get_*` reader handed an array, a `Text` or a map (LEN-001)
+  → `toon_len(node)` for a TOON array, `len(xs)` for an array, a `Text` or a map,
+  and `xs[i]` to index an array. A variable declared on its own line is checked
+  when the program compiles; a crossing the compiler cannot see still stops at
+  run time with `Length expects a string or array argument`.
 - **[ARR-003]** *(runtime)* an index outside the array's valid range. The message
   gives the offending index, which dimension it was in, and the valid range, and
   the `[Error Location]` line that follows gives the source line. Read the range
@@ -2161,7 +2165,8 @@ does not exist — re-read the message rather than inventing a rule for it.
 - **[DIV-002]** `x // 2` → `//` always starts a comment; integer division is
   `x div 2`.
 - **[ENTRY-001]** `fn main` would not run — the file also has top-level
-  statements — or there is nothing to run, or `main` takes parameters or
+  statements (a call, an assignment, a loop, `fx`; a top-level `let` or
+  `const` is fine) — or there is nothing to run, or `main` takes parameters or
   returns `Text` → move the statements into `fn main() -> Void`.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.

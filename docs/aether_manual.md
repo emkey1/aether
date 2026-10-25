@@ -313,11 +313,14 @@ fn main() -> Void {
 
 ```text
 prog.aether:1: [ENTRY-001] Aether parser error: fn main will not run: this file also has top-level statements (this line is the first).
-hint: move the top-level statements into main, or end the file with `main();`.
+hint: move the top-level statements into main, or end the file with `main();`. Top-level `let` and `const` declarations are fine beside main.
 help: see ENTRY-001 in the Aether guide
 ```
 
-As the hint says, a script may also call `main();` itself at the end.
+As the hint says, a script may also call `main();` itself at the end. A
+top-level `let` or `const` is a declaration, not a statement: it makes a
+global, and it may sit beside `fn main`. What may not is anything that does
+something, such as a call, an assignment, a loop or an `fx` block.
 
 ---
 

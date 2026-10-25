@@ -1,7 +1,9 @@
 #include "aether/diagnostics.h"
 #include "aether/ast_prepasses.h"
 #include "aether/parser.h"
+#include "aether/semantic.h"
 #include "backend_ast/builtin.h"
+#include "vm/vm_fx_policy.h"
 
 #include <ctype.h>
 #include <stdio.h>
@@ -370,6 +372,9 @@ static const AetherNameHint kAetherNameHints[] = {
     { "all", "write the quantifier `all x in xs: cond` (or `all i in 0..n: cond`); it is a Bool expression, in a contract too." },
     { "any", "write the quantifier `any x in xs: cond` (or `any i in 0..n: cond`); it is a Bool expression, in a contract too." },
     /* Text and arrays (D56, D57). */
+    { "strlen", "did you mean 'len(s)'? It counts the characters of a Text, the elements of an "
+                "array or the keys of a map." },
+    { "string_length", "did you mean 'len(s)'? It counts the characters of a Text." },
     { "to_upper", "did you mean 'upper(s)'?" },
     { "to_lower", "did you mean 'lower(s)'?" },
     { "uppercase", "did you mean 'upper(s)'?" },
@@ -497,6 +502,143 @@ static const char *aetherCamelCaseHint(const char *ident) {
     return NULL;
 }
 
+/* The run-together lowercase form of a name: `upper_case` -> `uppercase`,
+ * `toUpper` -> `toupper`. Empty when it does not fit. */
+static void aetherFlatName(const char *in, char *out, size_t cap) {
+    size_t o = 0;
+    for (; in && *in && o + 1 < cap; in++) {
+        if (*in == '_') continue;
+        out[o++] = (char)tolower((unsigned char)*in);
+    }
+    out[o] = '\0';
+    if (in && *in) out[0] = '\0';
+}
+
+/* The table's hint for a name that differs from an entry only by case and
+ * underscores (`upper_case` for `uppercase`, `str_len` for `strlen`). */
+static const char *aetherFlatTableHint(const char *ident) {
+    char flat[96], key[96];
+    aetherFlatName(ident, flat, sizeof(flat));
+    if (!flat[0] || strcmp(flat, ident) == 0) {
+        return NULL;
+    }
+    for (size_t i = 0; i < sizeof(kAetherNameHints) / sizeof(kAetherNameHints[0]); i++) {
+        aetherFlatName(kAetherNameHints[i].wrong, key, sizeof(key));
+        if (strcmp(key, flat) == 0) {
+            return kAetherNameHints[i].hint;
+        }
+    }
+    return NULL;
+}
+
+/* Optimal string alignment distance (Damerau-Levenshtein without repeated
+ * edits of a substring), or limit + 1 once it is past limit. */
+static int aetherEditDistance(const char *a, const char *b, int limit) {
+    size_t n = strlen(a), m = strlen(b);
+    if (n > 63 || m > 63) return limit + 1;
+    if ((n > m ? n - m : m - n) > (size_t)limit) return limit + 1;
+    int d[64][64];
+    for (size_t i = 0; i <= n; i++) d[i][0] = (int)i;
+    for (size_t j = 0; j <= m; j++) d[0][j] = (int)j;
+    for (size_t i = 1; i <= n; i++) {
+        int rowMin = limit + 1;
+        for (size_t j = 1; j <= m; j++) {
+            int cost = a[i - 1] == b[j - 1] ? 0 : 1;
+            int v = d[i - 1][j] + 1;
+            if (d[i][j - 1] + 1 < v) v = d[i][j - 1] + 1;
+            if (d[i - 1][j - 1] + cost < v) v = d[i - 1][j - 1] + cost;
+            if (i > 1 && j > 1 && a[i - 1] == b[j - 2] && a[i - 2] == b[j - 1] &&
+                d[i - 2][j - 2] + 1 < v)
+                v = d[i - 2][j - 2] + 1;
+            d[i][j] = v;
+            if (v < rowMin) rowMin = v;
+        }
+        if (rowMin > limit) return limit + 1;
+    }
+    return d[n][m];
+}
+
+typedef struct {
+    char flat[96];
+    int limit;
+    int best;
+    int count;
+    char name[64];
+    char signature[200];
+    bool userFn;
+} AetherCloseName;
+
+static void aetherCloseNameVisit(const char *name, const char *signature, bool userFn,
+                                 AetherCloseName *c) {
+    char flat[96];
+    if (!name || !*name || name[0] == '_' || strlen(name) >= sizeof(c->name)) return;
+    for (const char *s = name; *s; s++) {
+        if (isupper((unsigned char)*s)) return; /* an engine spelling, not Aether's (D72) */
+    }
+    aetherFlatName(name, flat, sizeof(flat));
+    if (!flat[0] || flat[0] != c->flat[0]) return;
+    int d = aetherEditDistance(c->flat, flat, c->limit);
+    if (d > c->limit || d > c->best) return;
+    if (d == c->best && strcmp(c->name, name) == 0) return;
+    if (d < c->best) {
+        c->best = d;
+        c->count = 0;
+    }
+    c->count++;
+    snprintf(c->name, sizeof(c->name), "%s", name);
+    snprintf(c->signature, sizeof(c->signature), "%s", signature ? signature : "");
+    c->userFn = userFn;
+}
+
+static void aetherCloseBuiltinVisit(const char *name, const char *signature, void *ctx) {
+    aetherCloseNameVisit(name, signature, false, (AetherCloseName *)ctx);
+}
+
+/* A builtin or a function of this program one or two edits away from a name
+ * that is not in scope (`lenght`, `starts_wiht`). Conservative, because the
+ * name may be a misspelled variable instead: five characters or more, the
+ * same first letter, one edit (two from seven characters), and a single
+ * closest name. NULL otherwise; the result lives in a static buffer. */
+static const char *aetherCloseSpellingHint(const char *ident) {
+    static char hint[320];
+    AetherCloseName c;
+    memset(&c, 0, sizeof(c));
+    aetherFlatName(ident, c.flat, sizeof(c.flat));
+    size_t n = strlen(c.flat);
+    if (n < 5) return NULL;
+    c.limit = n >= 7 ? 2 : 1;
+    c.best = c.limit + 1;
+    /* The program's own names first: `countr` is more likely `counter`, a
+     * misspelled local, than the builtin `count`. */
+    for (size_t i = 0; i < aetherSemanticDeclaredValueCount(); i++) {
+        aetherCloseNameVisit(aetherSemanticDeclaredValueAt(i), NULL, true, &c);
+    }
+    if (c.best <= c.limit && c.count == 1 && strcmp(c.name, ident) != 0) {
+        if (aetherAstIsTopLevelUserFunction(c.name)) {
+            snprintf(hint, sizeof(hint), "did you mean '%s(...)'? The program declares `fn %s`.",
+                     c.name, c.name);
+        } else {
+            snprintf(hint, sizeof(hint), "did you mean '%s'?", c.name);
+        }
+        return hint;
+    }
+    if (c.best <= c.limit) return NULL; /* two of the program's names fit equally */
+    pscalAetherForEachBuiltinName(aetherCloseBuiltinVisit, &c);
+    for (size_t i = 0; i < aetherAstTopLevelUserFunctionCount(); i++) {
+        aetherCloseNameVisit(aetherAstTopLevelUserFunctionAt(i), NULL, true, &c);
+    }
+    if (c.best > c.limit || c.count != 1 || strcmp(c.name, ident) == 0) return NULL;
+    if (c.userFn) {
+        snprintf(hint, sizeof(hint), "did you mean '%s(...)'? The program declares `fn %s`.",
+                 c.name, c.name);
+    } else if (c.signature[0]) {
+        snprintf(hint, sizeof(hint), "did you mean '%s'? `%s`.", c.name, c.signature);
+    } else {
+        snprintf(hint, sizeof(hint), "did you mean '%s(...)'?", c.name);
+    }
+    return hint;
+}
+
 const char *aetherUnknownIdentifierHint(const char *ident) {
     const char *hint;
 
@@ -517,5 +659,11 @@ const char *aetherUnknownIdentifierHint(const char *ident) {
         return "SQLite support is not built into this compiler: rebuild aether with "
                "-DAETHER_ENABLE_SQLITE=ON (on Linux, install the libsqlite3 development package first).";
     }
-    return aetherCamelCaseHint(ident);
+    if ((hint = aetherCamelCaseHint(ident)) != NULL) {
+        return hint;
+    }
+    if ((hint = aetherFlatTableHint(ident)) != NULL) {
+        return hint;
+    }
+    return aetherCloseSpellingHint(ident);
 }

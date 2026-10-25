@@ -1,0 +1,5 @@
+:8: [TOON-001] Aether type error: `toon_len` reads a TOON node, and 'xs' is Int[]: count it with `len(xs)`.
+:9: [TOON-001] Aether type error: `toon_at` reads a TOON node
+index it with `xs[i]`
+:10: [TOON-001] Aether type error: `toon_get_int` reads a TOON node
+!Yyjson

@@ -1,0 +1,5 @@
+:7: [TOON-001]
+count a TOON array with `toon_len(rows)`
+:8: [TOON-001]
+count its root array with `toon_len(toon_root(doc))`
+!Length expects

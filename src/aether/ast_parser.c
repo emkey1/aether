@@ -308,6 +308,14 @@ int aetherAstIsTopLevelUserFunction(const char *name) {
     return 0;
 }
 
+size_t aetherAstTopLevelUserFunctionCount(void) {
+    return g_aetherTopLevelFns.count;
+}
+
+const char *aetherAstTopLevelUserFunctionAt(size_t i) {
+    return i < g_aetherTopLevelFns.count ? g_aetherTopLevelFns.items[i] : NULL;
+}
+
 void aetherAstRegisterCallSurfaceName(const AST *call, const char *surfaceName) {
     if (!call || !surfaceName || !*surfaceName) return;
     if (g_aetherCallSurfaces.count == g_aetherCallSurfaces.cap) {
@@ -6543,6 +6551,19 @@ static AST *parseStatementInner(AetherParser *p) {
         /* `fx` with no following block: a no-op block. */
         return newASTNode(AST_COMPOUND, NULL);
     }
+    /* `use "helpers";` inside a function or a block. The file's top level
+     * parses `use` itself, so one that reaches a statement is misplaced; it
+     * read as the bare name `use` (SCOPE-001), and since D39 as `use`
+     * juxtaposed with a string (SYN-001 "missing operator"). */
+    if (isAetherKeyword(&p->current, "use") && !p->detachedText) {
+        reportAetherAstError(aetherSemanticGetSourcePath(), p->current.line, "parser",
+                             "`use` imports a module at the top level of a file, not inside a "
+                             "function or a block.",
+                             "move the `use \"...\";` line to the top of the file, above the "
+                             "functions.");
+        p->hadError = true;
+        return NULL;
+    }
     /* `fn backtrack(row: Int) -> Void { ... }` inside a function body: models
      * reach for a nested fn to capture locals (N-Queens, Dijkstra). In a free
      * top-level function it is a nested function (D62), lifted when the body
@@ -10088,7 +10109,8 @@ AST *parseAetherAst(const char *rawSource) {
             if (!callsMain) {
                 entryMsg = "fn main will not run: this file also has top-level statements "
                            "(this line is the first).";
-                entryHint = "move the top-level statements into main, or end the file with `main();`.";
+                entryHint = "move the top-level statements into main, or end the file with `main();`. "
+                            "Top-level `let` and `const` declarations are fine beside main.";
                 entryLine = firstStmtLine;
             }
         }

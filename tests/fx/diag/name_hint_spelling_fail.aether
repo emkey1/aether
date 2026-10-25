@@ -1,0 +1,15 @@
+// A name not in scope gets a hint beyond the fixed table of wrong guesses: a
+// name that differs from an entry only by underscores (`upper_case`), a
+// foreign name the table now lists (`strlen`), and a close misspelling of a
+// builtin (`starts_wiht`) or of the program's own name (`countr` for the
+// local `counter`, not the builtin `count`).
+fn main() -> Void {
+    let s: Text = "abc";
+    let counter: Int = 3;
+    fx {
+        println(upper_case(s));
+        println(strlen(s));
+        println(starts_wiht(s, "a"));
+        println(countr);
+    }
+}

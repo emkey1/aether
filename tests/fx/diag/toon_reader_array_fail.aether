@@ -1,0 +1,12 @@
+// LEN-001 at compile time: a TOON reader handed an Aether value. `toon_len(xs)`
+// compiled and stopped at run time with the engine's uncoded "YyjsonGetLength
+// expects a single value handle."; now TOON-001 names the Aether call to use.
+fn main() -> Void {
+    let xs: Int[] = [1, 2, 3];
+    let s: Text = "{\"a\": 1}";
+    fx {
+        println(toon_len(xs));
+        println(toon_at(xs, 0));
+        println(toon_get_int(s, "a"));
+    }
+}

@@ -2720,6 +2720,17 @@ static int appendToonScalarAlias(Buffer *out,
         return 0;
     }
     jsonState->needed = 1;
+    /* Record the spelling for diagnostics on this line (the type oracle's
+     * TOON-001 names `toon_get_int`, not the engine's YyjsonGetInt). */
+    if (g_aetherPrepassAliasLine > 0 && nameLen < 64) {
+        char surface[64];
+        memcpy(surface, nameStart, nameLen);
+        surface[nameLen] = '\0';
+        aetherAstRegisterAliasAtLine(g_aetherPrepassAliasLine,
+                                     defaultHelper ? toonScalarDefaultGetterForName(nameStart, nameLen)
+                                                   : getter,
+                                     surface);
+    }
     if (defaultHelper) {
         if (!bufferAppend(out, toonScalarDefaultGetterForName(nameStart, nameLen)) ||
             !bufferAppend(out, "(") ||
