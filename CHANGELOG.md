@@ -17,6 +17,23 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-24-2
 
+**Release `1.0-beta13`** (D75): the thirteenth 1.0 beta, tagged `1.0-beta13`;
+`--version` prints `Aether Compiler Version: 2026-10-24-2 (1.0-beta13)`. On
+top of `1.0-beta12` it carries only diagnostics, all from that beta's review:
+- `use` inside a function or a block says it belongs at the top level of the
+  file, where 1.0-beta11 had read it as a missing operator;
+- `len` on a TOON handle, and a TOON reader handed an array, a Text or a map,
+  are compile-time `TOON-001` naming the Aether call to use (they stopped at
+  run time naming `Length` or `YyjsonGetLength`);
+- a name not in scope gets more "did you mean" hints: case- and
+  underscore-insensitive table lookups, `strlen`, and a conservative
+  close-spelling pass that prefers the program's own names;
+- the `ENTRY-001` hint says top-level `let` and `const` declarations are fine
+  beside `main`;
+- `chr` out of range is `AETH-RUNTIME-CHR-RANGE`, naming the value.
+
+The language version is unchanged. The next dev label is `1.0-beta14dev`.
+
 **Release `1.0-beta12`** (D75): the twelfth 1.0 beta, tagged `1.0-beta12`;
 `--version` prints `Aether Compiler Version: 2026-10-24-2 (1.0-beta12)`. On
 top of `1.0-beta11` it carries D86, below: a `loop x in xs` body may not change
