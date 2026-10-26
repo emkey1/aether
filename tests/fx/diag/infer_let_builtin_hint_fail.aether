@@ -1,6 +1,9 @@
 // W6-06: `let r = sqrt(2.0);` was told `let r: Int = ...;`, which compiles
-// and truncates. The hint names the builtin's return type.
+// and truncates. The hint names the builtin's return type. Since 2026-10-26-1
+// sqrt's documented Real is inferred, so a generic builtin carries the check:
+// abs has no single return type to infer, and the hint names the Real it
+// returns here.
 fn main() -> Void {
-    let r = sqrt(2.0);
+    let r = abs(-2.5);
     fx { println(r); }
 }

@@ -1,0 +1,11 @@
+// A builtin the compile-time arity table does not list is checked against the
+// signature builtins_json documents. `task_stats_json(h)` used to compile and
+// stop at run time with the engine's uncoded "ThreadStatsJson expects no
+// arguments."; it is BUILT-002 naming task_stats_json now.
+fn main() -> Void {
+    let h: Int = 0;
+    fx {
+        println(task_stats_json(h));
+        println(len(task_stats(1)));
+    }
+}

@@ -1,0 +1,9 @@
+// task_stats() returns worker-pool records with no Aether type: there is no
+// `Array` type to declare, so binding it is TYPE-001 with a hint naming
+// len(task_stats()) and task_stats_json().
+fn main() -> Void {
+    fx {
+        let stats = task_stats();
+        println(len(stats));
+    }
+}

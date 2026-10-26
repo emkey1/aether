@@ -1642,7 +1642,8 @@ if env -u OPENAI_API_KEY "$AETHER_BIN" --no-cache "$RUNTIME_LINE_MAPPING_FAIL_FI
     echo "expected runtime line-mapping failure but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "OpenAIChatCompletions requires an API key" $OUT/aether_runtime_line_mapping_fail.out; then
+# The engine's error names the Aether builtin (ai_chat), not OpenAIChatCompletions.
+if ! grep -q "ai_chat requires an API key" $OUT/aether_runtime_line_mapping_fail.out; then
     echo "missing runtime openai failure message" >&2
     cat $OUT/aether_runtime_line_mapping_fail.out >&2
     exit 1
@@ -1650,7 +1651,7 @@ fi
 # The runtime error echoes the source path the VM was handed (leading slash
 # stripped); its directory is incidental to corpus location, so match the
 # basename + line, not the dir prefix the umbrella baked in (Tests/aether/).
-if ! grep -qE '(^|/)runtime_line_mapping_fail\.aether:4: OpenAIChatCompletions requires an API key via argument or OPENAI_API_KEY\.$' $OUT/aether_runtime_line_mapping_fail.out; then
+if ! grep -qE '(^|/)runtime_line_mapping_fail\.aether:4: ai_chat requires an API key via argument or OPENAI_API_KEY\.$' $OUT/aether_runtime_line_mapping_fail.out; then
     echo "missing plain-text runtime file/line prefix" >&2
     cat $OUT/aether_runtime_line_mapping_fail.out >&2
     exit 1
@@ -1689,7 +1690,7 @@ if ! grep -q '"line":4' $OUT/aether_runtime_line_mapping_json.out; then
     cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
 fi
-if ! grep -q 'OpenAIChatCompletions requires an API key' $OUT/aether_runtime_line_mapping_json.out; then
+if ! grep -q 'ai_chat requires an API key' $OUT/aether_runtime_line_mapping_json.out; then
     echo "missing runtime diagnostics-json message" >&2
     cat $OUT/aether_runtime_line_mapping_json.out >&2
     exit 1
@@ -1703,7 +1704,7 @@ if ! grep -q '^diagnostics\[1\]{severity,phase,kind,code,file,line,column,messag
     cat $OUT/aether_runtime_line_mapping_toon.out >&2
     exit 1
 fi
-if ! grep -q '"error","runtime","runtime","","'"$RUNTIME_LINE_MAPPING_FAIL_FIXTURE"'",4,null,"OpenAIChatCompletions requires an API key via argument or OPENAI_API_KEY\."' $OUT/aether_runtime_line_mapping_toon.out; then
+if ! grep -q '"error","runtime","runtime","","'"$RUNTIME_LINE_MAPPING_FAIL_FIXTURE"'",4,null,"ai_chat requires an API key via argument or OPENAI_API_KEY\."' $OUT/aether_runtime_line_mapping_toon.out; then
     echo "missing runtime diagnostics-toon row" >&2
     cat $OUT/aether_runtime_line_mapping_toon.out >&2
     exit 1

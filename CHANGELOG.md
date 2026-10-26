@@ -15,6 +15,47 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-26-1
+
+From the 1.0-beta13 review. An inferred `let` accepts more programs, and a
+wrong argument count to more builtins is caught when the program compiles.
+
+- **Inference follows documented return types.** The inference policy promises
+  a type for "calls to functions with known declared return types", but
+  `let x = f(...)` inferred only when `f` was in a hand-kept table:
+  `format_float`, `parse_int` and `task_spawn` were TYPE-001 while `upper` and
+  `clock_ms` inferred. A builtin missing from the table now takes the return
+  type its builtins_json signature documents, when that type is a scalar, a
+  TOON or stream handle, or an array of those (all overloads agreeing). The
+  core builtins the engine lists without a signature join the table with the
+  guide's types: the parsers, `round`/`trunc`/`floor`/`ceil`, `ord`, `chr`,
+  the casts, and the Real-valued math. Generic builtins (`abs`, `min`,
+  `max_of`) still need a type.
+- **Arity from documented signatures.** A builtin that the compile-time arity
+  table does not list is checked against its builtins_json signature (a
+  default makes a parameter optional, `...` zero or more). This applies when
+  the call is written with the Aether name and the prepass has not already
+  judged it. `task_stats_json(h)` and `task_stats(1)` were run-time errors
+  naming `ThreadStatsJson` and `ThreadStats`; they are now `BUILT-002`. No
+  program in the tree changes.
+- **`task_stats`.** Its documented `-> Array` read as a type, and
+  `let a: Array` is TYPE-002. Now:
+  - the signature is `task_stats() -> untyped array` (pscal-core);
+  - the task list says the result cannot be bound;
+  - `let a = task_stats();` gets a hint naming `len(task_stats())` and
+    `task_stats_json()`.
+- **Engine names at run time.** A run-time error an engine builtin raises
+  under its own name now names the Aether builtin: `sqlite_open failed (14):
+  ...` for `SqliteOpen`, and `len expects a string or array argument.` for
+  `Length` (pscal-core).
+- **SQLite handles.** The guide and `builtin_info` said nothing, or "-1 on
+  failure", about `sqlite_open`'s result. Handles count from 0, so the first
+  open returns 0, a valid handle. A failed open stops the program.
+
+Fixtures `basic/infer_builtin_returns_pass`, `diag/builtin_arity_listed_fail`,
+`diag/task_stats_bind_fail`, `builtins/runtime_engine_name_fail`. Full guide
+`2026-10-26-1`, with the appendix regenerated.
+
 ## 2026-10-24-2
 
 **Release `1.0-beta13`** (D75): the thirteenth 1.0 beta, tagged `1.0-beta13`;

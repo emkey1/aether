@@ -5298,6 +5298,15 @@ static bool aetherIsTextCharIndex(AetherParser *p, AST *e) {
 }
 
 static void aetherInferHint(AetherParser *p, AST *init, const char *vn, char *hint, size_t n) {
+    /* task_stats() has no Aether type to bind (its documented "-> Array" read
+     * as one, and `let a: Array` is TYPE-002). */
+    if (init && init->type == AST_PROCEDURE_CALL && init->token && init->token->value &&
+        strcasecmp(init->token->value, "thread_stats") == 0) {
+        snprintf(hint, n, "task_stats() returns worker-pool records with no Aether type, so it "
+                 "cannot be bound: count them with `len(task_stats())`, or read them as JSON "
+                 "with `let %s: Text = task_stats_json();`.", vn);
+        return;
+    }
     if (init && init->type == AST_ARRAY_LITERAL) {
         if (init->child_count == 0) {
             snprintf(hint, n, "an empty `[]` needs its element type: `let %s: Int[] = [];` "

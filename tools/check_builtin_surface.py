@@ -90,9 +90,10 @@ def return_binding(ret: str, call: str) -> tuple[str, str | None]:
         n = len(split_top(r[1:-1]))
         names = ", ".join(f"r{i}" for i in range(n))
         return f"let ({names}) = {call};", None
-    if r == "Array":
-        # An engine array of records with no Aether type (task_stats): the
-        # documented use is counting it.
+    if r in ("Array", "untyped array"):
+        # An engine array of records with no Aether type (task_stats, whose
+        # signature said "Array" until 2026-10-26): the documented use is
+        # counting it.
         return f"let r: Int = length({call});", None
     if r.startswith("Map[Text"):
         return f"let r: Map[Text, Int] = {call};", None

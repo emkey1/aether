@@ -1,0 +1,20 @@
+// An inferred `let` takes any builtin's documented return type, as the
+// inference policy promises: format_float, parse_int, task_spawn and the core
+// math and conversion builtins were TYPE-001 because a hand-kept table left
+// them out. Generic builtins (max_of, abs) still need a type.
+fn main() -> Void {
+    let s = format_float(3.14159, 2);
+    let n = parse_int("42");
+    let r = parse_float("2.5");
+    let q = sqrt(16.0);
+    let f = floor(2.7);
+    let c = chr(65);
+    let code = ord("a");
+    let h: Int = -1;
+    fx {
+        let t = task_spawn("delay", "w", 1);
+        task_wait(t);
+        h = t;
+    }
+    fx { println(s, " ", n + 1, " ", r * 2.0, " ", q, " ", f + 1, " ", c, " ", code, " ", h >= 0); }
+}

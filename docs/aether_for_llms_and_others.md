@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-25-1*
+*Guide version: 2026-10-26-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1653,8 +1653,9 @@ Core signatures:
   (`Text` for `"dns_lookup"`). A target that returns nothing (`"sleep"`) has no
   result: reading it stops with `[AETH-RUNTIME-TASK-NO-RESULT]`, so wait with
   `task_wait` instead. A run-time error while the task is still running
-- `task_stats() -> Array`: worker-pool records with no Aether type, so count
-  them (`length(task_stats())`) and read fields through `task_stats_json()`
+- `task_stats()`: worker-pool records with no Aether type, so the result
+  cannot be bound to a variable (there is no `Array` type to declare): count
+  them with `len(task_stats())` and read their fields through `task_stats_json()`
 - `task_stats_json() -> Text`
 - `ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`:
   `messages` is a JSON array of `{"role": ..., "content": ...}` objects;
@@ -2098,7 +2099,7 @@ does not exist — re-read the message rather than inventing a rule for it.
   → `toon_len(node)` for a TOON array, `len(xs)` for an array, a `Text` or a map,
   and `xs[i]` to index an array. A variable declared on its own line is checked
   when the program compiles; a crossing the compiler cannot see still stops at
-  run time with `Length expects a string or array argument`.
+  run time with `len expects a string or array argument`.
 - **[ARR-003]** *(runtime)* an index outside the array's valid range. The message
   gives the offending index, which dimension it was in, and the valid range, and
   the `[Error Location]` line that follows gives the source line. Read the range
@@ -2290,7 +2291,11 @@ fn main() -> Void {
 ```
 
 Database builtins (`sqlite_*`) are effectful too; they are outside the curated
-surface, and their signatures are in the appendix. A SQL error in
+surface, and their signatures are in the appendix. `sqlite_open(path)` returns
+a database handle, and handles count from 0: the first open in a program
+returns 0, which is a valid handle, not a failure. An open that fails (a
+directory that does not exist) stops the program with the SQLite message, so
+there is no failure value to test. A SQL error in
 `sqlite_exec` or `sqlite_prepare` (a syntax error, a missing table) stops the
 program with the SQLite message. To handle one instead, use the checked forms:
 `let (rc, ok) = try_sqlite_exec(db, sql);` gives SQLite's result code and
@@ -2700,7 +2705,7 @@ Safe to call exactly as written.
 | `task_resume(handle: Int) -> Bool` | `fx` |
 | `task_set_name(handle: Int, name: Text) -> Bool` | `fx` |
 | `task_spawn(target: Text, name: Text, arg) -> Int` | `fx` |
-| `task_stats() -> Array` | `fx` |
+| `task_stats() -> untyped array` | `fx` |
 | `task_stats_json() -> Text` | `fx` |
 | `task_status(handle: Int, consume: Bool = false) -> Bool` | `fx` |
 | `task_wait(handle: Int) -> Int` | `fx` |

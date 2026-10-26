@@ -1,0 +1,9 @@
+// A run-time error raised by an engine builtin names it as the program wrote
+// it: `len` on an Int stopped with "Length expects a string or array
+// argument.", which names no Aether builtin.
+fn count(n: Int) -> Int {
+    ret len(n);
+}
+fn main() -> Void {
+    fx { println(count(7)); }
+}

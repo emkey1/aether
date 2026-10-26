@@ -176,6 +176,17 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         /* Maps (D68); the generic ones are typed in inferLetTypeName. */
         { "aether_map_has", "Bool" }, { "aether_map_length", "Int" },
         { "aether_map_keys", "Text[]" },
+        /* Core builtins the engine lists with no signature; the types are the
+         * ones the guide documents (its conversion and math tables). Generic
+         * ones (abs, min, max, max_of) keep needing a type. */
+        { "parse_int", "Int" }, { "parse_float", "Real" }, { "parse_bool", "Bool" },
+        { "round", "Int" }, { "trunc", "Int" }, { "floor", "Int" }, { "ceil", "Int" },
+        { "ord", "Int" }, { "chr", "Text" }, { "int", "Int" }, { "real", "Real" },
+        { "bool", "Bool" }, { "odd", "Bool" }, { "factorial", "Int" }, { "fibonacci", "Int" },
+        { "sqrt", "Real" }, { "exp", "Real" }, { "ln", "Real" }, { "log10", "Real" },
+        { "sin", "Real" }, { "cos", "Real" }, { "tan", "Real" }, { "cotan", "Real" },
+        { "sinh", "Real" }, { "cosh", "Real" }, { "tanh", "Real" }, { "arcsin", "Real" },
+        { "arccos", "Real" }, { "arctan", "Real" }, { "atan2", "Real" },
         /* Bool-returning. */
         { "hasextbuiltin", "Bool" }, { "YyjsonGetBoolOr", "Bool" },
         { "YyjsonGetBool", "Bool" }, { "YyjsonIsNull", "Bool" },
@@ -184,7 +195,11 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
     for (size_t i = 0; i < sizeof(table) / sizeof(table[0]); i++) {
         if (strcasecmp(name, table[i].fn) == 0) return table[i].ret;
     }
-    return NULL;
+    /* Any other builtin: the return type its builtins_json signature
+     * documents. The inference policy promises every "call to a function
+     * with a known declared return type"; this table alone left
+     * format_float, parse_int and task_spawn uninferred. */
+    return aetherBuiltinDocumentedReturnType(name);
 }
 
 /* Infer the Aether type *name* of an initializer expression for an

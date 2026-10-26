@@ -12,6 +12,7 @@
 #include "aether/diagnostics.h"
 #include "aether/ast_prepasses.h"   /* aetherAstCollectImportedTypes (NAME-001) */
 #include "aether/parser.h"
+#include "vm/vm_fx_policy.h"            /* the builtins_json listing (arity, D-arity fallback) */
 #include "aether/experiment.h"
 #include "aether/types.h"
 #include "rea/semantic.h"
@@ -3307,6 +3308,158 @@ static const AetherBuiltinArity kAetherBuiltinArity[] = {
     {"aether_map_length", 17, 1, 1},
 };
 
+/* The argument counts the builtins_json listing documents, for a builtin the
+ * table above does not list (`task_stats_json(h)` reached the engine, which
+ * stopped with its own "ThreadStatsJson expects no arguments."). Built once
+ * from each signature: `name(a: T, b: T = d) -> R`, overloads joined by `;`;
+ * a parameter with a default is optional, `...` makes the count open. */
+typedef struct {
+    char name[64];
+    int minArgs;
+    int maxArgs;
+    char ret[32]; /* the documented return type when every overload names the same
+                   * concrete one (Int, Text[], ToonNode, ...); "" otherwise */
+} AetherSigArity;
+
+static AetherSigArity *g_sigArity = NULL;
+static int g_sigArityCount = 0;
+static int g_sigArityCap = 0;
+static int g_sigArityLoaded = 0;
+
+/* One overload's parameter counts; false when it does not parse. */
+static bool parseOneSignatureArity(const char *sig, const char *end, int *required, int *total) {
+    const char *open = memchr(sig, '(', (size_t)(end - sig));
+    if (!open) return false;
+    int depth = 0, params = 0, optional = 0;
+    bool any = false, variadic = false, hasDefault = false, paramVariadic = false;
+    const char *p = open + 1;
+    for (; p < end; p++) {
+        char c = *p;
+        if (c == '(' || c == '[') depth++;
+        else if ((c == ')' || c == ']') && depth > 0) depth--;
+        else if (c == ')' && depth == 0) break;
+        else if (c == ',' && depth == 0) {
+            if (any) { params++; if (hasDefault || paramVariadic) optional++; }
+            any = false; hasDefault = false; paramVariadic = false;
+            continue;
+        } else if (c == '=' && depth == 0) hasDefault = true;
+        else if (c == '.' && p + 2 < end && p[1] == '.' && p[2] == '.') variadic = paramVariadic = true;
+        if (!isspace((unsigned char)c)) any = true;
+    }
+    if (p >= end) return false;
+    /* `...` is zero or more: `println()` prints an empty line. */
+    if (any) { params++; if (hasDefault || paramVariadic) optional++; }
+    *required = params - optional;
+    *total = variadic ? 255 : params;
+    return true;
+}
+
+/* An overload's return type, when it is one an inferred `let` can carry:
+ * a scalar, a TOON/stream handle, or an array of those. */
+static bool signatureReturnType(const char *seg, const char *end, char *out, size_t cap) {
+    const char *arrow = NULL;
+    for (const char *s = seg; s + 1 < end; s++) {
+        if (s[0] == '-' && s[1] == '>') arrow = s + 2;
+    }
+    if (!arrow) return false;
+    while (arrow < end && isspace((unsigned char)*arrow)) arrow++;
+    const char *stop = end;
+    while (stop > arrow && isspace((unsigned char)stop[-1])) stop--;
+    size_t n = (size_t)(stop - arrow);
+    if (n == 0 || n >= cap) return false;
+    size_t base = n;
+    while (base >= 2 && arrow[base - 2] == '[' && arrow[base - 1] == ']') base -= 2;
+    static const char *const kConcrete[] = {"Int", "Real", "Text", "Bool", "ToonDoc", "ToonNode",
+                                            "MStream"};
+    bool ok = false;
+    for (size_t i = 0; i < sizeof(kConcrete) / sizeof(kConcrete[0]); i++) {
+        if (strlen(kConcrete[i]) == base && strncmp(arrow, kConcrete[i], base) == 0) ok = true;
+    }
+    if (!ok) return false;
+    memcpy(out, arrow, n);
+    out[n] = '\0';
+    return true;
+}
+
+static void aetherSigArityVisit(const char *name, const char *signature, void *ctx) {
+    (void)ctx;
+    if (!name || !signature || strlen(name) >= sizeof(g_sigArity[0].name)) return;
+    int minArgs = 255, maxArgs = -1;
+    char ret[32] = "";
+    bool retAgreed = true;
+    const char *seg = signature;
+    while (*seg) {
+        const char *end = strchr(seg, ';');
+        if (!end) end = seg + strlen(seg);
+        int req = 0, tot = 0;
+        if (!parseOneSignatureArity(seg, end, &req, &tot)) return;
+        if (req < minArgs) minArgs = req;
+        if (tot > maxArgs) maxArgs = tot;
+        char r[32];
+        if (!signatureReturnType(seg, end, r, sizeof(r))) retAgreed = false;
+        else if (!ret[0]) snprintf(ret, sizeof(ret), "%s", r);
+        else if (strcmp(ret, r) != 0) retAgreed = false;
+        seg = *end ? end + 1 : end;
+        while (*seg == ' ') seg++;
+    }
+    if (maxArgs < 0) return;
+    if (!retAgreed) ret[0] = '\0';
+    for (int i = 0; i < g_sigArityCount; i++) {
+        if (strcmp(g_sigArity[i].name, name) == 0) {
+            if (minArgs < g_sigArity[i].minArgs) g_sigArity[i].minArgs = minArgs;
+            if (maxArgs > g_sigArity[i].maxArgs) g_sigArity[i].maxArgs = maxArgs;
+            if (strcmp(g_sigArity[i].ret, ret) != 0) g_sigArity[i].ret[0] = '\0';
+            return;
+        }
+    }
+    if (g_sigArityCount == g_sigArityCap) {
+        int ncap = g_sigArityCap ? g_sigArityCap * 2 : 128;
+        AetherSigArity *g = (AetherSigArity *)realloc(g_sigArity, (size_t)ncap * sizeof(*g));
+        if (!g) return;
+        g_sigArity = g;
+        g_sigArityCap = ncap;
+    }
+    AetherSigArity *e = &g_sigArity[g_sigArityCount++];
+    snprintf(e->name, sizeof(e->name), "%s", name);
+    e->minArgs = minArgs;
+    e->maxArgs = maxArgs;
+    snprintf(e->ret, sizeof(e->ret), "%s", ret);
+}
+
+static const AetherSigArity *aetherSignatureArity(const char *aetherName) {
+    if (!aetherName) return NULL;
+    if (!g_sigArityLoaded) {
+        g_sigArityLoaded = 1;
+        pscalAetherForEachBuiltinName(aetherSigArityVisit, NULL);
+    }
+    for (int i = 0; i < g_sigArityCount; i++) {
+        if (strcmp(g_sigArity[i].name, aetherName) == 0) return &g_sigArity[i];
+    }
+    return NULL;
+}
+
+const char *aetherBuiltinDocumentedReturnType(const char *name) {
+    if (!name) return NULL;
+    const char *aetherName = pscalAetherNameForBuiltin(name);
+    const AetherSigArity *sa = aetherSignatureArity(aetherName ? aetherName : name);
+    return (sa && sa->ret[0]) ? sa->ret : NULL;
+}
+
+static void aetherReportArity(const char *display, int minArgs, int maxArgs, int given, int line) {
+    char detail[256];
+    if (minArgs == maxArgs) {
+        snprintf(detail, sizeof(detail), "'%s' takes %d argument%s, but %d %s given.", display,
+                 minArgs, minArgs == 1 ? "" : "s", given, given == 1 ? "was" : "were");
+    } else if (maxArgs >= 255) {
+        snprintf(detail, sizeof(detail), "'%s' takes at least %d argument%s, but %d %s given.",
+                 display, minArgs, minArgs == 1 ? "" : "s", given, given == 1 ? "was" : "were");
+    } else {
+        snprintf(detail, sizeof(detail), "'%s' takes %d to %d arguments, but %d %s given.", display,
+                 minArgs, maxArgs, given, given == 1 ? "was" : "were");
+    }
+    reportAetherErrorCoded("BUILT-002", "builtin", line, detail);
+}
+
 static void aetherCheckBuiltinArity(const AST *node,
                                     const char *canonical,
                                     const char *display,
@@ -3358,6 +3511,22 @@ static void aetherCheckBuiltinArity(const AST *node,
         }
         reportAetherErrorCoded("BUILT-002", "builtin", line, detail);
         return;
+    }
+    /* Not in the table: the signature builtins_json documents, for a call
+     * written with the Aether name (an engine name such as threadpoolsubmit
+     * takes the engine's own arguments) that the prepass has not already
+     * judged (the TOON getters). */
+    const char *aetherName = pscalAetherNameForBuiltin(canonical);
+    if (!aetherName) aetherName = canonical;
+    if (!display || strcmp(display, aetherName) != 0 || aetherAstPrepassReportedArity(aetherName)) {
+        return;
+    }
+    const AetherSigArity *sa = aetherSignatureArity(aetherName);
+    if (sa) {
+        int given = node->child_count;
+        if (given < sa->minArgs || given > sa->maxArgs) {
+            aetherReportArity(display ? display : sa->name, sa->minArgs, sa->maxArgs, given, line);
+        }
     }
 }
 
