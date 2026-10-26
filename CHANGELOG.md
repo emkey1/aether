@@ -17,6 +17,20 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-26-1
 
+**Release `1.0-beta14`** (D75): the fourteenth 1.0 beta, tagged `1.0-beta14`;
+`--version` prints `Aether Compiler Version: 2026-10-26-1 (1.0-beta14)`. On
+top of `1.0-beta13` it carries the change below:
+- an inferred `let` takes any builtin's documented return type, so
+  `let s = format_float(x, 2)` and `let n = parse_int(t)` compile;
+- a wrong argument count to a builtin the arity table did not list is
+  `BUILT-002` at compile time (`task_stats_json(h)`);
+- `task_stats()` is documented as untyped, with a hint when it is bound;
+- run-time errors name the Aether builtin (`sqlite_open`, `ai_chat`, `len`),
+  not the engine's;
+- the guide says SQLite handles count from 0.
+
+The next dev label is `1.0-beta15dev`.
+
 From the 1.0-beta13 review. An inferred `let` accepts more programs, and a
 wrong argument count to more builtins is caught when the program compiles.
 
