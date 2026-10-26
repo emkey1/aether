@@ -15,6 +15,28 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-26-2
+
+From the 1.0-beta14 review. More `let` bindings infer, and one misleading
+diagnostic is replaced.
+
+- **`min` and `max` infer from same-typed arguments.** `let lo = min(3, 9)`
+  was TYPE-001: generic builtins needed a type. Two `Int` arguments now give
+  `Int`, and two `Real` arguments give `Real`, which is what the engine returns.
+  Mixed arguments still need the type written, and the hint names `Real`.
+  `abs` and `max_of` still need a type.
+- **`fx fn` is FX-001.** `fx fn main()` reads `fx` as a function modifier.
+  A bare `fx` parsed as an empty statement, so at the top level the file drew
+  ENTRY-001 ("this file also has top-level statements"), and inside a body
+  nothing was said. Both are now FX-001: "`fx` opens a block, it does not mark
+  a function", with a hint showing `fx { ... }` inside the body. A file with no
+  `main` whose functions were written `fx fn` used to compile and now does not.
+  No archived model program writes `fx fn`.
+
+Fixtures `basic/infer_min_max_pass`, `diag/infer_min_max_mixed_hint_fail`,
+`entry/fx_fn_modifier_fail`, `diag/fx_fn_nested_fail`; spec `G.FxBlock.4`,
+`S.minmax.1`, `S.minmax.2`.
+
 ## 2026-10-26-1
 
 **Release `1.0-beta14`** (D75): the fourteenth 1.0 beta, tagged `1.0-beta14`;

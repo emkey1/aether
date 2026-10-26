@@ -1207,6 +1207,14 @@ fn main() -> Void {
 }
 ```
 
+`fx` opens a block; it is not a function modifier:
+
+```aether @reject=FX-001 id=G.FxBlock.4
+fx fn main() -> Void {
+    println("hi");
+}
+```
+
 ```aether @ok id=G.ParBlock.1
 type Acc { n: Int = 0; }
 fn work(a: Acc, k: Int) -> Void { a.n = k * 2; }
@@ -2015,6 +2023,28 @@ fn main() -> Void {
 
 ```text
 abcda
+```
+
+`min` and `max` infer their type from two arguments of one scalar type: two
+`Int`s give `Int`, two `Real`s give `Real`. Mixed arguments need the type
+written:
+
+```aether @ok id=S.minmax.1
+fn main() -> Void {
+    let lo = min(3, 9);
+    let hi = max(2.5, 1.25);
+    fx { println(lo div 2, " ", hi); }
+}
+```
+
+```text
+1 2.5
+```
+
+```aether @reject=TYPE-001 id=S.minmax.2
+fn main() -> Void {
+    let m = max(2, 1.5);
+}
 ```
 
 A `Real` stored into an `Int` truncates, with the NARROW-001 warning (never an

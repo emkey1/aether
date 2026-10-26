@@ -6557,6 +6557,20 @@ static AST *parseStatementInner(AetherParser *p) {
             if (fxBlock) aetherAstRegisterFxBlock(fxBlock, fxLine);
             return fxBlock;
         }
+        /* `fx fn main()`: fx read as a function modifier. As a no-op statement it
+         * drew ENTRY-001 ("top-level statements") at the top level, or nothing
+         * inside a body. */
+        if ((isAetherKeyword(&p->current, "fn") || isAetherKeyword(&p->current, "export")) &&
+            !p->detachedText) {
+            reportAetherAstErrorWithCode(fxLine, "FX-001",
+                                         "`fx` opens a block, it does not mark a function: `fx fn` "
+                                         "is not Aether syntax.",
+                                         "drop `fx` before `fn` and put the effectful calls in an "
+                                         "`fx { ... }` block inside the body: `fn main() -> Void { "
+                                         "fx { println(...); } ret; }`.");
+            p->hadError = true;
+            return NULL;
+        }
         /* `fx` with no following block: a no-op block. */
         return newASTNode(AST_COMPOUND, NULL);
     }

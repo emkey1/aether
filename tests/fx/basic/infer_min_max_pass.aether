@@ -1,0 +1,18 @@
+// min and max of two same-typed scalars are inferred (T'Ra, 1.0-beta14 review):
+// two Ints give Int, two Reals give Real, consts and expressions included.
+// Mixed arguments still need a type (diag/infer_min_max_mixed_hint_fail).
+const CAP: Int = 10;
+fn lower(a: Real, b: Real) -> Real {
+    let lo = min(a, b);
+    ret lo;
+}
+fn main() -> Void {
+    let a = min(3, 9);
+    let b = max(2.5, 1.25);
+    let n: Int = 4;
+    let c = max(n, CAP);
+    let d = min(-5, n * 2);
+    let e = max(len([1, 2, 3]), 2);
+    a = a + 1;
+    fx { println(a, " ", b, " ", c, " ", d, " ", e, " ", lower(1.5, 0.5), " ", a div 2); }
+}

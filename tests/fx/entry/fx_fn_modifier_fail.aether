@@ -1,0 +1,6 @@
+// `fx fn main()` reads fx as a function modifier. It parsed as an empty
+// top-level statement, so the file drew ENTRY-001 ("this file also has
+// top-level statements"); it is now FX-001 naming the block form.
+fx fn main() -> Void {
+    println("hello");
+}

@@ -178,7 +178,8 @@ static const char *inferBuiltinReturnTypeName(const char *name) {
         { "aether_map_keys", "Text[]" },
         /* Core builtins the engine lists with no signature; the types are the
          * ones the guide documents (its conversion and math tables). Generic
-         * ones (abs, min, max, max_of) keep needing a type. */
+         * ones (abs, max_of) keep needing a type; min and max take theirs
+         * from two same-typed arguments in inferLetTypeName. */
         { "parse_int", "Int" }, { "parse_float", "Real" }, { "parse_bool", "Bool" },
         { "round", "Int" }, { "trunc", "Int" }, { "floor", "Int" }, { "ceil", "Int" },
         { "ord", "Int" }, { "chr", "Text" }, { "int", "Int" }, { "real", "Real" },
@@ -279,6 +280,18 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
                 memcpy(arr + n, "[]", 3);
                 free(et);
                 return arr;
+            }
+            /* min/max of two values of one scalar type: the engine returns an Int for
+             * two Ints and a Real otherwise, so two Ints give Int and two Reals give
+             * Real. Mixed arguments keep needing a type. */
+            if ((strcmp(fn, "min") == 0 || strcmp(fn, "max") == 0) && init->child_count == 2) {
+                char *a = inferLetTypeName(p, init->children[0]);
+                char *b = inferLetTypeName(p, init->children[1]);
+                bool same = a && b && strcmp(a, b) == 0 &&
+                            (strcmp(a, "Int") == 0 || strcmp(a, "Real") == 0);
+                free(b);
+                if (same) return a;
+                free(a);
             }
             bool elemOfArg = strcmp(fn, "aether_sum") == 0 || strcmp(fn, "aether_min_of") == 0 ||
                              strcmp(fn, "aether_max_of") == 0;

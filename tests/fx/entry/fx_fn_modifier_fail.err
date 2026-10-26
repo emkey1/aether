@@ -1,0 +1,3 @@
+`fx fn` is not Aether syntax
+fx { println(...); }
+!ENTRY-001

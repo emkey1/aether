@@ -1,0 +1,7 @@
+// min/max infer only from two arguments of one scalar type. An Int and a Real
+// give a Real at run time, but the binding still needs its type, and the hint
+// names it.
+fn main() -> Void {
+    let m = max(2, 1.5);
+    fx { println(m); }
+}

@@ -1,0 +1,8 @@
+// `fx fn` on a nested function was silently an empty statement in the body;
+// it is FX-001 like the top-level form.
+fn main() -> Void {
+    fx fn shout(s: Text) -> Void {
+        println(s);
+    }
+    ret;
+}
