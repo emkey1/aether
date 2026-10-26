@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-22-1*
+*Guide version: 2026-10-26-1*
 
 ## Highest-Value Rules
 
@@ -558,8 +558,8 @@ fx { println("a=", a.count, " b=", b.count); }
 
 Imports are advanced; most generated Aether should be single-file.
 
-- only `use "..."` for real, verified modules; a missing import's symbols do
-  not exist, and the compiler only warns (IMP-001)
+- only `use "..."`, at the top of the file, for real, verified modules; a
+  missing import's symbols do not exist, and the compiler only warns (IMP-001)
 - **MOD-001**: imported names match exported names exactly — `use` does not
   rename. Module exports `labelScore` → call `labelScore(...)`,
   never a guessed `label(...)`. Module exports `BaseScore` → use `BaseScore`,
@@ -723,11 +723,10 @@ fix:
   index, a loop range bound): write `a div b`.
 - **[TYPE-002]** a type name that does not exist, in any position (declaration
   order does not matter) → use `Int`, `Real`, `Text`, `Bool`, `Void`, `T[]`, or
-  a `type` you declared. The message names the Aether
-  spelling when there is one (`Double` → `Real`, `Integer` → `Int`, `Char` →
-  `Text`, `int` → `Int`).
+  a `type` you declared; the message names the Aether spelling.
 - **[TOON-001]** a `ToonDoc`/`ToonNode` handle misuse → e.g. add
-  `let root: ToonNode = toon_root(doc);`.
+  `let root: ToonNode = toon_root(doc);`. `len` of a handle or `toon_len` of an
+  array (LEN-001) → `toon_len(node)`, `len(xs)`.
 - **[MS-001]** an `MStream` handle misuse → declare stream bindings `MStream`
   (rule 25).
 - **[FIELD-002]** `Unknown field` → use the exact declared field name.
@@ -735,7 +734,7 @@ fix:
   `const`, another field, `self`, a call), or a populated array default → use a
   literal (`count: Int = 0`), or set the value at construction with
   `new T { field: value }`. A type-mismatched default (`value: Int = "x"`)
-  is `[TYPE-001]` instead — match the field's type.
+  is `[TYPE-001]` instead.
 - **[FLOW-001]** a fallthrough path with no return value → add a final `ret ...`
   on every reachable top-level path.
 - **[FLOW-002]** an empty `ret;` in a non-`Void` function → give the return a
@@ -751,24 +750,22 @@ fix:
 - **[PARAM-001]** (warning) a helper advances a parameter (`pos = pos + 1`) the
   caller expects to move → parameters are copies: return it,
   `let (v, next) = f(s, pos); pos = next;`.
+- **[LOOP-001]** a `loop x in xs` body changes `xs` → walk a worklist by index,
+  `loop i < len(xs)`, or loop over a copy.
 - **[ARR-002]** a one-dimensional array indexed twice (`let dp: Int[] = [];`
   then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
   as its own `Int[]`, or index once with `dp[r * width + c]`.
 - **[PREC-001]** (warning) `flags & mask != 0` → write `(flags & mask) != 0`.
   As an error: `0 <= i < n` → `0 <= i && i < n`.
-- **`Length expects a string or array argument`** / **`... expects a single
-  value handle`** (runtime, no code) → `toon_len` and `length` are crossed
-  (LEN-001).
-- **[ARR-003]** (runtime) an index outside the array → the message gives the
-  valid range; `loop i in 0..n` ends at `n - 1`, and a row being built is not in
-  the table until it is appended.
+- **[ARR-003]** (runtime) an index outside the array → `loop i in 0..n` ends at
+  `n - 1`, and a row being built is not in the table until it is appended.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`) → a call broke
   `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
   values as arguments: `println("n = ", n)`.
 - **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.
-- **[ENTRY-001]** top-level statements beside `fn main`, or a `main` with
-  parameters → put the statements in `fn main() -> Void`.
+- **[ENTRY-001]** top-level statements (a top-level `let`/`const` is fine) beside
+  `fn main`, or a `main` with parameters → put them in `fn main() -> Void`.
 - **[PAR-001]** the same record passed to more than one `par` branch (concurrent
   writes race) → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` → wrap the work in a

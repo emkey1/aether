@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-21-2*
+*Guide version: 2026-10-26-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -772,9 +772,8 @@ fn normalize(score: Int) -> Int {
 
 Most generated Aether should be a single file. When a task supplies modules:
 
-- import with `use "module_name";` — the string resolves to a sibling file of
-  that exact name
-- imported names match exported names exactly (MOD-001)
+- import with `use "module_name";` at the top of the file, never inside a `fn`;
+  it finds a sibling file `module_name` or `module_name.aether`
 - `@pure` goes above `export fn`
 - assume modules export `const` and `fn`
 
@@ -973,7 +972,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[TYPE-002]** a type name that does not exist, in any position (declaration
   order does not matter) → use `Int`, `Real`, `Text`, `Bool`, `Void`, `T[]`, or
   a `type` you declared; the message names the Aether spelling.
-- **[TOON-001]** handle misuse → go through `toon_root(doc)` (rule 6).
+- **[TOON-001]** handle misuse → go through `toon_root(doc)` (rule 6). `len` of a
+  handle or `toon_len` of an array (LEN-001) → `toon_len(node)`, `len(xs)`.
 - **[MS-001]** stream misuse → declare stream bindings `MStream` (rule 23).
 - **[FIELD-002]** `Unknown field` → use the exact declared name.
 - **[FIELD-003]** a non-literal field default → use a literal, or set the value
@@ -990,6 +990,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   field; never chain onto the call.
 - **[ARR-001]** an array or map parameter changed but never returned, or a
   returned array or map dropped → `xs = f(xs)`.
+- **[LOOP-001]** a `loop x in xs` body changes `xs` → walk a worklist by index,
+  `loop i < len(xs)`, or loop over a copy.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
   fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
 - **[PARAM-001]** (warning) a helper advances a parameter the caller expects to
@@ -998,15 +1000,10 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[ARR-002]** a one-dimensional array indexed twice → declare it `T[][]` and
   build rows as arrays, or index once with a computed offset
   (`grid[r * width + c]`).
-- **`Length expects a string or array argument`** / **`... expects a single
-  value handle`** (runtime, no code) → `toon_len` and `length` are crossed
-  (LEN-001).
-- **[ARR-003]** (runtime) index outside the array's range; the message gives the
-  index, the dimension and the valid range, and the `[Error Location]` line gives
-  the source line. `valid indices are 0..0` means one element exists, so the row
-  is usually **not appended yet**: while building a table row by row, the current
-  row is the local `row`, not `table[i]` — `table[i]` only exists after
-  `table = table + [row];`. Earlier rows read fine as `table[i - 1][j]`.
+- **[ARR-003]** (runtime) index outside the array's range. `valid indices are
+  0..0` means one element exists, so the row is usually **not appended yet**:
+  while building a table row by row, the current row is the local `row`, not
+  `table[i]` — `table[i]` only exists after `table = table + [row];`.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`), exit 1 → a
   call broke `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[PREC-001]** (warning) `flags & mask != 0` → parenthesize:
@@ -1015,8 +1012,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
   values as arguments: `println("n = ", n)`.
 - **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.
-- **[ENTRY-001]** top-level statements beside `fn main`, or a `main` with
-  parameters → put the statements in `fn main() -> Void`.
+- **[ENTRY-001]** top-level statements (a top-level `let`/`const` is fine) beside
+  `fn main`, or a `main` with parameters → put them in `fn main() -> Void`.
 - **[PAR-001]** the same record in more than one `par` branch → give each branch
   its own and combine afterwards.
 - **[PAR-002]** a non-call statement inside `par` → wrap the work in a `fn`.
