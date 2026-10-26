@@ -1,0 +1,45 @@
+2026-10-26T09:11:47Z start: binary b29d276e54a58c4012efa935a16c564f2a43200640f891caffcd19b03e1b016f (Aether Compiler Version: 2026-10-26-1 (1.0-beta15dev)) old=5b2868122a24 new=1ed1196f04b7 workers 6 spend limit $66.0
+2026-10-26T09:11:47Z [run ] or-qwen35-9b__tasks_v2_pos__r0 (usage $54.958220065)
+2026-10-26T09:11:47Z [run ] or-qwen35-9b__tasks_v2_pos__r2 (usage $54.958220065)
+2026-10-26T09:11:47Z [run ] or-qwen35-9b__tasks_v2_pos__r1 (usage $54.958220065)
+2026-10-26T10:46:55Z [short] or-qwen35-9b__tasks_v2_pos__r2 rc=3 5708s: SHORT small_dense 35/35 cases, 3 unmeasured; kept as a checkpoint
+2026-10-26T10:46:55Z [run ] or-qwen35-9b__tasks_cs__r2 (usage $56.193560815)
+2026-10-26T11:20:19Z [short] or-qwen35-9b__tasks_v2_pos__r0 rc=3 7712s: SHORT small_dense 35/35 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T11:20:20Z [run ] or-qwen35-9b__tasks_cs__r0 (usage $56.461767065)
+2026-10-26T11:24:00Z [short] or-qwen35-9b__tasks_v2_pos__r1 rc=3 7933s: SHORT small_dense 35/35 cases, 2 unmeasured; kept as a checkpoint
+2026-10-26T11:24:00Z [run ] or-qwen35-9b__tasks_cs__r1 (usage $56.648315115)
+2026-10-26T12:59:29Z [short] or-qwen35-9b__tasks_cs__r1 rc=3 5729s: SHORT small_current 19/19 cases, 2 unmeasured; kept as a checkpoint
+2026-10-26T12:59:29Z [run ] or-qwen35-9b__tasks_hard_v2__r1 (usage $57.696518515)
+2026-10-26T13:25:35Z [short] or-qwen35-9b__tasks_cs__r0 rc=3 7515s: SHORT small_current 19/19 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T13:25:35Z [run ] or-qwen35-9b__tasks_hard_v2__r0 (usage $57.978250815)
+2026-10-26T13:26:48Z [short] or-qwen35-9b__tasks_cs__r2 rc=3 9593s: SHORT small_current 19/19 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T13:26:49Z [run ] or-qwen35-9b__tasks_hard_v2__r2 (usage $58.135608115)
+2026-10-26T14:52:37Z [done] or-qwen35-9b__tasks_hard_v2__r1 rc=0 6788s small_current fa=4/14 fx=8/14 gen=8; small_dense fa=1/14 fx=1/14 gen=1
+2026-10-26T14:52:37Z [run ] or-qwen35-9b__tasks_hard_nontoon__r1 (usage $59.112550515)
+2026-10-26T14:55:03Z [short] or-qwen35-9b__tasks_hard_v2__r0 rc=3 5368s: SHORT small_dense 14/14 cases, 3 unmeasured; kept as a checkpoint
+2026-10-26T14:55:03Z [run ] or-qwen35-9b__tasks_hard_nontoon__r0 (usage $59.190416865)
+2026-10-26T15:24:08Z [done] or-qwen35-9b__tasks_hard_v2__r2 rc=0 7039s small_current fa=7/14 fx=11/14 gen=11; small_dense fa=1/14 fx=1/14 gen=1
+2026-10-26T15:24:08Z [run ] or-qwen35-9b__tasks_hard_nontoon__r2 (usage $59.459903865)
+2026-10-26T15:40:11Z [short] or-qwen35-9b__tasks_hard_nontoon__r1 rc=3 2854s: SHORT small_current 5/5 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T15:51:52Z [short] or-qwen35-9b__tasks_hard_nontoon__r0 rc=3 3409s: SHORT small_current 5/5 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T16:11:36Z [done] or-qwen35-9b__tasks_hard_nontoon__r2 rc=0 2848s small_current fa=1/5 fx=1/5 gen=1; small_dense fa=0/5 fx=0/5 gen=1
+2026-10-26T16:11:36Z [pass 1] 9 unit(s) not whole; next pass in 5 minutes
+2026-10-26T16:16:36Z [run ] or-qwen35-9b__tasks_v2_pos__r2 (usage $60.049467015)
+2026-10-26T16:16:36Z [run ] or-qwen35-9b__tasks_v2_pos__r0 (usage $60.049467015)
+2026-10-26T16:16:37Z [run ] or-qwen35-9b__tasks_v2_pos__r1 (usage $60.049467015)
+2026-10-26T16:36:28Z [done] or-qwen35-9b__tasks_v2_pos__r1 rc=0 1191s small_current fa=30/35 fx=31/35 gen=31; small_dense fa=17/35 fx=17/35 gen=18
+2026-10-26T16:36:28Z [done] or-qwen35-9b__tasks_v2_pos__r0 rc=0 1192s small_current fa=33/35 fx=34/35 gen=34; small_dense fa=18/35 fx=18/35 gen=18
+2026-10-26T16:36:28Z [run ] or-qwen35-9b__tasks_cs__r1 (usage $60.050943165)
+2026-10-26T16:36:28Z [run ] or-qwen35-9b__tasks_cs__r0 (usage $60.050943165)
+2026-10-26T16:36:29Z [done] or-qwen35-9b__tasks_v2_pos__r2 rc=0 1193s small_current fa=30/35 fx=32/35 gen=32; small_dense fa=22/35 fx=22/35 gen=22
+2026-10-26T16:36:29Z [run ] or-qwen35-9b__tasks_cs__r2 (usage $60.050943165)
+2026-10-26T17:08:21Z [done] or-qwen35-9b__tasks_cs__r0 rc=0 1913s small_current fa=12/19 fx=13/19 gen=14; small_dense fa=7/19 fx=7/19 gen=10
+2026-10-26T17:08:27Z [run ] or-qwen35-9b__tasks_hard_v2__r0 (usage $60.160124765)
+2026-10-26T17:08:41Z [done] or-qwen35-9b__tasks_cs__r2 rc=0 1932s small_current fa=13/19 fx=13/19 gen=16; small_dense fa=2/19 fx=2/19 gen=3
+2026-10-26T17:27:45Z [done] or-qwen35-9b__tasks_cs__r1 rc=0 3077s small_current fa=13/19 fx=16/19 gen=16; small_dense fa=7/19 fx=8/19 gen=8
+2026-10-26T17:27:45Z [run ] or-qwen35-9b__tasks_hard_nontoon__r1 (usage $60.258983215)
+2026-10-26T17:27:56Z [done] or-qwen35-9b__tasks_hard_v2__r0 rc=0 1169s small_current fa=9/14 fx=11/14 gen=11; small_dense fa=1/14 fx=1/14 gen=1
+2026-10-26T17:27:56Z [run ] or-qwen35-9b__tasks_hard_nontoon__r0 (usage $60.258983215)
+2026-10-26T17:28:58Z [done] or-qwen35-9b__tasks_hard_nontoon__r1 rc=0 73s small_current fa=1/5 fx=1/5 gen=3; small_dense fa=2/5 fx=2/5 gen=2
+2026-10-26T17:46:29Z [done] or-qwen35-9b__tasks_hard_nontoon__r0 rc=0 1113s small_current fa=0/5 fx=2/5 gen=2; small_dense fa=0/5 fx=0/5 gen=0
+2026-10-26T17:46:29Z FINISHED: units not whole: 0; usage $60.363178315

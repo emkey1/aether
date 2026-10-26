@@ -7,7 +7,7 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,600 o200k / 12,352 Qwen3.5 | ~16K context models |
+| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 11,849 o200k / 12,614 Qwen3.5 (2026-10-26-1) | ~16K context models |
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
@@ -123,6 +123,14 @@ A/B-validated steps in the small-guide pass (W3-15), not in one edit; if
 DeepSeek-Coder counts well above o200k (not yet measured), the o200k-equivalent
 ceiling falls toward 6,500–7,000. Until that pass lands, `aether_guide_tokens`
 only reports small. The stated "~9K; 8–16K" is retired.
+
+**A one-step cut failed (2026-10-26).** A dense rewrite to 4,106 o200k (stamp
+2026-10-26-2: terse rules without code formatting, one list for the rules, repair
+rules and checklist, 4 complete programs) lost 34 points of first attempt against
+2026-10-26-1 on the small board (qwen3.5-9b, 219 paired cases). Nearly all of the
+loss is empty first attempts: the model reasons to the output cap instead of
+answering. It was not adopted. `bench/results/small_ab_20261026/README.md` has the
+board and one probe of the loop. Take the next cuts in smaller A/B-validated steps.
 
 **The medium rules bind small too.** Re-measure (o200k and Qwen3.5) before every
 small-guide edit, not only after, and pair every addition with a cut of at least
