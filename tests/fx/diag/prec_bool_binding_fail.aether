@@ -1,0 +1,8 @@
+// D88: bound to a Bool, `flags & mask != 0` was `6 & 1` = 0 read as false,
+// with only a PREC-001 warning. It is now the PREC-001 error.
+fn main() -> Void {
+    let flags: Int = 6;
+    let mask: Int = 3;
+    let bit: Bool = flags & mask != 0;
+    fx { println(bit); }
+}

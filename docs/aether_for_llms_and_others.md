@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-27-1*
+*Guide version: 2026-10-27-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -325,8 +325,10 @@ guessing conversion helpers or `Text + Int` coercions.
 | Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
 
 `&`/`|`/`^` are bitwise, not logical -- use `&&`/`||` for Bool conjunction/
-disjunction. `xor` may be spelled as the word `xor` or the symbol `^`
-(both lex to the same operator); there is no word form for `&`/`|`.
+disjunction. They take two `Int`s or two `Bool`s (eager); an `Int` with a
+`Bool` is an error (PREC-001 or TYPE-001). `xor` may be spelled as the word
+`xor` or the symbol `^` (both lex to the same operator); there is no word form
+for `&`/`|`.
 Precedence (loosest to tightest): `|| , && , | , ^ , & , == != , < <= > >= ,
 << >> , + - , * / %`. The word forms `or`, `and`, `not` sit exactly where their
 symbols do.
@@ -930,7 +932,9 @@ roll, pass the bound — `random(n)`. This now raises `[NARROW-001]`.
 reproducible, and prints the same numbers on every platform.
 
 `abs`, `min`, `max`, `clamp` preserve their operand type (`Int` in → `Int` out);
-`round`/`trunc`/`floor`/`ceil` always return `Int`.
+`round`/`trunc`/`floor`/`ceil` always return `Int`. An inferred `let` takes that
+type only when the arguments agree: `let m = min(5, 9.1);` is TYPE-001, so
+write `let m: Real = min(5, 9.1);`.
 
 `format_float(x, d)` and `x:0:d` round the stored binary value, so
 `format_float(2.675, 2)` is `"2.67"` (2.675 is stored as 2.67499...). When a spec
@@ -1649,8 +1653,9 @@ Core signatures:
 - `task_status(handle: Int) -> Bool` — readable only once the task has finished
   and before `task_wait`; on a running or an already-joined task it is a
   run-time error
-- `task_result(handle: Int)` — the target builtin's own result, of its type
-  (`Text` for `"dns_lookup"`). A target that returns nothing (`"sleep"`) has no
+- `task_result(handle: Int, consume: Bool = false)` — the target builtin's own
+  result, of its type (`Text` for `"dns_lookup"`); `consume: true` also clears
+  the stored status, as `task_wait` does. A target that returns nothing (`"sleep"`) has no
   result: reading it stops with `[AETH-RUNTIME-TASK-NO-RESULT]`, so wait with
   `task_wait` instead. A run-time error while the task is still running
 - `task_stats()`: worker-pool records with no Aether type, so the result
@@ -2044,8 +2049,8 @@ does not exist — re-read the message rather than inventing a rule for it.
   Any other builtin name (`rename`, `swap`, `pow`) is fine for a function:
   calls reach the function.
 - **[IMP-001]** a malformed `use` → write `use "module_name";` and call exports
-  directly (MOD-002). A `use` of a module that does not exist is not reported
-  by itself; its names then fail with SCOPE-001.
+  directly (MOD-002). A `use` of a module that does not exist is the warning
+  IMP-001, naming the files it looked for; its names then fail with SCOPE-001.
 - **[TYPE-001]** a type cannot be inferred → annotate it (including an untyped
   array literal such as `let xs: Int[] = [1, 2, 3];`). Also a foreach over a
   tuple item or a field of a type from a `use`d module (`cannot infer the type
@@ -2080,14 +2085,13 @@ does not exist — re-read the message rather than inventing a rule for it.
   value at construction with `new T { field: value }`. A type-mismatched default
   (`value: Int = "x"`) is a `[TYPE-001]` instead — make the default's type match
   the field.
-- **[PREC-001]** (warning) a bitwise operator against a comparison,
-  `flags & mask != 0` → `&`, `|` and `^` bind looser than `== != < <= > >=`, so
-  this groups as `flags & (mask != 0)` and evaluates to an **Int**, not a Bool.
-  It compiles: printed, it is a number, and a Bool or an `if` reads it as true
-  when it is not 0, so the test looks like it passes.
-  Parenthesize the mask: `(flags & mask) != 0`. As an **error**: comparisons do
-  not chain — `0 <= i < n`, `a == b == c` and an unparenthesised `not a == b` →
-  write `0 <= i && i < n`.
+- **[PREC-001]** a bitwise operator against a comparison, `flags & mask != 0`
+  → `&`, `|` and `^` bind looser than `== != < <= > >=`, so this groups as
+  `flags & (mask != 0)`, an Int combined with a Bool. Parenthesize the mask:
+  `(flags & mask) != 0`. Comparisons do not chain either — `0 <= i < n`,
+  `a == b == c` and an unparenthesised `not a == b` → write `0 <= i && i < n`.
+  Any other Int combined with a Bool by `&`, `|` or `^` (`7 & (3 != 0)`) is a
+  `[TYPE-001]`.
 - **[ARR-002]** a one-dimensional array indexed twice → the *declaration's* rank
   is wrong, not the indexing syntax. Nested arrays are real: declare `T[][]`,
   build each row as its own `T[]` (`row = row + [v];` then

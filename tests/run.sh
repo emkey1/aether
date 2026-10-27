@@ -3339,30 +3339,6 @@ if ! cmp -s $OUT/aether_imported_type_methods_expected.out $OUT/aether_imported_
     exit 1
 fi
 
-# PREC-001: `flags & mask != 0` parses as `flags & (mask != 0)` and yields an
-# Int, not a Bool -- it compiles and prints a number (a Bool binding reads it as
-# true when it is not 0), so the check looks like it works. A warning, so the
-# program must still run. Exactly three fire: the
-# parenthesized form and the two eager-boolean uses (`&`/`|` on Bool operands)
-# must stay silent, which is why the check requires a provably-Int left operand.
-# Warnings go to stderr; stdout is the seven values exactly as the program
-# computes them (3 & (2 != 0) = 1, 3 | (2 == 2) = 3, 3 ^ (2 < 4) = 2, ...).
-"$AETHER_BIN" --no-cache "$TESTS_DIR/bitwise_precedence_warn_pass.aether" >$OUT/aether_prec.out 2>$OUT/aether_prec.err
-if [ "$(grep -c '\[PREC-001\]' $OUT/aether_prec.err)" != "3" ]; then
-    echo "expected exactly 3 PREC-001 warnings (& | ^ against a comparison)" >&2
-    cat $OUT/aether_prec.err >&2
-    exit 1
-fi
-if ! grep -q "produces an Int, not a Bool" $OUT/aether_prec.err; then
-    echo "PREC-001 lost its Int-not-Bool explanation" >&2
-    exit 1
-fi
-if ! printf '1\n3\n2\ntrue\ntrue\ntrue\n2\n' | cmp -s - $OUT/aether_prec.out; then
-    echo "unexpected bitwise precedence output (fixture did not run to completion, or a warning changed what runs)" >&2
-    cat $OUT/aether_prec.out >&2
-    exit 1
-fi
-
 # has_builtin must see CORE builtins, not only extended ones. Searching only the
 # extended registry made the probe inverted: has_builtin("network",
 # "SocketCreate") answered false on a build where socketcreate(0) works, so a

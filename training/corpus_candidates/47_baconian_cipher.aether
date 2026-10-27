@@ -12,7 +12,7 @@ fn baconPattern(c: Text) -> Text {
     let pattern: Text = "";
     let bit: Int = 4;
     loop bit >= 0 {
-        if (idx >> bit) & 1 != 0 {
+        if ((idx >> bit) & 1) != 0 {
             pattern = pattern + "b";
         } else {
             pattern = pattern + "a";

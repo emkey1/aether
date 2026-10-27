@@ -1,0 +1,6 @@
+// A ToonDoc into a Text binding was TYPE-001 with "Convert it explicitly
+// (int_to_text, parse_int, int, ...)", which no conversion answers.
+fn main() -> Void {
+    let s: Text = toon_parse_string("name: Ada");
+    fx { println(s); }
+}

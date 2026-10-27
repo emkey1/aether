@@ -1647,6 +1647,24 @@ static void ruleSinkMismatch(RuleCtx *c, const AST *value, const AetherUse *use,
         ruleReport(c, value, detail);
         return;
     }
+    /* A TOON handle into a scalar: no conversion reaches the data, a getter
+     * does (reported by an agent testing 1.0-beta16). */
+    if (have.kind == AETHER_T_HANDLE && have.name &&
+        (!strcmp(have.name, "ToonDoc") || !strcmp(have.name, "ToonNode")) &&
+        (use->want.kind == AETHER_T_TEXT || use->want.kind == AETHER_T_INT ||
+         use->want.kind == AETHER_T_REAL || use->want.kind == AETHER_T_BOOL)) {
+        int isDoc = !strcmp(have.name, "ToonDoc");
+        snprintf(detail, sizeof(detail),
+                 "%s %s, but this value is a %s, an opaque TOON handle. Read a value "
+                 "through a getter: %s`toon_get_text(root, \"key\")` (or toon_get_int, "
+                 "toon_get_real, toon_get_bool).",
+                 where, want, have.name,
+                 isDoc ? "`let root: ToonNode = toon_root(doc);`, then " : "");
+        int line = nodeLine(value);
+        aetherSemanticReportCoded("TOON-001", "type", line > 0 ? line : 1, detail, 1);
+        c->reported++;
+        return;
+    }
     snprintf(detail, sizeof(detail), "type mismatch: %s %s, but this value is %s. %s",
              where, want, got,
              scalars ? "Convert it explicitly (int_to_text, parse_int, int, ...) or fix "
@@ -1865,6 +1883,30 @@ static int ruleNumericSelection(RuleCtx *c, const AST *e, const AetherTypeEnv *e
     return 0;
 }
 
+/* D88: `&`, `|` and `^` combine two Ints bit by bit, or two Bools. An Int with
+ * a Bool had no type here, so it passed every sink check and the VM read the
+ * Int as a Bool: `let b: Bool = 7 & (3 != 0)` printed true while
+ * `let b: Bool = 6 & 4` was TYPE-001. The parser reports the unparenthesised
+ * `flags & mask != 0` as PREC-001; this catches every other mix. */
+static int ruleMixedBitwise(RuleCtx *c, const AST *e, const AetherTypeEnv *env) {
+    if (e->type != AST_BINARY_OP || !e->token || !e->token->value) return 0;
+    if (e->token->type != TOKEN_AND && e->token->type != TOKEN_OR && e->token->type != TOKEN_XOR)
+        return 0;
+    const char *op = e->token->value;
+    if (!strcmp(op, "&&") || !strcmp(op, "||")) return 0;
+    AetherTypeKind l = aetherTypeOf(e->left, env).kind, r = aetherTypeOf(e->right, env).kind;
+    if (!((l == AETHER_T_INT && r == AETHER_T_BOOL) || (l == AETHER_T_BOOL && r == AETHER_T_INT)))
+        return 0;
+    char detail[384];
+    snprintf(detail, sizeof(detail),
+             "`%s` combines two Ints bit by bit, or two Bools, and here one side is Int and "
+             "the other Bool: compare the bitwise result, `(flags %s mask) != 0`, or compare "
+             "the Int first, `n != 0`.",
+             op, op);
+    ruleReport(c, e, detail);
+    return 1;
+}
+
 /* D24: `==` / `!=` on records and tuples compares field by field. Two
  * different record types never compare equal, so that is a TYPE-001; a
  * self-referential type is REC-001, with `same(a, b)` as the identity test. */
@@ -2071,6 +2113,7 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
         ruleRecordCompare(c, e, env);
     }
     if (ruleNumericSelection(c, e, env)) return;
+    if (ruleMixedBitwise(c, e, env)) return;
     /* same(a, b) is identity, which only records have. */
     if (e->type == AST_PROCEDURE_CALL && callName(e) && strcasecmp(callName(e), "aether_same") == 0) {
         for (int i = 0; i < e->child_count; i++) {

@@ -1,0 +1,3 @@
+=1 `&` combines two Ints bit by bit, or two Bools
+=1 `|` combines two Ints bit by bit, or two Bools
+!PREC-001

@@ -1,0 +1,4 @@
+=1 '&' binds looser than '!='
+=1 '|' binds looser than '=='
+=1 '^' binds looser than '<'
+!warning

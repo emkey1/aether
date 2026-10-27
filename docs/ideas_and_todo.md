@@ -867,11 +867,34 @@ Additive, so none blocks 1.0 (D75):
   `abs expects a numeric argument.` and `Sqr expects an Integer or Real
   argument. Got STRING.`; D87's rule could cover them.
 - `flags & t` with `t: Bool` and no comparison compiles without a word, and a
-  Bool binding reads the Int as true when it is not 0. PREC-001 fires only
-  against a comparison. A warning is additive; an error would reject
-  `if n & 1 == 1`, which prints the right answer today.
+  Bool binding reads the Int as true when it is not 0. *Fixed 2026-10-27-3
+  (D88): an Int with a Bool under `&`, `|` or `^` is an error, PREC-001 for
+  `flags & mask != 0` and TYPE-001 otherwise.*
 - The guides' `chr` row does not give the range, 0 to 1114111; the run-time
   error does (`AETH-RUNTIME-CHR-RANGE`).
+
+### An Int combined with a Bool by `&`, `|` or `^` — *fixed 2026-10-27-3*
+`let b: Bool = 6 & 3 != 0` is `6 & (3 != 0)` = `6 & 1` = 0 and printed false
+with only a PREC-001 warning; `let b: Bool = 7 & (3 != 0)` printed true while
+`let b: Bool = 6 & 4` was TYPE-001. Found by an agent reviewing 1.0-beta16.
+**Fixed (2026-10-27-3, 1.0-beta17, D88).** The PREC-001 shape is an error, and
+any other mix is TYPE-001. Regressions: `tests/fx/diag/prec_bitwise_fail`,
+`prec_bool_binding_fail`, `mixed_bitwise_fail`, `prec_bitwise_ok_pass` (which
+replaces `tests/bitwise_precedence_warn_pass` and its `run.sh` block). The
+corpus candidate `47_baconian_cipher` had the silent form,
+`(idx >> bit) & 1 != 0`, and is rewritten.
+
+### Smaller findings of the 1.0-beta16 review — *gap*
+Fixed in 2026-10-27-3: the full guide said a missing `use` target "is not
+reported by itself" (it has warned IMP-001 since D82); it gave
+`task_result(handle)` while the appendix gave the `consume` flag; it did not
+say that an inferred `let` of `min`/`max` needs agreeing arguments; and a
+ToonDoc stored in a Text binding was TYPE-001 with a conversion hint, now
+TOON-001 naming `toon_root` and the getters
+(`tests/fx/diag/toon_doc_into_text_fail`). Open, additive:
+- `@pure` calling `println` outside `fx` prints FX-001 and ANN-001 for one
+  line.
+- `let r = random(10)` does not infer `Int`, though `random(n)` returns one.
 
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it

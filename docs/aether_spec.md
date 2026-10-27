@@ -1364,7 +1364,9 @@ Literal    = Int | Real | Text | "true" | "false" ;
 ```
 
 Binary operators of one level associate to the left. As in C, `&`, `|` and `^`
-bind looser than the comparisons (PREC-001 warns on `a & b != 0`). The word
+bind looser than the comparisons. They combine two `Int`s bit by bit or two
+`Bool`s (eagerly); an `Int` with a `Bool` is an error (decision D88): PREC-001
+for an unparenthesised `a & b != 0`, TYPE-001 for any other mix. The word
 operators are exact synonyms of their symbols, `not` included: `not` binds as
 tightly as `!`. `div` and `%`/`mod` are integer quotient and remainder and
 truncate toward zero. Comparisons do not chain (decision D32): a second
@@ -1519,6 +1521,19 @@ fn main() -> Void {
 ```aether @reject=SYN-001 id=G.BitAndExpr.2
 fn main() -> Void {
     fx { println(6 & ); }
+}
+```
+
+```aether @reject=PREC-001 id=G.BitAndExpr.3
+fn main() -> Void {
+    let flags: Int = 6;
+    let set: Bool = flags & 3 != 0;
+}
+```
+
+```aether @reject=TYPE-001 id=G.BitAndExpr.4
+fn main() -> Void {
+    let set: Bool = 7 & (3 != 0);
 }
 ```
 

@@ -114,8 +114,9 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
         }
         /* Bitwise operator whose right operand is a comparison, e.g.
          * `flags & mask != 0`. `& | ^` bind looser than the comparisons, so
-         * this groups as `flags & (mask != 0)` and yields an Int rather than a
-         * Bool -- it compiles, prints a number, and looks like it works. */
+         * this groups as `flags & (mask != 0)`, an Int combined with a Bool
+         * (an error since D88; a warning before). Also chained comparisons
+         * and a bare `not` before one (D32). */
         if (strcmp(kind, "precedence") == 0) {
             return "PREC-001";
         }

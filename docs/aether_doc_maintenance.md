@@ -7,7 +7,7 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 10,388 o200k / 11,052 Qwen3.5 (2026-10-26-3) | ~16K context models |
+| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 10,381 o200k / 11,045 Qwen3.5 (2026-10-27-1) | ~16K context models |
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 
@@ -117,8 +117,8 @@ for **~16K-context models** (the local 16K cohort: DeepSeek-Coder 6.7B with its
 hard 16,384 window, Qwen3-8B without thinking, Qwen3.5-9B), and its ceiling is
 **8,000 tokens** counted in the largest tokenizer of that cohort,
 DeepSeek-Coder's included, which is the same half-window rule as medium. It
-measured 11,898 o200k (12,633 Qwen3.5) when D11 was decided and 10,388 (11,052)
-at 2026-10-26-3, so it does not fit an 8K window and leaves about 5K of a 16K
+measured 11,898 o200k (12,633 Qwen3.5) when D11 was decided and 10,381 (11,045)
+at 2026-10-27-1, so it does not fit an 8K window and leaves about 5K of a 16K
 window after the prompt. The cut to 8,000 happens in
 A/B-validated steps in the small-guide pass (W3-15), not in one edit; if
 DeepSeek-Coder counts well above o200k (not yet measured), the o200k-equivalent

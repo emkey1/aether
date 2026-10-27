@@ -13049,14 +13049,14 @@
     {
       "source_path": "/tmp/corpus_new/47_baconian_cipher.aether",
       "repo_path": "training/corpus_candidates/47_baconian_cipher.aether",
-      "sha256": "bc71104859d12d8729fc9bd9df140dee1cf3b91664bece86a9e8396550e54ece",
+      "sha256": "bd6d2f6ffaf2edbe0d9dc43cd08db0495412e3f0ec92ace943503847d5472cce",
       "stdout": "Baconian Biliteral Cipher (1605):\nPlaintext:  BACON\nBacon bits: aaaab aaaaa aaaba abbba abbab\nDecoded:    BACON\n\nFull alphabet mapping:\n  A -> aaaaa\n  B -> aaaab\n  C -> aaaba\n  D -> aaabb\n  E -> aabaa\n  F -> aabab\n  G -> aabba\n  H -> aabbb\n  I -> abaaa\n  J -> abaab\n  K -> ababa\n  L -> ababb\n  M -> abbaa\n  N -> abbab\n  O -> abbba\n  P -> abbbb\n  Q -> baaaa\n  R -> baaab\n  S -> baaba\n  T -> baabb\n  U -> babaa\n  V -> babab\n  W -> babba\n  X -> babbb\n  Y -> bbaaa\n  Z -> bbaab\nRoundtrip verified for all 26 letters.\n",
       "metadata": {
         "include_in_training": false,
         "lifecycle": "quarantine",
         "recaptured": {
-          "aether_version": "Aether Compiler Version: 2026-07-20-1 (latest tag: V.1R29)",
-          "date": "2026-07-25",
+          "aether_version": "Aether Compiler Version: 2026-10-27-3 (1.0-beta17)",
+          "date": "2026-10-27",
           "source_rebaselined": true
         },
         "oracle": "reviewed"

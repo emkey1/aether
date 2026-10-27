@@ -543,9 +543,15 @@ From loosest to tightest binding: `||`, `&&`, `|`, `^`, `&`, `== !=`,
 
 Two precedence traps are diagnosed. `flags & mask != 0` groups as
 `flags & (mask != 0)` because the bitwise operators bind looser than the
-comparisons, so it compiles with the warning `PREC-001`; write
-`(flags & mask) != 0`. And comparisons do not chain: `0 <= i < n` is an error;
-write `0 <= i && i < n`.
+comparisons, so it is the error `PREC-001`; write `(flags & mask) != 0`. And
+comparisons do not chain: `0 <= i < n` is the same error; write
+`0 <= i && i < n`.
+
+The bitwise operators combine two `Int`s bit by bit, or two `Bool`s without
+short-circuiting. An `Int` with a `Bool` is a `TYPE-001` however it is
+written, `7 & (3 != 0)` included. Until language 2026-10-27-3 (decision D88)
+`flags & mask != 0` was only a warning, and a `Bool` variable read the `Int`
+result as true when it was not 0, so `6 & 3 != 0` gave false.
 
 ### Conversions
 
@@ -1773,8 +1779,8 @@ The codes you will meet most often:
 | `FMT-001` | a `{}`, `%d` or `f"..."` placeholder | pass values as `println` arguments |
 | `DIV-002` | `x // 2` | `x div 2`; `//` starts a comment |
 | `ENTRY-001` | no runnable entry point, or `main` beside top-level statements | the structure the hint names |
+| `PREC-001` | `flags & mask != 0`; `0 <= i < n` | `(flags & mask) != 0`; `0 <= i && i < n` |
 | `NARROW-001` (warning) | a `Real` stored in an `Int` | `int(...)` if you mean it |
-| `PREC-001` (warning) | `flags & mask != 0` | `(flags & mask) != 0` |
 | `PARAM-001` (warning) | a changed scalar parameter the caller will not see | return it, or share it |
 
 The full list, with every rule each code covers, is the "Repair rules"
@@ -1782,26 +1788,25 @@ section of the [full guide](aether_for_llms_and_others.md#repair-rules).
 
 A warning in action:
 
-```aether @ok warn=PREC-001
+```aether @ok warn=NARROW-001
 fn main() -> Void {
-    let flags: Int = 6;
-    let mask: Int = 1;
+    let average: Real = 7.9;
+    let shown: Int = average;
     fx {
-        println(flags & mask != 0);
-        println((flags & mask) != 0);
+        println(shown);
+        println(round(average));
     }
 }
 ```
 
 ```text
-prog.aether:5: warning: [PREC-001] Aether precedence warning: '&' binds looser than '!=', so this parses as `a & (b != c)` and produces an Int, not a Bool.
-hint: parenthesize the mask: `(a & b) != c`. As written the comparison runs first and its true or false (1 or 0) is combined bitwise with `a`: it compiles, prints a number, and reads as true in a Bool or an `if` whenever it is not 0.
-help: see PREC-001 in the Aether guide
-0
-false
+prog.aether:3: warning: [NARROW-001] Aether narrowing warning: 'shown' is Int, but the value assigned is a Real value; the fractional part is discarded silently. Write int(...) if the truncation is intended.
+help: see NARROW-001 in the Aether guide
+7
+8
 ```
 
-The first line prints `0`: it computed `6 & (1 != 0)`, which is `6 & 1`.
+The program still runs: storing 7.9 in an `Int` keeps 7. `round` gives 8.
 
 ### Run-time errors
 

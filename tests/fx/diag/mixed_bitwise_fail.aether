@@ -1,0 +1,10 @@
+// D88: an Int combined with a Bool had no type, so a Bool binding took it and
+// read the Int as a Bool: `7 & (3 != 0)` printed true while `6 & 4` into the
+// same binding was TYPE-001.
+fn main() -> Void {
+    let t: Bool = true;
+    let n: Int = 12;
+    let a: Bool = 7 & (3 != 0);
+    let b: Int = n | t;
+    fx { println(a, " ", b); }
+}

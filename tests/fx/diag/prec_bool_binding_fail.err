@@ -1,0 +1,5 @@
+[PREC-001]
+'&' binds looser than '!='
+`(a & b) != c`
+!warning
+!TYPE-001

@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-27-1*
+*Guide version: 2026-10-27-2*
 
 Everything needed to write correct Aether in one shot.
 
@@ -258,9 +258,8 @@ fn main() -> Void {
 - Bitwise / shift, `Int` only: `&`, `|`, `^` (`xor` is the same operator as `^`),
   `<<`, `>>`. `6 & 3` is `2`; `6 << 1` is `12`. These are not logical operators —
   use `&&` / `||` for `Bool`. **They bind looser than the comparisons**:
-  `flags & mask != 0` is `flags & (mask != 0)`, an `Int` that a `Bool` reads as
-  true when it is not 0. Write `(flags & mask) != 0`; the mistake is only a
-  `PREC-001` warning.
+  `flags & mask != 0` is `flags & (mask != 0)`, an error (PREC-001); write
+  `(flags & mask) != 0`.
 - Numeric literals accept `_` separators between digits: `1_000_000`, `0xFF_FF`.
 
 Every `fn` declares a return type. Procedures use `-> Void` and a bare `ret;`.
@@ -1006,8 +1005,8 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   `table[i]` — `table[i]` only exists after `table = table + [row];`.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`), exit 1 → a
   call broke `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
-- **[PREC-001]** (warning) `flags & mask != 0` → parenthesize:
-  `(flags & mask) != 0` (Core syntax). As an error:
+- **[PREC-001]** `flags & mask != 0` → parenthesize:
+  `(flags & mask) != 0` (Core syntax). Also
   `0 <= i < n` → `0 <= i && i < n`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
   values as arguments: `println("n = ", n)`.

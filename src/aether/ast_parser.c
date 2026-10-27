@@ -81,6 +81,9 @@ static int g_aetherAstDiagCount = 0;
  * the node parseComparison just returned, so a stale pointer never matches. */
 static const AST *g_aetherBareNot = NULL;
 static const AST *g_aetherBareRel = NULL;
+/* D88: the expression the last `( ... )` held, so `7 & (3 != 0)` is not
+ * reported as a precedence slip (its grouping is written out). */
+static const AST *g_aetherParenExpr = NULL;
 
 /* stderr diagnostic sink: identical to fprintf(stderr, ...) but bumps the
  * emitted-diagnostic counter so the silent-failure backstop can tell whether the
@@ -3700,6 +3703,7 @@ static AST *parsePrimary(AetherParser *p) {
         AST *expr = parseExpr(p);
         if (expr && expr == g_aetherBareNot) g_aetherBareNot = NULL; /* `(not a) == b` */
         if (expr && expr == g_aetherBareRel) g_aetherBareRel = NULL; /* `(a < b) == c` */
+        g_aetherParenExpr = expr;
         if (p->current.type == REA_TOKEN_RIGHT_PAREN) {
             aetherAdvance(p);
         } else if (!p->hadError) {
@@ -4580,20 +4584,18 @@ static AST *parseEquality(AetherParser *p) {
 /* PREC-001: `flags & mask != 0` parses as `flags & (mask != 0)`.
  *
  * `&`, `|` and `^` all bind LOOSER than the comparison operators, so a mask
- * test written without parentheses silently changes both the grouping and the
- * result TYPE -- it yields an Int, not a Bool, and no error is raised:
+ * test written without parentheses changes both the grouping and the result:
  *
  *     (flags & mask) != 0   ->  true   (Bool, what was meant)
- *      flags & mask != 0    ->  1      (Int)
+ *      flags & mask != 0    ->  flags & 1, an Int combined with a Bool
  *
- * A permission check written the second way prints 1 and looks like it works.
- *
- * Not warned unconditionally, because `&` and `|` double as EAGER boolean
- * operators on Bool operands, where `ready & (n == 0)` is a legitimate
- * non-short-circuiting conjunction. The warning therefore fires only when the
- * left operand is provably Int -- an integer literal, or a variable whose
- * declared type is exactly `Int` -- which is the bitmask case and not the
- * boolean one. Anything whose type is not visible here is left alone. */
+ * It was a warning until language 2026-10-27-3; a Bool binding read the Int
+ * as true when it was not 0, so `6 & 3 != 0` gave false. D88 makes it an
+ * error. Only when the left operand is provably Int -- an integer literal, or
+ * a variable whose declared type is exactly `Int` -- and the comparison is not
+ * in parentheses: `&` and `|` double as EAGER boolean operators on Bool
+ * operands (`ready & n == 0`), and `7 & (3 != 0)` states its grouping. Any
+ * other Int combined with a Bool is TYPE-001 from the typed pass. */
 static int aetherNodeIsComparison(const AST *node) {
     const char *op;
     if (!node || node->type != AST_BINARY_OP || !node->token || !node->token->value) {
@@ -4621,26 +4623,22 @@ static int aetherNodeIsDeclaredInt(AetherParser *p, const AST *node) {
     return 0;
 }
 
-static void aetherWarnBitwisePrecedence(AetherParser *p, const char *opText,
-                                        const AST *left, const AST *right, int line) {
+static void aetherReportBitwisePrecedence(AetherParser *p, const char *opText,
+                                          const AST *left, const AST *right, int line) {
     char detail[288];
-    char hint[384];
-    if (!aetherNodeIsComparison(right) || !aetherNodeIsDeclaredInt(p, left)) {
+    char hint[160];
+    if (!aetherNodeIsComparison(right) || right == g_aetherParenExpr ||
+        !aetherNodeIsDeclaredInt(p, left)) {
         return;
     }
     snprintf(detail, sizeof(detail),
-             "'%s' binds looser than '%s', so this parses as `a %s (b %s c)` and "
-             "produces an Int, not a Bool.",
+             "'%s' binds looser than '%s', so this parses as `a %s (b %s c)`, an Int "
+             "combined with a Bool.",
              opText, right->token->value, opText, right->token->value);
-    /* The result is `a op 1` or `a op 0`. Printed it is a number; a Bool
-     * binding or a condition reads it as true when it is not 0. */
-    snprintf(hint, sizeof(hint),
-             "parenthesize the mask: `(a %s b) %s c`. As written the comparison "
-             "runs first and its true or false (1 or 0) is combined bitwise with "
-             "`a`: it compiles, prints a number, and reads as true in a Bool or an "
-             "`if` whenever it is not 0.",
-             opText, right->token->value);
-    reportAetherAstWarning(aetherSemanticGetSourcePath(), line, "precedence", detail, hint);
+    snprintf(hint, sizeof(hint), "parenthesize the mask: `(a %s b) %s c`.", opText,
+             right->token->value);
+    reportAetherAstError(aetherSemanticGetSourcePath(), line, "precedence", detail, hint);
+    p->hadError = true;
 }
 
 static AST *parseBitwiseAnd(AetherParser *p) {
@@ -4650,9 +4648,10 @@ static AST *parseBitwiseAnd(AetherParser *p) {
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
+        g_aetherParenExpr = NULL;
         AST *right = parseEquality(p);
         if (!right) return NULL;
-        aetherWarnBitwisePrecedence(p, "&", node, right, op.line);
+        aetherReportBitwisePrecedence(p, "&", node, right, op.line);
         Token *tok = newToken(TOKEN_AND, "&", op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
         setLeft(bin, node);
@@ -4672,10 +4671,11 @@ static AST *parseBitwiseXor(AetherParser *p) {
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
+        g_aetherParenExpr = NULL;
         AST *right = parseBitwiseAnd(p);
         if (!right) return NULL;
         const char *lexeme = (strncmp(op.start, "xor", op.length) == 0) ? "xor" : "^";
-        aetherWarnBitwisePrecedence(p, lexeme, node, right, op.line);
+        aetherReportBitwisePrecedence(p, lexeme, node, right, op.line);
         Token *tok = newToken(TOKEN_XOR, lexeme, op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
         setLeft(bin, node);
@@ -4702,9 +4702,10 @@ static AST *parseBitwiseOr(AetherParser *p) {
         ReaToken op = p->current;
         aetherAdvance(p);
         aetherNoteOperator(p, &op);
+        g_aetherParenExpr = NULL;
         AST *right = parseBitwiseXor(p);
         if (!right) return NULL;
-        aetherWarnBitwisePrecedence(p, "|", node, right, op.line);
+        aetherReportBitwisePrecedence(p, "|", node, right, op.line);
         Token *tok = newToken(TOKEN_OR, "|", op.line, 0);
         AST *bin = newASTNode(AST_BINARY_OP, tok);
         setLeft(bin, node);

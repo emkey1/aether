@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-26-3*
+*Guide version: 2026-10-27-1*
 
 ## Highest-Value Rules
 
@@ -111,7 +111,7 @@ flags the authoring-only ones.
 - Bitwise/shift (Int only): `& | ^`/`xor` (`^` and `xor` are the same operator), `<< >>`.
   Example: `6 & 3` = `2`, `6 << 1` = `12`. Not logical -- use `&&`/`||` for Bool.
   They bind **looser than the comparisons**: `flags & mask != 0` is
-  `flags & (mask != 0)` and yields an Int. Write `(flags & mask) != 0`
+  `flags & (mask != 0)`, an error. Write `(flags & mask) != 0`
   (PREC-001).
 - Numeric literals allow `_` digit separators between digits: `1_000_000`, `0xFF_FF`.
 
@@ -739,8 +739,8 @@ fix:
 - **[ARR-002]** a one-dimensional array indexed twice (`let dp: Int[] = [];`
   then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
   as its own `Int[]`, or index once with `dp[r * width + c]`.
-- **[PREC-001]** (warning) `flags & mask != 0` → write `(flags & mask) != 0`.
-  As an error: `0 <= i < n` → `0 <= i && i < n`.
+- **[PREC-001]** `flags & mask != 0` → write `(flags & mask) != 0`.
+  Also `0 <= i < n` → `0 <= i && i < n`.
 - **[ARR-003]** (runtime) an index outside the array → `loop i in 0..n` ends at
   `n - 1`, and a row being built is not in the table until it is appended.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`) → a call broke

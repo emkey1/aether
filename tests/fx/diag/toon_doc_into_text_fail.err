@@ -1,0 +1,4 @@
+but this value is a ToonDoc, an opaque TOON handle
+toon_root(doc)
+toon_get_text(root, "key")
+!Convert it explicitly

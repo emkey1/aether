@@ -15,6 +15,52 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-27-3
+
+**Release `1.0-beta17`** (D75): the seventeenth 1.0 beta and the third release
+candidate, tagged `1.0-beta17`; `--version` prints `Aether Compiler Version:
+2026-10-27-3 (1.0-beta17)`. The first review of `1.0-beta16` found a type rule
+the compiler did not enforce, and closing it is a break, so the two review
+rounds start again on this code; the owner tags `1.0` from it once both find
+nothing that needs a break. On top of `1.0-beta16` it carries the change below.
+The next dev label is `1.0-beta18dev`.
+
+From the 1.0-beta16 review.
+
+- **An Int combined with a Bool by `&`, `|` or `^` is an error (D88).** The
+  guides said the bitwise operators take `Int`s, but the compiler had no type
+  for the mix and let a Bool binding read the Int as a Bool: `let b: Bool =
+  6 & 3 != 0` is `6 & (3 != 0)` = `6 & 1` = 0, so it printed false with only a
+  PREC-001 warning, and `let b: Bool = 7 & (3 != 0)` printed true while
+  `let b: Bool = 6 & 4` was TYPE-001.
+  - `flags & mask != 0`, with an `Int` on the left and a comparison on the
+    right, is the PREC-001 **error** (it was a warning), hinting
+    `(a & b) != c`.
+  - Any other mix (`7 & (3 != 0)`, `n | ok`, a call's Int result) is TYPE-001.
+  - Two `Int`s (bitwise) and two `Bool`s (eager) are unchanged.
+  - **Breaks:** a program with the old PREC-001 warning stops compiling,
+    `if n & 1 == 1` included, which gave the right answer by accident. None
+    of 5,954 distinct archived model-written programs contains one. In the
+    tree, one corpus candidate did, silently: `47_baconian_cipher` wrote
+    `if (idx >> bit) & 1 != 0`; it now reads `((idx >> bit) & 1) != 0`, with
+    the same output.
+- **A TOON handle into a scalar is TOON-001.** `let s: Text =
+  toon_parse_string(...)` was TYPE-001 with "Convert it explicitly
+  (int_to_text, parse_int, int, ...)". It now names the handle and the way in:
+  `toon_root(doc)`, then `toon_get_text(root, "key")`.
+- **Guides.** The full guide's `[IMP-001]` rule said a missing `use` target "is
+  not reported by itself"; it has warned since D82. `task_result` shows its
+  `consume` parameter, as the appendix does. An inferred `let` of `min`/`max`
+  needs agreeing arguments (`let m: Real = min(5, 9.1)`). All three guides
+  drop "warning" from PREC-001 (full `2026-10-27-2`, medium `2026-10-27-2`,
+  small `2026-10-27-1`; medium 13,475 → 13,444 o200k).
+
+`tests/bitwise_precedence_warn_pass` and its `run.sh` block become fixtures
+`diag/prec_bitwise_fail` and `diag/prec_bitwise_ok_pass`;
+`diag/prec_bool_binding_warn_pass` becomes `diag/prec_bool_binding_fail`. New:
+`diag/mixed_bitwise_fail`, `diag/toon_doc_into_text_fail`; spec
+`G.BitAndExpr.3` and `.4`. The manual's warning example is NARROW-001 now.
+
 ## 2026-10-27-2
 
 **Release `1.0-beta16`** (D75): the sixteenth 1.0 beta and the second release

@@ -1,0 +1,17 @@
+// D88 leaves these alone: a parenthesised mask, `&` `|` `^` on two Ints, and
+// `&` `|` `^` on two Bools (eager, both sides always run).
+fn main() -> Void {
+    let flags: Int = 3;
+    let mask: Int = 2;
+    let ready: Bool = true;
+    let n: Int = 0;
+    fx {
+        println((flags & mask) != 0);
+        println(flags & mask);
+        println(flags ^ mask);
+        println(ready & (n == 0));
+        println(ready | (n > 5));
+        println(ready & n == 0);
+        println(ready ^ (n > 5));
+    }
+}
