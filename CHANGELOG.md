@@ -15,6 +15,40 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-27-2
+
+**Release `1.0-beta16`** (D75): the sixteenth 1.0 beta and the second release
+candidate, tagged `1.0-beta16`; `--version` prints `Aether Compiler Version:
+2026-10-27-2 (1.0-beta16)`. The first review of `1.0-beta15` found a
+silent-wrong answer, so the two review rounds start again on this code, and the
+owner tags `1.0` from it once both find nothing that needs a break. On top of
+`1.0-beta15` it carries the change below. The next dev label is `1.0-beta17dev`.
+
+From the 1.0-beta15 review.
+
+- **`min`, `max` and `clamp` take numbers (D87).** A `Text`, array, record or
+  map argument is TYPE-001, naming the type: "min() compares numbers (Int, Real
+  or Bool), and this value is Text: compare Text with `<`". An array given to
+  `min` or `max` points at `min_of(xs)` / `max_of(xs)`. The engine read any
+  non-number as 0, so `let c: Real = min("apple", "pear")` printed `0.0` and
+  exited 0, `clamp` on Text gave 0, and `let c: Text = min(...)` drew an uncoded
+  "Cannot assign REAL to string" that blamed the declaration. 1.0-beta14 did
+  the same. An inferred `let c = min("a", "b")` now gets the same error instead
+  of "cannot infer ... `let c: Real`". `Int`, `Real` and `Bool` are unchanged.
+- **`%` on two Reals is one error.** `x % y` with both operands Real was
+  reported once per operand. It is reported once, and a Real that is not a `/`
+  quotient is told to convert with `trunc(x)` or `round(x)`; `a div b` is still
+  the hint for `n / 10 % 10`. The same wording applies to an index, a range
+  bound and a shift.
+- **PREC-001 says what the mistake does.** Its hint said `flags & mask != 0`
+  "compiles and prints a number". Bound to a `Bool` or tested by an `if`, the
+  Int is read as true when it is not 0, so it printed `true`. The hint now says
+  both, and so do the full and medium guides (stamps `2026-10-27-1`).
+
+Fixtures `diag/minmax_text_fail`, `minmax_text_binding_fail`,
+`minmax_infer_text_fail`, `minmax_array_fail`, `clamp_text_fail`,
+`real_mod_vars_fail` and `prec_bool_binding_warn_pass`; spec `S.minmax.3`.
+
 ## 2026-10-27-1
 
 **Release `1.0-beta15`** (D75): the fifteenth 1.0 beta and the release

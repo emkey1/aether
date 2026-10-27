@@ -1,0 +1,8 @@
+// PREC-001: bound to a Bool, `flags & mask != 0` is `flags & 1` read as
+// true when not 0, so it prints true or false, not a number.
+fn main() -> Void {
+    let flags: Int = 13;
+    let mask: Int = 2;
+    let bit: Bool = flags & mask != 0;
+    fx { println(bit); }
+}

@@ -4624,7 +4624,7 @@ static int aetherNodeIsDeclaredInt(AetherParser *p, const AST *node) {
 static void aetherWarnBitwisePrecedence(AetherParser *p, const char *opText,
                                         const AST *left, const AST *right, int line) {
     char detail[288];
-    char hint[288];
+    char hint[384];
     if (!aetherNodeIsComparison(right) || !aetherNodeIsDeclaredInt(p, left)) {
         return;
     }
@@ -4632,10 +4632,13 @@ static void aetherWarnBitwisePrecedence(AetherParser *p, const char *opText,
              "'%s' binds looser than '%s', so this parses as `a %s (b %s c)` and "
              "produces an Int, not a Bool.",
              opText, right->token->value, opText, right->token->value);
+    /* The result is `a op 1` or `a op 0`. Printed it is a number; a Bool
+     * binding or a condition reads it as true when it is not 0. */
     snprintf(hint, sizeof(hint),
              "parenthesize the mask: `(a %s b) %s c`. As written the comparison "
-             "runs first and its result is combined bitwise, which compiles and "
-             "prints a number.",
+             "runs first and its true or false (1 or 0) is combined bitwise with "
+             "`a`: it compiles, prints a number, and reads as true in a Bool or an "
+             "`if` whenever it is not 0.",
              opText, right->token->value);
     reportAetherAstWarning(aetherSemanticGetSourcePath(), line, "precedence", detail, hint);
 }

@@ -1,0 +1,6 @@
+// D87: an inferred binding asked for a type (suggesting Real) before the
+// real problem, min on Text, could be named.
+fn main() -> Void {
+    let c = min("apple", "pear");
+    fx { println(c); }
+}

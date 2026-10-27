@@ -1,0 +1,3 @@
+warning: [PREC-001]
+reads as true in a Bool
+!error

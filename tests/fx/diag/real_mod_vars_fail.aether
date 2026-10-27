@@ -1,0 +1,8 @@
+// `%` on two Real variables was reported once per operand, and the hint
+// offered `a div b`, which is a quotient, not a remainder.
+fn main() -> Void {
+    let x: Real = 7.5;
+    let y: Real = 2.0;
+    let r: Real = x % y;
+    fx { println(r); }
+}

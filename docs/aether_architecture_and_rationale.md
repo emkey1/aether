@@ -406,7 +406,10 @@ and **the rationale**. Commit hashes are given so you can read the actual diff.
   which then collided with the one-liner-`if` wart ([§6](#6-known-warts-be-honest))
   and failed to parse. The obvious builtin simply didn't exist.
 - **Decision.** Add `clamp(x, lo, hi)`: all-integer args return `Int`, any real
-  arg returns `Real` (mirroring `min`/`max`).
+  arg returns `Real` (mirroring `min`/`max`). Since language 2026-10-27-2 (D87)
+  a `Text`, array, record or map argument to any of the three is TYPE-001 from
+  the typed pass (`ruleNumericSelection` in `types.c`); the engine had read it
+  as 0.
 - **Rationale.** A one-call builtin sidesteps the whole error-prone branch-chain.
   See [§8](#8-anatomy-of-a-builtin-worked-example-clamp) — adding it correctly
   touches four sites, and getting that wrong is a classic foot-gun.

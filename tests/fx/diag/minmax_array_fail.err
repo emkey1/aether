@@ -1,0 +1,2 @@
+max() compares numbers (Int, Real or Bool), and this value is Int[]
+`max_of(xs)`

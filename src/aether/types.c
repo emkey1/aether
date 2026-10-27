@@ -1546,10 +1546,19 @@ static const char *numberCastName(const AST *e) {
  * an AETHER_EXPERIMENT div arm owns `/`. */
 static void reportRealInIntPosition(RuleCtx *c, const AST *at, const char *where) {
     char detail[256];
-    snprintf(detail, sizeof(detail),
-             "this value is Real, and %s needs an Int: write `a div b` for an integer "
-             "quotient (`/` is real division), or trunc(x).",
-             where);
+    /* `div` is the fix only for a quotient; `x % y` on two Real variables
+     * needs a conversion, not a different division. */
+    int quotient = at && at->type == AST_BINARY_OP && at->token && at->token->type == TOKEN_SLASH;
+    if (quotient)
+        snprintf(detail, sizeof(detail),
+                 "this value is Real, and %s needs an Int: write `a div b` for an integer "
+                 "quotient (`/` is real division), or trunc(x).",
+                 where);
+    else
+        snprintf(detail, sizeof(detail),
+                 "this value is Real, and %s needs an Int: convert it with trunc(x) or "
+                 "round(x).",
+                 where);
     ruleReport(c, at, detail);
 }
 
@@ -1825,6 +1834,37 @@ static int recordIsSelfReferential(const char *name) {
     return name && recordReaches(name, name, seen, 0);
 }
 
+/* D87: min, max and clamp compare numbers. The engine read any other value as
+ * 0, so `let c: Real = min("apple", "pear")` printed 0.0, `clamp` on Text gave
+ * 0 and a Text binding drew an uncoded "Cannot assign REAL to string". */
+static int ruleNumericSelection(RuleCtx *c, const AST *e, const AetherTypeEnv *env) {
+    const char *name = callName(e);
+    if (!name || e->type != AST_PROCEDURE_CALL) return 0;
+    int isMin = !strcasecmp(name, "min"), isMax = !strcasecmp(name, "max");
+    if (!isMin && !isMax && strcasecmp(name, "clamp") != 0) return 0;
+    if (lookupCallee(e, env)) return 0;
+    for (int i = 0; i < e->child_count; i++) {
+        AetherType at = aetherTypeOf(e->children[i], env);
+        if (at.kind == AETHER_T_UNKNOWN || at.kind == AETHER_T_INT || at.kind == AETHER_T_REAL ||
+            at.kind == AETHER_T_BOOL)
+            continue;
+        char got[96], fix[128], detail[384];
+        aetherTypeFormat(at, got, sizeof(got));
+        fix[0] = '\0';
+        if (at.kind == AETHER_T_TEXT)
+            snprintf(fix, sizeof(fix), ": compare Text with `<` (`if a < b { ... }`)");
+        else if (at.kind == AETHER_T_ARRAY && (isMin || isMax))
+            snprintf(fix, sizeof(fix), ": for the %s element of an array write `%s(xs)`",
+                     isMin ? "smallest" : "largest", isMin ? "min_of" : "max_of");
+        snprintf(detail, sizeof(detail),
+                 "%s() compares numbers (Int, Real or Bool), and this value is %s%s.",
+                 isMin ? "min" : isMax ? "max" : "clamp", got, fix);
+        ruleReport(c, e->children[i], detail);
+        return 1;
+    }
+    return 0;
+}
+
 /* D24: `==` / `!=` on records and tuples compares field by field. Two
  * different record types never compare equal, so that is a TYPE-001; a
  * self-referential type is REC-001, with `same(a, b)` as the identity test. */
@@ -2030,6 +2070,7 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
         (e->token->type == TOKEN_EQUAL || e->token->type == TOKEN_NOT_EQUAL)) {
         ruleRecordCompare(c, e, env);
     }
+    if (ruleNumericSelection(c, e, env)) return;
     /* same(a, b) is identity, which only records have. */
     if (e->type == AST_PROCEDURE_CALL && callName(e) && strcasecmp(callName(e), "aether_same") == 0) {
         for (int i = 0; i < e->child_count; i++) {
@@ -2083,6 +2124,12 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
     }
     if (realRulesOn() && (use->kind == AETHER_USE_MOD || use->kind == AETHER_USE_INT_DIV) &&
         aetherTypeOf(e, env).kind == AETHER_T_REAL) {
+        /* One report per operator: when both operands are Real, the left one
+         * speaks for the expression. */
+        const AST *op = e->parent;
+        if (op && op->type == AST_BINARY_OP && op->right == e && op->left &&
+            aetherTypeOf(op->left, env).kind == AETHER_T_REAL)
+            return;
         reportRealInIntPosition(c, e, use->kind == AETHER_USE_MOD ? "`%`" : "`div`");
         return;
     }

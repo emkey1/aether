@@ -1,0 +1,2 @@
+=1 needs an Int: convert it with trunc(x) or round(x)
+!a div b

@@ -283,12 +283,13 @@ char *inferLetTypeName(AetherParser *p, AST *init) {
             }
             /* min/max of two values of one scalar type: the engine returns an Int for
              * two Ints and a Real otherwise, so two Ints give Int and two Reals give
-             * Real. Mixed arguments keep needing a type. */
+             * Real. Mixed arguments keep needing a type. Two Text (or two arrays)
+             * take their own type here only so that D87's TYPE-001 names the real
+             * problem instead of asking for a type. */
             if ((strcmp(fn, "min") == 0 || strcmp(fn, "max") == 0) && init->child_count == 2) {
                 char *a = inferLetTypeName(p, init->children[0]);
                 char *b = inferLetTypeName(p, init->children[1]);
-                bool same = a && b && strcmp(a, b) == 0 &&
-                            (strcmp(a, "Int") == 0 || strcmp(a, "Real") == 0);
+                bool same = a && b && strcmp(a, b) == 0 && strcmp(a, "Bool") != 0;
                 free(b);
                 if (same) return a;
                 free(a);

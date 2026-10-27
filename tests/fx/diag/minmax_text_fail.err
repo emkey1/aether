@@ -1,0 +1,3 @@
+min() compares numbers (Int, Real or Bool), and this value is Text
+compare Text with `<`
+max() compares numbers

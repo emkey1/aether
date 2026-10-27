@@ -1795,7 +1795,7 @@ fn main() -> Void {
 
 ```text
 prog.aether:5: warning: [PREC-001] Aether precedence warning: '&' binds looser than '!=', so this parses as `a & (b != c)` and produces an Int, not a Bool.
-hint: parenthesize the mask: `(a & b) != c`. As written the comparison runs first and its result is combined bitwise, which compiles and prints a number.
+hint: parenthesize the mask: `(a & b) != c`. As written the comparison runs first and its true or false (1 or 0) is combined bitwise with `a`: it compiles, prints a number, and reads as true in a Bool or an `if` whenever it is not 0.
 help: see PREC-001 in the Aether guide
 0
 false

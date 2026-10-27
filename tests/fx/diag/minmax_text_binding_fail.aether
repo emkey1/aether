@@ -1,0 +1,6 @@
+// D87: a Text binding drew an uncoded "Cannot assign REAL to string", which
+// blamed the declaration rather than min.
+fn main() -> Void {
+    let c: Text = min("apple", "pear");
+    fx { println(c); }
+}

@@ -3340,8 +3340,9 @@ if ! cmp -s $OUT/aether_imported_type_methods_expected.out $OUT/aether_imported_
 fi
 
 # PREC-001: `flags & mask != 0` parses as `flags & (mask != 0)` and yields an
-# Int, not a Bool -- it compiles and prints a number, so the check looks like it
-# works. A warning, so the program must still run. Exactly three fire: the
+# Int, not a Bool -- it compiles and prints a number (a Bool binding reads it as
+# true when it is not 0), so the check looks like it works. A warning, so the
+# program must still run. Exactly three fire: the
 # parenthesized form and the two eager-boolean uses (`&`/`|` on Bool operands)
 # must stay silent, which is why the check requires a provably-Int left operand.
 # Warnings go to stderr; stdout is the seven values exactly as the program

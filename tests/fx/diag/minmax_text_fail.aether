@@ -1,0 +1,9 @@
+// D87: min/max read Text as 0, so this printed 0.0 twice and exited 0.
+fn main() -> Void {
+    let lo: Real = min("apple", "pear");
+    let hi: Real = max("apple", "pear");
+    fx {
+        println(lo);
+        println(hi);
+    }
+}

@@ -1,0 +1,1 @@
+clamp() compares numbers (Int, Real or Bool), and this value is Text

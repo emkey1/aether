@@ -1,0 +1,6 @@
+// D87: max of two arrays printed 0; the largest element is max_of.
+fn main() -> Void {
+    let xs: Int[] = [3, 1, 4];
+    let m: Int = max(xs, xs);
+    fx { println(m); }
+}

@@ -1,0 +1,2 @@
+min() compares numbers (Int, Real or Bool), and this value is Text
+!cannot infer

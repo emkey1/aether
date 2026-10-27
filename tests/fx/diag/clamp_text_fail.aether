@@ -1,0 +1,5 @@
+// D87: clamp read Text as 0 and printed 0.
+fn main() -> Void {
+    let y: Int = clamp("a", "b", "c");
+    fx { println(y); }
+}

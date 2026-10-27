@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-26-1*
+*Guide version: 2026-10-27-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -914,7 +914,7 @@ Numeric builtins use Pascal naming — note **`arctan`** (not `atan`) and **`ln`
 | exp / log | `exp(x)`, `ln(x)` (natural log), `log10(x)` |
 | trig | `sin(x)`, `cos(x)`, `tan(x)`, `arcsin(x)`, `arccos(x)`, `arctan(x)`, `atan2(y, x)`, `cotan(x)` |
 | hyperbolic | `sinh(x)`, `cosh(x)`, `tanh(x)` |
-| compare / clamp | `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)` |
+| compare / clamp | `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)`: numbers only; Text compares with `<` |
 | integer | `odd(n) -> Bool`, `factorial(n) -> Int`, `fibonacci(n) -> Int` |
 | random | `random() -> Real` in `[0, 1)`; `random(n) -> Int` in `[0, n)`; seed with `randomize()` |
 | decimal rounding | `round_to(x, digits) -> Real`, half away from zero: `round_to(2.675, 2)` is `2.68`, `round_to(-2.5, 0)` is `-3.0` |
@@ -2083,7 +2083,8 @@ does not exist — re-read the message rather than inventing a rule for it.
 - **[PREC-001]** (warning) a bitwise operator against a comparison,
   `flags & mask != 0` → `&`, `|` and `^` bind looser than `== != < <= > >=`, so
   this groups as `flags & (mask != 0)` and evaluates to an **Int**, not a Bool.
-  It compiles and prints a number, so the test looks like it passes.
+  It compiles: printed, it is a number, and a Bool or an `if` reads it as true
+  when it is not 0, so the test looks like it passes.
   Parenthesize the mask: `(flags & mask) != 0`. As an **error**: comparisons do
   not chain — `0 <= i < n`, `a == b == c` and an unparenthesised `not a == b` →
   write `0 <= i && i < n`.

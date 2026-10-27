@@ -2058,6 +2058,17 @@ fn main() -> Void {
 }
 ```
 
+`min`, `max` and `clamp` compare `Int`, `Real` or `Bool` values. Any other
+argument whose type is known (`Text`, an array, a record, a map) is TYPE-001
+(D87): the engine read it as 0. Text compares with `<`; the smallest and
+largest element of an array are `min_of(xs)` and `max_of(xs)`.
+
+```aether @reject=TYPE-001 id=S.minmax.3
+fn main() -> Void {
+    let first: Real = min("apple", "pear");
+}
+```
+
 A `Real` stored into an `Int` truncates, with the NARROW-001 warning (never an
 error, by decision):
 

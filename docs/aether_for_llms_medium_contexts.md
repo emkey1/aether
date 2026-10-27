@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-26-1*
+*Guide version: 2026-10-27-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -257,10 +257,10 @@ fn main() -> Void {
   `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
 - Bitwise / shift, `Int` only: `&`, `|`, `^` (`xor` is the same operator as `^`),
   `<<`, `>>`. `6 & 3` is `2`; `6 << 1` is `12`. These are not logical operators —
-  use `&&` / `||` for `Bool`. **They bind looser than the comparisons**, so
-  `flags & mask != 0` groups as `flags & (mask != 0)` and produces an `Int`
-  rather than a `Bool`; always write `(flags & mask) != 0`. That mistake is a
-  `PREC-001` warning, not an error — it compiles and prints a number.
+  use `&&` / `||` for `Bool`. **They bind looser than the comparisons**:
+  `flags & mask != 0` is `flags & (mask != 0)`, an `Int` that a `Bool` reads as
+  true when it is not 0. Write `(flags & mask) != 0`; the mistake is only a
+  `PREC-001` warning.
 - Numeric literals accept `_` separators between digits: `1_000_000`, `0xFF_FF`.
 
 Every `fn` declares a return type. Procedures use `-> Void` and a bare `ret;`.

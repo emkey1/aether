@@ -849,6 +849,30 @@ already an error. Neither line splits an annotation run any more, so a `@pure`
 above one still reaches its function. Regressions:
 `tests/fx/diag/cost_paren_warn_pass`, `tests/fx/diag/annot_unknown_warn_pass`.
 
+### `min`, `max` and `clamp` read a non-number as 0 — *fixed 2026-10-27-2*
+`let c: Real = min("apple", "pear")` printed `0.0` and exited 0; `clamp` on
+Text and `min` of two arrays gave 0; `let c: Text = min(...)` drew an uncoded
+"Cannot assign REAL to string". Found by an agent reviewing 1.0-beta15;
+1.0-beta14 behaved the same.
+**Fixed (2026-10-27-2, 1.0-beta16, D87).** Any argument of a known type other
+than `Int`, `Real` or `Bool` is TYPE-001 naming the type, with `<` for Text and
+`min_of` / `max_of` for an array. Regressions: `tests/fx/diag/minmax_*_fail`,
+`tests/fx/diag/clamp_text_fail`.
+
+### Smaller findings of the 1.0-beta15 review — *gap*
+Additive, so none blocks 1.0 (D75):
+- A negative shift stops with an uncoded `Runtime Error: Shift amount cannot be
+  negative.`; the other run-time errors carry `[AETH-RUNTIME-*]`. An engine fix.
+- `abs` and `sqr` on Text stop at compile time with the engine's uncoded
+  `abs expects a numeric argument.` and `Sqr expects an Integer or Real
+  argument. Got STRING.`; D87's rule could cover them.
+- `flags & t` with `t: Bool` and no comparison compiles without a word, and a
+  Bool binding reads the Int as true when it is not 0. PREC-001 fires only
+  against a comparison. A warning is additive; an error would reject
+  `if n & 1 == 1`, which prints the right answer today.
+- The guides' `chr` row does not give the range, 0 to 1114111; the run-time
+  error does (`AETH-RUNTIME-CHR-RANGE`).
+
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it
 names in `tests/backlog/`.
