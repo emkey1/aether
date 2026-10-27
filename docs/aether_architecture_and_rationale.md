@@ -496,10 +496,10 @@ usual short-circuit deferral, so `@pre n <= length(xs) && all i in 0..n:
 xs[i] > 0` never reads out of range.
 
 Not enforced, and not to be relied on: `@cost` is decorative by decision (its
-syntax is validated, nothing measures the budget), and an unknown `@word`,
-`@pure()` and `@cost(5)` are accepted today and ignored. W4 makes those three
-errors; until then a contract the compiler does not act on can still sit in the
-source.
+syntax is validated, nothing measures the budget). `@cost(5)` with no space and
+an unknown `@word` are ignored with an ANN-001 warning (language 2026-10-27-1).
+They are warnings, not errors, because they compiled before 1.0 (D75). `@pure()`
+reads as `@pure` and is checked.
 
 ---
 

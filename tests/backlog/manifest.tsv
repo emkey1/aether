@@ -6,7 +6,6 @@
 const_case_alias	fails:NAME-001	W4-22	-	names ignore case: `let limit` overwrote `const LIMIT` before W4-22
 param_case_shadow	fails:NAME-001	W4-22	-	parameter `limit` answered to `LIMIT` before W4-22
 loop_var_outer	fails:NAME-001	W4-22	-	a loop variable named like a let left the let at 0 before W4-22
-cost_free_text	silent:2	W4-27	medium:972,full:832	`@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped)
 ret_inside_fx	passes	ideas:Misleading `FLOW-001` on `ret` inside `fx`	full:309	ret inside fx compiles and runs, but the full guide still forbids it
 chained_compare	fails:PREC-001	W4-15	-	`18 <= age < 65` was (18 <= age) < 65 before W4-15
 let_self_init	fails:NAME-001	W5-24	-	`let s = trim(s)` reads the new, empty slot; NAME-001 (W4-22 interim) until W5-24 lands

@@ -1,5 +1,0 @@
-// Backlog probe (W4-27): `@cost("O(n)")` is silently dropped (ideas: Malformed `@cost` is silently dropped).
-// Correct behaviour: ANN-001.
-@cost("O(n)")
-fn f(n: Int) -> Int { ret n; }
-fn main() -> Void { fx { println(f(2)); } }

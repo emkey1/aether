@@ -1153,6 +1153,28 @@ static void collectScalarBindings(const char *source, AetherScalarBindingTable *
     }
 }
 
+/* A line that opens with `@name` where name is none of the four directives. */
+static int isUnknownAnnotationLine(const char *body, const char *lineEnd) {
+    static const char *const known[] = {"pre", "post", "pure", "cost"};
+    const char *name = body + 1;
+    const char *end = name;
+    size_t i;
+
+    if (!body || lineEnd - body < 2 || body[0] != '@' ||
+        !(isalpha((unsigned char)name[0]) || name[0] == '_')) {
+        return 0;
+    }
+    while (end < lineEnd && (isalnum((unsigned char)*end) || *end == '_')) {
+        end++;
+    }
+    for (i = 0; i < sizeof(known) / sizeof(known[0]); i++) {
+        if ((size_t)(end - name) == strlen(known[i]) && strncmp(name, known[i], strlen(known[i])) == 0) {
+            return 0;
+        }
+    }
+    return 1;
+}
+
 static void reportDetachedAnnotation(const char *directive, int line) {
     char detail[256];
 
@@ -1203,6 +1225,28 @@ static void validateContractAnnotations(const char *source) {
                                   "duplicate @pure annotation before function declaration.");
             }
             pendingPureLine = line;
+        } else if (lineEnd - body >= 6 && strncmp(body, "@cost(", 6) == 0) {
+            /* `@cost("O(n)")` is not the annotation form, and nothing reads it, so it
+             * used to be dropped without a word (W4-27). It compiled before 1.0, so it
+             * warns rather than fails (D75); `@cost (...)`, with a space, stays an
+             * error below. The line still sits in the annotation run before its `fn`. */
+            aetherSemanticReportCoded("ANN-001", "contract", line,
+                                      "`@cost(...)` is not an annotation form, so this line is ignored. "
+                                      "Write the budget after a space, `@cost 100 steps` (units ns, us, "
+                                      "ms, s, op, ops, step, steps), or delete the line.",
+                                      0);
+        } else if (isUnknownAnnotationLine(body, lineEnd)) {
+            /* `@inline`, `@test`: no directive of that name exists, and the parser
+             * drops the line. Same history and the same warning as `@cost(...)`. */
+            const char *nameEnd = body + 1;
+            while (nameEnd < lineEnd && (isalnum((unsigned char)*nameEnd) || *nameEnd == '_')) {
+                nameEnd++;
+            }
+            snprintf(detail, sizeof(detail),
+                     "unknown annotation `@%.*s` is ignored: the annotations are `@pre`, `@post`, "
+                     "`@pure` and `@cost`.",
+                     (int)(nameEnd - body - 1), body + 1);
+            aetherSemanticReportCoded("ANN-001", "contract", line, detail, 0);
         } else if (startsWithWord(body, lineEnd, "@cost")) {
             if (!validateCostAnnotationSyntax(body, lineEnd, detail, sizeof(detail))) {
                 reportAetherError("contract", line, detail);

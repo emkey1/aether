@@ -1697,6 +1697,9 @@ type Stock {
 - `@cost 5ms` (units `ns`, `us`, `ms`, `s`, `op`, `ops`, `step`, `steps`)
   records an intended budget. Its form is checked, but nothing measures it:
   treat it as documentation.
+- `@cost(...)` with no space, and an annotation name that does not exist
+  (`@inline`), compile with an ANN-001 warning and are ignored. They are
+  warnings rather than errors because they compiled before 1.0.
 
 Annotations sit directly above the function they describe (inside a body, only
 above a nested function); one anywhere else is `ANN-001`.

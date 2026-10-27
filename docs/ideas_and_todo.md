@@ -836,11 +836,18 @@ value`, not a direct "`ret` is not legal inside `fx`." The diagnostic sends the
 reader toward the wrong fix. A targeted message would help. (Verified
 2026-06-27.)
 
-### Malformed `@cost` is silently dropped — *gap*
+### Malformed `@cost` is silently dropped — *fixed 2026-10-27-1*
 A non-canonical form such as `@cost("O(n) ...")` (quoted string instead of
 `<n><unit>`) is not recognized as an annotation and is silently lowered to a
 comment — no error, no effect. It should emit an ANN-001-style diagnostic so the
 mistake is visible. (Verified 2026-06-27.)
+**Fixed (2026-10-27-1, 1.0-beta15).** `@cost(...)` with no space now draws an
+ANN-001 warning that names the `@cost 100 steps` form, and so does an unknown
+`@word` such as `@inline`. Both still compile, because they compiled before 1.0
+(D75, owner's call for the release candidate); `@cost (...)` with a space was
+already an error. Neither line splits an annotation run any more, so a `@pure`
+above one still reaches its function. Regressions:
+`tests/fx/diag/cost_paren_warn_pass`, `tests/fx/diag/annot_unknown_warn_pass`.
 
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it
@@ -1326,7 +1333,8 @@ line comment is stripped unconditionally before lowering; a `//` inside a string
 literal (e.g. `@post result != "http://none"`) is preserved. The legacy rewriter
 fallback's `extractAnnotationExpr` (`translate.c`) got the symmetric fix, so both
 frontends agree. Regression: `tests/contract_annotation_comment_pass.aether`.
-(Companion to the still-open "malformed `@cost` is silently dropped" gap below.)
+(Companion to the "malformed `@cost` is silently dropped" gap below, fixed in
+2026-10-27-1.)
 
 ### Models reach for `loop x in collection` (foreach) — *fixed 2026-09-05-1: `loop x in xs { }` iterates arrays, Text and ToonNode arrays*
 `loop v in values { ... }` → `expected '<low>..<high>' in loop range`; only

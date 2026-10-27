@@ -1,0 +1,7 @@
+// An unknown annotation warns ANN-001 and is ignored; it used to be dropped
+// without a word. It also no longer splits the run, so the `@pure` above it still
+// reaches the function instead of reporting it detached.
+@pure
+@inline
+fn twice(n: Int) -> Int { ret n * 2; }
+fn main() -> Void { fx { println(twice(4)); } }

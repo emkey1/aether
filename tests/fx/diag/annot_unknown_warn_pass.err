@@ -1,0 +1,3 @@
+warning: [ANN-001]
+unknown annotation `@inline` is ignored
+!error

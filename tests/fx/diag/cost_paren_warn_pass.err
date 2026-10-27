@@ -1,0 +1,4 @@
+warning: [ANN-001]
+`@cost(...)` is not an annotation form
+`@cost 100 steps`
+!error

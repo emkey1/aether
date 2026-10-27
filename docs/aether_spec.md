@@ -595,8 +595,19 @@ fn main() -> Void { }
 ```
 
 `@cost` is decorative by decision: its syntax is validated and nothing enforces
-it. An unknown `@word` and `@pure()` are accepted today and ignored; W4 makes
-them errors.
+it. `@cost(...)` with no space and an unknown `@word` are ignored with an ANN-001
+warning; they compiled before 1.0, so they are not errors (D75). `@pure()` reads
+as `@pure`.
+
+```aether @ok id=G.Annotation.4 warn=ANN-001
+@cost("O(n)")
+fn f(n: Int) -> Int { ret n; }
+fn main() -> Void { fx { println(f(2)); } }
+```
+
+```text
+2
+```
 
 ### 2.2 Types, records and constants
 

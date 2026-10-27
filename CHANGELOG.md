@@ -15,6 +15,42 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-27-1
+
+**Release `1.0-beta15`** (D75): the fifteenth 1.0 beta and the release
+candidate, tagged `1.0-beta15`; `--version` prints `Aether Compiler Version:
+2026-10-27-1 (1.0-beta15)`. The owner tags `1.0` from this code once two review
+rounds find nothing that needs a break. On top of `1.0-beta14` it carries
+2026-10-26-2 and the change below:
+- `min` and `max` infer from two arguments of one scalar type;
+- `fx fn` is FX-001;
+- `@cost(...)` and an unknown annotation warn ANN-001 instead of being dropped
+  without a word;
+- the small guide drops the host sections no small-board task uses
+  (2026-10-26-3).
+
+The next dev label is `1.0-beta16dev`.
+
+Annotations that do nothing now say so. Before the freeze, the plan was to
+make them errors; they compiled before 1.0, so they warn instead (D75).
+
+- **`@cost(...)` warns ANN-001.** The form is `@cost 100 steps`, with a space.
+  `@cost("O(n)")` was read as nothing at all: no diagnostic, no effect. It now
+  draws a warning naming the form and the units, and the program still
+  compiles. `@cost (...)`, with the space, was already an error.
+- **An unknown annotation warns ANN-001.** `@inline` or `@test` above a
+  function was dropped without a word. It now draws "unknown annotation
+  `@inline` is ignored", naming the four annotations.
+- **Neither line splits an annotation run.** `@pure` above `@cost("O(1)")` or
+  `@inline` above a `fn` used to report "@pure must annotate the next function
+  declaration"; the `@pure` now reaches its function.
+
+`@pure()` was already read as `@pure` and checked; the spec and the
+architecture doc said it was ignored, and now say otherwise.
+
+Fixtures `diag/cost_paren_warn_pass` (the backlog probe `cost_free_text`,
+moved) and `diag/annot_unknown_warn_pass`; spec `G.Annotation.4`.
+
 ## 2026-10-26-2
 
 From the 1.0-beta14 review. More `let` bindings infer, and one misleading

@@ -1,0 +1,6 @@
+// `@cost("O(n)")` is not the annotation form (`@cost 100 steps`). It used to be
+// dropped without a word (W4-27); it compiled before 1.0, so it warns ANN-001 and
+// still runs (D75).
+@cost("O(n)")
+fn f(n: Int) -> Int { ret n; }
+fn main() -> Void { fx { println(f(2)); } }
