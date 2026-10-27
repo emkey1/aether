@@ -527,6 +527,12 @@
         "date": "2026-10-26",
         "body_sha256": "d5018101cf979c865962d189b8e561fceee4d10def430f66b148b48bb49c132a",
         "o200k": null
+      },
+      {
+        "stamp": "2026-10-26-3",
+        "date": "2026-10-26",
+        "body_sha256": "1e2e9bc7030132d3272447e26174c0db43ad968666e57321704264ffc646e3e9",
+        "o200k": 10388
       }
     ],
     "docs/aether_card.md": [

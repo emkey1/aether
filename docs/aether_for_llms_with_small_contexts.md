@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-26-1*
+*Guide version: 2026-10-26-3*
 
 ## Highest-Value Rules
 
@@ -538,22 +538,6 @@ level per segment; use it when the output must say which level was missing.
 Never generate foreign JSON/object APIs such as `JsonDoc`, `JsonNode`,
 `json.parseFile(...)`, `root.get(...)`, `Int.MIN`, or `value.toString()`.
 
-## Concurrency: `par`
-
-Run your own functions concurrently with `par { ... }`. The body holds direct
-calls only (no assignments, loops, or inline `fx`); the calls run in parallel
-and the block joins before continuing. Return results through pointer-backed
-records passed as arguments — one record **per branch** (a record shared by two
-branches races and is rejected, PAR-001).
-
-```aether
-par {
-    tally(a, 100);   // a, b are separate records; each callee writes its own
-    tally(b, 200);
-}
-fx { println("a=", a.count, " b=", b.count); }
-```
-
 ## Imports (IMP-001, MOD-001)
 
 Imports are advanced; most generated Aether should be single-file.
@@ -827,127 +811,3 @@ fx {
 
 Sockets (`socket_*`), `sqlite_*`, `random`/`randomize`, and the clock are also
 effectful.
-
-### HTTP requests (MS-001)
-
-The `http_*` calls are effectful (FX-001). The response body lands in an
-`MStream` out-buffer:
-
-- `http_session() -> Int`, `http_close(session)`,
-  `http_set_header(session, name, value)`
-- `http_request(session, method, url, body, out) -> Int` (HTTP status; `body`
-  is the request payload, `""` for GET; `out` is an initialized `MStream`)
-- `mstream_new() -> MStream`, `mstream_text(ms) -> Text`,
-  `mstream_free(ms)` (all pure, no `fx`)
-
-```aether
-fx {
-    let session: Int = http_session();
-    let out: MStream = mstream_new();
-    let status: Int = http_request(session, "GET", url, "", out);
-    if status == 200 { println(mstream_text(out)); }
-    mstream_free(out);
-    http_close(session);
-}
-```
-
-`mstream_text(out)` reads the body — never `print(out)`, never
-`let stream: Int = ...`. JSON responses pair with TOON:
-`toon_parse(mstream_text(out))`.
-
-### Sockets
-
-Real BSD-socket-style API (`socket_*`) and `dns_lookup` — not `tcpsocket*`/
-`udpsocket*`/`resolve`, which do not exist. All effectful (FX-001).
-`socket_receive` returns an `MStream` (MS-001), never `Text`/`Int` directly.
-
-- `socket_create(type[, family]) -> Int`: `type` `0`=TCP, `1`=UDP; `family`
-  `4`=IPv4 (default), `6`=IPv6
-- `socket_connect(socket, host, port) -> Int`,
-  `socket_bind(socket, port) -> Int` (all interfaces),
-  `socket_bind_addr(socket, host, port) -> Int` (one address),
-  `socket_listen(socket, backlog) -> Int` (all `0`/`-1`);
-  `socket_close(socket)` returns nothing
-- `socket_accept(socket) -> Int` (new socket handle) **blocks** until a peer
-  connects; `socket_receive(socket, maxlen) -> MStream` **blocks** until data
-  arrives (`0`-length result = peer closed, not failure)
-- `socket_send(socket, data) -> Int` (`data`: `Text` or `MStream`, bytes sent)
-- `socket_peer_addr(socket) -> Text`, `socket_last_error() -> Int`
-- `socket_set_blocking(socket, blocking: Bool)`,
-  `socket_poll(socket, timeoutMs, flags) -> Int` (`flags` `1`=readable,
-  `2`=writable, bitwise-or; `0` on timeout) — the non-blocking alternative to
-  a bare `socket_accept`/`socket_receive`
-- `dns_lookup(hostname) -> Text` (forward only; `""` on failure)
-
-`socket_accept`/`socket_receive` hang forever with no peer. Either run a
-same-process client+server pair via `par` (create/bind/listen *before* the
-`par` block so the client can't race a not-yet-listening server; `par`
-joins), or use `socket_set_blocking(s, false)` + poll `socket_poll` in a loop.
-
-```aether
-type Message {
-    payload: Text;
-}
-fn server(listenSock: Int, out: Message) -> Void {
-    fx {
-        let conn: Int = socket_accept(listenSock);
-        let ms: MStream = socket_receive(conn, 256);
-        out.payload = mstream_text(ms);
-        socket_send(conn, "pong");
-        mstream_free(ms);
-        socket_close(conn);
-        socket_close(listenSock);
-    }
-    ret;
-}
-fn client(port: Int, out: Message) -> Void {
-    fx {
-        let sock: Int = socket_create(0);
-        socket_connect(sock, "127.0.0.1", port);
-        socket_send(sock, "ping");
-        let ms: MStream = socket_receive(sock, 256);
-        out.payload = mstream_text(ms);
-        mstream_free(ms);
-        socket_close(sock);
-    }
-    ret;
-}
-fn main() -> Void {
-    let port: Int = 23557;
-    let listenSock: Int = 0;
-    let serverMsg: Message = new Message();
-    let clientMsg: Message = new Message();
-    fx {
-        listenSock = socket_create(0);
-        socket_bind(listenSock, port);
-        socket_listen(listenSock, 1);
-    }
-    par {
-        server(listenSock, serverMsg);
-        client(port, clientMsg);
-    }
-    ret;
-}
-```
-
-### Tasks and AI
-
-`sleep(ms: Int) -> Void`,
-`ai_chat(model: Text, messages: Text, system: Text = "", apiKey: Text = "", endpoint: Text = "") -> Text`,
-probes `has_ai() -> Bool`, `has_builtin(category: Text, function: Text) -> Bool`
-(true for extended *and* core builtins; a core builtin matches on the function
-name whatever category you pass).
-`sleep` and `ai_chat` are effectful and must stay inside `fx`; the `has_*`
-probes are pure. `sleep(ms)` is a blocking millisecond pause. To run your own
-code concurrently use `par`.
-
-Discovery (for builtins beyond this guide — deeper I/O, networking, DB, and
-host-registered **custom** builtins). Agentic only: these are run-time calls.
-- `builtins_json()` -> JSON list of all Aether-visible builtins
-- `builtins_json(true)` -> richer metadata (`signature`, `effectful`, ...)
-- `builtin_info(name)` -> metadata for one builtin
-- `aether --dump-ext-builtins` -> registered custom/extended builtins
-
-Discover the exact name, signature, and `effectful` flag, then call it (inside
-`fx` if effectful). Writing in one shot? Stay within this guide; never guess
-an unlisted name or its signature.

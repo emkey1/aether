@@ -1,0 +1,68 @@
+2026-10-26T19:02:15Z start: binary adbdf17eca32e1b7ee2aaa37f84ca9c5c9226304ba97407b5d7f448efca35533 (Aether Compiler Version: 2026-10-26-2 (1.0-beta15dev)) old=5b2868122a24 new=32cfc0e44041 workers 6 spend limit $68.5
+2026-10-26T19:02:15Z [run ] or-qwen35-9b__tasks_v2_pos__r1 (usage $60.388480515)
+2026-10-26T19:02:15Z [run ] or-qwen35-9b__tasks_v2_pos__r2 (usage $60.388480515)
+2026-10-26T19:02:16Z [run ] or-qwen35-9b__tasks_v2_pos__r0 (usage $60.388480515)
+2026-10-26T19:32:09Z [done] or-qwen35-9b__tasks_v2_pos__r1 rc=0 1794s small_current fa=29/35 fx=30/35 gen=30; small_hostcut fa=32/35 fx=35/35 gen=35
+2026-10-26T19:32:09Z [run ] or-qwen35-9b__tasks_cs__r1 (usage $60.856431565)
+2026-10-26T19:33:18Z [short] or-qwen35-9b__tasks_v2_pos__r0 rc=3 1862s: SHORT small_current 35/35 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T19:33:18Z [run ] or-qwen35-9b__tasks_cs__r0 (usage $60.925349665)
+2026-10-26T19:35:40Z [short] or-qwen35-9b__tasks_v2_pos__r2 rc=3 2005s: SHORT small_hostcut 35/35 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T19:35:40Z [run ] or-qwen35-9b__tasks_cs__r2 (usage $61.011497065)
+2026-10-26T20:38:17Z [short] or-qwen35-9b__tasks_cs__r1 rc=3 3968s: SHORT small_current 19/19 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T20:38:18Z [run ] or-qwen35-9b__tasks_hard_v2__r1 (usage $61.586295165)
+2026-10-26T21:07:54Z [short] or-qwen35-9b__tasks_cs__r0 rc=3 5676s: SHORT small_hostcut 19/19 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T21:07:55Z [run ] or-qwen35-9b__tasks_hard_v2__r0 (usage $61.936068415)
+2026-10-26T21:13:09Z [short] or-qwen35-9b__tasks_cs__r2 rc=3 5849s: SHORT small_hostcut 19/19 cases, 1 unmeasured; kept as a checkpoint
+2026-10-26T21:13:10Z [run ] or-qwen35-9b__tasks_hard_v2__r2 (usage $62.076490915)
+2026-10-26T21:42:17Z [short] or-qwen35-9b__tasks_hard_v2__r1 rc=3 3839s: SHORT small_hostcut 14/14 cases, 2 unmeasured; kept as a checkpoint
+2026-10-26T21:42:17Z [run ] or-qwen35-9b__tasks_hard_nontoon__r1 (usage $62.327737415)
+2026-10-26T22:11:56Z [done] or-qwen35-9b__tasks_hard_v2__r2 rc=0 3526s small_current fa=7/14 fx=11/14 gen=11; small_hostcut fa=8/14 fx=10/14 gen=10
+2026-10-26T22:11:56Z [run ] or-qwen35-9b__tasks_hard_nontoon__r2 (usage $62.899710765)
+2026-10-26T22:34:38Z [short] or-qwen35-9b__tasks_hard_v2__r0 rc=3 5203s: SHORT small_current 14/14 cases, 2 unmeasured; kept as a checkpoint
+2026-10-26T22:34:39Z [run ] or-qwen35-9b__tasks_hard_nontoon__r0 (usage $62.956850665)
+2026-10-26T22:41:41Z [done] or-qwen35-9b__tasks_hard_nontoon__r1 rc=0 3564s small_current fa=0/5 fx=0/5 gen=0; small_hostcut fa=0/5 fx=1/5 gen=2
+2026-10-27T00:05:14Z [done] or-qwen35-9b__tasks_hard_nontoon__r2 rc=0 6798s small_current fa=0/5 fx=0/5 gen=1; small_hostcut fa=2/5 fx=2/5 gen=2
+2026-10-27T00:34:54Z [short] or-qwen35-9b__tasks_hard_nontoon__r0 rc=3 7215s: SHORT small_current 5/5 cases, 3 unmeasured; kept as a checkpoint
+2026-10-27T00:34:54Z [pass 1] 8 unit(s) not whole; next pass in 5 minutes
+2026-10-27T00:39:55Z [run ] or-qwen35-9b__tasks_v2_pos__r2 (usage $63.443354715)
+2026-10-27T00:39:55Z [run ] or-qwen35-9b__tasks_v2_pos__r0 (usage $63.443354715)
+2026-10-27T00:39:55Z [run ] or-qwen35-9b__tasks_cs__r1 (usage $63.443354715)
+2026-10-27T00:41:09Z [short] or-qwen35-9b__tasks_cs__r1 rc=3 74s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T00:41:09Z [run ] or-qwen35-9b__tasks_hard_v2__r1 (usage $63.443354715)
+2026-10-27T00:41:09Z [short] or-qwen35-9b__tasks_v2_pos__r0 rc=3 74s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T00:41:09Z [short] or-qwen35-9b__tasks_v2_pos__r2 rc=3 74s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T00:41:09Z [run ] or-qwen35-9b__tasks_cs__r0 (usage $63.443354715)
+2026-10-27T00:41:10Z [run ] or-qwen35-9b__tasks_cs__r2 (usage $63.443354715)
+2026-10-27T01:12:02Z [done] or-qwen35-9b__tasks_cs__r2 rc=0 1852s small_current fa=11/19 fx=14/19 gen=15; small_hostcut fa=12/19 fx=13/19 gen=14
+2026-10-27T01:12:03Z [done] or-qwen35-9b__tasks_cs__r0 rc=0 1854s small_current fa=11/19 fx=14/19 gen=15; small_hostcut fa=14/19 fx=16/19 gen=16
+2026-10-27T01:12:04Z [run ] or-qwen35-9b__tasks_hard_v2__r0 (usage $63.445138265)
+2026-10-27T01:13:17Z [short] or-qwen35-9b__tasks_hard_v2__r0 rc=3 73s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T01:13:17Z [run ] or-qwen35-9b__tasks_hard_nontoon__r0 (usage $63.520573565)
+2026-10-27T01:14:30Z [short] or-qwen35-9b__tasks_hard_nontoon__r0 rc=3 73s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T01:15:11Z [short] or-qwen35-9b__tasks_hard_v2__r1 rc=3 2042s: SHORT small_hostcut 14/14 cases, 1 unmeasured; kept as a checkpoint
+2026-10-27T01:15:11Z [pass 2] 6 unit(s) not whole; next pass in 5 minutes
+2026-10-27T01:20:11Z [run ] or-qwen35-9b__tasks_cs__r1 (usage $63.545785365)
+2026-10-27T01:20:11Z [run ] or-qwen35-9b__tasks_v2_pos__r2 (usage $63.545785365)
+2026-10-27T01:20:11Z [run ] or-qwen35-9b__tasks_v2_pos__r0 (usage $63.545785365)
+2026-10-27T01:20:43Z [done] or-qwen35-9b__tasks_v2_pos__r0 rc=0 32s small_current fa=35/35 fx=35/35 gen=35; small_hostcut fa=29/35 fx=33/35 gen=33
+2026-10-27T01:20:43Z [run ] or-qwen35-9b__tasks_hard_v2__r0 (usage $63.545943465)
+2026-10-27T01:41:13Z [short] or-qwen35-9b__tasks_v2_pos__r2 rc=3 1262s: SHORT small_hostcut 35/35 cases, 1 unmeasured; kept as a checkpoint
+2026-10-27T01:52:50Z [short] or-qwen35-9b__tasks_cs__r1 rc=3 1959s: SHORT small_current 19/19 cases, 1 unmeasured; kept as a checkpoint
+2026-10-27T01:52:50Z [run ] or-qwen35-9b__tasks_hard_v2__r1 (usage $63.554058465)
+2026-10-27T01:52:59Z [done] or-qwen35-9b__tasks_hard_v2__r0 rc=0 1936s small_current fa=6/14 fx=8/14 gen=8; small_hostcut fa=4/14 fx=4/14 gen=4
+2026-10-27T01:52:59Z [run ] or-qwen35-9b__tasks_hard_nontoon__r0 (usage $63.554058465)
+2026-10-27T01:54:03Z [short] or-qwen35-9b__tasks_hard_v2__r1 rc=3 73s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T01:54:12Z [short] or-qwen35-9b__tasks_hard_nontoon__r0 rc=3 73s: SHORT the model check failed on a resume; kept as a checkpoint
+2026-10-27T01:54:12Z [pass 3] 4 unit(s) not whole; next pass in 5 minutes
+2026-10-27T01:59:12Z FINISHED: units not whole: 4; usage $63.604521165
+2026-10-27T02:03:52Z [resume round 2] the first run left 4 units with 9 unmeasured cases; one more driver run
+2026-10-27T02:03:52Z start: binary adbdf17eca32e1b7ee2aaa37f84ca9c5c9226304ba97407b5d7f448efca35533 (Aether Compiler Version: 2026-10-26-2 (1.0-beta15dev)) old=5b2868122a24 new=32cfc0e44041 workers 6 spend limit $68.5
+2026-10-27T02:03:52Z [run ] or-qwen35-9b__tasks_hard_nontoon__r0 (usage $63.604521165)
+2026-10-27T02:03:52Z [run ] or-qwen35-9b__tasks_v2_pos__r2 (usage $63.604521165)
+2026-10-27T02:03:52Z [run ] or-qwen35-9b__tasks_cs__r1 (usage $63.604521165)
+2026-10-27T02:28:44Z [done] or-qwen35-9b__tasks_v2_pos__r2 rc=0 1492s small_current fa=31/35 fx=34/35 gen=34; small_hostcut fa=28/35 fx=32/35 gen=32
+2026-10-27T02:28:48Z [done] or-qwen35-9b__tasks_cs__r1 rc=0 1496s small_current fa=13/19 fx=15/19 gen=15; small_hostcut fa=13/19 fx=13/19 gen=13
+2026-10-27T02:28:48Z [run ] or-qwen35-9b__tasks_hard_v2__r1 (usage $63.617319715)
+2026-10-27T02:29:36Z [done] or-qwen35-9b__tasks_hard_nontoon__r0 rc=0 1544s small_current fa=2/5 fx=2/5 gen=2; small_hostcut fa=1/5 fx=2/5 gen=3
+2026-10-27T02:46:03Z [done] or-qwen35-9b__tasks_hard_v2__r1 rc=0 1035s small_current fa=6/14 fx=8/14 gen=8; small_hostcut fa=3/14 fx=7/14 gen=7
+2026-10-27T02:46:03Z FINISHED: units not whole: 0; usage $63.793958865
