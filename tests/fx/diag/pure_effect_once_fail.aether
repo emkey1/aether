@@ -1,0 +1,25 @@
+// A @pure function's effect is one fault, reported once as ANN-001. An fx
+// block in one drew ANN-001 for the block and again for the call inside; it is
+// one ANN-001 at the block, naming the call. A bare println drew FX-001 too,
+// whose `fx` repair is itself an ANN-001. An empty fx block is still one.
+@pure
+fn shout(n: Int) -> Int {
+    fx { println(n); }
+    ret n;
+}
+
+@pure
+fn whisper(n: Int) -> Int {
+    println(n);
+    ret n;
+}
+
+@pure
+fn quiet(n: Int) -> Int {
+    fx { }
+    ret n;
+}
+
+fn main() -> Void {
+    fx { println(shout(1) + whisper(2) + quiet(3)); }
+}

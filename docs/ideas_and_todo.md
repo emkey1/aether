@@ -934,7 +934,30 @@ Open:
 - The reviewer's runner takes one file per run, under `--deny net,ext`, with
   no flags: a two-file `use`, `--diagnostics-json` and `task_result(h, true)`
   (every Text-returning task target is network) are out of its reach. All
-  three were checked on the workstation at 2026-10-28-1.
+  three were checked on the workstation at 2026-10-28-1. *Its run tool now
+  takes extra `.aether` files and `--diagnostics-json` / `--no-run`
+  (2026-10-28); `task_result(h, true)` stays out of reach under `--deny net`.*
+
+### Findings of the second 1.0-beta17 review — *fixed 2026-10-28-2*
+Additive (D75). Fixed:
+- `task_spawn`/`task_queue` with a target that cannot run as a task (another
+  builtin, the program's own function, no builtin) stopped at run time with an
+  uncoded engine line naming `aether_read_file` or `ThreadSpawnBuiltin`; a
+  literal target is FUNC-001, a variable one `[AETH-RUNTIME-TASK-TARGET]`, both
+  naming `sleep`, `dns_lookup` and the `http_*` builtins
+  (`tests/fx/builtins/task_target_fail`, `task_target_dynamic_fail`).
+- `task_status`'s second parameter was listed as `consume: Bool = false`; it is
+  the engine's `drop_result`, and a read always takes the status, so a second
+  read was NO-STATUS blaming `task_wait`. Listed as `drop_result`, and the
+  error names the earlier read (`tests/fx/builtins/task_status_twice_fail`).
+  Making the read a peek was not taken: it changes how programs run, and a
+  task whose status is only peeked would hold its worker until `task_wait`.
+- A `@pure` function's effect drew two diagnostics (ANN-001 twice, or FX-001
+  and ANN-001); it draws one ANN-001 (`tests/fx/diag/pure_effect_once_fail`).
+
+Not a defect: PARAM-001 did not warn on a helper that advances `pos` and
+returns it. The rule (D77) warns only on the dead, thread and stuck shapes,
+where the update cannot reach the caller.
 
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it

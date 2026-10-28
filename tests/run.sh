@@ -2068,7 +2068,7 @@ if "$AETHER_BIN" --no-cache "$PURE_FAIL_EFFECTFUL_FIXTURE" >$OUT/aether_pure_fai
     echo "expected purity failure for effectful builtin but program succeeded" >&2
     exit 1
 fi
-if ! grep -q "Aether purity error: pure function 'noisy' cannot call effectful builtin 'writeln'" $OUT/aether_pure_fail_effectful.out; then
+if ! grep -q "Aether purity error: pure function 'noisy' contains an fx block calling effectful builtin 'writeln'" $OUT/aether_pure_fail_effectful.out; then
     echo "missing purity failure for effectful builtin" >&2
     cat $OUT/aether_pure_fail_effectful.out >&2
     exit 1

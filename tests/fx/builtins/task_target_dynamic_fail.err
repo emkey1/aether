@@ -1,0 +1,3 @@
+[AETH-RUNTIME-TASK-TARGET] task_spawn: 'read_file' cannot run as a task
+hint: call read_file directly
+!aether_read_file

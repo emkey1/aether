@@ -1,0 +1,14 @@
+// Reading task_status takes the status, so a second read stops the program.
+// The error blamed task_wait, which this program never calls, and the listing
+// gave a `consume` flag that read as "false = do not take it"; the flag is
+// drop_result, and the error names the earlier read.
+fn main() -> Void {
+    fx {
+        let h: Int = task_spawn("sleep", "w", 5);
+        sleep(100);
+        let first: Bool = task_status(h, false);
+        println("first ", first);
+        let again: Bool = task_status(h, false);
+        println("again ", again);
+    }
+}

@@ -1,0 +1,18 @@
+// FUNC-001 at compile time: task_spawn and task_queue run sleep, dns_lookup or
+// an http_* builtin. Each of these compiled and stopped at run time with an
+// engine line: "Builtin 'aether_read_file' is not approved for threaded
+// execution." or "ThreadSpawnBuiltin received an unknown builtin identifier."
+fn work(n: Int) -> Int {
+    ret n * 2;
+}
+
+fn main() -> Void {
+    fx {
+        let a: Int = task_spawn("read_file", "a", "x.txt");
+        let b: Int = task_spawn("work", "b", 3);
+        let c: Int = task_spawn("no_such_thing", "c", 1);
+        let d: Int = task_queue("now_text", "d", 0);
+        let e: Int = task_spawn("sleep", "e", 5);
+        println(task_wait(a) + task_wait(b) + task_wait(c) + task_wait(d) + task_wait(e));
+    }
+}

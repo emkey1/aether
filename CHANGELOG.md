@@ -15,6 +15,42 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-28-2
+
+From the second review of `1.0-beta17`. Not a release; the dev label stays
+`1.0-beta18dev`.
+
+- **A task target that cannot run is FUNC-001.** `task_spawn` and
+  `task_queue` run `sleep`, `dns_lookup` or an `http_*` builtin by name. A
+  literal target naming any other builtin (`"read_file"`), the program's own
+  function, or no builtin compiled and stopped at run time with an uncoded
+  engine line (`Builtin 'aether_read_file' is not approved for threaded
+  execution.`, `ThreadSpawnBuiltin received an unknown builtin identifier.`).
+  It is FUNC-001 when the program compiles, naming what a task can run, or
+  `par` for your own function. A target held in a variable stops at run time
+  with `[AETH-RUNTIME-TASK-TARGET]` (pscal-core). A program that never
+  reaches such a call stops compiling; no tree or archived program does.
+- **`task_status` reads once, and says so.** Reading it takes the status. The
+  listing called its second parameter `consume: Bool = false`, which read as
+  "false keeps the status", but it is the engine's `drop_result` (also
+  discard the task's result); a second read stopped with
+  `[AETH-RUNTIME-TASK-NO-STATUS]` blaming `task_wait`. The parameter is listed
+  as `drop_result`, and the error says an earlier `task_status`, `task_wait`
+  or `task_result(t, true)` took the status. Behaviour is unchanged.
+- **One error for an effect in a `@pure` function.** An `fx` block in one drew
+  ANN-001 for the block and again for each effectful call in it; it is one
+  ANN-001 at the block that names the first call ("contains an fx block
+  calling effectful builtin 'println'"). A bare `println` drew FX-001 and
+  ANN-001, where adding `fx` only moves the error; it is the ANN-001 alone.
+- **Guides.** The full guide's concurrency section names the task builtins and
+  the two codes, and shows `task_status(handle, drop_result = false)` (full
+  `2026-10-28-2`, 37,445 → 37,546 o200k); the manual matches.
+
+Fixtures `builtins/task_target_fail`, `task_target_dynamic_fail`,
+`task_status_twice_fail`, `diag/pure_effect_once_fail`;
+`builtins/task_status_after_wait_fail` and `diag/try_io_pure_fail` check the
+new text and code set.
+
 ## 2026-10-28-1
 
 From the first review of `1.0-beta17`. Not a release; the dev label stays

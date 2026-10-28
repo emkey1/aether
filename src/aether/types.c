@@ -23,6 +23,7 @@
 #include "aether/experiment.h"
 #include "aether/parser.h"
 #include "vm/vm_fx_policy.h"
+#include "backend_ast/builtin.h"
 #include "aether/semantic.h"
 
 /* ------------------------------------------------------------------ */
@@ -1918,6 +1919,41 @@ static int ruleMixedBitwise(RuleCtx *c, const AST *e, const AetherTypeEnv *env) 
     return 1;
 }
 
+/* FUNC-001 at compile time: task_spawn and task_queue run an allow-listed
+ * builtin by name. A literal target naming the program's own function, a
+ * builtin that cannot run on a worker, or no builtin at all compiled and
+ * stopped at run time with an engine line that named the engine. */
+static int ruleTaskTarget(RuleCtx *c, const AST *e) {
+    const char *name = callName(e);
+    if (!name || e->type != AST_PROCEDURE_CALL || e->child_count < 1) return 0;
+    int queue = !strcasecmp(name, "thread_pool_submit");
+    if (!queue && strcasecmp(name, "thread_spawn_named") != 0) return 0;
+    const AST *t = e->children[0];
+    if (!t || t->type != AST_STRING || !t->token || !t->token->value) return 0;
+    const char *target = t->token->value;
+    int kind = pscalTaskTargetKind(target);
+    if (kind == 1) return 0;
+    const char *op = queue ? "task_queue" : "task_spawn";
+    char detail[448];
+    if (aetherAstIsTopLevelUserFunction(target))
+        snprintf(detail, sizeof(detail),
+                 "`%s` runs a builtin by name, and '%s' is your own function: functions are not "
+                 "values. To run it concurrently, call it inside `par { ... }`.", op, target);
+    else if (kind == 0)
+        snprintf(detail, sizeof(detail),
+                 "'%s' cannot run as a task: `%s` runs sleep, dns_lookup or an http_* builtin. "
+                 "Call %s directly, or run your own code concurrently in `par { ... }`.",
+                 target, op, target);
+    else
+        snprintf(detail, sizeof(detail),
+                 "'%s' is not a builtin: `%s` runs sleep, dns_lookup or an http_* builtin, by "
+                 "name.", target, op);
+    int line = nodeLine(e);
+    aetherSemanticReportCoded("FUNC-001", "type", line > 0 ? line : 1, detail, 1);
+    c->reported++;
+    return 1;
+}
+
 /* D24: `==` / `!=` on records and tuples compares field by field. Two
  * different record types never compare equal, so that is a TYPE-001; a
  * self-referential type is REC-001, with `same(a, b)` as the identity test. */
@@ -2128,6 +2164,7 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
     }
     if (ruleNumericSelection(c, e, env)) return;
     if (ruleMixedBitwise(c, e, env)) return;
+    if (ruleTaskTarget(c, e)) return;
     /* same(a, b) is identity, which only records have. */
     if (e->type == AST_PROCEDURE_CALL && callName(e) && strcasecmp(callName(e), "aether_same") == 0) {
         for (int i = 0; i < e->child_count; i++) {

@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-28-1*
+*Guide version: 2026-10-28-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1638,9 +1638,11 @@ are a lower-level handle API over runtime builtins.
 
 Compact aliases over shared runtime helpers; all are effectful — call inside
 `fx` (FX-001) — except the `has_*` probes, which are pure. `task_spawn` /
-`task_queue` dispatch an allow-listed runtime *builtin* by its Aether name
-(for example `"sleep"` or `"dns_lookup"`), not a user-defined function;
-passing your own function name is an error. To parallelize your own functions, use `par` (above).
+`task_queue` run a builtin by its Aether name, and only the builtins that can
+run on a worker: `"sleep"`, `"dns_lookup"` and the `http_*` builtins
+(`"http_request"`, `"http_await"`, ...). Any other literal target, your own
+function's name included, is `[FUNC-001]`; one held in a variable stops at run
+time with `[AETH-RUNTIME-TASK-TARGET]`. To parallelize your own functions, use `par` (above).
 
 Core signatures:
 
@@ -1650,9 +1652,11 @@ Core signatures:
 - `task_wait(handle: Int) -> Int` — joins the task; `0` when it succeeded. It
   consumes the stored status
 - `task_lookup(name: Text) -> Int`
-- `task_status(handle: Int) -> Bool` — readable only once the task has finished
-  and before `task_wait`; on a running or an already-joined task it is a
-  run-time error
+- `task_status(handle: Int, drop_result: Bool = false) -> Bool` — readable
+  once the task has finished and before `task_wait`. Reading it takes the
+  status, so read it once and keep it: a second read, or a read of a running
+  or an already-joined task, is a run-time error. `drop_result: true` also
+  discards the task's result
 - `task_result(handle: Int, consume: Bool = false)` — the target builtin's own
   result, of its type (`Text` for `"dns_lookup"`); `consume: true` also clears
   the stored status, as `task_wait` does. A target that returns nothing (`"sleep"`) has no
@@ -2714,7 +2718,7 @@ Safe to call exactly as written.
 | `task_spawn(target: Text, name: Text, arg) -> Int` | `fx` |
 | `task_stats() -> untyped array` | `fx` |
 | `task_stats_json() -> Text` | `fx` |
-| `task_status(handle: Int, consume: Bool = false) -> Bool` | `fx` |
+| `task_status(handle: Int, drop_result: Bool = false) -> Bool` | `fx` |
 | `task_wait(handle: Int) -> Int` | `fx` |
 
 **Text**

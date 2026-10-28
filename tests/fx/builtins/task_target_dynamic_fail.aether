@@ -1,0 +1,11 @@
+// A target held in a variable is checked at run time:
+// [AETH-RUNTIME-TASK-TARGET] names it as written and lists what a task runs.
+fn main() -> Void {
+    let names: Text[] = ["sleep", "read_file"];
+    fx {
+        loop n in names {
+            let h: Int = task_spawn(n, "w", 5);
+            println(n, " ", task_wait(h));
+        }
+    }
+}

@@ -3741,12 +3741,17 @@ static void aetherCheckCallNode(const AST *node,
      * they read files exactly as read_file does, so a call needs `fx` too. */
     if (aetherStdlibPreludeIsEffectful(canonical)) isEffectful = 1;
 
-    if (isEffectful && fxDepth == 0) {
+    /* In a @pure function an effect is one fault, reported once as ANN-001:
+     * not FX-001 too, whose `fx` repair is itself an ANN-001, and inside an
+     * fx block not again per call (the block's ANN-001 names the first). */
+    if (isEffectful && fxDepth == 0 && !pureFnName) {
         snprintf(detail, sizeof(detail), "call to '%s' requires an fx block.", display);
         reportAetherError("effect", line, detail);
     }
     if (pureFnName) {
-        if (isEffectful) {
+        if (isEffectful && fxDepth > 0) {
+            /* Reported with the enclosing fx block. */
+        } else if (isEffectful) {
             snprintf(detail,
                      sizeof(detail),
                      "pure function '%s' cannot call effectful builtin '%s'.",
@@ -3772,6 +3777,46 @@ static void aetherCheckCallNode(const AST *node,
 }
 
 static void aetherWalkEffectsAndPurity(const AST *node, int fxDepth, const char *pureFnName);
+
+/* The first call to an effectful builtin in this subtree, judged as
+ * aetherCheckCallNode judges one (not crossing into a nested declaration),
+ * with its canonical name; NULL when there is none. */
+static const AST *aetherFirstEffectfulCall(const AST *node, const char **canonicalOut) {
+    const char *name = NULL;
+    const AST *found;
+    int i;
+
+    if (!node || aetherAstNodeIsSynthesizedSubtree(node)) {
+        return NULL;
+    }
+    if (node->type == AST_FUNCTION_DECL || node->type == AST_PROCEDURE_DECL) {
+        return NULL;
+    }
+    if (node->type == AST_WRITELN || node->type == AST_WRITE) {
+        *canonicalOut = node->type == AST_WRITELN ? "writeln" : "write";
+        return node;
+    }
+    if (node->type == AST_PROCEDURE_CALL && node->token) {
+        name = node->token->value;
+    }
+    if (name && *name &&
+        ((aetherIsEffectfulBuiltin(name, strlen(name)) && !aetherAstIsTopLevelUserFunction(name)) ||
+         aetherStdlibPreludeIsEffectful(name))) {
+        *canonicalOut = name;
+        return node;
+    }
+    if ((found = aetherFirstEffectfulCall(node->left, canonicalOut)) ||
+        (found = aetherFirstEffectfulCall(node->right, canonicalOut)) ||
+        (found = aetherFirstEffectfulCall(node->extra, canonicalOut))) {
+        return found;
+    }
+    for (i = 0; i < node->child_count; i++) {
+        if ((found = aetherFirstEffectfulCall(node->children[i], canonicalOut))) {
+            return found;
+        }
+    }
+    return NULL;
+}
 
 static void aetherWalkEffectsAndPurityOperands(const AST *node,
                                                int fxDepth,
@@ -3833,14 +3878,24 @@ static void aetherWalkEffectsAndPurity(const AST *node, int fxDepth, const char 
          * when the block is empty today). */
         if (pureFnName) {
             char detail[256];
+            const char *canonical = NULL;
+            const AST *call = aetherFirstEffectfulCall(node, &canonical);
             int fxLine = aetherAstFxBlockLine(node);
             if (fxLine <= 0) {
                 fxLine = aetherAstNodeLine(node);
             }
-            snprintf(detail,
-                     sizeof(detail),
-                     "pure function '%s' contains an fx block.",
-                     pureFnName);
+            if (call) {
+                int callLine = aetherAstNodeLine(call);
+                const char *display = aetherAstCallSurfaceName(call);
+                if (!display) display = aetherAstAliasSurfaceAtLine(callLine, canonical);
+                if (!display) display = aetherAstFunctionDisplayName(canonical);
+                snprintf(detail, sizeof(detail),
+                         "pure function '%s' contains an fx block calling effectful builtin '%s'.",
+                         pureFnName, display ? display : canonical);
+            } else {
+                snprintf(detail, sizeof(detail),
+                         "pure function '%s' contains an fx block.", pureFnName);
+            }
             reportAetherError("purity", fxLine, detail);
         }
         fxDepth++;

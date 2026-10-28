@@ -1,0 +1,11 @@
+:11: [FUNC-001]
+'read_file' cannot run as a task: `task_spawn` runs sleep, dns_lookup or an http_* builtin
+:12: [FUNC-001]
+'work' is your own function
+:13: [FUNC-001]
+'no_such_thing' is not a builtin
+:14: [FUNC-001]
+'now_text' cannot run as a task: `task_queue`
+!:15:
+!approved for threaded
+!ThreadSpawnBuiltin

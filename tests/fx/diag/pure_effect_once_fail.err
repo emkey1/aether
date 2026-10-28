@@ -1,0 +1,5 @@
+=1 pure function 'shout' contains an fx block calling effectful builtin 'println'
+=1 pure function 'whisper' cannot call effectful builtin 'println'
+=1 pure function 'quiet' contains an fx block.
+!pure function 'shout' cannot call
+!FX-001

@@ -2378,8 +2378,12 @@ task finished: 0
 for it and returns `0` when it succeeded, and `task_result(handle)` reads the
 builtin's own result. A builtin that returns nothing, such as `sleep`, leaves
 no result, and reading one stops the program with
-`AETH-RUNTIME-TASK-NO-RESULT`. Only an allow-listed set of builtins can run
-this way; for your own functions, use `par`.
+`AETH-RUNTIME-TASK-NO-RESULT`. Only the builtins that can run on a worker can
+run this way: `sleep`, `dns_lookup` and the `http_*` builtins. Any other
+literal target, your own function's name included, is `FUNC-001` when the
+program compiles. For your own functions, use `par`. `task_status(handle)`
+reads whether a finished task succeeded; reading it takes the status, so read
+it once, before `task_wait`.
 
 ---
 

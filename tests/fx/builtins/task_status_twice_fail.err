@@ -1,0 +1,2 @@
+[AETH-RUNTIME-TASK-NO-STATUS] task_status: task 1 has no status to read: reading it takes the status, and an earlier task_status
+hint: read task_status(t) once, before task_wait(t), and keep it in a variable
