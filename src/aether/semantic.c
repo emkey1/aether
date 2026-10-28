@@ -956,6 +956,78 @@ static const char *inferInitializerTypeName(const char *start,
     return expectedScalarReturnTypeName(trimmedStart, (size_t)(nameEnd - trimmedStart));
 }
 
+/* A function's handle parameters (`fn f(node: ToonNode)`) are handles as much
+ * as a `let node: ToonNode` is, but only `let` lines were read, so `len(node)`
+ * on a parameter compiled and stopped at run time uncoded. Reads a header
+ * written on one line, the way computeLineFunctionIds finds it. */
+static void collectOpaqueParams(const char *body, const char *lineEnd,
+                                AetherOpaqueBindingTable *table) {
+    const char *scan = body;
+
+    while (scan < lineEnd && *scan != '(') {
+        scan++;
+    }
+    while (scan < lineEnd && *scan != ')') {
+        const char *nameStart;
+        const char *nameEnd;
+        const char *typeStart;
+        const char *typeEnd;
+        int kind = -1;
+        int depth = 0;
+
+        scan = skipInlineSpaces(scan + 1, lineEnd);
+        nameStart = scan;
+        while (scan < lineEnd && (isalnum((unsigned char)*scan) || *scan == '_')) {
+            scan++;
+        }
+        nameEnd = scan;
+        scan = skipInlineSpaces(scan, lineEnd);
+        if (nameEnd == nameStart || scan >= lineEnd || *scan != ':') {
+            return;
+        }
+        typeStart = skipInlineSpaces(scan + 1, lineEnd);
+        typeEnd = typeStart;
+        while (typeEnd < lineEnd && (isalnum((unsigned char)*typeEnd) || *typeEnd == '_')) {
+            typeEnd++;
+        }
+        if (typeEnd < lineEnd && *typeEnd != '[') {
+            if ((size_t)(typeEnd - typeStart) == 7 && strncmp(typeStart, "ToonDoc", 7) == 0) {
+                kind = AETHER_HANDLE_DOC;
+            } else if ((size_t)(typeEnd - typeStart) == 8 &&
+                       strncmp(typeStart, "ToonNode", 8) == 0) {
+                kind = AETHER_HANDLE_NODE;
+            } else if ((size_t)(typeEnd - typeStart) == 7 &&
+                       strncmp(typeStart, "MStream", 7) == 0) {
+                kind = AETHER_HANDLE_MSTREAM;
+            }
+        }
+        if (kind >= 0) {
+            char *name = dupRange(nameStart, nameEnd);
+            if (name) {
+                addOpaqueBinding(table, name, kind);
+                free(name);
+            }
+        }
+        /* On to this parameter's closing `,` or the list's `)`, past any
+         * default value. */
+        for (scan = typeEnd; scan < lineEnd; scan++) {
+            if (*scan == '"' || *scan == '\'') {
+                const char *after = skipQuotedString(scan, NULL);
+                scan = (after > scan && after <= lineEnd) ? after - 1 : lineEnd - 1;
+            } else if (*scan == '(' || *scan == '[') {
+                depth++;
+            } else if (*scan == ')' || *scan == ']') {
+                if (depth == 0) {
+                    break;
+                }
+                depth--;
+            } else if (*scan == ',' && depth == 0) {
+                break;
+            }
+        }
+    }
+}
+
 static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *table,
                                   const int *lineFnIds, size_t lineCount, int fnId) {
     const char *cursor = source;
@@ -975,6 +1047,9 @@ static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *
             continue;
         }
         body = skipInlineSpaces(lineStart, lineEnd);
+        if (fnId != 0 && startsWithWord(body, lineEnd, "fn")) {
+            collectOpaqueParams(body, lineEnd, table);
+        }
         if (startsWithWord(body, lineEnd, "let") || startsWithWord(body, lineEnd, "const")) {
             const char *scan = body + (startsWithWord(body, lineEnd, "const") ? 5 : 3);
             const char *nameStart;

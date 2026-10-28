@@ -1,0 +1,7 @@
+// A module that uses itself printed the engine's uncoded "Cyclic module
+// dependency detected involving '...'." with no file or line.
+use "self_tools";
+
+fn main() -> Void {
+    fx { println(clampScore(141)); }
+}

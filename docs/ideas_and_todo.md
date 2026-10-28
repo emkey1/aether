@@ -863,6 +863,8 @@ than `Int`, `Real` or `Bool` is TYPE-001 naming the type, with `<` for Text and
 Additive, so none blocks 1.0 (D75):
 - A negative shift stops with an uncoded `Runtime Error: Shift amount cannot be
   negative.`; the other run-time errors carry `[AETH-RUNTIME-*]`. An engine fix.
+  *Fixed 2026-10-28-1: `[AETH-RUNTIME-SHIFT-NEGATIVE]` with a hint
+  (`tests/fx/diag/shift_negative_fail`).*
 - `abs` and `sqr` on Text stop at compile time with the engine's uncoded
   `abs expects a numeric argument.` and `Sqr expects an Integer or Real
   argument. Got STRING.`; D87's rule could cover them.
@@ -895,6 +897,44 @@ TOON-001 naming `toon_root` and the getters
 - `@pure` calling `println` outside `fx` prints FX-001 and ANN-001 for one
   line.
 - `let r = random(10)` does not infer `Int`, though `random(n)` returns one.
+
+### Findings of the first 1.0-beta17 review — *fixed 2026-10-28-1, gaps open*
+Additive (D75). Fixed:
+- Three guide passages and the manual said a `length`/`toon_len` crossing
+  (LEN-001) compiles and stops at run time uncoded; on a declared variable it
+  has been TOON-001 since 2026-10-24-2. The guides now say so.
+- A handle **parameter** (`fn f(node: ToonNode)`, `ToonDoc`, `MStream`) was not
+  a handle to that check, so `len(node)` on one stopped at run time with the
+  uncoded `len expects a string or array argument.`; it is TOON-001 or MS-001
+  (`tests/fx/diag/len_handle_param_fail`). A main-less file whose unreached
+  function does this stops compiling; none of 7,456 tree and archived programs
+  changed verdict.
+- `length(toon_root(doc))` named the call `string_len`
+  (`tests/fx/diag/length_toon_call_fail`).
+- The Int-with-Bool TYPE-001 (D88) hinted with `flags` and `mask`, names the
+  program did not have; it names the Int operand as written
+  (`tests/fx/diag/mixed_bitwise_fail`).
+- A negative shift is `[AETH-RUNTIME-SHIFT-NEGATIVE]` (pscal-core).
+- A `use`d module that does not compile (rea): its syntax error was printed
+  under the importing file's name at the module's line, and IMP-001 then
+  called the module "not found". The error names the module's file, and
+  IMP-001 and the SCOPE-001 hint say it was found but did not compile. A
+  module file with no `mod` block, and a module that uses itself, printed the
+  engine's uncoded messages with no line; both are IMP-001 at the module's
+  file. A bare `export` outside `mod` hints the block
+  (`tests/fx/imports/use_{broken,unwrapped,plain,self}_module_fail`).
+
+Open:
+- A crossing the compiler cannot type still stops at run time uncoded: an
+  element of a `ToonNode[]`, a `ToonNode` record field, a user function's
+  `ToonNode` result, and a handle local declared on a function's own header
+  line. The type oracle sees a handle variable only as the Int it lowers to.
+- A name from a module that did not load draws one SCOPE-001, with the same
+  hint, at every use.
+- The reviewer's runner takes one file per run, under `--deny net,ext`, with
+  no flags: a two-file `use`, `--diagnostics-json` and `task_result(h, true)`
+  (every Text-returning task target is network) are out of its reach. All
+  three were checked on the workstation at 2026-10-28-1.
 
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it

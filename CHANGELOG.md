@@ -15,6 +15,42 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-28-1
+
+From the first review of `1.0-beta17`. Not a release; the dev label stays
+`1.0-beta18dev`.
+
+- **A handle parameter is a handle to the LEN-001 check.** `len(node)` or
+  `length(doc)` on a `ToonNode`, `ToonDoc` or `MStream` *parameter* compiled
+  and stopped at run time with the uncoded `len expects a string or array
+  argument.`; on a `let` of that type it has been TOON-001 since 2026-10-24-2.
+  It is TOON-001 (MS-001 for an MStream) now. A program that never reaches
+  such a call stops compiling; no tree or archived program changes verdict
+  (7,456 compiled with both binaries).
+- **Module errors name the module (rea).** A syntax error in a `use`d module
+  was printed under the importing file's name at the module's line
+  (`main.aether:5`, in a four-line file), and IMP-001 then said the module was
+  "not found". The error names the module's file, IMP-001 says it was found
+  but did not compile, and the SCOPE-001 hint for its names says the same. A
+  module file with no `mod Name { ... }` block and a module that uses itself
+  printed the engine's uncoded messages with no line; both are IMP-001 at the
+  module's file. A stray `export` outside `mod` hints the block.
+- **A negative shift is `[AETH-RUNTIME-SHIFT-NEGATIVE]`** (pscal-core), with a
+  hint; it was the one arithmetic run-time error with no code.
+- **Smaller.** The D88 TYPE-001 for an Int with a Bool names the Int operand
+  as written (`7 != 0`) instead of `flags` and `mask`. `length(toon_root(doc))`
+  names `length`, not `string_len`.
+- **Guides.** All three said a `length`/`toon_len` crossing compiles and stops
+  at run time; on a variable or parameter it is TOON-001, and the full guide
+  names what still reaches run time. The `[PREC-001]` rule says the program
+  does not compile, and the bitwise row names the new shift code (full, medium
+  and small `2026-10-28-1`; medium 13,444 → 13,441 o200k).
+
+Fixtures `diag/len_handle_param_fail`, `diag/length_toon_call_fail`,
+`imports/use_broken_module_fail`, `use_unwrapped_module_fail`,
+`use_plain_module_fail`, `use_self_module_fail`; `diag/shift_negative_fail`
+and `diag/mixed_bitwise_fail` check the new text.
+
 ## 2026-10-27-3
 
 **Release `1.0-beta17`** (D75): the seventeenth 1.0 beta and the third release

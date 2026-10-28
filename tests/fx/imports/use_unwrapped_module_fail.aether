@@ -1,0 +1,7 @@
+// A module file written as bare `export` lines, with no `mod Name { ... }`
+// around them: the hint names the missing block.
+use "unwrapped_tools";
+
+fn main() -> Void {
+    fx { println(clampScore(141)); }
+}

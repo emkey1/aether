@@ -1,0 +1,7 @@
+// A module file with no `mod` block at all printed the engine's uncoded
+// "Module file '...' does not contain a module declaration."
+use "plain_tools";
+
+fn main() -> Void {
+    fx { println(clampScore(141)); }
+}

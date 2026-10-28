@@ -1,0 +1,3 @@
+:5: [TOON-001]
+`length` counts an array, a Text or a map, and its argument is a ToonNode
+!string_len

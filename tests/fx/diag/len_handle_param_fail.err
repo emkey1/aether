@@ -1,0 +1,8 @@
+:6: [TOON-001]
+and 'node' is a ToonNode: count a TOON array with `toon_len(node)`
+:9: [TOON-001]
+`length` counts an array, a Text or a map, and 'doc' is a ToonDoc
+:13: [MS-001]
+`mstream_length(s)`
+!:16:
+!len expects

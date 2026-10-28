@@ -1897,12 +1897,23 @@ static int ruleMixedBitwise(RuleCtx *c, const AST *e, const AetherTypeEnv *env) 
     AetherTypeKind l = aetherTypeOf(e->left, env).kind, r = aetherTypeOf(e->right, env).kind;
     if (!((l == AETHER_T_INT && r == AETHER_T_BOOL) || (l == AETHER_T_BOOL && r == AETHER_T_INT)))
         return 0;
-    char detail[384];
+    /* Name the Int side as written when it is a name or a literal; the
+     * bitwise repair keeps placeholders, since the mask is not in the code. */
+    const AST *intSide = (l == AETHER_T_INT) ? e->left : e->right;
+    const char *intText = NULL;
+    if ((intSide->type == AST_VARIABLE || intSide->type == AST_NUMBER) && intSide->token &&
+        intSide->token->value && strlen(intSide->token->value) < 48)
+        intText = intSide->token->value;
+    char shown[64] = "";
+    if (intText) snprintf(shown, sizeof(shown), ", `%s`,", intText);
+    char detail[448];
     snprintf(detail, sizeof(detail),
-             "`%s` combines two Ints bit by bit, or two Bools, and here one side is Int and "
-             "the other Bool: compare the bitwise result, `(flags %s mask) != 0`, or compare "
-             "the Int first, `n != 0`.",
-             op, op);
+             "`%s` combines two Ints bit by bit, or two Bools, and here the left side%s is %s "
+             "and the right side%s is %s: compare the Int first, `%s != 0`, or, for a mask "
+             "test, compare the bitwise result, `(a %s b) != 0`.",
+             op, l == AETHER_T_INT ? shown : "", l == AETHER_T_INT ? "Int" : "Bool",
+             l == AETHER_T_INT ? "" : shown, l == AETHER_T_INT ? "Bool" : "Int",
+             intText ? intText : "n", op);
     ruleReport(c, e, detail);
     return 1;
 }
@@ -1982,6 +1993,9 @@ static const char *surfaceCallName(const AST *call) {
     const char *n = callName(call);
     const char *s = aetherAstCallSurfaceName(call);
     if (!s && n && call->token) s = aetherAstAliasSurfaceAtLine(call->token->line, n);
+    /* A program writes `length` itself, and the listing's first Aether name
+     * for the engine's `length` is `string_len`. */
+    if (!s && n && !strcasecmp(n, "length")) return "length";
     if (!s && n) s = pscalAetherNameForBuiltin(n);
     return s ? s : n;
 }

@@ -55,6 +55,7 @@ void aetherInstallFrontendHooks(void) {
         .setVerboseCompatibilityDiagnostics = aetherSetVerboseCompatibilityDiagnostics,
         .getVerboseCompatibilityDiagnostics = aetherGetVerboseCompatibilityDiagnostics,
         .unknownIdentifierHint = aetherUnknownIdentifierHint,
+        .swapReportPath = aetherSemanticSwapReportPath,
     };
     reaSetFrontendHooks(&hooks);
     /* Builtin names given at run time (task_spawn("dns_lookup", ...),

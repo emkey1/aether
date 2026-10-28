@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-27-2*
+*Guide version: 2026-10-28-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -40,8 +40,7 @@ Everything needed to write correct Aether in one shot.
    — never inside the body, never bare with no expression.
 9. **MUT-001.** A plain `let` is already mutable. ✗ `let mut x: Int = 0;`
 10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for dynamic
-    arrays and `Text`. Crossing them compiles, then fails at run time with no
-    code.
+    arrays and `Text`. Crossing them on a variable or parameter is TOON-001.
 11. **FUNC-001.** Functions are not values. No anonymous `fn`, no lambdas,
     never pass a function as an argument, and there is no
     `map`/`filter`/`reduce` — write a `loop`. To run your own code concurrently

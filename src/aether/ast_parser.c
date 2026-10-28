@@ -10034,8 +10034,15 @@ AST *parseAetherAst(const char *rawSource) {
                         p.current.start ? (int)p.current.length : 1,
                         p.current.start ? p.current.start : "?");
         }
-        aetherDiagf("hint: check this line against the Aether guide "
-                    "(fn/type/let/const/loop/if/fx/par forms).\n");
+        if (p.current.type != REA_TOKEN_EOF && p.current.start && p.current.length == 6 &&
+            strncmp(p.current.start, "export", 6) == 0) {
+            /* A module file written as bare `export fn ...` lines. */
+            aetherDiagf("hint: `export` marks a declaration inside a `mod Name { ... }` "
+                        "block: a module file wraps its exports in one.\n");
+        } else {
+            aetherDiagf("hint: check this line against the Aether guide "
+                        "(fn/type/let/const/loop/if/fx/par forms).\n");
+        }
         aetherReportGuideHelp("SYN-001");
     }
 

@@ -1,0 +1,7 @@
+// `length(toon_root(doc))` named the call `string_len`, the listing's first
+// Aether name for the engine's `length`; it names `length`, as written.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1, 2, 3]");
+    fx { println(length(toon_root(doc))); }
+    toon_close(doc);
+}

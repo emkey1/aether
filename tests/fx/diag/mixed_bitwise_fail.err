@@ -1,3 +1,6 @@
 =1 `&` combines two Ints bit by bit, or two Bools
 =1 `|` combines two Ints bit by bit, or two Bools
+the left side, `7`, is Int and the right side is Bool: compare the Int first, `7 != 0`
+the left side, `n`, is Int
 !PREC-001
+!flags

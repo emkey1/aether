@@ -1,1 +1,3 @@
-Shift amount cannot be negative.
+AETH-RUNTIME-SHIFT-NEGATIVE
+Shift amount cannot be negative
+hint: check the count first

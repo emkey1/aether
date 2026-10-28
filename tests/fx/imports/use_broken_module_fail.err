@@ -1,0 +1,5 @@
+broken_tools.aether:5: [SYN-001]
+=1 module 'broken_tools' was found but did not compile
+that module did not compile (see its errors above)
+!not found
+!use_broken_module_fail.aether:5: [SYN-001]

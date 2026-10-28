@@ -1,0 +1,22 @@
+// LEN-001 on a parameter: a handle parameter is a handle like a `let` of that
+// type, but only `let` lines were read, so `len(node)` on a ToonNode, ToonDoc
+// or MStream parameter compiled and stopped at run time with the uncoded
+// "len expects a string or array argument.".
+fn count_node(node: ToonNode) -> Int {
+    ret len(node);
+}
+fn count_doc(label: Text, doc: ToonDoc) -> Int {
+    let n: Int = length(doc);
+    ret n;
+}
+fn count_bytes(s: MStream) -> Int {
+    ret len(s);
+}
+fn count_rows(rows: Int[]) -> Int {
+    ret len(rows);
+}
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1, 2, 3]");
+    fx { println(count_node(toon_root(doc)), count_doc("d", doc), count_rows([1])); }
+    toon_close(doc);
+}

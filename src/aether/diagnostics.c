@@ -230,7 +230,8 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
     if (strstr(detail, "requires an fx block")) {
         return "FX-001";
     }
-    if (strstr(detail, "unable to open module")) {
+    if (strstr(detail, "unable to open module") ||
+        strstr(detail, "a module cannot `use` a module that uses it")) {
         return "IMP-001";
     }
     if (strstr(detail, "not in scope")) {

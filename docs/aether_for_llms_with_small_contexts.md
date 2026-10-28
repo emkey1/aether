@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-27-1*
+*Guide version: 2026-10-28-1*
 
 ## Highest-Value Rules
 
@@ -31,7 +31,7 @@
    function, never inside it, never bare (`@pre` with no expression).
 9. **MUT-001.** Plain `let` is already mutable. Never generate `let mut`.
 10. **LEN-001.** `toon_len(node)` for TOON arrays; `length(xs)` for arrays
-    and `Text`; crossing them fails at run time.
+    and `Text`; crossing them is an error (TOON-001 on a variable).
 11. **TUP-001.** Tuples are narrow: destructure a direct top-level call,
     `let (a, b) = pair();`, or bind it and read a field, `let t = pair(); t.0;`
     (zero-based) -- never `pair().0` on the call. A tuple fn may `ret g(x);`

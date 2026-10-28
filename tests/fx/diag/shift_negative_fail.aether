@@ -1,6 +1,7 @@
 // a negative shift amount stops the program (rc 1, nothing printed after it);
 // shifts past bit 63 do not (int_edges_64bit_pass), so this is the only shift
 // that fails. The full guide's bitwise row (stamp 2026-10-21-8) states both.
+// The error is coded AETH-RUNTIME-SHIFT-NEGATIVE (it printed no code before).
 fn main() -> Void {
     let a: Int = 1; let n: Int = -1;
     fx { println("before"); }

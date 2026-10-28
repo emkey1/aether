@@ -503,7 +503,8 @@ fn main() -> Void {
 - `&`, `|`, `^` (also spelled `xor`), `<<` and `>>` work on `Int` bits.
   Shifts do not check overflow: `<<` drops bits shifted past bit 63, so
   `1 << 63` is the minimum `Int` and `1 << 64` is `0`. `>>` keeps the sign,
-  and a negative shift amount stops the program.
+  and a negative shift amount stops the program with
+  `AETH-RUNTIME-SHIFT-NEGATIVE`.
 - Integer overflow and division by zero (of `Int` or `Real`, with `div`, `/`
   or `%`) stop the program with a coded run-time error,
   `AETH-RUNTIME-INT-OVERFLOW` or `AETH-RUNTIME-DIV-ZERO`, rather than wrapping
@@ -2214,7 +2215,9 @@ true true array
   loop over the root itself.
 - `toon_key(node, key)` and `toon_at(node, i)` move to a field or an element;
   `toon_len(node)` counts an array. (`length` is for Aether arrays and `Text`,
-  `toon_len` for JSON arrays; crossing them stops the program at run time.)
+  `toon_len` for JSON arrays. Crossing them on a variable or parameter is
+  `TOON-001` when the program compiles; through an array element, a record
+  field or your own function's result it stops the program at run time.)
 - `toon_get_text`, `toon_get_int`, `toon_get_real` and `toon_get_bool` read a
   field. The `_or` forms take a fallback, used when the key is missing, null,
   or of another type. A key may be a dotted path through objects:

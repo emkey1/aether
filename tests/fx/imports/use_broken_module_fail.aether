@@ -1,0 +1,9 @@
+// A module with a syntax error: its SYN-001 named the importing file at the
+// module's line (`use_broken_module_fail.aether:5`, a line this file does not
+// have), and IMP-001 then called the module "not found". The error names the
+// module's own file, and IMP-001 says it was found but did not compile.
+use "broken_tools";
+
+fn main() -> Void {
+    fx { println(clampScore(141)); }
+}

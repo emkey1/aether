@@ -1,0 +1,4 @@
+unwrapped_tools.aether:1: [SYN-001]
+`export` marks a declaration inside a `mod Name { ... }` block
+was found but did not compile
+!not found
