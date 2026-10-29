@@ -1,0 +1,8 @@
+:16: [TYPE-001]
+:17: [TYPE-001]
+:18: [TYPE-001]
+:19: [TYPE-001]
+:20: [TYPE-001]
+bind it first, `let next: Int[] = xs + ...;`
+!:21:
+!Got ARRAY and ARRAY

@@ -1424,6 +1424,11 @@ sorted: 1 3 4 5 6 9
   is `n` copies of `v`.
 - `xs = xs + [v];` appends; `xs + ys` concatenates. There is no resize call:
   grow by appending and shrink by slicing (`xs = xs[..n];`).
+- Array `+` makes a new array only as the whole value of a `let`, an
+  assignment or a `ret`, because the compiler turns it into append steps.
+  Inside another expression, such as an argument (`solve(cols + [c], n)`), it
+  is `TYPE-001`: bind it first, `let next: Int[] = cols + [c];`, and pass
+  `next`.
 - `xs[i]` reads and `xs[i] = v;` writes. An index outside the array stops the
   program with `ARR-003` (below).
 - `xs[a..b]` is a copy of elements `a` to `b - 1`; either bound may be left

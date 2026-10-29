@@ -15,6 +15,36 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-28-3
+
+From the first review of `1.0-beta18dev`. Not a release; the dev label stays
+`1.0-beta18dev`.
+
+- **A bare `[]` takes the element type of where it goes.** Passed as an
+  argument or returned with `ret []`, it was built with no element type, and
+  every later append rebuilt each slot through the engine's internal
+  `Warning: makeValueForType called with unhandled type 0 (UNKNOWN_VAR_TYPE)`,
+  once per slot: 8-queens written as a free function that starts from `[]`
+  printed 103,776 of them, and the run hit the output limit. The compiler gives
+  the literal the parameter's or the return type's element type, as a `let`
+  already did, and growing an array no place could type (an empty row of a
+  nested literal, an `if` branch) no longer prints it (pscal-core).
+- **Array `+` inside another expression is TYPE-001.** `+` between arrays
+  builds a new array only as the whole value of a `let`, an assignment or a
+  `ret`, where the compiler turns it into append steps. As an argument
+  (`solve(cols + [c], n)`, `length(xs + ys)`), in an `if` branch, a comparison
+  or a record field it compiled and stopped at run time with "Operands must be
+  numbers for arithmetic operation '+' ... Got ARRAY and ARRAY". It is TYPE-001
+  saying to bind it first. Only programs that stopped that way stop compiling.
+- **Guides.** The full guide's LEN-001 rule names the run-time cases (your own
+  function's result, an array element, a record field) instead of "anywhere
+  but a variable or parameter" (a builtin's result is TOON-001 at compile
+  time), its array rules say where `+` builds an array, and the task-target
+  sentence says "any other target held in a variable" (full `2026-10-28-3`,
+  37,546 → 37,683 o200k); the manual matches.
+
+Fixtures `lower/empty_literal_typed_pass`, `diag/array_plus_expr_fail`.
+
 ## 2026-10-28-2
 
 From the second review of `1.0-beta17`. Not a release; the dev label stays

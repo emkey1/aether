@@ -1,0 +1,70 @@
+// A bare `[]` takes the element type of where it goes. Passed as an argument
+// or returned with `ret []`, it was built with no element type, and each later
+// append rebuilt every slot through the engine's internal "makeValueForType
+// called with unhandled type 0 (UNKNOWN_VAR_TYPE)" warning: a recursive search
+// that passed `[]` down printed it once per slot, over 100,000 times for
+// 8-queens, until the output limit killed the run.
+type Bag {
+    xs: Int[];
+    n: Int;
+}
+
+fn grow(xs: Int[], d: Int) -> Int[] {
+    if d == 0 {
+        ret xs;
+    }
+    let nx: Int[] = xs + [d];
+    ret grow(nx, d - 1);
+}
+
+fn none() -> Int[] {
+    ret [];
+}
+
+fn add(xs: Text[], s: Text) -> Text[] {
+    let nx: Text[] = xs + [s];
+    ret nx;
+}
+
+fn safe(cols: Int[], c: Int) -> Bool {
+    let row: Int = length(cols);
+    loop r in 0..row {
+        let d: Int = cols[r] - c;
+        if d == 0 || d == row - r || d == r - row {
+            ret false;
+        }
+    }
+    ret true;
+}
+
+fn queens(cols: Int[], n: Int) -> Int {
+    if length(cols) == n {
+        ret 1;
+    }
+    let total: Int = 0;
+    loop c in 0..n {
+        if safe(cols, c) {
+            let next: Int[] = cols + [c];
+            total = total + queens(next, n);
+        }
+    }
+    ret total;
+}
+
+fn main() -> Void {
+    let g: Int[] = grow([], 4);
+    let z: Int[] = none() + [7, 8];
+    let t: Text[] = add(add([], "a"), "b");
+    let rows: Int[][] = [[], []];
+    let r1: Int[] = rows[1] + [5];
+    let pick: Bool = length(g) > 0;
+    let e: Int[] = if pick { [] } else { [1] };
+    let e2: Int[] = e + [2];
+    let b: Bag = Bag { xs: [], n: 0 };
+    let bx: Int[] = b.xs + [9];
+    fx {
+        println(g[0], " ", g[3], " ", length(g));
+        println(z[0] + z[1], " ", t[0] + t[1], " ", r1[0], " ", e2[0], " ", bx[0]);
+        println(queens([], 6), " ", queens([], 8));
+    }
+}

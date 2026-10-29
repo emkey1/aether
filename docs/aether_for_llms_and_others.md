@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-28-2*
+*Guide version: 2026-10-28-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -39,8 +39,9 @@ If you only read one part of this document, read **Highest-Value Rules** and
 7. **IMP-001.** Use verified modules only. Never invent imports such as
    `use "helpers";`.
 8. **LEN-001.** `toon_len(node)` for TOON arrays; `length(arrayValue)` for
-   dynamic arrays and `Text`. Crossing them on a variable or parameter is
-   TOON-001 at compile time; anywhere else it stops at run time, uncoded.
+   dynamic arrays and `Text`. Crossing them is TOON-001 at compile time, except
+   `length` of a TOON handle from your own function, an array element or a
+   record field, which stops at run time, uncoded.
 9. **TUP-001.** Tuples are narrow: destructure direct top-level helper
    returns (`let (a, b) = pair();`), or bind to one variable and read a
    single field with `.0`/`.1`/`.2` (`let t = pair(); t.0;`) -- but not
@@ -322,7 +323,7 @@ guessing conversion helpers or `Text + Int` coercions.
 | Logical | `!` for negation; `&&` and `||` for conjunction/disjunction (short-circuit); the words `not`, `and`, `or` are exact synonyms |
 | Bitwise/shift | `& \| ^`/`xor` and `<< >>` on `Int` (example: `6 & 3` = `2`, `6 << 1` = `12`); there is no `~`: bitwise NOT is `x ^ -1`. `<<` drops bits shifted past bit 63 with no overflow error (`1 << 63` is the minimum `Int`, `1 << 64` is `0`); `>>` keeps the sign (`-16 >> 2` = `-4`); a negative shift amount stops the program with `[AETH-RUNTIME-SHIFT-NEGATIVE]` |
 | Text | `+` concatenation (convert numbers with `int_to_text` / `format_float` first); `==` equality |
-| Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions; `xs == ys` / `xs != ys` compare element by element |
+| Array | `xs + [v]` appends (any literal length); `xs + ys` concatenates two array-valued expressions, as the whole value of a `let`, an assignment or a `ret` (inside another expression it is `TYPE-001`: bind it first); `xs == ys` / `xs != ys` compare element by element |
 
 `&`/`|`/`^` are bitwise, not logical -- use `&&`/`||` for Bool conjunction/
 disjunction. They take two `Int`s or two `Bool`s (eager); an `Int` with a
@@ -1233,6 +1234,10 @@ let rest: Int[] = ys[1..]; // open end: elements 1 to the end; ys[..2] is ys[0..
 - `xs = xs + ys;` / `let zs: T[] = xs + ys;` (`+` between two array-valued
   expressions, neither necessarily a literal) concatenates: the RHS is
   evaluated once and every one of its elements is appended, in order
+- array `+` builds a new array only as the whole value of a `let`, an
+  assignment or a `ret`. Inside another expression, such as an argument
+  (`solve(cols + [c], n)`), it is `TYPE-001`: bind it first,
+  `let next: Int[] = cols + [c];`, then `solve(next, n)`
 - `xs[a..b]` slices out a **copy** of elements `a` through `b - 1`
   (half-open, same convention as `loop i in a..b`). Either bound may be left
   out: `xs[a..]` runs to the end (`queue = queue[1..];` drops the head) and
@@ -1641,8 +1646,8 @@ Compact aliases over shared runtime helpers; all are effectful — call inside
 `task_queue` run a builtin by its Aether name, and only the builtins that can
 run on a worker: `"sleep"`, `"dns_lookup"` and the `http_*` builtins
 (`"http_request"`, `"http_await"`, ...). Any other literal target, your own
-function's name included, is `[FUNC-001]`; one held in a variable stops at run
-time with `[AETH-RUNTIME-TASK-TARGET]`. To parallelize your own functions, use `par` (above).
+function's name included, is `[FUNC-001]`; any other target held in a variable
+stops at run time with `[AETH-RUNTIME-TASK-TARGET]`. To parallelize your own functions, use `par` (above).
 
 Core signatures:
 
@@ -2107,10 +2112,10 @@ does not exist — re-read the message rather than inventing a rule for it.
 - **[TOON-001]** `len` handed a `ToonNode` or `ToonDoc`, or `toon_len`,
   `toon_at` or a `toon_get_*` reader handed an array, a `Text` or a map (LEN-001)
   → `toon_len(node)` for a TOON array, `len(xs)` for an array, a `Text` or a map,
-  and `xs[i]` to index an array. A variable or parameter is checked when the
-  program compiles; an array element, a record field or your own function's
-  result is not, and stops at run time with `len expects a string or array
-  argument`.
+  and `xs[i]` to index an array. A variable, a parameter or a builtin's result
+  is checked when the program compiles; an array element, a record field or
+  your own function's result is not, and stops at run time with `len expects a
+  string or array argument`.
 - **[ARR-003]** *(runtime)* an index outside the array's valid range. The message
   gives the offending index, which dimension it was in, and the valid range, and
   the `[Error Location]` line that follows gives the source line. Read the range

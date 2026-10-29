@@ -1954,6 +1954,33 @@ static int ruleTaskTarget(RuleCtx *c, const AST *e) {
     return 1;
 }
 
+/* Array `+` builds a new array only where the front end lowers it into append
+ * steps: the whole value of a `let`, an assignment or a `ret`. Inside another
+ * expression (a call argument, `len(xs + ys)`) it compiled and stopped at run
+ * time with "Operands must be numbers for arithmetic operation '+' ... Got
+ * ARRAY and ARRAY". */
+static int ruleArrayPlus(RuleCtx *c, const AST *e, const AetherTypeEnv *env) {
+    if (e->type != AST_BINARY_OP || !e->token || e->token->type != TOKEN_PLUS) return 0;
+    AetherType lt = aetherTypeOf(e->left, env), rt = aetherTypeOf(e->right, env);
+    if (lt.kind != AETHER_T_ARRAY || rt.kind != AETHER_T_ARRAY) return 0;
+    char ty[96];
+    aetherTypeFormat(lt, ty, sizeof(ty));
+    if (strchr(ty, '?') || !strcmp(ty, "[]")) aetherTypeFormat(rt, ty, sizeof(ty));
+    if (strchr(ty, '?') || !strcmp(ty, "[]")) snprintf(ty, sizeof(ty), "T[]");
+    const char *lhs = (e->left->type == AST_VARIABLE && e->left->token && e->left->token->value &&
+                       strlen(e->left->token->value) < 48)
+                          ? e->left->token->value
+                          : "xs";
+    char detail[448];
+    snprintf(detail, sizeof(detail),
+             "array `+` makes a new array only as the whole value of a `let`, an assignment "
+             "or a `ret`, not inside another expression: bind it first, "
+             "`let next: %s = %s + ...;`, then use `next`.",
+             ty, lhs);
+    ruleReport(c, e, detail);
+    return 1;
+}
+
 /* D24: `==` / `!=` on records and tuples compares field by field. Two
  * different record types never compare equal, so that is a TYPE-001; a
  * self-referential type is REC-001, with `same(a, b)` as the identity test. */
@@ -2165,6 +2192,7 @@ static void ruleExpr(void *vctx, AST *e, const AetherUse *use, const AetherTypeE
     if (ruleNumericSelection(c, e, env)) return;
     if (ruleMixedBitwise(c, e, env)) return;
     if (ruleTaskTarget(c, e)) return;
+    if (ruleArrayPlus(c, e, env)) return;
     /* same(a, b) is identity, which only records have. */
     if (e->type == AST_PROCEDURE_CALL && callName(e) && strcasecmp(callName(e), "aether_same") == 0) {
         for (int i = 0; i < e->child_count; i++) {

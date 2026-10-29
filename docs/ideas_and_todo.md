@@ -959,6 +959,37 @@ Not a defect: PARAM-001 did not warn on a helper that advances `pos` and
 returns it. The rule (D77) warns only on the dead, thread and stuck shapes,
 where the update cannot reach the caller.
 
+### Findings of the first 1.0-beta18dev review — *fixed 2026-10-28-3, gap open*
+Additive (D75). Fixed:
+- A bare `[]` passed as an argument or returned with `ret []` was built with no
+  element type (pscal-core `emitArrayLiteralConstant`), so every later append
+  rebuilt each slot through makeValueForType's "unhandled type 0
+  (UNKNOWN_VAR_TYPE)" warning: 103,776 lines for a free-function 8-queens,
+  killed at the output limit. The compiler types it from the parameter or the
+  return type, and SetLength fills an untyped Aether array's slots without the
+  warning (an empty row of a nested literal, an `if` branch)
+  (`tests/fx/lower/empty_literal_typed_pass`).
+- Array `+` inside another expression (an argument, `length(xs + ys)`, an `if`
+  branch, a comparison, a record field) compiled and stopped at run time with
+  "Got ARRAY and ARRAY"; it is TYPE-001, bind it first
+  (`tests/fx/diag/array_plus_expr_fail`). A VM array `+` that works everywhere
+  was not taken in the freeze: `+` lowers to append steps, which need a
+  statement position, and hoisting an argument would reorder its evaluation.
+- The full guide's LEN-001 rule called every crossing but a variable or
+  parameter a run-time stop; a builtin's result is TOON-001 at compile time.
+  The task-target sentence said a variable target stops at run time; only one
+  that cannot run does.
+
+Gap (open): `length` of a TOON handle returned by your own function, read from
+an array element or a record field still stops with the uncoded "len expects
+a string or array argument." (a handle is typed as the Int it lowers to), as
+does a handle `let` written on the same line as its use (the handle scan reads
+`let` lines).
+
+Not a defect: a second `task_status(h, false)` is NO-STATUS (a read takes the
+status; `drop_result` only discards the result), and PARAM-001 does warn under
+`@pre` when the update is never read again.
+
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it
 names in `tests/backlog/`.

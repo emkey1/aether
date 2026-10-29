@@ -1,0 +1,23 @@
+// Array `+` builds a new array only as the whole value of a `let`, an
+// assignment or a `ret`. Inside another expression each of these compiled and
+// stopped at run time with "Operands must be numbers for arithmetic operation
+// '+' ... Got ARRAY and ARRAY"; now TYPE-001 says to bind it first.
+type Bag {
+    xs: Int[];
+}
+
+fn count(xs: Int[]) -> Int {
+    ret length(xs);
+}
+
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    let flag: Bool = true;
+    let a: Int = count(xs + [3]);
+    let b: Int = length(xs + xs);
+    let c: Int[] = if flag { xs + [4] } else { xs };
+    let same: Bool = xs + [5] == [1, 2, 5];
+    let bag: Bag = Bag { xs: xs + [6] };
+    let ok: Int[] = xs + [7];
+    fx { println(a, b, length(c), same, length(bag.xs), length(ok)); }
+}
