@@ -1285,12 +1285,15 @@ def test_miner_primary_diagnostic_skips_warnings():
 
 
 def test_real_aether_warning_before_error():
+    # A missing `use` is IMP-001, a warning printed before the error it
+    # explains. This used `a & b == 2` for a PREC-001 warning until D88 made
+    # that shape an error.
     binary = real_aether_bin()
     task = adb.Task(task_id="w", title="w", prompt="", expected_stdout="")
-    source = ("fn main() -> Void {\n    let a: Int = 6;\n    let b: Int = 3;\n    let c: Int = a & b == 2;\n"
+    source = ("use \"missing_helpers\";\n\nfn main() -> Void {\n    let c: Int = 2;\n"
               "    fx {\n        printn(c);\n    }\n}\n")
     run = adb.compile_and_run(task, source, adb.argparse.Namespace(aether_bin=binary, sandbox_deny="net,proc"))
-    assert run["diagnostics"] and "PREC-001" in json.dumps(run["diagnostics"][0]), run["diagnostics"]
+    assert run["diagnostics"] and "IMP-001" in json.dumps(run["diagnostics"][0]), run["diagnostics"]
     assert adb.derive_failure_summary(True, run) == "SCOPE-001: identifier 'printn' not in scope."
     assert adb.derive_failure_fingerprint({"generated_ok": True, "run": run}) == "run_error_code:SCOPE-001"
 
