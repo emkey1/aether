@@ -1,0 +1,8 @@
+Aether
+Copyright 2026 Mike Miller
+
+Aether is built on rea (https://github.com/emkey1/rea) and pscal-core
+(https://github.com/emkey1/pscal-core), by the same author under the same
+license and vendored in external/. pscal-core includes third-party software
+under its own license, yyjson (MIT) and nextvi (ISC-style); see
+external/pscal-core/NOTICE.

@@ -179,7 +179,8 @@ install(TARGETS aether RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR})
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/examples/
         DESTINATION ${CMAKE_INSTALL_DATADIR}/aether/examples)
 # Only the reader-facing docs install: the human manual, the three guides, their
-# changelog, the as-built rationale, the language CHANGELOG and the README.
+# changelog, the as-built rationale, the language CHANGELOG, the README, and the
+# LICENSE and NOTICE.
 # Maintainer ledgers, benchmark notes and docs/archive stay in the repo.
 install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_manual.md
@@ -190,6 +191,8 @@ install(FILES
         ${CMAKE_CURRENT_SOURCE_DIR}/docs/aether_architecture_and_rationale.md
         ${CMAKE_CURRENT_SOURCE_DIR}/CHANGELOG.md
         ${CMAKE_CURRENT_SOURCE_DIR}/README.md
+        ${CMAKE_CURRENT_SOURCE_DIR}/LICENSE
+        ${CMAKE_CURRENT_SOURCE_DIR}/NOTICE
         DESTINATION ${CMAKE_INSTALL_DOCDIR})
 
 # ---- Test -------------------------------------------------------------------

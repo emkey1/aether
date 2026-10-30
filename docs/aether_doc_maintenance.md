@@ -533,6 +533,29 @@ AddressSanitizer lap for releases that touch ownership. Each step can be
 selected or skipped with `--steps` and `--skip`. It never modifies `external/`,
 the umbrella or any repo it clones from.
 
+### Cutting a release
+
+A release label (`1.01`, D75) is the owner's decision. Cutting one:
+
+1. Gate the release tree (fixtures, ctest, paired replay, check-gates; pin_gate
+   when the pins moved since their last gate).
+2. One release commit: `RELEASE` set to the label; a `**Release \`<label>\`**`
+   paragraph at the top of the current `CHANGELOG.md` entry, saying what is
+   known at the tag; and the GitHub release notes in `docs/releases/<label>.md`.
+3. An annotated tag named after the label, on that commit.
+4. A second commit setting `RELEASE` to the next dev label (`1.02-dev`), then
+   push `main` and the tag, and move the umbrella's gitlink to that commit.
+5. The tag starts `.github/workflows/release.yml`. It builds and tests the tag
+   on macOS arm64 and Linux x86_64, packages each `cmake --install` tree with
+   the license files, builds a source archive with the submodules filled in
+   (GitHub's own tag archives leave `external/` empty), and opens a **draft**
+   release with `SHA256SUMS`. The notes come from `docs/releases/<label>.md` on
+   the default branch, so they can be fixed after the tag. Read the draft, then
+   publish it (`gh release edit <label> --draft=false`). For an existing tag,
+   run the workflow by hand with that tag.
+
+Release-label tags never move once published.
+
 ## Small-context LLM doc extraction checklist
 
 When updating `docs/aether_for_llms_with_small_contexts.md`, preserve these

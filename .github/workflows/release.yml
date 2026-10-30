@@ -1,0 +1,161 @@
+name: Release
+
+# A release-label tag (D75: 1.0, 1.01, 1.0-beta17; dev labels are never
+# tagged) becomes a DRAFT GitHub release with:
+# - aether-<label>-<platform>.tar.gz for macOS arm64 and Linux x86_64: the
+#   `cmake --install` tree (bin/aether, share/aether/examples, share/doc/aether)
+#   plus LICENSE, NOTICE and, under licenses/, the notices of what the binary
+#   links in (rea, pscal-core, yyjson, nextvi);
+# - aether-<label>-src.tar.gz: every tracked file of the tag with the rea and
+#   pscal-core submodules filled in (GitHub's own tag archives leave
+#   external/ empty, and that tree does not build);
+# - SHA256SUMS.
+# The notes are docs/releases/<label>.md from the default branch, so they can be
+# written after the tag; without that file they point at CHANGELOG.md. The
+# release stays a draft until someone publishes it (`gh release edit <label>
+# --draft=false`, or on GitHub). A label with a qualifier (1.0-beta17) is a
+# pre-release. A tag cut before the license (1.0) takes LICENSE and NOTICE from
+# each repository's default branch. Re-running for a tag that already has a
+# release replaces its assets and notes.
+
+on:
+  push:
+    tags:
+      - "[0-9]+.[0-9]+"
+      - "[0-9]+.[0-9]+-*"
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag, a release label such as 1.0"
+        required: true
+
+permissions:
+  contents: write
+
+env:
+  TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: build (${{ matrix.platform }})
+    strategy:
+      matrix:
+        include:
+          - { os: ubuntu-24.04, platform: linux-x86_64 }
+          - { os: macos-15, platform: macos-arm64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          submodules: recursive
+      - name: The tag is the release label
+        run: |
+          label=$(tr -d '\n' < RELEASE)
+          [ "$label" = "$TAG" ] || { echo "RELEASE says $label but the tag is $TAG"; exit 1; }
+      - name: Toolchain (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libcurl4-openssl-dev libsqlite3-dev
+      - name: Build
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+          cmake --build build -j 4
+          ./build/aether --version | tee version.txt
+          grep -q "($TAG)\$" version.txt
+      - name: Test
+        run: AETHER_BIN="$PWD/build/aether" bash tests/run.sh
+      - name: License files missing at the tag
+        run: |
+          for d in . external/rea external/pscal-core; do
+            for f in LICENSE NOTICE; do
+              [ -f "$d/$f" ] && continue
+              git -C "$d" fetch -q --depth 1 origin HEAD
+              git -C "$d" show "FETCH_HEAD:$f" > "$d/$f"
+            done
+          done
+      - name: Package
+        run: |
+          name="aether-$TAG-${{ matrix.platform }}"
+          cmake --install build --prefix "pkg/$name"
+          cp LICENSE NOTICE "pkg/$name/"
+          mkdir -p "pkg/$name/licenses"
+          cp external/rea/NOTICE "pkg/$name/licenses/rea-NOTICE"
+          cp external/pscal-core/NOTICE "pkg/$name/licenses/pscal-core-NOTICE"
+          cp external/pscal-core/src/third_party/yyjson/LICENSE "pkg/$name/licenses/yyjson-LICENSE"
+          cp external/pscal-core/third-party/nextvi/LICENSE "pkg/$name/licenses/nextvi-LICENSE"
+          "pkg/$name/bin/aether" --version
+          mkdir -p dist
+          tar -C pkg -czf "dist/$name.tar.gz" "$name"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-${{ matrix.platform }}
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  source:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: refs/tags/${{ env.TAG }}
+          submodules: recursive
+      - name: License files missing at the tag
+        run: |
+          for d in . external/rea external/pscal-core; do
+            for f in LICENSE NOTICE; do
+              [ -f "$d/$f" ] && continue
+              git -C "$d" fetch -q --depth 1 origin HEAD
+              git -C "$d" show "FETCH_HEAD:$f" > "$d/$f"
+            done
+          done
+      - name: Source archive with the submodules
+        run: |
+          name="aether-$TAG-src"
+          { git ls-files --recurse-submodules
+            printf '%s\n' LICENSE NOTICE external/rea/LICENSE external/rea/NOTICE \
+                          external/pscal-core/LICENSE external/pscal-core/NOTICE
+          } | sort -u > files.txt
+          mkdir -p dist
+          tar -czf "dist/$name.tar.gz" --transform "s,^,$name/," -T files.txt
+          ls -l dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: dist-src
+          path: dist/*.tar.gz
+          if-no-files-found: error
+
+  release:
+    needs: [build, source]
+    runs-on: ubuntu-24.04
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+          pattern: dist-*
+          merge-multiple: true
+      - name: Checksums
+        run: cd dist && sha256sum *.tar.gz > SHA256SUMS && cat SHA256SUMS
+      - name: Notes
+        run: |
+          if [ -f "docs/releases/$TAG.md" ]; then
+            cp "docs/releases/$TAG.md" notes.md
+          else
+            printf 'Aether %s. What changed is in [CHANGELOG.md](https://github.com/%s/blob/%s/CHANGELOG.md).\n' \
+              "$TAG" "$GH_REPO" "$TAG" > notes.md
+          fi
+      - name: Draft release
+        run: |
+          if gh release view "$TAG" > /dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+            gh release edit "$TAG" --title "Aether $TAG" --notes-file notes.md
+          else
+            pre=""
+            case "$TAG" in *-*) pre="--prerelease" ;; esac
+            gh release create "$TAG" dist/* --draft --verify-tag --title "Aether $TAG" --notes-file notes.md $pre
+          fi

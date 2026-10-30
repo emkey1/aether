@@ -165,3 +165,9 @@ The pipeline as built is §2 of the
 Training recipes, fine-tuning operations, and benchmark analyses for the language
 models that write Aether live in a companion repo:
 [**aether-infrastructure**](https://github.com/emkey1/aether-infrastructure).
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE); see [NOTICE](NOTICE)
+for copyright and third-party notices. rea and pscal-core, vendored under
+`external/`, carry the same license and their own NOTICE files.
