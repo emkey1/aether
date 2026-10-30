@@ -17,8 +17,32 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-10-30-1
 
-From the second review of `1.0-beta18dev`. Not a release; the dev label stays
-`1.0-beta18dev`.
+**Release `1.0`** (D75): declared by the owner and tagged `1.0`; `--version`
+prints `Aether Compiler Version: 2026-10-30-1 (1.0)`. From this tag the
+compatibility freeze is strict: a program that is valid under 1.0 keeps
+compiling and printing the same output. Additions, better diagnostics,
+performance work and bug fixes may still come, and a silently wrong 1.0
+behaviour may become a coded error only with its own decision row. On top of
+`1.0-beta17` it carries languages `2026-10-28-1`, `2026-10-28-2`,
+`2026-10-28-3` and the change below, all from the reviews of `1.0-beta17` and
+`1.0-beta18dev`. Among them:
+- a `length` crossing on a handle parameter is TOON-001 at compile time, and a
+  module that does not compile names its own file;
+- a negative shift is `[AETH-RUNTIME-SHIFT-NEGATIVE]`;
+- a task target that cannot run is FUNC-001, and `task_status` says it reads
+  once;
+- a bare `[]` takes its slot's element type, and array `+` inside another
+  expression is TYPE-001;
+- `--diagnostics-json` keeps a compiled program's warnings.
+
+Known at the tag and documented: `length` of a `ToonNode` returned by your own
+function, read from an array element or from a record field stops at run time
+uncoded; conformance expects two failures (W5-13 width spec, W5-08 empty-array
+equality); the card measures 2,126 tokens under Qwen3.5 against its 2,000
+ceiling (1,984 under o200k). The next dev label is `1.01-dev`.
+
+From the second review of `1.0-beta18dev`, which first shipped as a dev build
+(`1.0-beta18dev`).
 
 - **`--diagnostics-json` keeps the warnings of a program that compiles.** rea
   captured everything the compile printed and turned it into records only when

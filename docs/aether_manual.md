@@ -158,8 +158,9 @@ compile (see [§2](#the-bytecode-cache)).
 - **October 2026.** The benchmark and the fine-tuning work move into this
   repository. A review round makes names case-sensitive, renames every builtin
   to snake_case and settles how a `Real` prints, and the result is tagged
-  `1.0-beta1`. From then on, changes follow the compatibility rules in
-  [§22](#22-release-labels-and-versions).
+  `1.0-beta1`. Seventeen betas and their reviews follow, and on 30 October
+  the result is tagged `1.0`. From then on, changes follow the compatibility
+  rules in [§22](#22-release-labels-and-versions).
 
 `CHANGELOG.md` records every change to what programs compile or print, with
 the date version it shipped in.
@@ -2521,27 +2522,27 @@ program at once, from any function.
 Aether carries two version numbers, and `--version` prints both, for example:
 
 ```text
-Aether Compiler Version: 2026-10-21-5 (1.0-beta4dev)
+Aether Compiler Version: 2026-10-30-1 (1.0)
 ```
 
-- **The date version** (`2026-10-21-5`, from the file `VERSION`) changes with
+- **The date version** (`2026-10-30-1`, from the file `VERSION`) changes with
   every change to what programs compile or print: the date, and a counter for
   that day. Each one has an entry in `CHANGELOG.md`. Tools pin to it; it is the
   first word after `Version:`.
-- **The release label** (`1.0-beta4dev`, from the file `RELEASE`) names
-  releases: `1.0-beta1`, `1.0-beta2`, `1.0-beta3`, then `1.0`, `1.01`, `1.02`,
-  and so on in hundredths, always with two decimals, so that `1.09` sorts
-  before `1.10`. Between releases the label is the next release plus `dev`.
+- **The release label** (`1.0`, from the file `RELEASE`) names releases:
+  the betas `1.0-beta1` to `1.0-beta17`, then `1.0`, `1.01`, `1.02`, and so on
+  in hundredths, always with two decimals, so that `1.09` sorts before `1.10`.
+  Between releases the label is the next release plus `-dev` (`1.01-dev`).
   Each release is a git tag of the same name; dev labels are never tagged.
 
 A program can read both with `aether_version()`, which returns the text inside
-the version line, such as `"2026-10-21-5 (1.0-beta4dev)"`.
+the version line, such as `"2026-10-30-1 (1.0)"`.
 
 ### The compatibility freeze
 
-Decision D75 freezes the language at 1.0. Once the project's owner declares
-`1.0`, a program that is valid under 1.0 keeps compiling and printing the same
-output in every later version. There are no renames, no removed forms and no
+Decision D75 freezes the language at 1.0. Since the project's owner declared
+`1.0` on 2026-10-30, a program that is valid under 1.0 keeps compiling and
+printing the same output in every later version. There are no renames, no removed forms and no
 changes of meaning. What may still change:
 
 - additions: new builtins, new types, and syntax that used to be an error;
@@ -2550,12 +2551,11 @@ changes of meaning. What may still change:
   the specification may become a coded error, with its own decision row, the
   evidence for it, and a hint that names the fix.
 
-Until then the language is in beta: `1.0-beta1` and `1.0-beta2` were tagged on
-2026-10-20 and `1.0-beta3` on 2026-10-21. The freeze already applies in intent,
-but a breaking change found through use may still go in, with its own decision
-row: D76, which made `task_status` return `Bool`, is one. What this manual
-teaches is meant to stay true; later versions add to the language rather than
-change it.
+Before that the language was in beta, from `1.0-beta1` on 2026-10-20 to
+`1.0-beta17` on 2026-10-27. The freeze applied in intent, but a breaking
+change found through use could still go in with its own decision row: D76,
+which made `task_status` return `Bool`, is one. What this manual teaches is
+meant to stay true; later versions add to the language rather than change it.
 
 ---
 
