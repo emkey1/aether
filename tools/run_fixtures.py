@@ -12,8 +12,7 @@ going over all of them:
               with `!` is a substring stderr must NOT contain, and one starting
               with `=1 ` a substring stderr must contain exactly once
   .codes      the exact set of diagnostic codes: the --diagnostics-json
-              records' codes plus the [CODE] tags in the run's stderr (the JSON
-              is written only on failure, so warnings come from the tags). A
+              records' codes plus the [CODE] tags in the run's stderr. A
               JSON record with code null fails the fixture.
   .rc         expected exit status (default 0)
   .in         stdin (default empty)

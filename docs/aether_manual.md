@@ -212,7 +212,7 @@ program, where `args()` returns it (§17). Programs conventionally end in
 | `--no-run` | compile and check only |
 | `--no-cache` | compile fresh; neither read nor write the bytecode cache |
 | `--verbose` | say whether the cache was used |
-| `--diagnostics-json`, `--diagnostics-toon` | print compile errors as JSON or TOON records (§15) |
+| `--diagnostics-json`, `--diagnostics-toon` | print errors and warnings as JSON or TOON records (§15) |
 | `--verbose-compat` | also print quiet compatibility warnings |
 | `--deny LIST` | refuse classes of effects at run time (§21) |
 | `--prune-cache` | delete cache entries whose source file is gone, then exit |
@@ -1832,7 +1832,7 @@ function promises, and a wrong result stops the program instead of flowing on.
 
 ### Diagnostics for tools
 
-`--diagnostics-json` prints compile errors as a JSON array of records, and
+`--diagnostics-json` prints errors and warnings as a JSON array of records, and
 `--diagnostics-toon` as TOON, for an editor, a script, or the repair loop of a
 model that writes Aether:
 
@@ -1845,6 +1845,25 @@ fn main() -> Void {
 ```text
 [
   {"severity":"error","phase":"semantic","kind":"effect","code":"FX-001","file":"prog.aether","line":2,"column":null,"message":"Aether effect error: call to 'println' requires an fx block.","hint":"see FX-001 in the Aether guide","raw":"prog.aether:2: [FX-001] Aether effect error: call to 'println' requires an fx block."}
+]
+```
+
+A run-time error is a record too, with `"phase":"runtime"`. A program that
+compiles with warnings prints them as `"severity":"warning"` records once it
+has run (with `--no-run`, once it has compiled), and a run-time error's array
+lists them after the error. `column` is always `null`: a diagnostic names a
+line.
+
+```aether @ok warn=NARROW-001 flags=--diagnostics-json,--no-run
+fn main() -> Void {
+    let shown: Int = 7.9;
+    fx { println(shown); }
+}
+```
+
+```text
+[
+  {"severity":"warning","phase":"compile","kind":"generic","code":"NARROW-001","file":"prog.aether","line":2,"column":null,"message":"Aether narrowing warning: 'shown' is Int, but the value assigned is a Real literal; the fractional part is discarded silently. Write int(...) if the truncation is intended.","hint":"see NARROW-001 in the Aether guide","raw":"prog.aether:2: warning: [NARROW-001] Aether narrowing warning: 'shown' is Int, but the value assigned is a Real literal; the fractional part is discarded silently. Write int(...) if the truncation is intended."}
 ]
 ```
 

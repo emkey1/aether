@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-28-3*
+*Guide version: 2026-10-30-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1810,7 +1810,8 @@ fn main() -> Void {
 
 Failures report original Aether source lines (`file:line:` prefix in CLI
 mode), not lowered Rea lines; trust the Aether line first.
-`--diagnostics-json` / `--diagnostics-toon` emit structured failures.
+`--diagnostics-json` / `--diagnostics-toon` emit structured failures, and a
+program that compiles prints its warnings as records after its run.
 `--verbose-compat` (alias `--verbose-errors`) surfaces normally-quiet
 compatibility shims.
 

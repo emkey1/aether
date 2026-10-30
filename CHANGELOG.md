@@ -15,6 +15,32 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-10-30-1
+
+From the second review of `1.0-beta18dev`. Not a release; the dev label stays
+`1.0-beta18dev`.
+
+- **`--diagnostics-json` keeps the warnings of a program that compiles.** rea
+  captured everything the compile printed and turned it into records only when
+  the compile failed. A program that compiled with `NARROW-001`, `PARAM-001` or
+  `IMP-001` therefore showed no warning at all under `--diagnostics-json` or
+  `--diagnostics-toon`: no record and no text. A JSON consumer never saw one.
+  The warnings are now `"severity":"warning"` records: an array of their own
+  once the program has run (with `--no-run`, once it has compiled). If the run
+  stops with an error, they follow that error in its array, so the first record
+  is still the error. They print from an atexit handler when `halt` ends the
+  program from inside the run. A program with no warnings still prints nothing
+  on stderr, and a compile failure's records are unchanged (rea).
+- **Guides.** The full guide's Diagnostics section says a program that compiles
+  prints its warnings as records (full `2026-10-30-1`). The manual's "Diagnostics
+  for tools" shows a warning record and says `column` is always `null`: a
+  diagnostic names a line.
+
+Fixtures `diag/json_warning_compiled_pass`, `diag/json_warning_runtime_fail`,
+`diag/json_warning_halt_pass`. `tests/run.sh` had pinned the old empty output for
+a missing import under `--diagnostics-json` and `--diagnostics-toon`; it now
+requires the IMP-001 warning record.
+
 ## 2026-10-28-3
 
 From the first review of `1.0-beta18dev`. Not a release; the dev label stays

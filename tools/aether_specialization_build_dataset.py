@@ -373,8 +373,7 @@ def probe_broken_source(aether_bin: pathlib.Path, item: dict[str, Any]) -> dict[
 
     A rejected program is run again with --diagnostics-json for the code of
     its first error; a program that runs (behavioral drills) can only emit
-    warnings, which --diagnostics-json suppresses, so their code is read from
-    the plain stderr.
+    warnings, and their code is read from the plain stderr.
     """
     plain = run_aether(aether_bin=aether_bin, source=item["broken_source"], files=item.get("files"))
     first_code: str | None = None

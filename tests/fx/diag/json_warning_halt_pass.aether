@@ -1,0 +1,11 @@
+// halt() leaves through exit() from inside the VM, past the code that prints
+// the held warnings after a run; an atexit handler prints them instead.
+fn main() -> Int {
+    let n: Int = 3.7;
+    fx {
+        println(n);
+        halt(2);
+        println("not reached");
+    }
+    ret 0;
+}

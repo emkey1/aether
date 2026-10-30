@@ -990,6 +990,23 @@ Not a defect: a second `task_status(h, false)` is NO-STATUS (a read takes the
 status; `drop_result` only discards the result), and PARAM-001 does warn under
 `@pre` when the update is never read again.
 
+### Findings of the second 1.0-beta18dev review — *fixed 2026-10-30-1*
+Additive (D75). The first round on language 2026-10-28-3 was clean; the second
+tested a two-file `use`, `--no-run` and `--diagnostics-json` through the
+reviewer's runner. Fixed: under `--diagnostics-json`/`--diagnostics-toon`, a
+program that compiled showed none of its warnings, neither as a record nor as
+text. rea captured the compile's stderr and printed it only when the compile
+failed. The warnings are held for the run: a run-time error's array lists them
+after the error, otherwise they are an array of their own after the run, and
+`halt` (which leaves through `exit()` inside the VM) prints them from an atexit
+handler (`tests/fx/diag/json_warning_compiled_pass`, `json_warning_runtime_fail`,
+`json_warning_halt_pass`).
+
+Not a defect: `column` is `null` in every record, because a diagnostic names a
+line, never a column; the manual says so. `toon_parse_string` is silent: it is
+a D7 class-4 alias that no release since 1.0-beta2 has warned about. In the
+appendix, `pure` means "needs no `fx` block", so `toon_close` is pure there.
+
 The entries below are the 2026-10-20 language review's findings at language
 2026-10-19-3 that had no ledger entry; each is pinned by the backlog probe it
 names in `tests/backlog/`.

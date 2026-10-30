@@ -1,0 +1,11 @@
+// A run-time error and a compile-time warning are one diagnostics array: the
+// error first, then the warning. The warning used to be dropped.
+fn main() -> Int {
+    let n: Int = 3.7;
+    let xs: Int[] = [1, 2, 3];
+    fx {
+        println(n);
+        println(xs[10]);
+    }
+    ret 0;
+}

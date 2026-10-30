@@ -1,0 +1,4 @@
+=1 diagnostics[2]{severity
+!diagnostics[1]{
+"error","runtime","runtime","ARR-003"
+"warning","compile","generic","NARROW-001"

@@ -1,0 +1,8 @@
+// A program that compiles keeps its warnings under --diagnostics-json. They
+// were captured with the compile's stderr and printed only if the compile
+// failed, so this printed 3 and nothing else: no record, no text.
+fn main() -> Int {
+    let n: Int = 3.7;
+    fx { println(n); }
+    ret 0;
+}

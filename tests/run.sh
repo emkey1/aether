@@ -2125,8 +2125,10 @@ if ! "$AETHER_BIN" --no-cache --diagnostics-json "$IMPORT_MISSING_FAIL_FIXTURE" 
     cat $OUT/aether_import_missing_json.out >&2
     exit 1
 fi
-if [ -s $OUT/aether_import_missing_json.out ]; then
-    echo "missing import diagnostics-json output should stay empty" >&2
+# A program that compiles keeps its warnings as records (2026-10-30-1); they
+# were captured away, so this output used to be empty.
+if ! grep -qF '{"severity":"warning","phase":"compile","kind":"generic","code":"IMP-001"' $OUT/aether_import_missing_json.out; then
+    echo "missing import diagnostics-json should carry the IMP-001 warning record" >&2
     cat $OUT/aether_import_missing_json.out >&2
     exit 1
 fi
@@ -2135,8 +2137,9 @@ if ! "$AETHER_BIN" --no-cache --diagnostics-toon "$IMPORT_MISSING_FAIL_FIXTURE" 
     cat $OUT/aether_import_missing_toon.out >&2
     exit 1
 fi
-if [ -s $OUT/aether_import_missing_toon.out ]; then
-    echo "missing import diagnostics-toon output should stay empty" >&2
+if ! grep -qF '"warning","compile","generic","IMP-001"' $OUT/aether_import_missing_toon.out ||
+   ! grep -qF 'diagnostics[1]{severity' $OUT/aether_import_missing_toon.out; then
+    echo "missing import diagnostics-toon should carry the IMP-001 warning row" >&2
     cat $OUT/aether_import_missing_toon.out >&2
     exit 1
 fi
