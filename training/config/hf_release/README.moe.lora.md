@@ -15,7 +15,7 @@ pipeline_tag: text-generation
 
 # Qwen3.6-35B-A3B-Aether
 
-> **Repositories:** adapter [emkey1/Qwen3.6-35B-A3B-Aether-LoRA](https://huggingface.co/emkey1/Qwen3.6-35B-A3B-Aether-LoRA) · merged [emkey1/Qwen3.6-35B-A3B-Aether](https://huggingface.co/emkey1/Qwen3.6-35B-A3B-Aether) · dense sibling [emkey1/Qwen3.8-27B-Aether](https://huggingface.co/emkey1/Qwen3.8-27B-Aether)
+> **Repositories:** adapter [emkey1/Qwen3.6-35B-A3B-Aether-LoRA](https://huggingface.co/emkey1/Qwen3.6-35B-A3B-Aether-LoRA) · merged [emkey1/Qwen3.6-35B-A3B-Aether](https://huggingface.co/emkey1/Qwen3.6-35B-A3B-Aether) · dense sibling [emkey1/Qwen3.8-27B-Aether](https://huggingface.co/emkey1/Qwen3.8-27B-Aether) · GGUF (third-party) [mradermacher/Qwen3.6-35B-A3B-Aether-GGUF](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Aether-GGUF)
 
 This repository: the **LoRA adapter**.
 
@@ -117,6 +117,10 @@ The model was trained with thinking **off** and with **no system message**. Serv
   - A top-level `think: false` is ignored on that endpoint, and the model will reason first.
   - Set the context in a Modelfile (`PARAMETER num_ctx 32768`); `/v1` ignores per-request context options.
   - Importing the merged safetensors with `ollama create -q int8` gives a 39 GB model, tested for this card.
+- **GGUF** (llama.cpp, LM Studio, Ollama): quantizations from Q2_K to Q8_0 of the merged model are published by
+  mradermacher at [mradermacher/Qwen3.6-35B-A3B-Aether-GGUF](https://huggingface.co/mradermacher/Qwen3.6-35B-A3B-Aether-GGUF).
+  They are third-party builds that we have not evaluated. Quantizing below about 4 bits may cost some accuracy;
+  the scores on this card are for the bf16 merged model.
 
 ### Loading the adapter
 
