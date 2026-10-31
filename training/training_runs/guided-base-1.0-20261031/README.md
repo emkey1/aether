@@ -26,7 +26,9 @@ One change from the two earlier guided runs: the guide (and the grader that goes
 - **Guide:** `docs/aether_for_llms_medium_contexts.md` at tag `1.0` (sha256 b693a67bc16cba2f…), passed as the custom
   document `card` like the earlier runs.
 - **Grader:** the published `aether-1.0-macos-arm64` release binary, checked against the release's `SHA256SUMS`.
-- **Settings:** T=0, seed 42, one repeat, two repair rounds, thinking off, 32K context, 8,192 output tokens.
+- **Settings:** T=0, seed 42, one repeat, two repair rounds, 32K context, 8,192 output tokens. Thinking off
+  through `"extra_body": {"reasoning_effort": "none"}`, as in the earlier runs' destinations. Both Ollama imports
+  have the thinking capability with default `true`, and the reports do not record `extra_body`.
 - **Harness and tasks:** unchanged since the 1.0 tag.
 
 ## Running it
@@ -39,6 +41,18 @@ One change from the two earlier guided runs: the guide (and the grader that goes
 
 The command is at the top of `score.sh`. The reports land under `~/aether-models/guided-base-1.0-20261031/score/`
 on the scoring Mac. Copy them here as `score/<moe|27b>/guided__<suite>.json.gz`.
+
+## First attempt, rejected (2026-10-31)
+
+The first sweep's destinations left out `reasoning_effort`, so both models ran with thinking on. Ollama puts the
+reasoning in a separate field, so the content-prefix leak check passed it.
+- The tell was the token counts. The smoke answers (38-84 tokens of Aether) cost about 1,700 completion tokens each,
+  and v2_pos took a median of 2,490 against 115 in the 2026-10-22 run.
+- Six hard-suite answers reasoned to the 8,192-token cap and returned no content; they were scored as no-answer
+  failures.
+- It was stopped after five of the MoE's eight suites. The reports are kept on the scoring Mac under
+  `score-rejected-thinking-on/` and are not results.
+- The smoke test now also fails a model whose smoke answers cost 1,000 completion tokens or more.
 
 ## Results
 

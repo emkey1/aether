@@ -58,9 +58,12 @@ for M in moe:aether-qwen36-35b-a3b-base-q8-32k 27b:aether-qwen38-27b-base-32k; d
   if [ ! -f "$D/smoke.ok" ]; then
     run_suite smoke "$HERE/smoke_tasks.json" 0
     # The 2026-10-22 run once went out without its guide (333-token prompts); a guided prompt is ~14K tokens.
+    # Ollama moves a thinking model's reasoning out of `content`, so the leak prefixes cannot see it: this run's
+    # first attempt went out without reasoning_effort "none" and spent ~1,700 tokens per 3-line smoke answer.
+    # Without thinking these answers take under 200.
     if ! python3 "$HERE/check_generations.py" "$D/guided__smoke.json" "$LEAKS" >> "$LOG" 2>&1 \
-       || ! python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["destinations"][0]["variants"][0]["results"]; t=[x.get("prompt_tokens_measured") or 0 for x in r]; print("smoke prompt tokens", t); sys.exit(0 if r and min(t) > 10000 else 1)' "$D/guided__smoke.json" >> "$LOG" 2>&1; then
-      log "FAIL $TAG smoke: empty output, a reasoning trace, or no guide in the prompt; not scoring it"
+       || ! python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["destinations"][0]["variants"][0]["results"]; t=[x.get("prompt_tokens_measured") or 0 for x in r]; c=[(x["attempts"][0].get("usage") or {}).get("completion_tokens") or 0 for x in r if x.get("attempts")]; print("smoke prompt tokens", t, "completion tokens", c); sys.exit(0 if r and min(t) > 10000 and c and max(c) < 1000 else 1)' "$D/guided__smoke.json" >> "$LOG" 2>&1; then
+      log "FAIL $TAG smoke: empty output, a reasoning trace, thinking on, or no guide in the prompt; not scoring it"
       ollama stop "$MODEL" >> "$LOG" 2>&1; continue
     fi
     touch "$D/smoke.ok"; log "SMOKE OK $TAG"

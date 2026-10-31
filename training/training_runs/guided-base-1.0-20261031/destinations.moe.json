@@ -12,7 +12,10 @@
       "request_timeout_seconds": 900,
       "request_max_retries": 2,
       "retry_backoff_seconds": 5,
-      "cooldown_seconds": 0
+      "cooldown_seconds": 0,
+      "extra_body": {
+        "reasoning_effort": "none"
+      }
     }
   ]
 }
