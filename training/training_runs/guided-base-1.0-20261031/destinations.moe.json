@@ -1,0 +1,18 @@
+{
+  "destinations": [
+    {
+      "id": "qwen36-35b-a3b-base-q8-m5ollama",
+      "type": "openai_chat_completions",
+      "base_url": "http://localhost:11434/v1",
+      "api_key": "",
+      "model": "aether-qwen36-35b-a3b-base-q8-32k",
+      "temperature": 0,
+      "max_output_tokens": 8192,
+      "prompt_context_limit": 32768,
+      "request_timeout_seconds": 900,
+      "request_max_retries": 2,
+      "retry_backoff_seconds": 5,
+      "cooldown_seconds": 0
+    }
+  ]
+}
