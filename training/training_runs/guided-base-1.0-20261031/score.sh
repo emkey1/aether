@@ -60,11 +60,12 @@ for M in moe:aether-qwen36-35b-a3b-base-q8-32k 27b:aether-qwen38-27b-base-32k; d
     # The 2026-10-22 run once went out without its guide (333-token prompts); a guided prompt is ~14K tokens.
     if ! python3 "$HERE/check_generations.py" "$D/guided__smoke.json" "$LEAKS" >> "$LOG" 2>&1 \
        || ! python3 -c 'import json,sys; r=json.load(open(sys.argv[1]))["destinations"][0]["variants"][0]["results"]; t=[x.get("prompt_tokens_measured") or 0 for x in r]; print("smoke prompt tokens", t); sys.exit(0 if r and min(t) > 10000 else 1)' "$D/guided__smoke.json" >> "$LOG" 2>&1; then
-      log "FAIL $TAG smoke: empty output, a reasoning trace, or no guide in the prompt; not scoring it"; continue
+      log "FAIL $TAG smoke: empty output, a reasoning trace, or no guide in the prompt; not scoring it"
+      ollama stop "$MODEL" >> "$LOG" 2>&1; continue
     fi
     touch "$D/smoke.ok"; log "SMOKE OK $TAG"
   fi
-  [ "${SMOKE_ONLY:-0}" = 1 ] && continue
+  [ "${SMOKE_ONLY:-0}" = 1 ] && { ollama stop "$MODEL" >> "$LOG" 2>&1; continue; }
   ALL=1
   for PAIR in $SUITES; do
     SUITE=${PAIR%%=*}
