@@ -37,7 +37,7 @@ One change from the two earlier guided runs: the guide (and the grader that goes
 - The smoke fails a model whose answers are empty or begin with a reasoning trace, or whose prompts are under 10,000
   tokens. A guided prompt is about 14K tokens; the 2026-10-22 run once went out without its guide.
 - Each suite resumes from its checkpoint; re-run the script to continue.
-- The earlier runs took about 25 minutes (MoE) and an hour (27B).
+- The earlier runs took about 25 minutes (MoE) and an hour (27B); this one took less (see Results).
 
 The command is at the top of `score.sh`. The reports land under `~/aether-models/guided-base-1.0-20261031/score/`
 on the scoring Mac. Copy them here as `score/<moe|27b>/guided__<suite>.json.gz`.
@@ -54,6 +54,44 @@ reasoning in a separate field, so the content-prefix leak check passed it.
   `score-rejected-thinking-on/` and are not results.
 - The smoke test now also fails a model whose smoke answers cost 1,000 completion tokens or more.
 
-## Results
+## Results (2026-10-31)
 
-Pending.
+Both models ran all eight suites with no infrastructure failures, every report on the thinking-off destination and
+the 1.0 grader (b968240e…). After the resume the MoE took 12 minutes and the 27B 38. The reports are under `score/`.
+
+| first attempt (after repair) | main (73) | held-out (53) |
+|---|---|---|
+| MoE + 1.0-beta2 guide (`../base-qwen36-35b-a3b-int8-20261022/`) | 60 (69) | 29 (38) |
+| **MoE + 1.0 guide** | **60 (71)** | **33 (43)** |
+| 27B + 1.0-beta2 guide (`../guided-qwen38-27b-1.0-beta2/`) | 67 (70) | 47 (52) |
+| **27B + 1.0 guide** | **68 (72)** | **48 (53)** |
+
+Task by task, against the 1.0-beta2 runs:
+- **MoE.** 26 of the 126 tasks changed status.
+  - First attempts: 12 gained, 8 lost. At T=0 a different prompt moves the tasks near the boundary both ways, so the
+    +4 is mostly churn.
+  - After repair: 10 gained, 3 lost (sign test p ≈ 0.09). This is the firmer gain, where the 1.0 diagnostics act.
+- **27B.** 4 tasks changed, all gains.
+  - First attempts: `hard2_event_sessionize` and `sealed_toon_effective_config`.
+  - After repair: `hard2_event_sessionize`, `hard2_expr_eval` and `algo_edit_distance_script`.
+  - It passes 125 of 126 after repair; `cs_sieve_primes` is the one left.
+- **Not the grader.** The replay that motivated this run re-graded both old runs' programs on the 1.0 grader without
+  moving a pass. The differences are in what the models wrote.
+- **One length cap.** One MoE first attempt (`spec_league_table`) reached the 8,192-token cap: a program that ran on
+  into a monologue in comments. It was repaired.
+
+Against the published fine-tunes, which see no guide. Their replay on the 1.0 grader moved nothing either, so the
+columns compare:
+
+| first attempt (after repair) | main (73) | held-out (53) |
+|---|---|---|
+| `qwen36-35b-a3b-e3`, no guide | 65 (70) | 39 (47) |
+| MoE + 1.0 guide | 60 (71) | 33 (43) |
+| `qwen38-27b-v1`, no guide | 71 (72) | 37 (46) |
+| 27B + 1.0 guide | 68 (72) | 48 (53) |
+
+- The MoE fine-tune still beats its guided base on first attempts: by 5 on main and 6 on held-out. After repair they
+  are within one on main (70 vs 71); the fine-tune keeps 4 on held-out (47 vs 43).
+- The 27B fine-tune leads its guided base only on main first attempts (71 vs 68). On held-out the guided base leads
+  by 11 (7 after repair), against 10 (6) with the 1.0-beta2 guide.
+- These are the bars for the next fine-tunes on the 1.0 data.
