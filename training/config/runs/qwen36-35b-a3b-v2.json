@@ -1,0 +1,63 @@
+{
+  "_note": "The MoE on the 1.0 data (owner, 2026-11-01: 'Prep the retrain'). Dataset v2-20261101: v1's sources rebuilt on language 2026-10-30-1 (1.0), plus distilled batch d5-20261031 (286 pairs, 65 using maps) and the 11-pair cursor-sharing pack. One change from qwen36-35b-a3b-e3, the released MoE: the dataset. Its recipe is kept: the full 3-epoch schedule with no early stopping, the last step exported. Bars on the 1.0 grader, first attempt (after repair), main / held-out: e3 65 (70) / 39 (47); the untrained MoE with the 1.0 guide 60 (71) / 33 (43). The dataset is larger than v1 (2,278 + 87 records, about 288 optimizer steps an epoch, so about 865 in all), so the adapters kept for epoch twins are steps 300 and 575 (epochs about 1.04 and 1.99; kept steps must be multiples of the 25-step saves). The host's aether-current is 2026-10-21-8, so scoring uses the 1.0 release source (aether-1.0-src.tar.gz, checked against SHA256SUMS) built on the host.",
+  "tag": "qwen36-35b-a3b-v2",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.6-35B-A3B",
+  "base_model": "/storage/models/Qwen3.6-35B-A3B-Instruct",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 70,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 25,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      25,
+      300,
+      575
+    ]
+  },
+  "dataset": {
+    "id": "v2-20261101",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}
