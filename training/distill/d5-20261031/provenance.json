@@ -163,17 +163,21 @@
    1793473822
   ],
   [
+   1793511843,
+   1793512919
+  ],
+  [
    1793479994,
    1793481229
   ]
  ],
  "requests_by_model": {
-  "mimo-v2.6-flash": 384
+  "mimo-v2.6-flash": 496
  },
  "requests_by_training_use": {
-  "allowed": 384
+  "allowed": 496
  },
  "disallowed": {},
  "disallowed_training_use": {},
- "checked_at": "2026-11-01T05:32:53Z"
+ "checked_at": "2026-11-01T06:02:26Z"
 }

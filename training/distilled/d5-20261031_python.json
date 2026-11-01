@@ -3,9 +3,9 @@
  "provenance": {
   "pool": "large-open",
   "requests_by_model": {
-   "mimo-v2.6-flash": 384
+   "mimo-v2.6-flash": 496
   },
-  "checked_at": "2026-11-01T05:32:53Z"
+  "checked_at": "2026-11-01T06:02:26Z"
  },
  "pairs": [
   {
