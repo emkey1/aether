@@ -115,6 +115,6 @@
     "serve": "aether-serve-qwen36-35b-a3b-v2"
   },
   "tmux": "aether-score-qwen36-35b-a3b-v2",
-  "resolved_at": "2026-11-01T06:16:30+00:00",
-  "umbrella_commit": "83b6db2c35c74571eaa27aa7f054d724cabdd6de"
+  "resolved_at": "2026-11-01T06:21:31+00:00",
+  "umbrella_commit": "fd7097df8061e1197d452c480a1aa783fc36442b"
 }
