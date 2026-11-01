@@ -48,6 +48,7 @@ published reports (126 of 126). The reports are under `score/<variant>/`.
 | **e3, nvfp4** | 21.9 GB | **63 (68)** | **31 (39)** |
 | **e3, mxfp4** | 20.9 GB | **64 (68)** | **33 (40)** |
 | *untrained MoE + 1.0 guide, int8 (`../guided-base-1.0-20261031/`)* | 39 GB | *60 (71)* | *33 (43)* |
+| *untrained MoE + 1.0 guide, mxfp4 (`../guided-base-mxfp4-1.0-20261101/`)* | 20.9 GB | *61 (67)* | *26 (40)* |
 | *Gemma 4 12B + 1.0 guide, q8_0 (`../guided-gemma4-12b-1.0-20261031/`)* | 12 GB | *48 (67)* | *26 (41)* |
 
 Task by task, with a two-sided sign test on the tasks that differ:
@@ -63,7 +64,8 @@ Task by task, with a two-sided sign test on the tasks that differ:
 - **On main the fine-tune survives 4 bits.** mxfp4 and nvfp4 are within 2 of int8 on first attempts and after repair.
 - **Against the guided models.** At mxfp4 the fine-tune keeps its first-attempt lead on main over the untrained MoE
   with the guide (64 vs 60), ties it on held-out first attempts (33 vs 33), and trails it by 3 on both after repair.
-  The guided MoE here is int8 and carries a ~14K-token guide in every prompt; a 4-bit guided copy is not measured.
+  That guided MoE is int8 and carries a ~14K-token guide in every prompt. The same model at mxfp4 scores 61 (67) / 26 (40), so
+  at the same size the fine-tune leads on first attempts and ties after repair (`../guided-base-mxfp4-1.0-20261101/`).
   Against the guided Gemma 4 12B, the mxfp4 fine-tune leads first attempts by 16 on main and 7 on held-out, and is
   within 1 after repair.
 - **For a 32 GB Mac,** mxfp4 at 20.9 GB is the candidate: it scores like nvfp4 in a gigabyte less. Dropping the unused
