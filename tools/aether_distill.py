@@ -117,8 +117,9 @@ NO_STRUCTURED = "; JSON or TOON parsing"
 
 TASK_PROMPT = """You write programming exercises for a benchmark of a small, simple, statically typed imperative \
 language. It has functions (including nested helper functions), loops, if/else, Int, Real, Bool and Text values, \
-arrays and 2-D arrays, records with fields, a small standard library (string helpers, sums, sorting, searching), \
-JSON document helpers and one-call file reading. It has no hash maps, no regular expressions and no exceptions.
+arrays and 2-D arrays, records with fields, maps keyed by text, a small standard library (string helpers, sums, \
+sorting, searching), JSON document helpers and one-call file reading. It has no regular expressions and no \
+exceptions.
 
 Write {k} new exercises. Category: {category}. Set each one in a different everyday setting; suggestions: {domains}.
 
@@ -343,6 +344,11 @@ def stage_provenance(args) -> int:
         report = load_json(out / "python.json", None)
         if report:
             windows.append((report["created_at_unix"] - 5, report.get("updated_at_unix", time.time()) + 5))
+        # Aether solves the open lane served (e.g. aether_mimo.json for the base's leftovers) train too.
+        for path in sorted(out.glob("aether*.json")):
+            report = load_json(path, None)
+            if report and report["destinations"][0].get("model") == args.model:
+                windows.append((report["created_at_unix"] - 5, report.get("updated_at_unix", time.time()) + 5))
     if not windows:
         raise SystemExit("no request windows recorded; pass --since/--until (epoch seconds)")
     import subprocess
