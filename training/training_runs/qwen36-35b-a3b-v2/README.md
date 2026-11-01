@@ -24,3 +24,4 @@ the only change. The config, with the reasoning, is `training/config/runs/qwen36
     stopped. They are restarted by hand after the run.
   - The first push went to a different machine whose `/storage` is the same NFS share. It was removed before
     anything ran.
+- 2026-11-01 20:12Z: scoring finished, 63 (68) / 31 (42). v2 does not replace e3; see `RESULTS.md`.
