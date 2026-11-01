@@ -6,10 +6,20 @@ The released MoE fine-tune `qwen36-35b-a3b-e3` quantized to 4 bits, with no guid
 
 ## Setup
 
-- **Model.** e3's merged bf16 export (`../qwen36-35b-a3b-e3/`), imported into Ollama twice:
-  - **int4** (`ollama create -q int4`, Ollama's MLX quantization): the question.
-  - **int8** (`-q int8`): the import the Python check used in October. e3's published Aether scores come from vLLM at
-    bf16, so this run on the same stack as the int4 one separates the serving stack from the cost of 4 bits.
+- **Model.** e3's merged bf16 export (`../qwen36-35b-a3b-e3/`), imported into Ollama (`ollama create -q <level>`,
+  its MLX quantization) four ways. The sizes are the imports' manifests:
+
+  | variant | routed experts (over 90% of the weights) | size |
+  |---|---|---|
+  | **nvfp4** | 4-bit float, blocks of 16 with 8-bit scales | 21.9 GB |
+  | **mxfp4** | 4-bit float, blocks of 32 with power-of-two scales | 20.9 GB |
+  | int8 (`q8`) | 8-bit | 39.1 GB |
+  | int4 | gate and up projections 4-bit, **down projections left at 8-bit** | 27.4 GB |
+
+  - nvfp4 and mxfp4 are the sizes a 32 GB Mac can hold. int4 would leave it about 5 GB for everything else.
+  - int8 is the import the Python check used in October. e3's published Aether scores come from vLLM at bf16, so
+    int8 on the same stack as the 4-bit copies separates the serving stack from the cost of 4 bits.
+  - Every copy keeps the token embeddings at bf16 (1.0 GB) and the vision tower (0.9 GB), which Aether never uses.
   - Each is copied with a 32K context.
 - **No guide.** The fine-tune is scored as it was released, on prompts of a few hundred tokens.
 - **Grader:** the published `aether-1.0-macos-arm64` release binary, checked against the release's `SHA256SUMS`.
@@ -19,7 +29,7 @@ The released MoE fine-tune `qwen36-35b-a3b-e3` quantized to 4 bits, with no guid
 ## Running it
 
 `score.sh` fetches and checks the grader, imports a variant when Ollama lacks it, stops any other loaded model, runs
-the 3-task smoke and then the eight suites, int4 first. The smoke fails a variant if an answer is empty, begins with a
+the 3-task smoke and then the eight suites, in the table's order. The smoke fails a variant if an answer is empty, begins with a
 reasoning trace or costs 1,000 completion tokens or more, or if a prompt is 3,000 tokens or more (a guide got in).
 Each suite resumes from its checkpoint; re-run the script to continue. The command is at the top of `score.sh`. Copy
 the reports here as `score/<variant>/tuned__<suite>.json.gz` with `bench/results/pack_reports.py`.

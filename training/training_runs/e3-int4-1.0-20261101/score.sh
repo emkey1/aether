@@ -1,8 +1,8 @@
 #!/bin/bash
 # The released MoE fine-tune (qwen36-35b-a3b-e3) at 4-bit: does it keep its scores in a size that fits a 32 GB Mac?
-# Its merged bf16 export imported into Ollama at int4 and, as the same-stack anchor, the existing int8 import; no
-# guide, the eight suites, graded by the 1.0 release binary. e3's published numbers come from vLLM at bf16, so the
-# int8 run separates the serving stack from the 4-bit cost. See README.md.
+# Its merged bf16 export imported into Ollama at nvfp4, mxfp4 and int4 and, as the same-stack anchor, the existing
+# int8 import; no guide, the eight suites, graded by the 1.0 release binary. e3's published numbers come from vLLM at
+# bf16, so the int8 run separates the serving stack from the 4-bit cost. See README.md.
 #
 # On the scoring Mac, from a clone of aether at main:
 #   tmux new -d -s e3int4 "zsh -lc 'caffeinate -i bash training/training_runs/e3-int4-1.0-20261101/score.sh'"
@@ -36,9 +36,10 @@ log "grader $GRADER_VERSION sha256 $GRADER_SHA; harness $(git -C "$B" rev-parse 
 case "$GRADER_VERSION" in *"2026-10-30-1 (1.0)"*) ;; *) log "ABORT the grader is not the 1.0 release"; exit 2 ;; esac
 echo "$GRADER_SHA" > "$OUT/grader.sha256"
 
-# TAG:QUANT. The int8 import (named q8, as in the earlier runs) normally exists already; either is imported from the
-# merged export when missing, then copied with a 32K context.
-for V in int4:int4 q8:int8; do
+# TAG:QUANT, in order of interest: the two that quantize every expert weight (about 21 GB), the int8 anchor (named q8,
+# as in the earlier runs; it normally exists already), then int4, which keeps the experts' down projections at 8 bits
+# (27 GB). Each is imported from the merged export when missing, then copied with a 32K context.
+for V in nvfp4:nvfp4 mxfp4:mxfp4 q8:int8 int4:int4; do
   TAG=${V%%:*}; Q=${V#*:}
   M=aether-qwen36-35b-a3b-e3-$TAG; MODEL=$M-32k
   D="$OUT/$TAG"; mkdir -p "$D"
