@@ -25,3 +25,5 @@ the only change. The config, with the reasoning, is `training/config/runs/qwen36
   - The first push went to a different machine whose `/storage` is the same NFS share. It was removed before
     anything ran.
 - 2026-11-01 20:12Z: scoring finished, 63 (68) / 31 (42). v2 does not replace e3; see `RESULTS.md`.
+- 2026-11-01 21:57Z: the step-575 adapter (`../qwen36-35b-a3b-v2-ep2/`) scored 63 (69) / 35 (42), level with e3 at
+  epoch 2. The host's services were restarted afterwards.
