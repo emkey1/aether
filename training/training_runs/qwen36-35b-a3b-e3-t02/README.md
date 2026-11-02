@@ -40,3 +40,5 @@ Main and the after-repair differences are reported beside it, and they do not ch
 
 - 2026-11-02 04:28Z: scoring started on host-c, e3 first and then its epoch 2 adapter. The owner had the host's image
   and video generation services and its resident llama-server stopped again. They are restarted by hand after the run.
+- 2026-11-02 10:36Z: scoring finished, with no infra failures. The held-out interval includes 0; see `RESULTS.md`.
+  The host stayed down for the Gemma 4 12B run that follows, with the owner's OK.
