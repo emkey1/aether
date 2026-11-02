@@ -1,0 +1,12 @@
+# Trainer image for the gemma4_unified family: the Qwen trainer image with the libraries that know Gemma 4.
+# base26-fla stays as it is, so Qwen runs keep their stack. Unsloth 2026.10.11 caps transformers at 5.17.0.
+# docker build -t aether-unsloth-gemma4:u202610-tf517 -f Dockerfile.gemma4 .
+FROM aether-unsloth-qwen3-coder-30b:base26-fla
+RUN pip install --no-input --root-user-action=ignore \
+      "unsloth==2026.10.11" "unsloth_zoo>=2026.10.11" "transformers==5.17.0"
+RUN python - <<'PY'
+import importlib.metadata as m, importlib.util as u
+assert m.version("torch").startswith("2.12.0a0"), m.version("torch")
+assert u.find_spec("transformers.models.gemma4_unified"), "transformers has no gemma4_unified"
+print({p: m.version(p) for p in ("torch", "transformers", "peft", "trl", "unsloth", "unsloth_zoo", "bitsandbytes")})
+PY

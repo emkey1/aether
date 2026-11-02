@@ -200,6 +200,10 @@ def trainer_argv(run: dict) -> list[str]:
         "--chat-template-kwargs", json.dumps(fam.get("chat_template_kwargs") or {}),
         "--export-merged-16bit", "--merged-output-dir", run["paths"]["merged"],
     ]
+    if fam.get("loader"):
+        argv += ["--loader", fam["loader"]]
+    if fam.get("render_as_served"):
+        argv += ["--render-as-served"]
     if train.get("max_steps"):
         argv += ["--max-steps", str(train["max_steps"])]
     # An over-training run (early_stopping_patience 0) exports its last step, not its best eval loss, and may

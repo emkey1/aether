@@ -1,0 +1,63 @@
+{
+  "_note": "Gemma 4 12B fine-tuned for machines with 32 GB of memory (owner, 2026-11-02: 'We do need to try training our new Gemma model'). The MoE's recipe on the MoE's 1.0 data: dataset v2-20261101, 3 epochs, no early stopping, the last step exported, adapters of steps 300 and 575 kept for epoch twins. Bars on the 1.0 grader, first attempt (after repair), main / held-out: guided Gemma 4 12B at q8_0 48 (67) / 26 (41); e3 at mxfp4 (20.9 GB), the current 32 GB candidate, 64 (68) / 33 (40). Trained at 4-bit like the MoE; the served weights are the 16-bit merge.",
+  "tag": "gemma4-12b-v2",
+  "family": "gemma4_unified",
+  "hf_repo": "google/gemma-4-12B-it",
+  "base_model": "/storage/models/Gemma-4-12B-it",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 40,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 25,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      25,
+      300,
+      575
+    ]
+  },
+  "dataset": {
+    "id": "v2-20261101",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}

@@ -1,6 +1,6 @@
 {
   "_note": "Model-family registry for tools/aether_train_run.py. Everything that differs between model families and has broken a run before lives here, not in a driver script. Sources: the host-b snapshot (rig_snapshot_20261015/), the findings doc sections 'Per-model response-masking markers' and 'Mistral Tekken', training_runs/*.md. A new family is added here after a template probe (rig_snapshot_20261015/rig_dir/tmpl_probe.py) confirms its markers.",
-  "version": "2026-10-15-1",
+  "version": "2026-11-02-1",
   "families": {
     "qwen3_5": {
       "description": "Qwen3.5 / Qwen3.6 / Qwen3.8 (model_type qwen3_5 and qwen3_5_moe): hybrid gated-delta-net attention, needs transformers 5.x and flash-linear-attention",
@@ -55,6 +55,26 @@
       },
       "leak_prefixes": [],
       "_evidence": "retrain_queue_cs_aug20_large.sh (qwen25-14b, qwen3-coder30b-a3b on :q3)."
+    },
+    "gemma4_unified": {
+      "description": "Gemma 4 12B (model_type gemma4_unified): multimodal architecture trained on its text layers, needs transformers with gemma4_unified and a current Unsloth",
+      "image": "aether-unsloth-gemma4:u202610-tf517",
+      "loader": "fast_model",
+      "render_as_served": true,
+      "instruction_part": "<|turn>user\n",
+      "response_part": "<|turn>model\n<|channel>thought\n<channel|>",
+      "target_modules": ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"],
+      "chat_template_kwargs": {"enable_thinking": false},
+      "tokenizer_from_base": false,
+      "serve": {
+        "image": "vllm/vllm-openai:latest",
+        "dtype": "bfloat16",
+        "max_model_len": 32768,
+        "gpu_memory_utilization": 0.85,
+        "extra_args": ["--enforce-eager"]
+      },
+      "leak_prefixes": ["<|channel", "thought\n"],
+      "_evidence": "2026-11-02 probe of google/gemma-4-12B-it at 43c9d014 on training/config/images/Dockerfile.gemma4 (transformers 5.17.0, Unsloth 2026.10.11). With thinking off the generation prompt ends in an empty thought channel a finished turn lacks, so the trainer renders as served: 40 of 40 sampled records are prompt + content + <turn|>, and the served prompt's tokens are a prefix of the training tokens. The template emits the one <bos> and the tokenizer adds none, so nothing is stripped (Unsloth's Gemma 4 text recipe strips it; here that leaves none). The seven names match 328 Linear modules, all in language_model: the vision and audio parts have none of them. A merge keeps the base's weight names and changes only the seven targets, but transformers 5.17 rewrites config.json in a form vLLM's 5.13 cannot read (TypeError on num_global_key_value_heads), so the trainer restores the base's non-weight files."
     },
     "mistral": {
       "description": "Mistral-Small-24B / Devstral-Small-2: [INST] markers; the Unsloth merge drops tekken.json",

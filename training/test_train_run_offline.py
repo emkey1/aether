@@ -84,6 +84,16 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("--no-load-in-4bit", argv)
         self.assertIn("--no-load-in-4bit", tr.trainer_argv(self.load(precision="16bit")))
 
+    def test_gemma_loads_through_fastmodel_and_renders_as_served(self):
+        argv = tr.trainer_argv(self.load(family="gemma4_unified"))
+        self.assertEqual(argv[argv.index("--loader") + 1], "fast_model")
+        self.assertIn("--render-as-served", argv)
+        self.assertEqual(argv[argv.index("--instruction-part") + 1], "<|turn>user\\n")
+        self.assertEqual(argv[argv.index("--response-part") + 1], "<|turn>model\\n<|channel>thought\\n<channel|>")
+        qwen = tr.trainer_argv(self.load())
+        self.assertNotIn("--loader", qwen)
+        self.assertNotIn("--render-as-served", qwen)
+
     def test_lora_targets_default_to_the_family_and_a_run_may_override(self):
         argv = tr.trainer_argv(self.load())
         family = argv[argv.index("--target-modules") + 1].split(",")

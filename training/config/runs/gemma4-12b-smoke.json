@@ -1,0 +1,55 @@
+{
+  "_note": "Gemma 4 12B smoke test (2026-11-02): 5 steps on the full run's data, to prove loading, LoRA attachment, response masking, the 16-bit merge and vLLM serving before the long run. Not a result.",
+  "tag": "gemma4-12b-smoke",
+  "family": "gemma4_unified",
+  "hf_repo": "google/gemma-4-12B-it",
+  "base_model": "/storage/models/Gemma-4-12B-it",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 40,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 4,
+    "eval_steps": 5,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      5
+    ],
+    "max_steps": 5
+  },
+  "dataset": {
+    "id": "v2-20261101",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "hard_nontoon": "bench/tasks_hard_nontoon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}

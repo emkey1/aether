@@ -7,6 +7,7 @@ import argparse
 import importlib.util
 import json
 import math
+import os
 import random
 import shutil
 import re
@@ -86,6 +87,16 @@ class KeepCheckpoints(TrainerCallback):
                 print(f"kept {dst} (epoch {state.epoch:.3f})", flush=True)
         except Exception as exc:  # noqa: BLE001
             print(f"WARNING: could not keep {src}: {exc!r}", flush=True)
+
+
+def fast_loader(name: str):
+    """The Unsloth entry point a family loads through. FastLanguageModel is the text path; a multimodal architecture
+    (Gemma 4) goes through FastModel, which returns a processor where the text path returns a tokenizer."""
+    if name == "fast_model":
+        from unsloth import FastModel
+
+        return FastModel
+    return FastLanguageModel
 
 
 def describe_lora_coverage(model) -> dict:
@@ -198,6 +209,9 @@ def round_up(value: int, multiple: int) -> int:
 # "Reasoning effort is set to xhigh" system turn unless enable_thinking=False is
 # given, which the benchmark's requests always send (Qwen3.6's never did).
 CHAT_TEMPLATE_KWARGS: dict = {}
+# --render-as-served: a record is the served prompt plus the rest of the template's own rendering. Gemma 4 with thinking
+# off ends its generation prompt with an empty thought channel that a finished turn does not have.
+RENDER_AS_SERVED = False
 
 
 def materialize_chat_text(tokenizer: AutoTokenizer, messages: list[dict]) -> str:
@@ -209,7 +223,35 @@ def materialize_chat_text(tokenizer: AutoTokenizer, messages: list[dict]) -> str
     )
     if not isinstance(rendered, str):
         raise TypeError("chat template did not return text")
+    if RENDER_AS_SERVED:
+        prompt = tokenizer.apply_chat_template(
+            messages[:-1],
+            tokenize=False,
+            add_generation_prompt=True,
+            **CHAT_TEMPLATE_KWARGS,
+        )
+        rendered = prompt + rendered[len(os.path.commonprefix([prompt, rendered])):]
     return rendered
+
+
+def check_served_prefix(trainer, tokenizer: AutoTokenizer, record: dict) -> None:
+    """Fail before the first step unless the first row begins with the served prompt, token for token, and its loss
+    begins right after it. A doubled <bos> or a lost thought channel would otherwise show only as a worse score."""
+    prompt = tokenizer.apply_chat_template(
+        record["messages"][:-1],
+        tokenize=False,
+        add_generation_prompt=True,
+        **CHAT_TEMPLATE_KWARGS,
+    )
+    want = tokenizer(prompt, add_special_tokens=False)["input_ids"]
+    row = trainer.train_dataset[0]
+    if list(row["input_ids"][:len(want)]) != want:
+        raise SystemExit(f"first row does not begin with the served prompt: {list(row['input_ids'][:6])} against {want[:6]}")
+    if "labels" in row:
+        labels = list(row["labels"])
+        if any(value != -100 for value in labels[:len(want)]) or labels[len(want)] == -100:
+            raise SystemExit("response masking does not start the loss right after the served prompt")
+    print(f"served-prompt check: first row starts with the {len(want)}-token served prompt", flush=True)
 
 
 def chunk_reference_text(text: str, *, max_chars: int = 6000) -> list[str]:
@@ -374,6 +416,20 @@ def build_datasets(
     return attach_text(train_records, tokenizer), attach_text(eval_records, tokenizer)
 
 
+# What a FastModel merge takes back from the base. Its weights keep the base's names and layout, but a newer transformers
+# rewrites config.json in a form the serving image's older one cannot read (Gemma 4: per_layer_config replaces
+# global_head_dim and num_global_key_value_heads, and vLLM stops at the missing value).
+BASE_FILES = ("config.json", "generation_config.json", "tokenizer.json", "tokenizer_config.json",
+              "chat_template.jinja", "processor_config.json")
+
+
+def restore_base_files(base: Path, merged: Path) -> None:
+    for name in BASE_FILES:
+        if (base / name).is_file():
+            shutil.copy2(base / name, merged / name)
+    print(f"merged export: non-weight files restored from {base}", flush=True)
+
+
 def export_merged_16bit(model, tokenizer, output_dir: Path) -> Path:
     """Dequantize the 4-bit base, merge the LoRA, and write a 16-bit HF checkpoint.
 
@@ -427,8 +483,9 @@ def export_only(
     gpu_memory_utilization: float,
     export_merged: bool = False,
     merged_output_dir: Path | None = None,
+    loader: str = "language",
 ) -> list[str]:
-    model, tokenizer = FastLanguageModel.from_pretrained(
+    model, loaded = fast_loader(loader).from_pretrained(
         attn_implementation="sdpa",
         model_name=str(adapter_dir),
         max_seq_length=max_seq_length,
@@ -439,13 +496,16 @@ def export_only(
         device_map=device_map,
         gpu_memory_utilization=gpu_memory_utilization,
     )
+    tokenizer = loaded.tokenizer if loader == "fast_model" else loaded
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     tokenizer.padding_side = "right"
     export_dir.mkdir(parents=True, exist_ok=True)
     if export_merged:
         merged_dir = merged_output_dir if merged_output_dir is not None else (export_dir / "merged_16bit")
-        export_merged_16bit(model, tokenizer, merged_dir)
+        export_merged_16bit(model, loaded, merged_dir)
+        if loader == "fast_model":
+            restore_base_files(Path(model_id), merged_dir)
     return export_gguf_variants(model, tokenizer, export_dir, methods)
 
 
@@ -533,6 +593,11 @@ def main() -> int:
                         help='JSON object passed to apply_chat_template when rendering training text, '
                              'e.g. \'{"enable_thinking": false}\' for the Qwen3.5+ family; use the same '
                              'kwargs the served requests send.')
+    parser.add_argument("--loader", default="language", choices=["language", "fast_model"],
+                        help="Unsloth entry point; fast_model is for multimodal architectures such as Gemma 4")
+    parser.add_argument("--render-as-served", action="store_true", default=False,
+                        help="render each record as the served prompt plus the completion, for templates whose "
+                             "generation prompt differs from the start of a finished turn")
     parser.add_argument("--export-merged-16bit", dest="export_merged_16bit",
                         action="store_true", default=True,
                         help="write a merged 16-bit HF checkpoint for vLLM / NVFP4 (default)")
@@ -547,6 +612,8 @@ def main() -> int:
         raise SystemExit("--load-in-8bit requires --no-load-in-4bit (both quantizations cannot be active)")
 
     CHAT_TEMPLATE_KWARGS.update(json.loads(args.chat_template_kwargs))
+    global RENDER_AS_SERVED
+    RENDER_AS_SERVED = args.render_as_served
     random.seed(args.seed)
     torch.manual_seed(args.seed)
 
@@ -572,6 +639,7 @@ def main() -> int:
             gpu_memory_utilization=args.gpu_memory_utilization,
             export_merged=args.export_merged_16bit,
             merged_output_dir=args.merged_output_dir,
+            loader=args.loader,
         )
         if exported:
             (args.output_dir / "gguf_exports.json").write_text(
@@ -612,7 +680,7 @@ def main() -> int:
     )
     max_seq_length = args.max_seq_length if args.max_seq_length > 0 else auto_max_seq_length
 
-    model, unsloth_tokenizer = FastLanguageModel.from_pretrained(
+    model, loaded = fast_loader(args.loader).from_pretrained(
         attn_implementation="sdpa",
         model_name=args.model_id,
         max_seq_length=max_seq_length,
@@ -623,6 +691,8 @@ def main() -> int:
         device_map=args.device_map,
         gpu_memory_utilization=args.gpu_memory_utilization,
     )
+    # Training sees only a processor's text tokenizer; the saved model keeps the whole processor, which a server needs.
+    unsloth_tokenizer = loaded.tokenizer if args.loader == "fast_model" else loaded
     if unsloth_tokenizer.pad_token is None:
         unsloth_tokenizer.pad_token = unsloth_tokenizer.eos_token
     unsloth_tokenizer.padding_side = "right"
@@ -631,7 +701,7 @@ def main() -> int:
     print(f"LoRA target modules ({len(target_modules)}): {target_modules}", flush=True)
     gc_value = {"unsloth": "unsloth", "true": True, "false": False}[args.gradient_checkpointing]
     print(f"use_gradient_checkpointing = {gc_value!r}", flush=True)
-    model = FastLanguageModel.get_peft_model(
+    model = fast_loader(args.loader).get_peft_model(
         model,
         r=args.lora_r,
         target_modules=target_modules,
@@ -722,6 +792,9 @@ def main() -> int:
                     "do not match this model's chat template"
                 )
 
+    if args.render_as_served:
+        check_served_prefix(trainer, unsloth_tokenizer, train_records[0])
+
     # Patience 0 turns early stopping off: the run trains its whole schedule (an over-training study).
     if args.early_stopping_patience > 0:
         trainer.add_callback(
@@ -777,6 +850,8 @@ def main() -> int:
         "early_stopping_threshold": args.early_stopping_threshold,
         "load_best_model_at_end": args.load_best_model_at_end,
         "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,
+        "loader": args.loader,
+        "render_as_served": args.render_as_served,
         "first_train_text_head": train_records[0]["text"][:400] if train_records else None,
         "instruction_part": args.instruction_part,
         "response_part": args.response_part,
@@ -798,11 +873,13 @@ def main() -> int:
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     final_dir = args.output_dir / "final"
     trainer.save_model(str(final_dir))
-    unsloth_tokenizer.save_pretrained(str(final_dir))
+    loaded.save_pretrained(str(final_dir))
 
     if args.export_merged_16bit:
         merged_dir = args.merged_output_dir if args.merged_output_dir is not None else (final_dir / "merged_16bit")
-        export_merged_16bit(model, unsloth_tokenizer, merged_dir)
+        export_merged_16bit(model, loaded, merged_dir)
+        if args.loader == "fast_model":
+            restore_base_files(Path(args.model_id), merged_dir)
         (args.output_dir / "merged_export.json").write_text(
             json.dumps({"merged_16bit": str(merged_dir)}, indent=2),
             encoding="utf-8",

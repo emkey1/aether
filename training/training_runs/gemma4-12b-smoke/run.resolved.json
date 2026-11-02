@@ -1,0 +1,113 @@
+{
+  "_note": "Gemma 4 12B smoke test (2026-11-02): 5 steps on the full run's data, to prove loading, LoRA attachment, response masking, the 16-bit merge and vLLM serving before the long run. Not a result.",
+  "tag": "gemma4-12b-smoke",
+  "family": "gemma4_unified",
+  "hf_repo": "google/gemma-4-12B-it",
+  "base_model": "/storage/models/Gemma-4-12B-it",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 40,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 4,
+    "eval_steps": 5,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      5
+    ],
+    "max_steps": 5
+  },
+  "dataset": {
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "id": "v2-20261101",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "seed_base": 42,
+    "port": 8019,
+    "request_timeout_seconds": 900,
+    "smoke_tasks": 3,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether",
+    "suites": {
+      "hard_nontoon": "bench/tasks_hard_nontoon.json"
+    },
+    "grader_version": "2026-10-30-1",
+    "python_check": false
+  },
+  "family_config": {
+    "description": "Gemma 4 12B (model_type gemma4_unified): multimodal architecture trained on its text layers, needs transformers with gemma4_unified and a current Unsloth",
+    "image": "aether-unsloth-gemma4:u202610-tf517",
+    "loader": "fast_model",
+    "render_as_served": true,
+    "instruction_part": "<|turn>user\n",
+    "response_part": "<|turn>model\n<|channel>thought\n<channel|>",
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ],
+    "chat_template_kwargs": {
+      "enable_thinking": false
+    },
+    "tokenizer_from_base": false,
+    "serve": {
+      "image": "vllm/vllm-openai:latest",
+      "dtype": "bfloat16",
+      "max_model_len": 32768,
+      "gpu_memory_utilization": 0.85,
+      "extra_args": [
+        "--enforce-eager"
+      ]
+    },
+    "leak_prefixes": [
+      "<|channel",
+      "thought\n"
+    ],
+    "_evidence": "2026-11-02 probe of google/gemma-4-12B-it at 43c9d014 on training/config/images/Dockerfile.gemma4 (transformers 5.17.0, Unsloth 2026.10.11). With thinking off the generation prompt ends in an empty thought channel a finished turn lacks, so the trainer renders as served: 40 of 40 sampled records are prompt + content + <turn|>, and the served prompt's tokens are a prefix of the training tokens. The template emits the one <bos> and the tokenizer adds none, so nothing is stripped (Unsloth's Gemma 4 text recipe strips it; here that leaves none). The seven names match 328 Linear modules, all in language_model: the vision and audio parts have none of them. A merge keeps the base's weight names and changes only the seven targets, but transformers 5.17 rewrites config.json in a form vLLM's 5.13 cannot read (TypeError on num_global_key_value_heads), so the trainer restores the base's non-weight files."
+  },
+  "families_version": "2026-11-02-1",
+  "image": "aether-unsloth-gemma4:u202610-tf517",
+  "remote_root": "$HOME/aether-train",
+  "weights_root": "/storage/aether-train",
+  "paths": {
+    "remote": "$HOME/aether-train/gemma4-12b-smoke",
+    "bench": "$HOME/aether-train/gemma4-12b-smoke/bench",
+    "weights": "/storage/aether-train/gemma4-12b-smoke",
+    "merged": "/storage/aether-train/gemma4-12b-smoke/merged_16bit",
+    "dataset_local": "training/datasets/v2-20261101",
+    "out_local": "training/training_runs/gemma4-12b-smoke"
+  },
+  "containers": {
+    "train": "aether-train-gemma4-12b-smoke",
+    "serve": "aether-serve-gemma4-12b-smoke"
+  },
+  "tmux": "aether-score-gemma4-12b-smoke",
+  "resolved_at": "2026-11-02T10:55:31+00:00",
+  "umbrella_commit": "6c481a65e3014952cbf97e4643c1f385cf17d2fd"
+}
