@@ -26,3 +26,11 @@ eight suites. The smoke fails if an answer is empty, begins with a reasoning tra
 more, or if a prompt is 3,000 tokens or more. Each suite resumes from its checkpoint; re-run the script to continue. The
 command is at the top of `score.sh`. Copy the reports here as `score/tuned__<suite>.json.gz` with
 `bench/results/pack_reports.py`.
+
+`card_numbers.sh` then measures what a model card needs on the same Mac and stack: generation speed and resident size
+against e3 at mxfp4 (`measure_speed.py`), the fine-tune's Python, and the untrained base at int8 with no guide, in Aether
+and in Python. It needs the base's files, checked by SHA-256 against the training host's copy.
+
+## Results
+
+`RESULTS.md`.

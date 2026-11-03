@@ -42,3 +42,4 @@ machine with room to spare at 8-bit (about 12 GB), can match the 35B MoE squeeze
   stopped until both are scored.
 - 2026-11-02 21:14Z: both scored, `RESULTS.md`. Final 67 (69) / 30 (36), step 575 64 (68) / 27 (31). The host's services
   are running again.
+- 2026-11-03: the final step at 8 bits scored 65 (70) / 28 (36) at 12 GB, `../gemma4-12b-v2-q8/RESULTS.md`.
