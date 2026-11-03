@@ -1,10 +1,10 @@
 # gemma4-12b-v2-q8: results (2026-11-03)
 
 **At 8 bits and 12 GB, the Gemma 4 12B fine-tune keeps its scores, and a sign test cannot separate it from the 35B MoE
-at 20.9 GB.** It loses 2 first attempts on each set of suites against its own 16-bit form and is level after repair, 106
-against 105. That answers the question `../gemma4-12b-v2/` left open: a model about 9 GB smaller does the same job on this
-benchmark, so a 32 GB Mac has a real choice. It does not replace e3 on a machine with room for it: the full e3 is clearly
-ahead on held-out.
+at 20.9 GB, but it generates about 5.6 times slower.** It loses 2 first attempts on each set of suites against its own 16-bit
+form and is level after repair, 106 against 105. That answers the question `../gemma4-12b-v2/` left open: a model about 9 GB
+smaller does the same job on this benchmark. Where e3 at mxfp4 fits, e3 is still the better choice, for its speed. Gemma's
+case is a machine it does not fit. The full e3 is clearly ahead of both on held-out.
 
 The form also clears the bar set for publishing it: 28 held-out first attempts, not below the guided base's 26.
 
@@ -81,6 +81,23 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 
 Return codes are still Gemma's own weakness: 7 first attempts against e3's 2 in every form. The repair count is noisier than
 it looked at 16-bit: 8 of 29 there, 13 of 33 here.
+
+## Speed and memory
+
+The same Mac and stack, `measure_speed.py`: the first eleven algorithm-suite prompts, no guide, the median of the ten answers
+after the load.
+
+| | generating | median answer | `ollama ps` after 11 answers |
+|---|---:|---:|---:|
+| **Gemma 4 12B fine-tune, int8** | **38.8 tok/s** | **168 tokens** | **15 GB** |
+| e3, mxfp4 | 217.0 tok/s | 166 tokens | 22 GB |
+
+- **e3 at mxfp4 is 5.6 times faster.** The likely cause is that the dense 12B reads all its weights for each token and the MoE
+  about 3B, as `../gemma4-12b-v2/RESULTS.md` guessed. This measurement does not isolate it.
+- **The resident size grows in use.** Gemma's reading rose from 15 GB to 21 GB by the end of the scoring pass, at a 32K context.
+  e3's has not been read over a full pass.
+- **Neither has run on a 32 GB Mac,** where macOS limits what the GPU may wire down. These numbers come from a larger Mac,
+  so the ratio is the result, not the speeds.
 
 ## What was checked
 
