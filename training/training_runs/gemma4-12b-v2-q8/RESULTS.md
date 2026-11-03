@@ -99,6 +99,12 @@ after the load.
 - **Neither has run on a 32 GB Mac,** where macOS limits what the GPU may wire down. These numbers come from a larger Mac,
   so the ratio is the result, not the speeds.
 
+## Python, and the untrained base
+
+`card_numbers.sh`, for the model card, at int8 on the same Mac: the fine-tune writes Python at 58 (79) of 126 against the untrained
+base's 109 (125). The base with no guide writes Aether at 0 (4) on main and 0 (0) on held-out
+(`../base-gemma4-12b-int8-20261103/`).
+
 ## What was checked
 
 - **Weights:** the merged export's SHA-256 matches the training host's after the copy.
