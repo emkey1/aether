@@ -1,4 +1,5 @@
 #include "aether/state.h"
+#include "core/globals.h"
 
 #include "aether/parser.h"
 #include "aether/diagnostics.h"
@@ -9,7 +10,7 @@
 #include "backend_ast/builtin.h"
 #include "common/frontend_kind.h"
 
-static int g_aether_verbose_compatibility_diagnostics = 0;
+static PSCAL_THREAD_LOCAL int g_aether_verbose_compatibility_diagnostics = 0;
 
 void aetherResetSymbolState(void) {
     reaResetSymbolState();
@@ -22,6 +23,7 @@ void aetherInvalidateGlobalState(void) {
      * after all of them; this is the one place they are torn down. */
     aetherAstClearSemanticRegistries();
     aetherAstPrepassClearReportedArity();
+    aetherSemanticResetState();
     reaInvalidateGlobalState();
 }
 

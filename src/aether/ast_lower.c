@@ -9,6 +9,7 @@
  */
 
 #include "aether/ast_internal.h"
+#include "core/globals.h"
 
 static void buildArrayAppendSteps(const AST *target, AST *item, int line,
                                   AST **outSetlenStmt, AST **outIdxAssign);
@@ -254,7 +255,7 @@ static AST *buildIndexLoop(const char *name, AST *low, AST *high, AST *body, int
 AST *buildArrayUnaliasStmtRank(const AST *target, int rank, int line) {
     AST *top = buildArrayUnaliasStmt(target, line);
     if (rank < 2) return top;
-    static int unaliasSerial = 0;
+    static PSCAL_THREAD_LOCAL int unaliasSerial = 0;
     char idxName[64];
     snprintf(idxName, sizeof(idxName), "__aether_unalias_i_%d_%d", line, ++unaliasSerial);
     AST *row = newASTNode(AST_ARRAY_ACCESS, NULL);
@@ -649,7 +650,7 @@ AST *aetherHoistAppendItem(AetherParser *p, AST *dest, const AST *target, AST *i
     if (!elemType) elemType = inferLetTypeName(p, item);
     if (!elemType) return item;
 
-    static int appSerial = 0;
+    static PSCAL_THREAD_LOCAL int appSerial = 0;
     char name[64];
     snprintf(name, sizeof(name), "__aether_app_%d_%d", line, ++appSerial);
     AST *decl = buildTypedLetDecl(name, elemType, item, line);
@@ -1264,7 +1265,7 @@ static bool buildArrayConcatSteps(AetherParser *p, AST *dest, AST *target, AST *
      * `__aether_concat_other_<line>` declarations and failed with "duplicate
      * variable ... in this scope". The line is kept in the name because it is
      * what makes these readable in a disassembly or a scope dump. */
-    static int concatSerial = 0;
+    static PSCAL_THREAD_LOCAL int concatSerial = 0;
     int serial = ++concatSerial;
     char otherName[64], baseName[64], idxName[64];
     snprintf(otherName, sizeof(otherName), "__aether_concat_other_%d_%d", line, serial);
@@ -1379,7 +1380,7 @@ AST *buildArrayConcat(AetherParser *p, AST *assign, AST *target, AST *other,
         AST *preTypeNode = buildTypeNodeFromName(otherTypeName, strlen(otherTypeName),
                                                  line, &preVt);
         if (preTypeNode) {
-            static int preSerial = 0;
+            static PSCAL_THREAD_LOCAL int preSerial = 0;
             char preName[64];
             snprintf(preName, sizeof(preName), "__aether_concat_pre_%d_%d", line, ++preSerial);
             AST *preDecl = newASTNode(AST_VAR_DECL, NULL);

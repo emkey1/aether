@@ -75,15 +75,15 @@
  * this count is still 0, emits a backstop [SYN-001] so a parse failure is NEVER
  * silent (exit 1 with empty stderr + empty --diagnostics-json was the worst case
  * for both humans and the LLM repair loop -- nothing to react to). */
-static int g_aetherAstDiagCount = 0;
+static PSCAL_THREAD_LOCAL int g_aetherAstDiagCount = 0;
 /* W4-15: the `not`/`!` node and the relational node the expression parser
  * built last without parentheses (see parseComparison). Each is either NULL or
  * the node parseComparison just returned, so a stale pointer never matches. */
-static const AST *g_aetherBareNot = NULL;
-static const AST *g_aetherBareRel = NULL;
+static PSCAL_THREAD_LOCAL const AST *g_aetherBareNot = NULL;
+static PSCAL_THREAD_LOCAL const AST *g_aetherBareRel = NULL;
 /* D88: the expression the last `( ... )` held, so `7 & (3 != 0)` is not
  * reported as a precedence slip (its grouping is written out). */
-static const AST *g_aetherParenExpr = NULL;
+static PSCAL_THREAD_LOCAL const AST *g_aetherParenExpr = NULL;
 
 /* stderr diagnostic sink: identical to fprintf(stderr, ...) but bumps the
  * emitted-diagnostic counter so the silent-failure backstop can tell whether the
@@ -140,24 +140,24 @@ typedef struct {
     char *surface;
 } AetherCallSurfaceEntry;
 
-static AetherNodePtrSet g_aetherFxBlocks;
-static struct { AetherFnPurityEntry *items; size_t count; size_t cap; } g_aetherFnPurity;
-static struct { char **items; size_t count; size_t cap; } g_aetherTopLevelFns;
-static struct { AetherCallSurfaceEntry *items; size_t count; size_t cap; } g_aetherCallSurfaces;
-static struct { const AST **items; size_t count; size_t cap; } g_aetherSynthesized;
+static PSCAL_THREAD_LOCAL AetherNodePtrSet g_aetherFxBlocks;
+static PSCAL_THREAD_LOCAL struct { AetherFnPurityEntry *items; size_t count; size_t cap; } g_aetherFnPurity;
+static PSCAL_THREAD_LOCAL struct { char **items; size_t count; size_t cap; } g_aetherTopLevelFns;
+static PSCAL_THREAD_LOCAL struct { AetherCallSurfaceEntry *items; size_t count; size_t cap; } g_aetherCallSurfaces;
+static PSCAL_THREAD_LOCAL struct { const AST **items; size_t count; size_t cap; } g_aetherSynthesized;
 /* AST_VAR_DECL nodes whose type the author actually wrote (`let x: Int = ...`),
  * as opposed to an inferred `let x = ...`. NARROW-001 needs the distinction and
  * cannot get it from the node: an inferred binding whose initializer mentions
  * variables still carries the wrong var_type during semantic analysis, so it
  * looks Int-declared when it will in fact resolve to Real. Only a declaration
  * the author typed can contradict its initializer. */
-static struct { const AST **items; size_t count; size_t cap; } g_aetherExplicitTypedDecls;
+static PSCAL_THREAD_LOCAL struct { const AST **items; size_t count; size_t cap; } g_aetherExplicitTypedDecls;
 /* Upper-bound expressions of `loop i in a..b`. Lowering turns the bound into
  * the right operand of the loop's `i < b` test, where it reads like any other
  * comparison; the type oracle (types.c) needs to tell the two apart. */
-static struct { const AST **items; size_t count; size_t cap; } g_aetherRangeBounds;
+static PSCAL_THREAD_LOCAL struct { const AST **items; size_t count; size_t cap; } g_aetherRangeBounds;
 /* `loop x in COLL` walked in place (LOOP-001, D86). */
-static struct { AetherForeachSite *items; size_t count; size_t cap; } g_aetherForeachSites;
+static PSCAL_THREAD_LOCAL struct { AetherForeachSite *items; size_t count; size_t cap; } g_aetherForeachSites;
 
 void aetherAstRegisterFxBlock(const AST *block, int line) {
     if (!block) return;
@@ -354,7 +354,7 @@ typedef struct {
     char *surface;
 } AetherLineAliasEntry;
 
-static struct { AetherLineAliasEntry *items; size_t count; size_t cap; } g_aetherLineAliases;
+static PSCAL_THREAD_LOCAL struct { AetherLineAliasEntry *items; size_t count; size_t cap; } g_aetherLineAliases;
 
 void aetherAstRegisterAliasAtLine(int line, const char *canonical, const char *surface) {
     if (line <= 0 || !canonical || !*canonical || !surface || !*surface) return;
@@ -6396,7 +6396,7 @@ AST *aetherLowerAssignStatement(AetherParser *p, AST *expr) {
                                                          strlen(ops[i].otherTypeName),
                                                          line, &preVt);
                 if (!preTypeNode) continue;
-                static int chainPreSerial = 0;
+                static PSCAL_THREAD_LOCAL int chainPreSerial = 0;
                 char preName[64];
                 snprintf(preName, sizeof(preName), "__aether_concat_cpre_%d_%d",
                          line, ++chainPreSerial);

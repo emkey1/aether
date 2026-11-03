@@ -22,6 +22,7 @@
  */
 
 #include "aether/ast_prepasses.h"
+#include "core/globals.h"
 
 #include <ctype.h>
 #include <limits.h>
@@ -42,7 +43,7 @@
  * replacement can be recorded (line, canonical -> surface) for diagnostics.
  * 0 = no line context (e.g. contract-expression segment re-aliasing); such
  * rewrites are not recorded. Set/cleared by aetherAstPrepassBuiltins. */
-static int g_aetherPrepassAliasLine = 0;
+static PSCAL_THREAD_LOCAL int g_aetherPrepassAliasLine = 0;
 
 /* Names the source declares with `fn NAME(`. The builtin alias pre-passes are
  * pure text rewrites, so without this they rewrite a user's own declaration:
@@ -58,14 +59,21 @@ static int g_aetherPrepassAliasLine = 0;
  * large-suite failures on the cs-aug20 board. */
 #define AETHER_PREPASS_MAX_USER_FNS 512
 #define AETHER_PREPASS_MAX_FN_NAME 64
-static char g_aetherPrepassUserFns[AETHER_PREPASS_MAX_USER_FNS][AETHER_PREPASS_MAX_FN_NAME];
-static int g_aetherPrepassUserFnCount = 0;
+/* On the heap, since a TLS block is per thread whether or not the thread compiles. */
+static PSCAL_THREAD_LOCAL char (*g_aetherPrepassUserFns)[AETHER_PREPASS_MAX_FN_NAME] = NULL;
+static PSCAL_THREAD_LOCAL int g_aetherPrepassUserFnCount = 0;
 
 static void aetherPrepassCollectUserFns(const char *source) {
     const char *c = source;
     g_aetherPrepassUserFnCount = 0;
     if (!source) {
         return;
+    }
+    if (!g_aetherPrepassUserFns) {
+        g_aetherPrepassUserFns = malloc(AETHER_PREPASS_MAX_USER_FNS * AETHER_PREPASS_MAX_FN_NAME);
+        if (!g_aetherPrepassUserFns) {
+            return;
+        }
     }
     while (*c) {
         /* match `fn` as a standalone keyword, then the identifier after it */
@@ -2449,8 +2457,8 @@ static int isToonScalarDefaultHelper(const char *nameStart, size_t nameLen) {
  * semantic analysis runs after all of them) and cleared with the other
  * registries in aetherInvalidateGlobalState. At most the eight getters. */
 #define AETHER_TOON_ARITY_REPORTED_MAX 8
-static char g_toonArityReported[AETHER_TOON_ARITY_REPORTED_MAX][24];
-static int g_toonArityReportedCount = 0;
+static PSCAL_THREAD_LOCAL char g_toonArityReported[AETHER_TOON_ARITY_REPORTED_MAX][24];
+static PSCAL_THREAD_LOCAL int g_toonArityReportedCount = 0;
 
 static void noteToonArityReported(const char *name) {
     int i;
@@ -2479,6 +2487,9 @@ int aetherAstPrepassReportedArity(const char *name) {
 
 void aetherAstPrepassClearReportedArity(void) {
     g_toonArityReportedCount = 0;
+    free(g_aetherPrepassUserFns);
+    g_aetherPrepassUserFns = NULL;
+    g_aetherPrepassUserFnCount = 0;
 }
 
 static void reportToonScalarArity(const char *nameStart,

@@ -45,7 +45,7 @@ typedef struct AetherScalarBindingTable {
     size_t cap;
 } AetherScalarBindingTable;
 
-static const char *g_aether_source_path = NULL;
+static PSCAL_THREAD_LOCAL const char *g_aether_source_path = NULL;
 static void reportAetherError(const char *kind, int line, const char *detail);
 static int expectedOpaqueReturnKind(const char *name, size_t len, int *returnsKind);
 
@@ -2774,7 +2774,7 @@ static int textReadsName(const char *start, const char *end, const char *name) {
     return 0;
 }
 
-static int g_nameCollisionReports = 0;
+static PSCAL_THREAD_LOCAL int g_nameCollisionReports = 0;
 
 static void reportNameCollision(int line, const char *detail, const char *hint) {
     /* D5: keep a run's diagnostics short; the first collisions are enough. */
@@ -3440,10 +3440,11 @@ typedef struct {
                    * concrete one (Int, Text[], ToonNode, ...); "" otherwise */
 } AetherSigArity;
 
+/* Made once from the builtin table and only read after that, so every run shares it. */
 static AetherSigArity *g_sigArity = NULL;
 static int g_sigArityCount = 0;
 static int g_sigArityCap = 0;
-static int g_sigArityLoaded = 0;
+static pthread_once_t g_sigArityOnce = PTHREAD_ONCE_INIT;
 
 /* One overload's parameter counts; false when it does not parse. */
 static bool parseOneSignatureArity(const char *sig, const char *end, int *required, int *total) {
@@ -3545,12 +3546,13 @@ static void aetherSigArityVisit(const char *name, const char *signature, void *c
     snprintf(e->ret, sizeof(e->ret), "%s", ret);
 }
 
+static void aetherSigArityLoad(void) {
+    pscalAetherForEachBuiltinName(aetherSigArityVisit, NULL);
+}
+
 static const AetherSigArity *aetherSignatureArity(const char *aetherName) {
     if (!aetherName) return NULL;
-    if (!g_sigArityLoaded) {
-        g_sigArityLoaded = 1;
-        pscalAetherForEachBuiltinName(aetherSigArityVisit, NULL);
-    }
+    pthread_once(&g_sigArityOnce, aetherSigArityLoad);
     for (int i = 0; i < g_sigArityCount; i++) {
         if (strcmp(g_sigArity[i].name, aetherName) == 0) return &g_sigArity[i];
     }
@@ -3660,10 +3662,10 @@ typedef struct {
     int line;
 } AetherDeferredPurityCall;
 
-static AetherDeferredPurityCall *g_aether_deferred_purity = NULL;
-static size_t g_aether_deferred_purity_count = 0;
-static size_t g_aether_deferred_purity_cap = 0;
-static int g_aether_defer_unknown_callees = 0;
+static PSCAL_THREAD_LOCAL AetherDeferredPurityCall *g_aether_deferred_purity = NULL;
+static PSCAL_THREAD_LOCAL size_t g_aether_deferred_purity_count = 0;
+static PSCAL_THREAD_LOCAL size_t g_aether_deferred_purity_cap = 0;
+static PSCAL_THREAD_LOCAL int g_aether_defer_unknown_callees = 0;
 
 static void aetherDeferPurityCall(const char *canonical, const char *display,
                                   const char *pureFn, int line) {
@@ -4678,7 +4680,7 @@ static void caseCheckRefs(const CaseDecls *d, const AST *n) {
 
 /* The value names of the program being compiled (they point into its AST),
  * kept for aetherUnknownIdentifierHint's close-spelling pass. */
-static CaseNameSet g_declaredValues;
+static PSCAL_THREAD_LOCAL CaseNameSet g_declaredValues;
 
 size_t aetherSemanticDeclaredValueCount(void) {
     return (size_t)g_declaredValues.count;
@@ -5404,7 +5406,7 @@ typedef struct AetherReportedTypeTable {
     size_t cap;
 } AetherReportedTypeTable;
 
-static AetherReportedTypeTable g_aether_reported_types = {0};
+static PSCAL_THREAD_LOCAL AetherReportedTypeTable g_aether_reported_types = {0};
 
 static int aetherMarkTypeReported(const char *key) {
     size_t i;
@@ -5510,7 +5512,7 @@ static int aetherTypeNameKind(const char *name) {
  * type names (`string`, `INT`, `text`, ...), which no module could sensibly
  * export. Any other unknown name may still be an import that has not been
  * registered yet and waits for the second stage. */
-static int g_aether_type_check_stubs_only = 0;
+static PSCAL_THREAD_LOCAL int g_aether_type_check_stubs_only = 0;
 
 static int aetherIsCaseVariantOfBuiltinType(const char *name) {
     static const char *const builtins[] = {

@@ -15,6 +15,7 @@
  */
 
 #include "aether/ast_internal.h"
+#include "core/globals.h"
 
 /* A removed spelling and the modern form its hint names. Matched
  * case-insensitively, as the engine resolves builtin names. */
@@ -442,7 +443,7 @@ AST *aetherMapHoistComposite(AetherParser *p, AST *value, const char *typeName, 
     if (!composite) return value;
     char *tn = typeName ? strdup(typeName) : inferLetTypeName(p, value);
     if (!tn) return value;
-    static int litSerial = 0;
+    static PSCAL_THREAD_LOCAL int litSerial = 0;
     char name[48];
     snprintf(name, sizeof(name), "__aether_mlit_%d", ++litSerial);
     AST *decl = buildTypedLetDecl(name, tn, value, line);
@@ -468,7 +469,7 @@ AST *aetherMapHoistRead(AetherParser *p, AST *get, int line) {
     if (!p || !aetherIsMapGet(get) || p->forwardScan) return get;
     char *tn = inferLetTypeName(p, get);
     if (!tn) return get;
-    static int readSerial = 0;
+    static PSCAL_THREAD_LOCAL int readSerial = 0;
     char name[48];
     snprintf(name, sizeof(name), "__aether_mr_%d", ++readSerial);
     AST *decl = buildTypedLetDecl(name, tn, get, line);
@@ -694,7 +695,7 @@ static AST *aetherMapTakePut(AetherParser *p, AST *g, AetherMapInnerFn buildInne
         p->hadError = true;
         return NULL;
     }
-    static int takeSerial = 0;
+    static PSCAL_THREAD_LOCAL int takeSerial = 0;
     int serial = ++takeSerial;
     /* A computed key is evaluated once, before the take. */
     if (!aetherIsSimpleOperand(key)) {
@@ -840,7 +841,7 @@ AST *aetherLowerMapStore(AetherParser *p, AST *assign) {
         char *rtype = inferLetTypeName(p, rhs);
         if (!rtype) rtype = inferLetTypeName(p, assign->left);
         if (rtype) {
-            static int valSerial = 0;
+            static PSCAL_THREAD_LOCAL int valSerial = 0;
             char vname[48];
             snprintf(vname, sizeof(vname), "__aether_mv_%d", ++valSerial);
             assign->right = NULL;
@@ -943,8 +944,8 @@ static const struct {
 };
 
 /* The prelude fns injected into this compile that perform effects (D73). */
-static const char *g_preludeEffectful[8];
-static int g_preludeEffectfulCount = 0;
+static PSCAL_THREAD_LOCAL const char *g_preludeEffectful[8];
+static PSCAL_THREAD_LOCAL int g_preludeEffectfulCount = 0;
 
 bool aetherStdlibPreludeIsEffectful(const char *name) {
     if (!name) return false;

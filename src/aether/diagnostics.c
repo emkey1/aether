@@ -1,4 +1,5 @@
 #include "aether/diagnostics.h"
+#include "core/globals.h"
 #include "aether/ast_prepasses.h"
 #include "aether/parser.h"
 #include "aether/semantic.h"
@@ -452,9 +453,9 @@ static const char *aetherNameHintFor(const char *name) {
  * result lives in a static buffer until the next call (compiles are
  * single-threaded). */
 static const char *aetherCamelCaseHint(const char *ident) {
-    static char snake[128];
-    static char flat[128];
-    static char hint[320];
+    static PSCAL_THREAD_LOCAL char snake[128];
+    static PSCAL_THREAD_LOCAL char flat[128];
+    static PSCAL_THREAD_LOCAL char hint[320];
     size_t n = strlen(ident);
     size_t si = 0, fi = 0;
     bool interiorUpper = false;
@@ -602,7 +603,7 @@ static void aetherCloseBuiltinVisit(const char *name, const char *signature, voi
  * same first letter, one edit (two from seven characters), and a single
  * closest name. NULL otherwise; the result lives in a static buffer. */
 static const char *aetherCloseSpellingHint(const char *ident) {
-    static char hint[320];
+    static PSCAL_THREAD_LOCAL char hint[320];
     AetherCloseName c;
     memset(&c, 0, sizeof(c));
     aetherFlatName(ident, c.flat, sizeof(c.flat));

@@ -53,8 +53,8 @@ static int isNumeric(AetherType t) { return t.kind == AETHER_T_INT || t.kind == 
 /* ------------------------------------------------------------------ */
 
 static const char *internName(const char *n, size_t len) {
-    static char **names = NULL;
-    static int count = 0, cap = 0;
+    static PSCAL_THREAD_LOCAL char **names = NULL;
+    static PSCAL_THREAD_LOCAL int count = 0, cap = 0;
     for (int i = 0; i < count; i++)
         if (strlen(names[i]) == len && strncmp(names[i], n, len) == 0) return names[i];
     if (count == cap) {
@@ -363,9 +363,9 @@ const char *aetherAgreementName(AetherAgreement a) {
 typedef struct { const char *name; const AST *node; } IndexEntry;
 typedef struct { IndexEntry *items; int count, cap; } Index;
 
-static Index g_records;   /* name -> RECORD_TYPE */
-static Index g_functions; /* name -> FUNCTION_DECL / PROCEDURE_DECL */
-static Index g_globals;   /* name -> VAR_DECL / CONST_DECL (type via declTypeOf) */
+static PSCAL_THREAD_LOCAL Index g_records;   /* name -> RECORD_TYPE */
+static PSCAL_THREAD_LOCAL Index g_functions; /* name -> FUNCTION_DECL / PROCEDURE_DECL */
+static PSCAL_THREAD_LOCAL Index g_globals;   /* name -> VAR_DECL / CONST_DECL (type via declTypeOf) */
 
 static void indexAdd(Index *ix, const char *name, const AST *node) {
     if (!name) return;

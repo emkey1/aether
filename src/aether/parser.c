@@ -1,11 +1,12 @@
 #include "aether/parser.h"
+#include "core/globals.h"
 
 #include <stdlib.h>
 #include <string.h>
 
 #include "rea/parser.h"
 
-static char *g_aether_last_source = NULL;
+static PSCAL_THREAD_LOCAL char *g_aether_last_source = NULL;
 
 static void aetherRememberSource(const char *source) {
     size_t len;

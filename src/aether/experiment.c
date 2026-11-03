@@ -4,6 +4,7 @@
  */
 
 #include "aether/experiment.h"
+#include "core/globals.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -17,8 +18,8 @@
 #include "aether/semantic.h"
 #include "aether/types.h"
 
-static AetherExperiment g_experiment;
-static int g_experiment_loaded = 0;
+static PSCAL_THREAD_LOCAL AetherExperiment g_experiment;
+static PSCAL_THREAD_LOCAL int g_experiment_loaded = 0;
 
 static int lookupValue(const char *value, const char *const *names, int count) {
     for (int i = 0; i < count; i++) {
@@ -96,10 +97,10 @@ const char *aetherDumpTypesTarget(void) {
 /* Site log                                                            */
 /* ------------------------------------------------------------------ */
 
-static FILE *g_log = NULL;
+static PSCAL_THREAD_LOCAL FILE *g_log = NULL;
 
 static FILE *experimentLog(void) {
-    static int opened = 0;
+    static PSCAL_THREAD_LOCAL int opened = 0;
     if (!opened) {
         const char *path = getenv("AETHER_EXPERIMENT_LOG");
         opened = 1;
@@ -1469,7 +1470,7 @@ static void refWalkFunctions(RefCtx *c, AST *n) {
     for (int i = 0; i < n->child_count; i++) refWalkFunctions(c, n->children[i]);
 }
 
-static int g_byRefCaptures = 0;
+static PSCAL_THREAD_LOCAL int g_byRefCaptures = 0;
 
 void aetherNoteByRefCaptures(void) {
     g_byRefCaptures = 1;
