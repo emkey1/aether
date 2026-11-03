@@ -118,3 +118,21 @@ base's 109 (125). The base with no guide writes Aether at 0 (4) on main and 0 (0
 The controls in `../qwen36-35b-a3b-v2/RESULTS.md` apply here too: nearly identical training differs on 9 of 126 first
 attempts, and held-out seed noise has never been measured. A difference of a few tasks between any two rows above cannot
 be read as more than that.
+
+## Published (2026-11-03)
+
+This form is public as `emkey1/Gemma-4-12B-Aether-int8` (Hub revision `895483498ea4`), under apache-2.0, with
+`emkey1/Gemma-4-12B-Aether` as its base. The card is `training/config/hf_release/README.gemma.int8.md`.
+
+- **The scored tensors, not a new quantization:** `export_mlx.py export` wrote the scored model's blobs in the standard MLX layout,
+  one 12.76 GB `model.safetensors` (SHA-256 starts `4bba0a10c065dc5e`). Ollama imports that with no `-q`.
+- **Checked before going public:** every file against its local hash, with the repo still private.
+- **Checked after, with no token or login:** the repo is open, all nine files match by hash, and the three Gemma cards match the
+  committed ones. The merged and adapter weights did not change.
+- **The card's install steps, from the Hub:** `hf download` took 38 min, and the weights' hash matched. `ollama create` took 15 s.
+  `export_mlx.py compare` against `aether-gemma4-12b-v2-q8-32k` found 0 of 677 tensors differing by name, type, shape or bytes, and
+  the same Ollama config; `config.json` is the only other layer that differs. The card's `curl` command returned a program that
+  printed the squares of 1 to 5 under the 1.0 release binary.
+- **Not available:** `ollama pull hf.co/emkey1/Gemma-4-12B-Aether-int8` fails with "Repository is not GGUF or is not compatible
+  with llama.cpp", so the card does not offer it.
+- **Upload time:** 2 h 12 min.

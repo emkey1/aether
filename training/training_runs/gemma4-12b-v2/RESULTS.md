@@ -137,3 +137,5 @@ The final step is public under apache-2.0, with `google/gemma-4-12B-it` as its b
   config and both tokenizers load from the Hub. The chat template renders one BOS.
 - **Not checked:** downloading the published weights and generating from them.
 - **Upload time:** 3 h 8 min for both repos.
+- **Later card commits, same day:** linking the int8 form (`../gemma4-12b-v2-q8/RESULTS.md`) moved the revisions to `23f4fd77b0ed` and
+  `ea051eda4b79`. Their weights did not change.
