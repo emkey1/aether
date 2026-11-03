@@ -1,6 +1,7 @@
 # Plan: a batch aimed at a fine-tune's own failures (drafted 2026-11-02)
 
-The owner approved the pilot and the solver order on 2026-11-03. Everything after the pilot still needs a decision.
+The owner approved the pilot and the solver order on 2026-11-03, then scaling to about 286 pairs (`distill/f3-20261103/`, with the
+pilot's 41). The dataset and the runs still need a decision.
 
 **The question:** does training data drawn from tasks a fine-tune gets wrong move its benchmark, where the same amount of
 ordinary data did not? d5 added 286 pairs, about 15% more records, and `training_runs/qwen36-35b-a3b-v2/RESULTS.md`
