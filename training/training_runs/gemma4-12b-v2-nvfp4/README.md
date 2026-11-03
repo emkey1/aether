@@ -19,7 +19,8 @@ host-c, on the final step of `../gemma4-12b-v2/`.
 ## Running it
 
 `speed.sh` measures NVFP4 and the 16-bit merge, each with and without `--enforce-eager`, with `measure_speed.py`. `score.sh` runs
-the eight suites with the 16-bit scoring's flags. Copy the reports here as `score/tuned__<suite>.json.gz` with
+the eight suites with the 16-bit scoring's flags. `recipes.sh` then builds and scores two more careful recipes the owner asked for after the
+plain build lost accuracy: attention left at 16-bit (`mlp_only`), and smoothing before quantizing (`awq_lite`). Copy the reports here as `score/tuned__<suite>.json.gz` with
 `bench/results/pack_reports.py`.
 
 ## Speed

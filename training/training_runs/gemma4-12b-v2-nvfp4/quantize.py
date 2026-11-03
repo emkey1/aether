@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """The merged Gemma fine-tune to NVFP4 with NVIDIA's ModelOpt: text layers only, calibrated on its own training records.
 
-    python3 quantize.py --model MERGED_16BIT --data aether_instruction_sft.jsonl --out OUT [--samples 64]
+    python3 quantize.py --model MERGED_16BIT --data aether_instruction_sft.jsonl --out OUT [--samples 64] [--recipe NAME]
 
 W4A4: weights and inputs at 4 bits, which is the form hardware FP4 kernels run. The inputs need calibrating. The
 samples come only from the training data, so no benchmark task shapes the scales. The export keeps the base's non-weight
 files, as the merged export does, because the trainer's transformers rewrites config.json in a form vLLM cannot read.
+
+Recipes: default is max calibration on every text layer; mlp_only leaves attention at 16-bit; awq_lite smooths weights and
+inputs before quantizing.
 """
 
 from __future__ import annotations
@@ -26,6 +29,7 @@ from transformers import AutoModelForCausalLM, AutoTokenizer
 BASE_FILES = ("chat_template.jinja", "generation_config.json", "processor_config.json", "tokenizer.json",
               "tokenizer_config.json")
 SKIP = ("*vision*", "*audio*", "*embed_*", "*multi_modal*")
+RECIPES = {"default": "NVFP4_DEFAULT_CFG", "mlp_only": "NVFP4_MLP_ONLY_CFG", "awq_lite": "NVFP4_AWQ_LITE_CFG"}
 
 
 def calibration_texts(path: str, samples: int, tokenizer) -> list[str]:
@@ -64,9 +68,9 @@ def restore_checkpoint_names(path: pathlib.Path) -> int:
     return changed
 
 
-def exclude_vllm_prefixes(out: pathlib.Path) -> None:
+def exclude_vllm_prefixes(out: pathlib.Path, recipe: str) -> None:
     """vLLM matches exclusions against its own module prefixes, which have no `model.` and name the vision embedder."""
-    extra = ["embed_audio*", "embed_vision*", "vision_embedder*"]
+    extra = ["embed_audio*", "embed_vision*", "vision_embedder*"] + (["*self_attn*"] if recipe == "mlp_only" else [])
     hf_quant = json.loads((out / "hf_quant_config.json").read_text(encoding="utf-8"))
     hf_quant["quantization"]["exclude_modules"] = sorted(set(hf_quant["quantization"]["exclude_modules"]) | set(extra))
     (out / "hf_quant_config.json").write_text(json.dumps(hf_quant, indent=4) + "\n", encoding="utf-8")
@@ -81,12 +85,13 @@ def main() -> None:
     ap.add_argument("--data", required=True)
     ap.add_argument("--out", required=True)
     ap.add_argument("--samples", type=int, default=64)
+    ap.add_argument("--recipe", choices=sorted(RECIPES), default="default")
     ap.add_argument("--rename-only", action="store_true", help="only restore the checkpoint names in an existing export")
     args = ap.parse_args()
 
     if args.rename_only:
         print("renamed", restore_checkpoint_names(pathlib.Path(args.out) / "model.safetensors"), "tensors", flush=True)
-        exclude_vllm_prefixes(pathlib.Path(args.out))
+        exclude_vllm_prefixes(pathlib.Path(args.out), args.recipe)
         return
 
     tokenizer = AutoTokenizer.from_pretrained(args.model)
@@ -103,7 +108,7 @@ def main() -> None:
                 if index % 16 == 0:
                     print(f"calibrated {index + 1} of {len(texts)}", flush=True)
 
-    config = copy.deepcopy(mtq.config.NVFP4_DEFAULT_CFG)
+    config = copy.deepcopy(getattr(mtq.config, RECIPES[args.recipe]))
     for pattern in SKIP:
         config["quant_cfg"][pattern] = {"enable": False}
     model = mtq.quantize(model, config, forward_loop)
@@ -120,7 +125,7 @@ def main() -> None:
     (out / "config.json").write_text(json.dumps(restored, indent=2) + "\n", encoding="utf-8")
     for name in BASE_FILES:
         shutil.copy2(source / name, out / name)
-    exclude_vllm_prefixes(out)
+    exclude_vllm_prefixes(out, args.recipe)
     print("quantization_config:", json.dumps(restored["quantization_config"])[:600], flush=True)
     print("done", sorted(p.name for p in out.iterdir()), flush=True)
 

@@ -1,18 +1,19 @@
 #!/bin/bash
-# The NVFP4 build on the training host: no guide, the eight suites, the 1.0 grader and the serving flags of ../gemma4-12b-v2's 16-bit
+# An NVFP4 build on the training host: no guide, the eight suites, the 1.0 grader and the serving flags of ../gemma4-12b-v2's 16-bit
 # scoring. Only the weights change, and the GPU memory fraction, so it fits beside the host's idle services. See README.md.
 #
-#   tmux new -d -s gemmanvfp4score "bash score.sh"
+#   tmux new -d -s gemmanvfp4score "bash score.sh [RECIPE]"     # default, or a recipe recipes.sh built
 # Re-run to continue: a finished suite has a .done marker and an unfinished one resumes from its checkpoint.
 set -u
 R=$(cd "$(dirname "$0")" && pwd)
 B=${GEMMA_BENCH:-$HOME/aether-train/gemma4-12b-v2/bench}
 ROOT=${GEMMA_WEIGHTS:-/storage/aether-train/gemma4-12b-v2}
 GRADER=${GEMMA_GRADER:-$HOME/aether-1.0/aether-1.0-src/build/aether}
-OUT=$R/score
+RECIPE=${1:-default}
+if [ "$RECIPE" = default ]; then OUT=$R/score; WEIGHTS=$ROOT/nvfp4; NAME=gemma4-12b-v2-nvfp4
+else OUT=$R/score_$RECIPE; WEIGHTS=$ROOT/nvfp4_$RECIPE; NAME=gemma4-12b-v2-nvfp4-$RECIPE; fi
 LOG=$OUT/score.log
-NAME=gemma4-12b-v2-nvfp4
-SERVE=aether-serve-$NAME
+SERVE=aether-serve-gemma4-12b-v2-nvfp4
 LEAKS='["<|channel", "thought\n"]'
 SUITES="v2_pos=bench/tasks_v2_pos.json hard_v2=bench/tasks_hard_v2.json hard_nontoon=bench/tasks_hard_nontoon.json cs=bench/tasks_cs.json frontier=bench/tasks_frontier.json frontier_algo=bench/tasks_frontier_algo.json frontier_spec=bench/tasks_frontier_spec.json sealed_toon=bench/tasks_sealed_toon.json"
 mkdir -p "$OUT"
@@ -29,7 +30,7 @@ echo "$GRADER_SHA" > "$OUT/grader.sha256"
 
 docker rm -f "$SERVE" > /dev/null 2>&1
 docker run -d --name "$SERVE" --gpus all --ipc=host --shm-size=16g -v "$ROOT:$ROOT:ro" -p 8021:8000 vllm/vllm-openai:latest \
-  --model "$ROOT/nvfp4" --served-model-name "$NAME" --dtype bfloat16 --max-model-len 32768 \
+  --model "$WEIGHTS" --served-model-name "$NAME" --dtype bfloat16 --max-model-len 32768 \
   --gpu-memory-utilization "${GEMMA_GPU_FRACTION:-0.35}" --port 8000 --enforce-eager >> "$LOG" 2>&1 \
   || { log "FAIL docker run"; exit 1; }
 READY=0
@@ -41,8 +42,10 @@ done
 [ $READY = 1 ] || { log "FAIL never became ready"; docker logs --tail 80 "$SERVE" >> "$LOG" 2>&1; exit 1; }
 log "READY $(docker logs "$SERVE" 2>&1 | grep -oE 'Using [A-Za-z0-9]+ for NVFP4 GEMM' | sort -u | head -1)"
 
+[ -f "$OUT/speed.txt" ] || python3 -u "$R/measure_speed.py" --bench "$B" --model "$NAME" --url http://localhost:8021 2>&1 | tee "$OUT/speed.txt" | tee -a "$LOG"
+sed "s/gemma4-12b-v2-nvfp4/$NAME/g" "$R/destinations.nvfp4.json" > "$OUT/destinations.json"
 run_suite() {  # name tasks repairs
-  python3 -u "$B/tools/aether_doc_bench.py" --destinations-config "$R/destinations.nvfp4.json" --tasks "$2" \
+  python3 -u "$B/tools/aether_doc_bench.py" --destinations-config "$OUT/destinations.json" --tasks "$2" \
     --docs none --repeats 1 --repair-attempts "$3" --seed-base 42 \
     --aether-bin "$GRADER" --aether-bin-sha256 "$GRADER_SHA" --allow-skew --keep-loaded \
     --resume --output-json "$OUT/tuned__$1.json" --text-summary >> "$LOG" 2>&1
