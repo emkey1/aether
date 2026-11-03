@@ -1,7 +1,7 @@
 # gemma4-12b-v2-q8: results (2026-11-03)
 
 **At 8 bits and 12 GB, the Gemma 4 12B fine-tune keeps its scores, and a sign test cannot separate it from the 35B MoE
-at 20.9 GB, but it generates about 5.6 times slower.** It loses 2 first attempts on each set of suites against its own 16-bit
+at 20.9 GB, but it generates about 4 to 6 times slower.** It loses 2 first attempts on each set of suites against its own 16-bit
 form and is level after repair, 106 against 105. That answers the question `../gemma4-12b-v2/` left open: a model about 9 GB
 smaller does the same job on this benchmark. Where e3 at mxfp4 fits, e3 is still the better choice, for its speed. Gemma's
 case is a machine it does not fit. The full e3 is clearly ahead of both on held-out.
@@ -93,9 +93,10 @@ after the load.
 | e3, mxfp4 | 217.0 tok/s | 166 tokens | 22 GB |
 
 - **e3 at mxfp4 is 5.6 times faster.** The likely cause is that the dense 12B reads all its weights for each token and the MoE
-  about 3B, as `../gemma4-12b-v2/RESULTS.md` guessed. This measurement does not isolate it.
+  about 3B, as `../gemma4-12b-v2/RESULTS.md` guessed. This measurement does not isolate it. A later back-to-back pair on the same Mac
+  under outside load read 20 and 85 tok/s, 4.2 times (`../gemma4-12b-v2-4bit/README.md`), so these speeds depend on the load.
 - **The resident size grows in use.** Gemma's reading rose from 15 GB to 21 GB by the end of the scoring pass, at a 32K context.
-  e3's has not been read over a full pass.
+  e3's reached 29 GB over a full pass (`../gemma4-12b-v2-4bit/README.md`).
 - **Neither has run on a 32 GB Mac,** where macOS limits what the GPU may wire down. These numbers come from a larger Mac,
   so the ratio is the result, not the speeds.
 

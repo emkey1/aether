@@ -28,7 +28,8 @@ with no language guide in the prompt. At 8 bits it is a 12 GB model, the smalles
 in every prompt, a strong base model does well; this fine-tune puts that knowledge into the weights.
 
 **Pick this model when the larger ones do not fit.** On the same Mac, the 35B mixture-of-experts sibling at 4 bits (20.9 GB)
-scores about the same and generates 5.6 times faster, and at full size it is clearly better on the held-out suites.
+scores about the same and generates 4 to 6 times faster, and at full size it is clearly better on the held-out suites. It also
+used more memory over a scoring pass, 29 GB against this model's 21 GB at 8 bits.
 
 **This is an Aether specialist.** The fine-tuned model writes much worse Python, and probably worse code in other
 languages; see below. For anything other than Aether, use the base model.
@@ -62,6 +63,9 @@ which the model sees the compiler's diagnostic and the observed output.
   gains carry beyond the tasks the data was developed against.
 - **Eight bits cost little:** only 8 of 126 first attempts differ from bf16 (2 gained, 6 lost). The two forms also differ in serving
   stack, so this cannot split the two effects.
+- **Four bits cost much more, so do not go below 8 bits:** nvfp4 (8.0 GB) scores 58 (65) on main and 21 (26) on held-out, and mxfp4
+  (7.7 GB) 55 (59) and 22 (28). Against int8 they take 5 tasks to 19 and 6 tasks to 22 on first attempts. NVFP4 with 4-bit activations
+  on vLLM (8.25 GB) scored 53 (60) and 16 (23), at about 3 times the 16-bit speed on one GPU host.
 - **Failures:** on first attempts at bf16, 14 are compiler diagnostics, 7 wrong return codes and 8 wrong output. Wrong output
   gives a repair round no diagnostic to work from, so use the compiler and your own tests.
 - The base's columns: no guide at int8, with the guide at Ollama's `q8_0`.
@@ -72,8 +76,8 @@ First attempt (after repair), no guide. Sizes are on disk.
 
 | | size | main (73) | held-out (53) | generating, same Mac |
 |---|---:|---|---|---:|
-| **this model, int8** | **12 GB** | **65 (70)** | **28 (36)** | **38.8 tok/s** |
-| Qwen3.6-35B-A3B-Aether, mxfp4 | 20.9 GB | 64 (68) | 33 (40) | 217 tok/s |
+| **this model, int8** | **12 GB** | **65 (70)** | **28 (36)** | **20 tok/s** |
+| Qwen3.6-35B-A3B-Aether, mxfp4 | 20.9 GB | 64 (68) | 33 (40) | 85 tok/s |
 | Qwen3.6-35B-A3B-Aether, int8 | 39.1 GB | 65 (70) | 36 (44) | not measured |
 | Qwen3.6-35B-A3B-Aether, bf16 | 67 GB | 65 (70) | 39 (47) | not measured |
 
@@ -81,8 +85,10 @@ First attempt (after repair), no guide. Sizes are on disk.
   tasks to 12. The bf16 sibling is clearly ahead on held-out after repair, 14 tasks to 3.
 - The speed gap comes from the architecture: this dense model reads all its weights for each token, and the sibling about a
   quarter of them. The likely cause; not isolated.
-- **Memory:** Ollama reported 15 GB loaded and 21 GB by the end of a full scoring pass, at a 32K context, on a larger Mac. It
-  has not been run on a 32 GB machine.
+- **Speed:** the two readings were taken back to back on a busy Mac, so use the ratio, not the numbers. An earlier, separate pair
+  read 38.8 and 217 tok/s, 5.6 times.
+- **Memory:** Ollama reported 15 GB loaded and 21 GB by the end of a full scoring pass, at a 32K context, on a larger Mac. The mxfp4
+  sibling reached 29 GB. Neither has been run on a 32 GB machine.
 
 ### Choosing the checkpoint
 
