@@ -1,0 +1,13 @@
+04:54:35 'table-based dynamic programming (countin': 8 returned, 5 kept, 5 total, 144s, rejected so far {'duplicate': 3, 'board': 0, 'short': 0}
+04:56:27 'grid simulations on a small fixed 2-D gr': 8 returned, 7 kept, 12 total, 112s, rejected so far {'duplicate': 4, 'board': 0, 'short': 0}
+04:57:14 'number theory and integer arithmetic (di': 8 returned, 7 kept, 19 total, 47s, rejected so far {'duplicate': 5, 'board': 0, 'short': 0}
+04:58:17 'text processing on short fixed strings (': 9 returned, 8 kept, 27 total, 63s, rejected so far {'duplicate': 6, 'board': 0, 'short': 0}
+04:59:37 'records and aggregation over a fixed lis': 8 returned, 7 kept, 34 total, 80s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0}
+05:00:36 'stack, queue and ring-buffer simulations': 9 returned, 9 kept, 43 total, 60s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0}
+05:01:41 'parsing simple line-based text formats g': 9 returned, 9 kept, 52 total, 65s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0}
+05:03:15 'scheduling and simulation with a fixed t': 9 returned, 7 kept, 59 total, 94s, rejected so far {'duplicate': 9, 'board': 0, 'short': 0}
+05:03:55 'small combinatorics and recursion (gener': 8 returned, 5 kept, 64 total, 40s, rejected so far {'duplicate': 12, 'board': 0, 'short': 0}
+05:07:01 'matrix operations on small fixed matrice': 21 returned, 19 kept, 83 total, 186s, rejected so far {'duplicate': 14, 'board': 0, 'short': 0}
+05:07:59 'finite state machines processing a fixed': 8 returned, 6 kept, 89 total, 58s, rejected so far {'duplicate': 16, 'board': 0, 'short': 0}
+05:08:51 'searching and scanning arrays (pairs, wi': 8 returned, 6 kept, 95 total, 53s, rejected so far {'duplicate': 18, 'board': 0, 'short': 0}
+05:09:38 'sorting and selection written by hand (i': 9 returned, 8 kept, 103 total, 47s, rejected so far {'duplicate': 19, 'board': 0, 'short': 0}

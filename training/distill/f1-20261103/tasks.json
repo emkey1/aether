@@ -1,0 +1,1116 @@
+{
+ "version": "f1-20261103",
+ "description": "distillation tasks (generated)",
+ "tasks": [
+  {
+   "id": "dst_f1_20261103_0000",
+   "title": "Orchard Row Paths",
+   "prompt": "You walk through an orchard grid of 4 rows and 5 columns. Some cells are muddy (cannot be entered), others are fine. The grid is given as an array of arrays of booleans (true = fine, false = muddy):\n\nRow 1: [true,  true,  false, true,  true ]\nRow 2: [true,  true,  true,  false, true ]\nRow 3: [false, true,  true,  true,  true ]\nRow 4: [true,  false, true,  true,  true ]\n\nYou start at cell (1,1) and must reach cell (4,5), moving only right or down, never entering a muddy cell. Count the number of distinct paths. Also report the number of fine cells reachable from the start under these movement rules.\n\nPrint exactly these lines (no trailing spaces):\n\nFine cells reachable: <R>\nPaths to exit: <P>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0001",
+   "title": "Warehouse Pallet Loading",
+   "prompt": "A warehouse loads pallets onto a truck with weight limit 20 kg. Pallets (each has a weight in kg):\n\nP1: 5\nP2: 8\nP3: 6\nP4: 7\nP5: 4\nP6: 9\n\nCount the number of subsets of pallets whose total weight is at most 20. Also report the maximum achievable total weight that does not exceed 20, and how many subsets achieve that maximum.\n\nPrint exactly these lines (no trailing spaces):\n\nSubsets within limit: <S>\nBest total: <B>\nWays to reach best: <W>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0002",
+   "title": "Orchard Harvest Ladder",
+   "prompt": "You harvest fruit from an orchard tree represented as a triangular arrangement of 5 rows. Row r (1-based) has r positions. The fruit value at each position is given:\n\nRow 1: 7\nRow 2: 3, 8\nRow 3: 2, 5, 1\nRow 4: 9, 4, 6, 3\nRow 5: 1, 7, 2, 8, 4\n\nStarting at the top (Row 1), you descend to the bottom, moving each step to one of the two positions directly below (left-child or right-child in the triangle). Compute the maximum possible sum of fruit values collected along one such path, and count how many distinct paths achieve that maximum.\n\nPrint exactly these lines (no trailing spaces):\n\nBest sum: <B>\nPaths achieving best: <W>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0003",
+   "title": "Beekeeper Flower Routes",
+   "prompt": "A bee visits flowers in a 3 x 4 garden grid. Each flower has a nectar score. The bee starts at the top-left flower and moves only right or down to the bottom-right flower. Scores:\n\nRow 1: 2, 5, 3, 6\nRow 2: 4, 1, 7, 2\nRow 3: 3, 6, 2, 5\n\nFind the maximum total nectar along any such path, and count how many distinct paths achieve that maximum.\n\nPrint exactly these lines (no trailing spaces):\n\nMax nectar: <M>\nPaths to max: <W>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0004",
+   "title": "Parking Garage Fees",
+   "prompt": "A parking garage charges by the hour. The fee schedule (hour index to fee in dollars) for hours 1 through 6 is:\n\nHour 1: 2\nHour 2: 3\nHour 3: 3\nHour 4: 5\nHour 5: 5\nHour 6: 8\n\nA customer wants to park for exactly 6 hours, but may split the stay into consecutive segments, each segment paying the fee corresponding to its length in hours (a segment of length k costs fee[k]). For example, parking 2+4 hours costs fee[2]+fee[4].\n\nCompute the minimum total cost to cover exactly 6 hours, and the number of distinct segmentations (ways to split 6 into ordered positive integers) that achieve that minimum.\n\nPrint exactly these lines (no trailing spaces):\n\nMinimum cost: <C>\nWays: <W>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "table-based dynamic programming (counting ways, best totals, reachability) with small fixed inputs",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0005",
+   "title": "Train Platform Signal Check",
+   "prompt": "A small train station has two platforms. A 6x6 grid represents the station layout. The grid is given as six lines of six characters each. Characters are '.' for empty track, 'T' for a train currently on a track cell, 'S' for a signal post, and 'X' for a blocked track. The grid is:\n\n....S.\n..T...\n......\n.S...T\n...X..\nT.....\n\nWrite a program that performs the following checks and prints results in the exact format shown below.\n\n1. Count how many trains ('T') are on the grid. Call this trainCount.\n2. Count how many cells are blocked ('X'). Call this blockedCount.\n3. For each train, find the Manhattan distance to the nearest signal post ('S'). Compute the average of these nearest-signal distances across all trains, rounded to 2 decimal places. Call this avgDist.\n4. Count how many trains are in the same row as at least one blocked cell. Call this rowBlockedCount.\n\nPrint exactly four lines in this format (no trailing spaces):\n\nTrains: <trainCount>\nBlocked: <blockedCount>\nAvgSignalDist: <avgDist to 2 decimal places>\nTrainsInBlockedRow: <rowBlockedCount>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0006",
+   "title": "Vending Machine Stock Grid",
+   "prompt": "A vending machine has a 5x4 grid of slots. Each slot holds a stock count (integer). The stock levels are given as five rows of four integers:\n\n3 0 5 2\n1 4 0 6\n7 2 3 1\n0 5 4 8\n2 6 1 0\n\nEach slot also has a price in a parallel 5x4 grid (in cents):\n\n125 150 100 175\n150 200 125 175\n100 125 150 200\n175 100 200 125\n125 175 150 100\n\nWrite a program that computes the following and prints them in the exact format below.\n\n1. totalValue: sum over all slots of (stock * price) in cents. Call this totalValue.\n2. emptySlots: count of slots with stock 0. Call this emptySlots.\n3. maxRowValue: for each row, compute the sum of (stock * price) for that row; find the largest of these five row values. Call this maxRowValue.\n4. avgPrice: the average price across all 20 slots, rounded to 2 decimal places (in cents). Call this avgPrice.\n\nPrint exactly four lines (no trailing spaces):\n\nTotalValue: <totalValue>\nEmptySlots: <emptySlots>\nMaxRowValue: <maxRowValue>\nAvgPrice: <avgPrice to 2 decimal places>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0007",
+   "title": "Garden Bed Watering Paths",
+   "prompt": "A garden has a 6x6 grid of planting beds. Each bed is either 'D' (dry) or 'W' (watered). A watering can starts at bed (0,0) — row 0, column 0 — and moves one bed at a time, either right or down, until it reaches bed (5,5). The grid is:\n\nDWDDWD\nWDDWWD\nDDWDDW\nWWDWDD\nDDWDDW\nWDDWWD\n\nWrite a program that considers all paths from (0,0) to (5,5) moving only right or down (12 steps total, 6 right and 6 down in some order). For each such path, count how many watered ('W') beds are visited (including start and end). Compute the following:\n\n1. bestWet: the maximum number of watered beds visited along any valid path.\n2. bestDry: the maximum number of dry ('D') beds visited along any valid path (this may be along a different path than bestWet).\n3. pathCount: the total number of distinct valid paths from (0,0) to (5,5).\n4. pathsBestWet: the number of distinct valid paths that achieve exactly bestWet watered beds.\n\nPrint exactly four lines (no trailing spaces):\n\nBestWet: <bestWet>\nBestDry: <bestDry>\nPathCount: <pathCount>\nPathsBestWet: <pathsBestWet>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0008",
+   "title": "Robot Vacuum Room Coverage",
+   "prompt": "A robot vacuum cleans a rectangular room represented by a 6x6 grid. Each cell is either floor '.' or an obstacle '#'. The room is:\n\n..#...\n....#.\n.#....\n...#..\n.#...#\n....#.\n\nThe robot starts at cell (0,0). It follows a fixed pattern: it moves right across the current row until it hits the right wall or an obstacle, then moves down one row, then moves left across that row, and so on (a boustrophedon sweep). When a move would hit a wall or obstacle, the robot turns: at the right wall it moves down (if possible) and reverses horizontal direction; at the left wall it moves down and reverses direction; if it cannot move down either, it stops. A cell is considered cleaned the first time the robot visits it.\n\nWrite a program that simulates this sweep and prints:\n\n1. cleanedCount: the number of floor cells the robot visits before stopping.\n2. totalFloor: the total number of floor cells ('.') in the room.\n3. coverage: cleanedCount as a percentage of totalFloor, rounded to 2 decimal places.\n4. lastRow: the row index (0-based) of the last cell the robot visits before stopping.\n\nPrint exactly four lines (no trailing spaces):\n\nCleanedCount: <cleanedCount>\nTotalFloor: <totalFloor>\nCoverage: <coverage to 2 decimal places>\nLastRow: <lastRow>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0009",
+   "title": "Laundry Drying Rack Slots",
+   "prompt": "A drying rack has a 6x6 grid of hanging slots. Each slot has a drying time in minutes (integer). Some slots are unavailable (marked with time -1). The grid of drying times is:\n\n12 8 -1 15 10 7\n9 11 14 -1 6 13\n-1 10 8 12 9 -1\n15 7 11 10 13 8\n6 -1 9 14 7 12\n11 13 -1 8 15 10\n\nA garment needs to be placed in a single available slot. A second garment needs to be placed in a different slot such that the two slots are in the same row or the same column.\n\nWrite a program that computes:\n\n1. availableCount: the number of available slots (time != -1).\n2. fastestTime: the smallest drying time among available slots.\n3. pairMinSum: the minimum possible sum of drying times of two available slots that share a row or a column (they must be different slots).\n4. avgTime: the average drying time across available slots, rounded to 2 decimal places.\n\nPrint exactly four lines (no trailing spaces):\n\nAvailableCount: <availableCount>\nFastestTime: <fastestTime>\nPairMinSum: <pairMinSum>\nAvgTime: <avgTime to 2 decimal places>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0010",
+   "title": "Aquarium Fish Territory Grid",
+   "prompt": "An aquarium floor is a 6x6 grid. Each cell is either sand 'S', gravel 'G', or plant 'P'. Two fish species, X and Y, each claim a rectangular territory on the grid. Species X claims rows 0-2, columns 0-3. Species Y claims rows 2-5, columns 1-4. The grid is:\n\nSPGSGP\nGSPSGS\nSPGSGP\nGSPSGS\nSPGSGP\nGSPSGS\n\nWrite a program that computes:\n\n1. cellsX: the number of cells in X's claimed territory that contain sand 'S'.\n2. cellsY: the number of cells in Y's claimed territory that contain gravel 'G'.\n3. overlap: the number of cells claimed by both X and Y (rectangle intersection area).\n4. overlapS: the number of cells in the overlap region that contain sand 'S'.\n5. uniqueX: cellsX minus the number of sand cells in the overlap region (sand cells X claims that Y does not also claim).\n\nPrint exactly five lines (no trailing spaces):\n\nCellsX: <cellsX>\nCellsY: <cellsY>\nOverlap: <overlap>\nOverlapS: <overlapS>\nUniqueX: <uniqueX>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0011",
+   "title": "Mini Golf Hole Score Grid",
+   "prompt": "A mini golf course has a 6x6 grid of holes. Each hole has a par value (integer). The grid of pars is:\n\n2 3 2 4 3 2\n3 4 3 2 4 3\n2 3 4 3 2 4\n4 2 3 4 3 2\n3 4 2 3 4 3\n2 3 4 2 3 4\n\nA player's score for each hole is given in a parallel 6x6 grid (number of strokes):\n\n2 4 1 5 3 2\n5 3 4 2 6 3\n1 3 5 4 2 5\n6 2 3 5 4 1\n4 5 2 3 5 4\n3 2 6 1 3 5\n\nWrite a program that computes:\n\n1. totalStrokes: sum of all strokes across 36 holes.\n2. totalPar: sum of all pars across 36 holes.\n3. underPar: the number of holes where strokes < par.\n4. bestDiff: the largest (par - strokes) value on any single hole (positive means under par by that many).\n5. worstDiff: the largest (strokes - par) value on any single hole.\n\nPrint exactly five lines (no trailing spaces):\n\nTotalStrokes: <totalStrokes>\nTotalPar: <totalPar>\nUnderPar: <underPar>\nBestDiff: <bestDiff>\nWorstDiff: <worstDiff>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0012",
+   "title": "Library Dewey Shelf Sort",
+   "prompt": "A small library keeps its books on shelves sorted by their Dewey Decimal number. Each book's call number is an integer between 100 and 999. A shelf is considered 'balanced' if the sum of the digits of every call number on that shelf is the same.\n\nGiven the following 10 call numbers on one shelf:\n116, 206, 260, 305, 350, 404, 440, 503, 530, 602\n\nDetermine which shelf groupings are balanced. Group 1 contains the first 5 numbers (indices 0-4), Group 2 contains the last 5 numbers (indices 5-9), and Group 3 contains all 10 numbers.\n\nFor each group, print whether it is balanced.\n\nOutput format:\nGroup 1: [Balanced/Unbalanced]\nGroup 2: [Balanced/Unbalanced]\nGroup 3: [Balanced/Unbalanced]",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0013",
+   "title": "Museum Artifact Cataloging",
+   "prompt": "A museum cataloger assigns inventory IDs to artifacts. An ID is considered 'lucky' if the sum of its digits equals the product of its non-zero digits. If any digit is zero, the product is 0.\n\nGiven these 8 artifact IDs:\n123, 24, 111, 36, 22, 132, 48, 1111\n\nCheck each ID and count how many are lucky. Then, for each lucky ID found (in the order they appear in the list), print its digit sum.\n\nOutput format:\nLucky Count: [integer]\nSum 1: [integer]\nSum 2: [integer]\n... (one line per lucky ID)\n\nIf there are no lucky IDs, print 'Lucky Count: 0' and nothing else.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0014",
+   "title": "Weather Station Base Conversion",
+   "prompt": "A weather station logs daily high temperatures in Celsius. To save space, the logs are stored as base-3 numbers.\n\nGiven these 6 base-3 temperature readings:\n102, 211, 110, 20, 122, 200\n\nConvert each reading to its decimal (base-10) value. Then, determine if the decimal value is divisible by 4.\n\nOutput format:\nReading 1: [decimal_value] [Divisible/Not Divisible]\nReading 2: [decimal_value] [Divisible/Not Divisible]\nReading 3: [decimal_value] [Divisible/Not Divisible]\nReading 4: [decimal_value] [Divisible/Not Divisible]\nReading 5: [decimal_value] [Divisible/Not Divisible]\nReading 6: [decimal_value] [Divisible/Not Divisible]\n\nExample of format (not actual answers): Reading 1: 15 Divisible",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0015",
+   "title": "Ferry Route Fare Modulo",
+   "prompt": "A ferry service calculates fares. The final fare charged to a passenger is the base fare modulo 50, plus a 10 unit surcharge.\n\nGiven these 7 base fares:\n120, 245, 99, 300, 67, 512, 88\n\nCalculate the final fare for each passenger.\n\nOutput format:\nFare 1: [final_fare]\nFare 2: [final_fare]\nFare 3: [final_fare]\nFare 4: [final_fare]\nFare 5: [final_fare]\nFare 6: [final_fare]\nFare 7: [final_fare]",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0016",
+   "title": "Bakery Batch Number Palindromes",
+   "prompt": "A bakery stamps batch numbers on its bread loaves. A batch number is 'perfect' if it is a palindrome (reads the same forwards and backwards) AND the sum of its digits is a prime number.\n\nGiven these 9 batch numbers:\n121, 343, 565, 787, 909, 111, 232, 454, 676\n\nCheck each batch number. Print 'Perfect' or 'Not Perfect' for each.\n\nOutput format:\nBatch 1: [Perfect/Not Perfect]\nBatch 2: [Perfect/Not Perfect]\nBatch 3: [Perfect/Not Perfect]\nBatch 4: [Perfect/Not Perfect]\nBatch 5: [Perfect/Not Perfect]\nBatch 6: [Perfect/Not Perfect]\nBatch 7: [Perfect/Not Perfect]\nBatch 8: [Perfect/Not Perfect]\nBatch 9: [Perfect/Not Perfect]",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0017",
+   "title": "Hotel Room Key Digits",
+   "prompt": "A hotel assigns room keys with 3-digit codes. The 'room value' of a key is defined as (hundreds digit * tens digit) + units digit.\n\nGiven these 6 room key codes:\n345, 120, 777, 250, 668, 919\n\nCalculate the room value for each key. Then, count how many keys have a room value greater than 25.\n\nOutput format:\nKey 1 Value: [room_value]\nKey 2 Value: [room_value]\nKey 3 Value: [room_value]\nKey 4 Value: [room_value]\nKey 5 Value: [room_value]\nKey 6 Value: [room_value]\nHigh Value Count: [count]",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0018",
+   "title": "Garden Plot Divisor Check",
+   "prompt": "A community garden assigns plot numbers to members. A plot number is 'fertile' if it has exactly 4 divisors (including 1 and itself).\n\nGiven these 8 plot numbers:\n6, 8, 14, 15, 21, 22, 26, 27\n\nCheck each plot number for fertility.\n\nOutput format:\nPlot 1: [Fertile/Sterile]\nPlot 2: [Fertile/Sterile]\nPlot 3: [Fertile/Sterile]\nPlot 4: [Fertile/Sterile]\nPlot 5: [Fertile/Sterile]\nPlot 6: [Fertile/Sterile]\nPlot 7: [Fertile/Sterile]\nPlot 8: [Fertile/Sterile]",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "number theory and integer arithmetic (divisors, digits, bases, modular patterns)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0019",
+   "title": "Ferry Ticket Validation",
+   "prompt": "A ferry service issues tickets with a code of the form: three uppercase letters, a hyphen, and four digits (e.g., 'ABC-1234'). You are given a list of 8 ticket codes as text values in an array:\n\n[\"ABC-1234\", \"XYZ-5678\", \"ab-1234\", \"MNO-9012\", \"PQR-34\", \"STU-7777\", \"VWX-0001\", \"YZ-9999\"]\n\nWrite a program that prints a report. A code is VALID if it is exactly 8 characters long, the first three characters are uppercase letters (A-Z), the fourth character is a hyphen '-', and the last four characters are digits (0-9). Otherwise it is INVALID.\n\nPrint exactly one line per ticket code in the order given, with no extra spaces:\n\nCODE: <the original code> => <VALID or INVALID>\n\nAfter all 8 lines, print one final summary line:\n\nTOTAL VALID: <count>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0020",
+   "title": "Train Platform Announcement",
+   "prompt": "A train network formats platform announcements. Given a train name (a short Text like 'Express' or 'Local') and a platform number (an Int), the announcement must be built as follows:\n- The train name is converted to UPPERCASE.\n- If the platform number is less than 10, pad it with a single leading zero so it is 2 digits.\n- Otherwise print the number as-is.\n\nYou are given 6 trains as a 2-D array of Text and Int pairs:\n\n[\n  [\"Express\", 7],\n  [\"Local\", 14],\n  [\"Shuttle\", 3],\n  [\"Rapid\", 25],\n  [\"Metro\", 9],\n  [\"Coastal\", 100]\n]\n\nPrint exactly one line per train, in order:\n\n<UPPERCASE_NAME> on platform <PADDED_NUMBER>\n\nNo trailing spaces. Print exactly 6 lines.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0021",
+   "title": "Playlist Genre Tag Check",
+   "prompt": "A music playlist stores each song as a record with fields 'title' (Text) and 'tag' (Text). A valid tag must be exactly 4 uppercase letters, OR exactly 6 lowercase letters. Anything else is invalid.\n\nGiven these 7 songs:\n\n1. title: \"Blue Sky\", tag: \"ROCK\"\n2. title: \"Night Drive\", tag: \"pop\"\n3. title: \"Sunny Day\", tag: \"JAZZ\"\n4. title: \"Rain Fall\", tag: \"House\"\n5. title: \"City Lights\", tag: \"ELEC\"\n6. title: \"Ocean Waves\", tag: \"indie\"\n7. title: \"Star Fire\", tag: \"TRANCE\"\n\nPrint one line per song in the order listed:\n\n<index>: <title> [tag=<tag>] <OK or BAD>\n\nwhere <index> starts at 1, and OK means the tag is valid, BAD means invalid.\n\nAfter all 7 lines, print one final line:\n\nBAD TAGS: <count of invalid tags>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0022",
+   "title": "Vending Machine Code Prefix",
+   "prompt": "A vending machine accepts item codes that must start with a specific prefix. The accepted prefixes are \"SNK\", \"DRK\", and \"MEA\".\n\nGiven 10 item codes as Text values:\n\n[\"SNK-101\", \"DRK-202\", \"TOY-303\", \"MEA-404\", \"snk-505\", \"DRK-606\", \"MEA-707\", \"XYZ-808\", \"SNK-909\", \"DRK-010\"]\n\nAn item code is ACCEPTED if its first three characters exactly match one of the accepted prefixes (case-sensitive, uppercase). Otherwise it is REJECTED.\n\nPrint one line per code in order:\n\n<code> : <ACCEPTED or REJECTED>\n\nAfter all 10 lines, print one final line:\n\nACCEPTED COUNT: <n>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0023",
+   "title": "Boarding Pass Initials",
+   "prompt": "A boarding pass stores a passenger's full name as \"Last, First\" (e.g., \"Smith, John\"). You must extract initials: the first character of the last name and the first character of the first name, both uppercased, joined by a period.\n\nGiven 6 names as Text values:\n\n[\"Smith, John\", \"Doe, Jane\", \"o'brien, patrick\", \"Lee, Kim\", \"Garcia, Maria\", \"Chen, Wei\"]\n\nRules:\n- Split at the comma. Trim any leading/trailing spaces on each part.\n- Take the first character of each part, convert to uppercase.\n- Output format: <Initial1>.<Initial2>\n- If the name does not contain a comma, output \"N/A\".\n\nPrint one line per name in order:\n\n<original name> => <initials or N/A>\n\nAfter all 6 lines, print one final line:\n\nINITIALS GENERATED: <count of names that had a comma>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0024",
+   "title": "Coffee Order Size Class",
+   "prompt": "A coffee shop classifies drinks by the number of characters in the size word: \"S\" (small, 1 char), \"M\" (medium, 1 char), \"L\" (large, 1 char), or \"XL\" (2 chars). Given 12 size codes as Text values:\n\n[\"S\", \"M\", \"L\", \"XL\", \"S\", \"XS\", \"M\", \"XXL\", \"L\", \"XL\", \"S\", \"M\"]\n\nPrint one line per size code in order:\n\n<size> => <class>\n\nwhere <class> is:\n- \"TINY\" if the size code is exactly \"S\"\n- \"MEDIUM\" if the size code is exactly \"M\"\n- \"BIG\" if the size code is exactly \"L\"\n- \"HUGE\" if the size code is exactly \"XL\"\n- \"UNKNOWN\" otherwise\n\nAfter all 12 lines, print one final line:\n\nUNKNOWN: <count of UNKNOWN codes>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0025",
+   "title": "Hotel Key Card Expiry",
+   "prompt": "A hotel key card stores an expiry as a 4-digit Text like \"1225\" meaning December 2025. You must validate and format it.\n\nGiven 7 expiry codes as Text values:\n\n[\"1225\", \"0126\", \"1325\", \"0024\", \"1125\", \"092\", \"123\"]\n\nA code is VALID if it is exactly 4 characters, all digits, the first two characters form a number between 01 and 12, and the last two characters form a year between 20 and 99.\n\nFor VALID codes, format as MM/YYYY (e.g., \"1225\" => \"12/2025\"). For INVALID codes, output \"BAD\".\n\nPrint one line per code in order:\n\n<code> => <formatted or BAD>\n\nAfter all 7 lines, print one final line:\n\nEXPIRED OR BAD: <count of invalid codes>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0026",
+   "title": "Locker Room Badge Check",
+   "prompt": "A gym issues badges with a code: two uppercase letters, a dash, then two digits (e.g., \"AB-12\"). You must check if the badge belongs to a member class.\n\nMember classes are determined by the two digits:\n- 01-39: \"BASIC\"\n- 40-79: \"PLUS\"\n- 80-99: \"ELITE\"\n\nGiven 9 badge codes as Text values:\n\n[\"AB-12\", \"CD-45\", \"EF-89\", \"GH-00\", \"IJ-39\", \"KL-40\", \"MN-79\", \"OP-99\", \"QR-50\"]\n\nA code is VALID if it is exactly 5 characters, first two are uppercase letters, third is a dash, last two are digits. Otherwise it is INVALID.\n\nPrint one line per code in order:\n\n<code> => <class or INVALID>\n\nwhere <class> is BASIC, PLUS, or ELITE as defined above.\n\nAfter all 9 lines, print one final line:\n\nELITE MEMBERS: <count of ELITE badges>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0027",
+   "title": "Robot Inventory Report",
+   "prompt": "A delivery robot carries a list of items it picked up this morning. Each item is a record with fields `name` (Text), `weight` (Real, in kg), and `fragile` (Bool).\n\nThe items are:\n- `name: \"Book\", weight: 1.25, fragile: false`\n- `name: \"Vase\", weight: 2.75, fragile: true`\n- `name: \"Apple\", weight: 0.30, fragile: false`\n- `name: \"Monitor\", weight: 6.40, fragile: true`\n- `name: \"Lamp\", weight: 3.10, fragile: true`\n- `name: \"Shoe\", weight: 0.85, fragile: false`\n\nWrite a program that prints a manifest.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nMANIFEST\nTotal weight: X.XX kg\nFragile count: N\nHeaviest item: NAME\nFragile items: NAME1, NAME2, ...\n```\n\n- `Total weight` is the sum of all weights, printed with exactly 2 decimal places.\n- `Fragile count` is the number of items where `fragile` is true.\n- `Heaviest item` is the name of the item with the greatest weight (there is a unique maximum).\n- `Fragile items` lists the names of all fragile items in the order they appear in the list, separated by `, ` (comma and space). If there are no fragile items, print `Fragile items: none`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0028",
+   "title": "Community Garden Yield",
+   "prompt": "A community garden tracks six plots. Each plot is a record with fields `plotId` (Int), `crop` (Text), `harvestKg` (Real), and `organic` (Bool).\n\nThe plots are:\n- `plotId: 1, crop: \"Tomato\", harvestKg: 12.4, organic: true`\n- `plotId: 2, crop: \"Kale\", harvestKg: 8.1, organic: false`\n- `plotId: 3, crop: \"Tomato\", harvestKg: 9.7, organic: true`\n- `plotId: 4, crop: \"Carrot\", harvestKg: 6.3, organic: false`\n- `plotId: 5, crop: \"Kale\", harvestKg: 11.2, organic: true`\n- `plotId: 6, crop: \"Carrot\", harvestKg: 4.9, organic: true`\n\nWrite a program that prints a yield summary.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nPLOT YIELD REPORT\nTotal harvest: X.X kg\nOrganic harvest: X.X kg\nTop crop: CROP (X.X kg)\nCrop count: N\n```\n\n- `Total harvest` is the sum of all `harvestKg`, printed with exactly 1 decimal place.\n- `Organic harvest` is the sum of `harvestKg` for plots where `organic` is true, printed with exactly 1 decimal place.\n- `Top crop` is the crop with the greatest total `harvestKg` across all its plots (there is a unique maximum), followed by that total in parentheses with exactly 1 decimal place.\n- `Crop count` is the number of distinct crop names.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0029",
+   "title": "Playlist Play Count Ranking",
+   "prompt": "A music playlist contains six songs. Each song is a record with fields `title` (Text), `genre` (Text), and `plays` (Int).\n\nThe songs are:\n- `title: \"Blue Sky\", genre: \"Pop\", plays: 420`\n- `title: \"Night Drive\", genre: \"Rock\", plays: 780`\n- `title: \"Sunrise\", genre: \"Pop\", plays: 610`\n- `title: \"Echoes\", genre: \"Jazz\", plays: 350`\n- `title: \"Wildfire\", genre: \"Rock\", plays: 540`\n- `title: \"Calm Sea\", genre: \"Jazz\", plays: 720`\n\nWrite a program that prints a playlist report.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nPLAYLIST REPORT\nTotal plays: N\nTop song: TITLE (N plays)\nGenre plays: POP_N ROCK_N JAZZ_N\nSongs over 500 plays: N\n```\n\n- `Total plays` is the sum of all `plays`.\n- `Top song` is the song with the greatest `plays` (there is a unique maximum), followed by `plays` in parentheses and the word `plays`.\n- `Genre plays` prints the total `plays` for each genre in the fixed order Pop, Rock, Jazz, each prefixed by the genre in uppercase followed by `_` and the total. Separate the three parts with a single space.\n- `Songs over 500 plays` is the count of songs where `plays > 500`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0030",
+   "title": "Beekeeper Hive Honey Totals",
+   "prompt": "A beekeeper manages five hives. Each hive is a record with fields `hiveId` (Text), `honeyKg` (Real), and `queenAge` (Int, in years).\n\nThe hives are:\n- `hiveId: \"H1\", honeyKg: 34.6, queenAge: 2`\n- `hiveId: \"H2\", honeyKg: 41.2, queenAge: 1`\n- `hiveId: \"H3\", honeyKg: 28.9, queenAge: 3`\n- `hiveId: \"H4\", honeyKg: 37.5, queenAge: 2`\n- `hiveId: \"H5\", honeyKg: 45.1, queenAge: 1`\n\nWrite a program that prints a hive report.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nHIVE REPORT\nTotal honey: X.X kg\nBest hive: ID (X.X kg)\nAvg honey per hive: X.XX\nQueens age 1: N\nHives under 40 kg: ID1, ID2, ...\n```\n\n- `Total honey` is the sum of all `honeyKg`, printed with exactly 1 decimal place.\n- `Best hive` is the hive with the greatest `honeyKg` (there is a unique maximum), followed by that value in parentheses with exactly 1 decimal place.\n- `Avg honey per hive` is `Total honey / 5`, printed with exactly 2 decimal places.\n- `Queens age 1` is the count of hives where `queenAge = 1`.\n- `Hives under 40 kg` lists the `hiveId` values of hives where `honeyKg < 40`, in the order they appear, separated by `, `. If none, print `Hives under 40 kg: none`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0031",
+   "title": "Library Loan Statistics",
+   "prompt": "A small library tracks six books on loan. Each book is a record with fields `title` (Text), `author` (Text), `pages` (Int), and `overdue` (Bool).\n\nThe books are:\n- `title: \"Dune\", author: \"Herbert\", pages: 412, overdue: false`\n- `title: \"Emma\", author: \"Austen\", pages: 374, overdue: true`\n- `title: \"Neuromancer\", author: \"Gibson\", pages: 271, overdue: false`\n- `title: \"Beloved\", author: \"Morrison\", pages: 324, overdue: true`\n- `title: \"Hamlet\", author: \"Shakespeare\", pages: 198, overdue: false`\n- `title: \"Ulysses\", author: \"Joyce\", pages: 730, overdue: false`\n\nWrite a program that prints a loan report.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nLOAN REPORT\nBooks checked out: N\nTotal pages: N\nOverdue books: N\nLongest book: TITLE (N pages)\nOverdue authors: AUTHOR1, AUTHOR2, ...\n```\n\n- `Books checked out` is the total number of books (always 6 here, but compute it).\n- `Total pages` is the sum of all `pages`.\n- `Overdue books` is the count where `overdue` is true.\n- `Longest book` is the book with the greatest `pages` (there is a unique maximum), followed by that value in parentheses and the word `pages`.\n- `Overdue authors` lists the `author` of each overdue book in the order they appear, separated by `, `. If none, print `Overdue authors: none`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0032",
+   "title": "Cafe Loyalty Points Ranking",
+   "prompt": "A cafe tracks loyalty points for five regular customers. Each customer is a record with fields `name` (Text), `points` (Int), and `tier` (Text, one of `Bronze`, `Silver`, `Gold`).\n\nThe customers are:\n- `name: \"Ana\", points: 340, tier: \"Silver\"`\n- `name: \"Ben\", points: 780, tier: \"Gold\"`\n- `name: \"Cleo\", points: 210, tier: \"Bronze\"`\n- `name: \"Dev\", points: 560, tier: \"Silver\"`\n- `name: \"Eve\", points: 890, tier: \"Gold\"`\n\nWrite a program that prints a loyalty report.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nLOYALTY REPORT\nTotal points: N\nTop customer: NAME (N points)\nGold points: N\nSilver count: N\nBronze members: NAME1, NAME2, ...\n```\n\n- `Total points` is the sum of all `points`.\n- `Top customer` is the customer with the greatest `points` (there is a unique maximum), followed by that value in parentheses and the word `points`.\n- `Gold points` is the sum of `points` for customers whose tier is `Gold`.\n- `Silver count` is the number of customers whose tier is `Silver`.\n- `Bronze members` lists the `name` of each Bronze customer in the order they appear, separated by `, `. If none, print `Bronze members: none`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0033",
+   "title": "Classroom Quiz Score Summary",
+   "prompt": "A teacher records quiz scores for six students. Each student is a record with fields `student` (Text), `section` (Text, one of `A` or `B`), and `score` (Int).\n\nThe students are:\n- `student: \"Riley\", section: \"A\", score: 88`\n- `student: \"Sam\", section: \"B\", score: 74`\n- `student: \"Tara\", section: \"A\", score: 95`\n- `student: \"Umar\", section: \"B\", score: 82`\n- `student: \"Vera\", section: \"A\", score: 67`\n- `student: \"Will\", section: \"B\", score: 91`\n\nWrite a program that prints a quiz summary.\n\n**Output format** (exactly these lines, no trailing spaces):\n```\nQUIZ SUMMARY\nClass average: X.X\nTop scorer: NAME (N)\nSection A average: X.X\nSection B average: X.X\nPassing (>=70): N of 6\n```\n\n- `Class average` is the mean of all six scores, printed with exactly 1 decimal place.\n- `Top scorer` is the student with the greatest `score` (there is a unique maximum), followed by that value in parentheses.\n- `Section A average` is the mean of scores in section A, printed with exactly 1 decimal place.\n- `Section B average` is the mean of scores in section B, printed with exactly 1 decimal place.\n- `Passing (>=70)` prints the count of students with `score >= 70`, then ` of 6`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "records and aggregation over a fixed list of items (totals, ranking, grouping by a key, filtering)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0034",
+   "title": "Laundry Machine Cycle Queue",
+   "prompt": "A shared laundry room has three washing machines: Machine A, Machine B, and Machine C. A fixed list of operations determines which machine is free, which is busy, and which is being loaded. Each machine can be in one of two states: \"free\" or \"busy\".\n\nInitially, Machine A is free, Machine B is free, and Machine C is free.\n\nThe list of operations, processed in order, is:\n1. load A\n2. load B\n3. unload A\n4. load A\n5. unload C\n6. load C\n7. load B\n8. unload A\n9. unload B\n10. unload C\n\nRules:\n- \"load X\" sets machine X to \"busy\".\n- \"unload X\" sets machine X to \"free\".\n- After processing all operations, print the final state of each machine.\n\nOutput format (exactly 3 lines, no trailing spaces):\nMachine A: <state>\nMachine B: <state>\nMachine C: <state>\n\nwhere <state> is either free or busy.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0035",
+   "title": "Library Book Cart Queue",
+   "prompt": "A librarian pushes a cart holding up to 3 books at a time. The cart is a queue: books are added at the back and removed from the front. The cart starts empty.\n\nThe list of operations, processed in order, is:\n1. add \"Alice\"\n2. add \"Bob\"\n3. add \"Carol\"\n4. remove\n5. add \"Dave\"\n6. remove\n7. add \"Eve\"\n8. remove\n9. remove\n10. add \"Frank\"\n\nRules:\n- \"add <name>\" appends the name to the back of the queue.\n- \"remove\" removes the name at the front of the queue. If the queue is empty, do nothing.\n- After processing all operations, print the names remaining in the cart, front first, one per line.\n- If the cart is empty, print exactly: Cart is empty\n\nOutput format: one line per remaining name, or the single line Cart is empty.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0036",
+   "title": "Vending Machine Change Ring",
+   "prompt": "A vending machine has a circular ring buffer of 4 slots that stores the most recent coin denominations inserted. The ring buffer has a fixed capacity of 4. When a new coin is inserted and the buffer is full, the oldest coin is overwritten.\n\nThe ring buffer starts empty (all 4 slots are unused).\n\nThe list of operations, processed in order, is:\n1. insert 5\n2. insert 10\n3. insert 25\n4. insert 5\n5. insert 10\n6. insert 25\n7. insert 1\n8. insert 5\n\nRules:\n- Each \"insert <value>\" places the value into the next slot of the ring buffer.\n- If all 4 slots are occupied, the oldest value is overwritten by the new value.\n- After processing all operations, print the 4 slots of the ring buffer in order, oldest to newest, one per line.\n- If fewer than 4 values have been inserted total, print only the occupied slots.\n\nOutput format: one integer per line, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0037",
+   "title": "Robot Warehouse Command Stack",
+   "prompt": "A warehouse robot maintains a stack of pending commands. Commands are pushed onto the stack and popped off the top. The stack starts empty.\n\nThe list of operations, processed in order, is:\n1. push \"move_forward\"\n2. push \"turn_left\"\n3. push \"grab_box\"\n4. pop\n5. push \"place_box\"\n6. pop\n7. push \"turn_right\"\n8. pop\n9. pop\n10. push \"report\"\n\nRules:\n- \"push <cmd>\" adds the command to the top of the stack.\n- \"pop\" removes the command at the top of the stack. If the stack is empty, do nothing.\n- After processing all operations, print the commands remaining in the stack, top first, one per line.\n- If the stack is empty, print exactly: No pending commands\n\nOutput format: one line per remaining command, or the single line No pending commands.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0038",
+   "title": "Orchard Harvest Crate Queue",
+   "prompt": "An orchard worker fills crates of fruit. The crates form a queue: the first crate filled is the first crate shipped. The queue can hold at most 3 crates at a time. When a 4th crate is added while 3 are already queued, the oldest crate is shipped (removed) to make room.\n\nThe queue starts empty.\n\nThe list of operations, processed in order, is:\n1. fill \"apple\"\n2. fill \"pear\"\n3. fill \"plum\"\n4. fill \"cherry\"\n5. fill \"peach\"\n6. ship\n7. fill \"fig\"\n8. ship\n9. ship\n10. fill \"kiwi\"\n\nRules:\n- \"fill <fruit>\" adds the crate to the back of the queue. If the queue already holds 3 crates, the front crate is removed first.\n- \"ship\" removes the crate at the front of the queue. If the queue is empty, do nothing.\n- After processing all operations, print the fruits remaining in the queue, front first, one per line.\n- If the queue is empty, print exactly: All crates shipped\n\nOutput format: one line per remaining crate, or the single line All crates shipped.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0039",
+   "title": "Music Playlist Shuffle Stack",
+   "prompt": "A music player maintains a shuffle stack of song titles. Songs are pushed onto the stack and popped from the top. The stack starts empty.\n\nThe list of operations, processed in order, is:\n1. push \"Sunrise\"\n2. push \"Moonlight\"\n3. push \"Rainy Day\"\n4. push \"Ocean Breeze\"\n5. pop\n6. push \"Desert Wind\"\n7. pop\n8. pop\n9. push \"City Lights\"\n10. push \"Forest Trail\"\n11. pop\n\nRules:\n- \"push <title>\" adds the song to the top of the stack.\n- \"pop\" removes the song at the top of the stack. If the stack is empty, do nothing.\n- After processing all operations, print the songs remaining in the stack, top first, one per line.\n- If the stack is empty, print exactly: Playlist empty\n\nOutput format: one line per remaining song, or the single line Playlist empty.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0040",
+   "title": "Coffee Shop Order Ring Buffer",
+   "prompt": "A coffee shop displays the last 3 orders on a small screen. The screen is a ring buffer of capacity 3: when a new order arrives and the buffer is full, the oldest order is replaced.\n\nThe ring buffer starts empty.\n\nThe list of operations, processed in order, is:\n1. order \"latte\"\n2. order \"cappuccino\"\n3. order \"espresso\"\n4. order \"mocha\"\n5. order \"americano\"\n6. order \"flat white\"\n7. order \"cortado\"\n\nRules:\n- Each \"order <name>\" places the order into the next slot of the ring buffer.\n- If all 3 slots are occupied, the oldest order is overwritten.\n- After processing all operations, print the 3 slots of the ring buffer in order, oldest to newest, one per line.\n- If fewer than 3 orders have been placed total, print only the occupied slots.\n\nOutput format: one order name per line, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0041",
+   "title": "Classroom Pencil Cup Queue",
+   "prompt": "A teacher keeps a cup of pencils for students to borrow. Pencils are taken from the front of the line and returned to the back. The line holds at most 4 pencils. The line starts with 4 pencils labeled P1, P2, P3, P4 (P1 at the front).\n\nThe list of operations, processed in order, is:\n1. take\n2. take\n3. return P1\n4. take\n5. return P2\n6. take\n7. take\n8. return P3\n\nRules:\n- \"take\" removes the pencil at the front of the line. If the line is empty, do nothing.\n- \"return <label>\" adds the pencil to the back of the line. If the line already holds 4 pencils, the front pencil is removed first to make room.\n- After processing all operations, print the pencils remaining in the line, front first, one per line.\n- If the line is empty, print exactly: Cup is empty\n\nOutput format: one line per remaining pencil, or the single line Cup is empty.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0042",
+   "title": "Recycling Bin Sort Stack",
+   "prompt": "A recycling volunteer sorts items using two stacks: one for \"paper\" and one for \"plastic\". Items are pushed onto the correct stack based on their material. Both stacks start empty.\n\nThe list of operations, processed in order, is:\n1. sort \"newspaper\" paper\n2. sort \"bottle\" plastic\n3. sort \"cardboard\" paper\n4. sort \"bag\" plastic\n5. remove paper\n6. sort \"magazine\" paper\n7. remove plastic\n8. sort \"can\" plastic\n9. remove paper\n10. remove plastic\n11. remove paper\n\nRules:\n- \"sort <item> <material>\" pushes the item onto the top of the stack matching <material>.\n- \"remove <material>\" removes the item at the top of the stack matching <material>. If that stack is empty, do nothing.\n- After processing all operations, print the items remaining in each stack.\n- For each stack that is not empty, print the header line \"<material> stack:\" followed by one item per line, top first.\n- Skip any stack that is empty entirely (do not print its header).\n- If both stacks are empty, print exactly: Both stacks empty\n\nOutput format: header lines and item lines as described, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0043",
+   "title": "Warehouse Bin Label Reader",
+   "prompt": "A warehouse scanner produces a list of bin labels. Each label line has the form `ZONE=AISLE=ROW=POS` where ZONE is a single letter, and AISLE, ROW, POS are integers.\n\nThe input is given as an array of Text values:\n```\n[\"B=12=3=7\", \"A=5=1=2\", \"C=20=4=9\", \"B=12=3=8\", \"A=5=1=1\"]\n```\n\nFor each label, compute the bin number as: `(AISLE * 100) + (ROW * 10) + POS`.\n\nPrint exactly 5 lines, one per label in the order given, with no trailing spaces, in the format:\n```\n<ZONE> bin <bin number>\n```\n\nExample: the label `A=5=1=2` prints `A bin 512`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0044",
+   "title": "School Bell Schedule Decoder",
+   "prompt": "A school timetable is stored as a list of lines in the form `PERIOD=SUBJECT=DURATION_MIN`. PERIOD is an integer, SUBJECT is a single word (no spaces), DURATION_MIN is an integer.\n\nThe input is given as an array of Text values:\n```\n[\"1=Math=45\", \"2=English=45\", \"3=Science=60\", \"4=Art=30\", \"5=Music=40\"]\n```\n\nThe school day starts at 8:00 (480 minutes after midnight). Each period begins immediately after the previous one ends; a 5-minute passing break is inserted between periods.\n\nPrint exactly 5 lines, one per period in order, with no trailing spaces, in the format:\n```\nPeriod <PERIOD> <SUBJECT> <start> <end>\n```\nwhere `<start>` and `<end>` are in 24-hour `HH:MM` format (zero-padded hours and minutes).\n\nExample: if a period runs from minute 480 to minute 525, it prints `8:00` and `8:45`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0045",
+   "title": "Ferry Manifest Check",
+   "prompt": "A ferry manifest lists passengers with lines in the form `NAME=VEHICLE=WAIT`. NAME is a single word, VEHICLE is one of `car`, `van`, `bike` (no spaces), WAIT is an integer number of minutes.\n\nThe input is given as an array of Text values:\n```\n[\"Smith=car=12\", \"Jones=van=30\", \"Lee=bike=5\", \"Patel=car=45\", \"Kim=van=18\"]\n```\n\nPassengers with WAIT greater than 25 minutes are flagged as `late`. Vehicles are loaded in this order: `bike` first, then `car`, then `van`. Within the same vehicle type, passengers appear in the order given.\n\nPrint exactly 5 lines in loading order (bikes, then cars, then vans; original order preserved within each type), with no trailing spaces, in the format:\n```\n<NAME> <VEHICLE> <flag>\n```\nwhere `<flag>` is either `ok` or `late`.\n\nExample: `Lee=bike=5` prints `Lee bike ok`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0046",
+   "title": "Vending Machine Coin Log",
+   "prompt": "A vending machine logs coin insertions as lines in the form `COIN=COUNT` where COIN is one of `5`, `10`, `20`, `50`, `100` (representing cents) and COUNT is an integer.\n\nThe input is given as an array of Text values:\n```\n[\"5=12\", \"10=8\", \"20=15\", \"50=4\", \"100=6\"]\n```\n\nCompute the total value in cents: sum of `COIN * COUNT` over all lines. Also find the coin denomination that contributed the most value.\n\nPrint exactly 5 lines, with no trailing spaces:\nLine 1: `total <total> cents`\nLine 2: `top coin <denomination> worth <value> cents`\nLine 3: `average per line <average>` where `<average>` is a Real printed with exactly 1 decimal place.\nLine 4: `lines <n>` where `<n>` is the number of input lines.\nLine 5: `has 100 coin yes` if any line has COIN=100, otherwise `has 100 coin no`.\n\nExample: if the total were 1500 cents, line 1 prints `total 1500 cents`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0047",
+   "title": "Garden Plot Tag Reader",
+   "prompt": "A community garden marks each plot with a tag line in the form `PLOT=SIZE=OWNER`. PLOT is an integer, SIZE is an integer square meters, OWNER is a single word.\n\nThe input is given as an array of Text values:\n```\n[\"101=12=Green\", \"102=8=Blue\", \"103=15=Green\", \"104=6=Red\", \"105=10=Blue\", \"106=9=Green\"]\n```\n\nFor each owner, compute the total SIZE of all their plots. Print one line per owner, ordered by owner name alphabetically, with no trailing spaces, in the format:\n```\n<OWNER> plots <count> total <total>\n```\nwhere `<count>` is the number of plots that owner has and `<total>` is the sum of their plot sizes.\n\nThen print a final summary line:\n```\naverage plot size <average>\n```\nwhere `<average>` is the mean SIZE over all plots, printed with exactly 1 decimal place.\n\nThe output has exactly 4 lines (3 owners + 1 summary).",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0048",
+   "title": "Locker Assignment Decoder",
+   "prompt": "A gym locker room assigns lockers with lines in the form `LOCKER=MEMBER=CODE`. LOCKER is an integer, MEMBER is a single word, CODE is a 3-digit integer (may have leading zeros in the original text, but treat it as an integer).\n\nThe input is given as an array of Text values:\n```\n[\"12=Alex=007\", \"15=Blair=231\", \"18=Casey=045\", \"21=Drew=199\", \"24=Emery=310\"]\n```\n\nA locker is `open` if CODE is divisible by 3, otherwise it is `locked`.\n\nPrint exactly 5 lines, one per locker in the order given, with no trailing spaces, in the format:\n```\nLocker <LOCKER> <MEMBER> <status>\n```\nwhere `<status>` is either `open` or `locked`.\n\nExample: `12=Alex=007` prints `Locker 12 Alex locked` (since 7 is not divisible by 3).",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0049",
+   "title": "Recycling Truck Route Sheet",
+   "prompt": "A recycling truck driver writes a route sheet with stop lines in the form `STOP=BIN=CAPACITY=FULLNESS`. STOP is an integer, BIN is a single letter, CAPACITY is an integer (kg), FULLNESS is an integer percentage (0-100).\n\nThe input is given as an array of Text values:\n```\n[\"1=P=80=95\", \"2=P=80=40\", \"3=G=60=88\", \"4=G=60=72\", \"5=Y=50=100\"]\n```\n\nA bin needs pickup if FULLNESS is at least 80. For each bin letter (in alphabetical order of letter), print one line showing the number of stops needing pickup for that letter, with no trailing spaces:\n```\n<BIN> pickup <count> of <total>\n```\nwhere `<count>` is how many stops of that bin letter need pickup and `<total>` is how many stops of that letter exist.\n\nThen print a final line:\n```\ntotal stops needing pickup <count>\n```\n\nPrint bin-letter lines only for letters that appear in the input, in alphabetical order. The output has exactly 4 lines (3 bin letters + 1 total).",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0050",
+   "title": "Cafe Shift Handover Notes",
+   "prompt": "A cafe writes handover notes as lines in the form `ITEM=QTY=STATE`. ITEM is a single word, QTY is an integer, STATE is one of `full`, `low`, `out` (no spaces).\n\nThe input is given as an array of Text values:\n```\n[\"Espresso=42=full\", \"Latte=8=low\", \"Croissant=0=out\", \"Tea=25=full\", \"Muffin=3=low\"]\n```\n\nPrint exactly 5 lines, one per item in the order given, with no trailing spaces:\nLine format: `<ITEM> <QTY> <action>`\nwhere `<action>` depends on STATE:\n- `full` → `restock no`\n- `low` → `restock yes`\n- `out` → `restock urgent`\n\nExample: `Latte=8=low` prints `Latte 8 restock yes`.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0051",
+   "title": "Bus Stop Sign Parser",
+   "prompt": "A bus stop sign lists routes with lines in the form `ROUTE=DESTINATION=MINUTES`. ROUTE is an integer, DESTINATION is a single word, MINUTES is an integer minutes until arrival.\n\nThe input is given as an array of Text values:\n```\n[\"12=Central=3\", \"12=Central=17\", \"45=Airport=9\", \"7=Harbor=1\", \"45=Airport=22\"]\n```\n\nGroup by ROUTE. For each route (in ascending order of ROUTE number), find the earliest arrival MINUTES among its entries. Print one line per route, with no trailing spaces, in the format:\n```\nRoute <ROUTE> to <DESTINATION> arrives in <minutes> min\n```\nwhere `<DESTINATION>` is the destination of the entry that has the earliest arrival for that route (if two entries tie, use the one appearing first in the input).\n\nThen print a final line:\n```\nnext bus route <ROUTE> in <minutes> min\n```\nwhere this is the overall earliest arrival across all routes.\n\nThe output has exactly 4 lines (3 routes + 1 next-bus line).",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0052",
+   "title": "Classroom Smartboard Scheduler",
+   "prompt": "A school has a smartboard in Room 101 that can only be booked in 15-minute slots from 08:00 to 12:00 (16 slots total, index 0 = 08:00-08:15, index 15 = 11:45-12:00). Today's booking requests arrive in order, each with a name, a start slot index, and a length in slots:\n\n1. Math Club, start 0, length 3\n2. Art Class, start 2, length 4\n3. Debate Team, start 4, length 2\n4. Science Lab, start 7, length 5\n5. Reading Hour, start 10, length 3\n6. Chess Club, start 12, length 4\n\nA request is accepted only if every slot it needs is still free. If a request overlaps any already-accepted booking, it is rejected entirely (no partial booking). Accepted requests print one line: \"ACCEPTED <name> <startSlot>-<endSlot>\" where startSlot and endSlot are the inclusive 0-based slot indices. Rejected requests print one line: \"REJECTED <name>\".\n\nAfter all requests are processed, print a final line: \"FREE <count>\" where count is the number of unused slots remaining at the end of the day.\n\nPrint results in the original request order, one per line, with no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0053",
+   "title": "Chess Club Clock Pairings",
+   "prompt": "A chess club runs 4 boards simultaneously for 3 rounds. Each round lasts a fixed number of minutes. Players are assigned to boards; each player has a remaining clock in minutes. During a round, each board's clocks tick down by the round length for both players, but a player whose clock would drop below 0 instead runs out at exactly 0 and loses immediately (their opponent gets no time deducted that round after the loss).\n\nRound lengths: Round 1 = 30 min, Round 2 = 45 min, Round 3 = 60 min.\n\nInitial clocks (minutes) and pairings by board:\nBoard 1: Alice 90 vs Bob 75\nBoard 2: Carol 60 vs Dave 100\nBoard 3: Eve 45 vs Frank 50\nBoard 4: Grace 120 vs Henry 40\n\nAfter each round, print one line: \"R<round> <losers>\" where losers is a comma-separated list (no spaces) of player names who ran out of clock during that round, in board order then Alice/Bob side order (the player listed first for that board comes first), or the word \"none\" if nobody ran out.\n\nAfter all 3 rounds, print one line per player in the order Alice, Bob, Carol, Dave, Eve, Frank, Grace, Henry: \"<name> <remainingClock>\" where remainingClock is their clock in minutes (never negative; if they lost, it is 0).\n\nPrint 3 + 8 = 11 lines total, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0054",
+   "title": "School Cafeteria Lunch Line",
+   "prompt": "A school cafeteria has a single lunch line. Students arrive at fixed times (minutes after noon) and each needs a fixed number of seconds at the counter. The counter serves one student at a time; the next student starts immediately after the previous finishes. If a student arrives after the counter would be free, they wait until their arrival time.\n\nStudents (name, arrivalMinute, serviceSeconds):\nMia, 0, 45\nNoah, 0, 60\nOlivia, 0, 30\nLiam, 1, 50\nEmma, 1, 40\nAva, 2, 55\n\nNote: arrival times are in whole minutes; convert everything to seconds (minute 0 = 0 sec, minute 1 = 60 sec, etc.).\n\nPrint one line per student in the order listed: \"<name> <startSec> <endSec>\" where startSec is when they begin being served and endSec is when they finish, both in seconds from noon.\n\nAfter all students, print one line: \"IDLE <seconds>\" where seconds is the amount of time (in seconds) between the last student finishing and the moment 5 minutes (300 sec) after noon, i.e., how long the counter sits unused before the 300-second mark. If the last student finishes after 300 sec, print \"IDLE 0\".\n\nPrint 7 lines total, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0055",
+   "title": "Robot Warehouse Pick Queue",
+   "prompt": "A robot in a warehouse processes pick requests from a queue. There are 5 pick stations numbered 1-5, each initially holding 0 items. The robot starts at station 1. Requests arrive in a fixed order; each request specifies a target station and a number of items to pick. Travel between adjacent stations takes 2 seconds; travel between non-adjacent stations takes 2 seconds per step (e.g., station 1 to station 4 = 6 seconds). Picking takes 1 second per item. The robot processes requests strictly in order (no reordering).\n\nStation inventory (items available at each station):\nStation 1: 4\nStation 2: 0\nStation 3: 6\nStation 4: 3\nStation 5: 2\n\nRequests (targetStation, itemsToPick):\n1. Station 3, 2 items\n2. Station 5, 1 item\n3. Station 2, 3 items\n4. Station 4, 2 items\n5. Station 1, 5 items\n\nA request fails if the station does not have enough items; a failed request takes 0 pick time but the robot still travels to the station (and stays there for the next request).\n\nStart time is 0 seconds. Print one line per request: \"REQ<n> <ok|fail> <endTime>\" where n is the request number (1-5) and endTime is the robot's clock in seconds after completing (or failing) that request.\n\nAfter all requests, print one line: \"REMAIN <total>\" where total is the sum of items left across all 5 stations.\n\nPrint 6 lines total, no trailing spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0056",
+   "title": "Bakery Oven Batch Scheduler",
+   "prompt": "A bakery has 2 ovens (Oven 1, Oven 2). Each oven can bake one batch at a time. Batches arrive at fixed times (minutes) and each has a bake duration (minutes) and a designated oven preference. If the preferred oven is busy when the batch arrives, the batch waits for that oven (it never switches to the other oven). A batch starts at max(arrivalTime, preferredOvenFreeTime).\n\nBatches in arrival order:\n1. Bread, arrive 0, bake 20 min, Oven 1\n2. Cake, arrive 5, bake 35 min, Oven 2\n3. Muffins, arrive 10, bake 15 min, Oven 1\n4. Pie, arrive 25, bake 25 min, Oven 1\n5. Cookies, arrive 30, bake 10 min, Oven 2\n6. Rolls, arrive 40, bake 20 min, Oven 2\n\nPrint one line per batch: \"<name> <oven> <startMin> <endMin>\" where oven is 1 or 2, startMin is when baking begins, and endMin is when it finishes.\n\nAfter all batches, print one line per oven: \"OVEN<n> <busyMin>\" where busyMin is the total minutes that oven spent baking (sum of durations of batches it actually baked).\n\nPrint 6 + 2 = 8 lines total, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0057",
+   "title": "Laundry Room Machine Timers",
+   "prompt": "A shared laundry room has 3 washing machines (M1, M2, M3). Each machine runs one load at a time. Loads arrive at fixed times (minutes) and each has a wash duration (minutes). Machines are assigned in strict round-robin order (M1, M2, M3, M1, M2, ...) to arriving loads regardless of whether the machine is free; if the assigned machine is busy, the load waits until that machine frees up.\n\nLoads in arrival order:\n1. Towels, arrive 0, 30 min\n2. Shirts, arrive 5, 25 min\n3. Jeans, arrive 8, 40 min\n4. Socks, arrive 15, 20 min\n5. Sheets, arrive 20, 35 min\n6. Uniforms, arrive 25, 25 min\n\nStart time is 0. For each load, startTime = max(arrivalTime, assignedMachineFreeTime), endTime = startTime + duration. Update that machine's free time to endTime.\n\nPrint one line per load: \"<name> <machine> <startMin> <endMin>\".\n\nAfter all loads, print one line per machine in order M1, M2, M3: \"<machine> <idleMin>\" where idleMin is the total minutes that machine sat free between time 0 and the moment the last load in the whole system finished (the global end time). A machine's idle time = globalEndTime - (sum of its load durations) - (time before its first load started, if any). More precisely: idleMin = globalEndTime - (its first load's start time) - (sum of its load durations).\n\nPrint 6 + 3 = 9 lines total, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0058",
+   "title": "Swim Meet Lane Rotation",
+   "prompt": "A swim meet has 4 lanes and runs 5 heats. Swimmers are assigned to lanes for each heat. After each heat, the swimmer in each lane with the fastest time (lowest seconds) earns points: 1st place in the heat = 4 points, 2nd = 3 points, 3rd = 2 points, 4th = 1 point (ties are broken by lane number, lower lane gets the better placement).\n\nHeat results (lane, swimmerName, timeSeconds) by heat:\nHeat 1: Lane1 Zoe 32, Lane2 Yan 29, Lane3 Wren 35, Lane4 Xander 31\nHeat 2: Lane1 Yan 30, Lane2 Wren 33, Lane3 Xander 28, Lane4 Zoe 34\nHeat 3: Lane1 Wren 31, Lane2 Xander 36, Lane3 Zoe 27, Lane4 Yan 32\nHeat 4: Lane1 Xander 33, Lane2 Zoe 30, Lane3 Yan 34, Lane4 Wren 29\nHeat 5: Lane1 Zoe 31, Lane2 Yan 33, Lane3 Wren 30, Lane4 Xander 35\n\nAfter all 5 heats, compute each swimmer's total points. Print one line per swimmer sorted by total points descending; ties broken alphabetically by name ascending: \"<name> <totalPoints>\".\n\nAlso track the single fastest swimmer overall (lowest time in any heat; ties broken by earliest heat, then lowest lane). Print a final line: \"FASTEST <name> <timeSeconds>\".\n\nPrint 4 + 1 = 5 lines total, no extra spaces.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0059",
+   "title": "Garden Rose Bush Arrangements",
+   "prompt": "A gardener wants to plant 4 rose bushes in a straight row along a garden path. The bushes come in these colors: Red, Pink, White, Red. Two bushes of the same color are indistinguishable from each other.\n\nWrite a program that lists every distinct color arrangement of these 4 bushes in the row, one per line, and then prints how many distinct arrangements there are.\n\nOutput format:\n- Print each distinct arrangement as its color names separated by a single space, e.g. \"Red Pink White Red\".\n- Print the arrangements in lexicographic order (comparing the full space-separated string, so \"Pink Red Red White\" comes before \"Red Pink Pink White\").\n- After all arrangement lines, print one line of the form:\n  Distinct arrangements: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0060",
+   "title": "Robot Grid Delivery Paths",
+   "prompt": "A small delivery robot must travel from the top-left corner of a 3-by-3 grid to the bottom-right corner. It can only move one step at a time, either Right (R) or Down (D).\n\nWrite a program that prints every possible path from start to finish, one per line, followed by the total number of paths.\n\nOutput format:\n- Print each path as a sequence of R and D characters with no spaces, e.g. \"RRDD\".\n- Print the paths in lexicographic order (so \"DDRR\" comes before \"DRDR\").\n- After all path lines, print one line of the form:\n  Total paths: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0061",
+   "title": "Weather Station Sensor Order",
+   "prompt": "A weather station has 4 sensor slots in a row that must be filled with these sensors: Temperature, Humidity, Wind, Temperature. Two Temperature sensors are identical.\n\nWrite a program that prints every distinct arrangement of the 4 sensors across the slots, one per line, then prints the count.\n\nOutput format:\n- Print each arrangement as its sensor names separated by a single space, e.g. \"Humidity Temperature Temperature Wind\".\n- Print arrangements in lexicographic order.\n- After all arrangement lines, print one line of the form:\n  Distinct arrangements: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0062",
+   "title": "Board Game Piece Placements",
+   "prompt": "In a board game, 4 identical wooden tokens are to be placed on 4 marked spots in a line. The spots are numbered 1 through 4. You must place exactly one token on each spot, but because the tokens are identical, what matters is which spots are chosen — and since all 4 spots are used, there is only one way to choose them. Instead, consider this variant: you have 6 spots numbered 1 through 6 and you must choose 4 of them to receive a token, then place the tokens in increasing spot order.\n\nWrite a program that prints every subset of 4 spots (out of 6) as a space-separated increasing list, one per line, then prints the count.\n\nOutput format:\n- Print each subset as its spot numbers in increasing order separated by a single space, e.g. \"1 2 3 4\".\n- Print subsets in lexicographic order of their printed form (so \"1 2 3 5\" comes before \"1 2 4 5\").\n- After all subset lines, print one line of the form:\n  Total selections: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0063",
+   "title": "Beekeeper Flower Patch Tours",
+   "prompt": "A beekeeper's bee visits 4 flower patches in a row, visiting each exactly once. The patches are named: Daisy, Dandelion, Rose, Daisy. Two patches named \"Daisy\" are indistinguishable.\n\nWrite a program that prints every distinct visiting order of the 4 patches, one per line, then prints the count.\n\nOutput format:\n- Print each order as its patch names separated by a single space, e.g. \"Daisy Dandelion Daisy Rose\".\n- Print orders in lexicographic order.\n- After all order lines, print one line of the form:\n  Distinct tours: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0064",
+   "title": "Print Shop Ink Coverage Matrix",
+   "prompt": "A small print shop estimates ink usage per page for four different paper types based on two print modes. The shop has recorded the ink units used per page (in milliliters) in a 2x4 matrix, where each row is a print mode and each column is a paper type.\n\nInk matrix (rows = modes, columns = paper types):\nMode 0, Paper A: 0.12\nMode 0, Paper B: 0.18\nMode 0, Paper C: 0.09\nMode 0, Paper D: 0.15\nMode 1, Paper A: 0.25\nMode 1, Paper B: 0.31\nMode 1, Paper C: 0.20\nMode 1, Paper D: 0.27\n\nThe shop also has an order quantity matrix of the same shape, giving how many pages of each paper type will be printed in each mode:\nOrder matrix:\nMode 0: 120, 80, 200, 50\nMode 1: 60, 40, 100, 30\n\nWrite a program that computes:\n1. Total ink used in Mode 0 (sum over all paper types of ink*pages).\n2. Total ink used in Mode 1.\n3. Total ink across both modes.\n4. The paper type (column index 0-3) that consumed the most ink across both modes combined.\n\nOutput exactly these 4 lines:\nMode0: <total ink, 2 decimal places>\nMode1: <total ink, 2 decimal places>\nTotal: <total ink, 2 decimal places>\nTopPaper: <column index 0-3>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0065",
+   "title": "Greenhouse Plant Height Grid",
+   "prompt": "A greenhouse keeps a 3x3 grid of planters. Each planter contains a plant whose height is measured in centimeters. The heights are stored in a 3x3 matrix (rows 0-2, columns 0-2):\nRow 0: 12, 18, 9\nRow 1: 22, 15, 27\nRow 2: 8, 20, 14\n\nThe greenhouse also applies a growth factor to each row (multiplied after measurement): Row 0 factor 1.1, Row 1 factor 1.3, Row 2 factor 0.9.\n\nWrite a program that:\n1. Computes the adjusted height for every planter (original * row factor).\n2. Finds the maximum adjusted height across all 9 planters.\n3. Finds the row index (0-2) with the largest total adjusted height across its 3 columns.\n4. Counts how many planters have an adjusted height strictly greater than 20.0 cm.\n\nOutput exactly these 4 lines:\nMax: <maximum adjusted height, 1 decimal place>\nTopRow: <row index 0-2>\nOver20: <count>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0066",
+   "title": "Robot Grid Turn Matrix",
+   "prompt": "A robot on a grid can move in 4 directions: 0=North, 1=East, 2=South, 3=West. A 4x4 turn-cost matrix C[i][j] gives the cost in seconds for the robot to change from facing direction i to facing direction j:\nC =\n[0, 2, 4, 2]\n[2, 0, 2, 4]\n[4, 2, 0, 2]\n[2, 4, 2, 0]\n\nThe robot executes a sequence of facing directions it must adopt in order: [0, 1, 1, 3, 2, 0]. The total turn cost is the sum of C[seq[t]][seq[t+1]] for each consecutive pair in the sequence.\n\nWrite a program that:\n1. Computes the total turn cost for the given sequence.\n2. Finds the maximum single turn cost encountered in the sequence.\n3. Counts how many turns in the sequence cost exactly 2 seconds.\n4. Finds the direction (0-3) that appears most frequently in the sequence (ties: report the smaller direction index).\n\nOutput exactly these 4 lines:\nTotal: <total turn cost, integer>\nMaxTurn: <maximum single turn cost, integer>\nCount2: <number of turns costing 2>\nFaceDir: <direction index 0-3>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0067",
+   "title": "Vending Machine Price Matrix",
+   "prompt": "A vending machine sells 3 categories of snacks (chips, candy, drinks) in 4 price tiers (rows 0-3). The price in cents for each tier and category is given in a 4x3 matrix:\nPrice =\n[75, 100, 125]\n[85, 110, 150]\n[95, 130, 175]\n[110, 150, 200]\n\nA customer inserts coins: quarters (25 cents), dimes (10 cents), nickels (5 cents), pennies (1 cent) with counts [6, 4, 3, 2] respectively.\n\nThe customer wants to buy one item from each category (one chips, one candy, one drink), each from some tier (possibly different tiers per category). The purchase cost is Price[t1][0] + Price[t2][1] + Price[t3][2]. The machine gives change if the cost is less than or equal to the total inserted; otherwise the purchase fails.\n\nWrite a program that:\n1. Computes the total cents inserted.\n2. Finds the minimum possible cost to buy one item from each category (choosing the cheapest tier per category).\n3. Computes the change returned for that minimum-cost purchase (0 if insufficient funds).\n4. Finds the maximum possible cost to buy one item from each category (choosing the most expensive tier per category).\n\nOutput exactly these 4 lines:\nInserted: <total cents, integer>\nMinCost: <minimum total cost, integer>\nChange: <change in cents, integer>\nMaxCost: <maximum total cost, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0068",
+   "title": "Garden Drip Line Pressure Matrix",
+   "prompt": "A garden has 4 planting rows and 3 drip-line zones per row. A 4x3 matrix P gives the water pressure (in kPa) measured at each zone:\nP =\n[120, 135, 128]\n[142, 150, 138]\n[115, 122, 131]\n[160, 155, 148]\n\nA pressure matrix Q (same dimensions) gives the target pressure for each zone:\nQ =\n[125, 130, 130]\n[140, 145, 140]\n[120, 125, 125]\n[150, 155, 150]\n\nThe deviation for each zone is |P[i][j] - Q[i][j]|. A zone is \"in range\" if its deviation is at most 10 kPa.\n\nWrite a program that:\n1. Counts how many of the 12 zones are in range.\n2. Finds the maximum deviation across all 12 zones.\n3. Finds the row (0-3) with the smallest average deviation across its 3 zones (report the smallest row index in case of a tie).\n4. Computes the sum of all deviations across all 12 zones.\n\nOutput exactly these 4 lines:\nInRange: <count of zones with deviation <= 10, integer>\nMaxDev: <maximum deviation, integer>\nBestRow: <row index 0-3>\nTotalDev: <sum of all deviations, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0069",
+   "title": "Robot Warehouse Orientation Matrix",
+   "prompt": "A warehouse robot's orientation is described by a rotation matrix R that rotates points by an angle. The robot starts at orientation R0 (identity) and applies a sequence of 90-degree rotations. Represent orientation as a 2x2 integer matrix.\n\nStarting orientation R0 =\n[1, 0]\n[0, 1]\n\nA 90-degree clockwise rotation matrix Rot =\n[0, 1]\n[-1, 0]\n\nThe robot applies Rot three times in sequence (total 270 degrees clockwise).\n\nWrite a program that:\n1. Computes the final 2x2 orientation matrix after applying Rot three times to R0.\n2. Multiplies the final matrix by the vector [3, 5] (treating [3,5] as a column vector) to get a new position offset.\n3. Computes the Manhattan distance of the resulting offset from the origin (|x| + |y|).\n4. Determines if the final matrix equals the original R0 (YES or NO).\n\nOutput exactly these 4 lines:\nFinal: <four values as a,b,c,d representing the 2x2 matrix rows, no spaces, e.g. 0,1,-1,0>\nOffset: <x,y as integers with a comma, no spaces>\nManhattan: <integer>\nSameAsStart: <YES or NO>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0070",
+   "title": "Cafe Loyalty Points Matrix",
+   "prompt": "A cafe tracks loyalty points earned by 5 customers across 4 weeks. The points matrix W is 5x4 (customers 0-4, weeks 0-3):\nW =\n[10, 15, 12, 20]\n[8, 12, 14, 9]\n[20, 18, 22, 25]\n[5, 7, 6, 8]\n[14, 16, 15, 17]\n\nEach week has a multiplier applied to that week's points: [1.0, 1.5, 1.0, 2.0] for weeks 0-3.\n\nThe adjusted points for customer c in week w = W[c][w] * weekMultiplier[w]. A customer's total is the sum across all 4 weeks of adjusted points.\n\nWrite a program that:\n1. Computes the total adjusted points for each of the 5 customers.\n2. Finds the customer with the highest total (smallest index in case of tie).\n3. Counts how many customers have a total strictly greater than 60.\n4. Computes the grand total of adjusted points across all 5 customers.\n\nOutput exactly these 4 lines:\nTopCustomer: <customer index 0-4>\nOver60: <count, integer>\nGrandTotal: <sum of all adjusted totals, 1 decimal place>\nBestTotal: <highest customer total, 1 decimal place>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0071",
+   "title": "Train Route Transfer Cost Matrix",
+   "prompt": "A regional train operator has 5 stops numbered 0-4. A fare matrix F[i][j] gives the cost in dollars for a ticket from stop i to stop j (F[i][i] = 0, and some pairs have no direct service, shown as 0):\nF =\n[0, 3, 0, 5, 0]\n[3, 0, 4, 0, 7]\n[0, 4, 0, 6, 0]\n[5, 0, 6, 0, 8]\n[0, 7, 0, 8, 0]\n\nA traveler wants to go from stop 0 to stop 4. They can take a direct ticket if available, or a one-transfer ticket via one intermediate stop k (k not 0 or 4): cost = F[0][k] + F[k][4].\n\nWrite a program that:\n1. Finds the cheapest total fare from stop 0 to stop 4 considering direct and all one-transfer options.\n2. Counts how many of the 20 off-diagonal entries in F represent available direct service (nonzero).\n3. Finds the stop (0-4, excluding 0 and 4) that would serve as the cheapest single-transfer intermediate stop (smallest index if tied). If no one-transfer route exists, output NONE.\n4. Computes the most expensive direct fare among all available off-diagonal direct services.\n\nOutput exactly these 4 lines:\nCheapest: <fare in dollars, integer>\nDirectCount: <count of nonzero off-diagonal entries, integer>\nBestTransfer: <stop index 0-4 or NONE>\nMaxDirect: <most expensive direct fare, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0072",
+   "title": "Greenhouse Light Exposure Matrix",
+   "prompt": "A greenhouse has 4 shelves and 3 light zones per shelf. A 4x3 matrix L gives the light exposure hours per day measured at each zone:\nL =\n[6, 8, 7]\n[10, 12, 11]\n[4, 5, 6]\n[9, 10, 8]\n\nA plant type matrix T (4x3, same dimensions) codes the plant in each zone: 1=lettuce, 2=tomato, 3=herb:\nT =\n[1, 1, 2]\n[2, 2, 2]\n[3, 3, 1]\n[2, 1, 3]\n\nLettuce needs at least 6 hours, tomato at least 9 hours, herb at least 4 hours.\n\nWrite a program that:\n1. Counts how many of the 12 zones meet their plant's light requirement.\n2. Finds the shelf (row 0-3) with the highest total light exposure across its 3 zones (smallest index if tied).\n3. Computes the average light exposure across all 12 zones.\n4. Counts how many zones contain tomato (code 2).\n\nOutput exactly these 4 lines:\nMet: <count of zones meeting requirement, integer>\nTopShelf: <row index 0-3>\nAvgLight: <average hours, 2 decimal places>\nTomatoZones: <count of zones with code 2, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0073",
+   "title": "Vending Machine Restock Matrix",
+   "prompt": "A vending machine has 4 shelves and 3 slots per shelf. A 4x3 matrix S gives current stock count in each slot:\nS =\n[5, 0, 3]\n[2, 7, 1]\n[0, 4, 6]\n[8, 2, 0]\n\nA capacity matrix C (same dimensions) gives the maximum stock each slot can hold:\nC =\n[10, 6, 8]\n[8, 10, 6]\n[6, 8, 10]\n[10, 8, 6]\n\nA restocker will fill every slot to capacity. The restock amount for each slot = C[i][j] - S[i][j].\n\nWrite a program that:\n1. Computes the total restock amount needed across all 12 slots.\n2. Finds the slot (row, column) needing the largest restock (smallest row then smallest column if tied).\n3. Counts how many slots are already at full capacity (restock = 0).\n4. Computes the total final stock across all slots after restocking.\n\nOutput exactly these 4 lines:\nTotalRestock: <sum of restock amounts, integer>\nTopSlot: <row,col as integers with a comma, no spaces>\nFullSlots: <count of slots with restock 0, integer>\nFinalStock: <sum of final stock across all slots, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0074",
+   "title": "Robot Grid Sensor Fusion Matrix",
+   "prompt": "A robot on a grid has 3 sensors arranged in a row, each producing a reading. A 3x3 fusion matrix F combines raw sensor readings into a calibrated output:\nF =\n[0.5, 0.3, 0.2]\n[0.2, 0.6, 0.2]\n[0.1, 0.3, 0.6]\n\nRaw sensor readings for one measurement: [10, 20, 30].\n\nThe calibrated output vector C = F * raw (matrix-vector product): C[i] = sum over j of F[i][j] * raw[j].\n\nWrite a program that:\n1. Computes the calibrated output for each of the 3 sensors.\n2. Computes the average of the 3 calibrated values.\n3. Finds which calibrated sensor output (index 0-2) is highest.\n4. Computes the sum of all elements in F (should be 3.0 if rows sum to 1).\n\nOutput exactly these 4 lines:\nCalibrated: <three values with 1 decimal place each, separated by commas, no spaces>\nAvgCal: <average with 2 decimal places>\nTopSensor: <index 0-2>\nFSum: <sum of all F elements, 1 decimal place>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0075",
+   "title": "Print Shop Paper Grain Matrix",
+   "prompt": "A print shop evaluates 5 paper stocks (numbered 0-4) against 4 quality criteria (numbered 0-3: durability, texture, opacity, cost-efficiency). A 5x4 score matrix Q gives ratings from 1 to 10:\nQ =\n[7, 8, 6, 9]\n[9, 6, 8, 5]\n[6, 9, 7, 8]\n[8, 7, 9, 7]\n[5, 8, 5, 10]\n\nCriteria weights are [3, 2, 4, 1] for criteria 0-3 respectively. The weighted score for a paper = sum over criteria of Q[p][c] * weight[c].\n\nWrite a program that:\n1. Computes the weighted score for each of the 5 papers.\n2. Finds the paper with the highest weighted score (smallest index if tied).\n3. Finds the criterion (0-3) with the highest average score across all 5 papers (smallest index if tied).\n4. Counts how many papers have a weighted score strictly greater than 70.\n\nOutput exactly these 4 lines:\nTopPaper: <paper index 0-4>\nTopCriterion: <criterion index 0-3>\nOver70: <count, integer>\nBestScore: <highest weighted score, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0076",
+   "title": "Train Network Connectivity Matrix",
+   "prompt": "A small regional rail network has 5 stations numbered 0-4. A connectivity matrix C (5x5) indicates whether a direct rail link exists between stations: 1 = link exists, 0 = no link. The matrix is symmetric with 0s on the diagonal:\nC =\n[0, 1, 1, 0, 0]\n[1, 0, 1, 1, 0]\n[1, 1, 0, 1, 1]\n[0, 1, 1, 0, 1]\n[0, 0, 1, 1, 0]\n\nWrite a program that:\n1. Computes the degree (number of direct links) for each station.\n2. Finds the station with the highest degree (smallest index if tied).\n3. Counts how many total direct links exist in the network (remember each link appears twice in the symmetric matrix, so count once).\n4. Checks if the network is fully connected in one hop from station 2 (i.e., station 2 has links to all other 4 stations): output YES or NO.\n\nOutput exactly these 4 lines:\nDegrees: <5 integers separated by commas, no spaces>\nTopStation: <station index 0-4>\nTotalLinks: <count of unique direct links, integer>\nStation2Full: <YES or NO>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0077",
+   "title": "Greenhouse Humidity Cross Matrix",
+   "prompt": "A greenhouse has 3 growing beds. Humidity readings are taken at 4 times of day (morning, noon, afternoon, evening) for each bed, stored as a 3x4 matrix H (percent humidity):\nH =\n[65, 72, 70, 68]\n[58, 64, 66, 61]\n[71, 78, 75, 73]\n\nThe ideal humidity range is 60-75 percent inclusive. A reading outside this range is flagged.\n\nWrite a program that:\n1. Counts the total number of flagged readings (outside 60-75) across all 12 readings.\n2. Finds the bed (row 0-2) with the highest average humidity across its 4 readings (smallest index if tied).\n3. Finds the time of day (column 0-3) with the lowest average humidity across all 3 beds (smallest index if tied).\n4. Computes the range (max - min) of all 12 humidity readings.\n\nOutput exactly these 4 lines:\nFlagged: <count of readings outside 60-75, integer>\nWettestBed: <row index 0-2>\nDriestTime: <column index 0-3>\nRange: <max minus min, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0078",
+   "title": "Vending Machine Sales Heat Matrix",
+   "prompt": "A vending machine company tracks weekly sales (in units) for 4 product lines across 5 store locations, stored as a 4x5 matrix (rows = product lines 0-4, columns = stores 0-4):\nSales =\n[12, 8, 15, 10, 7]\n[20, 18, 22, 19, 25]\n[5, 3, 6, 4, 8]\n[14, 12, 16, 11, 13]\n\nWrite a program that:\n1. Finds the product line (row 0-3) with the highest total sales across all 5 stores (smallest index if tied).\n2. Finds the store (column 0-4) with the highest total sales across all 4 product lines (smallest index if tied).\n3. Counts how many cells in the matrix have sales of at least 15 units.\n4. Computes the grand total of all sales across the entire matrix.\n\nOutput exactly these 4 lines:\nTopProduct: <row index 0-3>\nTopStore: <column index 0-4>\nHighCells: <count of cells >= 15, integer>\nGrandTotal: <sum of all sales, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0079",
+   "title": "Robot Warehouse Zone Distances",
+   "prompt": "A warehouse robot operates in a grid with 4 zones (numbered 0-3). A distance matrix D (4x4) gives the shortest travel distance in meters between zones (D[i][i] = 0):\nD =\n[0, 12, 20, 15]\n[12, 0, 8, 18]\n[20, 8, 0, 10]\n[15, 18, 10, 0]\n\nThe robot must visit zones in this order: [0, 2, 1, 3]. The travel distance is the sum of D between consecutive zones in the visit order.\n\nWrite a program that:\n1. Computes the total travel distance for the given visit order.\n2. Finds the largest single leg distance in the visit sequence.\n3. Finds the zone (0-3) that is farthest on average from all other zones (smallest index if tied).\n4. Counts how many zone pairs have a distance of exactly 10 meters (count each unordered pair once).\n\nOutput exactly these 4 lines:\nTotalDist: <total travel distance, integer>\nMaxLeg: <largest single leg distance, integer>\nFarthestZone: <zone index 0-3>\nDist10Pairs: <count of unordered pairs with distance 10, integer>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0080",
+   "title": "Print Shop Ink Mixing Ratios",
+   "prompt": "A print shop mixes CMYK inks to create custom colors. A 4x3 ratio matrix R gives the parts of Cyan, Magenta, Yellow, and Black needed for each of 3 custom colors (columns 0-2):\nR =\n[3, 1, 2]\n[2, 4, 1]\n[1, 2, 3]\n[1, 0, 1]\n\nThe shop needs to produce batches of each custom color with sizes [5, 3, 7] respectively (one batch size per column).\n\nThe total parts of ink i needed = sum over columns j of R[i][j] * batchSize[j].\n\nWrite a program that:\n1. Computes total parts needed for each of the 4 ink types (Cyan, Magenta, Yellow, Black).\n2. Finds which ink type (0-3) requires the most total parts.\n3. Computes the total of all ink parts across all 4 types.\n4. Determines if Black ink requires more parts than Yellow ink (YES or NO).\n\nOutput exactly these 4 lines:\nInkTotals: <4 integers separated by commas, no spaces>\nMostInk: <ink type index 0-3>\nAllParts: <total of all ink parts, integer>\nBlackMore: <YES or NO>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0081",
+   "title": "Garden Bed Frost Risk Matrix",
+   "prompt": "A community garden has 4 beds (numbered 0-3) and tracks frost risk for 3 upcoming nights. A 4x3 matrix F gives the frost risk score (0-100) for each bed on each night:\nF =\n[20, 35, 15]\n[60, 80, 55]\n[45, 40, 50]\n[10, 25, 30]\n\nA risk level is: LOW if score < 30, MEDIUM if 30 <= score < 60, HIGH if score >= 60.\n\nWrite a program that:\n1. Counts how many of the 12 bed-night combinations are HIGH risk.\n2. Counts how many are MEDIUM risk.\n3. Finds the bed (row 0-3) with the highest average risk score across the 3 nights (smallest index if tied).\n4. Finds the night (column 0-2) with the lowest maximum risk score across all 4 beds (smallest index if tied).\n\nOutput exactly these 4 lines:\nHighCount: <count of HIGH risk entries, integer>\nMedCount: <count of MEDIUM risk entries, integer>\nRiskiestBed: <row index 0-3>\nSafestNight: <column index 0-2>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0082",
+   "title": "Train Timetable Delay Matrix",
+   "prompt": "A commuter train line has 4 stations (0-3) and 5 daily departures (0-4). A 4x5 matrix D gives the delay in minutes for each departure at each station (negative = early, positive = late, 0 = on time):\nD =\n[0, 2, -1, 3, 1]\n[1, 4, 0, 2, -2]\n[-1, 3, 5, 1, 0]\n[2, 1, -1, 4, 2]\n\nWrite a program that:\n1. Finds the departure (column 0-4) with the highest total delay across all 4 stations (smallest index if tied).\n2. Counts how many of the 20 entries show a delay of 2 or more minutes.\n3. Finds the station (row 0-3) with the smallest absolute total delay across all 5 departures (smallest index if tied).\n4. Computes the average delay across all 20 entries.\n\nOutput exactly these 4 lines:\nWorstDeparture: <column index 0-4>\nDelay2Plus: <count of entries >= 2, integer>\nMostPunctual: <row index 0-3>\nAvgDelay: <average with 2 decimal places>",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "matrix operations on small fixed matrices",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0083",
+   "title": "Library Turnstile Counter",
+   "prompt": "A small library has one turnstile at the entrance. The turnstile tracks a single counter that starts at 0. Each event in the day's log either adds 1 to the counter (a person enters) or subtracts 1 (a person exits, which can only happen if the counter is above 0; if the counter is 0 and an exit is attempted, the counter stays at 0 and the event is recorded as a \"reject\").\n\nThe day's log is the following sequence of events:\n[\"IN\", \"IN\", \"OUT\", \"IN\", \"OUT\", \"OUT\", \"OUT\", \"IN\", \"IN\", \"IN\", \"OUT\", \"OUT\"]\n\nProcess the events in order. Produce a report with exactly the following lines:\n\nLine 1: Total IN: <number>\nLine 2: Total OUT: <number>\nLine 3: Rejected: <number>\nLine 4: Final Count: <number>\nLine 5: Peak Count: <number>\n\nAll values are integers with no extra formatting.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "finite state machines processing a fixed input sequence",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0084",
+   "title": "Lighthouse Lens Rotation",
+   "prompt": "A lighthouse has a rotating lens that can be in one of three positions: 0 (North), 1 (East), or 2 (South). The lens starts at position 0. A rotation command of +1 moves it one position clockwise (mod 3), and a command of -1 moves it one position counter-clockwise (mod 3). A command of 0 means \"hold\" — the lens does not move.\n\nThe sequence of rotation commands is:\n[+1, +1, +1, -1, 0, +1, -1, -1, +1, +1]\n\nAfter processing all commands, report:\n\nLine 1: Final Position: <position as integer>\nLine 2: Times at North: <count>\nLine 3: Times at East: <count>\nLine 4: Times at South: <count>\n\nThe \"Times at\" counts include the starting position (before any command) and every position after each command is applied, so 11 positions are counted in total.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "finite state machines processing a fixed input sequence",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0085",
+   "title": "Weather Station Wind Vane",
+   "prompt": "A weather station records wind direction changes over a period. The wind vane can point to one of 4 cardinal directions, numbered 0=North, 1=East, 2=South, 3=West. It starts at North (0). Each reading is a turn amount: a positive value turns clockwise, a negative value turns counter-clockwise. Directions wrap around modulo 4 (for example, turning +1 from West lands on North).\n\nThe readings (turn amounts) are:\n[+1, +2, -1, +3, +1, -2, +1, +1, -3, +2, 0, +1]\n\nReport the following, where the direction names are the full words North, East, South, West:\n\nLine 1: Final Direction: <name>\nLine 2: Clockwise Turns: <count of readings strictly greater than 0>\nLine 3: Counter Turns: <count of readings strictly less than 0>\nLine 4: Still Readings: <count of readings equal to 0>\nLine 5: Visited North: <yes/no, lowercase>\n\nFor \"Visited North\", output \"yes\" if the vane pointed North at any time (including the start and after every reading), otherwise \"no\".",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "finite state machines processing a fixed input sequence",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0086",
+   "title": "Museum Audio Guide",
+   "prompt": "A museum audio guide plays tracks numbered 1 through 5. The guide starts at track 1. Each command moves to a different track or repeats the current one:\n- \"NEXT\" advances to the next track (wrapping from 5 to 1).\n- \"PREV\" goes to the previous track (wrapping from 1 to 5).\n- \"REPEAT\" stays on the current track.\n- \"STOP\" pauses; subsequent NEXT/PREV/REPEAT commands do nothing until a \"PLAY\" command resumes on the same track it stopped on.\n\nThe command sequence is:\n[\"NEXT\", \"NEXT\", \"STOP\", \"NEXT\", \"PLAY\", \"PREV\", \"REPEAT\", \"NEXT\", \"STOP\", \"PREV\", \"PLAY\", \"NEXT\", \"NEXT\"]\n\nReport:\n\nLine 1: Final Track: <track number>\nLine 2: Unique Tracks Visited: <count of distinct tracks the guide has been on at any moment, including the start>\nLine 3: Commands While Stopped: <count of NEXT/PREV/REPEAT commands issued while stopped>\nLine 4: Stopped: <yes/no, lowercase, whether the guide is stopped at the end>\n\nFor \"Unique Tracks Visited\", count each distinct track number at most once.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "finite state machines processing a fixed input sequence",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0087",
+   "title": "Parking Garage Gate",
+   "prompt": "A parking garage gate manages entry and exit. The garage has a capacity of 5 cars and starts empty (0 cars inside). Each event is:\n- \"IN\": if the garage is not full, a car enters (count increases by 1); if full, entry is denied.\n- \"OUT\": if the garage is not empty, a car leaves (count decreases by 1); if empty, exit is denied.\n\nThe event sequence is:\n[\"IN\", \"IN\", \"IN\", \"IN\", \"IN\", \"IN\", \"OUT\", \"IN\", \"OUT\", \"OUT\", \"OUT\", \"OUT\", \"IN\", \"IN\"]\n\nReport:\n\nLine 1: Accepted IN: <count of successful entries>\nLine 2: Accepted OUT: <count of successful exits>\nLine 3: Denied IN: <count of denied entries>\nLine 4: Denied OUT: <count of denied exits>\nLine 5: Cars Inside: <final count>\nLine 6: Peak Occupancy: <maximum count reached>\n\nAll values are integers.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "finite state machines processing a fixed input sequence",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0088",
+   "title": "Subway Turnstile Fare",
+   "prompt": "A subway turnstile tracks a fare balance for a rider. The balance starts at 10 (in whole units). Each transaction modifies the balance:\n- \"SWIPE\" deducts 2 if the balance is at least 2; otherwise the swipe is refused and the balance does not change.\n- \"TOPUP\" adds 5.\n- \"CHECK\" does not change the balance.\n\nThe transaction sequence is:\n[\"SWIPE\", \"SWIPE\", \"SWIPE\", \"TOPUP\", \"SWIPE\", \"SWIPE\", \"SWIPE\", \"SWIPE\", \"CHECK\", \"TOPUP\", \"SWIPE\", \"SWIPE\", \"SWIPE\"]\n\nReport:\n\nLine 1: Successful Swipes: <count of SWIPE transactions that deducted fare>\nLine 2: Refused Swipes: <count of SWIPE transactions that did not deduct>\nLine 3: Topups: <count of TOPUP transactions>\nLine 4: Final Balance: <integer balance at the end>\nLine 5: Lowest Balance: <the smallest balance ever held, including the start>\n\nAll values are integers.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "finite state machines processing a fixed input sequence",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0089",
+   "title": "Parking Garage Stall Scanner",
+   "prompt": "You manage a parking garage and need to analyze the occupancy status of stalls on the second level. The stalls are numbered 1 to 12. The current occupancy is recorded as an array of Bool values where true means occupied and false means free.\n\nOccupancy array: [false, false, true, true, true, false, true, true, false, false, false, true]\n\nWrite a program to report the following statistics:\n\n1. Count the total number of free stalls.\n2. Find the number of the first free stall (lowest number) that is occupied. If none, report 0.\n3. Find the longest consecutive run of occupied stalls and its length.\n4. Find the longest consecutive run of free stalls and its length.\n5. Count how many pairs of adjacent stalls exist where both are free.\n\nOutput format (exactly these 5 lines, no extra spaces):\nTotal free stalls: N\nFirst occupied stall: N\nLongest occupied run: N\nLongest free run: N\nAdjacent free pairs: N",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0090",
+   "title": "Ferry Passenger Window Scan",
+   "prompt": "A small ferry records the number of passengers seated in each of 10 rows. The captain wants to find windows of rows that together carry a specific number of passengers.\n\nPassenger counts per row: [12, 8, 15, 15, 9, 6, 11, 14, 14, 14]\n\nWrite a program to report:\n\n1. The number of rows that have at least 12 passengers.\n2. The starting row number of the first window of 3 consecutive rows where each row has at least 12 passengers. If none, report 0.\n3. The longest run of consecutive rows that each have fewer than 10 passengers, and its length.\n4. The number of the last row that has exactly 14 passengers.\n5. The total number of passengers in the longest window of 4 consecutive rows with the highest combined total (report the starting row number of that window).\n\nOutput format (exactly these 5 lines, no extra spaces):\nRows with 12+: N\nFirst high window: N\nLongest low run: N\nLast row of 14: N\nBest window start: N",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0091",
+   "title": "Recipe Book Ingredient Scan",
+   "prompt": "A recipe book lists the number of grams of a key spice used in each of 12 recipes, in order. The chef wants to find patterns in spice usage.\n\nSpice grams per recipe: [2, 2, 5, 5, 5, 5, 1, 3, 3, 4, 4, 4]\n\nWrite a program to report:\n\n1. The total number of recipes that use at least 3 grams of spice.\n2. The starting recipe number of the first window of 4 consecutive recipes where each uses at least 4 grams. If none, report 0.\n3. The longest consecutive run of recipes that each use exactly 5 grams, and its length.\n4. The number of the last recipe that uses exactly 2 grams.\n5. The number of adjacent recipe pairs where the second uses strictly more spice than the first.\n\nOutput format (exactly these 5 lines, no extra spaces):\nRecipes 3+: N\nFirst heavy window: N\nLongest 5-gram run: N\nLast light recipe: N\nIncreasing pairs: N",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0092",
+   "title": "Vending Machine Stock Rows",
+   "prompt": "A vending machine has 10 shelves. The number of items remaining on each shelf is recorded. The restocker wants to find which sections need attention.\n\nItems per shelf: [0, 0, 7, 7, 7, 0, 0, 0, 9, 9]\n\nWrite a program to report:\n\n1. The number of shelves that are completely empty (0 items).\n2. The starting shelf number of the first window of 3 consecutive empty shelves. If none, report 0.\n3. The longest consecutive run of shelves with at least 7 items, and its length.\n4. The number of the last shelf that has exactly 7 items.\n5. The number of adjacent shelf pairs where both shelves have at least 5 items.\n\nOutput format (exactly these 5 lines, no extra spaces):\nEmpty shelves: N\nFirst empty window: N\nLongest stocked run: N\nLast shelf of 7: N\nStrong pairs: N",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0093",
+   "title": "Cinema Seat Row Scan",
+   "prompt": "A small cinema has 14 rows. The number of tickets sold per row is recorded for a sold-out showing. The manager wants to find patterns in seat demand.\n\nTickets per row: [18, 18, 18, 12, 12, 20, 20, 20, 20, 15, 15, 15, 20, 20]\n\nWrite a program to report:\n\n1. The total number of tickets sold.\n2. The starting row number of the first window of 3 consecutive rows where each sold at least 18 tickets. If none, report 0.\n3. The longest consecutive run of rows that each sold exactly 15 tickets, and its length.\n4. The number of the last row that sold exactly 12 tickets.\n5. The number of adjacent row pairs where the second row sold strictly fewer tickets than the first.\n\nOutput format (exactly these 5 lines, no extra spaces):\nTotal tickets: N\nFirst full window: N\nLongest mid run: N\nLast row of 12: N\nDeclining pairs: N",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0094",
+   "title": "Locker Room Towel Counts",
+   "prompt": "A gym locker room tracks how many clean towels are on each of 11 shelves. The attendant wants to find stretches of shelves needing restocking.\n\nTowels per shelf: [4, 4, 4, 4, 0, 0, 6, 6, 6, 6, 6]\n\nWrite a program to report:\n\n1. The number of shelves that need restocking (fewer than 5 towels).\n2. The starting shelf number of the first window of 3 consecutive shelves that each need restocking. If none, report 0.\n3. The longest consecutive run of shelves with at least 6 towels, and its length.\n4. The number of the last shelf that has exactly 4 towels.\n5. The number of adjacent shelf pairs where both shelves have at least 4 towels.\n\nOutput format (exactly these 5 lines, no extra spaces):\nShelves needing towels: N\nFirst restock window: N\nLongest well-stocked run: N\nLast shelf of 4: N\nAdequate pairs: N",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "searching and scanning arrays (pairs, windows of fixed size, longest runs, first/last occurrences)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0095",
+   "title": "Robot Delivery Route Ranking",
+   "prompt": "A delivery robot has visited 8 drop-off points today. Each point is identified by a 2-letter code and has a delivery time in seconds. The data is:\n\nCode: A1, Time: 45\nCode: B2, Time: 30\nCode: C3, Time: 52\nCode: D4, Time: 30\nCode: E5, Time: 61\nCode: F6, Time: 45\nCode: G7, Time: 22\nCode: H8, Time: 55\n\nRank the drop-off points from fastest (smallest time) to slowest. Points with equal times share the same rank. Ties are broken alphabetically by code (e.g., B2 before D4).\n\nOutput format: exactly 8 lines. Each line has the rank as an integer, a space, the code, a space, and the time as an integer, then a space and the word \"seconds\". For example, if a point ranked 1 had code Z9 and time 10, the line would be: 1 Z9 10 seconds\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0096",
+   "title": "Bakery Price Tag Ordering",
+   "prompt": "A bakery has six items with the following prices in dollars:\n\nCroissant: 3.75\nMuffin: 2.50\nSourdough Loaf: 5.25\nCinnamon Roll: 3.75\nBaguette: 4.00\nBlueberry Tart: 6.50\n\nList the items sorted by price from lowest to highest. Items with the same price keep their original order of appearance in the list above (Croissant appears before Cinnamon Roll).\n\nOutput format: exactly 6 lines. Each line is: the position (1-based integer), a space, the item name, a space, a dollar sign, then the price with exactly 2 decimal places. For example: 1 Muffin $2.50\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0097",
+   "title": "Music Playlist Play Count",
+   "prompt": "A music app shows play counts for five songs:\n\n\"Sunny Day\": 120\n\"Rainy Night\": 85\n\"Morning Coffee\": 120\n\"Evening Walk\": 60\n\"Late Study\": 95\n\nList the songs sorted by play count from highest to lowest. Songs with equal counts are ordered alphabetically by title.\n\nOutput format: exactly 5 lines. Each line is: rank as an integer, a space, the play count as an integer, a space, the word \"plays\", a space, a colon, a space, then the song title in double quotes. For example: 1 120 plays: \"Sunny Day\"\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0098",
+   "title": "School Class Grade Ranking",
+   "prompt": "A teacher has graded five students in a class:\n\nTom: 88\nSusan: 95\nKevin: 72\nLaura: 88\nDerek: 95\n\nRank the students from highest grade to lowest. Students with the same grade share the same rank. When two students share a rank, they are listed alphabetically by name.\n\nOutput format: exactly 5 lines. Each line is: rank as an integer, a space, the student name, a space, a colon, a space, the grade as an integer. For example: 1 Susan: 95\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0099",
+   "title": "Recipe Book Prep Time",
+   "prompt": "A recipe book lists six dishes with their preparation times in minutes:\n\nGarden Salad: 10\nGrilled Chicken: 25\nPasta Primavera: 18\nBeef Stew: 45\nFruit Smoothie: 5\nCaesar Salad: 12\n\nList the dishes sorted by prep time from shortest to longest. If two dishes have the same prep time, list them alphabetically by dish name.\n\nOutput format: exactly 6 lines. Each line is: position as an integer, a space, the dish name, a space, a hyphen, a space, the prep time as an integer, a space, the word \"min\". For example: 1 Fruit Smoothie - 5 min\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0100",
+   "title": "Classroom Seating Chart Height",
+   "prompt": "A teacher measures the heights (in cm) of six students for a new seating chart:\n\nMia: 145\nNoah: 152\nOlivia: 138\nLiam: 152\nEmma: 140\nAva: 145\n\nArrange the students from shortest to tallest for the seating chart. Students with the same height are ordered alphabetically by name.\n\nOutput format: exactly 6 lines. Each line is: seat number as an integer (1 for shortest), a space, the student name, a space, a hyphen, a space, the height as an integer, a space, the word \"cm\". For example: 1 Olivia - 138 cm\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0101",
+   "title": "Library Fiction Shelf Sorting",
+   "prompt": "A librarian has five fiction books with these page counts:\n\n\"The River\": 210\n\"Mountain Peak\": 345\n\"Desert Storm\": 210\n\"Ocean Deep\": 178\n\"Forest Path\": 289\n\nSort the books by page count from shortest to longest. Books with equal page counts are ordered alphabetically by title (compare character by character).\n\nOutput format: exactly 5 lines. Each line is: shelf position as an integer (1-based), a space, the title in double quotes, a space, a colon, a space, the page count as an integer, a space, the word \"pages\". For example: 1 \"Ocean Deep\": 178 pages\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  },
+  {
+   "id": "dst_f1_20261103_0102",
+   "title": "Swim Meet Lane Assignment",
+   "prompt": "A swim coach is assigning lanes based on seed times (in seconds) for six swimmers:\n\nAlex: 32.5\nBlake: 29.8\nCasey: 31.0\nDrew: 32.5\nEmery: 28.4\nFinley: 31.0\n\nAssign lanes 1 through 6 where lane 1 goes to the fastest (smallest seed time) and lane 6 to the slowest. Swimmers with equal seed times are ordered alphabetically by name.\n\nOutput format: exactly 6 lines. Each line is: lane number as an integer, a space, the word \"Lane\", a space, the lane number again as an integer, a colon, a space, the swimmer name, a space, a hyphen, a space, the seed time with exactly 1 decimal place. For example: Lane 1: Emery - 28.4\n\nNo trailing spaces on any line.",
+   "expected_stdout": "",
+   "hide_expected_stdout": true,
+   "reference_solution": "",
+   "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+   "achievability": "distill-candidate"
+  }
+ ],
+ "requests": [
+  {
+   "t0": 1793681531.7,
+   "t1": 1793681675.6,
+   "model": "large-open",
+   "job": "04dd1767-ba08-4798-a084-e286711bc781"
+  },
+  {
+   "t0": 1793681675.7,
+   "t1": 1793681787.8,
+   "model": "large-open",
+   "job": "44a168af-a0d4-4e8f-99a3-6c1d0858612a"
+  },
+  {
+   "t0": 1793681787.8,
+   "t1": 1793681834.4,
+   "model": "large-open",
+   "job": "70717291-245f-4dbe-a5cb-a5a938688cab"
+  },
+  {
+   "t0": 1793681834.5,
+   "t1": 1793681897.3,
+   "model": "large-open",
+   "job": "ee0670dc-db1a-4227-839a-e437420ba0cf"
+  },
+  {
+   "t0": 1793681897.4,
+   "t1": 1793681977.1,
+   "model": "large-open",
+   "job": "422da187-fc59-44ab-998a-b66c57c41c6c"
+  },
+  {
+   "t0": 1793681977.2,
+   "t1": 1793682036.8,
+   "model": "large-open",
+   "job": "d3b722b5-68a9-4add-a5a1-41ea3cccdbb9"
+  },
+  {
+   "t0": 1793682037.0,
+   "t1": 1793682101.5,
+   "model": "large-open",
+   "job": "755c4621-178b-4e11-a0c0-c6b0fdc7fe70"
+  },
+  {
+   "t0": 1793682101.7,
+   "t1": 1793682195.6,
+   "model": "large-open",
+   "job": "ea4d0867-6a22-4d9f-b2c6-b35b25cc3da2"
+  },
+  {
+   "t0": 1793682195.7,
+   "t1": 1793682235.2,
+   "model": "large-open",
+   "job": "bba3081d-75ec-4b7f-849f-30a73cf4be7d"
+  },
+  {
+   "t0": 1793682235.3,
+   "t1": 1793682420.7,
+   "model": "large-open",
+   "job": "0dab7d24-2dfa-465e-9db5-41539595572d"
+  },
+  {
+   "t0": 1793682421.4,
+   "t1": 1793682479.0,
+   "model": "large-open",
+   "job": "a3330a95-f9e0-4215-b849-482fbad6b99e"
+  },
+  {
+   "t0": 1793682479.1,
+   "t1": 1793682531.6,
+   "model": "large-open",
+   "job": "d67476d2-a864-4b2d-9445-7167a977691c"
+  },
+  {
+   "t0": 1793682531.7,
+   "t1": 1793682578.2,
+   "model": "large-open",
+   "job": "540a0ff2-5307-4658-b7e4-20504b2a5151"
+  }
+ ]
+}

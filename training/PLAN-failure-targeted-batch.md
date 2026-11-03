@@ -22,8 +22,8 @@ nothing certain about the MoE, which would need its own run if this works.
      failure's class (coded, return code, wrong output).
    - The model's programs are only read for pass or fail. They never reach a pair. An offline test in
      `training/test_distill_offline.py` checks that.
-   - On the 8-bit Mac form if that exists by then, otherwise on host-c at 16-bit. Which weights filter hardly matters,
-     since this step only picks tasks.
+   - On the 8-bit Mac form (`training_runs/gemma4-12b-v2-q8/`), so no host-c time. Which weights filter hardly matters, since this
+     step only picks tasks.
 3. **Solve with the guide:** see the decision below.
 4. **Harvest and gates:** exact stdout against Python, `aether_specialization_check_pairs.py`, the dataset gates. Each pair's
    provenance gains the filter model and failure class.
@@ -46,10 +46,21 @@ solver tags and the write-up counts them.
 replaces the guesses below with three measured numbers: how often Gemma fails fresh tasks, by class; how much time each stage
 takes; and what share of the failures the solvers can solve.
 
-**Rough scale, to be replaced by the pilot:** matching d5's 286 pairs, for a direct comparison, takes about 1,350 tasks if
-Gemma fails 25% of them and the solvers get 85% of those. At d5's rates that is a few hours of task writing and up to a
-day of Python, and at 16-bit on host-c about 17 hours of filtering (about 45 s a task). The owner can set a lower target
-after the pilot. All of it runs unattended, and the MiMo stages share T'Ra's queue.
+**Result, 2026-11-03 (`distill/f1-20261103/`, `pilot_report.py` prints these):**
+
+- **The sample is incomplete.** The category rotation starts with the 14 plain categories, and 13 requests reached only 13 of
+  them. The batch has no JSON, file or map tasks, which make up about half of d5's rotation and are where Gemma trails most on
+  the board. These numbers describe plain tasks only.
+- **Filter:** the 8-bit fine-tune failed 19 of 100: 11 wrong output, 6 coded, 2 return code. Wrong output is the class most
+  likely not to respond to more examples (see Limits).
+- **Solvers:** the guided 27B solved 15 of the 19, 13 of them first time, a lower first-attempt rate than its roughly 85% on d5's
+  unfiltered tasks. MiMo solved the other 4, checked only against its own Python.
+- **Time:** task writing 17 min, Python 13 min, filter 25 min (15 s a task), 27B 11 min, MiMo 1 min. Provenance is clean: all
+  124 open-lane requests were served by MiMo.
+
+**Scale, from those plain tasks:** matching d5's 286 pairs takes about 1,500 frozen tasks, which is about 4 hours of task writing,
+3 of Python, 6 of filtering at 8 bits on the Mac and 3 of solving. Duplicates already took 16% of what the writer returned, and
+that may rise. The owner can set a lower target. All of it runs unattended, and the MiMo stages share T'Ra's queue.
 
 ## Runs
 
