@@ -119,3 +119,21 @@ be read as more than that.
   the guide is the better advice for hard tasks on such a machine.
 - **Scoring time hints at the cost.** This 12B took about four times as long to score as the MoE, whose active parameter
   count is about 3B. That may be the dense model's cost per token. It was not measured separately, so the Mac test should.
+
+## Published (2026-11-03)
+
+The final step is public under apache-2.0, with `google/gemma-4-12B-it` as its base. The cards are
+`training/config/hf_release/README.gemma.{merged,lora}.md`.
+
+| repo | Hub revision | weights | SHA-256 starts |
+|---|---|---|---|
+| `emkey1/Gemma-4-12B-Aether` | `f50652224d82` | `model.safetensors`, 23.9 GB, one file | `cee81587546e80c9` |
+| `emkey1/Gemma-4-12B-Aether-LoRA` | `e17a798a09bf` | `adapter_model.safetensors`, 525 MB | `459ce08deb9a7879` |
+
+- **Same bytes:** the merged file's hash matches the export copied to the Mac for the 8-bit and 4-bit forms, and the adapter's
+  matches `train/final`. The one change is the adapter config's `base_model_name_or_path`, now the Hub id.
+- **Checked before going public:** every file against its local hash, with both repos still private.
+- **Checked after, with no token:** both repos are open, the cards match the committed ones, and the adapter config, merged
+  config and both tokenizers load from the Hub. The chat template renders one BOS.
+- **Not checked:** downloading the published weights and generating from them.
+- **Upload time:** 3 h 8 min for both repos.
