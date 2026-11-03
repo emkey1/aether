@@ -15,12 +15,12 @@ pipeline_tag: text-generation
 
 # Gemma-4-12B-Aether
 
-> **Repositories:** adapter [emkey1/Gemma-4-12B-Aether-LoRA](https://huggingface.co/emkey1/Gemma-4-12B-Aether-LoRA) · merged [emkey1/Gemma-4-12B-Aether](https://huggingface.co/emkey1/Gemma-4-12B-Aether) · larger siblings [emkey1/Qwen3.6-35B-A3B-Aether](https://huggingface.co/emkey1/Qwen3.6-35B-A3B-Aether), [emkey1/Qwen3.8-27B-Aether](https://huggingface.co/emkey1/Qwen3.8-27B-Aether)
+> **Repositories:** 8-bit for Ollama [emkey1/Gemma-4-12B-Aether-int8](https://huggingface.co/emkey1/Gemma-4-12B-Aether-int8) · adapter [emkey1/Gemma-4-12B-Aether-LoRA](https://huggingface.co/emkey1/Gemma-4-12B-Aether-LoRA) · merged [emkey1/Gemma-4-12B-Aether](https://huggingface.co/emkey1/Gemma-4-12B-Aether) · larger siblings [emkey1/Qwen3.6-35B-A3B-Aether](https://huggingface.co/emkey1/Qwen3.6-35B-A3B-Aether), [emkey1/Qwen3.8-27B-Aether](https://huggingface.co/emkey1/Qwen3.8-27B-Aether)
 
 This repository: the **merged** bf16 model (the adapter folded into the base weights).
 
 A LoRA fine-tune of [google/gemma-4-12B-it](https://huggingface.co/google/gemma-4-12B-it) that writes **Aether** programs
-with no language guide in the prompt. At 8 bits it is a 12 GB model, the smallest in this family.
+with no language guide in the prompt. At 8 bits it is a 12 GB model, the smallest in this family, and [ready to download](https://huggingface.co/emkey1/Gemma-4-12B-Aether-int8).
 
 [Aether](https://github.com/emkey1/aether) is a small, statically typed language with explicit effects
 (`fx { }` blocks), contracts (`@pre` / `@post`), records with methods, arrays and 2-D arrays, maps
@@ -63,9 +63,10 @@ which the model sees the compiler's diagnostic and the observed output.
   gains carry beyond the tasks the data was developed against.
 - **Eight bits cost little:** only 8 of 126 first attempts differ from bf16 (2 gained, 6 lost). The two forms also differ in serving
   stack, so this cannot split the two effects.
-- **Four bits cost much more, so do not go below 8 bits:** nvfp4 (8.0 GB) scores 58 (65) on main and 21 (26) on held-out, and mxfp4
-  (7.7 GB) 55 (59) and 22 (28). Against int8 they take 5 tasks to 19 and 6 tasks to 22 on first attempts. NVFP4 with 4-bit activations
-  on vLLM (8.25 GB) scored 53 (60) and 16 (23), at about 3 times the 16-bit speed on one GPU host.
+- **Four bits cost much more, so do not go below 8 bits:** Ollama's nvfp4 (8.0 GB) scores 58 (65) on main and 21 (26) on held-out, and
+  its mxfp4 (7.7 GB) 55 (59) and 22 (28), even though both keep 41 of the 329 quantized tensors at 8 bits, about a third of the file. Against
+  int8 they take 5 tasks to 19 and 6 tasks to 22 on first attempts. NVFP4 with 4-bit activations on vLLM (8.25 GB) scored 53 (60) and
+  16 (23), at about 3 times the 16-bit speed on one GPU host.
 - **Failures:** on first attempts at bf16, 14 are compiler diagnostics, 7 wrong return codes and 8 wrong output. Wrong output
   gives a repair round no diagnostic to work from, so use the compiler and your own tests.
 - The base's columns: no guide at int8, with the guide at Ollama's `q8_0`.
@@ -121,8 +122,10 @@ The model was trained with thinking **off** and with **no system message**. Serv
 
 - **Ollama** (OpenAI-compatible `/v1`): send `"reasoning_effort": "none"`. On native `/api/chat`, send `"think": false`; with
   neither, thinking turns on and the model has not been trained for that.
-  - Import the merged safetensors with `ollama create -q int8`. That gives the 12 GB model tested for this card.
-  - Set the context in a Modelfile (`PARAMETER num_ctx 32768`); `/v1` ignores per-request context options.
+  - The 12 GB model tested for this card is [emkey1/Gemma-4-12B-Aether-int8](https://huggingface.co/emkey1/Gemma-4-12B-Aether-int8), so there is nothing to quantize. It was built by
+    importing the merged safetensors with `ollama create -q int8`.
+  - Set the context in a Modelfile (`PARAMETER num_ctx 32768`); `/v1` ignores per-request context options. The int8 repository's
+    Modelfile already does.
 - **vLLM**: pass `chat_template_kwargs={"enable_thinking": false}` with each request.
   - This is how the bf16 scores above were measured, on vLLM 0.25.1 with `--max-model-len 32768`.
 - **Prompt:** with thinking off, the template ends the prompt in an empty thought channel,

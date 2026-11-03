@@ -10,6 +10,9 @@ tests that.
 The recipe of `../gemma4-12b-v2-q8/`; only the quantization changes.
 - **Model:** the merged 16-bit export of `gemma4-12b-v2`, imported into Ollama with `ollama create -q <format>`, each
   copied with a 32K context.
+- **Neither form is all 4-bit.** Read from the tensor files: 288 of the 329 quantized tensors are at the named format, and Ollama keeps
+  41 at mxfp8, 2.63 GB of each file (`embed_tokens`, 24 of the 48 `down_proj` and 16 of the 40 `v_proj`). 4-bit activations are not
+  involved, unlike the plain build in `../gemma4-12b-v2-nvfp4/`.
 - **Settings:** T=0, seed 42, one repeat, two repair rounds, 8,192 output tokens, thinking off
   (`"reasoning_effort": "none"`). Grader: the 1.0 release binary, checked by hash.
 - **Memory:** Ollama's resident size is logged after every suite, because Gemma's int8 copy grew from 15 GB to 21 GB over a pass.
