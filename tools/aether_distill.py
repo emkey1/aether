@@ -9,11 +9,18 @@ tasks, solved twice by independent models, kept only where both agree.
     python3 tools/aether_distill.py BATCH python-cmd               # harness command: MiMo writes Python, output hidden
     python3 tools/aether_distill.py BATCH freeze                   # Python stdout becomes each task's expected stdout
     python3 tools/aether_distill.py BATCH provenance               # every generation request served by an allowed model?
+    python3 tools/aether_distill.py BATCH filter-cmd               # optional: harness command, a fine-tune answers unguided
+    python3 tools/aether_distill.py BATCH filter                   # optional: split the frozen tasks by that pass or fail
     python3 tools/aether_distill.py BATCH aether-cmd               # harness command: guided base model writes Aether
     python3 tools/aether_distill.py BATCH harvest                  # exact Aether programs -> instruction pairs
 
 BATCH is a directory under training/distill/. Every stage
 reads and writes files there and can be re-run; `tasks` appends until --count.
+
+Filter: a batch aimed at a fine-tune's own failures has that fine-tune answer each frozen task as the board would ask
+(no guide, no repair). `filter` writes tasks_failed.json and tasks_passed.json with the model's name and each failure's
+class. It reads the model's programs only for pass or fail: they never reach those files or a pair. `aether-cmd --from
+failed` and `harvest --from failed` then work on that split.
 
 Correctness: a pair is kept only when the guided model's Aether prints exactly
 what an independently written Python program (another model) prints for the same
@@ -424,16 +431,67 @@ def stage_freeze(args) -> int:
     return 0
 
 
+def stage_filter_cmd(args) -> int:
+    out = batch_dir(args.batch)
+    print(harness_cmd(args, tasks=str(out / "tasks_frozen.json"), report=str(out / "filter.json"),
+                      extra=["--docs none --repair-attempts 0"]))
+    return 0
+
+
+def filter_failure_class(run: dict) -> str | None:
+    """None for a pass; otherwise coded, rc or wrong, as the fine-tune RESULTS tables count them."""
+    if run.get("exact_stdout_match") and run.get("returncode") == run.get("expected_returncode"):
+        return None
+    if re.search(r"\b[A-Z]{2,}-\d{3}\b", str(run.get("stderr") or "")):
+        return "coded"
+    return "wrong" if run.get("returncode") in (None, run.get("expected_returncode")) else "rc"
+
+
+def stage_filter(args) -> int:
+    out = batch_dir(args.batch)
+    frozen = load_json(out / "tasks_frozen.json", None)
+    report = load_json(out / "filter.json", None)
+    if frozen is None or report is None:
+        raise SystemExit("need tasks_frozen.json and filter.json: run freeze and the filter-cmd command first")
+    destination = report["destinations"][0]
+    variant = destination["variants"][0]
+    if variant.get("doc_name") != "none":
+        raise SystemExit(f"filter.json has a guide ({variant.get('doc_name')}): the filter is unguided")
+    results = {r.get("task_id"): r for r in variant["results"]}
+    model = destination.get("model")
+    failed, passed, classes, unmeasured = [], [], {}, []
+    for task in frozen["tasks"]:
+        result = results.get(task["id"])
+        attempts = (result or {}).get("attempts") or []
+        # A task the harness could not measure says nothing about the model, so it joins neither split.
+        if result is None or result.get("infra_failed") or not attempts:
+            unmeasured.append(task["id"])
+            continue
+        failure = filter_failure_class(attempts[0].get("run") or {})
+        if failure is None:
+            passed.append(task | {"filter": {"model": model, "first_attempt": "pass"}})
+        else:
+            classes[failure] = classes.get(failure, 0) + 1
+            failed.append(task | {"filter": {"model": model, "first_attempt": failure}})
+    for name, tasks in (("failed", failed), ("passed", passed)):
+        save_json(out / f"tasks_{name}.json", frozen | {"description": f"frozen tasks {model} {name} unguided",
+                                                        "tasks": tasks})
+    measured = len(failed) + len(passed)
+    print(f"{model}: failed {len(failed)} of {measured} measured ({100 * len(failed) / max(measured, 1):.0f}%), "
+          f"by class {classes}; unmeasured {len(unmeasured)}")
+    return 1 if unmeasured else 0
+
+
 def stage_aether_cmd(args) -> int:
     out = batch_dir(args.batch)
-    print(harness_cmd(args, tasks=str(out / "tasks_frozen.json"), report=str(out / "aether.json"),
+    print(harness_cmd(args, tasks=str(out / f"tasks_{args.split}.json"), report=str(out / "aether.json"),
                       extra=[f"--docs {args.docs} --repair-attempts 2"]))
     return 0
 
 
 def stage_harvest(args) -> int:
     out = batch_dir(args.batch)
-    frozen = {t["id"]: t for t in load_json(out / "tasks_frozen.json", {"tasks": []})["tasks"]}
+    frozen = {t["id"]: t for t in load_json(out / f"tasks_{args.split}.json", {"tasks": []})["tasks"]}
     report = load_json(out / "aether.json", None)
     if report is None:
         raise SystemExit("no aether.json yet: run the aether-cmd command first")
@@ -463,6 +521,8 @@ def stage_harvest(args) -> int:
                                       "grader": report.get("aether_version"),
                                       "generator_models": sorted((provenance or {}).get("requests_by_model", {})),
                                       "generator_pool": (provenance or {}).get("pool")}}
+        if task.get("filter"):
+            pair["_provenance"]["filter"] = task["filter"]
         if task.get("files"):
             pair["files"] = task["files"]
         pairs.append(pair)
@@ -523,8 +583,10 @@ def load_gz(path: pathlib.Path):
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("batch")
-    ap.add_argument("stage", choices=["tasks", "python-cmd", "freeze", "provenance", "aether-cmd", "harvest",
-                                      "harvest-python"])
+    ap.add_argument("stage", choices=["tasks", "python-cmd", "freeze", "provenance", "filter-cmd", "filter",
+                                      "aether-cmd", "harvest", "harvest-python"])
+    ap.add_argument("--from", dest="split", choices=["frozen", "failed", "passed"], default="frozen",
+                    help="aether-cmd, harvest: which tasks to solve and keep (failed and passed come from the filter)")
     ap.add_argument("--with-maps", action="store_true",
                     help="tasks stage: add the keyed-data categories (Map[Text, T], language 1.0) to the rotation, "
                     "twice each")
@@ -564,7 +626,8 @@ def main() -> int:
         raise SystemExit("set --proxy-host or AETHER_DISTILL_PROXY_HOST in the private fleet overlay "
                          f"({fleet_env.path()})")
     return {"harvest-python": stage_harvest_python, "provenance": stage_provenance, "tasks": stage_tasks, "python-cmd": stage_python_cmd, "freeze": stage_freeze,
-            "aether-cmd": stage_aether_cmd, "harvest": stage_harvest}[args.stage](args)
+            "filter-cmd": stage_filter_cmd, "filter": stage_filter, "aether-cmd": stage_aether_cmd,
+            "harvest": stage_harvest}[args.stage](args)
 
 
 if __name__ == "__main__":
