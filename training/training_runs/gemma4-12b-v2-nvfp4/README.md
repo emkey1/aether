@@ -20,8 +20,8 @@ host-c, on the final step of `../gemma4-12b-v2/`.
 
 `speed.sh` measures NVFP4 and the 16-bit merge, each with and without `--enforce-eager`, with `measure_speed.py`. `score.sh` runs
 the eight suites with the 16-bit scoring's flags. `recipes.sh` then builds and scores two more careful recipes the owner asked for after the
-plain build lost accuracy: attention left at 16-bit (`mlp_only`), and smoothing before quantizing (`awq_lite`). Copy the reports here as `score/tuned__<suite>.json.gz` with
-`bench/results/pack_reports.py`.
+plain build lost accuracy: attention left at 16-bit (`mlp_only`), and smoothing before quantizing (`awq_lite`). Copy the reports here as `score/tuned__<suite>.json.gz`, or
+`score_<recipe>/` for a recipe, with `bench/results/pack_reports.py`.
 
 ## Speed
 
@@ -33,7 +33,8 @@ The first eleven algorithm-suite prompts, no guide, the median of the ten answer
 | 16-bit | 7.9 tok/s | 8.0 tok/s | about 22 GiB |
 
 NVFP4 is 3 times as fast, about the ratio of the two sizes. That suggests memory bandwidth sets the speed of this dense model here,
-though this measurement does not isolate it. The eager flag makes no real difference to either.
+though this measurement does not isolate it. The eager flag makes no real difference to either. `mlp_only`, measured with the scoring
+flags, generates at 9.0 tok/s, so leaving attention at 16-bit gives back nearly all of the gain.
 
 ## Scores
 
@@ -44,6 +45,7 @@ unrelated to this run, and the suite resumed from its checkpoint.
 | | size | main (73) | held-out (53) | all (126) |
 |---|---:|---|---|---|
 | **NVFP4, plain recipe** | **8.25 GB** | **53 (60)** | **16 (23)** | **69 (83)** |
+| **NVFP4, `mlp_only`** | **11.7 GB** | **55 (65)** | **23 (29)** | **78 (94)** |
 | 16-bit (`../gemma4-12b-v2/`) | 24 GB | 67 (69) | 30 (36) | 97 (105) |
 | int8 (`../gemma4-12b-v2-q8/`) | 12 GB | 65 (70) | 28 (36) | 93 (106) |
 | untrained + guide, q8_0 | 12 GB | 48 (67) | 26 (41) | 74 (108) |
@@ -54,4 +56,13 @@ unrelated to this run, and the suite resumed from its checkpoint.
   An example from the smoke task is `fxlprintln`, a garbled identifier in an otherwise right program. So the noise reaches
   individual tokens.
 - **No build fault found:** fused layers share scales, no scale is zero or infinite, and the K-for-V layers copy their scales too.
-  This is the plainest recipe, so it says little about NVFP4 in general; `recipes.sh` tests two more careful ones.
+  Published W4A4 tests on Llama and Qwen models of 8B and up keep 94.7 to 99.8% of the 16-bit score with plain rounding
+  (arXiv 2509.23202), and this keeps 71%, so it says little about NVFP4 in general.
+- **`mlp_only` gives back the speed but not the scores.** It is about int8's size and loses to it, 7 tasks to 22 on first attempts
+  (p=0.008) and 6 to 18 after repair (p=0.02). The plain recipe is not separable from it, 12 to 21 (p=0.16) and 13 to 24 (p=0.10), so
+  quantizing the MLP layers alone costs most of the loss. Only 22 first programs match the 16-bit run's, against 17 for the plain
+  recipe and 78 for int8. Its failures are 32 coded (18 of them SYN-001), 4 return code and 12 wrong output on first attempts. The
+  suites ran with no infrastructure failures or empty answers, two length caps on one task, and all 126 prompts byte-identical.
+- **`awq_lite` builds but cannot be served here, so it has no score.** ModelOpt writes `quant_algo: NVFP4_AWQ` and 96
+  `pre_quant_scale` tensors, on `mlp.down_proj` and `self_attn.o_proj` in each layer. vLLM 0.25.1 rejects that algorithm. Relabelling
+  the build as `NVFP4` might load it, but it would drop scales the weights were rescaled to go with, and so measure something else.
