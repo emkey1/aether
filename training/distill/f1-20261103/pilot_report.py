@@ -55,11 +55,11 @@ def short(category: str) -> str:
 
 
 def main() -> None:
+    global HERE
     ap = argparse.ArgumentParser()
     ap.add_argument("--batch", type=pathlib.Path, default=HERE)
     ap.add_argument("--target", type=int, default=286, help="pairs to scale the batch to (d5 added 286)")
     args = ap.parse_args()
-    global HERE
     HERE = args.batch
     doc = json.loads((HERE / "tasks.json").read_text(encoding="utf-8"))
     frozen = json.loads((HERE / "tasks_frozen.json").read_text(encoding="utf-8"))["tasks"]
