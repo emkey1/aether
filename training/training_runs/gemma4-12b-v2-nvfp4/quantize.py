@@ -3,7 +3,7 @@
 
     python3 quantize.py --model MERGED_16BIT --data aether_instruction_sft.jsonl --out OUT [--samples 64]
 
-W4A4: weights and inputs at 4 bits, which is the form Blackwell's FP4 kernels run. The inputs need calibrating. The
+W4A4: weights and inputs at 4 bits, which is the form hardware FP4 kernels run. The inputs need calibrating. The
 samples come only from the training data, so no benchmark task shapes the scales. The export keeps the base's non-weight
 files, as the merged export does, because the trainer's transformers rewrites config.json in a form vLLM cannot read.
 """

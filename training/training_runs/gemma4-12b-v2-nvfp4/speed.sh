@@ -1,5 +1,5 @@
 #!/bin/bash
-# NVFP4 against the 16-bit merge on one Blackwell host, in vLLM, with and without --enforce-eager (the flag the 16-bit
+# NVFP4 against the 16-bit merge on the training host, in vLLM, with and without --enforce-eager (the flag the 16-bit
 # scoring used). Leaves the host's other services up: they are idle, and the model fits beside them. See README.md.
 #
 #   tmux new -d -s gemmanvfp4 "bash speed.sh"

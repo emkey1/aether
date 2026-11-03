@@ -1,5 +1,5 @@
 #!/bin/bash
-# The NVFP4 build on Blackwell: no guide, the eight suites, the 1.0 grader and the serving flags of ../gemma4-12b-v2's 16-bit
+# The NVFP4 build on the training host: no guide, the eight suites, the 1.0 grader and the serving flags of ../gemma4-12b-v2's 16-bit
 # scoring. Only the weights change, and the GPU memory fraction, so it fits beside the host's idle services. See README.md.
 #
 #   tmux new -d -s gemmanvfp4score "bash score.sh"

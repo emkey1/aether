@@ -1,4 +1,4 @@
-# The Gemma 4 12B fine-tune at NVFP4 on Blackwell (set up 2026-11-03)
+# The Gemma 4 12B fine-tune at NVFP4 on the training host (set up 2026-11-03)
 
 The owner suggested NVFP4 might be quicker on NVIDIA hardware that supports it. A Mac cannot show that, so this run tests it on
 host-c, on the final step of `../gemma4-12b-v2/`.

@@ -2,7 +2,7 @@
 
 The final step of `../gemma4-12b-v2/` at nvfp4 and mxfp4, with no guide, on the eight suites, graded by the 1.0 release
 binary. It asks how far the model can shrink before its scores go: on e3, 4 bits cost a few held-out tasks. A Mac has no FP4
-hardware, so this run gives scores, sizes and memory, not the speed FP4 might gain on Blackwell. `../gemma4-12b-v2-nvfp4/`
+hardware, so this run gives scores, sizes and memory, not the speed FP4 might gain on hardware with FP4 kernels. `../gemma4-12b-v2-nvfp4/`
 tests that.
 
 ## Setup
