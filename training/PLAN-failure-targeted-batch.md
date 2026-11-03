@@ -46,21 +46,31 @@ solver tags and the write-up counts them.
 replaces the guesses below with three measured numbers: how often Gemma fails fresh tasks, by class; how much time each stage
 takes; and what share of the failures the solvers can solve.
 
-**Result, 2026-11-03 (`distill/f1-20261103/`, `pilot_report.py` prints these):**
+**Result, 2026-11-03: two slices, `distill/f1-20261103/` and `distill/f2-20261103/`.** `distill/f1-20261103/pilot_report.py
+[--batch DIR]` prints each. The rotation starts with the 14 plain categories, and f1's 13 requests never left them, so f2 took the
+JSON, file and map categories and the one plain category f1 missed.
 
-- **The sample is incomplete.** The category rotation starts with the 14 plain categories, and 13 requests reached only 13 of
-  them. The batch has no JSON, file or map tasks, which make up about half of d5's rotation and are where Gemma trails most on
-  the board. These numbers describe plain tasks only.
-- **Filter:** the 8-bit fine-tune failed 19 of 100: 11 wrong output, 6 coded, 2 return code. Wrong output is the class most
-  likely not to respond to more examples (see Limits).
-- **Solvers:** the guided 27B solved 15 of the 19, 13 of them first time, a lower first-attempt rate than its roughly 85% on d5's
-  unfiltered tasks. MiMo solved the other 4, checked only against its own Python.
-- **Time:** task writing 17 min, Python 13 min, filter 25 min (15 s a task), 27B 11 min, MiMo 1 min. Provenance is clean: all
-  124 open-lane requests were served by MiMo.
+| | plain (f1) | JSON, file, map (f2) | together |
+|---|---:|---:|---:|
+| frozen tasks | 100 | 146 | 246 |
+| **8-bit Gemma failed** | **19 (19%)** | **24 (16%)** | **43 (17%)** |
+| wrong output / coded / return code | 11 / 6 / 2 | 17 / 5 / 2 | 28 / 11 / 4 |
+| guided 27B solved (first time) | 15 (13) | 22 (16) | 37 (29) |
+| MiMo solved of the rest | 4 of 4 | 0 of 2 | 4 of 6 |
+| time: tasks / Python / filter / solve, min | 17 / 13 / 25 / 12 | 27 / 21 / 35 / 19 | 44 / 34 / 60 / 31 |
 
-**Scale, from those plain tasks:** matching d5's 286 pairs takes about 1,500 frozen tasks, which is about 4 hours of task writing,
-3 of Python, 6 of filtering at 8 bits on the Mac and 3 of solving. Duplicates already took 16% of what the writer returned, and
-that may rise. The owner can set a lower target. All of it runs unattended, and the MiMo stages share T'Ra's queue.
+- **The filter does find harder tasks.** The guided 27B solves 29 of the 43 first time (67%), against 85% on d5's unfiltered tasks.
+- **Failures cluster.** JSON tasks fail most: 14 of 33 (42%) across the three JSON categories. Map tasks barely fail, 7 of 88, and 5
+  of those are inverted indexes, mostly a substring match where the task means a whole word. A rotation naturally yields JSON-heavy pairs.
+- **Wrong output is two-thirds of failures,** so the limit below matters. Five of the 28 were read, and they are mixed: three
+  logic slips, and two silent JSON API errors, a wrong key or path falling through `toon_get_*_or` to its default so every value is
+  zero. The second kind is language knowledge that examples can teach.
+- **Provenance is clean** in both slices: every open-lane request was served by MiMo. Grader timeouts: none in the filter or
+  solver reports of f2, which ran while the Mac was under heavy unrelated load.
+
+**Scale, from both slices:** matching d5's 286 pairs takes about 1,700 frozen tasks, about 20 hours unattended: 5 of task writing,
+4 of Python, 7 of filtering at 8 bits on the Mac and 4 of solving. Duplicates took 16% of what the writer returned in f1, and that
+may rise. The owner can set a lower target. The MiMo stages share T'Ra's queue, and the Mac's GPU is taken for about 11 hours.
 
 ## Runs
 

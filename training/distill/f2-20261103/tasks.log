@@ -1,0 +1,21 @@
+06:37:49 'date-free calendar and time arithmetic i': 8 returned, 7 kept, 7 total, 138s, rejected so far {'duplicate': 1, 'board': 0, 'short': 0}
+06:39:10 'processing a small JSON document given i': 8 returned, 7 kept, 14 total, 81s, rejected so far {'duplicate': 2, 'board': 0, 'short': 0}
+06:41:34 'reading a small JSON data file provided ': 8 returned, 0 kept, 14 total, 144s, rejected so far {'duplicate': 2, 'board': 0, 'short': 0, 'bad_file': 8}
+06:43:05 'reading a small text data file provided ': 9 returned, 7 kept, 21 total, 90s, rejected so far {'duplicate': 4, 'board': 0, 'short': 0, 'bad_file': 8}
+06:44:25 'converting between a JSON document and f': 8 returned, 8 kept, 29 total, 80s, rejected so far {'duplicate': 4, 'board': 0, 'short': 0, 'bad_file': 8}
+06:46:01 'processing a small JSON document given i': 8 returned, 8 kept, 37 total, 96s, rejected so far {'duplicate': 4, 'board': 0, 'short': 0, 'bad_file': 8}
+06:48:25 'reading a small JSON data file provided ': 8 returned, 5 kept, 42 total, 144s, rejected so far {'duplicate': 7, 'board': 0, 'short': 0, 'bad_file': 8}
+06:50:36 'reading a small text data file provided ': 12 returned, 11 kept, 53 total, 131s, rejected so far {'duplicate': 8, 'board': 0, 'short': 0, 'bad_file': 8}
+06:51:26 'converting between a JSON document and f': 8 returned, 8 kept, 61 total, 50s, rejected so far {'duplicate': 8, 'board': 0, 'short': 0, 'bad_file': 8}
+06:52:02 'counting and tallying by a text key over': 8 returned, 7 kept, 68 total, 36s, rejected so far {'duplicate': 9, 'board': 0, 'short': 0, 'bad_file': 8}
+06:52:51 'grouping fixed records by a text key and': 8 returned, 7 kept, 75 total, 50s, rejected so far {'duplicate': 10, 'board': 0, 'short': 0, 'bad_file': 8}
+06:53:41 'lookups and joins between two small fixe': 9 returned, 8 kept, 83 total, 50s, rejected so far {'duplicate': 11, 'board': 0, 'short': 0, 'bad_file': 8}
+06:54:43 'applying a fixed list of add, remove and': 9 returned, 9 kept, 92 total, 62s, rejected so far {'duplicate': 11, 'board': 0, 'short': 0, 'bad_file': 8}
+06:55:36 'reverse lookups and simple inverted inde': 8 returned, 7 kept, 99 total, 53s, rejected so far {'duplicate': 12, 'board': 0, 'short': 0, 'bad_file': 8}
+06:56:40 'two-level grouping (totals per region pe': 8 returned, 8 kept, 107 total, 64s, rejected so far {'duplicate': 12, 'board': 0, 'short': 0, 'bad_file': 8}
+06:57:20 'counting and tallying by a text key over': 8 returned, 7 kept, 114 total, 41s, rejected so far {'duplicate': 13, 'board': 0, 'short': 0, 'bad_file': 8}
+06:58:06 'grouping fixed records by a text key and': 8 returned, 7 kept, 121 total, 46s, rejected so far {'duplicate': 14, 'board': 0, 'short': 0, 'bad_file': 8}
+06:59:44 'lookups and joins between two small fixe': 10 returned, 10 kept, 131 total, 98s, rejected so far {'duplicate': 14, 'board': 0, 'short': 0, 'bad_file': 8}
+07:00:29 'applying a fixed list of add, remove and': 8 returned, 8 kept, 139 total, 45s, rejected so far {'duplicate': 14, 'board': 0, 'short': 0, 'bad_file': 8}
+07:01:21 'reverse lookups and simple inverted inde': 8 returned, 8 kept, 147 total, 53s, rejected so far {'duplicate': 14, 'board': 0, 'short': 0, 'bad_file': 8}
+07:02:13 'two-level grouping (totals per region pe': 8 returned, 8 kept, 155 total, 52s, rejected so far {'duplicate': 14, 'board': 0, 'short': 0, 'bad_file': 8}

@@ -1,0 +1,1768 @@
+{
+ "version": "f2-20261103",
+ "description": "frozen tasks aether-gemma4-12b-v2-q8-32k passed unguided",
+ "tasks": [
+  {
+   "id": "dst_f2_20261103_0000",
+   "title": "Orchard Harvest Windows",
+   "prompt": "An orchard schedules harvest windows for 6 rows of apple trees. Each window is defined by a start time and an end time, both in minutes since midnight. Two windows overlap if they share any minute.\n\nThe windows are:\nRow A: start 420, end 510\nRow B: start 480, end 600\nRow C: start 570, end 660\nRow D: start 700, end 780\nRow E: start 750, end 840\nRow F: start 840, end 930\n\nWrite a program that for each row prints how many minutes of that row's window overlap with at least one OTHER row's window, and then prints the total combined unique working minutes across all rows.\n\nOutput exactly 7 lines.\n\nFor each row in order A through F, print:\nRow X: OOO min overlap\nwhere X is the row letter and OOO is a 3-digit zero-padded count of minutes in that row's window that are also inside at least one other row's window.\n\nThen print:\nUNIQUE TOTAL: UUU min\nwhere UUU is a 3-digit zero-padded count of minutes from minute 0 to minute 1439 that fall inside at least one window.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Row A: 030 min overlap\nRow B: 060 min overlap\nRow C: 030 min overlap\nRow D: 030 min overlap\nRow E: 030 min overlap\nRow F: 000 min overlap\nUNIQUE TOTAL: 470 min\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "date-free calendar and time arithmetic in minutes and seconds (no real dates, no leap years)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0001",
+   "title": "Beekeeper Honey Extraction",
+   "prompt": "A beekeeper extracts honey from 7 hives. Each hive yields a number of full jars and a partial jar measured in seconds (a full jar takes 300 seconds to fill). Write a program that processes the following yields and prints a summary.\n\nHive yields (jars, partial seconds):\nHive 1: 12 jars, 0 partial seconds\nHive 2: 8 jars, 145 partial seconds\nHive 3: 15 jars, 210 partial seconds\nHive 4: 10 jars, 0 partial seconds\nHive 5: 6 jars, 275 partial seconds\nHive 6: 14 jars, 30 partial seconds\nHive 7: 9 jars, 180 partial seconds\n\nFor each hive, compute total seconds = jars * 300 + partial seconds. A partial jar counts as a full jar only if its partial seconds equal 300 (none do here), so full jars for reporting = jars (partial never reaches 300 in this data).\n\nPrint exactly 9 lines:\n\nFor each hive 1 through 7, one line:\nHive N: SSSS sec -> J jars\nwhere N is the hive number, SSSS is a 4-digit zero-padded total seconds, and J is the whole number of full jars from that hive (just the jars value).\n\nThen two summary lines:\nTOTAL SECONDS: SSSSS\nFULL JARS: JJJ\nwhere SSSSS is a 5-digit zero-padded sum of all hives' total seconds, and JJJ is a 3-digit zero-padded sum of all jars.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Hive 1: 3600 sec -> 12 jars\nHive 2: 2545 sec -> 8 jars\nHive 3: 4710 sec -> 15 jars\nHive 4: 3000 sec -> 10 jars\nHive 5: 2075 sec -> 6 jars\nHive 6: 4230 sec -> 14 jars\nHive 7: 2880 sec -> 9 jars\nTOTAL SECONDS: 23040\nFULL JARS: 074\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "date-free calendar and time arithmetic in minutes and seconds (no real dates, no leap years)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0002",
+   "title": "Library Book Due Times",
+   "prompt": "A library lends books for exactly 14 days (20160 minutes). When a book is returned late, the fine is 25 cents per started hour of lateness. Write a program that processes 6 books.\n\nEach book has: checkout minute, return minute (both minutes since midnight of the return day, i.e. lateness is computed as return_minute + days_late * 1440 - 20160, but for this exercise all books are returned on the same day as shown).\n\nBook data (checkout minute, return minute):\nBook 1: checkout 540, return 600\nBook 2: checkout 600, return 635\nBook 3: checkout 660, return 700\nBook 4: checkout 720, return 805\nBook 5: checkout 780, return 845\nBook 6: checkout 840, return 925\n\nFor this exercise, treat lateness as (return_minute - checkout_minute - 20160) minutes; since all values are small, lateness will be negative, meaning the book was returned BEFORE the due time in this simplified model. Instead, use this rule: lateness = max(0, (return_minute - checkout_minute) - 1440) minutes (books are due 1 day after checkout for this exercise). Fine = ceil(lateness / 60) * 25 cents if lateness > 0, else 0.\n\nWait — simplify: each book is due at checkout_minute + 1440 minutes (next day same time). Lateness = return_minute + 1440 - (checkout_minute + 1440) = return_minute - checkout_minute - 1440... \n\nFINAL RULE: For each book, lateness_minutes = max(0, (return_minute - checkout_minute) - 60). Books are due 60 minutes after checkout in this express-lending program. Fine = ceil(lateness_minutes / 60) * 25 cents if lateness_minutes > 0, else 0.\n\nPrint exactly 8 lines:\n\nFor each book 1 through 6:\nBook N: LLL min late -> $F.FF\nwhere LLL is 3-digit zero-padded lateness minutes and F.FF is fine in dollars with 2 decimal places.\n\nThen two summary lines:\nTOTAL LATE MINUTES: LLLL\nTOTAL FINES: $T.TT\nwhere LLLL is 4-digit zero-padded sum of all lateness minutes and T.TT is sum of fines with 2 decimal places.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Book 1: 000 min late -> $0.00\nBook 2: 000 min late -> $0.00\nBook 3: 000 min late -> $0.00\nBook 4: 025 min late -> $0.25\nBook 5: 005 min late -> $0.25\nBook 6: 025 min late -> $0.25\nTOTAL LATE MINUTES: 0055\nTOTAL FINES: $0.75\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "date-free calendar and time arithmetic in minutes and seconds (no real dates, no leap years)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0003",
+   "title": "Warehouse Shift Handover",
+   "prompt": "A warehouse runs three shifts. Shift 1: 06:00 to 14:00 (360 to 840 minutes). Shift 2: 14:00 to 22:00 (840 to 1320 minutes). Shift 3: 22:00 to 06:00 (1320 to 1800 minutes, wrapping past midnight — treat times as minutes from 0 to 1440, and shift 3 goes from 1320 to 1440 then 0 to 360).\n\nEach shift must be covered by exactly one worker. Workers are assigned start and end times. A worker covering from time A to time B (A < B, no wrap) earns $18.00 per hour, prorated by exact minutes.\n\nWorkers:\nWorker 1: start 360, end 840\nWorker 2: start 840, end 1320\nWorker 3: start 1320, end 1440\nWorker 4: start 0, end 360\n\nFor each worker compute minutes worked = end - start, pay = minutes/60 * 18.00.\n\nPrint exactly 5 lines:\n\nFor each worker 1 through 4:\nWorker N: MMM min -> $P.PP\nwhere MMM is 3-digit zero-padded minutes and P.PP is pay with exactly 2 decimal places.\n\nThen one summary line:\nTOTAL PAY: $T.TT\nwhere T.TT is the sum of all pays with exactly 2 decimal places.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Worker 1: 480 min -> $144.00\nWorker 2: 480 min -> $144.00\nWorker 3: 120 min -> $36.00\nWorker 4: 360 min -> $108.00\nTOTAL PAY: $432.00\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "date-free calendar and time arithmetic in minutes and seconds (no real dates, no leap years)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0004",
+   "title": "Beekeeper Foraging Distance",
+   "prompt": "A beekeeper tracks foraging trips from the hive. Each trip has a departure time and return time in seconds, and a distance in meters. Bees fly at 8 meters per second.\n\nTrips (departure seconds, return seconds, distance meters):\nTrip 1: dep 0, ret 45, dist 360\nTrip 2: dep 10, ret 50, dist 320\nTrip 3: dep 20, ret 65, dist 400\nTrip 4: dep 30, ret 80, dist 480\nTrip 5: dep 40, ret 75, dist 280\nTrip 6: dep 55, ret 95, dist 340\n\nFor each trip compute duration = ret - dep, and check whether the bee could have flown the stated distance at 8 m/s: possible = (duration * 8 >= distance).\n\nPrint exactly 7 lines:\n\nFor each trip 1 through 6:\nTrip N: DDD sec, EEE m, OK/SHORT\nwhere N is trip number, DDD is 3-digit zero-padded duration, EEE is 3-digit zero-padded distance, and OK if possible else SHORT.\n\nThen one summary line:\nPOSSIBLE: P of 6\nwhere P is the count of trips marked OK.\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Trip 1: 045 sec, 360 m, OK\nTrip 2: 040 sec, 320 m, OK\nTrip 3: 045 sec, 400 m, SHORT\nTrip 4: 050 sec, 480 m, SHORT\nTrip 5: 035 sec, 280 m, OK\nTrip 6: 040 sec, 340 m, SHORT\nPOSSIBLE: 3 of 6\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "date-free calendar and time arithmetic in minutes and seconds (no real dates, no leap years)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0008",
+   "title": "Vending Machine Stock",
+   "prompt": "You are given the following JSON text describing a vending machine:\n\n{\n  \"items\": [\n    {\"slot\": \"A1\", \"name\": \"Cola\", \"price\": 1.50, \"qty\": 4},\n    {\"slot\": \"A2\", \"name\": \"Chips\", \"price\": 1.25, \"qty\": 0},\n    {\"slot\": \"B1\", \"name\": \"Candy\", \"price\": 0.75, \"qty\": 6},\n    {\"slot\": \"B2\", \"name\": \"Water\", \"price\": 1.00, \"qty\": 2},\n    {\"slot\": \"C1\", \"name\": \"Gum\", \"price\": 0.50, \"qty\": 3}\n  ],\n  \"service_fee\": 0.10\n}\n\nWrite a program that parses this JSON and prints exactly the following lines (no trailing spaces):\n\nItems: 5\nSold out: A2\nTotal stock value: 11.75\nAverage price: 1.00\nMost expensive: Cola\nSlots with stock: 4\nValue after fee: 12.25\n\nNotes:\n- \"Total stock value\" is the sum over all items of price * qty.\n- \"Average price\" is the arithmetic mean of all item prices (not weighted by quantity).\n- \"Most expensive\" is the name of the item with the highest price (break ties by first appearance).\n- \"Slots with stock\" counts items whose qty is greater than 0.\n- \"Value after fee\" is total stock value + service_fee.\n- Real numbers must be printed with exactly 2 decimal places.",
+   "expected_stdout": "Items: 5\nSold out: A2\nTotal stock value: 14.00\nAverage price: 1.00\nMost expensive: Cola\nSlots with stock: 4\nValue after fee: 14.10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0009",
+   "title": "Garden Plot Watering",
+   "prompt": "You are given the following JSON text describing a community garden:\n\n{\n  \"plots\": [\n    {\"id\": \"P1\", \"crop\": \"Tomatoes\", \"moisture\": 0.42, \"planted\": \"Mar\"},\n    {\"id\": \"P2\", \"crop\": \"Lettuce\", \"moisture\": 0.65, \"planted\": \"Apr\"},\n    {\"id\": \"P3\", \"crop\": \"Carrots\", \"moisture\": 0.31, \"planted\": \"Feb\"},\n    {\"id\": \"P4\", \"crop\": \"Peppers\", \"moisture\": 0.55, \"planted\": \"May\"},\n    {\"id\": \"P5\", \"crop\": \"Beans\", \"moisture\": 0.28, \"planted\": \"Mar\"}\n  ],\n  \"threshold\": 0.35,\n  \"months\": {\"Jan\": 1, \"Feb\": 2, \"Mar\": 3, \"Apr\": 4, \"May\": 5, \"Jun\": 6}\n}\n\nWrite a program that parses this JSON and prints exactly the following lines (no trailing spaces):\n\nPlots: 5\nNeed water: P1, P3, P5\nDry count: 3\nAverage moisture: 0.44\nEarliest planted: P3\nMar plots: 2\nWettest: P2\n\nNotes:\n- \"Need water\" lists the ids of all plots whose moisture is strictly less than threshold, in order of appearance, separated by \", \" with no trailing comma.\n- \"Average moisture\" is the arithmetic mean of all moisture values.\n- \"Earliest planted\" is the id of the plot whose \"planted\" month number (from the months map) is smallest; break ties by first appearance.\n- \"Mar plots\" counts plots planted in \"Mar\".\n- \"Wettest\" is the id of the plot with the highest moisture (break ties by first appearance).\n- Real numbers must be printed with exactly 2 decimal places.",
+   "expected_stdout": "Plots: 5\nNeed water: P3, P5\nDry count: 2\nAverage moisture: 0.44\nEarliest planted: P3\nMar plots: 2\nWettest: P2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0011",
+   "title": "Bakery Order Fulfillment",
+   "prompt": "You are given the following JSON text describing bakery orders:\n\n{\n  \"orders\": [\n    {\"id\": \"O1\", \"items\": [{\"sku\": \"BRD\", \"qty\": 2}, {\"sku\": \"CKE\", \"qty\": 1}], \"paid\": true},\n    {\"id\": \"O2\", \"items\": [{\"sku\": \"BRD\", \"qty\": 3}], \"paid\": false},\n    {\"id\": \"O3\", \"items\": [{\"sku\": \"TST\", \"qty\": 5}, {\"sku\": \"CKE\", \"qty\": 2}], \"paid\": true},\n    {\"id\": \"O4\", \"items\": [{\"sku\": \"BRD\", \"qty\": 1}, {\"sku\": \"TST\", \"qty\": 1}], \"paid\": true}\n  ],\n  \"prices\": {\"BRD\": 3.50, \"CKE\": 12.00, \"TST\": 1.75},\n  \"default_price\": 5.00\n}\n\nWrite a program that parses this JSON and prints exactly the following lines (no trailing spaces):\n\nOrders: 4\nPaid: 3\nUnpaid: 1\nO1 total: 19.00\nO2 total: 10.50\nO3 total: 53.50\nO4 total: 5.25\nPaid revenue: 77.75\nBRD units: 6\nUnknown sku: 0\n\nNotes:\n- An order's total is the sum over its items of qty * price, where price comes from the prices map; if a sku is missing from prices, use default_price.\n- \"Paid revenue\" is the sum of totals for orders where paid is true.\n- \"BRD units\" is the total quantity of sku \"BRD\" across all orders.\n- \"Unknown sku\" counts items whose sku is not present in the prices map.\n- Real numbers must be printed with exactly 2 decimal places.",
+   "expected_stdout": "O1 total: 19.00\nO2 total: 10.50\nO3 total: 32.75\nO4 total: 5.25\nOrders: 4\nPaid: 3\nUnpaid: 1\nPaid revenue: 57.00\nBRD units: 6\nUnknown sku: 0\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0014",
+   "title": "Music Playlist Validation",
+   "prompt": "You are cleaning up a music playlist. The file `playlist.txt` contains one track per line, with three fields separated by single spaces:\n\n- `artist` (a single word)\n- `title` (a single word)\n- `duration` (an integer number of seconds, between 1 and 7200)\n\nWrite a program that reads the file, validates each line, and prints a report.\n\n**Validation rules:**\n- A line is `VALID` if `duration` is between 1 and 7200 inclusive.\n- A line is `TOO SHORT` if `duration` is 0 or negative.\n- A line is `TOO LONG` if `duration` is greater than 7200.\n\n**Output format:**\n\nFor each line in file order, print:\n```\n<artist> - <title>: <status>\n```\nwhere `<status>` is one of `VALID`, `TOO SHORT`, or `TOO LONG`.\n\nAfter all lines, print exactly these two summary lines:\n```\nValid: <count>\nTotal valid seconds: <sum>\n```\nwhere `Valid` counts only `VALID` lines, and `Total valid seconds` sums the `duration` of only `VALID` lines.",
+   "expected_stdout": "Aurora - Nightfall: VALID\nKite - Driftwood: VALID\nSable - Riverbed: VALID\nVerdant - Hollow: VALID\nWren - Cascade: TOO SHORT\nValid: 4\nTotal valid seconds: 1031\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "playlist.txt": "Aurora Nightfall 245\nKite Driftwood 198\nMarrow Iron Lung 0\nSable Riverbed 312\nTin Kettle Song 8401\nVerdant Hollow 276\nWren Cascade 0\nZephyr Long Road 340\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0015",
+   "title": "Train Delay Report",
+   "prompt": "You are compiling a delay report for a commuter train line. The file `train_delays.txt` contains one service per line, with four fields separated by single spaces:\n\n- `service` (a single word identifier)\n- `scheduled` (an integer, minutes after midnight)\n- `actual` (an integer, minutes after midnight)\n- `platform` (an integer)\n\nWrite a program that reads the file and prints a report.\n\n**Delay calculation:** `delay = actual - scheduled`. A negative delay means the train left early.\n\n**Output format:**\n\nFor each line in file order, print:\n```\n<service> P<platform>: <delay> min\n```\nwhere `<delay>` is a signed integer (e.g. `-3`, `0`, `12`).\n\nAfter all lines, print exactly these three lines:\n```\nOn time or early: <count>\nAverage delay: <value>\nWorst service: <service>\n```\n- `On time or early` counts services with `delay <= 0`.\n- `Average delay` is the mean delay across all services (may be negative), printed with exactly 1 decimal place.\n- `Worst service` is the `service` identifier of the service with the largest positive delay. If there is a tie, use the first one in file order.",
+   "expected_stdout": "Coastal P1: 3 min\nValley P2: -3 min\nExpress P3: 25 min\nLocal P1: 0 min\nShuttle P2: -5 min\nRapid P3: 21 min\nBranch P1: 4 min\nOn time or early: 3\nAverage delay: 6.4\nWorst service: Express\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "train_delays.txt": "Coastal 480 483 1\nValley 540 537 2\nExpress 600 625 3\nLocal 660 660 1\nShuttle 720 715 2\nRapid 780 801 3\nBranch 840 844 1\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0016",
+   "title": "Library Loan Summary",
+   "prompt": "You are summarising a day's book loans at a small library. The file `library_loans.txt` contains one loan per line, with four fields separated by single spaces:\n\n- `borrower` (a single word)\n- `category` (one of `Fiction`, `Science`, `History`, `Art`)\n- `days` (an integer loan period in days)\n- `fine` (an integer, in cents, already assessed; may be `0`)\n\nWrite a program that reads the file and prints a summary.\n\n**Output format:**\n\nFirst, for each line in file order:\n```\n<borrower>: <category> <days>d fine=<fine>c\n```\n\nThen, exactly four summary lines in this order:\n```\nCategory counts:\nFiction: <n>\nScience: <n>\nTotal fines: <cents>\n```\nwhere `Category counts` is a literal label line, `Fiction` and `Science` are the counts of loans in those two categories only, and `Total fines` is the sum of all `fine` values printed as a plain integer.",
+   "expected_stdout": "Ash: Fiction 14d fine=0c\nBram: Science 7d fine=250c\nCora: History 21d fine=0c\nDane: Art 14d fine=100c\nElke: Science 7d fine=0c\nFinn: Fiction 28d fine=500c\nGail: History 14d fine=0c\nCategory counts:\nFiction: 2\nScience: 2\nTotal fines: 850\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "library_loans.txt": "Ash Fiction 14 0\nBram Science 7 250\nCora History 21 0\nDane Art 14 100\nElke Science 7 0\nFinn Fiction 28 500\nGail History 14 0\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0017",
+   "title": "Bakery Stock Take",
+   "prompt": "You are doing a morning stock take for a bakery. The file `bakery_stock.txt` contains one product per line, with four fields separated by single spaces:\n\n- `item` (a single word)\n- `baked` (an integer, units baked today)\n- `sold` (an integer, units sold so far)\n- `price` (an integer, price in pence)\n\nWrite a program that reads the file and prints a stock report.\n\n**Output format:**\n\nFor each line in file order:\n```\n<item>: <remaining> left, <pct>% sold\n```\nwhere `remaining = baked - sold` (an integer) and `pct` is `sold * 100 / baked` printed with exactly 1 decimal place (use real division).\n\nAfter all lines, print exactly these three lines:\n```\nSold out: <count>\nTotal remaining: <n>\nRevenue: <pence>\n```\n- `Sold out` counts items where `sold >= baked`.\n- `Total remaining` sums `baked - sold` over all items.\n- `Revenue` is `sum(sold * price)` over all items, printed as a plain integer in pence.",
+   "expected_stdout": "Croissant: 0 left, 100.0% sold\nSourdough: 7 left, 72.0% sold\nCinnamon: 18 left, 40.0% sold\nBaguette: 0 left, 100.0% sold\nMuffin: 28 left, 20.0% sold\nFocaccia: 4 left, 73.3% sold\nSold out: 2\nTotal remaining: 57\nRevenue: 22950\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "bakery_stock.txt": "Croissant 40 40 180\nSourdough 25 18 320\nCinnamon 30 12 150\nBaguette 20 20 210\nMuffin 35 7 130\nFocaccia 15 11 280\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0018",
+   "title": "Parking Garage Occupancy",
+   "prompt": "You are checking the occupancy sensors in a parking garage. The file `garage_sensors.txt` contains one floor per line, with four fields separated by single spaces:\n\n- `floor` (a single word, e.g. `G`, `L1`, `L2`)\n- `total` (an integer, total spaces on that floor)\n- `occupied` (an integer, spaces currently occupied)\n- `ev` (an integer, how many of the occupied spaces are EV charging)\n\nWrite a program that reads the file and prints an occupancy report.\n\n**Status rules:**\n- `FULL` if `occupied >= total`\n- `BUSY` if `occupied >= total * 3 / 4` (use real division; strict `< total` is already implied by not being FULL)\n- `OPEN` otherwise\n\n**Output format:**\n\nFor each line in file order:\n```\n<floor>: <occupied>/<total> <status>\n```\nwhere `<status>` is `FULL`, `BUSY`, or `OPEN`.\n\nAfter all lines, print exactly these three lines:\n```\nBusy or full: <count>\nEV share: <pct>%\nTotal occupied: <n>\n```\n- `Busy or full` counts lines with status `BUSY` or `FULL`.\n- `EV share` is `(sum of ev) * 100 / (sum of occupied)` printed with exactly 1 decimal place (use real division; assume total occupied is nonzero).\n- `Total occupied` is the sum of `occupied` over all lines.",
+   "expected_stdout": "G: 80/80 FULL\nL1: 76/100 BUSY\nL2: 51/100 OPEN\nL3: 44/60 OPEN\nL4: 9/40 OPEN\nBusy or full: 2\nEV share: 6.2%\nTotal occupied: 260\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "garage_sensors.txt": "G 80 80 6\nL1 100 76 4\nL2 100 51 2\nL3 60 44 3\nL4 40 9 1\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0019",
+   "title": "Cinema Ticket Reconciliation",
+   "prompt": "You are reconciling ticket sales for a small cinema. The file `cinema_tickets.txt` contains one screening per line, with four fields separated by single spaces:\n\n- `film` (a single word)\n- `adults` (an integer count)\n- `children` (an integer count)\n- `price` (an integer, adult ticket price in pence; child tickets are half price, rounded down to the nearest penny using integer division)\n\nWrite a program that reads the file and prints a reconciliation.\n\n**Output format:**\n\nFor each line in file order:\n```\n<film>: <total> tickets, <revenue>p\n```\nwhere `total = adults + children` and `revenue = adults * price + children * (price / 2)` using integer division for the child price.\n\nAfter all lines, print exactly these three lines:\n```\nScreenings: <n>\nTotal tickets: <n>\nTotal revenue: <pence>\n```\nwhere `Screenings` is the number of lines, `Total tickets` sums all ticket counts, and `Total revenue` sums all per-film revenues. Print all integers with no extra formatting.",
+   "expected_stdout": "Lighthouse: 65 tickets, 52250p\nOrchard: 45 tickets, 31875p\nTidepool: 85 tickets, 79750p\nFerrymark: 30 tickets, 23400p\nNightjar: 50 tickets, 44000p\nScreenings: 5\nTotal tickets: 275\nTotal revenue: 231275\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "cinema_tickets.txt": "Lighthouse 45 20 950\nOrchard 30 15 850\nTidepool 60 25 1100\nFerrymark 22 8 900\nNightjar 38 12 1000\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0020",
+   "title": "Gym Class Attendance",
+   "prompt": "You are reviewing attendance for a week of gym classes. The file `gym_attendance.txt` contains one class per line, with four fields separated by single spaces:\n\n- `class` (a single word)\n- `capacity` (an integer, maximum attendees)\n- `booked` (an integer, bookings made)\n- `attended` (an integer, people who showed up; `0 <= attended <= booked <= capacity` is guaranteed)\n\nWrite a program that reads the file and prints an attendance report.\n\n**Output format:**\n\nFor each line in file order:\n```\n<class>: <attended>/<booked> booked, <pct>% show\n```\nwhere `<pct>` is `attended * 100.0 / booked` printed with exactly 1 decimal place (use real division; assume `booked > 0` for every line).\n\nAfter all lines, print exactly these three lines:\n```\nOverbooked: <count>\nTotal no-shows: <n>\nBest show rate: <class>\n```\n- `Overbooked` counts lines where `booked > capacity`.\n- `Total no-shows` sums `booked - attended` over all lines.\n- `Best show rate` is the `class` with the highest `attended / booked` ratio. If there is a tie, use the first one in file order.",
+   "expected_stdout": "Yoga: 18/20 booked, 90.0% show\nSpin: 20/25 booked, 80.0% show\nPilates: 14/14 booked, 100.0% show\nBoxing: 15/19 booked, 78.9% show\nRowing: 7/10 booked, 70.0% show\nClimb: 8/8 booked, 100.0% show\nOverbooked: 1\nTotal no-shows: 14\nBest show rate: Pilates\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "gym_attendance.txt": "Yoga 20 20 18\nSpin 25 25 20\nPilates 15 14 14\nBoxing 18 19 15\nRowing 12 10 7\nClimb 8 8 8\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0021",
+   "title": "Greenhouse Sensor Digest",
+   "prompt": "A greenhouse monitoring system stores its readings as a JSON document. The document contains a list of sensors, each with a name (Text), a zone (Text), a temperature (Real, in Celsius), and a humidity (Int, percentage).\n\nThe JSON document is:\n{\n  \"sensors\": [\n    {\"name\": \"T-A1\", \"zone\": \"North\", \"temperature\": 23.45, \"humidity\": 61},\n    {\"name\": \"T-A2\", \"zone\": \"South\", \"temperature\": 28.77, \"humidity\": 54},\n    {\"name\": \"T-B1\", \"zone\": \"North\", \"temperature\": 21.12, \"humidity\": 70},\n    {\"name\": \"T-B2\", \"zone\": \"East\",  \"temperature\": 30.05, \"humidity\": 48}\n  ]\n}\n\nPrint a formatted report. The first line is a header, then one line per sensor in the order they appear in the document, then one final line with the average temperature of all sensors.\n\nOutput format (exact, one line each):\nSensor | Zone | Temp(C) | Humidity(%)\nT-A1 | North | 23.45 | 61\nT-A2 | South | 28.77 | 54\nT-B1 | North | 21.12 | 70\nT-B2 | East | 30.05 | 48\nAvg Temp: 25.85\n\nTemperatures are printed with exactly 2 decimal places. The average temperature is also printed with exactly 2 decimal places. There are no trailing spaces on any line.",
+   "expected_stdout": "Sensor | Zone | Temp(C) | Humidity(%)\nT-A1 | North | 23.45 | 61\nT-A2 | South | 28.77 | 54\nT-B1 | North | 21.12 | 70\nT-B2 | East | 30.05 | 48\nAvg Temp: 25.85\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0023",
+   "title": "Museum Exhibit Type Audit",
+   "prompt": "A museum catalog stores exhibit metadata in a JSON array. Each exhibit has a \"title\" (Text), an \"era\" (Text), and a \"value\" field whose type varies: it may be an Int, a Real, or a Bool.\n\nThe JSON document is:\n[\n  {\"title\": \"Amphora\", \"era\": \"Roman\", \"value\": 42},\n  {\"title\": \"Mask\", \"era\": \"Egyptian\", \"value\": 9.5},\n  {\"title\": \"Coin\", \"era\": \"Greek\", \"value\": true},\n  {\"title\": \"Vase\", \"era\": \"Roman\", \"value\": 7},\n  {\"title\": \"Scroll\", \"era\": \"Medieval\", \"value\": 3.25}\n]\n\nFor each exhibit, determine the type of its \"value\" field: Int, Real, or Bool. Print one line per exhibit in document order.\n\nLine format:\n<era>:<title> -> <type>\n\nWhere <type> is exactly one of: Int, Real, Bool.\n\nAfter all exhibits, print one summary line per type in this fixed order: Int, Real, Bool. Each summary line format is:\n<Type> count = <n>\n\nOutput exactly these 8 lines in this order:\nRoman:Amphora -> Int\nEgyptian:Mask -> Real\nGreek:Coin -> Bool\nRoman:Vase -> Int\nMedieval:Scroll -> Real\nInt count = 2\nReal count = 2\nBool count = 1\n\nThere are no trailing spaces on any line.",
+   "expected_stdout": "Roman:Amphora -> Int\nEgyptian:Mask -> Real\nGreek:Coin -> Bool\nRoman:Vase -> Int\nMedieval:Scroll -> Real\nInt count = 2\nReal count = 2\nBool count = 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0024",
+   "title": "Music Playlist Field Fill",
+   "prompt": "A music player stores its playlist as a JSON document. Each track has \"artist\" (Text), \"title\" (Text), \"seconds\" (Int), and optionally \"plays\" (Int). If \"plays\" is missing, it should be treated as 0.\n\nThe JSON document is:\n{\n  \"tracks\": [\n    {\"artist\": \"Nova\", \"title\": \"Drift\", \"seconds\": 214, \"plays\": 12},\n    {\"artist\": \"Kite\", \"title\": \"Glow\", \"seconds\": 189},\n    {\"artist\": \"Nova\", \"title\": \"Rise\", \"seconds\": 245, \"plays\": 7},\n    {\"artist\": \"Amber\", \"title\": \"Fold\", \"seconds\": 201}\n  ]\n}\n\nPrint one line per track in document order, then one summary line.\n\nTrack line format:\n<artist> - <title> (<mm:ss>) plays=<n>\n\nWhere mm is minutes as a 2-digit zero-padded integer, ss is seconds as a 2-digit zero-padded integer (seconds part of the duration, i.e. total seconds mod 60), and <n> is the plays value (or 0 if missing).\n\nSummary line format:\nTotal plays: <sum of all plays>\n\nOutput exactly these 5 lines in this order:\nNova - Drift (03:34) plays=12\nKite - Glow (03:09) plays=0\nNova - Rise (04:05) plays=7\nAmber - Fold (03:21) plays=0\nTotal plays: 19\n\nThere are no trailing spaces on any line.",
+   "expected_stdout": "Nova - Drift (03:34) plays=12\nKite - Glow (03:09) plays=0\nNova - Rise (04:05) plays=7\nAmber - Fold (03:21) plays=0\nTotal plays: 19\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0025",
+   "title": "Library Shelf Temperature Log",
+   "prompt": "A library's climate system records shelf temperatures as a JSON document with entries containing \"shelf\" (Text), \"reading\" (Real, Celsius), and \"stable\" (Bool).\n\nThe JSON document is:\n{\n  \"readings\": [\n    {\"shelf\": \"A1\", \"reading\": 21.34, \"stable\": true},\n    {\"shelf\": \"A2\", \"reading\": 24.88, \"stable\": false},\n    {\"shelf\": \"B1\", \"reading\": 19.56, \"stable\": true},\n    {\"shelf\": \"B2\", \"reading\": 26.42, \"stable\": false},\n    {\"shelf\": \"C1\", \"reading\": 22.71, \"stable\": true}\n  ]\n}\n\nPrint one line per reading in document order, then two summary lines.\n\nReading line format:\n<shelf>: <reading with 2 decimals> [<status>]\n\nWhere <status> is OK if stable is true, else ALERT.\n\nSummary lines (always in this order):\nStable count: <number of stable readings>\nMax reading: <shelf> <reading with 2 decimals>\n\nFor the max reading, report the shelf with the highest reading value; if there is a tie, report the one appearing first in the document.\n\nOutput exactly these 7 lines in this order:\nA1: 21.34 [OK]\nA2: 24.88 [ALERT]\nB1: 19.56 [OK]\nB2: 26.42 [ALERT]\nC1: 22.71 [OK]\nStable count: 3\nMax reading: B2 26.42\n\nThere are no trailing spaces on any line.",
+   "expected_stdout": "A1: 21.34 [OK]\nA2: 24.88 [ALERT]\nB1: 19.56 [OK]\nB2: 26.42 [ALERT]\nC1: 22.71 [OK]\nStable count: 3\nMax reading: B2 26.42\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0027",
+   "title": "Beekeeper Hive Record Print",
+   "prompt": "A beekeeper logs hive inspections in a JSON document. Each hive has \"id\" (Text), \"bees\" (Int), \"frames\" (Int), and \"queen\" (Text, either \"seen\" or \"missing\").\n\nThe JSON document is:\n{\n  \"hives\": [\n    {\"id\": \"H1\", \"bees\": 42000, \"frames\": 10, \"queen\": \"seen\"},\n    {\"id\": \"H2\", \"bees\": 38500, \"frames\": 8, \"queen\": \"missing\"},\n    {\"id\": \"H3\", \"bees\": 51200, \"frames\": 12, \"queen\": \"seen\"},\n    {\"id\": \"H4\", \"bees\": 29800, \"frames\": 7, \"queen\": \"missing\"}\n  ]\n}\n\nPrint one line per hive in document order, then two summary lines.\n\nHive line format:\n<id> bees=<bees> frames=<frames> queen=<queen>\n\nSummary lines (always in this order):\nTotal bees: <sum>\nAvg frames: <average frames, 1 decimal place>\n\nOutput exactly these 6 lines in this order:\nH1 bees=42000 frames=10 queen=seen\nH2 bees=38500 frames=8 queen=missing\nH3 bees=51200 frames=12 queen=seen\nH4 bees=29800 frames=7 queen=missing\nTotal bees: 161500\nAvg frames: 9.3\n\nThere are no trailing spaces on any line.",
+   "expected_stdout": "H1 bees=42000 frames=10 queen=seen\nH2 bees=38500 frames=8 queen=missing\nH3 bees=51200 frames=12 queen=seen\nH4 bees=29800 frames=7 queen=missing\nTotal bees: 161500\nAvg frames: 9.2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0028",
+   "title": "Robot Grid Map Types",
+   "prompt": "A delivery robot stores its grid map as a JSON document. The document has \"rows\" (Int) and \"cells\" (a 2-D array of objects, each with \"type\" (Text: \"floor\", \"wall\", or \"dock\") and \"weight\" (Int)).\n\nThe JSON document is:\n{\n  \"rows\": 3,\n  \"cells\": [\n    [{\"type\": \"floor\", \"weight\": 2}, {\"type\": \"wall\", \"weight\": 0}, {\"type\": \"floor\", \"weight\": 3}],\n    [{\"type\": \"dock\", \"weight\": 5}, {\"type\": \"floor\", \"weight\": 1}, {\"type\": \"floor\", \"weight\": 4}],\n    [{\"type\": \"floor\", \"weight\": 6}, {\"type\": \"floor\", \"weight\": 2}, {\"type\": \"wall\", \"weight\": 0}]\n  ]\n}\n\nPrint one line per row showing a type-code for each cell, then a summary line.\n\nType code: floor -> F, wall -> W, dock -> D.\n\nRow line format (cells joined by a single space, no trailing space):\nRow <i>: <code> <code> <code>\n\nWhere <i> is the row index starting at 1.\n\nSummary line format:\nTotal weight: <sum of all weights>\n\nOutput exactly these 4 lines in this order:\nRow 1: F W F\nRow 2: D F F\nRow 3: F F W\nTotal weight: 23\n\nThere are no trailing spaces on any line.",
+   "expected_stdout": "Row 1: F W F\nRow 2: D F F\nRow 3: F F W\nTotal weight: 23\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0030",
+   "title": "Robot Inventory Audit",
+   "prompt": "A warehouse robot holds an inventory stored as a JSON document:\n\n{\n  \"warehouse\": \"North\",\n  \"items\": [\n    {\"sku\": \"A100\", \"qty\": 12, \"bin\": \"B3\"},\n    {\"sku\": \"A200\", \"qty\": 0,  \"bin\": \"B4\"},\n    {\"sku\": \"B100\", \"qty\": 45, \"bin\": \"B3\"},\n    {\"sku\": \"C300\", \"qty\": 7,  \"bin\": \"B5\"}\n  ],\n  \"lowThreshold\": 10\n}\n\nPrint the following, in order:\n1. A line \"Warehouse: <warehouse name>\".\n2. A line \"Items: <number of items>\".\n3. A line \"LowStock: <count of items whose qty is less than lowThreshold>\".\n4. For every item whose qty is 0, a line \"Empty: <sku>\".\n5. A line \"TotalQty: <sum of all qty>\".\n\nOutput format:\nWarehouse: <text>\nItems: <int>\nLowStock: <int>\nEmpty: <sku>\nTotalQty: <int>\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Warehouse: North\nItems: 4\nLowStock: 2\nEmpty: A200\nTotalQty: 64\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0032",
+   "title": "Vending Machine Restock List",
+   "prompt": "A vending machine's state is given as a JSON document:\n\n{\n  \"machine\": \"Floor2\",\n  \"slots\": [\n    {\"slot\": \"A1\", \"product\": \"Chips\",  \"count\": 3, \"max\": 10},\n    {\"slot\": \"A2\", \"product\": \"Cola\",   \"count\": 10, \"max\": 10},\n    {\"slot\": \"B1\", \"product\": \"Candy\",  \"count\": 0,  \"max\": 8},\n    {\"slot\": \"B2\", \"product\": \"Water\",  \"count\": 5,  \"max\": 8}\n  ],\n  \"minLevel\": 4\n}\n\nPrint the following lines in order:\n1. \"Machine: <machine>\"\n2. \"Slots: <count of slots>\"\n3. \"NeedsRefill: <count of slots where count is less than minLevel>\"\n4. \"SoldOut: <product>\" for every slot where count is 0, in document order.\n5. \"MaxCapacity: <sum of all max values>\"\n\nOutput format:\nMachine: <text>\nSlots: <int>\nNeedsRefill: <int>\nSoldOut: <product>\nMaxCapacity: <int>\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Machine: Floor2\nSlots: 4\nNeedsRefill: 2\nSoldOut: Candy\nMaxCapacity: 36\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0033",
+   "title": "Library Member Fines",
+   "prompt": "A library stores member fine data as a JSON document:\n\n{\n  \"branch\": \"Central\",\n  \"members\": [\n    {\"id\": \"M1\", \"overdueDays\": 3,  \"ratePerDay\": 0.25},\n    {\"id\": \"M2\", \"overdueDays\": 0,  \"ratePerDay\": 0.25},\n    {\"id\": \"M3\", \"overdueDays\": 12, \"ratePerDay\": 0.30},\n    {\"id\": \"M4\", \"overdueDays\": 7,  \"ratePerDay\": 0.25}\n  ],\n  \"waiveUnder\": 1.00\n}\n\nPrint:\n1. \"Branch: <branch>\"\n2. \"Members: <count>\"\n3. For each member, compute fine = overdueDays * ratePerDay. If fine is less than waiveUnder, print \"<id>: waived\". Otherwise print \"<id>: <fine>\" with exactly 2 decimal places.\n4. \"Collected: <sum of all fines that were NOT waived, with exactly 2 decimal places>\"\n\nOutput format:\nBranch: <text>\nMembers: <int>\n<id>: waived\n<id>: <real with exactly 2 decimal places>\nCollected: <real with exactly 2 decimal places>\n\nPrint members in document order. No trailing spaces on any line.",
+   "expected_stdout": "Branch: Central\nMembers: 4\nM1: waived\nM2: waived\nM3: 3.60\nM4: 1.75\nCollected: 5.35\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0034",
+   "title": "Music Playlist Duration Check",
+   "prompt": "A playlist is given as a JSON document:\n\n{\n  \"name\": \"Morning Mix\",\n  \"tracks\": [\n    {\"title\": \"Sunrise\",   \"seconds\": 214, \"genre\": \"Pop\"},\n    {\"title\": \"Cloudy\",    \"seconds\": 187, \"genre\": \"Jazz\"},\n    {\"title\": \"Rainfall\",  \"seconds\": 302, \"genre\": \"Pop\"},\n    {\"title\": \"Breeze\",    \"seconds\": 145, \"genre\": \"Rock\"}\n  ],\n  \"limitSeconds\": 900\n}\n\nPrint:\n1. \"Playlist: <name>\"\n2. \"Tracks: <count>\"\n3. \"TotalSeconds: <sum of all seconds>\"\n4. \"OverLimit: yes\" if the total exceeds limitSeconds, otherwise \"OverLimit: no\".\n5. \"PopCount: <count of tracks whose genre is Pop>\"\n6. \"Longest: <title of the track with the most seconds>\"\n\nOutput format:\nPlaylist: <text>\nTracks: <int>\nTotalSeconds: <int>\nOverLimit: yes|no\nPopCount: <int>\nLongest: <title>\n\nNo trailing spaces on any line.",
+   "expected_stdout": "Playlist: Morning Mix\nTracks: 4\nTotalSeconds: 848\nOverLimit: no\nPopCount: 2\nLongest: Rainfall\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0036",
+   "title": "Museum Gift Shop Receipt",
+   "prompt": "A museum gift shop's cart is given as a JSON document:\n\n{\n  \"shop\": \"HistoryWing\",\n  \"items\": [\n    {\"name\": \"Postcard Set\", \"price\": 4.50, \"qty\": 2, \"taxable\": true},\n    {\"name\": \"Bookmark\",     \"price\": 2.75, \"qty\": 3, \"taxable\": false},\n    {\"name\": \"T-Shirt\",      \"price\": 18.00,\"qty\": 1, \"taxable\": true}\n  ],\n  \"taxRate\": 0.08\n}\n\nPrint:\n1. \"Shop: <shop>\"\n2. \"Items: <count>\"\n3. For each item, compute lineTotal = price * qty. Print \"<name>: <lineTotal>\" with exactly 2 decimal places.\n4. \"Subtotal: <sum of all lineTotals, 2 decimal places>\"\n5. \"Tax: <tax on taxable items only, 2 decimal places>\" where tax = (sum of lineTotals of taxable items) * taxRate.\n6. \"GrandTotal: <subtotal + tax, 2 decimal places>\"\n\nOutput format:\nShop: <text>\nItems: <int>\n<name>: <real with exactly 2 decimal places>\nSubtotal: <real with exactly 2 decimal places>\nTax: <real with exactly 2 decimal places>\nGrandTotal: <real with exactly 2 decimal places>\n\nPrint items in document order. No trailing spaces on any line.",
+   "expected_stdout": "Shop: HistoryWing\nItems: 3\nPostcard Set: 9.00\nBookmark: 8.25\nT-Shirt: 18.00\nSubtotal: 35.25\nTax: 2.16\nGrandTotal: 37.41\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "processing a small JSON document given inline (nested objects and arrays; totals, lookups with defaults, filtering, missing keys)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0041",
+   "title": "Pet Grooming Appointment Slots",
+   "prompt": "You run a pet grooming salon. Read `grooming.json`, an array of appointment records:\n- `petName`: Text.\n- `owner`: Text.\n- `size`: Text, one of \"Small\", \"Medium\", \"Large\".\n- `slotMinutes`: Int, duration booked.\n- `arrived`: Bool, whether the pet showed up.\n- `addOns`: optional Int, number of add-on services (0 or absent means none).\n\nWrite a program that:\n1. Prints total booked minutes per size (Small, Medium, Large), one line each, format `<size>: <minutes>m`.\n2. Prints how many pets did not arrive.\n3. Prints the owner with the most total add-ons across all their appointments (ties: alphabetically first name), format `Top add-ons: <owner> (<n>)`. If every owner has zero add-ons, print `Top add-ons: none`.\n4. Prints the average slot length for arrived pets only, rounded to 1 decimal: `Avg arrived slot: <x>m`.\n\nOutput order: three size lines (Small, Medium, Large), no-show line, top add-ons line, average line. If no pets arrived, print `Avg arrived slot: n/a`. No trailing spaces.",
+   "expected_stdout": "Small: 60m\nMedium: 95m\nLarge: 135m\n1\nTop add-ons: Tom (4)\nAvg arrived slot: 49.0m\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small JSON data file provided with the exercise and reporting from it (records with optional fields, grouping, ranking)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "grooming.json": "[\n  {\"petName\": \"Milo\", \"owner\": \"Priya\", \"size\": \"Small\", \"slotMinutes\": 30, \"arrived\": true, \"addOns\": 2},\n  {\"petName\": \"Duke\", \"owner\": \"Sam\", \"size\": \"Large\", \"slotMinutes\": 75, \"arrived\": true, \"addOns\": 1},\n  {\"petName\": \"Luna\", \"owner\": \"Priya\", \"size\": \"Medium\", \"slotMinutes\": 45, \"arrived\": false},\n  {\"petName\": \"Ziggy\", \"owner\": \"Tom\", \"size\": \"Small\", \"slotMinutes\": 30, \"arrived\": true, \"addOns\": 3},\n  {\"petName\": \"Bear\", \"owner\": \"Sam\", \"size\": \"Large\", \"slotMinutes\": 60, \"arrived\": true},\n  {\"petName\": \"Coco\", \"owner\": \"Tom\", \"size\": \"Medium\", \"slotMinutes\": 50, \"arrived\": true, \"addOns\": 1}\n]\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0042",
+   "title": "Chess Club Tournament Check-in",
+   "prompt": "The chess club records each player's arrival at Saturday's tournament in a file called `chess_checkin.txt`. Each line has three fields separated by a single space: the player's name (one word, no spaces), their seed rank (an integer from 1 to 40), and their check-in time as `HH:MM` in 24-hour format (two digits for hour, two for minute, separated by a colon).\n\nWrite a program that reads the file and prints a summary in exactly the following format:\n\n```\nTotal Players: <count>\nFirst Arrival: <name> <time>\nLate Arrivals: <count>\nAverage Seed: <value>\n```\n\n- `Total Players` is the number of lines in the file.\n- `First Arrival` is the name and time of the player who checked in earliest (smallest `HH:MM` value). If two players tie, print the one appearing first in the file.\n- `Late Arrivals` counts players who checked in after `09:30` (strictly later than 09:30).\n- `Average Seed` is the mean of all seed ranks, printed with exactly 2 decimal places.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Total Players: 10\nFirst Arrival: Priya 08:45\nLate Arrivals: 5\nAverage Seed: 6.60\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "chess_checkin.txt": "Viktor 3 08:55\nAnya 7 09:10\nDmitri 1 09:35\nLena 12 09:30\nMarco 5 10:05\nPriya 9 08:45\nOscar 4 09:45\nNadia 15 09:50\nFelix 2 09:15\nYara 8 10:20\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0043",
+   "title": "Marathon Aid Station Log",
+   "prompt": "An aid station at a marathon records each runner who stops. The file `aid_station.txt` has one record per line with four fields separated by single spaces: bib number (integer), runner name (one word), seconds spent at the station (integer), and water bottles taken (integer).\n\nWrite a program that reads the file and prints exactly:\n\n```\nRunners Served: <count>\nLongest Stop: <bib> <seconds>\nTotal Bottles: <sum>\nAverage Seconds: <value>\nOver 60s: <count>\n```\n\n- `Runners Served` is the number of records.\n- `Longest Stop` is the bib number and seconds of the runner who spent the most seconds at the station. If there is a tie, print the record that appears first in the file.\n- `Total Bottles` is the sum of all water bottles taken.\n- `Average Seconds` is the mean seconds per runner, printed with exactly 1 decimal place.\n- `Over 60s` counts runners who spent strictly more than 60 seconds.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Runners Served: 10\nLongest Stop: 1377 90\nTotal Bottles: 23\nAverage Seconds: 60.5\nOver 60s: 5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "aid_station.txt": "1042 Marco 45 2\n1087 Priya 72 3\n1103 Dmitri 30 1\n1156 Lena 65 2\n1201 Viktor 58 2\n1244 Nadia 80 4\n1310 Felix 42 1\n1377 Yara 90 3\n1402 Oscar 55 2\n1455 Anika 68 3\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0044",
+   "title": "School Timetable Room Audit",
+   "prompt": "The school stores its timetable in `timetable.txt`. Each line describes one scheduled class with four fields separated by single spaces: day (one of `Mon`, `Tue`, `Wed`, `Thu`, `Fri`), period (integer 1–8), room (one word), and subject (one word).\n\nWrite a program that reads the file and prints exactly:\n\n```\nTotal Classes: <count>\nRoom R201: <count>\nMath Classes: <count>\nBusiest Period: <period> <count>\nFriday Classes: <count>\n```\n\n- `Total Classes` is the number of lines.\n- `Room R201` is the number of classes held in room `R201`.\n- `Math Classes` is the number of classes whose subject is `Math`.\n- `Busiest Period` is the period number with the highest number of classes, and that count. If two periods tie, print the smaller period number.\n- `Friday Classes` is the number of classes on `Fri`.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Total Classes: 14\nRoom R201: 6\nMath Classes: 5\nBusiest Period: 1 4\nFriday Classes: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "timetable.txt": "Mon 1 R201 Math\nMon 2 R105 English\nMon 3 R201 Science\nTue 1 R105 History\nTue 2 R201 Math\nTue 4 R310 Art\nWed 1 R201 Math\nWed 3 R105 English\nWed 5 R310 Music\nThu 2 R201 Science\nThu 4 R105 Math\nFri 1 R310 P.E.\nFri 2 R201 Math\nFri 6 R105 English\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0045",
+   "title": "Robot Grid Delivery Check",
+   "prompt": "A delivery robot logs each completed run in `robot_runs.txt`. Each line has four fields separated by single spaces: run ID (one word), start X (integer), start Y (integer), and end X then end Y (two more integers). All coordinates are between 0 and 99.\n\nWrite a program that reads the file and prints exactly:\n\n```\nRuns: <count>\nTotal Distance: <sum>\nLongest Run: <id> <distance>\nSame Row: <count>\nAverage Distance: <value>\n```\n\n- `Runs` is the number of lines.\n- `Total Distance` is the sum of Manhattan distances (|x2-x1| + |y2-y1|) across all runs.\n- `Longest Run` is the run ID and Manhattan distance of the single run with the greatest distance. If two runs tie, print the one appearing first in the file.\n- `Same Row` counts runs where start Y equals end Y.\n- `Average Distance` is the mean Manhattan distance per run, printed with exactly 2 decimal places.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Runs: 10\nTotal Distance: 100\nLongest Run: R04 23\nSame Row: 3\nAverage Distance: 10.00\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "robot_runs.txt": "R01 10 10 14 13\nR02 5 20 5 28\nR03 40 40 43 44\nR04 7 3 30 3\nR05 55 60 50 55\nR06 12 44 12 44\nR07 80 10 74 18\nR08 33 21 40 21\nR09 66 66 61 70\nR10 90 5 85 15\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0046",
+   "title": "Cafe Loyalty Card Summary",
+   "prompt": "A small cafe tracks loyalty card visits in `cafe_visits.txt`. Each line has four fields separated by single spaces: customer name (one word), visit number (integer, starting at 1 for their first visit), amount spent in cents (integer), and drink ordered (one of `Coffee`, `Tea`, `Juice`, `Smoothie`).\n\nWrite a program that reads the file and prints exactly:\n\n```\nVisits: <count>\nReward Earned: <name>\nTotal Spend: $<dollars>\nTop Drink: <drink> <count>\nFree Drink Eligible: <count>\n```\n\n- `Visits` is the number of lines.\n- `Reward Earned` is the name of the customer who has the highest visit number in the file. If two customers tie, print the one appearing first in the file.\n- `Total Spend` is the sum of all amounts, formatted as a dollar sign followed by dollars with exactly 2 decimal places.\n- `Top Drink` is the drink with the highest number of orders and that count. If two drinks tie, print the one appearing first in the file (use the order `Coffee`, `Tea`, `Juice`, `Smoothie` for tie-breaking).\n- `Free Drink Eligible` counts customers whose visit number is at least 10.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Visits: 10\nReward Earned: Finn\nTotal Spend: $38.70\nTop Drink: Coffee 4\nFree Drink Eligible: 4\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "cafe_visits.txt": "Ana 3 450 Coffee\nBen 12 380 Tea\nCara 7 520 Smoothie\nDan 10 300 Coffee\nEve 4 280 Juice\nFinn 15 410 Coffee\nGia 8 350 Tea\nHugo 11 470 Smoothie\nIvy 6 390 Juice\nJack 9 320 Coffee\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0047",
+   "title": "Recycling Center Weigh-In",
+   "prompt": "A recycling center logs each drop-off in `recycling.txt`. Each line has four fields separated by single spaces: visitor ID (one word), material (one of `Plastic`, `Paper`, `Glass`, `Metal`), weight in kilograms (Real with 1 decimal place), and accepted (either `yes` or `no`).\n\nWrite a program that reads the file and prints exactly:\n\n```\nDrop-offs: <count>\nAccepted: <count>\nRejected: <count>\nTotal Weight: <value> kg\nTop Material: <material> <count>\nAverage Weight: <value>\n```\n\n- `Drop-offs` is the number of lines.\n- `Accepted` counts lines where the accepted field is `yes`.\n- `Rejected` counts lines where the accepted field is `no`.\n- `Total Weight` is the sum of all weights (accepted and rejected), printed with exactly 1 decimal place, followed by a space and `kg`.\n- `Top Material` is the material with the most drop-offs and that count. If two materials tie, print the one appearing first in the file (use the order `Plastic`, `Paper`, `Glass`, `Metal` for tie-breaking).\n- `Average Weight` is the mean weight across all drop-offs, printed with exactly 2 decimal places.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Drop-offs: 12\nAccepted: 10\nRejected: 2\nTotal Weight: 30.0 kg\nTop Material: Plastic 3\nAverage Weight: 2.50\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "recycling.txt": "V01 Plastic 3.5 yes\nV02 Paper 1.2 yes\nV03 Glass 4.8 yes\nV04 Metal 2.1 no\nV05 Plastic 0.9 yes\nV06 Paper 2.7 yes\nV07 Glass 1.5 no\nV08 Metal 3.3 yes\nV09 Plastic 2.4 yes\nV10 Paper 0.8 yes\nV11 Glass 5.1 yes\nV12 Metal 1.7 yes\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0048",
+   "title": "Pet Shelter Intake Review",
+   "prompt": "A pet shelter records each intake in `intake.txt`. Each line has five fields separated by single spaces: animal ID (one word), species (one of `Dog`, `Cat`, `Rabbit`, `Bird`), age in years (integer), intake weight in kg (Real with 1 decimal place), and fixed status (`yes` or `no`).\n\nWrite a program that reads the file and prints exactly:\n\n```\nIntakes: <count>\nSenior Animals: <count>\nUnfixed: <count>\nHeaviest: <id> <weight>\nSpecies Counts: Dog=<n> Cat=<n> Rabbit=<n> Bird=<n>\nAverage Age: <value>\n```\n\n- `Intakes` is the number of lines.\n- `Senior Animals` counts animals aged 8 or older.\n- `Unfixed` counts animals whose fixed status is `no`.\n- `Heaviest` is the animal ID and intake weight of the heaviest animal, printed with exactly 1 decimal place. If two animals tie, print the one appearing first in the file.\n- `Species Counts` prints the count for each of the four species in the order shown, separated by single spaces.\n- `Average Age` is the mean age across all intakes, printed with exactly 1 decimal place.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Intakes: 12\nSenior Animals: 2\nUnfixed: 5\nHeaviest: A05 31.5\nSpecies Counts: Dog=4 Cat=4 Rabbit=2 Bird=2\nAverage Age: 4.8\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "intake.txt": "A01 Dog 5 22.3 yes\nA02 Cat 2 3.8 yes\nA03 Rabbit 1 1.6 no\nA04 Bird 4 0.4 no\nA05 Dog 9 31.5 yes\nA06 Cat 7 4.2 no\nA07 Dog 3 18.7 yes\nA08 Cat 1 2.9 yes\nA09 Rabbit 3 2.1 yes\nA10 Bird 6 0.5 no\nA11 Dog 11 27.9 no\nA12 Cat 5 5.1 yes\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0050",
+   "title": "Grocery Receipt Validator",
+   "prompt": "A grocery store validates scanned receipts in `receipt.txt`. Each line has four fields separated by single spaces: item name (one word), quantity (integer), unit price in cents (integer), and department (one of `Produce`, `Dairy`, `Bakery`, `Frozen`).\n\nWrite a program that reads the file and prints exactly:\n\n```\nItems: <count>\nTotal Cost: $<dollars>\nMost Expensive Line: <name> <cost_cents>\nFrozen Lines: <count>\nAverage Line Cost: $<dollars>\n```\n\n- `Items` is the number of lines.\n- `Total Cost` is the sum of (quantity × unit price) across all lines, formatted as a dollar sign followed by dollars with exactly 2 decimal places.\n- `Most Expensive Line` is the item name and total cost in cents (quantity × unit price) of the single most expensive line. If two lines tie, print the one appearing first in the file.\n- `Frozen Lines` counts lines whose department is `Frozen`.\n- `Average Line Cost` is the mean total cost per line, formatted as a dollar sign followed by dollars with exactly 2 decimal places.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Items: 12\nTotal Cost: $49.22\nMost Expensive Line: Muffin 630\nFrozen Lines: 3\nAverage Line Cost: $4.10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "receipt.txt": "Apple 3 120 Produce\nMilk 1 349 Dairy\nBread 2 275 Bakery\nPeas 1 199 Frozen\nBanana 5 60 Produce\nYogurt 2 129 Dairy\nRoll 4 95 Bakery\nPizza 1 599 Frozen\nCarrot 2 150 Produce\nCheese 1 499 Dairy\nMuffin 3 210 Bakery\nSoup 2 249 Frozen\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0051",
+   "title": "Volunteer Shift Sign-In",
+   "prompt": "A community centre tracks volunteer sign-ins in `volunteers.txt`. Each line has four fields separated by single spaces: volunteer name (one word), hours worked (Real with 1 decimal place), task (one word), and break taken (`yes` or `no`).\n\nWrite a program that reads the file and prints exactly:\n\n```\nVolunteers: <count>\nTotal Hours: <value>\nNo Break: <count>\nLongest Shift: <name> <hours>\nTask Count: <task1>=<n> <task2>=<n> <task3>=<n>\nAverage Hours: <value>\n```\n\n- `Volunteers` is the number of lines.\n- `Total Hours` is the sum of all hours, printed with exactly 1 decimal place.\n- `No Break` counts volunteers whose break field is `no`.\n- `Longest Shift` is the name and hours of the volunteer with the most hours, printed with exactly 1 decimal place. If two volunteers tie, print the one appearing first in the file.\n- `Task Count` prints the count for each of the three distinct tasks that appear in the file, in the order they first appear, formatted as `task=count` separated by single spaces.\n- `Average Hours` is the mean hours per volunteer, printed with exactly 2 decimal places.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Volunteers: 10\nTotal Hours: 44.0\nNo Break: 4\nLongest Shift: Mia 7.5\nTask Count: Sorting=4 FrontDesk=3 Greeting=3\nAverage Hours: 4.40\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "volunteers.txt": "Maya 4.5 Sorting yes\nLiam 3.0 FrontDesk no\nZoe 6.5 Sorting yes\nNoah 2.5 Greeting yes\nAva 5.0 FrontDesk no\nEthan 4.0 Greeting yes\nMia 7.5 Sorting no\nLucas 3.5 FrontDesk yes\nEmma 5.5 Greeting yes\nOwen 2.0 Sorting no\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0052",
+   "title": "Laundry Order Status Check",
+   "prompt": "A laundromat tracks orders in `laundry_orders.txt`. Each line has five fields separated by single spaces: order ID (one word), item count (integer), service type (one of `Wash`, `DryClean`, `Press`), price in cents (integer), and status (`Ready`, `Processing`, `Done`).\n\nWrite a program that reads the file and prints exactly:\n\n```\nOrders: <count>\nReady Now: <count>\nTotal Revenue: $<dollars>\nMost Items: <id> <items>\nService Breakdown: Wash=<n> DryClean=<n> Press=<n>\nAverage Items: <value>\n```\n\n- `Orders` is the number of lines.\n- `Ready Now` counts orders with status `Ready`.\n- `Total Revenue` is the sum of all prices, formatted as a dollar sign followed by dollars with exactly 2 decimal places.\n- `Most Items` is the order ID and item count of the order with the highest item count. If two orders tie, print the one appearing first in the file.\n- `Service Breakdown` prints the count for each of the three service types in the order shown.\n- `Average Items` is the mean item count per order, printed with exactly 2 decimal places.\n\nPrint no other lines and no trailing spaces.",
+   "expected_stdout": "Orders: 10\nReady Now: 4\nTotal Revenue: $140.00\nMost Items: L009 7\nService Breakdown: Wash=4 DryClean=3 Press=3\nAverage Items: 3.40\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reading a small text data file provided with the exercise, one record per line (parse fields, validate, summarise)",
+   "achievability": "python-agreed-candidate",
+   "files": {
+    "laundry_orders.txt": "L001 3 Wash 900 Ready\nL002 5 DryClean 2500 Processing\nL003 1 Press 400 Done\nL004 4 Wash 1200 Ready\nL005 2 DryClean 1000 Processing\nL006 6 Press 2400 Done\nL007 3 Press 1200 Ready\nL008 1 Wash 300 Processing\nL009 7 DryClean 3500 Done\nL010 2 Wash 600 Ready\n"
+   },
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0054",
+   "title": "Robot Grid Record Audit",
+   "prompt": "A delivery robot logs its waypoint records in a JSON document:\n\n```\n[\n  {\"x\": 3, \"y\": 7, \"battery\": 88, \"status\": \"ok\"},\n  {\"x\": 5, \"y\": 1, \"battery\": 74, \"status\": \"ok\"},\n  {\"x\": 0, \"y\": 4, \"battery\": 61, \"status\": \"stuck\"}\n]\n```\n\nWrite a program that prints a type audit of every field of every record. For each record print one line listing the field name and its type on one line, in field order x, y, battery, status.\n\nLine format: `Record i, field x: Int` where `i` is the zero-based record index. Use `Int` for integer fields and `Text` for string fields.\n\nOutput exactly 12 lines. No trailing spaces.",
+   "expected_stdout": "Record 0, field x: Int\nRecord 0, field y: Int\nRecord 0, field battery: Int\nRecord 0, field status: Text\nRecord 1, field x: Int\nRecord 1, field y: Int\nRecord 1, field battery: Int\nRecord 1, field status: Text\nRecord 2, field x: Int\nRecord 2, field y: Int\nRecord 2, field battery: Int\nRecord 2, field status: Text\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0058",
+   "title": "Garden Key Path Walk",
+   "prompt": "A garden record stores plant details:\n\n```\n{\n  \"plants\": [\n    {\"species\": \"rose\", \"height\": 1.45, \"watered\": true},\n    {\"species\": \"fern\", \"height\": 0.8, \"watered\": false}\n  ]\n}\n```\n\nWrite a program that prints the full key path of every leaf value. For each plant print one line per field in order species, height, watered:\n\nLine format: `plants[0].species = rose`\n\nFor Text print the value unquoted, for Real print with 1 decimal place, for Bool print `true` or `false`.\n\nPrint exactly 6 lines. No trailing spaces.",
+   "expected_stdout": "plants[0].species = rose\nplants[0].height = 1.4\nplants[0].watered = true\nplants[1].species = fern\nplants[1].height = 0.8\nplants[1].watered = false\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0059",
+   "title": "Beekeeper Foraging Record Types",
+   "prompt": "A beekeeper logs foraging trips:\n\n```\n[\n  {\"bee\": \"B1\", \"distance\": 2.3, \"flowers\": 14, \"sunny\": true},\n  {\"bee\": \"B2\", \"distance\": 1.7, \"flowers\": 9, \"sunny\": false}\n]\n```\n\nWrite a program that prints a type report. For each bee print one line listing all field types in order bee, distance, flowers, sunny, separated by commas with no spaces:\n\nLine format: `B1: Text,Real,Int,Bool`\n\nPrint exactly 2 lines. No trailing spaces.",
+   "expected_stdout": "B1: Text,Real,Int,Bool\nB2: Text,Real,Int,Bool\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0060",
+   "title": "Robot Grid Field Fill Check",
+   "prompt": "A robot's map records may have missing fields:\n\n```\n[\n  {\"cell\": \"A1\", \"terrain\": \"flat\"},\n  {\"cell\": \"A2\", \"terrain\": \"rough\", \"weight\": 5},\n  {\"cell\": \"B1\", \"weight\": 2}\n]\n```\n\nWrite a program that checks each record for the presence of fields cell, terrain, weight (in that order). For each record print one line showing which fields are present, using `Y` for present and `N` for missing, separated by single spaces:\n\nLine format: `A1 Y N N`\n\nPrint exactly 3 lines. No trailing spaces.",
+   "expected_stdout": "A1 Y Y N\nA2 Y Y Y\nB1 Y N Y\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "converting between a JSON document and formatted text output (tables, key paths, type checks of mixed values)",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0061",
+   "title": "Vending Machine Coin Count",
+   "prompt": "You are tallying the coins in a vending machine's collection tray.\n\nThe tray contains the following sequence of coins, left to right:\nQUARTER, DIME, QUARTER, NICKEL, DIME, DIME, QUARTER, NICKEL, PENNY, DIME, QUARTER, PENNY\n\nWrite a program that counts how many of each coin type are in the tray. Print the counts in the order the coin types FIRST APPEAR in the list, one per line, in the exact format:\nTYPE: COUNT\n\nWhere TYPE is the coin name in uppercase and COUNT is the number of that coin. There must be no trailing spaces. The output should be exactly as many lines as there are distinct coin types.",
+   "expected_stdout": "QUARTER: 4\nDIME: 4\nNICKEL: 2\nPENNY: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0062",
+   "title": "Garden Flower Bed Tally",
+   "prompt": "You are recording which flowers were planted in a garden bed this season.\n\nThe flowers were planted in this order: rose, tulip, lily, rose, daisy, tulip, rose, daisy, lily, tulip, daisy, rose\n\nWrite a program that counts how many of each flower type were planted. Print the results SORTED BY COUNT, from highest to lowest. If two flower types have the same count, break the tie by alphabetical order (A-Z) of the flower name.\n\nPrint each result on its own line in the exact format (no trailing spaces):\nflowername=count\n\nUse lowercase for the flower names exactly as given above.",
+   "expected_stdout": "rose=4\ndaisy=3\ntulip=3\nlily=2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0063",
+   "title": "Train Station Platform Headcount",
+   "prompt": "You are counting passengers waiting on a train station platform. Each passenger is holding a ticket for a destination.\n\nThe destinations on the tickets, in the order the passengers are standing, are:\nNorthville, Eastgate, Northville, Westport, Eastgate, Northville, Southfield, Westport, Eastgate, Southfield\n\nWrite a program that counts how many passengers are waiting for each destination. Print the counts in the order each destination FIRST APPEARS among the passengers.\n\nPrint each result on its own line in the exact format (no trailing spaces):\nDestination: N\n\nWhere \"Destination\" is the destination name exactly as written above (mixed case preserved) and N is the count. Include a single space after the colon.",
+   "expected_stdout": "Northville: 3\nEastgate: 3\nWestport: 2\nSouthfield: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0064",
+   "title": "Robot Grid Pickup Zones",
+   "prompt": "A robot on a grid has visited several pickup zones during its shift. Each zone is labeled with a text code.\n\nThe zones visited, in order, are:\nA3, B1, A3, C4, B1, A3, C4, D2, B1, D2, A3\n\nWrite a program that counts how many times each zone was visited. Print the results SORTED BY COUNT, from highest to lowest. If two zones have the same count, break the tie by alphabetical order of the zone code (A-Z).\n\nPrint each result on its own line in the exact format (no trailing spaces):\nZONE=COUNT\n\nUse uppercase for the zone codes exactly as given above.",
+   "expected_stdout": "A3=4\nB1=3\nC4=2\nD2=2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0065",
+   "title": "Cafe Coffee Order Tally",
+   "prompt": "A cafe is reviewing this morning's coffee orders. Each order specifies a drink size.\n\nThe orders, in the sequence they were placed, are:\nsmall, large, medium, small, large, small, medium, large, medium, small\n\nWrite a program that counts how many orders there were for each size. Print the counts SORTED BY KEY, meaning alphabetically by size name (A-Z).\n\nPrint each result on its own line in the exact format (no trailing spaces):\nsize:count\n\nUse lowercase for the size names exactly as given above.",
+   "expected_stdout": "large:3\nmedium:3\nsmall:4\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0066",
+   "title": "Playground Equipment Usage Log",
+   "prompt": "You are tallying which playground equipment children used during recess.\n\nThe equipment used, in the order it was used, is:\nslide, swings, slide, sandbox, swings, swings, slide, sandbox, slide, swings, sandbox\n\nWrite a program that counts how many times each piece of equipment was used. Print the counts in the order each piece of equipment FIRST APPEARS in the log.\n\nPrint each result on its own line in the exact format (no trailing spaces):\nitem - count\n\nUse lowercase for the equipment names exactly as given above. Include a single space before and after the hyphen.",
+   "expected_stdout": "slide - 4\nswings - 4\nsandbox - 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0067",
+   "title": "Fruit Bowl Inventory Check",
+   "prompt": "You are counting the fruit in a kitchen bowl.\n\nThe fruit in the bowl, one by one, are:\napple, banana, apple, orange, banana, apple, grape, orange, banana, grape, apple, orange\n\nWrite a program that counts how many of each fruit are in the bowl. Print the counts SORTED BY COUNT, from highest to lowest. If two fruits have the same count, break the tie by alphabetical order of the fruit name (A-Z).\n\nPrint each result on its own line in the exact format (no trailing spaces):\nfruit (count)\n\nUse lowercase for the fruit names exactly as given above. Include exactly one space before the opening parenthesis and no space between the count and the closing parenthesis.",
+   "expected_stdout": "apple (4)\nbanana (3)\norange (3)\ngrape (2)\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0068",
+   "title": "Lighthouse Keeper's Logbook",
+   "prompt": "You are the keeper of a lighthouse. Each day you record readings from different lamps around the station. Each record has a lamp name (Text), a brightness level (Real, in candela), and a duration (Int, in minutes).\n\nHere is your log for the week:\n\nlamp = [\"Beacon\", \"Lantern\", \"Beacon\", \"Signal\", \"Lantern\", \"Beacon\", \"Signal\"]\nbrightness = [12.5, 8.3, 14.1, 6.7, 9.9, 13.8, 7.2]\nduration = [30, 45, 60, 20, 35, 50, 25]\n\nGroup the records by lamp name. For each lamp, compute:\n- total duration (sum of durations, in minutes)\n- average brightness (mean of brightness values)\n\nOutput the groups in this exact order: Beacon, Lantern, Signal.\n\nFor each lamp, print exactly one line in this format (no trailing spaces):\nLamp: <name> | Total: <total> min | Avg Brightness: <avg>\n\nwhere <avg> is a Real printed with exactly 1 decimal place. Print nothing else.",
+   "expected_stdout": "Lamp: Beacon | Total: 140 min | Avg Brightness: 13.5\nLamp: Lantern | Total: 80 min | Avg Brightness: 9.1\nLamp: Signal | Total: 45 min | Avg Brightness: 7.0\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0069",
+   "title": "Weather Station Rainfall Report",
+   "prompt": "A small weather station records rainfall events. Each event has a zone name (Text) and rainfall amount (Real, in mm). Here is the log:\n\nzone = [\"North\", \"South\", \"East\", \"North\", \"West\", \"South\", \"East\", \"North\"]\nrain = [5.2, 3.1, 7.8, 4.6, 2.9, 3.8, 6.4, 5.0]\n\nGroup by zone. For each zone, compute:\n- total rainfall (sum)\n- minimum rainfall recorded in that zone\n\nOutput groups in this order: North, South, East, West.\n\nFor each zone, print exactly one line:\nZone: <name> | Total: <total> mm | Min: <min> mm\n\nwhere <total> and <min> are Reals printed with exactly 1 decimal place. Print nothing else.",
+   "expected_stdout": "Zone: North | Total: 14.8 mm | Min: 4.6 mm\nZone: South | Total: 6.9 mm | Min: 3.1 mm\nZone: East | Total: 14.2 mm | Min: 6.4 mm\nZone: West | Total: 2.9 mm | Min: 2.9 mm\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0070",
+   "title": "Marathon Split Tracker",
+   "prompt": "You are tracking split times for runners in a marathon. Each record has a runner's bib number (Text), a split time in seconds (Int), and a split distance in kilometers (Int). Here is the data:\n\nbib = [\"101\", \"102\", \"103\", \"101\", \"103\", \"102\", \"101\"]\nsplitSec = [480, 510, 465, 495, 470, 525, 475]\nsplitKm = [5, 5, 5, 5, 5, 5, 5]\n\nGroup by bib number. For each runner, compute:\n- total split time (sum of seconds)\n- fastest (minimum) split time\n\nOutput groups in this order: 101, 102, 103.\n\nFor each runner, print exactly one line:\nBib <bib>: Total <total>s | Fastest <fastest>s\n\nPrint nothing else.",
+   "expected_stdout": "Bib 101: Total 1450s | Fastest 475s\nBib 102: Total 1035s | Fastest 510s\nBib 103: Total 935s | Fastest 465s\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0071",
+   "title": "Library Reading Room Occupancy",
+   "prompt": "A library records how many visitors enter each reading room per hour. Each record has a room name (Text) and visitor count (Int). Here is the day's log:\n\nroom = [\"Quiet\", \"Study\", \"Quiet\", \"Lounge\", \"Study\", \"Quiet\", \"Lounge\"]\nvisitors = [12, 8, 15, 6, 9, 14, 7]\n\nGroup by room. For each room, compute:\n- total visitors\n- average visitors per hour (mean, as a Real)\n\nOutput groups in this order: Quiet, Study, Lounge.\n\nFor each room, print exactly one line:\nRoom <name>: <total> visitors | Avg <avg> per hour\n\nwhere <avg> is a Real printed with exactly 2 decimal places. Print nothing else.",
+   "expected_stdout": "Room Quiet: 41 visitors | Avg 13.67 per hour\nRoom Study: 17 visitors | Avg 8.50 per hour\nRoom Lounge: 13 visitors | Avg 6.50 per hour\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0072",
+   "title": "Bakery Oven Temperature Log",
+   "prompt": "A bakery logs oven temperatures for different pastries. Each record has a pastry name (Text) and an oven temperature in degrees Celsius (Real). Here is the log:\n\npastry = [\"Croissant\", \"Sourdough\", \"Croissant\", \"Baguette\", \"Sourdough\", \"Croissant\"]\ntemp = [205.5, 230.2, 210.8, 225.6, 228.4, 208.1]\n\nGroup by pastry. For each pastry, compute:\n- average temperature\n- maximum temperature\n\nOutput groups in this order: Baguette, Croissant, Sourdough.\n\nFor each pastry, print exactly one line:\n<pastry>: Avg <avg>C | Max <max>C\n\nwhere <avg> and <max> are Reals printed with exactly 1 decimal place. Print nothing else.",
+   "expected_stdout": "Baguette: Avg 225.6C | Max 225.6C\nCroissant: Avg 208.1C | Max 210.8C\nSourdough: Avg 229.3C | Max 230.2C\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0073",
+   "title": "Pet Shelter Weight Check",
+   "prompt": "A pet shelter records weights for animals by species. Each record has a species (Text) and weight in kilograms (Real). Here is the log:\n\nspecies = [\"Cat\", \"Dog\", \"Cat\", \"Rabbit\", \"Dog\", \"Cat\"]\nweight = [4.2, 18.5, 3.8, 2.1, 22.3, 4.5]\n\nGroup by species. For each species, compute:\n- total weight (sum)\n- heaviest (maximum) weight\n\nOutput groups in this order: Cat, Dog, Rabbit.\n\nFor each species, print exactly one line:\n<species>: Total <total>kg | Heaviest <max>kg\n\nwhere <total> and <max> are Reals printed with exactly 1 decimal place. Print nothing else.",
+   "expected_stdout": "Cat: Total 12.5kg | Heaviest 4.5kg\nDog: Total 40.8kg | Heaviest 22.3kg\nRabbit: Total 2.1kg | Heaviest 2.1kg\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0074",
+   "title": "Coffee Shop Tip Summary",
+   "prompt": "A coffee shop records tips left by baristas over a shift. Each record has a barista name (Text) and tip amount in dollars (Real). Here is the shift log:\n\nbarista = [\"Maya\", \"Leo\", \"Maya\", \"Zoe\", \"Leo\", \"Maya\", \"Zoe\"]\ntip = [12.50, 8.75, 15.25, 10.00, 9.50, 14.00, 11.75]\n\nGroup by barista. For each barista, compute:\n- total tips (sum)\n- average tip per customer (mean, assuming each record is one customer)\n\nOutput groups in this order: Leo, Maya, Zoe.\n\nFor each barista, print exactly one line:\n<name>: Total $<total> | Avg $<avg>\n\nwhere <total> and <avg> are Reals printed with exactly 2 decimal places. Print nothing else.",
+   "expected_stdout": "Leo: Total $18.25 | Avg $9.12\nMaya: Total $41.75 | Avg $13.92\nZoe: Total $21.75 | Avg $10.88\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0075",
+   "title": "Mountain Hut Guest Roster",
+   "prompt": "A mountain hut keeps two tables. The first maps guest name to their reservation ID (Text). The second maps reservation ID to the number of nights booked (Int).\n\nGuest names and reservation IDs:\n- \"Anna\" -> \"R12\"\n- \"Ben\" -> \"R07\"\n- \"Clara\" -> \"R19\"\n- \"Dmitri\" -> \"R07\"\n\nReservation IDs and nights:\n- \"R07\" -> 3\n- \"R12\" -> 2\n- \"R19\" -> 1\n\nWrite a program that prints one line per guest, in the order Anna, Ben, Clara, Dmitri, using the format:\nNAME: nights=N\nwhere NAME is the guest's name and N is the number of nights for their reservation. If a guest's reservation ID does not appear in the nights table, print:\nNAME: MISSING\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Anna: nights=2\nBen: nights=3\nClara: nights=1\nDmitri: nights=3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0076",
+   "title": "Vending Machine Price Check",
+   "prompt": "A vending machine stores two tables: item names mapped to slot codes (Text), and slot codes mapped to the price in Real (two decimal places).\n\nItem to slot code:\n- \"Cola\" -> \"A3\"\n- \"Chips\" -> \"B1\"\n- \"Candy\" -> \"C2\"\n- \"Water\" -> \"A3\"\n\nSlot code to price:\n- \"A3\" -> 1.75\n- \"B1\" -> 2.10\n- \"C2\" -> 1.25\n\nPrint one line per item in the order Cola, Chips, Candy, Water using the format:\nITEM: price=P\nwhere P is printed with exactly two decimal places. If an item's slot code is not in the price table, print:\nITEM: NO PRICE\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Cola: price=1.75\nChips: price=2.10\nCandy: price=1.25\nWater: price=1.75\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0077",
+   "title": "Parking Garage Plate Lookup",
+   "prompt": "A parking garage maps licence plates to ticket stub numbers (Text), and ticket stub numbers to the fee owed in Real (two decimal places).\n\nPlate to stub:\n- \"ABC123\" -> \"S7\"\n- \"XYZ789\" -> \"S2\"\n- \"DEF456\" -> \"S9\"\n- \"GHI012\" -> \"S7\"\n\nStub to fee:\n- \"S2\" -> 4.50\n- \"S7\" -> 9.25\n- \"S9\" -> 6.00\n\nPrint one line per plate in the order ABC123, XYZ789, DEF456, GHI012 using the format:\nPLATE: fee=F\nwhere F is printed with exactly two decimal places. If a plate's stub is not in the fee table, print:\nPLATE: UNCHARGED\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "ABC123: fee=9.25\nXYZ789: fee=4.50\nDEF456: fee=6.00\nGHI012: fee=9.25\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0078",
+   "title": "Recipe Book Ingredient Prices",
+   "prompt": "A recipe book maps recipe names to primary ingredient codes (Text), and ingredient codes to cost per unit in Real (two decimal places).\n\nRecipe to ingredient code:\n- \"Pancakes\" -> \"FL01\"\n- \"Omelette\" -> \"EG03\"\n- \"Salad\" -> \"VE05\"\n- \"Soup\" -> \"FL01\"\n\nIngredient code to cost:\n- \"FL01\" -> 0.85\n- \"EG03\" -> 2.40\n- \"VE05\" -> 1.60\n\nPrint one line per recipe in the order Pancakes, Omelette, Salad, Soup using the format:\nRECIPE: cost=C\nwhere C is printed with exactly two decimal places. If a recipe's ingredient code is not in the cost table, print:\nRECIPE: NO COST\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Pancakes: cost=0.85\nOmelette: cost=2.40\nSalad: cost=1.60\nSoup: cost=0.85\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0079",
+   "title": "Laundry Service Weight Lookup",
+   "prompt": "A laundry service maps customer names to order IDs (Text), and order IDs to the weight in kg (Real, two decimal places).\n\nCustomer to order ID:\n- \"Ivy\" -> \"L55\"\n- \"Jack\" -> \"L10\"\n- \"Kelly\" -> \"L77\"\n- \"Liam\" -> \"L55\"\n\nOrder ID to weight:\n- \"L10\" -> 3.40\n- \"L55\" -> 7.85\n- \"L77\" -> 5.20\n\nPrint one line per customer in the order Ivy, Jack, Kelly, Liam using the format:\nCUSTOMER: weight=W kg\nwhere W is printed with exactly two decimal places (note the space before \"kg\"). If a customer's order ID is not in the weight table, print:\nCUSTOMER: WEIGH IN\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Ivy: weight=7.85 kg\nJack: weight=3.40 kg\nKelly: weight=5.20 kg\nLiam: weight=7.85 kg\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0080",
+   "title": "Pet Shelter Record Match",
+   "prompt": "A pet shelter maps animal names to intake codes (Text), and intake codes to weight in kg (Int).\n\nAnimal to intake code:\n- \"Mittens\" -> \"I3\"\n- \"Rex\" -> \"I8\"\n- \"Bella\" -> \"I1\"\n- \"Shadow\" -> \"I8\"\n\nIntake code to weight:\n- \"I1\" -> 7\n- \"I3\" -> 4\n- \"I8\" -> 12\n\nPrint one line per animal in the order Mittens, Rex, Bella, Shadow using the format:\nANIMAL: weight=W kg\nwhere W is an integer (note the space before \"kg\"). If an animal's intake code is not in the weight table, print:\nANIMAL: WEIGH IN\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Mittens: weight=4 kg\nRex: weight=12 kg\nBella: weight=7 kg\nShadow: weight=12 kg\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0081",
+   "title": "Garden Nursery Stock Lookup",
+   "prompt": "A garden nursery maps plant names to shelf codes (Text), and shelf codes to the price per plant in Real (two decimal places).\n\nPlant to shelf code:\n- \"Rose\" -> \"P4\"\n- \"Tulip\" -> \"P1\"\n- \"Fern\" -> \"P9\"\n- \"Iris\" -> \"P4\"\n\nShelf code to price:\n- \"P1\" -> 3.30\n- \"P4\" -> 5.95\n- \"P9\" -> 2.15\n\nPrint one line per plant in the order Rose, Tulip, Fern, Iris using the format:\nPLANT: price=P\nwhere P is printed with exactly two decimal places. If a plant's shelf code is not in the price table, print:\nPLANT: NO PRICE\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Rose: price=5.95\nTulip: price=3.30\nFern: price=2.15\nIris: price=5.95\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0082",
+   "title": "Cinema Concession Stand Prices",
+   "prompt": "A cinema concession stand maps snack names to menu codes (Text), and menu codes to the price in Real (two decimal places).\n\nSnack to menu code:\n- \"Popcorn\" -> \"M2\"\n- \"Nachos\" -> \"M6\"\n- \"Soda\" -> \"M1\"\n- \"Pretzel\" -> \"M6\"\n\nMenu code to price:\n- \"M1\" -> 3.25\n- \"M2\" -> 4.75\n- \"M6\" -> 5.50\n\nPrint one line per snack in the order Popcorn, Nachos, Soda, Pretzel using the format:\nSNACK: price=P\nwhere P is printed with exactly two decimal places. If a snack's menu code is not in the price table, print:\nSNACK: NO PRICE\nPrint exactly 4 lines, no trailing spaces.",
+   "expected_stdout": "Popcorn: price=4.75\nNachos: price=5.50\nSoda: price=3.25\nPretzel: price=5.50\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0083",
+   "title": "Robot Battery Station Cycle",
+   "prompt": "A delivery robot visits 4 battery stations: A, B, C, and D. Each station starts with a certain charge level in percent: A = 80, B = 60, C = 40, D = 50. The robot performs a fixed sequence of 6 operations, each of the form: source -> target, amount.\n\nOperations (applied in order):\n1. A -> B, 10\n2. C -> A, 15\n3. D -> C, 20\n4. B -> D, 5\n5. A -> C, 25\n6. D -> A, 10\n\nA transfer moves the given amount from the source to the target. If a transfer would take the source below 0, the transfer is skipped and the source stays as it was. If the target would go above 100, the target is capped at 100 and the source loses only the amount that was actually absorbed.\n\nPrint the final charge level of each station in alphabetical order, one per line, in the exact format:\nStation A: 70\n\n(Replace 70 with the actual value. No extra spaces, no trailing spaces.)",
+   "expected_stdout": "Station A: 70\nStation B: 65\nStation C: 70\nStation D: 25\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0084",
+   "title": "Classroom Supply Redistribution",
+   "prompt": "A teacher redistributes markers among 5 supply trays labeled Tray 1 through Tray 5. Initial marker counts: Tray 1 = 30, Tray 2 = 15, Tray 3 = 45, Tray 4 = 20, Tray 5 = 35. Apply these 7 operations in order:\n\n1. Add 12 to Tray 3\n2. Remove 8 from Tray 1\n3. Transfer 10 from Tray 5 to Tray 2\n4. Add 6 to Tray 4\n5. Remove 15 from Tray 3\n6. Transfer 5 from Tray 2 to Tray 1\n7. Remove 3 from Tray 4\n\nAn add or remove that would make a tray negative is skipped (the tray stays as it was). Transfers move the exact amount if the source has enough; otherwise the transfer is skipped.\n\nPrint one line per tray in order Tray 1 to Tray 5, format:\nTray 1: 32\n\n(No leading spaces, no trailing spaces, colon and one space before the number.)",
+   "expected_stdout": "Tray 1: 27\nTray 2: 20\nTray 3: 42\nTray 4: 23\nTray 5: 25\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0085",
+   "title": "Board Game Resource Pool",
+   "prompt": "Four players in a board game hold wood, stone, and grain resources. Starting amounts:\n\nPlayer Ana:   wood = 12, stone = 8,  grain = 15\nPlayer Ben:   wood = 6,  stone = 14, grain = 9\nPlayer Cleo:  wood = 10, stone = 5,  grain = 11\nPlayer Dev:   wood = 7,  stone = 12, grain = 6\n\nApply these operations in order:\n1. Ana gives 4 wood to Ben\n2. Ben gives 6 stone to Cleo\n3. Cleo gives 3 grain to Dev\n4. Dev gives 5 wood to Ana\n5. Ana gives 7 grain to Cleo\n6. Ben gives 4 stone to Dev\n7. Cleo gives 2 wood to Ben\n8. Dev gives 5 stone to Ana\n\nA give is skipped if the giver does not have enough of that resource.\n\nPrint each player's totals on one line, players in the order Ana, Ben, Cleo, Dev, exactly as:\nAna: 11 13 8\n\n(Three space-separated integers: wood, stone, grain. No extra spaces, no trailing spaces.)",
+   "expected_stdout": "Ana: 13 13 8\nBen: 12 4 9\nCleo: 8 11 15\nDev: 2 11 9\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0086",
+   "title": "Music Playlist Track Swap",
+   "prompt": "A playlist has 6 tracks with these play counts: T1 = 45, T2 = 30, T3 = 60, T4 = 25, T5 = 50, T6 = 35. Apply these operations in order:\n\n1. Add 15 plays to T3\n2. Remove 20 plays from T1\n3. Transfer 10 plays from T5 to T2\n4. Add 8 plays to T6\n5. Remove 12 plays from T4\n6. Transfer 6 plays from T2 to T1\n7. Add 5 plays to T5\n8. Transfer 9 plays from T3 to T6\n\nRemoves and transfers are skipped if the source would go below 0. Adds that push a track above 100 are capped at 100 (source of a transfer loses only the absorbed amount).\n\nPrint each track's final play count in order T1 through T6, one per line:\nT1: 31\n\n(Exact format: track label, colon, space, integer. No trailing spaces.)",
+   "expected_stdout": "T1: 31\nT2: 34\nT3: 66\nT4: 13\nT5: 45\nT6: 52\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0087",
+   "title": "School Cafeteria Tray Balance",
+   "prompt": "Five cafeteria cash registers hold these balances in dollars: R1 = 42.50, R2 = 18.75, R3 = 55.00, R4 = 27.25, R5 = 33.60. Apply these operations in order:\n\n1. Transfer 10.00 from R3 to R1\n2. Add 5.25 to R2\n3. Remove 7.40 from R4\n4. Transfer 12.50 from R5 to R3\n5. Add 3.10 to R4\n6. Remove 6.00 from R1\n7. Transfer 4.75 from R2 to R5\n\nRemoves and transfers are skipped if the source would go negative. Print each register's final balance in order R1 to R5, one per line, each amount formatted with exactly 2 decimal places:\nR1: 46.50\n\n(No dollar signs, no extra spaces, no trailing spaces. All given values are chosen so rounding to 2 decimal places is unambiguous.)",
+   "expected_stdout": "R1: 46.50\nR2: 19.25\nR3: 57.50\nR4: 22.95\nR5: 25.85\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0088",
+   "title": "Sports Team Jersey Inventory",
+   "prompt": "A sports club stores jerseys in 4 bins: Bin A = 25, Bin B = 18, Bin C = 32, Bin D = 14. Apply these operations in order:\n\n1. Add 7 to Bin B\n2. Remove 10 from Bin C\n3. Transfer 5 from Bin A to Bin D\n4. Remove 3 from Bin A\n5. Add 4 to Bin C\n6. Transfer 8 from Bin D to Bin B\n7. Add 6 to Bin A\n8. Remove 5 from Bin B\n\nRemoves and transfers are skipped if the source would go below 0. Bins have a maximum capacity of 40; an add that would exceed 40 is capped at 40, and a transfer target that would exceed 40 absorbs only up to 40 (the source loses only the absorbed amount).\n\nPrint each bin's final count in order Bin A, Bin B, Bin C, Bin D, one per line:\nBin A: 17\n\n(Exact format, no trailing spaces.)",
+   "expected_stdout": "Bin A: 23\nBin B: 28\nBin C: 26\nBin D: 11\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0090",
+   "title": "Community Book Club Copies",
+   "prompt": "A community book club lends copies of 5 books. Starting copies held by members: Book 1 = 8, Book 2 = 12, Book 3 = 5, Book 4 = 15, Book 5 = 10. Apply these operations in order:\n\n1. Transfer 3 from Book 2 to Book 3\n2. Add 4 to Book 1\n3. Remove 6 from Book 4\n4. Transfer 5 from Book 5 to Book 2\n5. Remove 2 from Book 3\n6. Add 7 to Book 4\n7. Transfer 4 from Book 1 to Book 5\n8. Remove 5 from Book 2\n\nRemoves and transfers are skipped if the source would go below 0.\n\nPrint each book's final copy count in order Book 1 through Book 5, one per line:\nBook 1: 9\n\n(Exact format: label, colon, space, integer. No trailing spaces, no extra blank lines.)",
+   "expected_stdout": "Book 1: 8\nBook 2: 9\nBook 3: 6\nBook 4: 16\nBook 5: 9\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0091",
+   "title": "Aquarium Fish Tank Allocations",
+   "prompt": "An aquarium has 4 tanks with these fish counts: T1 = 30, T2 = 20, T3 = 45, T4 = 25. Apply these operations in order:\n\n1. Add 10 to T3\n2. Remove 8 from T1\n3. Transfer 12 from T4 to T2\n4. Add 5 to T1\n5. Remove 15 from T3\n6. Transfer 6 from T2 to T4\n7. Add 3 to T2\n8. Transfer 10 from T3 to T1\n9. Remove 4 from T4\n\nRemoves and transfers are skipped if the source would go below 0. Each tank can hold at most 60 fish; an add or transfer that would exceed 60 is capped at 60 (transfer source loses only the absorbed amount).\n\nPrint each tank's final count in order T1 through T4, one per line:\nT1: 27\n\n(Exact format, integer, no trailing spaces.)",
+   "expected_stdout": "T1: 37\nT2: 29\nT3: 30\nT4: 15\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0092",
+   "title": "Print Shop Job Sheet Lookup",
+   "prompt": "A print shop records five jobs on a sheet. Each job is described in one line of text.\n\nHere are the jobs, in order:\n\n1. 500 flyers printed in red ink on gloss stock.\n2. 200 business cards printed in black ink on matte stock.\n3. 1000 posters printed in red ink on gloss stock.\n4. 300 envelopes printed in black ink on gloss stock.\n5. 150 banners printed in red ink on matte stock.\n\nBuild an inverted index: for each of the words \"red\", \"gloss\" and \"matte\", list the job numbers (1-based) in which the word appears, in ascending order.\n\nOutput format: exactly 3 lines, one per word above in the order given. Each line is the word, a colon, a space, then the job numbers separated by single spaces. If a word does not appear in any job, print the word, a colon, a space, and then \"none\".\n\nExample shape (not the real answer):\nred: 1 5\n\nDo not print any other lines.",
+   "expected_stdout": "red: 1 3 5\ngloss: 1 3 4\nmatte: 2 5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0093",
+   "title": "Mountain Hut Logbook Word Index",
+   "prompt": "A mountain hut keeps a logbook of visits. Each entry is one line.\n\nHere are the entries, in order:\n\n1. The weather was clear and the summit was visible.\n2. Heavy snow covered the trail below the hut.\n3. Two climbers reached the summit at dawn.\n4. The weather turned to rain by the afternoon.\n5. A guide led a group across the frozen trail.\n\nBuild an inverted index: for each of the words \"summit\", \"trail\" and \"clear\", list the entry numbers (1-based) in which the word appears, in ascending order.\n\nOutput format: exactly 3 lines, one per word above in the order given. Each line is the word, a colon, a space, then the entry numbers separated by single spaces. If a word does not appear in any entry, print the word, a colon, a space, and then \"none\".\n\nExample shape (not the real answer):\nsummit: 1 3\n\nDo not print any other lines.",
+   "expected_stdout": "summit: 1 3\ntrail: 2 5\nclear: 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0095",
+   "title": "Train Network Service Note Index",
+   "prompt": "A train network keeps service notes for five routes. Each note is one line.\n\nHere are the notes, in order:\n\n1. The express train runs direct to the airport.\n2. The local train stops at every station on the branch.\n3. The express train also serves the harbor terminal.\n4. The night train runs direct to the mountain depot.\n5. The branch line connects the harbor to the airport.\n\nBuild an inverted index: for each of the words \"express\", \"harbor\" and \"airport\", list the note numbers (1-based) in which the word appears, in ascending order.\n\nOutput format: exactly 3 lines, one per word above in the order given. Each line is the word, a colon, a space, then the note numbers separated by single spaces. If a word does not appear in any note, print the word, a colon, a space, and then \"none\".\n\nExample shape (not the real answer):\nexpress: 1 3\n\nDo not print any other lines.",
+   "expected_stdout": "express: 1 3\nharbor: 3 5\nairport: 1 5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0096",
+   "title": "Bakery Order Slip Word Index",
+   "prompt": "A bakery records five orders on slips. Each slip is one line of text.\n\nHere are the slips, in order:\n\n1. One chocolate cake with vanilla frosting.\n2. Two loaves of sourdough bread and one croissant.\n3. A vanilla cake with chocolate shavings.\n4. Three croissants and two loaves of rye bread.\n5. One chocolate tart and two croissants.\n\nBuild an inverted index: for each of the words \"chocolate\", \"loaves\" and \"croissants\", list the slip numbers (1-based) in which the word appears, in ascending order.\n\nOutput format: exactly 3 lines, one per word above in the order given. Each line is the word, a colon, a space, then the slip numbers separated by single spaces. If a word does not appear in any slip, print the word, a colon, a space, and then \"none\".\n\nExample shape (not the real answer):\nchocolate: 1 3 5\n\nDo not print any other lines.",
+   "expected_stdout": "chocolate: 1 3 5\nloaves: 2 4\ncroissants: 4 5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0098",
+   "title": "Campus Room Booking Word Index",
+   "prompt": "A campus office lists five room bookings. Each booking is one line.\n\nHere are the bookings, in order:\n\n1. The seminar room hosts the guest lecture on Monday.\n2. The lab hosts the robotics workshop on Wednesday.\n3. The seminar room is booked for the book club on Friday.\n4. The auditorium hosts the film screening on Thursday.\n5. The lab hosts the chemistry review on Tuesday.\n\nBuild an inverted index: for each of the words \"seminar\", \"lab\" and \"hosts\", list the booking numbers (1-based) in which the word appears, in ascending order.\n\nOutput format: exactly 3 lines, one per word above in the order given. Each line is the word, a colon, a space, then the booking numbers separated by single spaces. If a word does not appear in any booking, print the word, a colon, a space, and then \"none\".\n\nExample shape (not the real answer):\nseminar: 1 3\n\nDo not print any other lines.",
+   "expected_stdout": "seminar: 1 3\nlab: 2 5\nhosts: 1 2 4 5\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0100",
+   "title": "Fitness Log Per Class Totals",
+   "prompt": "A gym member logs their workouts by class type (Yoga, HIIT, Cycling) and by day of the week (Mon, Tue, Wed, Thu, Fri).\n\nThe array `minutes` is a 5-by-3 array of integers (days by classes):\nMon: [30, 20, 45]\nTue: [0, 25, 30]\nWed: [45, 30, 0]\nThu: [0, 40, 25]\nFri: [35, 0, 50]\n\nPrint the following exactly:\n- Line 1: `Weekly Minutes by Class`\n- Line 2: `------------------------`\n- Lines 3-5: For each class in the order Yoga, HIIT, Cycling: print the class name, then `: `, then the total minutes for that class across all 5 days.\n- Line 6: blank line (empty string)\n- Lines 7-11: For each day in order Mon, Tue, Wed, Thu, Fri: print the day abbreviation, then ` = `, then the total minutes for that day.\n- Line 12: `Week Total: `, then the sum of all 15 values.\n\nAll numbers are integers. There are no trailing spaces on any line.",
+   "expected_stdout": "Weekly Minutes by Class\n------------------------\nYoga: 110\nHIIT: 115\nCycling: 150\n\nMon = 95\nTue = 55\nWed = 75\nThu = 65\nFri = 85\nWeek Total: 375\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0107",
+   "title": "Aquarium Visitor Species Tally",
+   "prompt": "An aquarium guidebook lists the species each of the 15 visitors on today's tour wants to see. The list, in order of visitation, is:\n\n[\"Clownfish\", \"Jellyfish\", \"Clownfish\", \"Seahorse\", \"Jellyfish\", \"Pufferfish\", \"Clownfish\", \"Turtle\", \"Seahorse\", \"Jellyfish\", \"Octopus\", \"Clownfish\", \"Pufferfish\", \"Turtle\", \"Jellyfish\"]\n\nWrite a program that prints a tally of how many times each species was requested, in the order each species first appeared in the list.\n\nThe output must consist of exactly one line per species in that order. Each line is the species name, a colon, a single space, and the count. For example, the first line must read exactly `Clownfish: 4`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Clownfish: 4\nJellyfish: 4\nSeahorse: 2\nPufferfish: 2\nTurtle: 2\nOctopus: 1\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0108",
+   "title": "Recipe Book Spice Usage",
+   "prompt": "A recipe book's index lists which spice is used by each of the 12 recipes on a weeknight menu. The list, in order of appearance, is:\n\n[\"Cumin\", \"Paprika\", \"Cumin\", \"Basil\", \"Paprika\", \"Thyme\", \"Basil\", \"Cumin\", \"Paprika\", \"Thyme\", \"Basil\", \"Cumin\"]\n\nWrite a program that prints how many recipes use each spice, sorted alphabetically by spice name (A to Z).\n\nThe output must consist of exactly one line per spice. Each line is the spice name, a colon, a single space, and the count. For example, the first line must read exactly `Basil: 3`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Basil: 3\nCumin: 4\nPaprika: 3\nThyme: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0109",
+   "title": "School Timetable Room Bookings",
+   "prompt": "A school's timetable records which classroom each of the 14 after-school club sessions is held in. The list, in order of scheduling, is:\n\n[\"Gym\", \"Library\", \"Lab\", \"Gym\", \"Cafeteria\", \"Library\", \"Lab\", \"Gym\", \"Cafeteria\", \"Library\", \"Gym\", \"Lab\", \"Library\", \"Gym\"]\n\nWrite a program that prints how many sessions are held in each classroom, sorted by count from highest to lowest. If two classrooms have the same count, break the tie alphabetically (A to Z).\n\nThe output must consist of exactly one line per classroom. Each line is the classroom name, a colon, a single space, and the count. For example, the first line must read exactly `Gym: 5`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Gym: 5\nLibrary: 4\nLab: 3\nCafeteria: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0110",
+   "title": "Lighthouse Keeper's Weather Notes",
+   "prompt": "Over 16 consecutive shifts, a lighthouse keeper records the weather condition at the start of each shift. The list, in order of shifts, is:\n\n[\"Clear\", \"Fog\", \"Clear\", \"Rain\", \"Fog\", \"Clear\", \"Storm\", \"Rain\", \"Fog\", \"Clear\", \"Rain\", \"Fog\", \"Clear\", \"Storm\", \"Rain\", \"Clear\"]\n\nWrite a program that prints how many shifts had each weather condition, in the order each condition first appeared in the list.\n\nThe output must consist of exactly one line per condition in that order. Each line is the condition, a colon, a single space, and the count. For example, the first line must read exactly `Clear: 6`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Clear: 6\nFog: 4\nRain: 4\nStorm: 2\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0111",
+   "title": "Train Network Line Usage",
+   "prompt": "A commuter records which line they took for each of their 15 trips this week. The list, in order of trips, is:\n\n[\"Red\", \"Blue\", \"Red\", \"Green\", \"Blue\", \"Red\", \"Blue\", \"Green\", \"Red\", \"Blue\", \"Red\", \"Green\", \"Blue\", \"Red\", \"Blue\"]\n\nWrite a program that prints how many trips used each line, sorted alphabetically by line name (A to Z).\n\nThe output must consist of exactly one line per line name. Each line is the line name, a colon, a single space, and the count. For example, the first line must read exactly `Blue: 6`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Blue: 6\nGreen: 3\nRed: 6\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0112",
+   "title": "Bakery Display Case Tally",
+   "prompt": "A bakery's display case log records which item was restocked at each of 13 restocking events during one morning. The list, in order of events, is:\n\n[\"Croissant\", \"Sourdough\", \"Croissant\", \"Bagel\", \"Sourdough\", \"Croissant\", \"Bagel\", \"Croissant\", \"Sourdough\", \"Bagel\", \"Croissant\", \"Sourdough\", \"Croissant\"]\n\nWrite a program that prints how many times each item was restocked, sorted by count from highest to lowest. If two items have the same count, break the tie alphabetically (A to Z).\n\nThe output must consist of exactly one line per item. Each line is the item name, a colon, a single space, and the count. For example, the first line must read exactly `Croissant: 6`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Croissant: 6\nSourdough: 4\nBagel: 3\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0113",
+   "title": "Fitness Class Check-In Counts",
+   "prompt": "A fitness studio's front desk records which class each of 15 members checked in for during one evening. The list, in order of check-ins, is:\n\n[\"Yoga\", \"Spin\", \"Yoga\", \"Pilates\", \"Spin\", \"Yoga\", \"Pilates\", \"Spin\", \"Yoga\", \"Pilates\", \"Spin\", \"Yoga\", \"Pilates\", \"Yoga\", \"Spin\"]\n\nWrite a program that prints how many members checked in for each class, sorted alphabetically by class name (A to Z).\n\nThe output must consist of exactly one line per class. Each line is the class name, a colon, a single space, and the count. For example, the first line must read exactly `Pilates: 4`. There must be no trailing spaces and no extra lines before or after.",
+   "expected_stdout": "Pilates: 4\nSpin: 5\nYoga: 6\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "counting and tallying by a text key over a fixed list (word frequencies, votes, item counts); the task states the output order: first appearance or sorted by key or by count with a tie rule",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0114",
+   "title": "Ferry Deck Footfall",
+   "prompt": "A small ferry company logs how many passengers boarded each sailing and which deck they used. The data below lists the deck name and the number of passengers for each of 10 sailings:\n\nDeck, Passengers\nUpper, 42\nLower, 58\nUpper, 37\nMain, 65\nLower, 49\nMain, 72\nUpper, 51\nLower, 44\nMain, 60\nUpper, 48\n\nWrite a program that groups the records by deck and prints, for each deck, the total number of passengers across all sailings and the largest single-sailing count. Print the decks in alphabetical order of deck name: Lower, Main, Upper.\n\nOutput format (exactly 4 lines, no trailing spaces):\nLower: total=151 max=58\nMain: total=197 max=72\nUpper: total=178 max=51",
+   "expected_stdout": "Lower: total=151 max=58\nMain: total=197 max=72\nUpper: total=178 max=51\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0115",
+   "title": "Chess Club Ladder Points",
+   "prompt": "A chess club records each player's name, their section (Open or Under-1600), and the points they scored in a weekend tournament:\n\nName, Section, Points\nAva, Open, 4.5\nBen, Under-1600, 3.5\nClara, Open, 5.0\nDan, Under-1600, 4.0\nEve, Open, 3.5\nFinn, Under-1600, 2.5\nGrace, Open, 4.0\nHugo, Under-1600, 3.0\nIris, Open, 5.5\nJack, Under-1600, 4.5\n\nWrite a program that groups the records by section and prints, for each section, the number of players, the total points scored, and the average points per player. Print the sections in this order: Open, then Under-1600.\n\nOutput format (exactly 3 lines, no trailing spaces):\nOpen: players=5 total=22.5 avg=4.50\nUnder-1600: players=5 total=17.5 avg=3.50",
+   "expected_stdout": "Open: players=5 total=22.5 avg=4.50\nUnder-1600: players=5 total=17.5 avg=3.50\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0116",
+   "title": "Museum Gift Shop Sales",
+   "prompt": "A museum gift shop logs sales of items by category. Each record gives the category (Souvenir or Book) and the sale amount in dollars:\n\nCategory, Amount\nSouvenir, 12.50\nBook, 18.75\nSouvenir, 9.25\nBook, 22.00\nSouvenir, 15.00\nBook, 16.50\nSouvenir, 8.75\nBook, 19.25\nSouvenir, 11.00\nBook, 14.00\n\nWrite a program that groups the records by category and prints, for each category, the number of sales, the total amount, and the average amount per sale. Print the categories in alphabetical order: Book, Souvenir.\n\nOutput format (exactly 3 lines, no trailing spaces):\nBook: sales=5 total=90.50 avg=18.10\nSouvenir: sales=5 total=56.50 avg=11.30",
+   "expected_stdout": "Book: sales=5 total=90.50 avg=18.10\nSouvenir: sales=5 total=56.50 avg=11.30\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0117",
+   "title": "Mountain Hut Bunk Occupancy",
+   "prompt": "A mountain hut records how many bunks are occupied in each room each night. Each record gives the room name (Alpine or Summit) and the number of bunks occupied:\n\nRoom, Occupied\nAlpine, 8\nSummit, 6\nAlpine, 10\nAlpine, 7\nSummit, 9\nAlpine, 12\nSummit, 5\nAlpine, 9\nSummit, 8\nAlpine, 11\n\nWrite a program that groups the records by room and prints, for each room, the total bunks occupied across all nights and the highest single-night count. Print the rooms in alphabetical order: Alpine, Summit.\n\nOutput format (exactly 3 lines, no trailing spaces):\nAlpine: total=57 max=12\nSummit: total=28 max=9",
+   "expected_stdout": "Alpine: total=57 max=12\nSummit: total=28 max=9\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0118",
+   "title": "Aquarium Feeding Schedule",
+   "prompt": "An aquarium records fish feedings. Each record gives the tank name (Reef or Freshwater) and the grams of food given:\n\nTank, Grams\nReef, 25\nFreshwater, 18\nReef, 32\nReef, 20\nFreshwater, 15\nReef, 28\nFreshwater, 22\nReef, 19\nFreshwater, 17\nReef, 30\n\nWrite a program that groups the records by tank and prints, for each tank, the number of feedings, the total grams, and the average grams per feeding. Print the tanks in alphabetical order: Freshwater, Reef.\n\nOutput format (exactly 3 lines, no trailing spaces):\nFreshwater: feedings=4 total=72 avg=18.00\nReef: feedings=6 total=154 avg=25.67",
+   "expected_stdout": "Freshwater: feedings=4 total=72 avg=18.00\nReef: feedings=6 total=154 avg=25.67\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0119",
+   "title": "Bakery Delivery Van Load",
+   "prompt": "A bakery tracks how many crates are loaded into each delivery van per run. Each record gives the van name (Van A or Van B) and the number of crates:\n\nVan, Crates\nVan A, 14\nVan B, 9\nVan A, 18\nVan A, 11\nVan B, 12\nVan A, 16\nVan B, 8\nVan A, 13\nVan B, 15\nVan A, 17\n\nWrite a program that groups the records by van and prints, for each van, the total crates across all runs and the smallest single-run count. Print the vans in this order: Van A, Van B.\n\nOutput format (exactly 3 lines, no trailing spaces):\nVan A: total=89 min=11\nVan B: total=44 min=8",
+   "expected_stdout": "Van A: total=89 min=11\nVan B: total=44 min=8\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0120",
+   "title": "Classroom Book Return Bin",
+   "prompt": "A school library records how many books are returned to a classroom bin each day. Each record gives the bin label (Bin 1 or Bin 2) and the number of books returned:\n\nBin, Books\nBin 1, 7\nBin 2, 5\nBin 1, 9\nBin 1, 4\nBin 2, 8\nBin 1, 6\nBin 2, 3\nBin 1, 10\nBin 2, 7\nBin 1, 5\n\nWrite a program that groups the records by bin and prints, for each bin, the total books returned across all days and the highest single-day count. Print the bins in this order: Bin 1, Bin 2.\n\nOutput format (exactly 3 lines, no trailing spaces):\nBin 1: total=41 max=10\nBin 2: total=23 max=8",
+   "expected_stdout": "Bin 1: total=41 max=10\nBin 2: total=23 max=8\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "grouping fixed records by a text key and reporting per-group totals, minimums, maximums or averages; the task states the output order of the groups",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0121",
+   "title": "Warehouse Pallet Code Lookup",
+   "prompt": "A small warehouse tracks pallets by a 3-letter code and the item they hold by a different 3-letter code. You are given two small tables.\n\nFirst, a table of pallet locations. Each entry has a pallet code and a row number:\n- Pallet code 'A12' is in row 3\n- Pallet code 'B47' is in row 1\n- Pallet code 'C09' is in row 5\n- Pallet code 'D31' is in row 2\n\nSecond, a table of item names. Each entry has an item code and a name:\n- Item code 'X91' is named 'Anvil'\n- Item code 'Y22' is named 'Bolts'\n- Item code 'Z05' is named 'Canvas'\n\nA short shipment list pairs a pallet code with the item code stored on it:\n- A12 holds X91\n- B47 holds Y22\n- C09 holds Z05\n- D31 holds X91\n- E55 holds Y22\n\nWrite a program that prints one line for each shipment entry, in the order given above.\n\nIf both the pallet code and the item code are found in their respective tables, print exactly:\nPALLET <pallet code> ROW <row number> ITEM <item name>\nwhere <pallet code> is the 3-character pallet code, <row number> is the row, and <item name> is the item name from the item table.\n\nIf the pallet code is not in the pallet table, print exactly:\nPALLET <pallet code> ROW MISSING ITEM <item name>\n\nIf the item code is not in the item table, print exactly:\nPALLET <pallet code> ROW <row number> ITEM MISSING\n\nIf both are missing, print exactly:\nPALLET <pallet code> ROW MISSING ITEM MISSING\n\nPrint exactly one line per shipment entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "PALLET A12 ROW 3 ITEM Anvil\nPALLET B47 ROW 1 ITEM Bolts\nPALLET C09 ROW 5 ITEM Canvas\nPALLET D31 ROW 2 ITEM Anvil\nPALLET E55 ROW MISSING ITEM Bolts\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0122",
+   "title": "Ferry Terminal Passenger Fare Lookup",
+   "prompt": "A small ferry terminal sells tickets by route code and records passenger names for boarding. You are given two small tables.\n\nFirst, a table of route fares. Each entry has a route code and a fare in dollars:\n- Route code 'N1' has fare 8.50\n- Route code 'S2' has fare 6.75\n- Route code 'E3' has fare 12.00\n- Route code 'W4' has fare 9.25\n\nSecond, a table of passengers. Each entry has a passenger ID and a name:\n- Passenger ID '101' is named 'Alice'\n- Passenger ID '102' is named 'Bob'\n- Passenger ID '103' is named 'Carla'\n- Passenger ID '104' is named 'Dmitri'\n\nA short boarding list pairs a passenger ID with the route they bought:\n- Passenger 101 bought route N1\n- Passenger 102 bought route S2\n- Passenger 103 bought route E3\n- Passenger 104 bought route N1\n- Passenger 105 bought route W4\n- Passenger 101 bought route X9\n\nWrite a program that prints one line for each boarding entry, in the order given above.\n\nIf both the passenger ID and the route code are found in their respective tables, print exactly:\n<name> - $<fare with two decimal places>\nwhere <name> is the passenger name and <fare> is the route fare printed with exactly two digits after the decimal point.\n\nIf the passenger ID is not in the passenger table, print exactly:\nUNKNOWN PASSENGER - $<fare with two decimal places>\n\nIf the route code is not in the route table, print exactly:\n<name> - FARE NOT FOUND\n\nIf both are missing, print exactly:\nUNKNOWN PASSENGER - FARE NOT FOUND\n\nPrint exactly one line per boarding entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Alice - $8.50\nBob - $6.75\nCarla - $12.00\nDmitri - $8.50\nUNKNOWN PASSENGER - $9.25\nAlice - FARE NOT FOUND\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0123",
+   "title": "Fitness Studio Class Roster Lookup",
+   "prompt": "A small fitness studio tracks class sessions by a short session code and trainers by a trainer ID. You are given two small tables.\n\nFirst, a table of class sessions. Each entry has a session code and a class name:\n- Session code 'A1' is 'Yoga'\n- Session code 'B2' is 'Spin'\n- Session code 'C3' is 'Pilates'\n- Session code 'D4' is 'Boxing'\n\nSecond, a table of trainers. Each entry has a trainer ID and a name:\n- Trainer ID 'T1' is 'Jordan'\n- Trainer ID 'T2' is 'Sam'\n- Trainer ID 'T3' is 'Riley'\n\nA short schedule pairs a trainer ID with the session they teach:\n- Trainer T1 teaches session A1\n- Trainer T2 teaches session B2\n- Trainer T3 teaches session C3\n- Trainer T1 teaches session D4\n- Trainer T4 teaches session A1\n- Trainer T2 teaches session Z9\n\nWrite a program that prints one line for each schedule entry, in the order given above.\n\nIf both the trainer ID and the session code are found in their respective tables, print exactly:\n<trainer name> teaches <class name>\n\nIf the trainer ID is not in the trainer table, print exactly:\nUNASSIGNED teaches <class name>\n\nIf the session code is not in the session table, print exactly:\n<trainer name> teaches UNSCHEDULED\n\nIf both are missing, print exactly:\nUNASSIGNED teaches UNSCHEDULED\n\nPrint exactly one line per schedule entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Jordan teaches Yoga\nSam teaches Spin\nRiley teaches Pilates\nJordan teaches Boxing\nUNASSIGNED teaches Yoga\nSam teaches UNSCHEDULED\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0124",
+   "title": "Library Book Copy Lookup",
+   "prompt": "A small library tracks book titles by a shelf code and member names by a member ID. You are given two small tables.\n\nFirst, a table of shelf locations. Each entry has a shelf code and a title:\n- Shelf code 'F1' is 'The Sea'\n- Shelf code 'F2' is 'Cloud Atlas'\n- Shelf code 'G1' is 'Stone Fruit'\n- Shelf code 'G2' is 'Night Owl'\n\nSecond, a table of members. Each entry has a member ID and a name:\n- Member ID 'M1' is 'Priya'\n- Member ID 'M2' is 'Owen'\n- Member ID 'M3' is 'Lena'\n- Member ID 'M4' is 'Marcus'\n\nA short hold list pairs a member ID with the shelf code they requested:\n- Member M1 holds shelf F1\n- Member M2 holds shelf F2\n- Member M3 holds shelf G1\n- Member M4 holds shelf G2\n- Member M5 holds shelf F1\n- Member M1 holds shelf H9\n\nWrite a program that prints one line for each hold entry, in the order given above.\n\nIf both the member ID and the shelf code are found in their respective tables, print exactly:\n<member name>: <title>\n\nIf the member ID is not in the member table, print exactly:\nGUEST: <title>\n\nIf the shelf code is not in the shelf table, print exactly:\n<member name>: NO SUCH SHELF\n\nIf both are missing, print exactly:\nGUEST: NO SUCH SHELF\n\nPrint exactly one line per hold entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Priya: The Sea\nOwen: Cloud Atlas\nLena: Stone Fruit\nMarcus: Night Owl\nGUEST: The Sea\nPriya: NO SUCH SHELF\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0125",
+   "title": "Parking Garage Ticket Lookup",
+   "prompt": "A small parking garage tracks tickets by ticket number and stall types by stall code. You are given two small tables.\n\nFirst, a table of stall types. Each entry has a stall code and a type name:\n- Stall code 'EV' is 'Electric'\n- Stall code 'VL' is 'Compact'\n- Stall code 'ST' is 'Standard'\n- Stall code 'RV' is 'Oversize'\n\nSecond, a table of tickets. Each entry has a ticket number and a plate:\n- Ticket '1001' has plate 'KLM345'\n- Ticket '1002' has plate 'QRS678'\n- Ticket '1003' has plate 'TUV901'\n- Ticket '1004' has plate 'WXY234'\n\nA short entry log pairs a ticket number with the stall code the driver parked in:\n- Ticket 1001 parked in stall EV\n- Ticket 1002 parked in stall VL\n- Ticket 1003 parked in stall ST\n- Ticket 1004 parked in stall RV\n- Ticket 1005 parked in stall EV\n- Ticket 1001 parked in stall ZZ\n\nWrite a program that prints one line for each entry log record, in the order given above.\n\nIf both the ticket number and the stall code are found in their respective tables, print exactly:\n<plate> @ <type name>\nwhere <plate> is the plate from the ticket table and <type name> is the stall type.\n\nIf the ticket number is not in the ticket table, print exactly:\nNO PLATE @ <type name>\n\nIf the stall code is not in the stall table, print exactly:\n<plate> @ UNKNOWN STALL\n\nIf both are missing, print exactly:\nNO PLATE @ UNKNOWN STALL\n\nPrint exactly one line per entry log record, with no extra spaces and no blank lines.",
+   "expected_stdout": "KLM345 @ Electric\nQRS678 @ Compact\nTUV901 @ Standard\nWXY234 @ Oversize\nNO PLATE @ Electric\nKLM345 @ UNKNOWN STALL\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0126",
+   "title": "Warehouse Bin Item Lookup",
+   "prompt": "A small warehouse tracks bins by a bin code and item descriptions by an item code. You are given two small tables.\n\nFirst, a table of bins. Each entry has a bin code and an aisle number:\n- Bin code 'B12' is in aisle 4\n- Bin code 'B34' is in aisle 2\n- Bin code 'B56' is in aisle 7\n- Bin code 'B78' is in aisle 1\n\nSecond, a table of items. Each entry has an item code and a description:\n- Item code 'I10' is 'Hammer'\n- Item code 'I20' is 'Screwdriver'\n- Item code 'I30' is 'Wrench'\n- Item code 'I40' is 'Saw'\n\nA short pick list pairs a bin code with the item code expected inside it:\n- Bin B12 holds item I10\n- Bin B34 holds item I20\n- Bin B56 holds item I30\n- Bin B78 holds item I40\n- Bin B90 holds item I10\n- Bin B12 holds item I99\n\nWrite a program that prints one line for each pick list entry, in the order given above.\n\nIf both the bin code and the item code are found in their respective tables, print exactly:\nAISLE <aisle number> - <description>\nwhere <aisle number> is the aisle and <description> is the item description.\n\nIf the bin code is not in the bin table, print exactly:\nAISLE MISSING - <description>\n\nIf the item code is not in the item table, print exactly:\nAISLE <aisle number> - ITEM NOT FOUND\n\nIf both are missing, print exactly:\nAISLE MISSING - ITEM NOT FOUND\n\nPrint exactly one line per pick list entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "AISLE 4 - Hammer\nAISLE 2 - Screwdriver\nAISLE 7 - Wrench\nAISLE 1 - Saw\nAISLE MISSING - Hammer\nAISLE 4 - ITEM NOT FOUND\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0127",
+   "title": "Ferry Route Capacity Lookup",
+   "prompt": "A small ferry service tracks vessels by vessel code and routes by route code. You are given two small tables.\n\nFirst, a table of routes. Each entry has a route code and a capacity (number of passengers):\n- Route 'R1' has capacity 120\n- Route 'R2' has capacity 80\n- Route 'R3' has capacity 200\n- Route 'R4' has capacity 150\n\nSecond, a table of vessels. Each entry has a vessel code and a vessel name:\n- Vessel 'V1' is 'Seabird'\n- Vessel 'V2' is 'Tidepool'\n- Vessel 'V3' is 'Harbor Light'\n- Vessel 'V4' is 'Cormorant'\n\nA short assignment list pairs a vessel code with the route it runs:\n- Vessel V1 runs route R1\n- Vessel V2 runs route R2\n- Vessel V3 runs route R3\n- Vessel V4 runs route R4\n- Vessel V5 runs route R1\n- Vessel V1 runs route R9\n\nWrite a program that prints one line for each assignment entry, in the order given above.\n\nIf both the vessel code and the route code are found in their respective tables, print exactly:\n<vessel name> carries <capacity>\nwhere <vessel name> is the vessel name and <capacity> is the route capacity as an integer.\n\nIf the vessel code is not in the vessel table, print exactly:\nUNNAMED carries <capacity>\n\nIf the route code is not in the route table, print exactly:\n<vessel name> carries UNKNOWN\n\nIf both are missing, print exactly:\nUNNAMED carries UNKNOWN\n\nPrint exactly one line per assignment entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Seabird carries 120\nTidepool carries 80\nHarbor Light carries 200\nCormorant carries 150\nUNNAMED carries 120\nSeabird carries UNKNOWN\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0128",
+   "title": "Fitness Log Member Weight Lookup",
+   "prompt": "A small gym tracks members by member ID and workout plans by plan code. You are given two small tables.\n\nFirst, a table of workout plans. Each entry has a plan code and a plan name:\n- Plan 'P1' is 'Strength'\n- Plan 'P2' is 'Cardio'\n- Plan 'P3' is 'Flex'\n- Plan 'P4' is 'HIIT'\n\nSecond, a table of members. Each entry has a member ID and a name:\n- Member 'U1' is 'Nina'\n- Member 'U2' is 'Omar'\n- Member 'U3' is 'Paula'\n- Member 'U4' is 'Quentin'\n\nA short check-in list pairs a member ID with the plan code they followed today:\n- Member U1 followed plan P1\n- Member U2 followed plan P2\n- Member U3 followed plan P3\n- Member U4 followed plan P4\n- Member U5 followed plan P1\n- Member U1 followed plan P8\n\nWrite a program that prints one line for each check-in entry, in the order given above.\n\nIf both the member ID and the plan code are found in their respective tables, print exactly:\n<name> did <plan name>\n\nIf the member ID is not in the member table, print exactly:\nWALK-IN did <plan name>\n\nIf the plan code is not in the plan table, print exactly:\n<name> did NO PLAN\n\nIf both are missing, print exactly:\nWALK-IN did NO PLAN\n\nPrint exactly one line per check-in entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Nina did Strength\nOmar did Cardio\nPaula did Flex\nQuentin did HIIT\nWALK-IN did Strength\nNina did NO PLAN\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0129",
+   "title": "Library ISBN Shelf Lookup",
+   "prompt": "A small library tracks book titles by ISBN and reading rooms by room code. You are given two small tables.\n\nFirst, a table of reading rooms. Each entry has a room code and a room name:\n- Room 'A' is 'Quiet Hall'\n- Room 'B' is 'Sun Room'\n- Room 'C' is 'Study Nook'\n- Room 'D' is 'Garden Bench'\n\nSecond, a table of books. Each entry has an ISBN and a title:\n- ISBN '978-1' is 'Tide and Stone'\n- ISBN '978-2' is 'Paper Lanterns'\n- ISBN '978-3' is 'The Long Field'\n- ISBN '978-4' is 'Salt Air'\n\nA short reading list pairs an ISBN with the room the reader chose:\n- ISBN 978-1 read in room A\n- ISBN 978-2 read in room B\n- ISBN 978-3 read in room C\n- ISBN 978-4 read in room D\n- ISBN 978-5 read in room A\n- ISBN 978-1 read in room Z\n\nWrite a program that prints one line for each reading list entry, in the order given above.\n\nIf both the ISBN and the room code are found in their respective tables, print exactly:\n<title> in <room name>\nwhere <title> is the book title and <room name> is the reading room name.\n\nIf the ISBN is not in the book table, print exactly:\nUNLISTED in <room name>\n\nIf the room code is not in the room table, print exactly:\n<title> in NO SUCH ROOM\n\nIf both are missing, print exactly:\nUNLISTED in NO SUCH ROOM\n\nPrint exactly one line per reading list entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Tide and Stone in Quiet Hall\nPaper Lanterns in Sun Room\nThe Long Field in Study Nook\nSalt Air in Garden Bench\nUNLISTED in Quiet Hall\nTide and Stone in NO SUCH ROOM\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0130",
+   "title": "Parking Garage Membership Lookup",
+   "prompt": "A small parking garage tracks membership tiers by tier code and vehicles by plate. You are given two small tables.\n\nFirst, a table of membership tiers. Each entry has a tier code and a discount percentage as an integer:\n- Tier 'G' has discount 20\n- Tier 'S' has discount 10\n- Tier 'B' has discount 0\n- Tier 'P' has discount 35\n\nSecond, a table of vehicles. Each entry has a plate and an owner name:\n- Plate 'AAA111' is owned by 'Rosa'\n- Plate 'BBB222' is owned by 'Samir'\n- Plate 'CCC333' is owned by 'Tanya'\n- Plate 'DDD444' is owned by 'Viktor'\n\nA short billing list pairs a plate with the tier code on that vehicle's account:\n- Plate AAA111 has tier G\n- Plate BBB222 has tier S\n- Plate CCC333 has tier B\n- Plate DDD444 has tier P\n- Plate EEE555 has tier G\n- Plate AAA111 has tier X\n\nWrite a program that prints one line for each billing entry, in the order given above.\n\nIf both the plate and the tier code are found in their respective tables, print exactly:\n<owner> - <discount> percent off\nwhere <owner> is the vehicle owner and <discount> is the tier discount as an integer.\n\nIf the plate is not in the vehicle table, print exactly:\nNON-MEMBER - <discount> percent off\n\nIf the tier code is not in the tier table, print exactly:\n<owner> - NO TIER\n\nIf both are missing, print exactly:\nNON-MEMBER - NO TIER\n\nPrint exactly one line per billing entry, with no extra spaces and no blank lines.",
+   "expected_stdout": "Rosa - 20 percent off\nSamir - 10 percent off\nTanya - 0 percent off\nViktor - 35 percent off\nNON-MEMBER - 20 percent off\nRosa - NO TIER\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "lookups and joins between two small fixed tables keyed by name or code (prices by product, owners by id), reporting missing keys explicitly, in a stated output order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0131",
+   "title": "Marathon Aid Station Water Cans",
+   "prompt": "A marathon aid station has four water canisters labeled A, B, C, D. Each canister starts with a fixed number of liters: A=120, B=95, C=140, D=80.\n\nThe station manager applies the following operations in order:\n1. Pour 15 liters from C into D.\n2. Pour 10 liters from A into B.\n3. Pour 25 liters from D into A.\n4. Pour 5 liters from B into C.\n5. Pour 20 liters from C into B.\n\nPrint the final state of every canister sorted by label (A, B, C, D), one per line, in this exact format (no trailing spaces):\nA: <liters>\nB: <liters>\nC: <liters>\nD: <liters>",
+   "expected_stdout": "A: 135\nB: 120\nC: 110\nD: 70\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0132",
+   "title": "Train Network Signal Box Counts",
+   "prompt": "A small train network has four signal boxes named NORTH, SOUTH, EAST, WEST. Each box begins with a number of pending routing requests: NORTH=45, SOUTH=32, EAST=28, WEST=50.\n\nThe dispatcher applies these transfers in order:\n1. Move 8 requests from WEST to NORTH.\n2. Move 12 requests from NORTH to EAST.\n3. Move 5 requests from EAST to SOUTH.\n4. Move 15 requests from SOUTH to WEST.\n5. Move 3 requests from WEST to EAST.\n\nAfter all transfers, print each signal box and its remaining request count, sorted alphabetically by name (EAST, NORTH, SOUTH, WEST), one per line in this exact format (no trailing spaces):\nEAST: <count>\nNORTH: <count>\nSOUTH: <count>\nWEST: <count>",
+   "expected_stdout": "EAST: 38\nNORTH: 41\nSOUTH: 22\nWEST: 54\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0133",
+   "title": "Mountain Hut Firewood Stock",
+   "prompt": "A mountain hut stores firewood in three racks named R1, R2, R3. Each rack starts with a number of logs: R1=60, R2=45, R3=75.\n\nThe hut warden applies these operations in order:\n1. Move 10 logs from R1 to R2.\n2. Move 20 logs from R3 to R1.\n3. Move 5 logs from R2 to R3.\n4. Move 15 logs from R1 to R3.\n5. Move 8 logs from R3 to R2.\n\nPrint the final log count for each rack, in the order R1, R2, R3, one per line in this exact format (no trailing spaces):\nR1: <logs>\nR2: <logs>\nR3: <logs>",
+   "expected_stdout": "R1: 55\nR2: 58\nR3: 67\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0134",
+   "title": "Vending Machine Coin Hopper Fill",
+   "prompt": "A vending machine has three coin hoppers named NICKEL, DIME, QUARTER. Each hopper starts with a number of coins: NICKEL=80, DIME=60, QUARTER=40.\n\nThe maintenance technician applies these transfers in order:\n1. Move 15 coins from NICKEL to DIME.\n2. Move 10 coins from DIME to QUARTER.\n3. Move 25 coins from QUARTER to NICKEL.\n4. Move 5 coins from NICKEL to QUARTER.\n5. Move 20 coins from DIME to NICKEL.\n\nAfter all transfers, print each hopper and its coin count, sorted alphabetically by name (DIME, NICKEL, QUARTER), one per line in this exact format (no trailing spaces):\nDIME: <count>\nNICKEL: <count>\nQUARTER: <count>",
+   "expected_stdout": "DIME: 45\nNICKEL: 105\nQUARTER: 30\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0135",
+   "title": "Robot Grid Battery Reserve",
+   "prompt": "A warehouse robot manages four battery reserve cells on its charging grid, named CELL1, CELL2, CELL3, CELL4. Each cell starts with a charge level in percent: CELL1=75, CELL2=60, CELL3=85, CELL4=50.\n\nThe robot applies these rebalancing operations in order:\n1. Transfer 10 percent from CELL1 to CELL4.\n2. Transfer 15 percent from CELL3 to CELL2.\n3. Transfer 5 percent from CELL2 to CELL1.\n4. Transfer 20 percent from CELL4 to CELL3.\n5. Transfer 8 percent from CELL1 to CELL2.\n\nPrint the final charge level for each cell, in the order CELL1, CELL2, CELL3, CELL4, one per line in this exact format (no trailing spaces):\nCELL1: <level>%\nCELL2: <level>%\nCELL3: <level>%\nCELL4: <level>%",
+   "expected_stdout": "CELL1: 62%\nCELL2: 78%\nCELL3: 90%\nCELL4: 40%\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0136",
+   "title": "Swimming Pool Chemical Stock",
+   "prompt": "A community swimming pool tracks three chemical drums named CHLORINE, BROMINE, PHOSPHATE. Each drum starts with a number of kilograms: CHLORINE=120, BROMINE=90, PHOSPHATE=60.\n\nThe pool technician applies these operations in order:\n1. Move 20 kg from CHLORINE to BROMINE.\n2. Move 15 kg from PHOSPHATE to CHLORINE.\n3. Move 10 kg from BROMINE to PHOSPHATE.\n4. Move 25 kg from CHLORINE to PHOSPHATE.\n5. Move 5 kg from PHOSPHATE to BROMINE.\n\nAfter all operations, print each drum and its remaining kilograms, sorted alphabetically by name (BROMINE, CHLORINE, PHOSPHATE), one per line in this exact format (no trailing spaces):\nBROMINE: <kg>kg\nCHLORINE: <kg>kg\nPHOSPHATE: <kg>kg",
+   "expected_stdout": "BROMINE: 105kg\nCHLORINE: 90kg\nPHOSPHATE: 75kg\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0137",
+   "title": "Cinema Projection Room Film Reels",
+   "prompt": "A cinema has three projection rooms, each holding a number of film reels: ROOM_A starts with 14, ROOM_B starts with 9, ROOM_C starts with 11.\n\nThe projection manager applies these transfers in order:\n1. Move 3 reels from ROOM_A to ROOM_B.\n2. Move 5 reels from ROOM_C to ROOM_A.\n3. Move 2 reels from ROOM_B to ROOM_C.\n4. Move 4 reels from ROOM_A to ROOM_C.\n5. Move 1 reel from ROOM_C to ROOM_B.\n\nPrint the final reel count for each room, in the order ROOM_A, ROOM_B, ROOM_C, one per line in this exact format (no trailing spaces):\nROOM_A: <count> reels\nROOM_B: <count> reels\nROOM_C: <count> reels",
+   "expected_stdout": "ROOM_A: 12 reels\nROOM_B: 11 reels\nROOM_C: 11 reels\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0138",
+   "title": "Bike Repair Shop Parts Bin Levels",
+   "prompt": "A bike repair shop has four parts bins labeled X1, X2, X3, X4, each holding a number of units: X1=50, X2=35, X3=65, X4=40.\n\nThe shop assistant applies these operations in order:\n1. Move 10 units from X1 to X3.\n2. Move 15 units from X4 to X2.\n3. Move 5 units from X3 to X1.\n4. Move 20 units from X2 to X4.\n5. Move 8 units from X1 to X2.\n6. Move 12 units from X3 to X4.\n\nPrint the final unit count for each bin, sorted numerically by label (X1, X2, X3, X4), one per line in this exact format (no trailing spaces):\nX1: <units>\nX2: <units>\nX3: <units>\nX4: <units>",
+   "expected_stdout": "X1: 37\nX2: 38\nX3: 58\nX4: 57\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "applying a fixed list of add, remove and transfer operations to named balances or stock levels, then reporting the final state in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0139",
+   "title": "Parking Garage Incident Line Index",
+   "prompt": "A parking garage manager keeps a list of 8 incident reports, each written as a single line of text. The lines are:\n1. \"Bumper scratch near level 2 ramp\"\n2. \"Oil leak in row C space 14\"\n3. \"Lost keys at the payment kiosk\"\n4. \"Bumper scratch by the elevator\"\n5. \"Flat tire in row A space 7\"\n6. \"Oil leak near the exit gate\"\n7. \"Lost keys found in row D\"\n8. \"Flat tire by the entrance\"\n\nBuild an index that maps each of the three target words \"Bumper\", \"Oil\", and \"Lost\" to the set of line numbers (1-based, in ascending order) whose text contains that word.\n\nPrint exactly 3 lines in the order Bumper, Oil, Lost. Each line has the format:\n<Word>: <n1> <n2> ...\nwhere <Word> is the target word followed by a colon and a single space, then the matching line numbers separated by single spaces, in ascending order. There is no trailing space.",
+   "expected_stdout": "Bumper: 1 4\nOil: 2 6\nLost: 3 7\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0140",
+   "title": "Print Shop Color Job Line Index",
+   "prompt": "A print shop records 10 job descriptions, one per line:\n1. \"Print 200 red flyers on gloss paper\"\n2. \"Bind 30 blue booklets with staples\"\n3. \"Print 50 green posters on matte stock\"\n4. \"Cut 100 red tickets from card\"\n5. \"Print 15 blue banners on vinyl\"\n6. \"Staple 75 green programs\"\n7. \"Print 40 red labels on adhesive\"\n8. \"Bind 12 blue folders\"\n9. \"Print 90 green cards on linen\"\n10. \"Cut 60 blue wristbands\"\n\nBuild an inverted index from each target word \"Print\", \"Bind\", and \"Cut\" to the list of line numbers (1-based, ascending) whose text contains that word.\n\nPrint exactly 3 lines in the order Print, Bind, Cut. Each line has the format:\n<Word>: <n1> <n2> ...\nwith a colon, a single space after it, line numbers separated by single spaces, ascending, and no trailing space.",
+   "expected_stdout": "Print: 1 3 5 7 9\nBind: 2 8\nCut: 4 10\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0142",
+   "title": "Lighthouse Log Signal Index",
+   "prompt": "A lighthouse keeper writes 8 log entries, one per line:\n1. \"Foghorn sounded at the north tower\"\n2. \"Ship passed the south channel\"\n3. \"Lamp cleaned in the lantern room\"\n4. \"Foghorn tested near the jetty\"\n5. \"Ship anchored off the east shoal\"\n6. \"Lamp relit after the storm\"\n7. \"Foghorn silenced during repairs\"\n8. \"Ship departed the west bay\"\n\nBuild an inverted index from each target word \"Foghorn\", \"Ship\", and \"Lamp\" to the list of line numbers (1-based, ascending) whose text contains that word.\n\nPrint exactly 3 lines in the order Foghorn, Ship, Lamp. Each line has the format:\n<Word>: <n1> <n2> ...\nwith a colon, a single space after it, line numbers separated by single spaces, ascending, and no trailing space.",
+   "expected_stdout": "Foghorn: 1 4 7\nShip: 2 5 8\nLamp: 3 6\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0143",
+   "title": "Fitness Log Exercise Line Index",
+   "prompt": "A gym member keeps 9 workout notes, one per line:\n1. \"Squats three sets of twelve\"\n2. \"Bench press four sets of eight\"\n3. \"Squats with added weight\"\n4. \"Rowing machine for twenty minutes\"\n5. \"Bench press paused reps\"\n6. \"Squats bodyweight only\"\n7. \"Deadlift three sets of five\"\n8. \"Bench press close grip\"\n9. \"Rowing machine cooldown\"\n\nBuild an inverted index from each target word \"Squats\", \"Bench\", and \"Rowing\" to the list of line numbers (1-based, ascending) whose text contains that word.\n\nPrint exactly 3 lines in the order Squats, Bench, Rowing. Each line has the format:\n<Word>: <n1> <n2> ...\nwith a colon, a single space after it, line numbers separated by single spaces, ascending, and no trailing space.",
+   "expected_stdout": "Squats: 1 3 6\nBench: 2 5 8\nRowing: 4 9\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0145",
+   "title": "Library Shelf Card Index",
+   "prompt": "A small library keeps 8 catalogue cards, one per line:\n1. \"History of the Roman Republic\"\n2. \"Modern Art in the Twentieth Century\"\n3. \"The Roman Colosseum Explored\"\n4. \"Art Techniques for Beginners\"\n5. \"Republic Ideals in Practice\"\n6. \"Roman Roads and Aqueducts\"\n7. \"Sculpture Across the Century\"\n8. \"Modern History of Rome\"\n\nBuild an inverted index from each target word \"Roman\", \"Art\", and \"Modern\" to the list of line numbers (1-based, ascending) whose text contains that word.\n\nPrint exactly 3 lines in the order Roman, Art, Modern. Each line has the format:\n<Word>: <n1> <n2> ...\nwith a colon, a single space after it, line numbers separated by single spaces, ascending, and no trailing space.",
+   "expected_stdout": "Roman: 1 3 6\nArt: 2 4\nModern: 2 8\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "reverse lookups and simple inverted indexes over a few short fixed texts (which lines contain each word), in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0147",
+   "title": "Community Garden Plot Harvest Totals",
+   "prompt": "A community garden tracks how many kilograms of vegetables each of four gardeners harvested from three plots during one week.\n\nThe gardeners are: Ava, Ben, Cleo, Dana (in that order).\nThe plots are: North, South, East (in that order).\n\nHarvest (kg) per gardener per plot:\n- Ava: North 4, South 6, East 3\n- Ben: North 5, South 2, East 7\n- Cleo: North 1, South 8, East 4\n- Dana: North 6, South 3, East 5\n\nWrite a program that prints, in the order of the gardeners as listed above, each gardener's total harvest across all three plots, then prints each plot's total harvest across all four gardeners, in the order of the plots as listed above.\n\nOutput format (exactly, one line per item, no extra spaces):\nAva 13\nBen 14\nCleo 13\nDana 14\nNorth 16\nSouth 19\nEast 19",
+   "expected_stdout": "Ava 13\nBen 14\nCleo 13\nDana 14\nNorth 16\nSouth 19\nEast 19\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0148",
+   "title": "Bike-Share Station Trip Summary",
+   "prompt": "A bike-share company records how many trips started at each of three docking stations during the morning, midday, and evening periods of a single day.\n\nStations: Riverside, Market, Hilltop (in that order).\nPeriods: Morning, Midday, Evening (in that order).\n\nTrip counts per station per period:\n- Riverside: Morning 12, Midday 5, Evening 9\n- Market: Morning 18, Midday 14, Evening 22\n- Hilltop: Morning 7, Midday 3, Evening 11\n\nWrite a program that prints, for each station in the listed order, the station name followed by the station's total trips across all three periods, then prints, for each period in the listed order, the period name followed by the period's total trips across all three stations.\n\nOutput format (exactly, one line per item, no extra spaces):\nRiverside 26\nMarket 54\nHilltop 21\nMorning 37\nMidday 22\nEvening 42",
+   "expected_stdout": "Riverside 26\nMarket 54\nHilltop 21\nMorning 37\nMidday 22\nEvening 42\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0149",
+   "title": "Farmers Market Stall Receipt Averages",
+   "prompt": "A farmers market has three stalls: Flowers, Cheese, Honey (in that order). Over a weekend, each stall recorded the sale price (in dollars) of four items.\n\nSale prices per stall:\n- Flowers: 8.50, 12.00, 6.75, 10.25\n- Cheese: 14.00, 9.50, 11.25, 16.75\n- Honey: 7.25, 18.00, 13.50, 9.00\n\nWrite a program that prints, for each stall in the listed order, the stall name followed by its average sale price (sum of its four prices divided by 4), rounded to exactly 2 decimal places, then prints the overall average price across all twelve sales, rounded to exactly 2 decimal places.\n\nOutput format (exactly, one line per item, no extra spaces):\nFlowers 9.38\nCheese 12.88\nHoney 11.94\nOverall 11.40",
+   "expected_stdout": "Flowers 9.38\nCheese 12.88\nHoney 11.94\nOverall 11.40\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0150",
+   "title": "Playground Equipment Repair Log",
+   "prompt": "A city parks department tracks how many repair jobs were completed last month on each of three types of playground equipment by each of three crews.\n\nEquipment types: Slide, Swing, Climber (in that order).\nCrews: Crew1, Crew2, Crew3 (in that order).\n\nJobs completed per crew per equipment:\n- Crew1: Slide 7, Swing 4, Climber 9\n- Crew2: Slide 3, Swing 11, Climber 6\n- Crew3: Slide 5, Swing 8, Climber 2\n\nWrite a program that prints, for each equipment type in the listed order, the equipment name followed by the total jobs across all three crews, then prints, for each crew in the listed order, the crew name followed by the total jobs across all three equipment types.\n\nOutput format (exactly, one line per item, no extra spaces):\nSlide 15\nSwing 23\nClimber 17\nCrew1 20\nCrew2 20\nCrew3 15",
+   "expected_stdout": "Slide 15\nSwing 23\nClimber 17\nCrew1 20\nCrew2 20\nCrew3 15\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0151",
+   "title": "Classroom Pencil Cup Restock Sheet",
+   "prompt": "A teacher has three classrooms (Room A, Room B, Room C) and orders pencils, erasers, and rulers for each. The order quantities for last term are below.\n\nItems: Pencil, Eraser, Ruler (in that order).\nRooms: RoomA, RoomB, RoomC (in that order).\n\nQuantities ordered per room per item:\n- RoomA: Pencil 40, Eraser 25, Ruler 15\n- RoomB: Pencil 30, Eraser 35, Ruler 20\n- RoomC: Pencil 25, Eraser 20, Ruler 30\n\nWrite a program that prints, for each room in the listed order, the room name followed by the total items ordered for that room, then prints, for each item in the listed order, the item name followed by the total ordered across all three rooms.\n\nOutput format (exactly, one line per item, no extra spaces):\nRoomA 80\nRoomB 85\nRoomC 75\nPencil 95\nEraser 80\nRuler 65",
+   "expected_stdout": "RoomA 80\nRoomB 85\nRoomC 75\nPencil 95\nEraser 80\nRuler 65\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0152",
+   "title": "Coffee Shop Tip Jar Breakdown",
+   "prompt": "A coffee shop records tips (in dollars) left by customers at three counters (Espresso, Brew, Pastry — in that order) during Morning, Afternoon, and Evening shifts.\n\nCounters: Espresso, Brew, Pastry (in that order).\nShifts: Morning, Afternoon, Evening (in that order).\n\nTips per counter per shift:\n- Espresso: Morning 14.50, Afternoon 9.75, Evening 6.25\n- Brew: Morning 18.25, Afternoon 12.00, Evening 8.50\n- Pastry: Morning 7.00, Afternoon 11.25, Evening 5.75\n\nWrite a program that prints, for each counter in the listed order, the counter name followed by the counter's total tips across all three shifts (rounded to exactly 2 decimal places), then prints, for each shift in the listed order, the shift name followed by the shift's total tips across all three counters (rounded to exactly 2 decimal places).\n\nOutput format (exactly, one line per item, no extra spaces):\nEspresso 30.50\nBrew 38.75\nPastry 24.00\nMorning 39.75\nAfternoon 33.00\nEvening 20.50",
+   "expected_stdout": "Espresso 30.50\nBrew 38.75\nPastry 24.00\nMorning 39.75\nAfternoon 33.00\nEvening 20.50\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0153",
+   "title": "Pet Shelter Adoption Count Board",
+   "prompt": "A pet shelter reports how many animals were adopted from each of three locations (Downtown, Suburb, Rural — in that order) in each of three months (April, May, June — in that order).\n\nAdoptions per location per month:\n- Downtown: April 6, May 9, June 4\n- Suburb: April 11, May 7, June 8\n- Rural: April 3, May 5, June 10\n\nWrite a program that prints, for each location in the listed order, the location name followed by the location's total adoptions across the three months, then prints, for each month in the listed order, the month name followed by the month's total adoptions across the three locations.\n\nOutput format (exactly, one line per item, no extra spaces):\nDowntown 19\nSuburb 26\nRural 18\nApril 20\nMay 21\nJune 22",
+   "expected_stdout": "Downtown 19\nSuburb 26\nRural 18\nApril 20\nMay 21\nJune 22\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  },
+  {
+   "id": "dst_f2_20261103_0154",
+   "title": "Riverside Kayak Rental Hours",
+   "prompt": "A kayak rental shop has three boats (Red, Blue, Green — in that order) and rents them on three days (Friday, Saturday, Sunday — in that order). Rental hours recorded:\n\nHours per boat per day:\n- Red: Friday 5, Saturday 8, Sunday 6\n- Blue: Friday 7, Saturday 4, Sunday 9\n- Green: Friday 3, Saturday 6, Sunday 7\n\nWrite a program that prints, for each boat in the listed order, the boat name followed by the boat's total rental hours across the three days, then prints, for each day in the listed order, the day name followed by the day's total rental hours across the three boats.\n\nOutput format (exactly, one line per item, no extra spaces):\nRed 19\nBlue 20\nGreen 16\nFriday 15\nSaturday 18\nSunday 22",
+   "expected_stdout": "Red 19\nBlue 20\nGreen 16\nFriday 15\nSaturday 18\nSunday 22\n",
+   "hide_expected_stdout": false,
+   "reference_solution": "",
+   "category": "two-level grouping (totals per region per product, scores per student per subject), printed in a stated order",
+   "achievability": "python-agreed-candidate",
+   "filter": {
+    "model": "aether-gemma4-12b-v2-q8-32k",
+    "first_attempt": "pass"
+   }
+  }
+ ]
+}

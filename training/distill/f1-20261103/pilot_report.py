@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """The pilot's numbers: how often the fine-tune fails fresh tasks, by class, what the solvers recover, and each stage's time.
 
-    python3 training/distill/f1-20261103/pilot_report.py [--target PAIRS]
+    python3 training/distill/f1-20261103/pilot_report.py [--batch DIR] [--target PAIRS]
 
-Reads the batch's raw or packed reports. The fine-tune's programs are only read for pass or fail here too.
+--batch picks another slice, such as f2-20261103. Reads the batch's raw or packed reports. The fine-tune's programs are only read for pass or fail here too.
 """
 
 from __future__ import annotations
@@ -56,8 +56,11 @@ def short(category: str) -> str:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
+    ap.add_argument("--batch", type=pathlib.Path, default=HERE)
     ap.add_argument("--target", type=int, default=286, help="pairs to scale the batch to (d5 added 286)")
     args = ap.parse_args()
+    global HERE
+    HERE = args.batch
     doc = json.loads((HERE / "tasks.json").read_text(encoding="utf-8"))
     frozen = json.loads((HERE / "tasks_frozen.json").read_text(encoding="utf-8"))["tasks"]
     failed = json.loads((HERE / "tasks_failed.json").read_text(encoding="utf-8"))["tasks"]
