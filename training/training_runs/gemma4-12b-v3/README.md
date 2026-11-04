@@ -7,7 +7,7 @@ started. `compare.py` computes the reading and prints its verdict from the three
 |---|---|---|---|
 | `gemma4-12b-v2` | `v2-20261101` | 3407 | done on 2026-11-02 |
 | `gemma4-12b-v3` | `v3-20261104` | 3407 | one change from `gemma4-12b-v2`: the dataset |
-| `gemma4-12b-v2-s42` | `v2-20261101` | 42 | one change from `gemma4-12b-v2`: the seed; the first measure of held-out seed noise |
+| `gemma4-12b-v2-s42` | `v2-20261101` | 42 | one change from `gemma4-12b-v2`: the seed; this model's first measure of held-out seed noise |
 | `gemma4-12b-v3-s42` | `v3-20261104` | 42 | one change from `gemma4-12b-v3`: the seed |
 
 All are scored at 16 bits with no guide, at T=0, on the eight suites, by the 1.0 grader on the training host.

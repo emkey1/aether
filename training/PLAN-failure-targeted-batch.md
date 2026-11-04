@@ -116,7 +116,7 @@ All on host-c with its services stopped, about 6 hours each, in this order.
 |---|---|---|---|
 | baseline | `v2-20261101` | 3407 | done (`gemma4-12b-v2`) |
 | targeted | `v3-20261104` | 3407 | first (`gemma4-12b-v3`) |
-| baseline | `v2-20261101` | 42 | second (`gemma4-12b-v2-s42`); also the first measure of held-out seed noise |
+| baseline | `v2-20261101` | 42 | second (`gemma4-12b-v2-s42`); also this model's first measure of held-out seed noise |
 | targeted | `v3-20261104` | 42 | third (`gemma4-12b-v3-s42`) |
 | control, only if targeted reads as a gain | `v2-20261101` + the same number of pairs from `tasks_passed.json` | 3407, 42 | new |
 
@@ -136,6 +136,12 @@ This is the final form, committed with the run configs before training started. 
 Earlier notes proposed held-out coded errors as the main measure, because they sit at 10 to 12 in all four fine-tunes. Total
 passes replace it: v2 kept coded failures level while doubling wrong output, and Gemma's gap to e3 is not in coded errors at
 all (14 against 16).
+
+## Other models (2026-11-04)
+
+The owner asked whether this work helps the other fine-tunes. `distill/fe3-20261104/` points the filter at e3 at mxfp4 over the same 1,776 tasks, so
+it trains nothing and solves nothing. e3 fails 230, 121 of them also failed by Gemma, and 98 of them already have a pair. About a third of these pairs
+are aimed at e3, so a MoE run on `v3-20261104` would be a weak test of targeting. A real one needs e3's other failures solved first.
 
 ## Limits, stated now
 

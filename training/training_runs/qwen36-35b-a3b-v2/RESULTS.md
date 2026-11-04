@@ -103,8 +103,10 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output:
 
 - **Same data, nearly the same training:** `qwen36-35b-a3b-e2` and e3 at epoch 2 differ on 9 of 126 first attempts, split
   5 to 4.
-- **Same data, different seeds:** the three `qwen38-27b-r7` seeds differ on 1 to 5 of the 73 main tasks. No seed
-  runs have held-out scores, so held-out's seed noise has never been measured.
+- **Same data, different seeds:** the three `qwen38-27b-r7` seeds differ on 1 to 5 of the 73 main tasks. On held-out they
+  score 39 (45), 40 (47) and 40 (47), and any two differ on 9 to 12 of the 53 first attempts. Corrected on 2026-11-04: this
+  line said no seed runs had held-out scores, but their reports are in those runs' `score/` folders. The MoE's own seed noise
+  is unmeasured.
 - **v2 against e3:** 22 tasks, split 6 to 16. e3 was partly chosen for this score, and the epoch 2 result shows
   the gap comes from the third pass alone. A second seed would show whether that pass is a real effect or luck, in either run.
 

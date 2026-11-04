@@ -72,6 +72,7 @@ from weights already trained.
 
 - e3 stays the release model. Held-out does not pick between these adapters.
 - A second seed is still the missing test, and it is now the larger unknown: sampling noise is measured and small, and
-  seed noise has never been measured on held-out.
+  seed noise has not been measured on this model's held-out scores. Corrected on 2026-11-04: this line said never on held-out,
+  but the 27B's three seeds were (`../qwen36-35b-a3b-v2/RESULTS.md`).
 - New recipes keep the epoch 2 adapter and score it as well, rather than assuming the third pass helps. The Gemma 4 12B
   run does this.

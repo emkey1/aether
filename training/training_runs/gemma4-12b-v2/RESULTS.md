@@ -107,8 +107,8 @@ held-out suites do not have to choose.
 ## How much of this is chance
 
 The controls in `../qwen36-35b-a3b-v2/RESULTS.md` apply here too: nearly identical training differs on 9 of 126 first
-attempts, and held-out seed noise has never been measured. A difference of a few tasks between any two rows above cannot
-be read as more than that.
+attempts, and held-out seed noise has not been measured on this model. Corrected on 2026-11-04: this line said never, but the
+27B's three seeds were. A difference of a few tasks between any two rows above cannot be read as more than that.
 
 ## Next
 
