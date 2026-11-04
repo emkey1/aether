@@ -1,0 +1,63 @@
+{
+  "_note": "The baseline's second seed in training/PLAN-failure-targeted-batch.md: gemma4-12b-v2 with one change, seed 42. Also the first measure of held-out seed noise.",
+  "tag": "gemma4-12b-v2-s42",
+  "family": "gemma4_unified",
+  "hf_repo": "google/gemma-4-12B-it",
+  "base_model": "/storage/models/Gemma-4-12B-it",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 40,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 42,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 25,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      25,
+      300,
+      575
+    ]
+  },
+  "dataset": {
+    "id": "v2-20261101",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}
