@@ -116,6 +116,15 @@ class FilterTests(unittest.TestCase):
         distill.stage_harvest(argparse.Namespace(batch="b", split="passed", skip_provenance=True))
         self.assertEqual([p["id"] for p in distill.load_json(self.batch / "pairs.json", None)["pairs"]], ["pass"])
 
+    def test_a_merged_report_names_each_pairs_solver(self):
+        self.run_filter()
+        merged = report("solver", [result("coded", SOLVER_PROGRAM, True), result("rc", SOLVER_PROGRAM, True)], doc_name="medium")
+        merged["destinations"][0]["variants"][0]["results"][1]["_solver"] = "second"
+        distill.save_json(self.batch / "aether.json", merged)
+        distill.stage_harvest(argparse.Namespace(batch="b", split="failed", skip_provenance=True))
+        self.assertEqual({p["id"]: p["_provenance"]["solver"] for p in distill.load_json(self.batch / "pairs.json", None)["pairs"]},
+                         {"coded": "solver", "rc": "second"})
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -1,7 +1,7 @@
 # Plan: a batch aimed at a fine-tune's own failures (drafted 2026-11-02)
 
 The owner approved the pilot and the solver order on 2026-11-03, then scaling to about 286 pairs (`distill/f3-20261103/`, with the
-pilot's 41). The dataset and the runs still need a decision.
+pilot's 41). That batch finished on 2026-11-04 with 298 pairs. The dataset and the runs still need a decision.
 
 **The question:** does training data drawn from tasks a fine-tune gets wrong move its benchmark, where the same amount of
 ordinary data did not? d5 added 286 pairs, about 15% more records, and `training_runs/qwen36-35b-a3b-v2/RESULTS.md`
@@ -72,6 +72,39 @@ JSON, file and map categories and the one plain category f1 missed.
 **Scale, from both slices:** matching d5's 286 pairs takes about 1,700 frozen tasks, about 20 hours unattended: 5 of task writing,
 4 of Python, 7 of filtering at 8 bits on the Mac and 4 of solving. Duplicates took 16% of what the writer returned in f1, and that
 may rise. The owner can set a lower target. The MiMo stages share T'Ra's queue, and the Mac's GPU is taken for about 11 hours.
+
+## The scaled batch (2026-11-04)
+
+**`distill/f3-20261103/` gave 257 pairs, so with the pilot's 41 there are 298.** They sit in each slice's `pairs.json` and
+`pairs_python.json`, not in `distilled/`, because the dataset builder takes every file there by default. `merge_solvers.py` in f3's
+folder folds each slice's two solves into its `aether.json`.
+
+| | f1 + f2 | f3 | all |
+|---|---:|---:|---:|
+| frozen tasks | 246 | 1,530 | 1,776 |
+| **8-bit Gemma failed** | **43 (17%)** | **279 (18%)** | **322 (18%)** |
+| wrong output / coded / return code | 28 / 11 / 4 | 166 / 94 / 19 | 194 / 105 / 23 |
+| guided 27B solved (first time) | 37 (29) | 235 (189) | 272 (218) |
+| MiMo solved of the rest | 4 of 6 | 22 of 44 | 26 of 50 |
+| **pairs** | **41** | **257** | **298** |
+
+| area | frozen tasks | failed | pairs |
+|---|---:|---:|---:|
+| core | 780 | 150 (19%) | 140 |
+| JSON documents and data files | 335 | 113 (34%) | 100 |
+| keyed data | 661 | 59 (9%) | 58 |
+
+- **The pilot's rates held at six times the size,** and failures cluster the same way. In f3, reading a JSON data file fails 40 of 54,
+  table-based dynamic programming 25 of 50, and converting JSON 35 of 83.
+- **What the pairs are:** 180 from wrong output, 96 from coded errors, 22 from return codes; 233 first-attempt programs and 65 after
+  repair; 47 carry data files; 29 use maps.
+- **Solvers:** the guided 27B wrote 272. MiMo wrote 26, and those are the pairs checked only against its own Python, since MiMo wrote
+  all of the Python.
+- **Checked:** all 298 pass `aether_specialization_check_pairs.py` on the 1.0 release binary, with each slice also checked against the
+  other two (highest similarity 0.26). No prompt repeats within the set or in the approved pairs. f3's 334 open-lane requests were all
+  served by MiMo. The dataset builder's own gates have not run, and run when `v3-*` is built.
+- **Time:** 20 hours end to end, as forecast: 5.5 of tasks, 3.4 of Python, 7.1 of filter, 3 of 27B, 1 of MiMo. Freezing dropped 70 of
+  the 1,600 tasks: 38 whose prompt contradicted the output, 28 Python failures, 4 with no or too much output.
 
 ## Runs
 

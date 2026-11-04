@@ -516,7 +516,7 @@ def stage_harvest(args) -> int:
         pair = {"id": task["id"], "prompt": adb.build_prompt("none", "", board_task), "solution": source,
                       "expected_stdout": task["expected_stdout"],
                       "_provenance": {"category": task.get("category"), "first_attempt": attempts[0] is exact[0],
-                                      "solver": report["destinations"][0].get("model"),
+                                      "solver": result.get("_solver") or report["destinations"][0].get("model"),
                                       "guide": report["destinations"][0]["variants"][0].get("doc_version"),
                                       "grader": report.get("aether_version"),
                                       "generator_models": sorted((provenance or {}).get("requests_by_model", {})),

@@ -1,0 +1,403 @@
+{
+ "pairs": [
+  {
+   "id": "dst_f1_20261103_0008",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0008\n        Task Title: Robot Vacuum Room Coverage\n        Task:\n        A robot vacuum cleans a rectangular room represented by a 6x6 grid. Each cell is either floor '.' or an obstacle '#'. The room is:\n\n..#...\n....#.\n.#....\n...#..\n.#...#\n....#.\n\nThe robot starts at cell (0,0). It follows a fixed pattern: it moves right across the current row until it hits the right wall or an obstacle, then moves down one row, then moves left across that row, and so on (a boustrophedon sweep). When a move would hit a wall or obstacle, the robot turns: at the right wall it moves down (if possible) and reverses horizontal direction; at the left wall it moves down and reverses direction; if it cannot move down either, it stops. A cell is considered cleaned the first time the robot visits it.\n\nWrite a program that simulates this sweep and prints:\n\n1. cleanedCount: the number of floor cells the robot visits before stopping.\n2. totalFloor: the total number of floor cells ('.') in the room.\n3. coverage: cleanedCount as a percentage of totalFloor, rounded to 2 decimal places.\n4. lastRow: the row index (0-based) of the last cell the robot visits before stopping.\n\nPrint exactly four lines (no trailing spaces):\n\nCleanedCount: <cleanedCount>\nTotalFloor: <totalFloor>\nCoverage: <coverage to 2 decimal places>\nLastRow: <lastRow>\n\n        Expected stdout:\n        CleanedCount: 8\nTotalFloor: 29\nCoverage: 27.59\nLastRow: 5\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let grid: Text[] = [\"..#...\", \"....#.\", \".#....\", \"...#..\", \".#...#\", \"....#.\"];\n    let rows: Int = 6;\n    let cols: Int = 6;\n\n    let visited: Bool[][] = [];\n    loop r in 0..rows {\n        let row: Bool[] = [];\n        loop c in 0..cols {\n            row = row + [false];\n        }\n        visited = visited + [row];\n    }\n\n    let totalFloor: Int = 0;\n    loop r in 0..rows {\n        loop c in 0..cols {\n            if grid[r][c] == \".\" {\n                totalFloor = totalFloor + 1;\n            }\n        }\n    }\n\n    let r: Int = 0;\n    let c: Int = 0;\n    let dir: Int = 1;\n    let cleanedCount: Int = 0;\n    let lastRow: Int = 0;\n\n    if grid[0][0] == \".\" {\n        visited[0][0] = true;\n        cleanedCount = 1;\n        lastRow = 0;\n    }\n\n    loop {\n        let nextC: Int = c + dir;\n        let canMove: Bool = false;\n        if nextC >= 0 && nextC < cols && grid[r][nextC] == \".\" {\n            canMove = true;\n        }\n        if canMove {\n            c = nextC;\n            if !visited[r][c] {\n                visited[r][c] = true;\n                cleanedCount = cleanedCount + 1;\n                lastRow = r;\n            }\n        } else {\n            let nextR: Int = r + 1;\n            if nextR < rows && grid[nextR][c] == \".\" {\n                r = nextR;\n                dir = -dir;\n                if !visited[r][c] {\n                    visited[r][c] = true;\n                    cleanedCount = cleanedCount + 1;\n                    lastRow = r;\n                }\n            } else {\n                break;\n            }\n        }\n    }\n\n    let coverage: Real = cleanedCount * 100.0 / totalFloor;\n    let coverageRounded: Real = round_to(coverage, 2);\n\n    fx {\n        println(\"CleanedCount: \", cleanedCount);\n        println(\"TotalFloor: \", totalFloor);\n        println(\"Coverage: \", format_float(coverageRounded, 2));\n        println(\"LastRow: \", lastRow);\n    }\n    ret;\n}",
+   "expected_stdout": "CleanedCount: 8\nTotalFloor: 29\nCoverage: 27.59\nLastRow: 5\n",
+   "_provenance": {
+    "category": "grid simulations on a small fixed 2-D grid (cellular rules, paths, regions, scoring)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "coded"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0020",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0020\n        Task Title: Train Platform Announcement\n        Task:\n        A train network formats platform announcements. Given a train name (a short Text like 'Express' or 'Local') and a platform number (an Int), the announcement must be built as follows:\n- The train name is converted to UPPERCASE.\n- If the platform number is less than 10, pad it with a single leading zero so it is 2 digits.\n- Otherwise print the number as-is.\n\nYou are given 6 trains as a 2-D array of Text and Int pairs:\n\n[\n  [\"Express\", 7],\n  [\"Local\", 14],\n  [\"Shuttle\", 3],\n  [\"Rapid\", 25],\n  [\"Metro\", 9],\n  [\"Coastal\", 100]\n]\n\nPrint exactly one line per train, in order:\n\n<UPPERCASE_NAME> on platform <PADDED_NUMBER>\n\nNo trailing spaces. Print exactly 6 lines.\n\n        Expected stdout:\n        EXPRESS on platform 07\nLOCAL on platform 14\nSHUTTLE on platform 03\nRAPID on platform 25\nMETRO on platform 09\nCOASTAL on platform 100\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let names: Text[] = [\"Express\", \"Local\", \"Shuttle\", \"Rapid\", \"Metro\", \"Coastal\"];\n    let platforms: Int[] = [7, 14, 3, 25, 9, 100];\n\n    loop i in 0..length(names) {\n        let name: Text = upper(names[i]);\n        let p: Int = platforms[i];\n        let pText: Text;\n        if p < 10 {\n            pText = \"0\" + int_to_text(p);\n        } else {\n            pText = int_to_text(p);\n        }\n        fx {\n            println(name, \" on platform \", pText);\n        }\n    }\n    ret;\n}",
+   "expected_stdout": "EXPRESS on platform 07\nLOCAL on platform 14\nSHUTTLE on platform 03\nRAPID on platform 25\nMETRO on platform 09\nCOASTAL on platform 100\n",
+   "_provenance": {
+    "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "coded"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0024",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0024\n        Task Title: Coffee Order Size Class\n        Task:\n        A coffee shop classifies drinks by the number of characters in the size word: \"S\" (small, 1 char), \"M\" (medium, 1 char), \"L\" (large, 1 char), or \"XL\" (2 chars). Given 12 size codes as Text values:\n\n[\"S\", \"M\", \"L\", \"XL\", \"S\", \"XS\", \"M\", \"XXL\", \"L\", \"XL\", \"S\", \"M\"]\n\nPrint one line per size code in order:\n\n<size> => <class>\n\nwhere <class> is:\n- \"TINY\" if the size code is exactly \"S\"\n- \"MEDIUM\" if the size code is exactly \"M\"\n- \"BIG\" if the size code is exactly \"L\"\n- \"HUGE\" if the size code is exactly \"XL\"\n- \"UNKNOWN\" otherwise\n\nAfter all 12 lines, print one final line:\n\nUNKNOWN: <count of UNKNOWN codes>\n\n        Expected stdout:\n        S => TINY\nM => MEDIUM\nL => BIG\nXL => HUGE\nS => TINY\nXS => UNKNOWN\nM => MEDIUM\nXXL => UNKNOWN\nL => BIG\nXL => HUGE\nS => TINY\nM => MEDIUM\nUNKNOWN: 2\n\n\n        Aether source:\n",
+   "solution": "@pure\nfn classifySize(code: Text) -> Text {\n    if code == \"S\" {\n        ret \"TINY\";\n    }\n    if code == \"M\" {\n        ret \"MEDIUM\";\n    }\n    if code == \"L\" {\n        ret \"BIG\";\n    }\n    if code == \"XL\" {\n        ret \"HUGE\";\n    }\n    ret \"UNKNOWN\";\n}\n\nfn main() -> Void {\n    let sizes: Text[] = [\"S\", \"M\", \"L\", \"XL\", \"S\", \"XS\", \"M\", \"XXL\", \"L\", \"XL\", \"S\", \"M\"];\n    let unknownCount: Int = 0;\n\n    loop i in 0..length(sizes) {\n        let cls: Text = classifySize(sizes[i]);\n        if cls == \"UNKNOWN\" {\n            unknownCount = unknownCount + 1;\n        }\n        fx {\n            println(sizes[i], \" => \", cls);\n        }\n    }\n\n    fx {\n        println(\"UNKNOWN: \", unknownCount);\n    }\n\n    ret;\n}",
+   "expected_stdout": "S => TINY\nM => MEDIUM\nL => BIG\nXL => HUGE\nS => TINY\nXS => UNKNOWN\nM => MEDIUM\nXXL => UNKNOWN\nL => BIG\nXL => HUGE\nS => TINY\nM => MEDIUM\nUNKNOWN: 2\n",
+   "_provenance": {
+    "category": "text processing on short fixed strings (counting, transforming, validating, formatting)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "coded"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0040",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0040\n        Task Title: Coffee Shop Order Ring Buffer\n        Task:\n        A coffee shop displays the last 3 orders on a small screen. The screen is a ring buffer of capacity 3: when a new order arrives and the buffer is full, the oldest order is replaced.\n\nThe ring buffer starts empty.\n\nThe list of operations, processed in order, is:\n1. order \"latte\"\n2. order \"cappuccino\"\n3. order \"espresso\"\n4. order \"mocha\"\n5. order \"americano\"\n6. order \"flat white\"\n7. order \"cortado\"\n\nRules:\n- Each \"order <name>\" places the order into the next slot of the ring buffer.\n- If all 3 slots are occupied, the oldest order is overwritten.\n- After processing all operations, print the 3 slots of the ring buffer in order, oldest to newest, one per line.\n- If fewer than 3 orders have been placed total, print only the occupied slots.\n\nOutput format: one order name per line, no extra spaces.\n\n        Expected stdout:\n        americano\nflat white\ncortado\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let buffer: Text[] = [\"\", \"\", \"\"];\n    let count: Int = 0;\n    let next: Int = 0;\n\n    let orders: Text[] = [\"latte\", \"cappuccino\", \"espresso\", \"mocha\", \"americano\", \"flat white\", \"cortado\"];\n\n    loop i in 0..length(orders) {\n        buffer[next] = orders[i];\n        next = (next + 1) % 3;\n        if count < 3 {\n            count = count + 1;\n        }\n    }\n\n    let start: Int = 0;\n    if count == 3 {\n        start = next;\n    }\n\n    loop i in 0..count {\n        let idx: Int = (start + i) % 3;\n        fx {\n            println(buffer[idx]);\n        }\n    }\n\n    ret;\n}",
+   "expected_stdout": "americano\nflat white\ncortado\n",
+   "_provenance": {
+    "category": "stack, queue and ring-buffer simulations driven by a fixed list of operations",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0047",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0047\n        Task Title: Garden Plot Tag Reader\n        Task:\n        A community garden marks each plot with a tag line in the form `PLOT=SIZE=OWNER`. PLOT is an integer, SIZE is an integer square meters, OWNER is a single word.\n\nThe input is given as an array of Text values:\n```\n[\"101=12=Green\", \"102=8=Blue\", \"103=15=Green\", \"104=6=Red\", \"105=10=Blue\", \"106=9=Green\"]\n```\n\nFor each owner, compute the total SIZE of all their plots. Print one line per owner, ordered by owner name alphabetically, with no trailing spaces, in the format:\n```\n<OWNER> plots <count> total <total>\n```\nwhere `<count>` is the number of plots that owner has and `<total>` is the sum of their plot sizes.\n\nThen print a final summary line:\n```\naverage plot size <average>\n```\nwhere `<average>` is the mean SIZE over all plots, printed with exactly 1 decimal place.\n\nThe output has exactly 4 lines (3 owners + 1 summary).\n\n        Expected stdout:\n        Blue plots 2 total 18\nGreen plots 3 total 36\nRed plots 1 total 6\naverage plot size 10.0\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let tags: Text[] = [\"101=12=Green\", \"102=8=Blue\", \"103=15=Green\", \"104=6=Red\", \"105=10=Blue\", \"106=9=Green\"];\n    let owners: Text[] = [];\n    let counts: Map[Text, Int] = {};\n    let totals: Map[Text, Int] = {};\n    let grandTotal: Int = 0;\n\n    loop tag in tags {\n        let parts: Text[] = split(tag, \"=\");\n        let size: Int = parse_int(parts[1]);\n        let owner: Text = parts[2];\n        if !has(counts, owner) {\n            owners = owners + [owner];\n            counts[owner] = 0;\n            totals[owner] = 0;\n        }\n        counts[owner] = counts[owner] + 1;\n        totals[owner] = totals[owner] + size;\n        grandTotal = grandTotal + size;\n    }\n\n    let sortedOwners: Text[] = sorted(owners);\n\n    loop owner in sortedOwners {\n        fx {\n            println(owner, \" plots \", counts[owner], \" total \", totals[owner]);\n        }\n    }\n\n    let avg: Real = grandTotal * 1.0 / length(tags);\n    fx {\n        println(\"average plot size \", format_float(avg, 1));\n    }\n\n    ret;\n}",
+   "expected_stdout": "Blue plots 2 total 18\nGreen plots 3 total 36\nRed plots 1 total 6\naverage plot size 10.0\n",
+   "_provenance": {
+    "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "rc"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0049",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0049\n        Task Title: Recycling Truck Route Sheet\n        Task:\n        A recycling truck driver writes a route sheet with stop lines in the form `STOP=BIN=CAPACITY=FULLNESS`. STOP is an integer, BIN is a single letter, CAPACITY is an integer (kg), FULLNESS is an integer percentage (0-100).\n\nThe input is given as an array of Text values:\n```\n[\"1=P=80=95\", \"2=P=80=40\", \"3=G=60=88\", \"4=G=60=72\", \"5=Y=50=100\"]\n```\n\nA bin needs pickup if FULLNESS is at least 80. For each bin letter (in alphabetical order of letter), print one line showing the number of stops needing pickup for that letter, with no trailing spaces:\n```\n<BIN> pickup <count> of <total>\n```\nwhere `<count>` is how many stops of that bin letter need pickup and `<total>` is how many stops of that letter exist.\n\nThen print a final line:\n```\ntotal stops needing pickup <count>\n```\n\nPrint bin-letter lines only for letters that appear in the input, in alphabetical order. The output has exactly 4 lines (3 bin letters + 1 total).\n\n        Expected stdout:\n        G pickup 1 of 2\nP pickup 1 of 2\nY pickup 1 of 1\ntotal stops needing pickup 3\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let stops: Text[] = [\"1=P=80=95\", \"2=P=80=40\", \"3=G=60=88\", \"4=G=60=72\", \"5=Y=50=100\"];\n    let letters: Text[] = [\"G\", \"P\", \"Y\"];\n    let totalPickup: Int = 0;\n\n    loop letter in letters {\n        let count: Int = 0;\n        let total: Int = 0;\n        loop line in stops {\n            let parts: Text[] = split(line, \"=\");\n            let bin: Text = parts[1];\n            let fullness: Int = parse_int(parts[3]);\n            if bin == letter {\n                total = total + 1;\n                if fullness >= 80 {\n                    count = count + 1;\n                }\n            }\n        }\n        totalPickup = totalPickup + count;\n        fx {\n            println(letter, \" pickup \", count, \" of \", total);\n        }\n    }\n\n    fx {\n        println(\"total stops needing pickup \", totalPickup);\n    }\n    ret;\n}",
+   "expected_stdout": "G pickup 1 of 2\nP pickup 1 of 2\nY pickup 1 of 1\ntotal stops needing pickup 3\n",
+   "_provenance": {
+    "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0051",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0051\n        Task Title: Bus Stop Sign Parser\n        Task:\n        A bus stop sign lists routes with lines in the form `ROUTE=DESTINATION=MINUTES`. ROUTE is an integer, DESTINATION is a single word, MINUTES is an integer minutes until arrival.\n\nThe input is given as an array of Text values:\n```\n[\"12=Central=3\", \"12=Central=17\", \"45=Airport=9\", \"7=Harbor=1\", \"45=Airport=22\"]\n```\n\nGroup by ROUTE. For each route (in ascending order of ROUTE number), find the earliest arrival MINUTES among its entries. Print one line per route, with no trailing spaces, in the format:\n```\nRoute <ROUTE> to <DESTINATION> arrives in <minutes> min\n```\nwhere `<DESTINATION>` is the destination of the entry that has the earliest arrival for that route (if two entries tie, use the one appearing first in the input).\n\nThen print a final line:\n```\nnext bus route <ROUTE> in <minutes> min\n```\nwhere this is the overall earliest arrival across all routes.\n\nThe output has exactly 4 lines (3 routes + 1 next-bus line).\n\n        Expected stdout:\n        Route 7 to Harbor arrives in 1 min\nRoute 12 to Central arrives in 3 min\nRoute 45 to Airport arrives in 9 min\nnext bus route 7 in 1 min\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let entries: Text[] = [\"12=Central=3\", \"12=Central=17\", \"45=Airport=9\", \"7=Harbor=1\", \"45=Airport=22\"];\n\n    type RouteBest {\n        route: Int = 0;\n        dest: Text = \"\";\n        minutes: Int = 0;\n    }\n\n    let bests: RouteBest[] = [];\n\n    loop entry in entries {\n        let parts: Text[] = split(entry, \"=\");\n        let r: Int = parse_int(parts[0]);\n        let d: Text = parts[1];\n        let m: Int = parse_int(parts[2]);\n\n        let found: Bool = false;\n        loop i in 0..length(bests) {\n            if bests[i].route == r {\n                found = true;\n                if m < bests[i].minutes {\n                    bests[i].minutes = m;\n                    bests[i].dest = d;\n                }\n            }\n        }\n        if !found {\n            bests = bests + [new RouteBest { route: r, dest: d, minutes: m }];\n        }\n    }\n\n    // sort ascending by route\n    loop i in 0..length(bests) {\n        loop j in i + 1..length(bests) {\n            if bests[j].route < bests[i].route {\n                let tmp: RouteBest = bests[i];\n                bests[i] = bests[j];\n                bests[j] = tmp;\n            }\n        }\n    }\n\n    let overallRoute: Int = bests[0].route;\n    let overallMin: Int = bests[0].minutes;\n\n    fx {\n        loop i in 0..length(bests) {\n            println(\"Route \", bests[i].route, \" to \", bests[i].dest, \" arrives in \", bests[i].minutes, \" min\");\n            if bests[i].minutes < overallMin {\n                overallMin = bests[i].minutes;\n                overallRoute = bests[i].route;\n            }\n        }\n        println(\"next bus route \", overallRoute, \" in \", overallMin, \" min\");\n    }\n\n    ret;\n}",
+   "expected_stdout": "Route 7 to Harbor arrives in 1 min\nRoute 12 to Central arrives in 3 min\nRoute 45 to Airport arrives in 9 min\nnext bus route 7 in 1 min\n",
+   "_provenance": {
+    "category": "parsing simple line-based text formats given inline (key=value lines, commands, fixed-width fields)",
+    "first_attempt": true,
+    "solver": "mimo-v2.6-flash+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0053",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0053\n        Task Title: Chess Club Clock Pairings\n        Task:\n        A chess club runs 4 boards simultaneously for 3 rounds. Each round lasts a fixed number of minutes. Players are assigned to boards; each player has a remaining clock in minutes. During a round, each board's clocks tick down by the round length for both players, but a player whose clock would drop below 0 instead runs out at exactly 0 and loses immediately (their opponent gets no time deducted that round after the loss).\n\nRound lengths: Round 1 = 30 min, Round 2 = 45 min, Round 3 = 60 min.\n\nInitial clocks (minutes) and pairings by board:\nBoard 1: Alice 90 vs Bob 75\nBoard 2: Carol 60 vs Dave 100\nBoard 3: Eve 45 vs Frank 50\nBoard 4: Grace 120 vs Henry 40\n\nAfter each round, print one line: \"R<round> <losers>\" where losers is a comma-separated list (no spaces) of player names who ran out of clock during that round, in board order then Alice/Bob side order (the player listed first for that board comes first), or the word \"none\" if nobody ran out.\n\nAfter all 3 rounds, print one line per player in the order Alice, Bob, Carol, Dave, Eve, Frank, Grace, Henry: \"<name> <remainingClock>\" where remainingClock is their clock in minutes (never negative; if they lost, it is 0).\n\nPrint 3 + 8 = 11 lines total, no extra spaces.\n\n        Expected stdout:\n        R1 none\nR2 Carol,Eve,Frank,Henry\nR3 Alice,Bob,Dave,Grace\nAlice 0\nBob 0\nCarol 0\nDave 0\nEve 0\nFrank 0\nGrace 0\nHenry 0\n\n\n        Aether source:\n",
+   "solution": "type Player {\n    name: Text = \"\";\n    clock: Int = 0;\n    lost: Bool = false;\n}\n\ntype Board {\n    white: Int = 0;\n    black: Int = 0;\n}\n\nfn main() -> Void {\n    let names: Text[] = [\"Alice\", \"Bob\", \"Carol\", \"Dave\", \"Eve\", \"Frank\", \"Grace\", \"Henry\"];\n    let clocks: Int[] = [90, 75, 60, 100, 45, 50, 120, 40];\n    let lost: Bool[] = [false, false, false, false, false, false, false, false];\n    let boards: Board[] = [\n        new Board { white: 0, black: 1 },\n        new Board { white: 2, black: 3 },\n        new Board { white: 4, black: 5 },\n        new Board { white: 6, black: 7 }\n    ];\n    let rounds: Int[] = [30, 45, 60];\n\n    loop r in 0..3 {\n        let len: Int = rounds[r];\n        let losers: Text[] = [];\n        loop b in 0..4 {\n            let w: Int = boards[b].white;\n            let k: Int = boards[b].black;\n            let wOut: Bool = false;\n            let kOut: Bool = false;\n            if !lost[w] {\n                if clocks[w] < len {\n                    clocks[w] = 0;\n                    lost[w] = true;\n                    wOut = true;\n                } else {\n                    clocks[w] = clocks[w] - len;\n                }\n            }\n            if !lost[k] {\n                if clocks[k] < len {\n                    clocks[k] = 0;\n                    lost[k] = true;\n                    kOut = true;\n                } else {\n                    clocks[k] = clocks[k] - len;\n                }\n            }\n            if wOut {\n                losers = losers + [names[w]];\n            }\n            if kOut {\n                losers = losers + [names[k]];\n            }\n        }\n        let line: Text;\n        if length(losers) == 0 {\n            line = \"none\";\n        } else {\n            line = join(losers, \",\");\n        }\n        fx {\n            println(\"R\", r + 1, \" \", line);\n        }\n    }\n\n    fx {\n        loop i in 0..8 {\n            println(names[i], \" \", clocks[i]);\n        }\n    }\n    ret;\n}",
+   "expected_stdout": "R1 none\nR2 Carol,Eve,Frank,Henry\nR3 Alice,Bob,Dave,Grace\nAlice 0\nBob 0\nCarol 0\nDave 0\nEve 0\nFrank 0\nGrace 0\nHenry 0\n",
+   "_provenance": {
+    "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+    "first_attempt": true,
+    "solver": "mimo-v2.6-flash+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0057",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0057\n        Task Title: Laundry Room Machine Timers\n        Task:\n        A shared laundry room has 3 washing machines (M1, M2, M3). Each machine runs one load at a time. Loads arrive at fixed times (minutes) and each has a wash duration (minutes). Machines are assigned in strict round-robin order (M1, M2, M3, M1, M2, ...) to arriving loads regardless of whether the machine is free; if the assigned machine is busy, the load waits until that machine frees up.\n\nLoads in arrival order:\n1. Towels, arrive 0, 30 min\n2. Shirts, arrive 5, 25 min\n3. Jeans, arrive 8, 40 min\n4. Socks, arrive 15, 20 min\n5. Sheets, arrive 20, 35 min\n6. Uniforms, arrive 25, 25 min\n\nStart time is 0. For each load, startTime = max(arrivalTime, assignedMachineFreeTime), endTime = startTime + duration. Update that machine's free time to endTime.\n\nPrint one line per load: \"<name> <machine> <startMin> <endMin>\".\n\nAfter all loads, print one line per machine in order M1, M2, M3: \"<machine> <idleMin>\" where idleMin is the total minutes that machine sat free between time 0 and the moment the last load in the whole system finished (the global end time). A machine's idle time = globalEndTime - (sum of its load durations) - (time before its first load started, if any). More precisely: idleMin = globalEndTime - (its first load's start time) - (sum of its load durations).\n\nPrint 6 + 3 = 9 lines total, no extra spaces.\n\n        Expected stdout:\n        Towels M1 0 30\nShirts M2 5 30\nJeans M3 8 48\nSocks M1 30 50\nSheets M2 30 65\nUniforms M3 48 73\nM1 23\nM2 8\nM3 0\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let names: Text[] = [\"Towels\", \"Shirts\", \"Jeans\", \"Socks\", \"Sheets\", \"Uniforms\"];\n    let arrivals: Int[] = [0, 5, 8, 15, 20, 25];\n    let durations: Int[] = [30, 25, 40, 20, 35, 25];\n    let machineFree: Int[] = [0, 0, 0];\n    let machineFirstStart: Int[] = [-1, -1, -1];\n    let machineLoadSum: Int[] = [0, 0, 0];\n    let globalEnd: Int = 0;\n\n    loop i in 0..6 {\n        let m: Int = i % 3;\n        let start: Int = max(arrivals[i], machineFree[m]);\n        let end: Int = start + durations[i];\n        machineFree[m] = end;\n        if machineFirstStart[m] == -1 {\n            machineFirstStart[m] = start;\n        }\n        machineLoadSum[m] = machineLoadSum[m] + durations[i];\n        if end > globalEnd {\n            globalEnd = end;\n        }\n        fx {\n            println(names[i], \" M\", m + 1, \" \", start, \" \", end);\n        }\n    }\n\n    loop m in 0..3 {\n        let idle: Int = globalEnd - machineFirstStart[m] - machineLoadSum[m];\n        fx {\n            println(\"M\", m + 1, \" \", idle);\n        }\n    }\n\n    ret;\n}",
+   "expected_stdout": "Towels M1 0 30\nShirts M2 5 30\nJeans M3 8 48\nSocks M1 30 50\nSheets M2 30 65\nUniforms M3 48 73\nM1 23\nM2 8\nM3 0\n",
+   "_provenance": {
+    "category": "scheduling and simulation with a fixed timeline of events (queues, timers, resource use)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0059",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0059\n        Task Title: Garden Rose Bush Arrangements\n        Task:\n        A gardener wants to plant 4 rose bushes in a straight row along a garden path. The bushes come in these colors: Red, Pink, White, Red. Two bushes of the same color are indistinguishable from each other.\n\nWrite a program that lists every distinct color arrangement of these 4 bushes in the row, one per line, and then prints how many distinct arrangements there are.\n\nOutput format:\n- Print each distinct arrangement as its color names separated by a single space, e.g. \"Red Pink White Red\".\n- Print the arrangements in lexicographic order (comparing the full space-separated string, so \"Pink Red Red White\" comes before \"Red Pink Pink White\").\n- After all arrangement lines, print one line of the form:\n  Distinct arrangements: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.\n\n        Expected stdout:\n        Pink Red Red White\nPink Red White Red\nPink White Red Red\nRed Pink Red White\nRed Pink White Red\nRed Red Pink White\nRed Red White Pink\nRed White Pink Red\nRed White Red Pink\nWhite Pink Red Red\nWhite Red Pink Red\nWhite Red Red Pink\nDistinct arrangements: 12\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let colors: Text[] = [\"Red\", \"Pink\", \"White\", \"Red\"];\n    let n: Int = length(colors);\n    let seen: Map[Text, Bool] = {};\n    let count: Int = 0;\n\n    loop a in 0..n {\n        loop b in 0..n {\n            if b == a {\n                continue;\n            }\n            loop c in 0..n {\n                if c == a or c == b {\n                    continue;\n                }\n                loop d in 0..n {\n                    if d == a or d == b or d == c {\n                        continue;\n                    }\n                    let line: Text = colors[a] + \" \" + colors[b] + \" \" + colors[c] + \" \" + colors[d];\n                    if !has(seen, line) {\n                        seen[line] = true;\n                        count = count + 1;\n                    }\n                }\n            }\n        }\n    }\n\n    let lines: Text[] = [];\n    loop key in seen {\n        lines = lines + [key];\n    }\n    let sorted: Text[] = sorted(lines);\n\n    fx {\n        loop line in sorted {\n            println(line);\n        }\n        println(\"Distinct arrangements: \", count);\n    }\n    ret;\n}",
+   "expected_stdout": "Pink Red Red White\nPink Red White Red\nPink White Red Red\nRed Pink Red White\nRed Pink White Red\nRed Red Pink White\nRed Red White Pink\nRed White Pink Red\nRed White Red Pink\nWhite Pink Red Red\nWhite Red Pink Red\nWhite Red Red Pink\nDistinct arrangements: 12\n",
+   "_provenance": {
+    "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0060",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0060\n        Task Title: Robot Grid Delivery Paths\n        Task:\n        A small delivery robot must travel from the top-left corner of a 3-by-3 grid to the bottom-right corner. It can only move one step at a time, either Right (R) or Down (D).\n\nWrite a program that prints every possible path from start to finish, one per line, followed by the total number of paths.\n\nOutput format:\n- Print each path as a sequence of R and D characters with no spaces, e.g. \"RRDD\".\n- Print the paths in lexicographic order (so \"DDRR\" comes before \"DRDR\").\n- After all path lines, print one line of the form:\n  Total paths: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.\n\n        Expected stdout:\n        DDRR\nDRDR\nDRRD\nRDDR\nRDRD\nRRDD\nTotal paths: 6\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let paths: Text[] = [];\n    let queue: Text[] = [\"\"];\n    loop i in 0..4 {\n        let next: Text[] = [];\n        loop p in queue {\n            next = next + [p + \"R\"];\n            next = next + [p + \"D\"];\n        }\n        queue = next;\n    }\n    let valid: Text[] = [];\n    loop p in queue {\n        let rCount: Int = count(p, \"R\");\n        let dCount: Int = count(p, \"D\");\n        if rCount == 2 && dCount == 2 {\n            valid = valid + [p];\n        }\n    }\n    let sortedPaths: Text[] = sorted(valid);\n    fx {\n        loop p in sortedPaths {\n            println(p);\n        }\n        println(\"Total paths: \", length(sortedPaths));\n    }\n    ret;\n}",
+   "expected_stdout": "DDRR\nDRDR\nDRRD\nRDDR\nRDRD\nRRDD\nTotal paths: 6\n",
+   "_provenance": {
+    "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+    "first_attempt": false,
+    "solver": "mimo-v2.6-flash+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "rc"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0062",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0062\n        Task Title: Board Game Piece Placements\n        Task:\n        In a board game, 4 identical wooden tokens are to be placed on 4 marked spots in a line. The spots are numbered 1 through 4. You must place exactly one token on each spot, but because the tokens are identical, what matters is which spots are chosen — and since all 4 spots are used, there is only one way to choose them. Instead, consider this variant: you have 6 spots numbered 1 through 6 and you must choose 4 of them to receive a token, then place the tokens in increasing spot order.\n\nWrite a program that prints every subset of 4 spots (out of 6) as a space-separated increasing list, one per line, then prints the count.\n\nOutput format:\n- Print each subset as its spot numbers in increasing order separated by a single space, e.g. \"1 2 3 4\".\n- Print subsets in lexicographic order of their printed form (so \"1 2 3 5\" comes before \"1 2 4 5\").\n- After all subset lines, print one line of the form:\n  Total selections: N\nwhere N is the count.\n\nThere should be no trailing spaces on any line.\n\n        Expected stdout:\n        1 2 3 4\n1 2 3 5\n1 2 3 6\n1 2 4 5\n1 2 4 6\n1 2 5 6\n1 3 4 5\n1 3 4 6\n1 3 5 6\n1 4 5 6\n2 3 4 5\n2 3 4 6\n2 3 5 6\n2 4 5 6\n3 4 5 6\nTotal selections: 15\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let count: Int = 0;\n    loop a in 1..5 {\n        loop b in a + 1..6 {\n            loop c in b + 1..6 {\n                loop d in c + 1..7 {\n                    fx {\n                        println(a, \" \", b, \" \", c, \" \", d);\n                    }\n                    count = count + 1;\n                }\n            }\n        }\n    }\n    fx {\n        println(\"Total selections: \", count);\n    }\n    ret;\n}",
+   "expected_stdout": "1 2 3 4\n1 2 3 5\n1 2 3 6\n1 2 4 5\n1 2 4 6\n1 2 5 6\n1 3 4 5\n1 3 4 6\n1 3 5 6\n1 4 5 6\n2 3 4 5\n2 3 4 6\n2 3 5 6\n2 4 5 6\n3 4 5 6\nTotal selections: 15\n",
+   "_provenance": {
+    "category": "small combinatorics and recursion (generating or counting arrangements of a few items)",
+    "first_attempt": false,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0071",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0071\n        Task Title: Train Route Transfer Cost Matrix\n        Task:\n        A regional train operator has 5 stops numbered 0-4. A fare matrix F[i][j] gives the cost in dollars for a ticket from stop i to stop j (F[i][i] = 0, and some pairs have no direct service, shown as 0):\nF =\n[0, 3, 0, 5, 0]\n[3, 0, 4, 0, 7]\n[0, 4, 0, 6, 0]\n[5, 0, 6, 0, 8]\n[0, 7, 0, 8, 0]\n\nA traveler wants to go from stop 0 to stop 4. They can take a direct ticket if available, or a one-transfer ticket via one intermediate stop k (k not 0 or 4): cost = F[0][k] + F[k][4].\n\nWrite a program that:\n1. Finds the cheapest total fare from stop 0 to stop 4 considering direct and all one-transfer options.\n2. Counts how many of the 20 off-diagonal entries in F represent available direct service (nonzero).\n3. Finds the stop (0-4, excluding 0 and 4) that would serve as the cheapest single-transfer intermediate stop (smallest index if tied). If no one-transfer route exists, output NONE.\n4. Computes the most expensive direct fare among all available off-diagonal direct services.\n\nOutput exactly these 4 lines:\nCheapest: <fare in dollars, integer>\nDirectCount: <count of nonzero off-diagonal entries, integer>\nBestTransfer: <stop index 0-4 or NONE>\nMaxDirect: <most expensive direct fare, integer>\n\n        Expected stdout:\n        Cheapest: 10\nDirectCount: 12\nBestTransfer: 1\nMaxDirect: 8\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let F: Int[][] = [\n        [0, 3, 0, 5, 0],\n        [3, 0, 4, 0, 7],\n        [0, 4, 0, 6, 0],\n        [5, 0, 6, 0, 8],\n        [0, 7, 0, 8, 0]\n    ];\n\n    let n: Int = 5;\n    let src: Int = 0;\n    let dst: Int = 4;\n\n    let direct: Int = F[src][dst];\n    let cheapest: Int = 999999;\n    let bestTransfer: Int = -1;\n\n    if direct > 0 {\n        cheapest = direct;\n    }\n\n    loop k in 1..n - 1 {\n        let a: Int = F[src][k];\n        let b: Int = F[k][dst];\n        if a > 0 && b > 0 {\n            let cost: Int = a + b;\n            if cost < cheapest {\n                cheapest = cost;\n                bestTransfer = k;\n            }\n        }\n    }\n\n    let directCount: Int = 0;\n    let maxDirect: Int = 0;\n    loop i in 0..n {\n        loop j in 0..n {\n            if i != j {\n                let v: Int = F[i][j];\n                if v > 0 {\n                    directCount = directCount + 1;\n                    if v > maxDirect {\n                        maxDirect = v;\n                    }\n                }\n            }\n        }\n    }\n\n    let transferLabel: Text = if bestTransfer == -1 { \"NONE\" } else { int_to_text(bestTransfer) };\n\n    fx {\n        println(\"Cheapest: \", cheapest);\n        println(\"DirectCount: \", directCount);\n        println(\"BestTransfer: \", transferLabel);\n        println(\"MaxDirect: \", maxDirect);\n    }\n    ret;\n}",
+   "expected_stdout": "Cheapest: 10\nDirectCount: 12\nBestTransfer: 1\nMaxDirect: 8\n",
+   "_provenance": {
+    "category": "matrix operations on small fixed matrices",
+    "first_attempt": false,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0073",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0073\n        Task Title: Vending Machine Restock Matrix\n        Task:\n        A vending machine has 4 shelves and 3 slots per shelf. A 4x3 matrix S gives current stock count in each slot:\nS =\n[5, 0, 3]\n[2, 7, 1]\n[0, 4, 6]\n[8, 2, 0]\n\nA capacity matrix C (same dimensions) gives the maximum stock each slot can hold:\nC =\n[10, 6, 8]\n[8, 10, 6]\n[6, 8, 10]\n[10, 8, 6]\n\nA restocker will fill every slot to capacity. The restock amount for each slot = C[i][j] - S[i][j].\n\nWrite a program that:\n1. Computes the total restock amount needed across all 12 slots.\n2. Finds the slot (row, column) needing the largest restock (smallest row then smallest column if tied).\n3. Counts how many slots are already at full capacity (restock = 0).\n4. Computes the total final stock across all slots after restocking.\n\nOutput exactly these 4 lines:\nTotalRestock: <sum of restock amounts, integer>\nTopSlot: <row,col as integers with a comma, no spaces>\nFullSlots: <count of slots with restock 0, integer>\nFinalStock: <sum of final stock across all slots, integer>\n\n        Expected stdout:\n        TotalRestock: 58\nTopSlot: 0,1\nFullSlots: 0\nFinalStock: 96\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let S: Int[][] = [[5, 0, 3], [2, 7, 1], [0, 4, 6], [8, 2, 0]];\n    let C: Int[][] = [[10, 6, 8], [8, 10, 6], [6, 8, 10], [10, 8, 6]];\n\n    let totalRestock: Int = 0;\n    let topRow: Int = 0;\n    let topCol: Int = 0;\n    let topAmount: Int = -1;\n    let fullSlots: Int = 0;\n    let finalStock: Int = 0;\n\n    loop i in 0..4 {\n        loop j in 0..3 {\n            let restock: Int = C[i][j] - S[i][j];\n            totalRestock = totalRestock + restock;\n            finalStock = finalStock + C[i][j];\n            if restock == 0 {\n                fullSlots = fullSlots + 1;\n            }\n            if restock > topAmount {\n                topAmount = restock;\n                topRow = i;\n                topCol = j;\n            }\n        }\n    }\n\n    fx {\n        println(\"TotalRestock: \", totalRestock);\n        println(\"TopSlot: \", topRow, \",\", topCol);\n        println(\"FullSlots: \", fullSlots);\n        println(\"FinalStock: \", finalStock);\n    }\n    ret;\n}",
+   "expected_stdout": "TotalRestock: 58\nTopSlot: 0,1\nFullSlots: 0\nFinalStock: 96\n",
+   "_provenance": {
+    "category": "matrix operations on small fixed matrices",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "coded"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0075",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0075\n        Task Title: Print Shop Paper Grain Matrix\n        Task:\n        A print shop evaluates 5 paper stocks (numbered 0-4) against 4 quality criteria (numbered 0-3: durability, texture, opacity, cost-efficiency). A 5x4 score matrix Q gives ratings from 1 to 10:\nQ =\n[7, 8, 6, 9]\n[9, 6, 8, 5]\n[6, 9, 7, 8]\n[8, 7, 9, 7]\n[5, 8, 5, 10]\n\nCriteria weights are [3, 2, 4, 1] for criteria 0-3 respectively. The weighted score for a paper = sum over criteria of Q[p][c] * weight[c].\n\nWrite a program that:\n1. Computes the weighted score for each of the 5 papers.\n2. Finds the paper with the highest weighted score (smallest index if tied).\n3. Finds the criterion (0-3) with the highest average score across all 5 papers (smallest index if tied).\n4. Counts how many papers have a weighted score strictly greater than 70.\n\nOutput exactly these 4 lines:\nTopPaper: <paper index 0-4>\nTopCriterion: <criterion index 0-3>\nOver70: <count, integer>\nBestScore: <highest weighted score, integer>\n\n        Expected stdout:\n        TopPaper: 3\nTopCriterion: 3\nOver70: 3\nBestScore: 81\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let Q: Int[][] = [\n        [7, 8, 6, 9],\n        [9, 6, 8, 5],\n        [6, 9, 7, 8],\n        [8, 7, 9, 7],\n        [5, 8, 5, 10]\n    ];\n    let weights: Int[] = [3, 2, 4, 1];\n    let rows: Int = length(Q);\n    let cols: Int = length(weights);\n\n    let scores: Int[] = [];\n    loop p in 0..rows {\n        let s: Int = 0;\n        loop c in 0..cols {\n            s = s + Q[p][c] * weights[c];\n        }\n        scores = scores + [s];\n    }\n\n    let topPaper: Int = 0;\n    let bestScore: Int = scores[0];\n    loop p in 1..rows {\n        if scores[p] > bestScore {\n            bestScore = scores[p];\n            topPaper = p;\n        }\n    }\n\n    let topCriterion: Int = 0;\n    let bestAvg: Real = 0.0;\n    loop c in 0..cols {\n        let total: Int = 0;\n        loop p in 0..rows {\n            total = total + Q[p][c];\n        }\n        let avg: Real = total * 1.0 / rows;\n        if c == 0 || avg > bestAvg {\n            bestAvg = avg;\n            topCriterion = c;\n        }\n    }\n\n    let over70: Int = 0;\n    loop p in 0..rows {\n        if scores[p] > 70 {\n            over70 = over70 + 1;\n        }\n    }\n\n    fx {\n        println(\"TopPaper: \", topPaper);\n        println(\"TopCriterion: \", topCriterion);\n        println(\"Over70: \", over70);\n        println(\"BestScore: \", bestScore);\n    }\n    ret;\n}",
+   "expected_stdout": "TopPaper: 3\nTopCriterion: 3\nOver70: 3\nBestScore: 81\n",
+   "_provenance": {
+    "category": "matrix operations on small fixed matrices",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0076",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0076\n        Task Title: Train Network Connectivity Matrix\n        Task:\n        A small regional rail network has 5 stations numbered 0-4. A connectivity matrix C (5x5) indicates whether a direct rail link exists between stations: 1 = link exists, 0 = no link. The matrix is symmetric with 0s on the diagonal:\nC =\n[0, 1, 1, 0, 0]\n[1, 0, 1, 1, 0]\n[1, 1, 0, 1, 1]\n[0, 1, 1, 0, 1]\n[0, 0, 1, 1, 0]\n\nWrite a program that:\n1. Computes the degree (number of direct links) for each station.\n2. Finds the station with the highest degree (smallest index if tied).\n3. Counts how many total direct links exist in the network (remember each link appears twice in the symmetric matrix, so count once).\n4. Checks if the network is fully connected in one hop from station 2 (i.e., station 2 has links to all other 4 stations): output YES or NO.\n\nOutput exactly these 4 lines:\nDegrees: <5 integers separated by commas, no spaces>\nTopStation: <station index 0-4>\nTotalLinks: <count of unique direct links, integer>\nStation2Full: <YES or NO>\n\n        Expected stdout:\n        Degrees:2,3,4,3,2\nTopStation: 2\nTotalLinks: 7\nStation2Full: YES\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let c: Int[][] = [\n        [0, 1, 1, 0, 0],\n        [1, 0, 1, 1, 0],\n        [1, 1, 0, 1, 1],\n        [0, 1, 1, 0, 1],\n        [0, 0, 1, 1, 0]\n    ];\n\n    let n: Int = 5;\n    let degrees: Int[] = [0, 0, 0, 0, 0];\n\n    loop i in 0..n {\n        loop j in 0..n {\n            degrees[i] = degrees[i] + c[i][j];\n        }\n    }\n\n    let topStation: Int = 0;\n    loop i in 1..n {\n        if degrees[i] > degrees[topStation] {\n            topStation = i;\n        }\n    }\n\n    let totalLinks: Int = 0;\n    loop i in 0..n {\n        loop j in 0..n {\n            if c[i][j] == 1 {\n                totalLinks = totalLinks + 1;\n            }\n        }\n    }\n    totalLinks = totalLinks div 2;\n\n    let station2Full: Bool = true;\n    loop j in 0..n {\n        if j != 2 && c[2][j] == 0 {\n            station2Full = false;\n        }\n    }\n\n    let degText: Text = int_to_text(degrees[0]);\n    loop i in 1..n {\n        degText = degText + \",\" + int_to_text(degrees[i]);\n    }\n\n    let fullText: Text = if station2Full { \"YES\" } else { \"NO\" };\n\n    fx {\n        println(\"Degrees:\", degText);\n        println(\"TopStation: \", topStation);\n        println(\"TotalLinks: \", totalLinks);\n        println(\"Station2Full: \", fullText);\n    }\n    ret;\n}",
+   "expected_stdout": "Degrees:2,3,4,3,2\nTopStation: 2\nTotalLinks: 7\nStation2Full: YES\n",
+   "_provenance": {
+    "category": "matrix operations on small fixed matrices",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0079",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0079\n        Task Title: Robot Warehouse Zone Distances\n        Task:\n        A warehouse robot operates in a grid with 4 zones (numbered 0-3). A distance matrix D (4x4) gives the shortest travel distance in meters between zones (D[i][i] = 0):\nD =\n[0, 12, 20, 15]\n[12, 0, 8, 18]\n[20, 8, 0, 10]\n[15, 18, 10, 0]\n\nThe robot must visit zones in this order: [0, 2, 1, 3]. The travel distance is the sum of D between consecutive zones in the visit order.\n\nWrite a program that:\n1. Computes the total travel distance for the given visit order.\n2. Finds the largest single leg distance in the visit sequence.\n3. Finds the zone (0-3) that is farthest on average from all other zones (smallest index if tied).\n4. Counts how many zone pairs have a distance of exactly 10 meters (count each unordered pair once).\n\nOutput exactly these 4 lines:\nTotalDist: <total travel distance, integer>\nMaxLeg: <largest single leg distance, integer>\nFarthestZone: <zone index 0-3>\nDist10Pairs: <count of unordered pairs with distance 10, integer>\n\n        Expected stdout:\n        TotalDist: 46\nMaxLeg: 20\nFarthestZone: 0\nDist10Pairs: 1\n\n\n        Aether source:\n",
+   "solution": "fn main() -> Void {\n    let d: Int[][] = [\n        [0, 12, 20, 15],\n        [12, 0, 8, 18],\n        [20, 8, 0, 10],\n        [15, 18, 10, 0]\n    ];\n    let order: Int[] = [0, 2, 1, 3];\n\n    let total: Int = 0;\n    let maxLeg: Int = 0;\n    loop i in 0..length(order) - 1 {\n        let leg: Int = d[order[i]][order[i + 1]];\n        total = total + leg;\n        if leg > maxLeg {\n            maxLeg = leg;\n        }\n    }\n\n    let farthestZone: Int = 0;\n    let farthestSum: Int = 0;\n    loop z in 0..4 {\n        let s: Int = 0;\n        loop o in 0..4 {\n            if o != z {\n                s = s + d[z][o];\n            }\n        }\n        if s > farthestSum {\n            farthestSum = s;\n            farthestZone = z;\n        }\n    }\n\n    let dist10Pairs: Int = 0;\n    loop i in 0..4 {\n        loop j in i + 1..4 {\n            if d[i][j] == 10 {\n                dist10Pairs = dist10Pairs + 1;\n            }\n        }\n    }\n\n    fx {\n        println(\"TotalDist: \", total);\n        println(\"MaxLeg: \", maxLeg);\n        println(\"FarthestZone: \", farthestZone);\n        println(\"Dist10Pairs: \", dist10Pairs);\n    }\n    ret;\n}",
+   "expected_stdout": "TotalDist: 46\nMaxLeg: 20\nFarthestZone: 0\nDist10Pairs: 1\n",
+   "_provenance": {
+    "category": "matrix operations on small fixed matrices",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "coded"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0095",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0095\n        Task Title: Robot Delivery Route Ranking\n        Task:\n        A delivery robot has visited 8 drop-off points today. Each point is identified by a 2-letter code and has a delivery time in seconds. The data is:\n\nCode: A1, Time: 45\nCode: B2, Time: 30\nCode: C3, Time: 52\nCode: D4, Time: 30\nCode: E5, Time: 61\nCode: F6, Time: 45\nCode: G7, Time: 22\nCode: H8, Time: 55\n\nRank the drop-off points from fastest (smallest time) to slowest. Points with equal times share the same rank. Ties are broken alphabetically by code (e.g., B2 before D4).\n\nOutput format: exactly 8 lines. Each line has the rank as an integer, a space, the code, a space, and the time as an integer, then a space and the word \"seconds\". For example, if a point ranked 1 had code Z9 and time 10, the line would be: 1 Z9 10 seconds\n\nNo trailing spaces on any line.\n\n        Expected stdout:\n        1 G7 22 seconds\n2 B2 30 seconds\n2 D4 30 seconds\n4 A1 45 seconds\n4 F6 45 seconds\n6 C3 52 seconds\n7 H8 55 seconds\n8 E5 61 seconds\n\n\n        Aether source:\n",
+   "solution": "type Stop {\n    code: Text = \"\";\n    time: Int = 0;\n}\n\nfn main() -> Void {\n    let stops: Stop[] = [\n        new Stop { code: \"A1\", time: 45 },\n        new Stop { code: \"B2\", time: 30 },\n        new Stop { code: \"C3\", time: 52 },\n        new Stop { code: \"D4\", time: 30 },\n        new Stop { code: \"E5\", time: 61 },\n        new Stop { code: \"F6\", time: 45 },\n        new Stop { code: \"G7\", time: 22 },\n        new Stop { code: \"H8\", time: 55 }\n    ];\n\n    let sorted: Stop[] = sorted_by(stops, \"time\");\n\n    let rank: Int = 1;\n    let prevTime: Int = -1;\n    let prevIndex: Int = -1;\n\n    loop i in 0..length(sorted) {\n        if i > 0 && sorted[i].time != prevTime {\n            rank = i + 1;\n        }\n        prevTime = sorted[i].time;\n        prevIndex = i;\n        fx {\n            println(rank, \" \", sorted[i].code, \" \", sorted[i].time, \" seconds\");\n        }\n    }\n\n    ret;\n}",
+   "expected_stdout": "1 G7 22 seconds\n2 B2 30 seconds\n2 D4 30 seconds\n4 A1 45 seconds\n4 F6 45 seconds\n6 C3 52 seconds\n7 H8 55 seconds\n8 E5 61 seconds\n",
+   "_provenance": {
+    "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+    "first_attempt": true,
+    "solver": "qwen3.8-27b-base+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "wrong"
+    }
+   }
+  },
+  {
+   "id": "dst_f1_20261103_0098",
+   "prompt": "        You are writing Aether code.\n\n        Do not assume you have an Aether reference guide for this task.\nUse only what you already know about the language and infer cautiously.\n\n        Write exactly one complete Aether program that solves the task below.\n\n        Requirements:\n        - Return only raw Aether source code.\n        - Do not wrap the answer in Markdown fences.\n        - Do not explain the code.\n        - After the full program, output a final line containing exactly `__AETHER_BENCH_END__`.\n        - Keep the program self-contained unless the task explicitly provides files.\n        - The program must compile and run with the local `aether` compiler.\n        - The program must print exactly the expected output.\n\n        Task ID: dst_f1_20261103_0098\n        Task Title: School Class Grade Ranking\n        Task:\n        A teacher has graded five students in a class:\n\nTom: 88\nSusan: 95\nKevin: 72\nLaura: 88\nDerek: 95\n\nRank the students from highest grade to lowest. Students with the same grade share the same rank. When two students share a rank, they are listed alphabetically by name.\n\nOutput format: exactly 5 lines. Each line is: rank as an integer, a space, the student name, a space, a colon, a space, the grade as an integer. For example: 1 Susan: 95\n\nNo trailing spaces on any line.\n\n        Expected stdout:\n        1 Derek: 95\n1 Susan: 95\n3 Laura: 88\n3 Tom: 88\n5 Kevin: 72\n\n\n        Aether source:\n",
+   "solution": "type Student {\n    name: Text = \"\";\n    grade: Int = 0;\n}\n\nfn main() -> Void {\n    let students: Student[] = [\n        new Student { name: \"Tom\", grade: 88 },\n        new Student { name: \"Susan\", grade: 95 },\n        new Student { name: \"Kevin\", grade: 72 },\n        new Student { name: \"Laura\", grade: 88 },\n        new Student { name: \"Derek\", grade: 95 }\n    ];\n\n    // Sort by grade descending, then name ascending\n    let n: Int = length(students);\n    loop i in 0..n {\n        loop j in 0..(n - 1 - i) {\n            let swap: Bool = false;\n            if students[j].grade < students[j + 1].grade {\n                swap = true;\n            }\n            if students[j].grade == students[j + 1].grade && students[j].name > students[j + 1].name {\n                swap = true;\n            }\n            if swap {\n                let tmp: Student = students[j];\n                students[j] = students[j + 1];\n                students[j + 1] = tmp;\n            }\n        }\n    }\n\n    // Assign ranks\n    let ranks: Int[] = [];\n    loop i in 0..n {\n        if i > 0 && students[i].grade == students[i - 1].grade {\n            ranks = ranks + [ranks[i - 1]];\n        } else {\n            ranks = ranks + [i + 1];\n        }\n    }\n\n    fx {\n        loop i in 0..n {\n            println(ranks[i], \" \", students[i].name, \": \", students[i].grade);\n        }\n    }\n    ret;\n}",
+   "expected_stdout": "1 Derek: 95\n1 Susan: 95\n3 Laura: 88\n3 Tom: 88\n5 Kevin: 72\n",
+   "_provenance": {
+    "category": "sorting and selection written by hand (insertion, selection, counting sort; ranking with ties)",
+    "first_attempt": true,
+    "solver": "mimo-v2.6-flash+medium-guide",
+    "guide": "2026-10-28-1",
+    "grader": "2026-10-30-1",
+    "generator_models": [
+     "mimo-v2.6-flash"
+    ],
+    "generator_pool": "large-open",
+    "filter": {
+     "model": "aether-gemma4-12b-v2-q8-32k",
+     "first_attempt": "coded"
+    }
+   }
+  }
+ ]
+}
