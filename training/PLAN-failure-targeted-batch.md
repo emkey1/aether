@@ -1,7 +1,8 @@
 # Plan: a batch aimed at a fine-tune's own failures (drafted 2026-11-02)
 
 The owner approved the pilot and the solver order on 2026-11-03, then scaling to about 286 pairs (`distill/f3-20261103/`, with the
-pilot's 41). That batch finished on 2026-11-04 with 298 pairs. The dataset and the runs still need a decision.
+pilot's 41). That batch finished on 2026-11-04 with 298 pairs, and the owner approved the dataset and the runs the same day
+(`training_runs/gemma4-12b-v3/`).
 
 **The question:** does training data drawn from tasks a fine-tune gets wrong move its benchmark, where the same amount of
 ordinary data did not? d5 added 286 pairs, about 15% more records, and `training_runs/qwen36-35b-a3b-v2/RESULTS.md`
@@ -28,8 +29,9 @@ nothing certain about the MoE, which would need its own run if this works.
 3. **Solve with the guide:** see the decision below.
 4. **Harvest and gates:** exact stdout against Python, `aether_specialization_check_pairs.py`, the dataset gates. Each pair's
    provenance gains the filter model and failure class.
-5. **Dataset `v3-*`:** `v2-20261101` plus the batch, on the 1.0 grader. The recipe is otherwise identical to `gemma4-12b-v2`:
-   one change per run.
+5. **Dataset `v3-20261104`:** `v2-20261101` plus the batch's Aether pairs, on the 1.0 grader. The recipe is otherwise identical to
+   `gemma4-12b-v2`: one change per run. The batch's Python pairs stay out, because the Python cap chooses by hash and adding them would
+   displace some of v2's.
 
 ## Who solves
 
@@ -75,9 +77,9 @@ may rise. The owner can set a lower target. The MiMo stages share T'Ra's queue, 
 
 ## The scaled batch (2026-11-04)
 
-**`distill/f3-20261103/` gave 257 pairs, so with the pilot's 41 there are 298.** They sit in each slice's `pairs.json` and
-`pairs_python.json`, not in `distilled/`, because the dataset builder takes every file there by default. `merge_solvers.py` in f3's
-folder folds each slice's two solves into its `aether.json`.
+**`distill/f3-20261103/` gave 257 pairs, so with the pilot's 41 there are 298.** Each slice's folder has its `pairs.json` and
+`pairs_python.json`, and the approved Aether pairs are in `distilled/`. `merge_solvers.py` in f3's folder folds each slice's two solves
+into its `aether.json`.
 
 | | f1 + f2 | f3 | all |
 |---|---:|---:|---:|
@@ -102,26 +104,27 @@ folder folds each slice's two solves into its `aether.json`.
   all of the Python.
 - **Checked:** all 298 pass `aether_specialization_check_pairs.py` on the 1.0 release binary, with each slice also checked against the
   other two (highest similarity 0.26). No prompt repeats within the set or in the approved pairs. f3's 334 open-lane requests were all
-  served by MiMo. The dataset builder's own gates have not run, and run when `v3-*` is built.
+  served by MiMo. The dataset builder's gates passed when `v3-20261104` was built, and match v2's.
 - **Time:** 20 hours end to end, as forecast: 5.5 of tasks, 3.4 of Python, 7.1 of filter, 3 of 27B, 1 of MiMo. Freezing dropped 70 of
   the 1,600 tasks: 38 whose prompt contradicted the output, 28 Python failures, 4 with no or too much output.
 
 ## Runs
 
-All on host-c with its services stopped, about 5.6 hours each.
+All on host-c with its services stopped, about 6 hours each, in this order.
 
 | arm | dataset | seeds | status |
 |---|---|---|---|
 | baseline | `v2-20261101` | 3407 | done (`gemma4-12b-v2`) |
-| baseline | `v2-20261101` | 42 | new; also the first measure of held-out seed noise |
-| targeted | `v3-*` | 3407, 42 | new |
+| targeted | `v3-20261104` | 3407 | first (`gemma4-12b-v3`) |
+| baseline | `v2-20261101` | 42 | second (`gemma4-12b-v2-s42`); also the first measure of held-out seed noise |
+| targeted | `v3-20261104` | 42 | third (`gemma4-12b-v3-s42`) |
 | control, only if targeted reads as a gain | `v2-20261101` + the same number of pairs from `tasks_passed.json` | 3407, 42 | new |
 
 The control separates "targeted data helps" from "more data helps", and is skipped if there is no gain to explain.
 
 ## The reading, fixed before any targeted run is scored
 
-Commit this section's final form and the run configs before training starts.
+This is the final form, committed with the run configs before training started. `training_runs/gemma4-12b-v3/compare.py` computes it.
 
 - **Measure:** first-attempt pass rate on the 53 held-out tasks at T=0, averaged over each arm's seeds. Targeted minus
   baseline, with a paired bootstrap over tasks (10,000 resamples, seed 42), as in `training_runs/qwen36-35b-a3b-e3-t02/compare.py`.
