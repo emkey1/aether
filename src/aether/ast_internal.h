@@ -36,6 +36,7 @@
 
 #include "ast/ast.h"
 #include "core/types.h"
+#include "core/token_arena.h"
 #include "core/utils.h"
 #include "core/globals.h"
 #include "core/type_registry.h"
@@ -48,7 +49,6 @@
 #include "aether/ast_prepasses.h"
 
 /* Provided by core/utils.c */
-Token *newToken(TokenType type, const char *value, int line, int column);
 /* Compile-time constant folding, declared in compiler/compiler.h. Aether links
  * rea's parser which already pulls these in; declaring them here avoids adding a
  * compiler header dependency to the front end. evaluateCompileTimeValue is

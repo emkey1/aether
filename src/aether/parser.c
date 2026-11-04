@@ -1,5 +1,6 @@
 #include "aether/parser.h"
 #include "core/globals.h"
+#include "core/token_arena.h"
 
 #include <stdlib.h>
 #include <string.h>
@@ -36,7 +37,10 @@ AST *parseAether(const char *source) {
     /* The AST frontend is the only parser. The legacy line-oriented text
      * rewriter (translate.c, selected via AETHER_PARSER=rewriter) was retired
      * on 2026-07-01 after the P7 cutover proved out; see docs/parser_roadmap.md. */
-    return parseAetherAst(source);
+    size_t tokens = tokenArenaMark();
+    AST *program = parseAetherAst(source);
+    tokenArenaRelease(tokens);
+    return program;
 }
 
 void aetherSetStrictMode(int enable) {
