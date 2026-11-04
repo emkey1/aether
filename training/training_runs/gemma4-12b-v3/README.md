@@ -33,3 +33,4 @@ the chain started, not by this work, so the chain leaves it alone.
 ## Log
 
 - 2026-11-04: dataset built and run configs committed before training.
+- 2026-11-04 06:58Z: `run_chain.sh` started on the training host, with the first run training.
