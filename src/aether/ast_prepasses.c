@@ -34,6 +34,7 @@
 #include "aether/diagnostics.h"
 #include "aether/parser.h"
 #include "aether/semantic.h"   /* aetherSemanticGetSourcePath, for arity diagnostics */
+#include "common/path_virtualization.h"
 
 #ifndef PATH_MAX
 #define PATH_MAX 4096
