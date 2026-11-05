@@ -125,7 +125,8 @@ be read as more than that.
 ## Published (2026-11-03)
 
 This form is public as `emkey1/Gemma-4-12B-Aether-int8` (Hub revision `895483498ea4`), under apache-2.0, with
-`emkey1/Gemma-4-12B-Aether` as its base. The card is `training/config/hf_release/README.gemma.int8.md`.
+`emkey1/Gemma-4-12B-Aether` as its base. The card is `training/config/hf_release/README.gemma.int8.md`. A card commit on 2026-11-05 moved the revision to
+`f502de665cd1`, correcting the training-noise line; the weights did not change.
 
 - **The scored tensors, not a new quantization:** `export_mlx.py export` wrote the scored model's blobs in the standard MLX layout,
   one 12.76 GB `model.safetensors` (SHA-256 starts `4bba0a10c065dc5e`). Ollama imports that with no `-q`.

@@ -41,8 +41,8 @@ which the model sees the compiler's diagnostic and the observed output.
 - "First attempt" counts tasks solved by the first program; "after repair" counts tasks solved within the repairs.
 - Graded with the Aether 1.0 release compiler (language version 2026-10-30-1).
 - Columns: first attempt (after repair).
-- One training seed. Training this family twice nearly identically has changed about 9 of 126 first attempts, so a
-  difference of a few tasks between two rows means little.
+- One training seed of two scored. A second seed of the same recipe, not published, differs on 21 of 126 first attempts
+  and scores 96 (116) at 16 bits and 96 (114) at int8, so a difference of a few tasks between two rows means little.
 
 | suite | tasks | untrained base, no guide | **this model, bf16** | **this model, int8** | untrained base + 14K-token guide |
 |---|---:|---:|---:|---:|---:|

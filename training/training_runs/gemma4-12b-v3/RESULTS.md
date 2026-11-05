@@ -105,4 +105,4 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 - **The weights stay on host-c,** about 27 GB per run, and none of them is published.
 - **Seed 42's baseline at int8:** 65 (72) / 31 (42), 12 to 4 after repair against the published int8 (p=0.08), which misses the bar fixed for it
   (`../gemma4-12b-v2-s42-q8/RESULTS.md`). The published form stays.
-- **Not decided:** whether to update the published cards' seed-noise line, which still says about 9 of 126.
+- **The published cards' seed-noise line was updated on 2026-11-05** (`../gemma4-12b-v2-s42-q8/RESULTS.md`).

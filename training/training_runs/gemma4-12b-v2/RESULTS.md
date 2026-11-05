@@ -146,3 +146,5 @@ The final step is public under apache-2.0, with `google/gemma-4-12B-it` as its b
 - **Upload time:** 3 h 8 min for both repos.
 - **Later card commits, same day:** linking the int8 form (`../gemma4-12b-v2-q8/RESULTS.md`) moved the revisions to `23f4fd77b0ed` and
   `ea051eda4b79`. Their weights did not change.
+- **Card commit, 2026-11-05 (the owner's word):** the training-noise line now gives the second seed's numbers (`../gemma4-12b-v3/RESULTS.md`). The revisions are
+  `aa0adf8042a7` and `b2d672f7cfb7`, each card read back with no token, and the weights did not change.

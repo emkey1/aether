@@ -83,4 +83,5 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 ## Next
 
 - **The published form stays.** The second seed's forms are not published: 12 GB in Ollama on the Mac and the 24 GB export on both machines.
-- **Not decided:** whether to update the published cards' seed-noise line, which still says about 9 of 126.
+- **The published cards' seed-noise line was updated on 2026-11-05,** on the owner's word: `Gemma-4-12B-Aether-int8` at `f502de665cd1`, `Gemma-4-12B-Aether` at
+  `aa0adf8042a7`, `Gemma-4-12B-Aether-LoRA` at `b2d672f7cfb7`. Each read back with no token, and no weights changed.
