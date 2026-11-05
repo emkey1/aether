@@ -63,9 +63,9 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 - **The direction held, and the bar was not met.** Every total here is level or better than the published form's, and none of the three sign tests over all 126, main
   and held-out reaches p < 0.05.
 - **The better repair rate repeats, with the same caveat:** 18 of 30 at int8 and 20 of 30 at 16 bits, against 13 of 33 and 8 of 29 for the published seed.
-- **Sign tests cannot separate it from any form of e3,** on any row above. e3 is still ahead on first attempts at int8 and bf16, and scoring its 39 and 36 against 31 on
-  held-out. Only one seed of e3 has been scored.
-- **`tasks_sealed_toon` is where every Gemma form trails.** Six Gemma runs and forms read 3 to 6 first attempts, 4 on both targeted runs, and e3's three forms read 7, 10
+- **Sign tests cannot separate it from any form of e3,** on any row above. e3 is still ahead on first attempts at int8 and bf16, with 36 and 39 on held-out against 31.
+  Only one seed of e3 has been scored.
+- **`tasks_sealed_toon` is where these Gemma runs trail.** The two seeds' four forms and the two targeted runs read 3 to 6 first attempts, and e3's three forms read 7, 10
   and 10. After repair the highest Gemma figure is 8 and the lowest e3 figure is 9. The fresh-task filter points the same way (`../../distill/fe3-20261104/`): reading a
   JSON data file fails 43 of 58 on Gemma and 12 of 58 on e3. Those are different tasks, and the suite's failures stay unread.
 - **One held-out task ran away.** Its first attempt and first repair both hit the 8,192-token cap, and the second repair passed. The 16-bit form passes it first time and no
