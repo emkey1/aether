@@ -1,0 +1,66 @@
+{
+ "timeouts": [
+  {
+   "task_id": "dst_f1_20261103_0060",
+   "limit": 20,
+   "same_limit": [
+    {
+     "elapsed": 20.009,
+     "timed_out": true,
+     "exact": false,
+     "returncode": 124
+    },
+    {
+     "elapsed": 20.004,
+     "timed_out": true,
+     "exact": false,
+     "returncode": 124
+    },
+    {
+     "elapsed": 20.005,
+     "timed_out": true,
+     "exact": false,
+     "returncode": 124
+    }
+   ],
+   "long_limit": {
+    "limit": 300,
+    "elapsed": 299.982,
+    "timed_out": true,
+    "exact": false,
+    "returncode": 124
+   }
+  },
+  {
+   "task_id": "dst_f3_20261103_0883",
+   "limit": 20,
+   "same_limit": [
+    {
+     "elapsed": 20.004,
+     "timed_out": true,
+     "exact": false,
+     "returncode": 124
+    },
+    {
+     "elapsed": 20.004,
+     "timed_out": true,
+     "exact": false,
+     "returncode": 124
+    },
+    {
+     "elapsed": 20.006,
+     "timed_out": true,
+     "exact": false,
+     "returncode": 124
+    }
+   ],
+   "long_limit": {
+    "limit": 300,
+    "elapsed": 300.005,
+    "timed_out": true,
+    "exact": false,
+    "returncode": 124
+   }
+  }
+ ]
+}

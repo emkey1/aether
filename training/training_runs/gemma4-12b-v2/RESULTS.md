@@ -74,7 +74,8 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 | e3, mxfp4 | 19 / 2 / 8 | 11 / 2 / 5 | 11 of 29 |
 | guided | 31 / 1 / 20 | 9 / 0 / 9 | 34 of 52 |
 
-- **Coded failures on first attempts are not the gap:** 14 against e3's 16.
+- **Coded failures on first attempts are not the gap:** 14 against e3's 16. Corrected on 2026-11-05: on 1,776 fresh tasks they are the largest gap. Both seeds at int8 fail
+  105 and 101 against 51 for e3 at mxfp4 (`../../distill/fs42-20261105/`). These 126 tasks were too few to show it.
 - **Return codes and wrong output are:** 15 first attempts against e3's 6. After repair, wrong output is 11 against 3, and
   those programs give repair no diagnostic to work from. Corrected on 2026-11-05: the 7 return codes are this seed's. The other three Gemma runs have 1 each.
 - **The gap to e3 is on held-out:** main is 67 to 65, held-out 30 to 39. Held-out's failures were not read, so the suites

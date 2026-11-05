@@ -153,6 +153,9 @@ all (14 against 16).
 - **Wrong output did not respond,** as the limit below warned: 8 and 6 first attempts at baseline, 10 and 10 targeted, over all 126 tasks.
 - **A seed moves about as many tasks as the data:** 21 and 15 of 126 first attempts against 27 and 17. Earlier statements about Gemma's repair and return codes
   turn out to describe one set of weights, and are corrected in place.
+- **About half the batch was aimed at one seed's failures** (`distill/fs42-20261105/`). A second seed passes 150 of the 298 pairs' tasks on first attempts, and 172 of the
+  1,776 tasks fail at both seeds. Filtering on one seed picks both stable failures and chance, so a later batch should filter on two. The 148 pairs on stable failures were
+  all in `v3-20261104`, so this does not explain the result by itself.
 
 ## Other models (2026-11-04)
 

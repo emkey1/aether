@@ -100,6 +100,12 @@ def main() -> None:
     print(f"on tasks both seeds failed, the same class {sum(published[i] == second[i] for i in both)} of {len(both)}")
     print(f"fail at both seeds {len(both)}: {len(both & paired)} have a pair, {len(both - paired)} do not; also failed by e3 {len(both & set(e3))}")
     print(f"e3's {len(e3)} failures: {len(set(e3) & both)} fail at both Gemma seeds, {len(set(e3) & (set(published) ^ set(second)))} at one, {len(set(e3) - set(published) - set(second))} at neither")
+    # Added after the pass was read; not part of the fixed reading.
+    e3_classes = collections.Counter(e3.values())
+    print(f"e3 at mxfp4 fails {len(e3)}: coded {e3_classes['coded']}, return code {e3_classes['rc']}, wrong output {e3_classes['wrong']}")
+    for name, failures in (("the published seed", published), ("seed 42", second)):
+        alone, e3_alone = len(set(failures) - set(e3)), len(set(e3) - set(failures))
+        print(f"  {name} fails alone {alone}, e3 fails alone {e3_alone}, sign test p={sign_test(alone, e3_alone):.2g}")
 
     print("\nthe published seed's failures by class: failures, also failed by seed 42")
     for name in ("coded", "rc", "wrong"):

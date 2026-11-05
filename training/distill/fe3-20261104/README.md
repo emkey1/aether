@@ -37,7 +37,8 @@ It took 107 minutes on the scoring Mac, with no infrastructure failures, empty a
   is not the benchmark's.
 - **Its lead is mostly in language errors.** Coded and return-code failures are about half Gemma's, 62 against 128, while wrong output is close, 168
   against 194. Wrong output is 73% of e3's failures, and that is the class the plan warns more examples may not fix.
-- **Gemma's worst category is not shared.** Reading a small JSON data file fails 43 of 58 on Gemma and 12 of 58 on e3.
+- **Gemma's worst category is not shared.** Reading a small JSON data file fails 43 of 58 on Gemma and 12 of 58 on e3. Added on 2026-11-05: a second Gemma seed fails 21 of the 58
+  (`../fs42-20261105/`), so part of this gap was one seed's.
 
 ## What this means for a MoE run
 

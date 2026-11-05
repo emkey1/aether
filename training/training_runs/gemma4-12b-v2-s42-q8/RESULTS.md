@@ -82,6 +82,8 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 
 ## Next
 
+- **Added on 2026-11-05:** a separate test on 1,776 fresh tasks found this seed stronger on first attempts, 100 tasks to 150 failed alone, p=0.0019
+  (`../../distill/fs42-20261105/`). The reading above still stands for this test, and it is the owner's decision whether the new result changes what is published.
 - **The published form stays.** The second seed's forms are not published: 12 GB in Ollama on the Mac and the 24 GB export on both machines.
 - **The published cards' seed-noise line was updated on 2026-11-05,** on the owner's word: `Gemma-4-12B-Aether-int8` at `f502de665cd1`, `Gemma-4-12B-Aether` at
   `aa0adf8042a7`, `Gemma-4-12B-Aether-LoRA` at `b2d672f7cfb7`. Each read back with no token, and no weights changed.
