@@ -103,5 +103,6 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 - **The 298 pairs stay in `distilled/`,** which the dataset builder takes by default. Nothing here shows that they help or harm, so the next dataset should
   keep or drop them on purpose.
 - **The weights stay on host-c,** about 27 GB per run, and none of them is published.
-- **Not decided:** whether to build seed 42's baseline at int8 and score it on the Mac, and whether to update the published cards' seed-noise line, which
-  still says about 9 of 126.
+- **Seed 42's baseline at int8:** 65 (72) / 31 (42), 12 to 4 after repair against the published int8 (p=0.08), which misses the bar fixed for it
+  (`../gemma4-12b-v2-s42-q8/RESULTS.md`). The published form stays.
+- **Not decided:** whether to update the published cards' seed-noise line, which still says about 9 of 126.

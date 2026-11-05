@@ -24,7 +24,8 @@ length caps, and all 126 prompts are byte-identical to e3's. `compare.py` prints
 
 e3's published row was graded on 2026-10-21-8, and replaying its programs on 2026-10-30-1 moves nothing. Its held-out score
 helped choose it for release, so its 39 is slightly flattering. The Gemma rows are one seed (3407) at T=0. Added on 2026-11-05: a second seed at 16 bits
-scores 65 (71) / 31 (45) (`../gemma4-12b-v3/RESULTS.md`), so the gap to the full e3 after repair belongs to these weights, not the recipe. Seed 42 has no int8 form.
+scores 65 (71) / 31 (45) (`../gemma4-12b-v3/RESULTS.md`), so the gap to the full e3 after repair belongs to these weights, not the recipe. At int8 that seed scores
+65 (72) / 31 (42), which did not clear the bar set to replace this form (`../gemma4-12b-v2-s42-q8/RESULTS.md`).
 
 | suite | int8 | 16-bit | e3 | e3, int8 | e3, mxfp4 | guided |
 |---|---|---|---|---|---|---|

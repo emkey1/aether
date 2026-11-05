@@ -5,7 +5,10 @@
 (`../gemma4-12b-v3/RESULTS.md`).
 
 **The question:** does that lead after repair survive in the form people run? Few programs stay byte-identical when a model is quantized, so this also serves as a
-partial second sample of a lead that was found on the suites that report it.
+partial second sample of a lead that was found on the suites that report it. Corrected on 2026-11-05: that was assumed, not checked. 77 of the 126 first programs stayed
+identical, so it is a weak second sample.
+
+**Result: it does not keep the lead by this reading, and the published form stays.** See `RESULTS.md`.
 
 ## The reading, fixed before scoring
 
