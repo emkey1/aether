@@ -26,10 +26,10 @@ By my estimate, about 1,000 tasks resolve about 1.6 points either way, against 1
 **Reported, not deciding:**
 - Each seed's difference, with a sign test, and the gap between the seeds in each arm.
 - Failure class and area for each run.
-- **Does a taught idiom transfer?** How many programs in each arm use `sorted_by` or `sorted_by_desc` and how many of those pass, and how many pass `sorted` an extra argument. v2's data uses these builtins in at most 9 of 2,278 instruction records, and the 298 pairs add 14 more uses (`../coverage-20261105/`).
+- **Does a taught idiom transfer?** How many programs in each arm use `sorted_by` or `sorted_by_desc` and how many of those pass, and how many pass `sorted` an extra argument. v2's data uses these builtins in at most 9 of 2,058 Aether instruction records, and the 298 pairs add 14 more uses (`../coverage-20261105/`).
 
 ## Limits, stated now
 
-- **First attempts only,** at int8, and the published seed's weights are not chosen for this test: seed 42's baseline is known to be stronger on the earlier tasks, and both are averaged.
+- **First attempts only,** at int8. Seed 42's baseline is known to be stronger on the earlier tasks, and both baseline seeds count equally in the average.
 - **The rotation is not the benchmark's mix.**
 - **All four runs share one Mac and one Ollama server.** The driver stops if the server's version changes between passes.
