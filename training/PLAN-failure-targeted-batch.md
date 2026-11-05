@@ -4,6 +4,9 @@ The owner approved the pilot and the solver order on 2026-11-03, then scaling to
 pilot's 41). That batch finished on 2026-11-04 with 298 pairs, and the owner approved the dataset and the runs the same day
 (`training_runs/gemma4-12b-v3/`).
 
+**Result, 2026-11-05: no gain by the fixed reading.** Held-out first attempts are 33.5 against 30.5 of 53, +5.7 points [-5.7, +17.0]. The control arm does not run.
+`training_runs/gemma4-12b-v3/RESULTS.md` has the tables, and the section "Result" below has the short form.
+
 **The question:** does training data drawn from tasks a fine-tune gets wrong move its benchmark, where the same amount of
 ordinary data did not? d5 added 286 pairs, about 15% more records, and `training_runs/qwen36-35b-a3b-v2/RESULTS.md`
 measured no gain. Every earlier batch chose tasks by category or by what the guided base missed, never by what a fine-tune
@@ -115,10 +118,10 @@ All on host-c with its services stopped, about 6 hours each, in this order.
 | arm | dataset | seeds | status |
 |---|---|---|---|
 | baseline | `v2-20261101` | 3407 | done (`gemma4-12b-v2`) |
-| targeted | `v3-20261104` | 3407 | first (`gemma4-12b-v3`) |
-| baseline | `v2-20261101` | 42 | second (`gemma4-12b-v2-s42`); also this model's first measure of held-out seed noise |
-| targeted | `v3-20261104` | 42 | third (`gemma4-12b-v3-s42`) |
-| control, only if targeted reads as a gain | `v2-20261101` + the same number of pairs from `tasks_passed.json` | 3407, 42 | new |
+| targeted | `v3-20261104` | 3407 | done (`gemma4-12b-v3`) |
+| baseline | `v2-20261101` | 42 | done (`gemma4-12b-v2-s42`); also this model's first measure of held-out seed noise |
+| targeted | `v3-20261104` | 42 | done (`gemma4-12b-v3-s42`) |
+| control, only if targeted reads as a gain | `v2-20261101` + the same number of pairs from `tasks_passed.json` | 3407, 42 | not run: no gain |
 
 The control separates "targeted data helps" from "more data helps", and is skipped if there is no gain to explain.
 
@@ -137,11 +140,27 @@ Earlier notes proposed held-out coded errors as the main measure, because they s
 passes replace it: v2 kept coded failures level while doubling wrong output, and Gemma's gap to e3 is not in coded errors at
 all (14 against 16).
 
+## Result (2026-11-05)
+
+| first attempt (after repair), main / held-out | seed 3407 | seed 42 |
+|---|---|---|
+| baseline | 67 (69) / 30 (36) | 65 (71) / 31 (45) |
+| targeted | 65 (70) / 33 (37) | 65 (69) / 34 (40) |
+
+- **No gain:** the interval's lower end is below zero, so the first condition fails. The other two hold. Main is -1.4 points [-7.5, +4.8].
+- **After repair the direction reverses:** 38.5 against 40.5 on held-out, -3.8 points [-13.2, +5.7].
+- **The limit below was the right one.** Two seeds read about 11 points either side, about 6 tasks. A gain above about 9 tasks is excluded, and a smaller one is not.
+- **Wrong output did not respond,** as the limit below warned: 8 and 6 first attempts at baseline, 10 and 10 targeted, over all 126 tasks.
+- **A seed moves about as many tasks as the data:** 21 and 15 of 126 first attempts against 27 and 17. Earlier statements about Gemma's repair and return codes
+  turn out to describe one set of weights, and are corrected in place.
+
 ## Other models (2026-11-04)
 
 The owner asked whether this work helps the other fine-tunes. `distill/fe3-20261104/` points the filter at e3 at mxfp4 over the same 1,776 tasks, so
 it trains nothing and solves nothing. e3 fails 230, 121 of them also failed by Gemma, and 98 of them already have a pair. About a third of these pairs
 are aimed at e3, so a MoE run on `v3-20261104` would be a weak test of targeting. A real one needs e3's other failures solved first.
+
+Added on 2026-11-05: with no gain on Gemma, e3's failures are not solved and no MoE run follows.
 
 ## Limits, stated now
 
@@ -149,6 +168,7 @@ are aimed at e3, so a MoE run on `v3-20261104` would be a weak test of targeting
   tasks. A real gain of 2 or 3 tasks would read as no result.
 - **Wrong output may not respond.** Those failures are logic slips rather than language errors, and more Aether examples may
   not fix them. The per-class counts will show which classes moved.
-- **Repair is a separate question.** Repair fixed only 8 of Gemma's 29 failures. Repair pairs built from its broken programs
+- **Repair is a separate question.** Repair fixed only 8 of Gemma's 29 failures (corrected on 2026-11-05: 9 of 28 and 10 of 27 on the targeted runs, but 20 of 30
+  at the baseline's second seed). Repair pairs built from its broken programs
   might address that, but the fine-tune's own programs stay out of training data unless the owner decides otherwise, and that
   would be its own run.

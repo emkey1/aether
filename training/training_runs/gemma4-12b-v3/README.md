@@ -1,7 +1,9 @@
 # gemma4-12b-v3: does data from a fine-tune's own failures move its benchmark? (started 2026-11-04)
 
+**Result, 2026-11-05: no gain by the fixed reading.** See `RESULTS.md`.
+
 Three new runs test `../../PLAN-failure-targeted-batch.md`. That plan holds the question and the reading, both fixed before training
-started. `compare.py` computes the reading and prints its verdict from the three conditions.
+started. `compare.py` computes the reading and prints its verdict from the three conditions. `noise.py` adds the seed tables, which are not part of it.
 
 | run | dataset | seed | |
 |---|---|---|---|
@@ -34,3 +36,5 @@ the chain started, not by this work, so the chain leaves it alone.
 
 - 2026-11-04: dataset built and run configs committed before training.
 - 2026-11-04 06:58Z: `run_chain.sh` started on the training host, with the first run training.
+- 2026-11-05 00:59Z: the chain finished after 18 h 2 min, and the host's services came back.
+- 2026-11-05: reports packed and `compare.py` run: no gain.

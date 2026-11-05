@@ -44,3 +44,5 @@ It took 107 minutes on the scoring Mac, with no infrastructure failures, empty a
 A MoE run on `v3-20261104` would be a weak test, since two-thirds of the new pairs are not aimed at it. A real test needs e3's 109 unsolved failures
 solved, which would give about 200 pairs on its own failures at the solvers' earlier rate. Those runs take about 13 hours each and three are needed:
 a second baseline seed and two targeted seeds. Whether to go on depends on the verdict of `../../training_runs/gemma4-12b-v3/`.
+
+Added on 2026-11-05: that verdict is no gain, so this does not go on.

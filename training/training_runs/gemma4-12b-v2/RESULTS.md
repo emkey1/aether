@@ -5,6 +5,9 @@ that bar on main and trails it on held-out, and a sign test separates neither di
 clearly on held-out after repair. The form a 32 GB machine would run, about 12 GB at 8-bit by estimate, has not been
 built or scored, so the question in the README stays open until it is.
 
+Corrected on 2026-11-05: this page reads one seed. A second seed of the same recipe scores 65 (71) / 31 (45), within 2 tasks of e3 on held-out after repair
+(`../gemma4-12b-v3/RESULTS.md`). The statements here about repair, return codes and the gap to e3 after repair describe these weights, not the recipe.
+
 Training took 3 h 7 min on host-c, 12.9 s a step. Scoring took about 2.5 h for the final step and 2 h 46 min for step 575,
 about four times the MoE's 37 min, on the 1.0 grader (2026-10-30-1). Both passes had no infra failures, empty generations
 or length caps, and all 126 prompts are byte-identical to e3's. `compare.py` prints every table below.
@@ -56,7 +59,8 @@ Tasks only one model passes, with two-sided sign tests:
 - **First attempts without a guide.** Against the same base with the guide, the fine-tune gains 23 first attempts, 19 of
   them on main, and hard_v2 moves from 3 to 13. After repair the two are level, as the guided model's repairs recover 34
   of its 52 failures.
-- **Not repair.** The two Gemma steps fix the fewest failures of any row in the next table.
+- **Not repair.** The two Gemma steps fix the fewest failures of any row in the next table. Corrected on 2026-11-05: at seed 42 the same recipe fixes 20 of
+  30, and the two targeted runs fix 9 of 28 and 10 of 27, so weak repair is common on this model but not fixed to it.
 
 ## Where it falls short
 
@@ -72,7 +76,7 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 
 - **Coded failures on first attempts are not the gap:** 14 against e3's 16.
 - **Return codes and wrong output are:** 15 first attempts against e3's 6. After repair, wrong output is 11 against 3, and
-  those programs give repair no diagnostic to work from.
+  those programs give repair no diagnostic to work from. Corrected on 2026-11-05: the 7 return codes are this seed's. The other three Gemma runs have 1 each.
 - **The gap to e3 is on held-out:** main is 67 to 65, held-out 30 to 39. Held-out's failures were not read, so the suites
   can go on judging training data they did not shape.
 
@@ -109,6 +113,9 @@ held-out suites do not have to choose.
 The controls in `../qwen36-35b-a3b-v2/RESULTS.md` apply here too: nearly identical training differs on 9 of 126 first
 attempts, and held-out seed noise has not been measured on this model. Corrected on 2026-11-04: this line said never, but the
 27B's three seeds were. A difference of a few tasks between any two rows above cannot be read as more than that.
+
+Measured on 2026-11-05 (`../gemma4-12b-v3/RESULTS.md`): two seeds of this recipe differ on 21 of 126 first attempts, 15 of them held-out, and split 11 to 2 on
+held-out after repair.
 
 ## Next
 

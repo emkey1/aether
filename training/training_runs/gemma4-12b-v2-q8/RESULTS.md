@@ -23,7 +23,8 @@ length caps, and all 126 prompts are byte-identical to e3's. `compare.py` prints
 | untrained Gemma 4 12B + 1.0 guide, q8_0 (`../guided-gemma4-12b-1.0-20261031/`) | 12 GB | 48 (67) | 26 (41) | 74 (108) |
 
 e3's published row was graded on 2026-10-21-8, and replaying its programs on 2026-10-30-1 moves nothing. Its held-out score
-helped choose it for release, so its 39 is slightly flattering. The Gemma rows are one seed (3407) at T=0.
+helped choose it for release, so its 39 is slightly flattering. The Gemma rows are one seed (3407) at T=0. Added on 2026-11-05: a second seed at 16 bits
+scores 65 (71) / 31 (45) (`../gemma4-12b-v3/RESULTS.md`), so the gap to the full e3 after repair belongs to these weights, not the recipe. Seed 42 has no int8 form.
 
 | suite | int8 | 16-bit | e3 | e3, int8 | e3, mxfp4 | guided |
 |---|---|---|---|---|---|---|
@@ -80,7 +81,8 @@ Failing programs by class, coded diagnostic / wrong return code / wrong output, 
 | guided | 31 / 1 / 20 | 9 / 0 / 9 | 34 of 52 |
 
 Return codes are still Gemma's own weakness: 7 first attempts against e3's 2 in every form. The repair count is noisier than
-it looked at 16-bit: 8 of 29 there, 13 of 33 here.
+it looked at 16-bit: 8 of 29 there, 13 of 33 here. Corrected on 2026-11-05: the 7 return codes belong to seed 3407's weights, as the other three 16-bit runs have
+1 each, and seed 42's baseline repairs 20 of 30.
 
 ## Speed and memory
 
