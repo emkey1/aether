@@ -1,9 +1,10 @@
 # SDL graphics in Aether
 
-Aether lowers to the PSCAL VM, which ships a full SDL backend: `InitGraph`,
-`SetRGBColor`, `FillCircle` / `FillRect` / `DrawCircle`, `UpdateScreen`,
-`GraphLoop`, `PollKey` / `IsKeyDown` / `GetMouseState`, `OutTextXY`,
-`LoadImageToTexture`, `RenderCopy`, and more. The default aether build is minimal
+Aether lowers to the PSCAL VM, which ships a full SDL backend, spelled in
+lowercase as every builtin is (D70): `initgraph`,
+`setrgbcolor`, `fillcircle` / `fillrect` / `drawcircle`, `updatescreen`,
+`graphloop`, `pollkey` / `iskeydown` / `getmousestate`, `outtextxy`,
+`loadimagetotexture`, `rendercopy`, and more. The default aether build is minimal
 and leaves SDL out, so it is behind an opt-in CMake flag.
 
 ## Build with SDL
@@ -26,6 +27,6 @@ Foundation frameworks on macOS). The `SDL` define and the libraries are PUBLIC o
 
 The SDL routines are I/O effects, so call them inside an `fx { ... }` block.
 Coordinates and sizes are `Int`; window titles and file paths are multi-character
-`Text` literals (a single-character literal is a `Char`, which `InitGraph`'s
+`Text` literals (a single-character literal is a `Char`, which `initgraph`'s
 `String` argument rejects). Builtins that return values through VAR parameters
-(e.g. `GetPixelColor`) are not expressible from Aether yet.
+(e.g. `getpixelcolor`) are not expressible from Aether yet.
