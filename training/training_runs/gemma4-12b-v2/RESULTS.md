@@ -149,3 +149,6 @@ The final step is public under apache-2.0, with `google/gemma-4-12B-it` as its b
   `ea051eda4b79`. Their weights did not change.
 - **Card commit, 2026-11-05 (the owner's word):** the training-noise line now gives the second seed's numbers (`../gemma4-12b-v3/RESULTS.md`). The revisions are
   `aa0adf8042a7` and `b2d672f7cfb7`, each card read back with no token, and the weights did not change.
+- **Card commit, 2026-11-06 (the owner's word):** the comparison with the 4-bit MoE sibling now says it scores about the same only on the 126 benchmark tasks,
+  and fails fewer first attempts on 1,776 fresh tasks, 230 against 322 at 8 bits (`../../distill/fe3-20261104/`). The revisions are `733fa66b5713` and
+  `0d59ea9295fd`, read back with no token, and the weights did not change.

@@ -4,7 +4,8 @@
 at 20.9 GB, but it generates about 4 to 6 times slower.** It loses 2 first attempts on each set of suites against its own 16-bit
 form and is level after repair, 106 against 105. That answers the question `../gemma4-12b-v2/` left open: a model about 9 GB
 smaller does the same job on this benchmark. Where e3 at mxfp4 fits, e3 is still the better choice, for its speed. Gemma's
-case is a machine it does not fit. The full e3 is clearly ahead of both on held-out.
+case is a machine it does not fit. The full e3 is clearly ahead of both on held-out. Added on 2026-11-06: on 1,776 fresh tasks, first attempts only, e3 at
+mxfp4 fails 230 against this form's 322, 109 to 201 failed alone, p=1.9e-07 (`../../distill/fe3-20261104/`), so "level" holds only on these 126 tasks.
 
 The form also clears the bar set for publishing it: 28 held-out first attempts, not below the guided base's 26.
 
@@ -126,7 +127,8 @@ be read as more than that.
 
 This form is public as `emkey1/Gemma-4-12B-Aether-int8` (Hub revision `895483498ea4`), under apache-2.0, with
 `emkey1/Gemma-4-12B-Aether` as its base. The card is `training/config/hf_release/README.gemma.int8.md`. A card commit on 2026-11-05 moved the revision to
-`f502de665cd1`, correcting the training-noise line; the weights did not change.
+`f502de665cd1`, correcting the training-noise line, and one on 2026-11-06 to `ed0c2c31544c`, adding the fresh-task comparison with the 4-bit MoE sibling; the weights
+did not change.
 
 - **The scored tensors, not a new quantization:** `export_mlx.py export` wrote the scored model's blobs in the standard MLX layout,
   one 12.76 GB `model.safetensors` (SHA-256 starts `4bba0a10c065dc5e`). Ollama imports that with no `-q`.

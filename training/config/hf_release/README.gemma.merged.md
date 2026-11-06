@@ -28,7 +28,8 @@ with no language guide in the prompt. At 8 bits it is a 12 GB model, the smalles
 in every prompt, a strong base model does well; this fine-tune puts that knowledge into the weights.
 
 **Pick this model when the larger ones do not fit.** On the same Mac, the 35B mixture-of-experts sibling at 4 bits (20.9 GB)
-scores about the same and generates 4 to 6 times faster, and at full size it is clearly better on the held-out suites. It also
+scores about the same on the 126 benchmark tasks, but fails fewer first attempts on 1,776 fresh tasks (230 against 322 for this
+model at 8 bits), and it generates 4 to 6 times faster. At full size it is clearly better on the held-out suites. It also
 used more memory over a scoring pass, 29 GB against this model's 21 GB at 8 bits.
 
 **This is an Aether specialist.** The fine-tuned model writes much worse Python, and probably worse code in other
