@@ -69,3 +69,7 @@ The owner chose v3 (seed 3407) to replace the published model on these first att
 
 - **The reading:** tasks only one of the two passes after repair, over all 1,026, with an exact two-sided sign test. **v3 is better after repair** with more tasks in its favour at p < 0.05, **seed 42 is better after repair** with the reverse, and otherwise **no difference after repair**. Which to publish stays the owner's decision.
 - **Reported:** how many re-asked first attempts reproduce the original at T=0, and each candidate's failures fixed by repair.
+
+**Repair result (2026-11-07): no difference after repair.** v3 passes 947 of 1,026 after repair and seed 42's baseline 929. v3 alone passes 51 tasks and seed 42 alone 33, p=0.063, so the direction favours v3 but misses the bar. Repair fixed 55 of v3's 134 failures and 66 of seed 42's 163. On these tasks v3's repair is not the weakness the 126 benchmark tasks suggested (2 to 14 there).
+
+Only 79 and 85 of the re-asked first programs matched the original run's byte for byte, at T=0, on the same Mac and model. Several models shared the Mac for these runs, and the earlier ones too, so generation is not fully reproducible from run to run here. That adds noise to single-pass comparisons, not bias.
