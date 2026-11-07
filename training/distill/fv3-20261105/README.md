@@ -62,3 +62,10 @@ By my estimate, about 1,000 tasks resolve about 1.6 points either way, against 1
 - **The benchmark's tasks.** This set is not their mix.
 
 The verdict of `../../training_runs/gemma4-12b-v3/RESULTS.md` stands for its own test. What follows is the owner's decision: the control arm, and a batch filtered on two seeds.
+
+## Repair test (set up 2026-11-07, before any of it ran)
+
+The owner chose v3 (seed 3407) to replace the published model on these first attempts, but on the benchmark at int8 its repair is weak: 95 (102) against seed 42's 96 (114), and repair fixed 7 of its 31 failures (`../../training_runs/gemma4-12b-v3-q8/`). Before the swap is merged, each candidate re-answers its own failed tasks here with two repair rounds, as the benchmark does: v3's 134 and seed 42's baseline's 163. A task counts as passed after repair if its first attempt passed in the run above, or if the repair run passes it. `repair.py` computes the reading.
+
+- **The reading:** tasks only one of the two passes after repair, over all 1,026, with an exact two-sided sign test. **v3 is better after repair** with more tasks in its favour at p < 0.05, **seed 42 is better after repair** with the reverse, and otherwise **no difference after repair**. Which to publish stays the owner's decision.
+- **Reported:** how many re-asked first attempts reproduce the original at T=0, and each candidate's failures fixed by repair.
