@@ -1,0 +1,59 @@
+{
+  "_note": "A late branch of gemma4-12b-v3 for training/distill/fbranch-20261108/: one more epoch of v3-20261104 at lr 5e-5 with a fresh LoRA on v3's merged weights, seed 42. Two branches differing only by seed are averaged to test whether runs that split late merge where early-split seeds did not.",
+  "tag": "gemma4-12b-v3-branch-s42",
+  "family": "gemma4_unified",
+  "hf_repo": "google/gemma-4-12B-it",
+  "base_model": "/storage/aether-train/gemma4-12b-v3/merged_16bit",
+  "host": "host-c",
+  "precision": "4bit",
+  "min_available_gb": 40,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 1,
+    "learning_rate": 5e-05,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 42,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 25,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": []
+  },
+  "dataset": {
+    "id": "v3-20261104",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}
