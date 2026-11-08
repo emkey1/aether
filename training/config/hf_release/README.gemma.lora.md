@@ -28,9 +28,20 @@ with no language guide in the prompt. At 8 bits it is a 12 GB model, the smalles
 in every prompt, a strong base model does well; this fine-tune puts that knowledge into the weights.
 
 **Pick this model when the larger ones do not fit.** On the same Mac, the 35B mixture-of-experts sibling at 4 bits (20.9 GB)
-scores about the same on the 126 benchmark tasks, but fails fewer first attempts on 1,776 fresh tasks (230 against 322 for this
-model at 8 bits), and it generates 4 to 6 times faster. At full size it is clearly better on the held-out suites. It also
-used more memory over a scoring pass, 29 GB against this model's 21 GB at 8 bits.
+scores about the same on the 126 benchmark tasks and generates about 5.6 times faster, and at full size it is clearly better on
+the held-out suites. On 1,776 fresh tasks it failed fewer first attempts than the first release of this model (230 against 322);
+this version has not been compared with it on fresh tasks. It also used more memory over a scoring pass, 29 GB against 21 GB
+for the first release at 8 bits, which has the same architecture.
+
+## What changed (2026-11-07)
+
+These weights replace the first release, which stays available at revision `0d59ea9295fd` of this repository. The recipe is the same,
+with 298 more training pairs drawn from fresh tasks the first release got wrong.
+- **On 1,026 new fresh tasks** at int8, it fails 134 first attempts against the first release's 188, and passes 947 after two repair
+  rounds. Neither version saw these tasks in training.
+- **On the 126 benchmark tasks** the two are level: 95 against 93 on first attempts, 102 against 106 after repair, and neither
+  difference is significant.
+- **Not yet known:** whether aiming the pairs at failures is what helps, or whether any pairs of this kind would.
 
 **This is an Aether specialist.** The fine-tuned model writes much worse Python, and probably worse code in other
 languages; see below. For anything other than Aether, use the base model.
@@ -42,33 +53,34 @@ which the model sees the compiler's diagnostic and the observed output.
 - "First attempt" counts tasks solved by the first program; "after repair" counts tasks solved within the repairs.
 - Graded with the Aether 1.0 release compiler (language version 2026-10-30-1).
 - Columns: first attempt (after repair).
-- One training seed of two scored. A second seed of the same recipe, not published, differs on 21 of 126 first attempts
-  and scores 96 (116) at 16 bits and 96 (114) at int8, so a difference of a few tasks between two rows means little.
+- One training seed of two scored. A second seed of the same recipe, not published, differs on 15 of 126 first attempts
+  and scores 99 (109) at 16 bits, so a difference of a few tasks between two rows means little.
 
 | suite | tasks | untrained base, no guide | **this model, bf16** | **this model, int8** | untrained base + 14K-token guide |
 |---|---:|---:|---:|---:|---:|
 | core | 35 | 0 (3) | **33 (34)** | **33 (34)** | 29 (35) |
-| hard: TOON data processing | 14 | 0 (0) | **13 (13)** | **12 (14)** | 3 (11) |
-| hard: other | 5 | 0 (0) | **3 (4)** | **2 (4)** | 2 (4) |
-| algorithms | 19 | 0 (1) | **18 (18)** | **18 (18)** | 14 (17) |
-| **main total** | **73** | **0 (4)** | **67 (69), 92%** | **65 (70), 89%** | **48 (67)** |
-| held-out: surface | 15 | 0 (0) | **10 (13)** | **10 (13)** | 10 (13) |
-| held-out: algorithmic | 14 | 0 (0) | **8 (10)** | **9 (11)** | 6 (11) |
-| held-out: specification | 12 | 0 (0) | **6 (6)** | **5 (6)** | 6 (8) |
-| held-out: TOON / memory streams | 12 | 0 (0) | **6 (7)** | **4 (6)** | 4 (9) |
-| **held-out total** | **53** | **0 (0)** | **30 (36), 57%** | **28 (36), 53%** | **26 (41)** |
+| hard: TOON data processing | 14 | 0 (0) | **13 (14)** | **12 (14)** | 3 (11) |
+| hard: other | 5 | 0 (0) | **0 (3)** | **0 (2)** | 2 (4) |
+| algorithms | 19 | 0 (1) | **19 (19)** | **18 (18)** | 14 (17) |
+| **main total** | **73** | **0 (4)** | **65 (70), 89%** | **63 (68), 86%** | **48 (67)** |
+| held-out: surface | 15 | 0 (0) | **10 (12)** | **10 (11)** | 10 (13) |
+| held-out: algorithmic | 14 | 0 (0) | **11 (11)** | **10 (11)** | 6 (11) |
+| held-out: specification | 12 | 0 (0) | **8 (9)** | **8 (8)** | 6 (8) |
+| held-out: TOON / memory streams | 12 | 0 (0) | **4 (5)** | **4 (4)** | 4 (9) |
+| **held-out total** | **53** | **0 (0)** | **33 (37), 62%** | **32 (34), 60%** | **26 (41)** |
 
-- **What the training buys is first attempts on the main suites without a 14K-token prompt.** At int8, it passes 20 of the 23
-  main tasks where it and the guided base differ on first attempts. On the held-out suites, and after repair, the two are level.
+- **What the training buys is first attempts without a 14K-token prompt.** At int8, it passes 21 of the 27 main tasks where it
+  and the guided base differ on first attempts, and 15 of 24 on held-out. After repair the two are level on main, and the guided
+  base is ahead on held-out, 12 tasks to 5.
 - **Held-out suites:** these were never used to write training data or to mine failures. They measure how far the
   gains carry beyond the tasks the data was developed against.
-- **Eight bits cost little:** only 8 of 126 first attempts differ from bf16 (2 gained, 6 lost). The two forms also differ in serving
+- **Eight bits cost little:** only 5 of 126 first attempts differ from bf16 (1 gained, 4 lost). The two forms also differ in serving
   stack, so this cannot split the two effects.
-- **Four bits cost much more, so do not go below 8 bits:** Ollama's nvfp4 (8.0 GB) scores 58 (65) on main and 21 (26) on held-out, and
+- **Four bits cost much more, so do not go below 8 bits.** Measured on the first release: Ollama's nvfp4 (8.0 GB) scores 58 (65) on main and 21 (26) on held-out, and
   its mxfp4 (7.7 GB) 55 (59) and 22 (28), even though both keep 41 of the 329 quantized tensors at 8 bits, about a third of the file. Against
   int8 they take 5 tasks to 19 and 6 tasks to 22 on first attempts. NVFP4 with 4-bit activations on vLLM (8.25 GB) scored 53 (60) and
   16 (23), at about 3 times the 16-bit speed on one GPU host.
-- **Failures:** on first attempts at bf16, 14 are compiler diagnostics, 7 wrong return codes and 8 wrong output. Wrong output
+- **Failures:** on first attempts at bf16, 17 are compiler diagnostics, 1 a wrong return code and 10 wrong output. Wrong output
   gives a repair round no diagnostic to work from, so use the compiler and your own tests.
 - The base's columns: no guide at int8, with the guide at Ollama's `q8_0`.
 
@@ -78,25 +90,25 @@ First attempt (after repair), no guide. Sizes are on disk.
 
 | | size | main (73) | held-out (53) | generating, same Mac |
 |---|---:|---|---|---:|
-| **this model, int8** | **12 GB** | **65 (70)** | **28 (36)** | **20 tok/s** |
-| Qwen3.6-35B-A3B-Aether, mxfp4 | 20.9 GB | 64 (68) | 33 (40) | 85 tok/s |
+| **this model, int8** | **12 GB** | **63 (68)** | **32 (34)** | **39 tok/s** |
+| Qwen3.6-35B-A3B-Aether, mxfp4 | 20.9 GB | 64 (68) | 33 (40) | 220 tok/s |
 | Qwen3.6-35B-A3B-Aether, int8 | 39.1 GB | 65 (70) | 36 (44) | not measured |
 | Qwen3.6-35B-A3B-Aether, bf16 | 67 GB | 65 (70) | 39 (47) | not measured |
 
-- A sign test cannot separate this model from the mxfp4 sibling: over all 126 tasks, 12 first attempts to 16 and 10 repaired
-  tasks to 12. The bf16 sibling is clearly ahead on held-out after repair, 14 tasks to 3.
+- A sign test cannot separate this model from the mxfp4 sibling: over all 126 tasks, 15 first attempts to 17 and 12 repaired
+  tasks to 18. The bf16 sibling is clearly ahead on held-out after repair, 17 tasks to 4.
 - The speed gap comes from the architecture: this dense model reads all its weights for each token, and the sibling about a
   quarter of them. The likely cause; not isolated.
-- **Speed:** the two readings were taken back to back on a busy Mac, so use the ratio, not the numbers. An earlier, separate pair
-  read 38.8 and 217 tok/s, 5.6 times.
-- **Memory:** Ollama reported 15 GB loaded and 21 GB by the end of a full scoring pass, at a 32K context, on a larger Mac. The mxfp4
+- **Speed:** the two readings were taken back to back with nothing else loaded, 39.4 and 219.7 tok/s, 5.6 times. The first release
+  read 38.8 against 217.
+- **Memory:** Ollama reported 15 GB loaded, and for the first release 21 GB by the end of a full scoring pass, at a 32K context, on a larger Mac. The mxfp4
   sibling reached 29 GB. Neither has been run on a 32 GB machine.
 
 ### Choosing the checkpoint
 
-The last step of three epochs is released. It beat the end of epoch 2 on all four numbers (main 67 against 64, held-out 30
-against 27, after repair 69 against 68 and 36 against 31), so the main suites alone give the same answer. The gap is not
-significant (16 tasks to 10), and eval loss rose over the third pass while the scores went up.
+The last step of three epochs is released, as in the first release, where it beat the end of epoch 2 on all four numbers (main 67
+against 64, held-out 30 against 27, after repair 69 against 68 and 36 against 31). That gap was not significant (16 tasks to 10).
+For this version the end of epoch 2 was not scored.
 
 ### Python, same model, same tasks
 
@@ -104,18 +116,19 @@ Both columns were measured at int8 on the same machine, with the same harness an
 
 | suite | tasks | untrained base | **this model** |
 |---|---:|---:|---:|
-| core | 35 | 28 (35) | 13 (20) |
-| hard: TOON data processing | 14 | 10 (13) | 1 (1) |
-| hard: other | 5 | 5 (5) | 2 (4) |
-| algorithms | 19 | 19 (19) | 18 (19) |
-| held-out: surface | 15 | 14 (15) | 5 (11) |
-| held-out: algorithmic | 14 | 13 (14) | 12 (14) |
-| held-out: specification | 12 | 10 (12) | 4 (5) |
-| held-out: TOON / memory streams | 12 | 10 (12) | 3 (5) |
-| **total** | **126** | **109 (125)** | **58 (79)** |
+| core | 35 | 28 (35) | 17 (26) |
+| hard: TOON data processing | 14 | 10 (13) | 5 (6) |
+| hard: other | 5 | 5 (5) | 5 (5) |
+| algorithms | 19 | 19 (19) | 18 (18) |
+| held-out: surface | 15 | 14 (15) | 6 (12) |
+| held-out: algorithmic | 14 | 13 (14) | 11 (13) |
+| held-out: specification | 12 | 10 (12) | 5 (7) |
+| held-out: TOON / memory streams | 12 | 10 (12) | 1 (7) |
+| **total** | **126** | **109 (125)** | **68 (94)** |
 
 Many failed first attempts carry Aether into Python: `for i in 0..5:`, or `has_toon()` and `toon_parse()`, which Python does not
-have. This is the forgetting that comes with specialising a model on one language, and Aether looks a lot like Python.
+have. This is the forgetting that comes with specialising a model on one language, and Aether looks a lot like Python. The first
+release scored 58 (79).
 
 ## How to use
 
@@ -185,8 +198,8 @@ that form. Keep the Aether compiler in the loop.
   - lr 1e-4, linear decay over 3 epochs; batch 1 × 8 gradient accumulation; seed 3407.
   - Loss on responses only (prompt tokens masked). No system message on any record.
   - **No early stopping**: the last step of epoch 3 is released (see "Choosing the checkpoint").
-  - Unsloth + TRL + PEFT on one GPU host, about 3 hours.
-- **Data**: 2,278 instruction records and 87 repair records on Aether 1.0, 60 of them held for evaluation. Every Aether program
+  - Unsloth + TRL + PEFT on one GPU host, about 3.5 hours.
+- **Data**: 2,576 instruction records and 87 repair records on Aether 1.0, 60 of them held for evaluation. Every Aether program
   compiles and prints its stated output with the compiler, checked on every build. The records are:
   - a curated corpus of Aether programs and natural-language task/solution pairs;
   - repair drills: a broken program, the compiler's diagnostic, the fix;
@@ -200,6 +213,8 @@ that form. Keep the Aether compiler in the loop.
     - Aether solutions written with the guide, by an untrained base model or, for the tasks it could not solve, by
       MiMo;
     - kept only where the Aether program prints exactly what the Python program prints.
+  - **failure-targeted pairs**, new in this version: 298 distilled pairs whose tasks the first release got wrong, made and checked
+    the same way. They were drawn from fresh tasks, never from the benchmark's.
   - Python pairs (MiMo's programs for the same tasks) to limit the drift away from Python.
 - **Decontamination**:
   - Every training example is checked against every benchmark task: an identical expected output is dropped, and
@@ -207,7 +222,7 @@ that form. Keep the Aether compiler in the loop.
   - The held-out suites are excluded from data authoring and from failure mining.
 
 The language, its compiler, the guides, the benchmark tasks, the training data and every scoring report are at
-[emkey1/aether](https://github.com/emkey1/aether) (`bench/`, `training/`; this model is run `gemma4-12b-v2`).
+[emkey1/aether](https://github.com/emkey1/aether) (`bench/`, `training/`; this model is run `gemma4-12b-v3`).
 
 ## Limitations
 

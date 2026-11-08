@@ -152,3 +152,7 @@ The final step is public under apache-2.0, with `google/gemma-4-12B-it` as its b
 - **Card commit, 2026-11-06 (the owner's word):** the comparison with the 4-bit MoE sibling now says it scores about the same only on the 126 benchmark tasks,
   and fails fewer first attempts on 1,776 fresh tasks, 230 against 322 at 8 bits (`../../distill/fe3-20261104/`). The revisions are `733fa66b5713` and
   `0d59ea9295fd`, read back with no token, and the weights did not change.
+
+## Replaced (2026-11-08)
+
+The three repositories now hold `gemma4-12b-v3` (`../gemma4-12b-v3-q8/RESULTS.md`). This run's weights stay at revisions `ed0c2c31544c` (int8), `733fa66b5713` (merged) and `0d59ea9295fd` (LoRA).
