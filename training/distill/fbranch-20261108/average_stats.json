@@ -1,0 +1,14 @@
+{
+ "parents_sha256": {
+  "a": "a70cdf1ef5a52fda3a7842d4a640764702e3495dea90fa57af76f1ae52a20030",
+  "b": "a13c025158da395d373082c3e8aa6d671ca32847621413f5b085004bb1ec641f"
+ },
+ "average_sha256": "b582691aafd34874513b7fd18b4d1445f7c91e2bc5b6397981f523b2eece886b",
+ "tensors": 677,
+ "tensors_differing": 328,
+ "values": 11959730224,
+ "values_differing": 5410037129,
+ "cosine_of_changes_to_base": 0.0023,
+ "change_norm_a": 5.08,
+ "change_norm_b": 5.11
+}

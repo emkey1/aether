@@ -23,3 +23,21 @@ The average against the better branch (fewer failures): tasks only one of the tw
 
 - **One branch length and learning rate,** fixed now.
 - **First attempts only,** at int8, on one pair of branches.
+
+## Result (2026-11-09)
+
+Both branches trained in about 80 minutes each on the training host; the three passes ran side by side on the scoring Mac with no infrastructure failures, and every smoke passed.
+
+| 1,026 fresh tasks, first attempt | failed | coded / return code / wrong output |
+|---|---:|---|
+| v3 (the trunk, published) | 134 | 43 / 5 / 86 |
+| branch, seed 3407 | 132 | 44 / 6 / 82 |
+| branch, seed 42 | 140 | 48 / 4 / 88 |
+| **average of the branches** | **148** | **45 / 5 / 98** |
+
+**The reading: no better than a branch.** Against the better branch, seed 3407, the average fails alone 45 tasks and the branch 29, p=0.08, so the direction is against averaging.
+
+- **An extra epoch did nothing measurable:** 45 to 47 against v3 for seed 3407 (p=0.92), 64 to 58 for seed 42 (p=0.65).
+- **This was not the late branch it meant to be.** Each branch trained a fresh LoRA, and a fresh LoRA starts from random matrices set by its seed, so the two learned in unrelated directions from their first step: the cosine between their changes to the trunk is 0.002 (`average_stats.json`), against 0.23 between the two full seeds. A true late branch resumes one adapter from a shared checkpoint and changes only the data order. That was not tested.
+
+Nothing follows for publishing.
