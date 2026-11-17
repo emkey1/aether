@@ -14,6 +14,12 @@
 #include "core/types.h"
 #include "core/utils.h"
 #include "aether/ast_internal.h"
+/* These passes run after parseAether has released its tokens, and every token built here is
+ * handed to an AST node (node->token = ...), which frees it with the tree. Tracked in the
+ * arena as well, it was freed a second time at the next state reset: a double free on the
+ * second compile on one thread. So tokens here are plain ones the node owns. */
+#undef newToken
+#undef freeToken
 #include "aether/parser.h"
 #include "aether/semantic.h"
 #include "aether/types.h"
