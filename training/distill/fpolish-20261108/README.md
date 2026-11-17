@@ -38,3 +38,5 @@ Training took about 80 minutes on the training host; the pass on the scoring Mac
 - **It did not reach a plain run on the same data.** Starting from the merge instead of the base cost about 45 tasks against v3.
 
 Nothing follows for publishing.
+
+**Review note (2026-11-17).** "Starting from the merge instead of the base cost about 45 tasks" does not follow. The polish had one epoch at 5e-5 and v3 had three at 1e-4, so the starting point and the amount of training differ together. The "26% to 17%" comparison also crosses two task sets. The verdict, worse than v3, stands.

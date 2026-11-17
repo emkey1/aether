@@ -1,5 +1,7 @@
 # gemma4-12b-v3: results (2026-11-05)
 
+**Superseded in part (noted 2026-11-17).** This page's verdict stands for its own test, the 126 benchmark tasks. Its statements that `gemma4-12b-v2` stays, that the plan stops and that nothing is published are out of date: a re-test on 1,026 fresh tasks found a gain (`../../distill/fv3-20261105/`), and `gemma4-12b-v3` was published on 2026-11-08 (`../gemma4-12b-v3-q8/RESULTS.md`). The control arm has still not run. The interval here resamples tasks only, so "a gain above about 9 tasks is excluded" ignores seed-to-seed variance and is too strong.
+
 **No gain by the reading fixed before training.** The 298 pairs drawn from Gemma's own failures give 33.5 held-out first attempts of 53, averaged over
 two seeds, against 30.5. That is +5.7 points with a 95% interval of [-5.7, +17.0], and a gain needs the interval above zero. After repair the direction
 reverses, 38.5 against 40.5. The control arm does not run, and `gemma4-12b-v2` stays the adapter to carry forward.

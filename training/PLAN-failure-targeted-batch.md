@@ -1,5 +1,7 @@
 # Plan: a batch aimed at a fine-tune's own failures (drafted 2026-11-02)
 
+**Status, 2026-11-17.** The fixed reading on the benchmark found no gain, as below. A later re-test on 1,026 fresh tasks found one (`distill/fv3-20261105/`), and the owner published `gemma4-12b-v3` on 2026-11-08. The control arm this plan called for after a gain has not been run, so whether targeting is what helps is still open. Lines below that say the plan stops or that the control does not run describe 2026-11-05.
+
 The owner approved the pilot and the solver order on 2026-11-03, then scaling to about 286 pairs (`distill/f3-20261103/`, with the
 pilot's 41). That batch finished on 2026-11-04 with 298 pairs, and the owner approved the dataset and the runs the same day
 (`training_runs/gemma4-12b-v3/`).

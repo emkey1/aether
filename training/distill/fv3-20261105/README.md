@@ -73,3 +73,13 @@ The owner chose v3 (seed 3407) to replace the published model on these first att
 **Repair result (2026-11-07): no difference after repair.** v3 passes 947 of 1,026 after repair and seed 42's baseline 929. v3 alone passes 51 tasks and seed 42 alone 33, p=0.063, so the direction favours v3 but misses the bar. Repair fixed 55 of v3's 134 failures and 66 of seed 42's 163. On these tasks v3's repair is not the weakness the 126 benchmark tasks suggested (2 to 14 there).
 
 Only 79 and 85 of the re-asked first programs matched the original run's byte for byte, at T=0, on the same Mac and model. Several models shared the Mac for these runs, and the earlier ones too, so generation is not fully reproducible from run to run here. That adds noise to single-pass comparisons, not bias.
+
+## Review notes (2026-11-17)
+
+A review of this batch found the numbers right and three statements too strong.
+
+- **The interval is conditional on these four sets of weights.** It resamples tasks, not seeds. A seed alone moves these totals by about 2.4 points (838 against 863 for the two baselines), and the gain is +5.3 points at seed 3407 and +2.1 at seed 42. With two runs a side, a rough recipe-level figure is +3.7 points give or take about 3. "These two targeted runs beat these two baseline runs" stands. "The pairs give +3.7 [+1.9, +5.5]" as a statement about the recipe is weaker than the Result section reads.
+- **The repair figures include a second first attempt.** The repair run asks each failed task again from the start. 15 of v3's 134 and 21 of seed 42's 163 passed on that fresh first attempt, with no repair. Repair itself fixed 40 of 119 and 45 of 142. The totals 947 and 929 therefore give failed tasks two first attempts and are not the benchmark's protocol. The sign test's direction is unaffected, since the extra draws favour seed 42.
+- **The gain sits where the pairs sit.** No near-copies were found: the highest word 5-gram overlap between a task here and a pair's task is 0.11. But the five categories with the most pairs hold 249 of these tasks and give 22 of the 38 tasks gained. This is a gain on tasks of the pairs' own kind.
+
+`gemma4-12b-v3` (seed 3407) was then chosen for publishing on these same tasks, over `gemma4-12b-v2-s42`. Its 134 is the lowest of the four runs here, and it is not separable from its own second seed (65 to 58, p=0.59).

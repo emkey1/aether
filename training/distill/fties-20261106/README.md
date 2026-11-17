@@ -45,3 +45,5 @@ The pass ran beside the fresh-task repair test, with no infrastructure failures 
 - **On the 250 tasks the parents disagree on it passes 136,** still about what picking a parent at random would give.
 
 With the plain average this closes the question for these fine-tunes: two seeds of the recipe learn their Aether in changes that do not combine by weight, whether halved or trimmed and kept at full size. Other merge settings were not tried, and nothing follows from this batch.
+
+**Review note (2026-11-17).** The trim keeps every value tied at the threshold, and BF16 changes tie often, so each parent kept somewhat more than 20%, by estimate 24 to 27%. `to_bf16` here and in `../favg-20261105/average_weights.py` rounds halves away from zero. Neither affects a result of this size. The grader timeouts of this pass (1) and of the average's (4) were not replayed.

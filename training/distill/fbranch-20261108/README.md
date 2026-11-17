@@ -41,3 +41,5 @@ Both branches trained in about 80 minutes each on the training host; the three p
 - **This was not the late branch it meant to be.** Each branch trained a fresh LoRA, and a fresh LoRA starts from random matrices set by its seed, so the two learned in unrelated directions from their first step: the cosine between their changes to the trunk is 0.002 (`average_stats.json`), against 0.23 between the two full seeds. A true late branch resumes one adapter from a shared checkpoint and changes only the data order. That was not tested.
 
 Nothing follows for publishing.
+
+**Review note (2026-11-17).** The explanation above for the cosine of 0.002 is not established. The two full seeds were also fresh LoRAs from different random starts, and their changes had a cosine of 0.23. The branches' changes are small (norm about 5, against 26), and they are measured between exports already rounded to BF16, where a change that small is mostly zero or one step. Rounding may account for much of the low figure. What stands: this was not a test of resuming one adapter with two data orders.

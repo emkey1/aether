@@ -37,10 +37,15 @@ for the first release at 8 bits, which has the same architecture.
 
 These weights replace the first release, which stays available at revision `733fa66b5713` of this repository. The recipe is the same,
 with 298 more training pairs drawn from fresh tasks the first release got wrong.
-- **On 1,026 new fresh tasks** at int8, it fails 134 first attempts against the first release's 188, and passes 947 after two repair
-  rounds. Neither version saw these tasks in training.
-- **On the 126 benchmark tasks** the two are level: 95 against 93 on first attempts, 102 against 106 after repair, and neither
-  difference is significant.
+- **On 1,026 new fresh tasks** at int8, two runs of this recipe fail 134 and 141 first attempts, against 188 and 163 for two runs
+  of the first release's recipe: about 3.7 points fewer on average. These weights are the 134 and the first release is the 188, and
+  these weights were chosen on these tasks, so that pair overstates the gap. With two runs a side, the size of the gain is uncertain.
+- **Those tasks are close to the new training pairs:** no version saw them in training, but they come from the same task writer and
+  categories as the pairs. Asked again with two repair rounds, 55 of this model's 134 failures pass: 15 on the fresh first attempt
+  and 40 through repair.
+- **On the 126 benchmark tasks** it is level with the first release: 95 against 93 on first attempts, 102 against 106 after repair,
+  and neither difference is significant. An unpublished second run of the first recipe scores 96 (114) at int8 and is ahead of
+  this model after repair, 14 tasks to 2.
 - **Not yet known:** whether aiming the pairs at failures is what helps, or whether any pairs of this kind would.
 
 **This is an Aether specialist.** The fine-tuned model writes much worse Python, and probably worse code in other

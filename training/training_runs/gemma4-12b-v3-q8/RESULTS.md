@@ -26,3 +26,9 @@ On the owner's word, these weights replace the first release in all three reposi
 | `emkey1/Gemma-4-12B-Aether-LoRA` | `fbcc59a33777` | `2dee012e278fda88` | `0d59ea9295fd` |
 
 A pull request with seed 42's v2 weights was opened first on each repository and closed unmerged when the owner chose v3 after the fresh-task re-test.
+
+## Review notes (2026-11-17)
+
+- **The choice was made on the fresh tasks,** where this run's 134 failures are the fewest of four runs. Against the unpublished `gemma4-12b-v2-s42` the gap is 29 tasks, not the 54 against the first release.
+- **"Did not repeat" above is too strong.** On the benchmark this run is behind seed 42 after repair, 2 to 14 (p=0.004), and on held-out 1 to 9. The fresh-task repair test that points the other way reached p=0.063 and re-asks failed tasks from the start (`../../distill/fv3-20261105/README.md`). Of the three int8 Gemma forms, this one has the lowest held-out score after repair: 34, against 36 and 42.
+- The cards were corrected on 2026-11-17 to say both things.
