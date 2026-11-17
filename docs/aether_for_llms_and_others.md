@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-10-30-1*
+*Guide version: 2026-11-17-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -893,6 +893,10 @@ line its own `println`.
 | right-aligned | `value:10:2` | `     95.50` |
 | default | `value` | `3.14159` |
 
+To pad Text, build it: `repeat(" ", w - length(s)) + s` right-aligns `s` in `w`
+columns. There is no `pad_left` or `pad_right`, and a width on a Text value
+(`s:3`) truncates it, so use the width form for numbers only.
+
 Division: `/` on two `Int`s gives a `Real` (`println(7 / 2)` prints
 `3.5`). An `Int` binding, field, array element, parameter or `-> Int`
 `ret` truncates only the final value, so `a / 2 * 2` gives back `a`, and a
@@ -909,6 +913,9 @@ let successRate: Real = successful * 100.0 / total;
 
 Numeric builtins use Pascal naming — note **`arctan`** (not `atan`) and **`ln`**
 (not `log`). Trig is in radians. Unless noted, arguments and results are `Real`.
+`pow` and `sqr` of `Int` arguments are typed `Real` but print without a decimal
+point when printed directly: `println(pow(2, 10))` prints `1024`, while
+`let x = pow(2, 3); println(x);` prints `8.0`.
 
 | Group | Builtins |
 |---|---|
@@ -1330,7 +1337,7 @@ take the array.
 **Sorting records.** `sorted_by` takes the field's name as a **string literal**;
 the compiler checks it names an `Int`, `Real` or `Text` field of the element
 type (`FIELD-002` otherwise), so a typo cannot reach run time. There is no
-comparator (functions are not values, FUNC-001); for a two-key order, sort by
+comparator and `sorted` takes one argument (functions are not values, FUNC-001); for a two-key order, sort by
 the minor key first and then by the major one — the sorts are stable:
 
 ```aether
@@ -1528,7 +1535,8 @@ let name: Text = toon_get_text(root, "name");
 
 Copy JSON keys exactly; never normalize (`"name"` under `"app"` is
 `toon_get_text_or(app, "name", "")`, not `toon_get_text_or(root, "appName",
-"")`). One-character keys like `"v"` are valid.
+"")`). One-character keys like `"v"` are valid. A key that itself contains a
+dot (`"app.version"`) cannot be read: a dot always separates path segments.
 
 A key may be a **dotted path** through nested objects: `toon_key`,
 `toon_has_key` and every `toon_get_*` getter accept `"server.port"` and walk
@@ -1930,8 +1938,10 @@ Prefer this for anything deeper than one level. Reach for `toon_has_key` when yo
 need to *distinguish* an absent key from a present one holding a falsy value —
 the null-absorbing chain deliberately conflates the two.
 
-One exception to the absorption rule: `toon_has_at(node, i)` raises on a null
-node rather than returning false. Take the length instead — `toon_len` is 0 on a
+Two exceptions to the absorption rule: `toon_at(node, i)` and `toon_has_at(node, i)`
+raise on a null node, and on any node that is not an array, rather than
+degrading. That includes the node `toon_key_or(node, key, toon_null())` gives
+for a missing key. Take the length instead — `toon_len` is 0 on a
 null node, so `i < toon_len(node)` is the safe index test.
 
 ### Large report recipe

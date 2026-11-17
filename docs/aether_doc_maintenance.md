@@ -7,7 +7,7 @@ reference documents.
 
 | Guide | Budget | Audience |
 |---|---|---|
-| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 10,381 o200k / 11,045 Qwen3.5 (2026-10-27-1) | ~16K context models |
+| `aether_for_llms_with_small_contexts.md` | ceiling **8,000 tokens** (D11), not yet met: measures 10,446 o200k / 11,113 Qwen3.5 (2026-11-17-1) | ~16K context models |
 | `aether_for_llms_medium_contexts.md` | hard ceiling **15K tokens** | ~32K context models |
 | `aether_for_llms_and_others.md` | no ceiling | frontier models (256K–1M) |
 

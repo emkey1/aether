@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-10-28-1*
+*Guide version: 2026-11-17-1*
 
 ## Highest-Value Rules
 
@@ -281,7 +281,7 @@ fx {
 ```
 
 `println(realValue)` prints the shortest exact form (`2.5`, `100.0`); use
-`value:0:2` style when fixed decimals matter. Integer quotient: `a div b` (`7 div 2` is `3`), never `/`.
+`value:0:2` style when fixed decimals matter. Integer quotient: `a div b` (`7 div 2` is `3`), never `/`. A zero divisor (`div`, `/`, `%`) stops the program: test `b != 0` first.
 For decimals use a `Real` operand:
 
 ```aether
@@ -335,7 +335,8 @@ is `12`. To check, use `let (n, ok) = try_parse_int(t);` (or `try_parse_real`):
 
 A map is `Map[Text, T]`: `let m: Map[Text, Int] = {};`, `m[k] = v`, `m[k]`
 (the key must be there), `has(m, k)`, `get(m, k, 0)`, `remove(m, k)`,
-`loop k in m` (insertion order). A set is `Map[Text, Bool]`.
+`loop k in m` (insertion order). A set is `Map[Text, Bool]`; an Int key is
+`m[int_to_text(k)]`.
 
 **`Text` indexes exactly like an array: 0-based, half-open slices.** `s[0]` is
 the first character, `s[length(s) - 1]` the last, and `s[a..b]` is the
@@ -385,7 +386,8 @@ and indexing twice is `ARR-002`.
 Array helpers (pure, new values): `sum(xs)`, `min_of(xs)`,
 `max_of(xs)`, `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
 `index_of(xs, v)`, `count(xs, v)`, and for records
-`sorted_by(rs, "field")` / `sorted_by_desc` (a literal field name). `[0; n]` is
+`sorted_by(rs, "field")` / `sorted_by_desc` (a literal field name; no
+comparator; two keys: sort by the minor key, then the major). `[0; n]` is
 n zeros; shrink with a slice (`xs = xs[..n];`); `==` compares arrays element by
 element and records and tuples field by field (`same(a, b)` is identity).
 `a..b` is half-open in a slice as in `loop i in a..b`, and means nothing
@@ -514,7 +516,8 @@ toon_close(doc);
 
 Key fidelity (KEY-001): copy JSON keys exactly; never flatten nested objects
 into guessed keys (`"appName"`). A dotted key walks nested
-*objects* (never an array index) in `toon_key`, `toon_has_key` and every getter:
+*objects* (never an array index) in `toon_key`, `toon_has_key` and every getter,
+so a key that itself contains a dot cannot be read:
 
 ```aether
 let port: Int = toon_get_int_or(root, "server.port", 0);
@@ -533,7 +536,7 @@ let gbAgain: Int = toon_get_int_or(toon_key_or(spec, "mem", toon_null()), "gb", 
 
 An `if toon_has_key(row, "meta") { ... }` guard is also correct, one nesting
 level per segment; use it when the output must say which level was missing.
-(`toon_has_at` raises on a null node; test `i < toon_len(n)`.)
+(`toon_at` and `toon_has_at` raise on a null or non-array node; test `i < toon_len(n)`.)
 
 Never generate foreign JSON/object APIs such as `JsonDoc`, `JsonNode`,
 `json.parseFile(...)`, `root.get(...)`, `Int.MIN`, or `value.toString()`.
@@ -584,8 +587,7 @@ fn normalize(score: Int) -> Int {
 ```
 
 Bad: bare `@pre` / `@post` with no expression; annotations inside the body.
-`@post` may reference `result`. `@cost 5ms` units: `ns us ms s op ops step
-steps`; syntax-checked but non-binding (no runtime enforcement).
+`@post` may reference `result`. `@cost 5ms` is syntax-checked but non-binding.
 
 On a collection return (`-> T[]`) a contract must compare a **property** of the
 collection, not the collection itself: use `@post length(result) > 0`, never

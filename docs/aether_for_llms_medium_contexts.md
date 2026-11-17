@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-10-28-1*
+*Guide version: 2026-11-17-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -128,7 +128,7 @@ real logic, never hard-coded expected output.
 | Text equality | `a == b` | `string_eq(a, b)` | inventing `.equals(...)` |
 | Text length | `string_len(t)` | `t.len` | inventing `strlen(...)` |
 | Text → Int | `parse_int(t)` | — | inventing `Int(t)` / `t.toInt()` |
-| Text → Real | `parse_float(t)` | — | inventing `Real(t)` |
+| Text → Real | `parse_float(t)` | — | `Real(t)`, `parse_real` |
 | Text → Bool | `parse_bool(t)` | — | comparing to `"true"` by hand |
 | Int → Text | `int_to_text(n)` | — | `n.toString()`, `itoa(n)` |
 | Real → Text | `format_float(r, prec)` — 1 or 2 args | `real_to_text(r)` (as printed) | `format_float(r, 0, prec)`; `r:0:prec` as a value |
@@ -192,7 +192,7 @@ Arguments and results are `Real` unless noted.
 
 - rounding (all → `Int`): `round`, `trunc`, `floor`, `ceil`; sign: `abs`
 - powers: `sqrt`, `sqr`, `pow(base, exp)` (`power` is an alias), `exp`, `ln`,
-  `log10`
+  `log10`; typed `Real`, but `println(pow(2, 10))` prints `1024`
 - trig: `sin`, `cos`, `tan`, `arcsin`, `arccos`, `arctan`, `atan2(y, x)`, `cotan`
 - hyperbolic: `sinh`, `cosh`, `tanh`
 - selection: `min(a, b)`, `max(a, b)`, `clamp(x, lo, hi)` — all preserve operand
@@ -212,7 +212,8 @@ numbers. With no `randomize()` call a run is reproducible.
 **Clock.** `clock_ms() -> Int` (milliseconds since 1970, for timing) and
 `now_text() -> Text` (`"YYYY-MM-DD HH:MM:SS"`, local time); both effectful.
 
-Integer quotient: `a div b` (`7 div 2` is `3`), never `/`. Decimals: a `Real`
+Integer quotient: `a div b` (`7 div 2` is `3`), never `/`. A zero divisor
+(`div`, `/`, `%`) stops the program: test `b != 0` first. Decimals: a `Real`
 operand, `let pct: Real = ok * 100.0 / total;`
 
 ## Safe generation algorithm
@@ -493,7 +494,7 @@ The Text helpers, all pure (positions are 0-based, `-1` when absent):
   `index_of(s, x)`, `count(s, x)`
 - build: `upper(s)`, `lower(s)`, `trim(s)`, `replace(s, old, new)` (every
   occurrence), `repeat(s, n)`, `reversed(s)`, `join(parts, sep)`,
-  `split(t, sep)`
+  `split(t, sep)`; no `pad_left`: `repeat(" ", w - length(s)) + s`
 - test: `is_digit(t)`, `is_alpha`, `is_alnum`, `is_space`, `is_upper`,
   `is_lower` (`t` non-empty and every character in the ASCII class)
 
@@ -581,10 +582,10 @@ leaves `xs` unchanged:
 |---|---|
 | `sum(xs)` | `Int` or `Real`; `0` when empty |
 | `min_of(xs)` / `max_of(xs)` | an element; a run-time error when empty |
-| `sorted(xs)` / `sorted_desc(xs)` | a new array, stable |
+| `sorted(xs)` / `sorted_desc(xs)` | a new array, stable; one argument, no comparator |
 | `reversed(xs)` | a new array |
 | `contains(xs, v)` / `index_of(xs, v)` / `count(xs, v)` | `Bool` / first index or `-1` / `Int` |
-| `sorted_by(rs, "field")` / `sorted_by_desc(rs, "field")` | records by an `Int`, `Real` or `Text` field, named by a string literal (FIELD-002 otherwise) |
+| `sorted_by(rs, "field")` / `sorted_by_desc(rs, "field")` | records by an `Int`, `Real` or `Text` field, named by a string literal (FIELD-002 otherwise); two keys: sort by the minor key, then the major |
 
 ```aether
 type Player { name: Text; score: Int; }
@@ -636,7 +637,8 @@ fn word_counts(words: Text[]) -> Map[Text, Int] {
   `k in m`, or read `get(m, k, default)`
 - `remove(m, k)`, `length(m)`; `keys(m)`, `values(m)`, `loop k in m` and
   `println(m)` follow insertion order; `==` compares contents
-- no methods (`m.get(k)`, `m.items()`), no `dict`; a set is `Map[Text, Bool]`
+- no methods (`m.get(k)`, `m.items()`), no `dict`; a set is `Map[Text, Bool]`;
+  an Int key is `m[int_to_text(k)]`
 
 ## Structured data: TOON
 
@@ -693,7 +695,8 @@ loop i in 0..toon_len(jobs) {
 
 **Key fidelity (KEY-001).** Copy JSON keys exactly; never flatten a nested object
 into a guessed key (`"appName"`). A dotted key walks nested *objects* (never an
-array index) in `toon_key`, `toon_has_key` and every getter:
+array index) in `toon_key`, `toon_has_key` and every getter, so a key that
+itself contains a dot cannot be read:
 
 ```aether
 let port: Int = toon_get_int_or(root, "server.port", 0);
@@ -710,7 +713,7 @@ let spec: ToonNode = toon_key_or(row, "spec", toon_null());
 ```
 
 Keep an `if toon_has_key(...)` guard only when the output must say *which*
-level was missing. (`toon_has_at` raises on a null node; test `i < toon_len(n)`.)
+level was missing. (`toon_at` and `toon_has_at` raise on a null or non-array node; test `i < toon_len(n)`.)
 
 ## Concurrency: `par`
 
@@ -759,8 +762,7 @@ fn normalize(score: Int) -> Int {
 ```
 
 - `@post` may reference `result`.
-- `@cost 5ms` accepts units `ns us ms s op ops step steps`. It is syntax-checked
-  but non-binding.
+- `@cost 5ms` is syntax-checked but non-binding.
 - On a collection return, a contract must compare a **property**, not the
   collection: `@post length(result) > 0`, never `@post result > 0`. Same for a
   `@pre` over an array parameter: `@pre length(xs) > 0`; every element:
@@ -1106,7 +1108,7 @@ fn fetch(url: Text) -> Void {
 
 ### Sockets
 
-A BSD-style API. The names are `socket_*` and `dns_lookup` — there is no
+The names are `socket_*` and `dns_lookup` — there is no
 `tcpsocket*`, `udpsocket*`, or `resolve`. All effectful. `socket_receive` returns
 an `MStream`, never `Text`.
 
@@ -1123,17 +1125,14 @@ an `MStream`, never `Text`.
   `socket_poll(socket, timeoutMs, flags) -> Int` — `flags` `1`=readable,
   `2`=writable, bitwise-or; `0` on timeout
 
-`socket_accept` and `socket_receive` block until a peer arrives: bind and listen
-before a `par` that runs the client, or poll a non-blocking socket.
+Bind and listen before a `par` that runs the client, or poll a non-blocking
+socket.
 
 ### Tasks and AI
 
 All effectful except the `has_*` probes.
 
-- `sleep(ms: Int) -> Void` — a blocking millisecond pause. Prefer this over a
-  busy-wait loop.
+- `sleep(ms: Int) -> Void` — a blocking millisecond pause, never a busy-wait loop.
 - `ai_chat(model, messages, system = "", apiKey = "", endpoint = "") -> Text`
 - probes: `has_ai() -> Bool`, `has_toon() -> Bool`,
-  `has_builtin(category: Text, function: Text) -> Bool` — true for extended
-  *and* core builtins; a core builtin matches on the function name whatever
-  category you pass
+  `has_builtin(category: Text, function: Text) -> Bool`
