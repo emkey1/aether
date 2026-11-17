@@ -31,4 +31,4 @@ A pull request with seed 42's v2 weights was opened first on each repository and
 
 - **The choice was made on the fresh tasks,** where this run's 134 failures are the fewest of four runs. Against the unpublished `gemma4-12b-v2-s42` the gap is 29 tasks, not the 54 against the first release.
 - **"Did not repeat" above is too strong.** On the benchmark this run is behind seed 42 after repair, 2 to 14 (p=0.004), and on held-out 1 to 9. The fresh-task repair test that points the other way reached p=0.063 and re-asks failed tasks from the start (`../../distill/fv3-20261105/README.md`). Of the three int8 Gemma forms, this one has the lowest held-out score after repair: 34, against 36 and 42.
-- The cards were corrected on 2026-11-17 to say both things.
+- The cards were corrected on 2026-11-17 to say both things: revisions `d255bc7be7b8` (int8), `ce4eee8506de` (merged) and `ef4e5c6798c2` (LoRA), cards only, weights unchanged.
