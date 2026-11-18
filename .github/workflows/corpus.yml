@@ -44,6 +44,8 @@ jobs:
         run: python3 training/test_corpus_gates_offline.py
       - name: Training driver, family registry and run configs (no host, no GPU)
         run: python3 training/test_train_run_offline.py
+      - name: Hugging Face release tool, comparison and refusals (no network)
+        run: python3 training/test_hf_release_offline.py
       - name: Distillation helpers
         run: python3 training/test_distill_offline.py
       - name: Guide contamination (report mode until guide pass 1 renames land)

@@ -5,6 +5,7 @@
     python3 tools/aether_train_run.py RUN.json dataset    # build + gate the dataset here
     python3 tools/aether_train_run.py RUN.json push       # copy dataset, trainer, harness, scripts to the host
     python3 tools/aether_train_run.py RUN.json train      # launch the training container (detached)
+    python3 tools/aether_train_run.py RUN.json merge      # a merge_from twin: merge another run's kept adapter (detached tmux)
     python3 tools/aether_train_run.py RUN.json score      # serve + smoke + score each variant (detached tmux)
     python3 tools/aether_train_run.py RUN.json status     # where the run is, from the host's own files
     python3 tools/aether_train_run.py RUN.json fetch      # copy the run's records (not weights) back here
@@ -26,6 +27,8 @@ Guards, each from an earlier failed round:
 - a stage that needs the GPU refuses to start while another of this run's
   containers is up, or while the host has less memory available than the run's
   `min_available_gb` (a shared box: ComfyUI, a MiMo trial);
+- a kept checkpoint is merged by `merge.sh`, generated and pushed with the twin's own copy of the trainer, so
+  no hand-copied script on the host can go stale (a stale one cost three hours on 2026-10-23);
 - the trainer fails before step 1 when the chat markers mask every label;
 - the base model and the image are checked on the host before launch;
 - a smoke pass (three easy tasks, no guide) runs before every scored variant and
@@ -133,6 +136,14 @@ def load_run(path: pathlib.Path, families_path: pathlib.Path = FAMILIES_PATH) ->
             raise SystemExit(f"{path}: score variant {variant!r} is not base[:docs] or tuned[:docs]")
     run.setdefault("min_available_gb", 60)
     run.setdefault("remote_root", "$HOME/aether-train")
+    # A scoring-only twin: this run's merged export is another run's kept adapter (train.keep_checkpoint_steps
+    # there), merged by the merge stage. It is never trained on its own.
+    source = run.get("merge_from")
+    if source is not None:
+        if (not isinstance(source, dict) or not re.fullmatch(r"[a-z0-9][a-z0-9.-]*", str(source.get("run", "")))
+                or not isinstance(source.get("step"), int) or isinstance(source.get("step"), bool)
+                or source["step"] <= 0 or source["run"] == run["tag"]):
+            raise SystemExit(f"{path}: merge_from must be {{\"run\": \"<another run's tag>\", \"step\": <kept step>}}")
     run.setdefault("weights_root", "/storage/aether-train")
     run["paths"] = {
         "remote": f"{run['remote_root']}/{run['tag']}",
@@ -142,7 +153,8 @@ def load_run(path: pathlib.Path, families_path: pathlib.Path = FAMILIES_PATH) ->
         "dataset_local": str(DATASETS_DIR / run["dataset"]["id"]),
         "out_local": str(RUNS_OUT_DIR / run["tag"]),
     }
-    run["containers"] = {"train": f"aether-train-{run['tag']}", "serve": f"aether-serve-{run['tag']}"}
+    run["containers"] = {"train": f"aether-train-{run['tag']}", "serve": f"aether-serve-{run['tag']}",
+                         "merge": f"aether-train-merge-{run['tag']}"}
     run["tmux"] = f"aether-score-{run['tag']}"
     return run
 
@@ -252,6 +264,53 @@ for p in ["torch","transformers","trl","peft","unsloth","unsloth_zoo","bitsandby
 print(json.dumps(v))' > "$R/logs/image_libraries.json" 2>/dev/null
 echo "launched $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$R/logs/train_launches.txt"
 {quoted}
+"""
+
+
+def merge_script(run: dict) -> str:
+    """merge.sh for a run with merge_from: the source run's kept adapter into this run's merged export, by the
+    trainer's own export path. The trainer is this run's pushed copy, so a stale script on the host cannot be used.
+    The container is named aether-train-*, so the one-GPU-job gates of the other stages see it."""
+    source, fam, c = run["merge_from"], run["family_config"], run["containers"]["merge"]
+    src_dir = f"{run['remote_root']}/{source['run']}"
+    adapter = f"train/keep/checkpoint-{source['step']}"
+    argv = ["python", "/workspace/scripts/unsloth_qwen_coder_30b_sft.py",
+            "--model-id", run["base_model"],
+            "--instruction-jsonl", "/workspace/data/aether_instruction_sft.jsonl",
+            "--repair-jsonl", "/workspace/data/aether_repair_sft.jsonl",
+            "--output-dir", "/workspace/merge",
+            *PRECISION_FLAGS[run["precision"]],
+            "--adapter-dir", f"/source/{adapter}",
+            "--export-merged-16bit", "--merged-output-dir", run["paths"]["merged"]]
+    if fam.get("loader"):
+        argv += ["--loader", fam["loader"]]
+    docker = ["docker", "run", "--name", c, "--gpus", "all", "--ipc=host", "--shm-size=16g",
+              "--ulimit", "memlock=-1", "--ulimit", "stack=67108864", *docker_mounts(run),
+              "-v", f"{src_dir}:/source:ro", "-e", "HF_HOME=/storage/hf", "-e", "HF_HUB_OFFLINE=1",
+              run["image"], *argv]
+    quoted = " ".join(_q(a) for a in docker)
+    return f"""#!/bin/bash
+# Generated by tools/aether_train_run.py for run {run['tag']}; do not edit by hand.
+# Merges step {source['step']} of run {source['run']} into this run's 16-bit export.
+set -u
+R={run['paths']['remote']}
+S={src_dir}
+mkdir -p "$R/logs" "$R/train" {run['paths']['weights']}
+if [ -f {run['paths']['merged']}/config.json ]; then echo "merged export already exists"; exit 0; fi
+if [ ! -f "$S/{adapter}/adapter_model.safetensors" ]; then echo "no kept adapter at $S/{adapter}"; exit 2; fi
+if ! cmp -s "$R/scripts/unsloth_qwen_coder_30b_sft.py" "$S/scripts/unsloth_qwen_coder_30b_sft.py"; then
+  echo "note: this run's trainer differs from the one that trained {source['run']}" >> "$R/logs/merge.log"
+fi
+OTHERS=$(docker ps --format '{{{{.Names}}}}' | grep -E '^aether-(train|serve)-' | tr '\n' ' ')
+if [ -n "$OTHERS" ]; then echo "busy: $OTHERS"; exit 4; fi
+docker rm -f {c} >/dev/null 2>&1
+echo "merge started $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$R/logs/merge.log"
+{quoted} >> "$R/logs/merge.log" 2>&1
+rc=$?
+docker rm -f {c} >/dev/null 2>&1
+(cd "$S/{adapter}" && sha256sum adapter_model.safetensors) > "$R/train/merged_from.sha256"
+echo "merge exit $rc $(date -u +%Y-%m-%dT%H:%M:%SZ)" >> "$R/logs/merge.log"
+if [ $rc -eq 0 ] && [ -f {run['paths']['merged']}/config.json ]; then echo MERGED; else echo "MERGE FAILED rc=$rc; see $R/logs/merge.log"; exit 1; fi
 """
 
 
@@ -619,6 +678,9 @@ def write_local_scripts(run: dict) -> pathlib.Path:
     (out / "train_when_ready.sh").write_text(when_ready_script(run), encoding="utf-8")
     (out / "score_when_ready.sh").write_text(score_when_ready_script(run), encoding="utf-8")
     (out / "check_generations.py").write_text(CHECK_GENERATIONS, encoding="utf-8")
+    if run.get("merge_from"):
+        (out / "merge.sh").write_text(merge_script(run), encoding="utf-8")
+        (out / "merge.sh").chmod(0o755)
     (out / "smoke_tasks.json").write_text(json.dumps(smoke_tasks(run), indent=2) + "\n", encoding="utf-8")
     kinds = sorted({v.split(":")[0] for v in run["score"]["variants"]})
     for kind in kinds:
@@ -695,7 +757,30 @@ def gpu_gate(run: dict, args, own: str) -> None:
                          f"(containers up: {names}); free the box or pass --ignore-memory")
 
 
+def stage_merge(run: dict, args) -> int:
+    """On the host, detached: merge the kept adapter named by merge_from. Push first, so merge.sh is current."""
+    if not run.get("merge_from"):
+        raise SystemExit(f"run {run['tag']} has no merge_from: nothing to merge")
+    if remote(run, f"test -f {run['paths']['merged']}/config.json", check=False).returncode == 0:
+        print("merged export exists: the merge is done")
+        return 0
+    session = f"aether-merge-{run['tag']}"
+    if remote(run, f"tmux has-session -t {session} 2>/dev/null", check=False).returncode == 0:
+        print(f"{session} is already running; see logs/merge.log")
+        return 0
+    if remote(run, f"test -f {run['paths']['remote']}/merge.sh", check=False).returncode != 0:
+        raise SystemExit("merge.sh is not on the host; run the push stage first")
+    gpu_gate(run, args, run["containers"]["merge"])
+    remote(run, f"tmux new-session -d -s {session} "
+                f"'bash {run['paths']['remote']}/merge.sh > {run['paths']['remote']}/logs/merge.out 2>&1'",
+           capture=False)
+    print(f"started {session} on {run['host']}; logs/merge.out ends with MERGED when the export is complete")
+    return 0
+
+
 def stage_train(run: dict, args) -> int:
+    if run.get("merge_from"):
+        raise SystemExit(f"run {run['tag']} is a scoring-only twin (merge_from); use the merge stage, not train")
     if stage_check(run, args):
         return 1
     if remote(run, f"test -f {run['paths']['merged']}/config.json", check=False).returncode == 0:
@@ -781,7 +866,7 @@ def stage_release(run: dict, args) -> int:
 
 
 STAGES = {"plan": stage_plan, "dataset": stage_dataset, "push": stage_push, "check": stage_check,
-          "train": stage_train, "score": stage_score, "status": stage_status, "fetch": stage_fetch,
+          "train": stage_train, "merge": stage_merge, "score": stage_score, "status": stage_status, "fetch": stage_fetch,
           "release": stage_release}
 
 

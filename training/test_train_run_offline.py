@@ -163,6 +163,45 @@ class ScriptTests(unittest.TestCase):
         self.assertNotIn("*2026-10-15-1*", newer)
 
 
+class MergeTwinTests(unittest.TestCase):
+    def load(self, **overrides):
+        with tempfile.TemporaryDirectory() as tmp:
+            return tr.load_run(write_run(pathlib.Path(tmp), **overrides))
+
+    def test_merge_script_uses_this_runs_trainer_and_the_source_adapter(self):
+        run = self.load(tag="t-run-ep2", merge_from={"run": "t-run", "step": 500})
+        text = tr.merge_script(run)
+        self.assertEqual(subprocess.run(["bash", "-n"], input=text, text=True).returncode, 0)
+        self.assertIsNone(tr.PRIVATE.search(text))
+        self.assertNotIn("'$HOME", text)
+        self.assertIn("/workspace/scripts/unsloth_qwen_coder_30b_sft.py", text)
+        self.assertIn("--adapter-dir /source/train/keep/checkpoint-500", text)
+        self.assertIn("$HOME/aether-train/t-run:/source:ro", text)
+        self.assertIn("--merged-output-dir /storage/aether-train/t-run-ep2/merged_16bit", text)
+        self.assertIn("--name aether-train-merge-t-run-ep2", text)  # seen by the other stages' GPU gate
+        self.assertNotIn("--epochs", text)
+
+    def test_merge_keeps_the_runs_precision(self):
+        self.assertIn("--no-load-in-4bit", tr.merge_script(self.load(
+            tag="t-run-ep2", precision="16bit", merge_from={"run": "t-run", "step": 5})))
+
+    def test_bad_merge_from_is_refused(self):
+        for bad in ({"run": "t-run"}, {"run": "t-run", "step": 0}, {"run": "t-run", "step": "500"},
+                    {"run": "t-run", "step": True}, {"run": "../x", "step": 5}, {"run": "t-run-ep2", "step": 5},
+                    "t-run"):
+            with self.subTest(merge_from=bad), self.assertRaises(SystemExit):
+                self.load(tag="t-run-ep2", merge_from=bad)
+
+    def test_a_twin_is_never_trained_and_only_a_twin_merges(self):
+        import argparse
+        with self.assertRaises(SystemExit) as twin:
+            tr.stage_train(self.load(tag="t-run-ep2", merge_from={"run": "t-run", "step": 5}), argparse.Namespace())
+        self.assertIn("merge stage", str(twin.exception))
+        with self.assertRaises(SystemExit) as plain:
+            tr.stage_merge(self.load(), argparse.Namespace())
+        self.assertIn("no merge_from", str(plain.exception))
+
+
 class ModelProbeTests(unittest.TestCase):
     def probe(self, files, index=None, incomplete=False):
         with tempfile.TemporaryDirectory() as tmp:

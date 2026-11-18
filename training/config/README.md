@@ -55,6 +55,27 @@ has a default; a stage that needs the host says which variable to set.
   dataset sha256s, library versions and the first rendered training text to
   `train/run_metadata.json`; `train.sh` records the image id and its libraries.
 
+## Scoring a kept checkpoint
+
+A run with `train.keep_checkpoint_steps` keeps those steps' adapters. To score one, write a twin config: the same
+recipe and dataset, a new `tag`, and `"merge_from": {"run": "<the trained run's tag>", "step": 575}`.
+
+```bash
+python3 tools/aether_train_run.py $TWIN push     # dataset, this checkout's trainer, harness, merge.sh
+python3 tools/aether_train_run.py $TWIN merge    # detached tmux; logs/merge.out ends with MERGED
+python3 tools/aether_train_run.py $TWIN score
+```
+
+`merge.sh` is generated and runs the twin's own pushed copy of the trainer (export only), so there is no
+hand-copied merge script on the host to go stale. `train` refuses a twin.
+
+## Publishing to Hugging Face
+
+`tools/hf_release.py` (see its docstring) uploads a release folder, checks every file against the Hub, and only
+then moves `main` or makes a new repo public. A new repo is created private; a repo that is already public takes
+uploads on a branch. The token comes from `$HF_TOKEN` alone. Each step that changes public content is the owner's
+decision.
+
 ## Scoring plan
 
 The default plan scores the untrained base and the fine-tune, both with no
