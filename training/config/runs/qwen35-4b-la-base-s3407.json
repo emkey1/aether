@@ -1,0 +1,71 @@
+{
+  "_note": "Linear-attention LoRA study (one change; reading in training_runs/qwen35-4b-la/README.md, fixed before training). Arm 'base': the family's dense targets, which miss the 24 linear-attention layers of 32. Recipe as qwen36-35b-a3b-v2 and gemma4-12b-v3 (3 epochs, no early stopping); data v2-20261101, which no fresh-task batch reached; Qwen3.5-4B in bf16 as qwen35-4b-v1.",
+  "tag": "qwen35-4b-la-base-s3407",
+  "family": "qwen3_5",
+  "hf_repo": "Qwen/Qwen3.5-4B",
+  "base_model": "/storage/models/Qwen3.5-4B",
+  "host": "host-c",
+  "precision": "16bit",
+  "min_available_gb": 30,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0,
+    "target_modules": [
+      "q_proj",
+      "k_proj",
+      "v_proj",
+      "o_proj",
+      "gate_proj",
+      "up_proj",
+      "down_proj"
+    ]
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 25,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      300,
+      575
+    ]
+  },
+  "dataset": {
+    "id": "v2-20261101",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}
