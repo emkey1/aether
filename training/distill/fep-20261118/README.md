@@ -44,3 +44,26 @@ gained and lost tasks with a sign test, and failures by class.
 - **int8, not bf16,** and first attempts only. On the benchmark e3 scored 65 (70) / 36 (44) at int8 against 65 (70) / 39 (47) at bf16.
 - **The tasks are the distillation writer's mix,** not the benchmark's: no sealed TOON or memory-stream tasks, and few long specifications.
 - **This does not move the release.** e3 stays published whatever this says.
+
+## Result (2026-11-18)
+
+All three passes are complete: 2,802 cases each, no empty answers, no reasoning leaks, no infrastructure failures, Ollama 0.40.15 throughout.
+The reports are `report__filter_{e3,e2,e3_ep2}.json.gz`; `python3 training/distill/fep-20261118/compare.py` reproduces everything below from them.
+
+| first attempt, 2,802 tasks | passed | failed | does not compile / return code / wrong output |
+|---|---|---|---|
+| three epochs (e3) | 2,485 (88.7%) | 317 | 88 / 10 / 219 |
+| two epochs (e2) | 2,477 (88.4%) | 325 | 76 / 18 / 231 |
+| e3 at epoch 2 (mid-schedule) | 2,445 (87.3%) | 357 | 97 / 19 / 241 |
+
+**The reading: no readable difference.** e3 minus e2 is +0.29 points [-0.79, +1.36] (126 gained, 118 lost, sign test p=0.65). Both pools agree:
++0.34 [-1.01, +1.69] on f1 to f3 and +0.19 [-1.66, +2.05] on fv3. By the rule fixed above, **the next MoE recipe trains two epochs**. A gain from
+the third pass larger than 1.4 points is ruled out.
+
+Reported, not deciding:
+- **The schedule's end matters more than the number of passes.** Both finished schedules beat e3's own mid-schedule epoch-2 adapter: e3 by +1.43
+  [+0.46, +2.43] (p=0.005), e2 by +1.14 [+0.04, +2.28] (p=0.05). The earlier conclusion from 53 held-out tasks (`../../training_runs/qwen36-35b-a3b-e2/`:
+  "the decayed learning rate did not bring the gain, the third pass did") does not hold here: on fresh tasks a two-epoch schedule that decays to
+  zero lands where three epochs do, and the cut-mid-schedule checkpoint is the one that falls behind.
+- e3's six-task held-out lead over e2, which decided the release, is not visible on fresh tasks. The release stands, as stated in the limits.
+- Seed noise is still unmeasured (one run per arm).
