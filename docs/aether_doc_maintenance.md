@@ -157,13 +157,14 @@ tools/fetch_tokenizers.sh                    # o200k_base + Qwen3.5 into ~/.cach
 python3 tools/check_guide_tokens.py          # prints the table, writes build/guide_sizes.md
 ```
 
-It measures whole documents. Until the first guide pass it **fails only when
-the medium guide exceeds 15,000 o200k tokens**; small, full and every other
-tokenizer are reported. From the first guide-pass commit the medium ceiling is
-counted in the largest cached cohort tokenizer (max(o200k, Qwen3.5, ...) ≤
-15,000), falling back to o200k ≤ 14,100 when only o200k is cached, because
-o200k undercounts the Qwen cohort by about 6%. That flip is one constant
-(`STAGE`) in the script; `--stage g1` previews it. Without tiktoken, or with
+It measures whole documents. Until 2026-11-18 it failed only when the medium
+guide exceeded 15,000 o200k tokens. Since then (stage `g1`; guide pass 1 was
+adopted) **the medium ceiling is counted in the largest cached cohort
+tokenizer** (max(o200k, Qwen3.5, ...) ≤ 15,000), falling back to o200k ≤ 14,100
+when only o200k is cached, because o200k undercounts the Qwen cohort by about
+6%; small and full are reported. At the flip medium measured 13,484 o200k and
+14,295 Qwen3.5. The stage is one constant (`STAGE`) in the script;
+`--stage pre-g1` applies the old rule. Without tiktoken, or with
 o200k_base not cached, the test reports **Skipped**, never Passed: it downloads
 nothing unless run with `--allow-download`. The core/library split (Files,
 HTTP, Sockets, Tasks/AI and the appendices count as library) is reported and
@@ -324,7 +325,7 @@ selects them, and they are part of the default `ctest -LE 'stress|metric'`:
 | `aether_guide_snippets_full`, `_medium`, `_small` | every ` ```aether ` block in that guide, compiled `--no-run --diagnostics-json` by `tools/verify_guide_snippets.py` | a block does not compile; an `EXPECT_FAIL` block compiles, or fails with codes other than its entry's, or with an uncoded record; a fragment compiles only inside an `fx` block it does not show |
 | `aether_guide_snippet_keys` | every `EXPECT_FAIL` key still matches a block, across all three guides (`verify_guide_snippets.py --keys-only`) | a stale key |
 | `aether_builtin_appendix` | the full guide's generated appendix against what this build registers (`tools/gen_builtin_appendix.py --check`) | any difference; Skipped on a non-canonical (SDL) build |
-| `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 o200k; Skipped without tiktoken |
+| `aether_guide_tokens` | whole-document token counts (`tools/check_guide_tokens.py`, above) | medium over 15,000 in the largest cached tokenizer (o200k alone: over 14,100); the card over 2,000; Skipped without tiktoken |
 | `aether_guide_stamps` | each guide's text against its stamp's manifest entry, the changelog rows, `VERSION` against `CHANGELOG.md` (`tools/check_guide_stamps.py`, above) | text changed under a stamp; a stamp without its row; a typed commit that did not introduce the stamp |
 | `aether_guide_audit` | the content audit above (`tools/audit_guides.py`) | any hit (`--strict` since 2026-11-18; guide pass 1 was adopted and the audit is clean) |
 | `aether_diag_codes` | the codes the fixtures make the compiler print, against code literals in the sources and each guide's repair rules and full's "actually emits" list (`tools/check_diag_codes.py`) | any finding (`--strict` since 2026-11-18). A code literal the default compiler cannot print (DIV-001, experiment switch only; FUNC-002, retired and reserved) is listed in the tool's `SOURCE_ONLY` with its reason; the dead MUT-001 inference was removed |

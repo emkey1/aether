@@ -48,7 +48,6 @@ graphics builtins for real produces a different inventory, so --check exits 77
 points either mode at another copy of the full guide.
 """
 import argparse
-import concurrent.futures
 import difflib
 import json
 import os
@@ -135,30 +134,14 @@ def dump_builtins():
 
 
 def callable_entries(entries):
-    """The entries an Aether program can actually call in this build. A
-    listing from an engine before pscal-core's 2026-10-21 filter also carries
-    the dispatch-table names with no handler or no routine type (kind
-    "unknown": the SDL family in a build without SDL); each of those is probed
-    with a one-line program and dropped when the compiler rejects the name, so
-    the appendix never lists a name that is not there. A current engine leaves
-    them out of builtins_json itself."""
-    probe = [e for e in entries if e.get("kind") == "unknown"]
-    if not probe:
-        return entries
-
-    def rejected(name):
-        src = f"fn main() -> Void {{\n    fx {{\n        {name}();\n    }}\n    ret;\n}}\n"
-        with tempfile.TemporaryDirectory() as td:
-            path = os.path.join(td, "probe.aether")
-            with open(path, "w") as fh:
-                fh.write(src)
-            out = subprocess.run([AETHER, "--no-cache", "--no-run", path],
-                                 capture_output=True, text=True, timeout=60)
-        return f"'{name}' not in scope" in out.stderr
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=8) as pool:
-        gone = {e["name"] for e, bad in zip(probe, pool.map(lambda e: rejected(e["name"]), probe)) if bad}
-    return [e for e in entries if e["name"] not in gone]
+    """The entries an Aether program can actually call in this build. A name
+    the engine lists with kind "unknown" is in its dispatch table but has no
+    routine type registered here: the SDL family in a build without SDL on an
+    engine before pscal-core's 2026-10-21 filter (the compiler rejects those),
+    and `pollkeyany`, which only an SDL build registers (a call compiles and
+    then stops with "Undefined global variable"). Neither can be called, so
+    the appendix leaves them out."""
+    return [e for e in entries if e.get("kind") != "unknown"]
 
 
 # A name the prose documents looks like `foo(` inside backticks -- that is how

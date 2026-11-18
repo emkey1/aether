@@ -6,14 +6,13 @@ matter and code fences included, because that is what a harness sends.
 
 The gate is staged (owner decision D6, 2026-10-06):
 
-  * pre-G1 (now): FAIL if the medium guide is over 15,000 o200k_base tokens.
-    Every other number -- small, full, and every non-o200k tokenizer -- is
-    reported, never gated.
-  * g1 (from the first guide-pass commit): the medium ceiling is counted in
+  * pre-G1 (until 2026-11-18): FAIL if the medium guide is over 15,000
+    o200k_base tokens. Every other number -- small, full, and every non-o200k
+    tokenizer -- is reported, never gated. `--stage pre-g1` still applies it.
+  * g1 (now; guide pass 1 was adopted): the medium ceiling is counted in
     the largest of the cached cohort tokenizers (max(o200k, Qwen3.5, ...)
     <= 15,000). When only o200k is cached the fallback is o200k <= 14,100,
-    since o200k undercounts the Qwen cohort by ~6%. Flip STAGE below in that
-    commit; `--stage g1` previews it.
+    since o200k undercounts the Qwen cohort by ~6%.
 
 The prior-alignment card (docs/aether_card.md) is gated from the start: FAIL
 if it is over 2,000 tokens in the largest tokenizer available (o200k, plus
@@ -52,8 +51,9 @@ import unicodedata
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
-# Flip to "g1" in the first guide-pass commit (D6).
-STAGE = "pre-g1"
+# "g1" since 2026-11-18 (D6): guide pass 1 was adopted, and medium measured
+# 13,484 o200k / 14,295 Qwen3.5 at the flip.
+STAGE = "g1"
 
 CEILING = 15000          # medium, whole document
 G1_O200K_FALLBACK = 14100  # medium under g1 when o200k is the only tokenizer cached

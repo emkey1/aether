@@ -343,9 +343,10 @@ else()
         TIMEOUT 600
         LABELS "guide")
 
-    # Medium <= 15,000 o200k tokens, whole document (staged per D6; small, full
-    # and the Qwen3.5 count are reported only), and the card <= 2,000 under the
-    # larger of o200k and Qwen3.5. Writes guide_sizes.md here.
+    # Medium <= 15,000 tokens, whole document, under the larger of o200k and
+    # Qwen3.5 (stage g1 of D6; o200k alone: <= 14,100; small and full are
+    # reported only), and the card <= 2,000 under the same. Writes
+    # guide_sizes.md here.
     add_test(NAME aether_guide_tokens
              COMMAND ${AETHER_DOCS_PYTHON}
                      ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_guide_tokens.py
