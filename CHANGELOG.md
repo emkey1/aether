@@ -15,6 +15,30 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-11-18-1
+
+From the review of 2026-11-16, which ran the `1.0` release binary beside `main`.
+Not a release; the dev label stays `1.01-dev`.
+
+- **An interrupted program exits 130** (D89). Under `1.0` a program stopped by
+  Ctrl-C (SIGINT) exited 0 from a running loop, as if it had finished, and 1
+  from a blocked `read_line`. Both now exit 130, the shell convention for a
+  SIGINT death, with nothing printed. The change came in with the pscal-core
+  pins after the `1.0` tag and had no entry until this one. No program's
+  output changes: of 1,441 programs in the tree, 1,432 print the same under
+  both binaries and the other 9 differ only by `randomize()` or `par` order.
+  No fixture pins it, since a fixture cannot send a signal; the review's
+  check sent SIGINT to a looping program and to one blocked in `read_line`.
+- **`pollkeyany` has the `io` effect class again** on an SDL build, as at
+  `1.0`: it had become pure, so `--deny io` let it through (pscal-core). It is
+  not callable on the standard build.
+- **`extbuiltinfunctioncount("user")` is 10**, was 9: the engine registers one
+  more function in that category.
+- `--help` lists `--version`, `--deny`, `--fx-record` and `--fx-replay` (rea).
+- A double free on a second compile on one thread, from tokens the
+  by-reference shims built, is fixed (front end). A one-shot `aether` run
+  never reached it.
+
 ## 2026-10-30-1
 
 **Release `1.0`** (D75): declared by the owner and tagged `1.0`; `--version`
