@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-11-18-1*
+*Guide version: 2026-11-18-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -2197,6 +2197,11 @@ does not exist — re-read the message rather than inventing a rule for it.
   statements (a call, an assignment, a loop, `fx`; a top-level `let` or
   `const` is fine) — or there is nothing to run, or `main` takes parameters or
   returns `Text` → move the statements into `fn main() -> Void`.
+- **[FUNC-001]** a function stored, passed or returned as a value, or a `fn`
+  declared inside a nested `fn` or inside a method → call the function by name
+  (to choose between functions, branch with `if` and call each one); declare
+  the helper directly in the enclosing free function's body, or make it
+  another method or a top-level `fn` that takes what it needs as parameters.
 - **[PAR-001]** the same record or array passed to more than one `par` branch
   (concurrent writes race; a read-only array counts too, and the message calls
   it a record) → give each branch its own record and combine after the block.

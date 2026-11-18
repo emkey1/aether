@@ -262,8 +262,8 @@ endif()
 # under tools/. The token gate needs tiktoken (tools/requirements-docs.txt) and
 # reports Skipped, not Passed, without it: point AETHER_DOCS_PYTHON at an
 # interpreter that has it, e.g. -DAETHER_DOCS_PYTHON=$HOME/venv/bin/python.
-# Labels: `guide` on the doc gates (`report` on the one that only reports,
-# aether_diag_codes), `invariance` on the reformat gate; the developer run is
+# Labels: `guide` on the doc gates, `invariance` on the reformat gate; the
+# developer run is
 # `ctest -LE 'stress|metric'`.
 find_package(Python3 COMPONENTS Interpreter QUIET)
 set(AETHER_DOCS_PYTHON "${Python3_EXECUTABLE}" CACHE FILEPATH
@@ -384,14 +384,14 @@ else()
 
     # The diagnostic-code map: codes the fixtures make the compiler print,
     # against code literals in the sources and each guide's repair rules.
-    # REPORT mode (prints findings, exits 0): guide pass 1 was adopted, but 5
-    # findings are open (2026-11-18), so --strict would fail.
+    # Strict since 2026-11-18: any finding fails. A code only an experiment
+    # switch prints, or one kept reserved, is listed in the tool's SOURCE_ONLY.
     add_test(NAME aether_diag_codes
              COMMAND ${AETHER_DOCS_PYTHON}
-                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_diag_codes.py)
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_diag_codes.py --strict)
     set_tests_properties(aether_diag_codes PROPERTIES
         ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>;AETHER_REA_DIR=${rea_SOURCE_DIR};AETHER_PSCAL_CORE_DIR=${pscal_core_SOURCE_DIR}"
-        LABELS "guide;report")
+        LABELS "guide")
 
     # Layout-only rewrites (wrapped arguments, a `let` broken after `=`,
     # re-indentation, trailing comments, joined statements) of every pass

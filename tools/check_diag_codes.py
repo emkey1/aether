@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """Check the diagnostic-code map between the compiler and the three guides.
 
-Run by CTest as `aether_diag_codes`, in REPORT mode until the first guide pass:
-it prints every finding and exits 0; `--strict` exits 1 on any finding, which is
-what the guide pass switches the CTest to.
+Run by CTest as `aether_diag_codes` with `--strict` (since 2026-11-18): any
+finding exits 1. Without the flag it prints every finding and exits 0.
 
 The source of truth is what the compiler actually prints, not what its sources
-mention: dead branches (MUT-001 in diagnostics.c) and codes sitting in comments
-or hint strings would otherwise count as emitted.
+mention: dead branches and codes sitting in comments or hint strings would
+otherwise count as emitted.
 
  1. Emitted set: the `[CODE]` tags printed (stdout and stderr, default flags)
     by every tests/*_fail*.aether and tests/*_warn*_pass.aether fixture, and
@@ -67,14 +66,18 @@ AUTHORING_RULES = {
     "NEST-001": "TOON nested-path rule",
     "KEY-001": "TOON key rule",
     "METH-001": "method rule; appears only inside a hint string",
-    "MUT-001": "`let mut` rule; its emission was removed with the text rewriter",
+    "MUT-001": "`let mut` rule; `let mut` compiles silently, nothing emits the code",
 }
 # A repair bullet may name an authoring rule, except MUT-001: its bullets tell a
 # model how to repair a diagnostic it can never receive (retired per D37d; the
 # guide pass deletes them, the "never generate `let mut`" rule stays).
 REPAIR_BULLET_OK = set(AUTHORING_RULES) - {"MUT-001"}
 # Code literals in the sources that no default-flag run prints, with the reason.
-SOURCE_ONLY = {}
+SOURCE_ONLY = {
+    "DIV-001": "printed only under AETHER_EXPERIMENT=div=intplus|realplus|ctx (experiment.c)",
+    "FUNC-002": "retired by D64 (language 2026-10-18-1); reserved so archived diagnostics "
+                "keep their meaning",
+}
 
 # Programs for codes no tests/ fixture covers yet under default flags. W6-02
 # asks for tests/name_redeclare_fail.aether (NAME-001) and

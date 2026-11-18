@@ -31,8 +31,8 @@ staged token ceiling (needs tiktoken: configure with
 `-DAETHER_DOCS_PYTHON=<python with tools/requirements-docs.txt>`, otherwise
 Skipped), guide stamps against `docs/guide_stamps.json`, commit references in
 docs, and the reformat-invariance lap (`tests/reformat_invariance.known` may only
-shrink). `aether_guide_audit` is strict since 2026-11-18 (G1 was adopted and it has no hits);
-`aether_diag_codes` still only reports (5 findings open). Bump a guide with `python3 tools/bump_guide_version.py <guide>`, which
+shrink). `aether_guide_audit` and `aether_diag_codes` are strict since 2026-11-18 (G1 was
+adopted; a code the default compiler cannot print goes in the tool's `SOURCE_ONLY`). Bump a guide with `python3 tools/bump_guide_version.py <guide>`, which
 prints the changelog row to commit with it; the pre-commit hook only warns.
 `-DAETHER_STRESS_TESTS=ON` adds the par stress lap (minutes, every core).
 

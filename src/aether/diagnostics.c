@@ -16,9 +16,6 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
             return "SYN-001";
         }
         if (strcmp(kind, "compatibility") == 0 && detail) {
-            if (strstr(detail, "let mut") || strstr(detail, "`mut` is ignored")) {
-                return "MUT-001";
-            }
             if (strstr(detail, "missing import") || strstr(detail, "module")) {
                 return "IMP-001";
             }
@@ -255,9 +252,6 @@ const char *aetherInferDiagnosticCode(const char *kind, const char *detail) {
      * the par-arity rule (only direct call statements are allowed). */
     if (strstr(detail, "only direct call statements")) {
         return "PAR-002";
-    }
-    if (strstr(detail, "let mut") || strstr(detail, "`mut` is ignored")) {
-        return "MUT-001";
     }
 
     return NULL;

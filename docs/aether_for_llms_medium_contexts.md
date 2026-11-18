@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-11-17-1*
+*Guide version: 2026-11-18-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -945,20 +945,20 @@ one final totals block → `toon_close(doc)`.
 
 ## Repair rules
 
-The compiler prints a stable code in brackets. Read the code, then apply the fix.
+The compiler prints a stable code in brackets; apply its fix.
 
 - **[FX-001]** an output, file-read (`toon_parse_file`), task, or `ai_chat` call
-  outside an effect block → wrap it in `fx { ... }` (rule 1 shows the shapes).
+  outside an effect block → wrap it in `fx { ... }` (rule 1).
 - **[SYN-001]** non-Aether syntax → `ret` not `return`, `type` not `class`; drop
   `var`, `def`, `=>` (the message names the Aether form). Also a field or method
-  named after an Aether keyword or operator word → rename the member.
-- **[SCOPE-001]** the catch-all. It is one of:
+  named after an Aether keyword or operator word → rename it.
+- **[SCOPE-001]** one of:
   - a helper not listed in this document → it does not exist; the hint names
     the one to use (`pos` → `index_of`, `val` → `try_parse_int`)
   - an export called by a guessed name → use the exact exported name
-  - a method reaching an outer local → pass it in as a parameter
+  - a method reaching an outer local → pass it as a parameter
   - `method '<m>' is not defined on type '<T>'` → define it inside the `type`
-  - a genuinely undeclared name → declare it earlier or pass it in
+  - an undeclared name → declare it earlier or pass it in
 - **[BUILT-002]** right builtin, wrong argument count → check the arity table.
 - **[NAME-001]** a name declared twice (or twice up to case; a loop variable,
   local or parameter may not reuse a visible variable or `const`) → pick a
@@ -971,7 +971,7 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
   so write `a div b`.
 - **[TYPE-002]** a type name that does not exist, in any position (declaration
   order does not matter) → use `Int`, `Real`, `Text`, `Bool`, `Void`, `T[]`, or
-  a `type` you declared; the message names the Aether spelling.
+  a `type` you declared.
 - **[TOON-001]** handle misuse → go through `toon_root(doc)` (rule 6). `len` of a
   handle or `toon_len` of an array (LEN-001) → `toon_len(node)`, `len(xs)`.
 - **[MS-001]** stream misuse → declare stream bindings `MStream` (rule 23).
@@ -993,7 +993,7 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[LOOP-001]** a `loop x in xs` body changes `xs` → walk a worklist by index,
   `loop i < len(xs)`, or loop over a copy.
 - **[NARROW-001]** (warning) a Real value stored in an `Int` target → the
-  fraction is discarded. Use a `Real` target, or `int(...)` to say you meant it.
+  fraction is discarded. Use a `Real` target, or `int(...)` if you meant it.
 - **[PARAM-001]** (warning) a helper advances a parameter the caller expects to
   move → return it, `let (v, next) = f(s, pos); pos = next;`, or use a nested
   `fn` that assigns the enclosing `pos`.
@@ -1014,13 +1014,15 @@ The compiler prints a stable code in brackets. Read the code, then apply the fix
 - **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.
 - **[ENTRY-001]** top-level statements (a top-level `let`/`const` is fine) beside
   `fn main`, or a `main` with parameters → put them in `fn main() -> Void`.
+- **[FUNC-001]** a function used as a value, or a `fn` nested two deep or in a
+  method → rule 11.
 - **[PAR-001]** the same record in more than one `par` branch → give each branch
   its own and combine afterwards.
 - **[PAR-002]** a non-call statement inside `par` → wrap the work in a `fn`.
 
-If the program *compiles* but the output is wrong, no code is printed. Those are
-authoring rules nothing can check: extra headings, wrong spacing or precision (an
-integer where decimals were wanted → a `Real` target and a `Real` operand),
+If the program *compiles* but the output is wrong, no code is printed:
+extra headings, wrong spacing or precision (an integer where decimals were
+wanted → a `Real` target and a `Real` operand),
 guessed JSON keys, a fallback that hid a missing level, or iterating an object root.
 Re-read the prompt and match it exactly.
 
