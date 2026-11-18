@@ -44,6 +44,8 @@ jobs:
         run: python3 tools/aether_oracle_check.py --lint-only
       - name: Harness offline tests
         run: python3 bench/test_doc_bench_offline.py
+      - name: Ollama scoring driver, report check and refusals (no model)
+        run: python3 bench/test_score_driver_offline.py
       - name: Idea-miner offline tests
         run: python3 bench/test_miner_offline.py
       - name: Wild-eval should-fail generator offline tests

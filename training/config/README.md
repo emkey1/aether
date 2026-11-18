@@ -69,6 +69,17 @@ python3 tools/aether_train_run.py $TWIN score
 `merge.sh` is generated and runs the twin's own pushed copy of the trainer (export only), so there is no
 hand-copied merge script on the host to go stale. `train` refuses a twin.
 
+## Scoring on a Mac through Ollama
+
+`tools/score_ollama_model.sh` scores one model on a scoring Mac: it imports a merged export (`--merged DIR`,
+`--quant int8` by default) or uses an existing Ollama model (`--model`), waits for the Mac's one-model lock
+(`tools/ollama_guard.sh`), and runs the Aether suites with no guide (`--suites`), with a guide (`--guided-suites` and
+`--guide NAME=PATH`) and the sandboxed Python baseline (`--python-suites`). The grader's sha256 is required and checked;
+the Ollama server version is pinned by the first suite. Every report goes through `tools/check_bench_report.py`: no
+all-empty answers, no reasoning traces, every case measured, the named guide (name and sha256) in a guided report and
+no guide in an unguided one. Re-run the same command to resume; `DIR/finished` says `DONE` or why it stopped. It
+replaces the per-model Mac scripts (a guided pass once ran without its guide and nothing noticed).
+
 ## Publishing to Hugging Face
 
 `tools/hf_release.py` (see its docstring) uploads a release folder, checks every file against the Hub, and only
