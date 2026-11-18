@@ -6,11 +6,11 @@ limitation surfaces — especially from model reviews or codegen testing — rec
 it here with a status rather than letting it evaporate into a chat log.
 
 This is the *forward-looking* companion to:
-- `parser_roadmap.md` — the AST-frontend cutover (owns the rewriter bug class:
-  compound-line mis-parses, unreliable error line numbers, etc.).
+- `parser_roadmap.md` — the AST-frontend cutover (historical: the cutover is
+  done and the rewriter is retired).
 - `CHANGELOG.md` — what already shipped.
-- `aether_for_llms_and_others.md` / `..._with_small_contexts.md` — the language
-  as it is today.
+- the three guides (`aether_for_llms_and_others.md`, `..._medium_contexts.md`,
+  `..._with_small_contexts.md`) — the language as it is today.
 
 Status legend: **idea** (not decided) · **gap** (confirmed limitation) ·
 **in-flight** (being worked) · **decided** (resolved; rationale recorded).
@@ -791,7 +791,7 @@ follow the same effect rules. Check their record/replay behaviour before
 classifying them; the journal's live-rerun path was built for exactly these
 handle-writeback calls.
 
-### HTTP / sockets / SQLite — *HTTP done 2026-07-09-1; sockets done (docs-only) 2026-07-19; SQLite deferred*
+### HTTP / sockets / SQLite — *HTTP done 2026-07-09-1; sockets done (docs-only) 2026-07-19; SQLite shipped, ON by default since 1.0-beta2*
 These are correctly fx-gated (effectful). Status:
 - **HTTP — surfaced 2026-07-09-1.** `MStream` is now a first-class opaque
   Aether type (lowers to rea `mstream`/`TYPE_MEMORYSTREAM`; explicit decls and
@@ -815,7 +815,7 @@ These are correctly fx-gated (effectful). Status:
 - **CRT/console** (`gotoxy`, `clrscr`, `textcolor`, ...): terminal UI; leave
   discovery-only. SDL/graphics/GL/audio/landscape stay undocumented (excluded).
 
-### Two shipped examples fail to compile (pre-existing) — *gap*
+### Two shipped examples fail to compile (pre-existing) — *fixed: both compile with `--no-run` (checked 2026-11-18)*
 Found incidentally while regression-testing the effect change (both fail on AST
 *and* rewriter paths, so not caused by it):
 - `examples/base/ai_helpers` → `[SCOPE-001] identifier 'openaichatcompletions'
@@ -828,7 +828,7 @@ Found incidentally while regression-testing the effect change (both fail on AST
 Fix the examples (and, for the second, confirm whether `@post result` is broken
 generally or only here).
 
-### Misleading `FLOW-001` on `ret` inside `fx` — *gap*
+### Misleading `FLOW-001` on `ret` inside `fx` — *obsolete: `ret` inside `fx` compiles and returns (checked 2026-11-18)*
 `ret` is not legal inside an `fx` block (see the guide: return from the
 surrounding function). But `ret <value>;` inside `fx` in a non-Void function is
 reported as `[FLOW-001] non-Void function has a fallthrough path with no return

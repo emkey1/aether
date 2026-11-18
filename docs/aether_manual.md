@@ -1313,9 +1313,10 @@ true true true
 | `ord(c)`, `chr(n)` | a character's Unicode code point, and back: `chr(233)` is `é` |
 
 Text compares with `==`, `!=` and `<` (by character code, so capitals sort
-before lower case). Every text helper is a function: `upper(s)`, not
-`s.upper()`. A method-style call on a builtin type is a `SCOPE-001` error whose
-hint names the function to call.
+before lower case). Text helpers are functions: `upper(s)`, not
+`s.upper()`, which is a `SCOPE-001` error whose hint names the function to
+call. A few method spellings are accepted all the same: `s.trim()`,
+`s.split(",")`, and `.len` or `.length` on a Text or an array.
 
 ### Building text
 

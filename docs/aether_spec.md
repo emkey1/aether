@@ -2,7 +2,7 @@
 
 *Audience: maintainers, and anyone who needs to know whether a program is
 Aether.* This document says what Aether accepts, what it rejects, and what an
-accepted program prints. It describes language `2026-10-08-1`.
+accepted program prints. It was written against language `2026-10-08-1`; its examples run on every build (`ctest -L spec`), so they hold for the current language, `1.0` included.
 
 **Status.** §1 (lexical structure), §2 (grammar) and §6 (leniencies) are
 written. §3 to §5 are headed stubs that name the decision rows still open
@@ -1981,7 +1981,7 @@ To be written: the type rules, inference, scope and name resolution, effects
 
 - **D4**, Int / Int: B+, always a Real; a Real in an Int-only place is
   TYPE-001 (G.MulExpr.3, G.MulExpr.4, G.Range.5).
-- **D15**, homogeneous array-literal inference: accepted, lands in L2
+- **D15**, homogeneous array-literal inference: accepted, not shipped at 1.0
   (G.LetDecl.2 is today's TYPE-001).
 - **D70** (supersedes D17's case folding): names are case-sensitive (L.ident.7);
   two names that differ only by case stay NAME-001 (L.ident.4).

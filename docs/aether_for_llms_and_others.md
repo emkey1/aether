@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-11-17-2*
+*Guide version: 2026-11-18-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -103,7 +103,8 @@ If you only read one part of this document, read **Highest-Value Rules** and
     reads and assigns that function's parameters and earlier locals, and is
     not a value either.
 21. **PAR-001.** Each `par` branch must own the record it writes. Passing the
-    same record to two branches races — the concurrent writes corrupt the heap,
+    same record or array to two branches, even an array both only read, is
+    rejected: with a record it races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block. The same holds for an enclosing local
     that a nested fn assigns: only one branch may use it.
@@ -1792,8 +1793,8 @@ let score: Int = normalize(141);
 let status: Text = label(score);
 ```
 
-Real module examples: `Examples/aether/base/module_demo`,
-`Examples/aether/base/module_consts_demo`.
+Real module examples: `examples/base/module_demo`,
+`examples/base/module_consts_demo`.
 
 Module recipe for generated code:
 
@@ -2022,7 +2023,7 @@ type Audit {
 }
 ```
 
-Larger example: `Examples/aether/showcase/agent_report`.
+Larger example: `examples/showcase/agent_report`.
 
 ## Repair rules
 
@@ -2196,8 +2197,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   statements (a call, an assignment, a loop, `fx`; a top-level `let` or
   `const` is fine) — or there is nothing to run, or `main` takes parameters or
   returns `Text` → move the statements into `fn main() -> Void`.
-- **[PAR-001]** the same record passed to more than one `par` branch (concurrent
-  writes race) → give each branch its own record and combine after the block.
+- **[PAR-001]** the same record or array passed to more than one `par` branch
+  (concurrent writes race; a read-only array counts too, and the message calls
+  it a record) → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` (an assignment, `fx`,
   loop, …) → `par` bodies allow only direct call statements; wrap the work in a
   `fn` and call that inside `par`.

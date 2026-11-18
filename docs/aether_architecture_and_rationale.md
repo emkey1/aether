@@ -184,13 +184,14 @@ review of its commit checks them:
 
 1. **Every position or a code.** An Aether-only shape is lowered in every
    expression position it can appear in, or rejected there with a coded
-   diagnostic. A raw shape reaching the VM is a bug. Today this does not hold
-   everywhere: array `+` lowers in `let`, assignment and `ret` position, but
-   `total(a + b)` with two arrays compiles and fails at run time with "Got ARRAY
-   and ARRAY".
+   diagnostic. A raw shape reaching the VM is a bug. Array `+` lowers in `let`,
+   assignment and `ret` position, and `total(a + b)` with two arrays is a
+   compile-time TYPE-001 (it used to compile and fail at run time with "Got
+   ARRAY and ARRAY").
 2. **Hygienic names.** Compiler-synthesized references resolve to the builtin
    or temp they were built for, never to a user binding of the same name, and
-   the `__` prefix is reserved for the compiler. Not yet enforced (see 2.1).
+   the `__` prefix is reserved for the compiler: a user binding such as
+   `let __tmp` is NAME-001.
 3. **Evaluation order.** A hoisted temp is placed where its expression would
    have been evaluated, so side effects run in source order and exactly once.
 4. **The Aether type oracle, not `var_type`.** A check on a builtin's type uses
