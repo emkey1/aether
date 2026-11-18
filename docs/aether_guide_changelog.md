@@ -27,6 +27,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-11-18-3` | 2026-11-18 | (this commit) | Review corrections, unscored. The TOON section says there is no `toon_keys`: an object's keys cannot be listed, test the expected ones with `toon_has_key`. 38,040 → 38,070 o200k. |
 | `2026-11-18-2` | 2026-11-18 | (this commit) | Diagnostic-code map, unscored. Repair rules gain a **[FUNC-001]** entry (a function stored, passed or returned as a value; a `fn` inside a nested `fn` or a method): the compiler prints the code and the list named it, but no repair bullet did. 37,944 → 38,040 o200k. |
 | `2026-11-18-1` | 2026-11-18 | (this commit) | Review corrections, unscored. PAR-001 (rule 21 and the repair list) says the same record or array, a read-only array included, since the compiler rejects both and calls the array a record. The three example paths read `examples/base/...` and `examples/showcase/...`, where the files are in this repository. 37,944 o200k. |
 | `2026-11-17-2` | 2026-11-17 | (this commit) | Generated appendix only, unscored: `pollkeyany` is marked *fx*, following the engine pin that gives it the `io` effect class. No prose changed (37,912 o200k). |
@@ -117,6 +118,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-11-18-2` | 2026-11-18 | (this commit) | Review corrections, unscored. Adds: no `toon_keys` (keys cannot be listed; `toon_has_key`); PAR-001 (rule 12 and the repair line) covers an array, even a read-only one; PREC-001's repair line gains `not a == b` → `a != b`. Paired cuts: the `flags & (mask != 0)` expansion in Core syntax (the repair line keeps the example), the `xor` gloss, "(Core syntax)", and "Wrap any work in a `fn` and call that" (PAR-002's repair line says it). 13,490 → 13,484 o200k (ceiling 15,000). |
 | `2026-11-18-1` | 2026-11-18 | (this commit) | Diagnostic-code map, unscored. Repair rules gain a one-line **[FUNC-001]** entry pointing at rule 11. Paired cuts in the same section: "Read the code, then", "shows the shapes", "the catch-all. It is", "genuinely", TYPE-002's "the message names the Aether spelling" (SYN-001 keeps the same advice), and "Those are authoring rules nothing can check". 13,492 → 13,490 o200k (ceiling 15,000). |
 | `2026-11-17-1` | 2026-11-17 | (this commit) | Review corrections, unscored. Same TOON, dotted-key and `pow` corrections as full `2026-11-17-1`; adds the failure modes measured on fine-tunes: a zero divisor stops the program, no comparator and how to sort on two keys, an Int map key, `parse_float` not `parse_real`, padding with `repeat`. Paired cuts in the contracts line and the sockets and tasks appendix cover 77 of the 128 added tokens; net +51 o200k (13,492), which the paired-cut rule does not allow; the owner accepted the growth on 2026-11-17. |
 | `2026-10-28-1` | 2026-10-28 | (this commit) | docs: **LEN-001 is caught at compile time, measured** (13,444 → 13,441 o200k, 14,243 → 14,242 Qwen3.5): rule 10 said a crossing compiles and fails at run time with no code; on a variable or parameter it is TOON-001. A net cut. Measured on host-e's docs venv. |
@@ -164,6 +166,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-11-18-1` | 2026-11-18 | (this commit) | Review corrections, unscored. Same three additions as medium `2026-11-18-2` (no `toon_keys`; PAR-001 for arrays in rule 24 and the repair line; `not a == b`). Paired cuts: the `flags & (mask != 0)` expansion in the operator list, the `xor` gloss, and "the parallel writes corrupt the heap" / "(concurrent writes race)". 10,446 → 10,446 o200k. |
 | `2026-11-17-1` | 2026-11-17 | (this commit) | Review corrections, unscored. Same TOON and dotted-key corrections as full `2026-11-17-1`; adds a zero divisor, no comparator and two-key sorting, and an Int map key; cuts the `@cost` unit list. Net +58 o200k (10,446), over the unmet 8,000 ceiling; the owner accepted the growth on 2026-11-17. |
 | `2026-10-28-1` | 2026-10-28 | (this commit) | docs: **LEN-001 is an error, measured** (10,381 → 10,388 o200k, 11,045 → 11,054 Qwen3.5): rule 10 said a crossing fails at run time; it is an error, TOON-001 on a variable. Measured on host-e's docs venv. |
 | `2026-10-27-1` | 2026-10-27 | (this commit) | docs: **PREC-001 is an error (D88), measured** (10,388 → 10,381 o200k, 11,052 → 11,045 Qwen3.5): the bitwise line and the `[PREC-001]` rule drop "warning" and "yields an Int". Measured on host-e's docs venv. |

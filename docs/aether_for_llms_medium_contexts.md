@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-11-18-1*
+*Guide version: 2026-11-18-2*
 
 Everything needed to write correct Aether in one shot.
 
@@ -49,7 +49,7 @@ Everything needed to write correct Aether in one shot.
     variable changes) and call its sibling `fn`s; `@pure`/`@pre`/`@post` work
     above it.
 12. **PAR-001.** Each `par` branch must own the record it writes. The same record
-    passed to two branches races and is rejected, as is a local that a nested
+    or array (even read-only) passed to two branches is rejected, as is a local that a nested
     `fn` assigns. Give each branch its own and combine after the block.
 13. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. No guessed globals, no expired loop locals, no helper-local
@@ -255,11 +255,10 @@ fn main() -> Void {
   (short-circuit). `==` / `!=` compare arrays, records and tuples by value,
   element by element and field by field; `same(a, b)` is record identity.
   `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
-- Bitwise / shift, `Int` only: `&`, `|`, `^` (`xor` is the same operator as `^`),
+- Bitwise / shift, `Int` only: `&`, `|`, `^`/`xor`,
   `<<`, `>>`. `6 & 3` is `2`; `6 << 1` is `12`. These are not logical operators —
   use `&&` / `||` for `Bool`. **They bind looser than the comparisons**:
-  `flags & mask != 0` is `flags & (mask != 0)`, an error (PREC-001); write
-  `(flags & mask) != 0`.
+  write `(flags & mask) != 0` (PREC-001).
 - Numeric literals accept `_` separators between digits: `1_000_000`, `0xFF_FF`.
 
 Every `fn` declares a return type. Procedures use `-> Void` and a bare `ret;`.
@@ -661,8 +660,9 @@ Complete helper surface:
   `toon_is_bool`, `toon_is_null`, `toon_is_arr`, `toon_is_obj`
 
 Node-value accessors keep the `_value` suffix (`toon_int_value`); field getters
-do not (`toon_get_int`). There is no bare `toon_int` or `toon_text`. Keys are
-`Text`, indexes are `Int`.
+do not (`toon_get_int`). There is no bare `toon_int` or `toon_text`, and no
+`toon_keys`: an object's keys cannot be listed; test known keys with
+`toon_has_key`. Keys are `Text`, indexes are `Int`.
 
 **Ownership.** `toon_parse_file(path)` is effectful (file I/O — call it inside
 `fx`); `toon_parse(text)` and every node operation are pure. The `ToonDoc` owns
@@ -719,7 +719,7 @@ level was missing. (`toon_at` and `toon_has_at` raise on a null or non-array nod
 
 `par { ... }` runs your own functions concurrently and joins before continuing.
 The body holds **direct call statements only** — no assignments, no loops, no
-inline `fx`. Wrap any work in a `fn` and call that.
+inline `fx`.
 
 Results come back through records passed as arguments, one per branch (PAR-001).
 
@@ -1007,8 +1007,8 @@ The compiler prints a stable code in brackets; apply its fix.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`), exit 1 → a
   call broke `f`'s contract: `@pre`, a bad argument; `@post`, a wrong `result`.
 - **[PREC-001]** `flags & mask != 0` → parenthesize:
-  `(flags & mask) != 0` (Core syntax). Also
-  `0 <= i < n` → `0 <= i && i < n`.
+  `(flags & mask) != 0`. Also `0 <= i < n` → `0 <= i && i < n`;
+  `not a == b` → `a != b`.
 - **[FMT-001]** a placeholder (`"{}"`, `%d`, `f"..."`) in `println` → pass
   values as arguments: `println("n = ", n)`.
 - **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.
@@ -1016,7 +1016,7 @@ The compiler prints a stable code in brackets; apply its fix.
   `fn main`, or a `main` with parameters → put them in `fn main() -> Void`.
 - **[FUNC-001]** a function used as a value, or a `fn` nested two deep or in a
   method → rule 11.
-- **[PAR-001]** the same record in more than one `par` branch → give each branch
+- **[PAR-001]** the same record or array in more than one `par` branch → give each branch
   its own and combine afterwards.
 - **[PAR-002]** a non-call statement inside `par` → wrap the work in a `fn`.
 

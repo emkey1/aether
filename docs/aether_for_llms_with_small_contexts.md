@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-11-17-1*
+*Guide version: 2026-11-18-1*
 
 ## Highest-Value Rules
 
@@ -74,9 +74,9 @@
     assign that function's parameters and earlier locals (the enclosing
     variable changes).
 24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
-    **same** record to two branches races — the parallel writes corrupt the heap.
-    So does a local that a nested `fn` assigns. Give each branch its own record
-    and combine the results after the block.
+    **same** record or array (even a read-only array) to two branches is
+    rejected. So is a local that a nested `fn` assigns. Give each branch its
+    own record and combine the results after the block.
 25. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
     response bodies). `mstream_new()`/`mstream_from_text(text)` return
     `MStream` — never `Int`, never `Text`. Body text comes from
@@ -108,10 +108,9 @@ flags the authoring-only ones.
 - Operators: `+ - * / %`, `== != < <= > >=`, `!`, `&&`, `||` (logical, short-circuit;
   `not` / `and` / `or` are exact synonyms). Arrays compare with `==` / `!=`.
   `-7 % 2` is `-1` (the dividend's sign): test odd with `n % 2 != 0`.
-- Bitwise/shift (Int only): `& | ^`/`xor` (`^` and `xor` are the same operator), `<< >>`.
+- Bitwise/shift (Int only): `& | ^`/`xor`, `<< >>`.
   Example: `6 & 3` = `2`, `6 << 1` = `12`. Not logical -- use `&&`/`||` for Bool.
-  They bind **looser than the comparisons**: `flags & mask != 0` is
-  `flags & (mask != 0)`, an error. Write `(flags & mask) != 0`
+  They bind **looser than the comparisons**: write `(flags & mask) != 0`
   (PREC-001).
 - Numeric literals allow `_` digit separators between digits: `1_000_000`, `0xFF_FF`.
 
@@ -446,7 +445,9 @@ the key is missing, null or of another type);
 `toon_is_obj(node)`.
 
 Node-value accessors keep the `_value` suffix (`toon_int_value`); field
-getters do not (`toon_get_int`). There is no bare `toon_int`/`toon_text`.
+getters do not (`toon_get_int`). There is no bare `toon_int`/`toon_text`, and
+no `toon_keys`: an object's keys cannot be listed; test known keys with
+`toon_has_key`.
 
 Keys are `Text`, indexes `Int`. Always `toon_close(doc)`.
 
@@ -742,7 +743,7 @@ fix:
   then `dp[i][j]`) → nested arrays are real: declare `Int[][]` and build each row
   as its own `Int[]`, or index once with `dp[r * width + c]`.
 - **[PREC-001]** `flags & mask != 0` → write `(flags & mask) != 0`.
-  Also `0 <= i < n` → `0 <= i && i < n`.
+  Also `0 <= i < n` → `0 <= i && i < n`; `not a == b` → `a != b`.
 - **[ARR-003]** (runtime) an index outside the array → `loop i in 0..n` ends at
   `n - 1`, and a row being built is not in the table until it is appended.
 - **[CON-001]** (runtime) `Aether @pre failed in f` (or `@post`) → a call broke
@@ -752,8 +753,8 @@ fix:
 - **[DIV-002]** `x // 2` → `//` starts a comment; integer division is `x div 2`.
 - **[ENTRY-001]** top-level statements (a top-level `let`/`const` is fine) beside
   `fn main`, or a `main` with parameters → put them in `fn main() -> Void`.
-- **[PAR-001]** the same record passed to more than one `par` branch (concurrent
-  writes race) → give each branch its own record and combine after the block.
+- **[PAR-001]** the same record or array passed to more than one `par` branch
+  → give each branch its own record and combine after the block.
 - **[PAR-002]** a non-call statement inside `par { ... }` → wrap the work in a
   `fn` and call that inside `par`.
 

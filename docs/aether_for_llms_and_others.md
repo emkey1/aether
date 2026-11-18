@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-11-18-2*
+*Guide version: 2026-11-18-3*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -1483,7 +1483,9 @@ Golden shape rules:
 Every name above is spelled out in full on purpose. The **node-value**
 accessors take the `_value` suffix (`toon_int_value`) while the **field**
 getters do not (`toon_get_int`). There is no bare `toon_int`, `toon_text`,
-or `toon_bool` — those are the most common wrong guesses.
+or `toon_bool` — those are the most common wrong guesses. There is no
+`toon_keys` either: an object's keys cannot be listed, so test the keys you
+expect with `toon_has_key`.
 
 Prefer `toon_is_*` predicates for control flow instead of depending on exact
 `toon_type(node)` string values.
