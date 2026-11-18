@@ -42,6 +42,7 @@ import email.utils
 import hashlib
 import urllib.error
 import urllib.request
+import uuid
 from dataclasses import dataclass
 from typing import Any
 
@@ -3209,7 +3210,18 @@ def _run_record(cmd: list[str], run: dict[str, Any], task: Task) -> dict[str, An
 # private config file into a report). It fails closed: with no sandbox, or one
 # that will not start, a baseline case is an infrastructure failure and the
 # board's pre-flight refuses to begin. AETHER_BENCH_UNSANDBOXED_BASELINE=1 is the
-# explicit, recorded opt-out for hosts without sandbox-exec.
+# explicit, recorded opt-out for hosts with no sandbox.
+#
+# On Linux (2026-11-18) the same rules come from a throwaway docker container
+# (bwrap cannot make its network namespace where AppArmor restricts user
+# namespaces): --network none; a seccomp filter that refuses fork, vfork, clone3
+# and any clone without CLONE_THREAD, so threads work and child processes do
+# not; no capabilities, no new privileges; a read-only root from a local image
+# (never pulled) with the host's /usr bound read-only, so the program runs on the
+# host's own python3 and libc; the run's temp directory as the only writable
+# path; no host home or temp directory mounted; the host uid, HOME=/nonexistent.
+# $AETHER_BENCH_SANDBOX_IMAGE names the image (default ubuntu:24.04; any image
+# whose /lib and /bin point into /usr works).
 BASELINE_SANDBOX_PROFILE = """(version 1)
 (allow default)
 (deny network*)
@@ -3223,18 +3235,58 @@ BASELINE_SANDBOX_PROFILE = """(version 1)
 """
 
 
+# CLONE_THREAD: a clone without it makes a process, which the filter refuses.
+BASELINE_SECCOMP_PROFILE = json.dumps({
+    "defaultAction": "SCMP_ACT_ALLOW",
+    "syscalls": [
+        {"names": ["fork", "vfork"], "action": "SCMP_ACT_ERRNO", "errnoRet": 1},
+        {"names": ["clone3"], "action": "SCMP_ACT_ERRNO", "errnoRet": 38},  # ENOSYS: libc falls back to clone
+        {"names": ["clone"], "action": "SCMP_ACT_ERRNO", "errnoRet": 1,
+         "args": [{"index": 0, "value": 0x10000, "valueTwo": 0, "op": "SCMP_CMP_MASKED_EQ"}]},
+    ],
+}, sort_keys=True)
+DEFAULT_BASELINE_SANDBOX_IMAGE = "ubuntu:24.04"
+# Seconds added to a docker-sandboxed program's timeout for the container's own
+# start (about 0.2 s measured; the program's elapsed time includes it).
+DOCKER_START_GRACE_SECONDS = 5.0
+# docker run's own failures (daemon, image, mount) exit 125; 126/127 mean the
+# program inside could not be executed at all.
+DOCKER_INFRA_RETURNCODES = (125, 126, 127)
+
+
 class BaselineSandboxError(RuntimeError):
     pass
 
 
+def baseline_sandbox_mechanism() -> str | None:
+    """sandbox-exec on macOS, docker on Linux, None where neither is found."""
+    if sys.platform == "darwin":
+        return "sandbox-exec" if shutil.which("sandbox-exec") else None
+    if sys.platform.startswith("linux"):
+        return "docker" if shutil.which("docker") else None
+    return None
+
+
+def baseline_sandbox_image() -> str:
+    return os.environ.get("AETHER_BENCH_SANDBOX_IMAGE") or DEFAULT_BASELINE_SANDBOX_IMAGE
+
+
 def baseline_sandbox_info() -> dict[str, Any]:
     """What the report records about the baseline sandbox."""
-    unsandboxed = os.environ.get("AETHER_BENCH_UNSANDBOXED_BASELINE") == "1"
-    return {
-        "mechanism": "none (AETHER_BENCH_UNSANDBOXED_BASELINE=1)" if unsandboxed
-                     else ("sandbox-exec" if sys.platform == "darwin" else "unavailable"),
-        "profile_sha256": hashlib.sha256(BASELINE_SANDBOX_PROFILE.encode("utf-8")).hexdigest(),
-    }
+    if os.environ.get("AETHER_BENCH_UNSANDBOXED_BASELINE") == "1":
+        mechanism = "none (AETHER_BENCH_UNSANDBOXED_BASELINE=1)"
+    else:
+        mechanism = baseline_sandbox_mechanism() or "unavailable"
+    info: dict[str, Any] = {"mechanism": mechanism}
+    if mechanism == "docker":
+        info["seccomp_sha256"] = hashlib.sha256(BASELINE_SECCOMP_PROFILE.encode("utf-8")).hexdigest()
+        info["image"] = baseline_sandbox_image()
+        probe = subprocess.run(["docker", "image", "inspect", "--format", "{{.Id}}", info["image"]],
+                               capture_output=True, text=True, timeout=30)
+        info["image_id"] = probe.stdout.strip() if probe.returncode == 0 else None
+    else:
+        info["profile_sha256"] = hashlib.sha256(BASELINE_SANDBOX_PROFILE.encode("utf-8")).hexdigest()
+    return info
 
 
 _PYTHON_INTERPRETER: str | None = None
@@ -3259,15 +3311,46 @@ def baseline_python_interpreter() -> str:
     return _PYTHON_INTERPRETER
 
 
-def sandboxed_command(argv: list[str], exec_path: str, work_root: pathlib.Path, profile_dir: pathlib.Path) -> list[str]:
+def docker_sandboxed_command(argv: list[str], exec_path: str, work_root: pathlib.Path, profile_dir: pathlib.Path,
+                             cwd: pathlib.Path, name: str) -> list[str]:
+    """argv in a throwaway docker container (see the section comment)."""
+    real_exec = os.path.realpath(exec_path)
+    real_root = os.path.realpath(work_root)
+    real_cwd = os.path.realpath(cwd)
+    if not (real_exec.startswith("/usr/") or real_exec.startswith(real_root + os.sep)):
+        raise BaselineSandboxError(f"the program must live in /usr or the run's directory: {real_exec}")
+    if not (real_cwd == real_root or real_cwd.startswith(real_root + os.sep)):
+        raise BaselineSandboxError(f"the working directory is outside the run's directory: {real_cwd}")
+    if any("," in v or ":" in v for v in (real_root,)):
+        raise BaselineSandboxError(f"path cannot be bound into the sandbox: {real_root!r}")
+    seccomp = profile_dir / "baseline-seccomp.json"
+    seccomp.write_text(BASELINE_SECCOMP_PROFILE, encoding="utf-8")
+    return [
+        "docker", "run", "--rm", "-i", "--name", name, "--pull", "never",
+        "--network", "none", "--cap-drop", "ALL", "--security-opt", "no-new-privileges",
+        "--security-opt", f"seccomp={seccomp}", "--read-only", "--tmpfs", "/tmp:size=64m",
+        "--user", f"{os.getuid()}:{os.getgid()}", "-e", "HOME=/nonexistent",
+        "--pids-limit", "256", "--memory", "8g",
+        "-v", "/usr:/usr:ro", "-v", f"{real_root}:{real_root}", "-w", real_cwd,
+        "--entrypoint", real_exec, baseline_sandbox_image(), *argv[1:],
+    ]
+
+
+def sandboxed_command(argv: list[str], exec_path: str, work_root: pathlib.Path, profile_dir: pathlib.Path,
+                      cwd: pathlib.Path | None = None, name: str | None = None) -> list[str]:
     """argv wrapped in the baseline sandbox, or BaselineSandboxError."""
     if os.environ.get("AETHER_BENCH_UNSANDBOXED_BASELINE") == "1":
         return argv
-    sandbox_exec = shutil.which("sandbox-exec") if sys.platform == "darwin" else None
+    mechanism = baseline_sandbox_mechanism()
+    if mechanism == "docker":
+        return docker_sandboxed_command(argv, exec_path, work_root, profile_dir, cwd or work_root,
+                                        name or f"aether-baseline-{uuid.uuid4().hex[:12]}")
+    sandbox_exec = shutil.which("sandbox-exec") if mechanism == "sandbox-exec" else None
     if not sandbox_exec:
         raise BaselineSandboxError(
-            "no baseline sandbox on this host (sandbox-exec is macOS-only); refusing to run model-written "
-            "code unsandboxed. Set AETHER_BENCH_UNSANDBOXED_BASELINE=1 to opt out explicitly (recorded).")
+            "no baseline sandbox on this host (sandbox-exec on macOS, docker on Linux); refusing to run "
+            "model-written code unsandboxed. Set AETHER_BENCH_UNSANDBOXED_BASELINE=1 to opt out explicitly "
+            "(recorded).")
     for value in (exec_path, str(work_root)):
         if '"' in value or "\\" in value:
             raise BaselineSandboxError(f"path cannot be quoted in a sandbox profile: {value!r}")
@@ -3280,15 +3363,27 @@ def sandboxed_command(argv: list[str], exec_path: str, work_root: pathlib.Path, 
 def run_sandboxed(argv: list[str], exec_path: str, work_root: pathlib.Path, **kwargs: Any) -> dict[str, Any]:
     """run_captured under the baseline sandbox. A sandbox that cannot start is an
     infrastructure failure, never a silent unsandboxed run."""
+    name = f"aether-baseline-{uuid.uuid4().hex[:12]}"
     with tempfile.TemporaryDirectory(prefix="baseline-sandbox-") as profile_dir:
         try:
-            cmd = sandboxed_command(argv, exec_path, work_root, pathlib.Path(profile_dir))
+            cmd = sandboxed_command(argv, exec_path, work_root, pathlib.Path(profile_dir),
+                                    cwd=kwargs.get("cwd"), name=name)
         except BaselineSandboxError as exc:
             return {"returncode": -1, "stdout": "", "stderr": f"sandbox: {exc}", "elapsed_seconds": 0.0,
                     "timed_out": False, "infra_failed": True}
+        in_docker = cmd[:2] == ["docker", "run"]
+        if in_docker and "timeout" in kwargs:
+            kwargs = {**kwargs, "timeout": kwargs["timeout"] + DOCKER_START_GRACE_SECONDS}
         run = run_captured(cmd, **kwargs)
+        if in_docker and run.get("timed_out"):
+            # Killing the docker client leaves the container running; remove it.
+            subprocess.run(["docker", "rm", "-f", name], capture_output=True, timeout=60)
     if run["returncode"] != 0 and run.get("stderr", "").startswith("sandbox-exec:"):
         run["infra_failed"] = True  # the sandbox itself failed to start
+    if in_docker and not run.get("timed_out") and run["returncode"] in DOCKER_INFRA_RETURNCODES \
+            and run.get("stderr", "").lstrip().startswith(("docker:", "Error response from daemon",
+                                                           "Unable to find image")):
+        run["infra_failed"] = True  # the container never ran the program
     return run
 
 

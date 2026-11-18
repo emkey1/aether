@@ -143,6 +143,19 @@ when it cannot:
   about. `doc_approx_tokens` (chars/4) stays for comparability next to
   `doc_tokens_o200k`.
 
+- **Baseline sandbox.** Model-written Python and Rust baseline programs run
+  sandboxed: no network, no child processes, writes only in the case's temp
+  directory, no host home or temp directory. On macOS this is `sandbox-exec`;
+  on Linux a throwaway docker container (`--network none`, a seccomp filter
+  that refuses process creation but not threads, no capabilities, a read-only
+  root from a local image with the host's `/usr` bound read-only, so the
+  host's own `python3` runs). `$AETHER_BENCH_SANDBOX_IMAGE` names the image
+  (default `ubuntu:24.04`; it is never pulled). The report's
+  `harness.baseline_sandbox` records the mechanism and the profile or image
+  id. With no sandbox, a baseline case is an infrastructure failure and a
+  board's pre-flight refuses to start; `AETHER_BENCH_UNSANDBOXED_BASELINE=1`
+  is the recorded opt-out.
+
 `--preflight-only` runs these checks and prints what it found. The drivers
 (`bench_one_destination.sh`, `bench_one_destination_cfg.sh`,
 `run_cloud_spectrum.sh`) call it once before their suite loop, take guide

@@ -670,6 +670,18 @@ def test_python_lane_timeout_is_rc_124():
     assert adb.derive_failure_fingerprint({"generated_ok": True, "run": run}, "loop") == "timeout:loop"
 
 
+def _host_has_baseline_sandbox() -> str | None:
+    """Why this host cannot run the real baseline sandbox (None: it can)."""
+    mechanism = adb.baseline_sandbox_mechanism()
+    if mechanism == "sandbox-exec":
+        return None
+    if mechanism == "docker":
+        probe = subprocess.run(["docker", "image", "inspect", adb.baseline_sandbox_image()],
+                               capture_output=True, text=True)
+        return None if probe.returncode == 0 else f"docker image {adb.baseline_sandbox_image()} is not local"
+    return "no baseline sandbox on this host (sandbox-exec on macOS, docker on Linux)"
+
+
 def _sandbox_task(task_id: str, expected: str = "") -> "adb.Task":
     return adb.Task(task_id=task_id, title=task_id, prompt="", expected_stdout=expected, timeout_seconds=20,
                     files={"data.txt": "42\n"})
@@ -677,34 +689,57 @@ def _sandbox_task(task_id: str, expected: str = "") -> "adb.Task":
 
 @baseline_opt_out(None)
 def test_python_baseline_runs_sandboxed():
-    if sys.platform != "darwin":
-        raise Skipped("the baseline sandbox is sandbox-exec, macOS only")
+    if (why := _host_has_baseline_sandbox()):
+        raise Skipped(why)
     ok = adb.run_python_task(_sandbox_task("ok", "42 hi\n"),
                              "import math\nopen('note.txt', 'w').write('hi')\n"
                              "print(open('data.txt').read().strip(), open('note.txt').read())\n")
     assert ok["returncode"] == 0 and ok["exact_stdout_match"], ok
+    sentinel = pathlib.Path(tempfile.gettempdir()) / f"aether-sandbox-sentinel-{os.getpid()}"
+    sentinel.write_text("x", encoding="utf-8")
     blocked = {
         "network": "import socket\nsocket.create_connection(('1.1.1.1', 80), timeout=3)\nprint('ESCAPED')\n",
         "subprocess": "import subprocess\nsubprocess.run(['/bin/echo', 'x'])\nprint('ESCAPED')\n",
         "os.system": "import os\nrc = os.system('/bin/echo x')\nprint('ESCAPED' if rc == 0 else 'blocked')\n",
         "home read": "import os\nprint(os.listdir(os.path.expanduser('~'))[:1], 'ESCAPED')\n",
         "home write": "import os\nopen(os.path.expanduser('~/.aether_sandbox_probe'), 'w').write('x')\nprint('ESCAPED')\n",
-        "tmp read": "import os\nprint(os.listdir('/private/tmp')[:1], 'ESCAPED')\n",
+        # The host's own temp directory holds a sentinel the program must not see.
+        "tmp read": f"import os\nprint('ESCAPED' if os.path.exists({str(sentinel)!r}) else 'hidden')\n",
+        "tmp list": "import os\nprint(os.listdir('/private/tmp' if os.path.isdir('/private/tmp') else '/tmp'))\n",
+        "fork": "import os\npid = os.fork()\nprint('ESCAPED')\n",
+        "multiprocessing": "import multiprocessing as m\nprint(m.Pool(2).map(abs, [-1]), 'ESCAPED')\n",
     }
-    for name, code in blocked.items():
-        run = adb.run_python_task(_sandbox_task(name.replace(' ', '_')), code)
-        assert "ESCAPED" not in run["stdout"], (name, run)
-        assert not run.get("infra_failed"), (name, run)
+    try:
+        for name, code in blocked.items():
+            run = adb.run_python_task(_sandbox_task(name.replace(' ', '_')), code)
+            assert "ESCAPED" not in run["stdout"] and sentinel.name not in run["stdout"], (name, run)
+            assert not run.get("infra_failed"), (name, run)
+    finally:
+        sentinel.unlink()
     assert not os.path.exists(os.path.expanduser("~/.aether_sandbox_probe"))
     assert adb.baseline_sandbox_preflight() == []
     info = adb.baseline_sandbox_info()
-    assert info["mechanism"] == "sandbox-exec" and len(info["profile_sha256"]) == 64
+    if info["mechanism"] == "docker":
+        assert len(info["seccomp_sha256"]) == 64 and info["image_id"], info
+        threads = adb.run_python_task(_sandbox_task("threads", "ok\n"),
+                                      "import threading\nt = threading.Thread(target=lambda: None)\n"
+                                      "t.start(); t.join(); print('ok')\n")
+        assert threads["exact_stdout_match"], threads  # threads are not processes
+        slow = adb.Task(task_id="slow", title="slow", prompt="", expected_stdout="", timeout_seconds=2)
+        timed = adb.run_python_task(slow, "import time\ntime.sleep(60)\n")
+        assert timed.get("timed_out") or timed["returncode"] == adb.TIMEOUT_RETURNCODE, timed
+        left = subprocess.run(["docker", "ps", "-q", "--filter", "name=aether-baseline-"],
+                              capture_output=True, text=True)
+        assert left.stdout.strip() == "", "a timed-out container was left running"
+    else:
+        assert info["mechanism"] == "sandbox-exec" and len(info["profile_sha256"]) == 64
 
 
 @baseline_opt_out(None)
 def test_python_baseline_fails_closed_without_a_sandbox():
     real_which = adb.shutil.which
-    adb.shutil.which = lambda name, *a, **k: None if name == "sandbox-exec" else real_which(name, *a, **k)
+    adb.shutil.which = lambda name, *a, **k: (None if name in ("sandbox-exec", "docker")
+                                              else real_which(name, *a, **k))
     try:
         run = adb.run_python_task(_sandbox_task("nosandbox", "x\n"), "print('x')\n")
         assert run.get("infra_failed") and run["returncode"] == -1 and "sandbox" in run["stderr"], run
@@ -716,13 +751,13 @@ def test_python_baseline_fails_closed_without_a_sandbox():
 
 @baseline_opt_out(None)
 def test_baseline_board_runs_the_sandbox_preflight_and_refuses_without_it():
-    if sys.platform != "darwin":
-        raise Skipped("the baseline sandbox is sandbox-exec, macOS only")
+    if (why := _host_has_baseline_sandbox()):
+        raise Skipped(why)
     with workdir() as tmp:
         proc, _ = fake_run(tmp, ["--python-baseline", "--skip-aether", "--task", "hello_fx", "--preflight-only"])
         assert proc.returncode == 0, proc.stderr
         assert json.loads(proc.stdout)["baseline_sandbox_preflight"] == "ok", proc.stdout
-        # No sandbox-exec on PATH: the board must refuse before any model call.
+        # No sandbox-exec or docker on PATH: the board must refuse before any model call.
         bindir = tmp / "bin"
         bindir.mkdir()
         (bindir / "python3").symlink_to(os.path.realpath(sys.executable))
