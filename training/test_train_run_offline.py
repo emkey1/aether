@@ -202,6 +202,94 @@ class MergeTwinTests(unittest.TestCase):
         self.assertIn("no merge_from", str(plain.exception))
 
 
+class ProgressTests(unittest.TestCase):
+    """twins writes a scoring-only twin per kept checkpoint; progress tables their fetched scores by step."""
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.tmp = pathlib.Path(self._tmp.name)
+        self.cfg = self.tmp / "runs"
+        self.cfg.mkdir()
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def write(self, **overrides) -> pathlib.Path:
+        path = write_run(self.cfg, **overrides)
+        return path.rename(self.cfg / f"{json.loads(path.read_text())['tag']}.json")
+
+    def twins(self, path, force=False):
+        import argparse
+        return tr.stage_twins(tr.load_run(path), argparse.Namespace(run=path, force=force))
+
+    def test_a_twin_per_kept_step_on_the_development_pool(self):
+        path = self.write(train={"keep_checkpoint_steps": [100, 200]},
+                          progress={"suites": {"v2_pos": "bench/tasks_v2_pos.json"}},
+                          score={"variants": ["base", "tuned"]})
+        self.assertEqual(self.twins(path), 0)
+        twin = json.loads((self.cfg / "t-run-s200.json").read_text())
+        self.assertEqual(twin["merge_from"], {"run": "t-run", "step": 200})
+        self.assertEqual(twin["score"]["variants"], ["tuned"])
+        self.assertEqual(twin["score"]["suites"], {"v2_pos": "bench/tasks_v2_pos.json"})
+        self.assertNotIn("progress", twin)
+        self.assertEqual(tr.load_run(self.cfg / "t-run-s100.json")["merge_from"]["step"], 100)
+
+    def test_twins_refuses_held_out_suites_and_runs_without_kept_steps(self):
+        with self.assertRaises(SystemExit) as none_kept:
+            self.twins(self.write())
+        self.assertIn("keep_checkpoint_steps", str(none_kept.exception))
+        held = self.write(tag="t-held", train={"keep_checkpoint_steps": [5]},
+                          progress={"suites": {"fs": "bench/tasks_frontier_spec.json"}})
+        with self.assertRaises(SystemExit) as refused:
+            self.twins(held)
+        self.assertIn("held-out", str(refused.exception))
+        self.assertFalse((self.cfg / "t-held-s5.json").exists())
+
+    def test_twins_keeps_an_existing_config_unless_forced(self):
+        path = self.write(train={"keep_checkpoint_steps": [7]})
+        self.twins(path)
+        twin = self.cfg / "t-run-s7.json"
+        twin.write_text(twin.read_text().replace("Scoring-only", "Edited"))
+        self.twins(path)
+        self.assertIn("Edited", twin.read_text())
+        self.twins(path, force=True)
+        self.assertNotIn("Edited", twin.read_text())
+
+    def test_progress_reads_twins_by_merge_from_and_splits_held_out(self):
+        import gzip
+        suites = {"v2_pos": "bench/tasks_v2_pos.json", "fs": "bench/tasks_frontier_spec.json"}
+        path = self.write(train={"keep_checkpoint_steps": [10]}, score={"suites": suites})
+        (self.cfg / "old-name.json").write_text(json.dumps({"tag": "old-name", "merge_from": {"run": "t-run", "step": 10}}))
+        out = self.tmp / "out"
+
+        def report(tag, suite, cases, first, final, packed=False):
+            d = out / tag / "score"
+            d.mkdir(parents=True, exist_ok=True)
+            body = json.dumps({"destinations": [{"variants": [{"summary": {
+                "total_cases": cases, "first_attempt_exact": first, "final_exact": final}}]}]})
+            if packed:
+                with gzip.open(d / f"tuned__{suite}.json.gz", "wt", encoding="utf-8") as fh:
+                    fh.write(body)
+            else:
+                (d / f"tuned__{suite}.json").write_text(body)
+
+        report("old-name", "v2_pos", 35, 30, 33, packed=True)
+        report("old-name", "fs", 12, 4, 6)
+        report("t-run", "v2_pos", 35, 34, 35)
+        (out / "t-run" / "train").mkdir(parents=True)
+        (out / "t-run" / "train" / "run_metadata.json").write_text(
+            json.dumps({"train_records": 160, "batch_size": 1, "grad_accum": 8}))
+        rows = tr.progress_rows(tr.load_run(path), path, out_root=out)
+        self.assertEqual([r["label"] for r in rows], ["step 10", "final"])
+        self.assertEqual(rows[0]["tag"], "old-name")
+        self.assertEqual(rows[0]["epoch"], 0.5)
+        self.assertEqual(rows[0]["dev"], (35, 30, 33))
+        self.assertEqual(rows[0]["held_out"], (12, 4, 6))
+        self.assertTrue(rows[0]["complete"])
+        self.assertFalse(rows[1]["complete"])
+        self.assertEqual(rows[1]["held_out"], (0, 0, 0))
+
+
 class ModelProbeTests(unittest.TestCase):
     def probe(self, files, index=None, incomplete=False):
         with tempfile.TemporaryDirectory() as tmp:

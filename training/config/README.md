@@ -69,6 +69,23 @@ python3 tools/aether_train_run.py $TWIN score
 `merge.sh` is generated and runs the twin's own pushed copy of the trainer (export only), so there is no
 hand-copied merge script on the host to go stale. `train` refuses a twin.
 
+### Progress by execution, not eval loss
+
+Eval loss chose the wrong stopping point for the MoE (best at epoch 0.64; the benchmark improved to epoch 3). To read
+progress by pass rate instead, keep adapters at several steps and score each:
+
+```bash
+python3 tools/aether_train_run.py $RUN twins      # writes <tag>-s<step>.json per kept step (--force rewrites)
+# for each twin: push, merge, score, fetch (above)
+python3 tools/aether_train_run.py $RUN progress   # first attempt (after repair) by step and epoch
+```
+
+`progress.suites` in the run config names the development pool the twins score (default: the run's own suites).
+`twins` refuses held-out suites there, so the held-out score stays untouched for the final choice. `progress` finds
+twins by their `merge_from`, so older twins with other names count, and prints development and held-out columns
+apart. Fix the stopping rule (for example, the earliest step within one task of the best development score) in the run
+config before the twins are scored.
+
 ## Scoring on a Mac through Ollama
 
 `tools/score_ollama_model.sh` scores one model on a scoring Mac: it imports a merged export (`--merged DIR`,

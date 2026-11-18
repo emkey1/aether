@@ -6,6 +6,8 @@
     python3 tools/aether_train_run.py RUN.json push       # copy dataset, trainer, harness, scripts to the host
     python3 tools/aether_train_run.py RUN.json train      # launch the training container (detached)
     python3 tools/aether_train_run.py RUN.json merge      # a merge_from twin: merge another run's kept adapter (detached tmux)
+    python3 tools/aether_train_run.py RUN.json twins      # write a scoring-only twin config per kept checkpoint
+    python3 tools/aether_train_run.py RUN.json progress   # pass rate by step: the twins' and the run's fetched scores
     python3 tools/aether_train_run.py RUN.json score      # serve + smoke + score each variant (detached tmux)
     python3 tools/aether_train_run.py RUN.json status     # where the run is, from the host's own files
     python3 tools/aether_train_run.py RUN.json fetch      # copy the run's records (not weights) back here
@@ -48,6 +50,7 @@ from __future__ import annotations
 
 import argparse
 import datetime
+import gzip
 import hashlib
 import json
 import pathlib
@@ -60,6 +63,7 @@ _SCRIPT_DIR = pathlib.Path(__file__).resolve().parent
 if str(_SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(_SCRIPT_DIR))
 import fleet_env  # noqa: E402
+from aether_specialization_corpus_policy import SEALED_MANIFESTS  # noqa: E402  (the held-out suites)
 
 REPO_ROOT = _SCRIPT_DIR.parent
 TRAINING_DIR = REPO_ROOT / "training" / "config"
@@ -865,9 +869,128 @@ def stage_release(run: dict, args) -> int:
     return 0
 
 
+# ---------------------------------------------------------------- progress by execution
+# Eval loss was a misleading stopping signal (MoE e3: it said stop at epoch 0.64 while the benchmark improved to epoch
+# 3). The execution signal: keep adapters at chosen steps (train.keep_checkpoint_steps), merge and score each as a
+# scoring-only twin on a development pool, and read pass rate by step. `progress.suites` in the run config names that
+# pool (default: the run's own scoring suites); keep held-out suites out of it, or they stop being held out.
+
+def twin_tag(tag: str, step: int) -> str:
+    return f"{tag}-s{step}"
+
+
+def twin_config(raw: dict, step: int) -> dict:
+    """A scoring-only twin of the run in raw (its config as written) for the kept adapter at step."""
+    twin = {k: v for k, v in raw.items() if k not in ("_note", "merge_from", "progress")}
+    twin["_note"] = (f"Scoring-only twin of {raw['tag']}: its step-{step} adapter, merged by the merge stage. "
+                     "Never trained on its own. Written by `aether_train_run.py RUN.json twins`.")
+    twin["tag"] = twin_tag(raw["tag"], step)
+    twin["merge_from"] = {"run": raw["tag"], "step": step}
+    score = dict(raw.get("score") or {})
+    score["variants"] = ["tuned"]
+    suites = (raw.get("progress") or {}).get("suites")
+    if suites:
+        score["suites"] = suites
+    twin["score"] = score
+    return twin
+
+
+def stage_twins(run: dict, args) -> int:
+    if run.get("merge_from"):
+        raise SystemExit(f"run {run['tag']} is itself a twin")
+    raw = json.loads(args.run.read_text(encoding="utf-8"))
+    steps = [int(x) for x in (run["train"].get("keep_checkpoint_steps") or [])]
+    if not steps:
+        raise SystemExit(f"run {run['tag']} keeps no checkpoints: set train.keep_checkpoint_steps before training")
+    suites = (raw.get("progress") or {}).get("suites") or run["score"]["suites"]
+    if not isinstance(suites, dict) or not suites:
+        raise SystemExit("progress.suites must map suite names to task files, like score.suites")
+    held = [name for name, path in suites.items() if pathlib.PurePath(str(path)).name in SEALED_MANIFESTS]
+    if held:
+        raise SystemExit(f"progress suites include held-out suites ({', '.join(held)}): name a development pool in "
+                         "progress.suites, or the held-out score stops being an untouched estimate")
+    for step in steps:
+        path = args.run.with_name(f"{twin_tag(run['tag'], step)}.json")
+        if path.exists() and not args.force:
+            print(f"kept {path.name} (exists; --force rewrites it)")
+            continue
+        path.write_text(json.dumps(twin_config(raw, step), indent=2) + "\n", encoding="utf-8")
+        load_run(path)  # the twin must load as a run
+        print(f"wrote {path.name}: push, merge (after training), then score; fetch to read `progress`")
+    return 0
+
+
+def report_counts(path: pathlib.Path) -> tuple[int, int, int] | None:
+    """(cases, first-attempt exact, final exact) of a fetched report, packed (.json.gz) or not."""
+    for candidate in (path.with_suffix(".json.gz"), path.with_suffix(".json")):
+        if candidate.exists():
+            opener = gzip.open if candidate.suffix == ".gz" else open
+            with opener(candidate, "rt", encoding="utf-8") as fh:
+                report = json.load(fh)
+            summary = report["destinations"][0]["variants"][0]["summary"]
+            return (summary.get("total_cases", 0), summary.get("first_attempt_exact", 0), summary.get("final_exact", 0))
+    return None
+
+
+def progress_rows(run: dict, run_path: pathlib.Path, out_root: pathlib.Path = RUNS_OUT_DIR) -> list[dict]:
+    """One row per kept step that has fetched scores, then the run's own final export."""
+    suite_paths = (run.get("progress") or {}).get("suites") or run["score"]["suites"]
+    suites = list(suite_paths)
+    held = {name for name, path in suite_paths.items() if pathlib.PurePath(str(path)).name in SEALED_MANIFESTS}
+    steps = [int(x) for x in (run["train"].get("keep_checkpoint_steps") or [])]
+    meta_path = out_root / run["tag"] / "train" / "run_metadata.json"
+    per_epoch = None
+    if meta_path.exists():
+        meta = json.loads(meta_path.read_text(encoding="utf-8"))
+        effective = max(1, int(meta.get("batch_size", 1)) * int(meta.get("grad_accum", 1)))
+        if meta.get("train_records"):
+            per_epoch = -(-int(meta["train_records"]) // effective)
+    twins = {}  # step -> tag, from every config in the run's directory that merges this run's kept adapter
+    for path in sorted(run_path.parent.glob("*.json")):
+        try:
+            other = json.loads(path.read_text(encoding="utf-8"))
+        except (OSError, ValueError):
+            continue
+        source = other.get("merge_from") if isinstance(other, dict) else None
+        if isinstance(source, dict) and source.get("run") == run["tag"] and isinstance(source.get("step"), int):
+            twins.setdefault(source["step"], other.get("tag"))
+    for step in steps:
+        twins.setdefault(step, twin_tag(run["tag"], step))
+    rows = []
+    for label, tag, step in [*[(f"step {s}", twins[s], s) for s in sorted(twins)], ("final", run["tag"], None)]:
+        cells = {suite: report_counts(out_root / tag / "score" / f"tuned__{suite}.json") for suite in suites}
+        if not any(cells.values()):
+            continue
+        row = {"label": label, "tag": tag, "step": step,
+               "epoch": round(step / per_epoch, 2) if (step and per_epoch) else None,
+               "suites": cells, "complete": all(cells.values())}
+        for group, wanted in (("dev", False), ("held_out", True)):
+            done = [c for name, c in cells.items() if c and (name in held) == wanted]
+            row[group] = (sum(c[0] for c in done), sum(c[1] for c in done), sum(c[2] for c in done))
+        rows.append(row)
+    return rows
+
+
+def stage_progress(run: dict, args) -> int:
+    rows = progress_rows(run, args.run)
+    if not rows:
+        print(f"no fetched scores for {run['tag']} or its twins (run `twins`, then merge, score and fetch each)")
+        return 1
+    def cell(counts: tuple[int, int, int]) -> str:
+        cases, first, final = counts
+        return f"{first:>4} ({final:>4}) of {cases:<4}" if cases else f"{'-':<18}"
+    print("first attempt (after repair); the stopping signal is the development pool, never held-out")
+    print(f"{'checkpoint':<12} {'epoch':>6}  {'development':<18}  {'held-out':<18}")
+    for r in rows:
+        epoch = f"{r['epoch']:.2f}" if r["epoch"] is not None else "-"
+        print(f"{r['label']:<12} {epoch:>6}  {cell(r['dev'])}  {cell(r['held_out'])}"
+              + ("" if r["complete"] else "  (partial)"))
+    return 0
+
+
 STAGES = {"plan": stage_plan, "dataset": stage_dataset, "push": stage_push, "check": stage_check,
           "train": stage_train, "merge": stage_merge, "score": stage_score, "status": stage_status, "fetch": stage_fetch,
-          "release": stage_release}
+          "release": stage_release, "twins": stage_twins, "progress": stage_progress}
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -876,7 +999,8 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("stage", choices=list(STAGES))
     ap.add_argument("--aether-bin", default=str(REPO_ROOT / "build" / "aether"),
                     help="compiler that builds the dataset (dataset stage)")
-    ap.add_argument("--force", action="store_true", help="dataset: rebuild although a manifest exists")
+    ap.add_argument("--force", action="store_true",
+                    help="dataset: rebuild although a manifest exists; twins: rewrite existing twin configs")
     ap.add_argument("--ignore-memory", action="store_true", help="train/score: skip the available-memory gate")
     ap.add_argument("--include-training", action="store_true", help="release: also remove the training container")
     ap.add_argument("--when-ready", action="store_true",
