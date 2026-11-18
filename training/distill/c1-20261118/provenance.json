@@ -1,0 +1,17 @@
+{
+ "ok": true,
+ "pool": "large-open",
+ "allowed_models": [
+  "bonsai-2-27b",
+  "mimo-v2.6-flash"
+ ],
+ "requests_by_model": {
+  "mimo-v2.6-flash": 642
+ },
+ "sources": {
+  "f1-20261103": "provenance.json passed",
+  "f2-20261103": "provenance.json passed",
+  "f3-20261103": "provenance.json passed"
+ },
+ "note": "the tasks come from the source batches; their generation provenance is theirs"
+}
