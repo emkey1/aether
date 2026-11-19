@@ -1,6 +1,6 @@
 # Aether card
 
-*Card version: 2026-10-20-2*
+*Card version: 2026-11-19-1*
 
 Aether is a small statically typed language. Emit raw Aether source only.
 
@@ -13,15 +13,14 @@ Aether is a small statically typed language. Emit raw Aether source only.
   `-> Void` function.
 - **Effects.** `print`, `println` and every host call (random numbers, clock,
   files: `read_file(p)`, `read_lines(p)`, `write_file(p, t)`, stdin:
-  `read_line()`) must sit inside `fx { ... }`, which may hold `let`, `if` and
-  `loop`.
+  `read_line()`) must sit inside `fx { ... }`.
 
 ## Values
 
-- Types: `Int`, `Real`, `Text`, `Bool`, `Void`, arrays `T[]` (nested `T[][]`),
-  and your own `type`s.
+- Types: `Int`, `Real`, `Text`, `Bool`, `Void`, arrays `T[]`, and your own
+  `type`s.
 - `let x: Int = 0;` declares a mutable local; reassign with `x = x + 1;`.
-  Declare a name before using it, once per scope. `const` declares a constant.
+  `const` declares a constant.
 - The type may be omitted for a literal or call initializer (`let n = 5;`).
   Always annotate array literals: `let xs: Int[] = [1, 2];`.
 
@@ -54,8 +53,7 @@ fn main() -> Void {
 0 1 2 10 7 4 1 4 9 2 a b done
 ```
 
-A range or foreach loop declares its own variable. `all x in xs: x > 0` and
-`any i in 0..n: xs[i] == 0` are `Bool` expressions.
+`all x in xs: x > 0` and `any i in 0..n: xs[i] == 0` are `Bool` expressions.
 
 ## Functions, tuples, `@pure`
 
@@ -83,7 +81,7 @@ fn main() -> Void {
 2 9 5
 ```
 
-Destructure a direct call, or bind it and read `t.0`; never `f(x).0`. A
+Destructure a direct call, or bind it and read `t.0`. A
 `@pure` function may not use `fx` and calls only pure builtins and other
 `@pure` functions. Functions are not values (no lambdas), and there is no
 `map` or `filter`: write a `loop`. A `fn` inside a `fn` may read and assign
@@ -116,9 +114,9 @@ fn main() -> Void {
 hits=5 count=0
 ```
 
-Give fields literal defaults (`0`, `""`, `[]`). `new T()` keeps them;
-`new T { field: value }` overrides some. Methods live inside the `type`, use
-`self.field`, and never declare a `self` parameter.
+Give fields literal defaults (`0`, `""`, `[]`); `new T { field: value }`
+overrides some. Methods live inside the `type`, use `self.field`, and never
+declare a `self` parameter.
 
 ## Arrays
 
@@ -142,7 +140,7 @@ fn main() -> Void {
 
 Append with `xs = xs + [v];`; `[0; n]` is n zeros. Indexes are 0-based; `a..b` is half-open in
 slices and loops. `println` does not print a whole array; loop over it.
-Helpers return new values: `sum(xs)`, `min_of(xs)`, `max_of(xs)`,
+Helpers: `sum(xs)`, `min_of(xs)`, `max_of(xs)`,
 `sorted(xs)`, `sorted_desc(xs)`, `reversed(xs)`, `contains(xs, v)`,
 `index_of(xs, v)`, `count(xs, v)`; records:
 `sorted_by(xs, "field")`.
@@ -171,7 +169,7 @@ world! n=42
 
 `s[i]` is a one-character `Text`; `s[a..b]` is a substring (`s[a..]`,
 `s[..b]`); `index_of(s, x)` is the first index or `-1`. Also `contains`,
-`starts_with`, `ends_with`, `upper`, `lower`, `trim`, `repeat(s, n)`,
+`starts_with`, `ends_with`, `lower`, `repeat(s, n)`,
 `join(parts, sep)`. `+` joins `Text`; convert with `int_to_text(n)` or
 `format_float(r, digits)`. `parse_int` gives `0` for non-numeric text; check
 with `let (n, ok) = try_parse_int(t);`.
@@ -180,23 +178,20 @@ with `let (n, ok) = try_parse_int(t);`.
 
 - `println(a, b)` prints its arguments with **no separator**, then a newline;
   `print` adds no newline.
-- A `Real` prints in its shortest exact form (`println(2.5)` prints `2.5`);
-  `format_float(x, 2)` fixes the decimals.
+- A `Real` prints in its shortest exact form; `format_float(x, 2)` fixes the
+  decimals.
 
 ## Diagnostics
-
-Most errors carry a code in brackets.
 
 | Code | Cause | Fix |
 |---|---|---|
 | FX-001 | effectful call outside `fx` | wrap it in `fx { ... }` |
 | SYN-001 | `return`, `class`, `var`, an untyped parameter, no `-> T` | `ret`, `type`, `let`, `name: Type`, `-> Void` |
 | SCOPE-001 | unknown name or invented builtin | declare it first, or use the helper the hint names |
-| TYPE-001 | type cannot be inferred | annotate: `let xs: Int[] = [];` |
+| TYPE-001 | type cannot be inferred | annotate the `let` |
 | TYPE-002 | unknown type such as `Integer` | a type listed under Values |
-| BUILT-002 | wrong argument count | `format_float(r, 2)`, `replace(s, old, new)` |
+| BUILT-002 | wrong argument count | `format_float(r, 2)` |
 | NAME-001 | local declared twice | assign without `let`, or rename |
 | TUP-001 | `f().0`, or destructuring a non-call | bind first: `let t = f();` |
-| ARR-002 | a `T[]` indexed twice | declare it `T[][]` |
-| ARR-003 | index out of range at run time | check the bound; append before reading |
+| ARR-003 | index out of range at run time | append before reading |
 | ANN-001 | `@pure` function using `fx` or impure calls | move the effect out, or mark the callee `@pure` |
