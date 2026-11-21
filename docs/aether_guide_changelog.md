@@ -27,6 +27,7 @@ touched several guides at once, the same entry appears under each.
 
 | version | date | commit | change |
 |---|---|---|---|
+| `2026-11-21-1` | 2026-11-21 | (this commit) | Generated appendix only, unscored: `pollkeyany` is back in the name-only Core list. The engine now gives it a routine type in every build (it reads the terminal, and SDL keys where there are any), so a call runs on the standard build; before, only an SDL build registered it. |
 | `2026-11-18-4` | 2026-11-18 | (this commit) | Generated appendix only, unscored: `pollkeyany` leaves the name-only Core list. Only an SDL build registers it; on the standard build a call compiled and then stopped with "Undefined global variable". The generator now drops every name the engine lists without a routine type. No prose changed. |
 | `2026-11-18-3` | 2026-11-18 | (this commit) | Review corrections, unscored. The TOON section says there is no `toon_keys`: an object's keys cannot be listed, test the expected ones with `toon_has_key`. 38,040 → 38,070 o200k. |
 | `2026-11-18-2` | 2026-11-18 | (this commit) | Diagnostic-code map, unscored. Repair rules gain a **[FUNC-001]** entry (a function stored, passed or returned as a value; a `fn` inside a nested `fn` or a method): the compiler prints the code and the list named it, but no repair bullet did. 37,944 → 38,040 o200k. |
