@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn main() -> Void {
     if !has_toon() {
         fx {

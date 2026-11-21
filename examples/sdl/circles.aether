@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // circles.aether -- a minimal SDL graphics demo for Aether.
 //
 // Requires an SDL-enabled build (the default build leaves SDL out):

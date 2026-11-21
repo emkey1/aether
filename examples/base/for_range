@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn main() -> Void {
     let sum: Int = 0;
     for i in 0..6 {

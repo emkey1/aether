@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // HTTP GET with the MStream response buffer: fetch current weather from the
 // Open-Meteo API and print the raw JSON payload. Requires a build with
 // AETHER_ENABLE_CURL=ON to actually run; it compile-checks everywhere.

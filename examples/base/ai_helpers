@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn draftReply(model: Text, messages: Text, apiKey: Text) -> Text {
     let reply: Text = "";
     fx {

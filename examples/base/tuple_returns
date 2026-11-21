@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Tuple returns: the two ways to read one, and the wall you hit past them.
 //
 // A function may return `(T, U)`. That is the whole feature -- tuples exist for

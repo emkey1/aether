@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 type Point {
     x: Int;
     y: Int;

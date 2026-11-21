@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Barnsley fern: an iterated function system rendered as shaded ASCII.
 // Demonstrates a record with methods (self is implicit), effectful random()
 // inside fx, an Int[] density buffer with indexed read/write, and building

@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Student grade report.
 //
 // Parses a TOON dataset of exam scores into an array of records, folds them

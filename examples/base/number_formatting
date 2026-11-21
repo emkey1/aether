@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Number formatting: fixed-precision output, real division, and a real mean.
 // `value:width:precision` formats a Real; width 0 means "precision only".
 

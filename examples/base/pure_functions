@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 @pure
 fn double(value: Int) -> Int {
     ret value + value;

@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Release board analyzer.
 //
 // A TOON document describes two release trains. Each train is scored, validated

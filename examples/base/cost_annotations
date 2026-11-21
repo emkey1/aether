@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 @cost 8 ops
 @pure
 fn plusOne(value: Int) -> Int {

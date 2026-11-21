@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Reading and writing file contents.
 //
 // Each file operation is one call on a path (Text); there is no handle to

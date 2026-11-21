@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // random() and random(n) are two different functions wearing one name, and
 // they return different TYPES. Picking the wrong one is silent.
 //

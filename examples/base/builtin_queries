@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn main() -> Void {
     let compact: Text = builtins_json();
     let detailed: Text = builtins_json(true);

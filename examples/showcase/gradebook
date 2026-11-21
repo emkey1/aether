@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Compositional example: a record with methods, a helper that takes the
 // record, parallel arrays, accumulation, a real average, and formatted output.
 

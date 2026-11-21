@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Every branching form Aether has, and the loop controls that go with them.
 //
 // `if` is both a statement and an expression. As an expression it needs braces

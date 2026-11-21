@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Text basics: concatenation, string_len, int_to_text, and equality.
 // int_to_text builds a Text value from an Int (use it when you need the
 // value, not merely to print a number).

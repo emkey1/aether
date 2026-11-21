@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 @pure
 @post result <= 100
 fn clampToHundred(value: Int) -> Int {

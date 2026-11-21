@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // The loop forms side by side: range, stepped range, foreach over an array,
 // a Text, a nested array and a TOON array node, plus the word operators.
 type Item {

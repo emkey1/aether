@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Bounding and selecting with clamp / min / max instead of if-chains.
 // clamp(x, lo, hi) returns Int for all-Int args (Real if any arg is Real),
 // mirroring min and max.

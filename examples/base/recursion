@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Recursion: a base case plus a recursive case, using sequential if + ret.
 
 fn factorial(n: Int) -> Int {

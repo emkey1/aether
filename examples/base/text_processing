@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // The Text surface, used together on a realistic parsing job.
 //
 // Four things here are guessed wrong more often than anything else in the

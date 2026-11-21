@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 @pre value >= 0
 @post result > value
 fn next(value: Int) -> Int {

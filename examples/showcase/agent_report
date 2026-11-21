@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 use "agent_support";
 
 type JobSummary {

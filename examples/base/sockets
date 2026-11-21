@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // A TCP client and server in one process, joined by `par`.
 //
 // The names are `socket*` and `dnslookup` — one word, no underscores. There is

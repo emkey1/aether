@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 use "module_consts";
 
 fn main() -> Void {

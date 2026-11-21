@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 use "function_inference_support";
 
 fn plusTwo(value: Int) -> Int {

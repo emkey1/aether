@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Dynamic arrays: empty literal, append, indexed read/write, length, iterate.
 // Use length(xs) for dynamic arrays (never toon_len, which is for TOON nodes).
 

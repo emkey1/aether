@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Real -> Text: the three conversions, and the one arity that does not exist.
 //
 // `formatfloat` takes one or two arguments -- format_float(value[, precision]).

@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 const Greeting: Text = "Hello from Aether";
 
 @pure

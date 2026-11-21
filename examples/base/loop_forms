@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn main() -> Void {
     let total: Int = 0;
     let idx: Int = 0;

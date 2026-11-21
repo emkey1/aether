@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn main() -> Void {
     const label = "Aether";
     let answer = 42;

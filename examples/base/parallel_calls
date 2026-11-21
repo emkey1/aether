@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn workerA() -> Void {
     fx {
         println("worker A");

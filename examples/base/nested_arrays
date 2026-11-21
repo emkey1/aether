@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Nested (2-D) arrays: `Int[][]` is a real type, and every 1-D operation
 // composes into it.
 //

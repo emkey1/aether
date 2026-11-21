@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 @pre value >= 0
 // comments and blank lines can separate annotations from the function
 

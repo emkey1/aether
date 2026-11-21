@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Parsing text into values: parse_int, parse_bool, parse_float, and split.
 // split returns a dynamic Text[] you can index and iterate.
 

@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 fn main() -> Void {
     let named: Int = 0;
     let namedWait: Int = 0;

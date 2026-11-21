@@ -1,3 +1,4 @@
+#!/usr/bin/env aether
 // Bitwise and shift operators, on Int only: & | ^ << >>
 //
 // `xor` is a word spelling of `^` -- the same operator, not a separate one.
