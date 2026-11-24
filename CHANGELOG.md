@@ -15,6 +15,86 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-11-24-2
+
+From the review of 2026-11-24: seven behaviours that were silently wrong
+under `1.0` (D90 to D96, each with its decision row), faster Text, and
+diagnostics that named the wrong thing. Not a release; the dev label stays
+`1.01-dev`.
+
+**Under the D75 exception (a silently wrong program may become a coded
+error).** The owner accepted all seven on 2026-11-24. None of the 6,716
+distinct model-written programs archived under `bench/results`, and none of
+the 218 replay programs, uses any of these forms; the evidence and its
+commands are in `results/decisions/silent_wrong_2026-11-24.md`.
+
+- **The TOON-001 and MS-001 handle checks read every statement, not every
+  line** (D90). They saw a `let` only where it began a line, so a second
+  statement on a line, or a function written on one line, was never checked:
+  `let d = toon_parse(s); fx { println(toon_get_int(d, "a")); }` on one line
+  printed 0, and `let a: Int = 1; let s: Int = mstream_new();` gave the
+  engine's uncoded type mismatch. A `ToonDoc` passed to one of the program's
+  own functions that declares a `ToonNode` parameter is TOON-001 as well; it
+  compiled on any layout and the getters returned their fallbacks.
+- **A name that an imported module exports as a `const` is NAME-001** (D91),
+  for a top-level `const` or `let`, a local and a parameter, as the guides
+  already said. The check read the module by the name in `use "m_util";`,
+  which has no extension, found no file, and so knew no imported const: a
+  program `const Limit` beside a module's exported `Limit` compiled with an
+  uncoded "redefined" warning and printed the module's value.
+- **`\xNN` and an octal escape name a code point** (D92), as `chr` does
+  (D85): `"\xe9"` is `"\u00e9"`. At 0x80 and above each was one raw byte,
+  which printed as another character, did not equal `chr(233)`, and stopped
+  the program when a Text holding it was indexed.
+- **A JSON integer from 2^63 to 2^64-1 is a real** (D93, pscal-core). It read
+  as a negative `Int` (`10000000000000000000` as `-8446744073709551616`,
+  `toon_type` `"int"`). `toon_get_real` gives its value, `toon_type` is
+  `"real"`, and the `Int` getters fall back as they do for any non-integer.
+- **A `Real` with no `Int` value stops the program when stored in an `Int`**
+  (D94, pscal-core): `[AETH-RUNTIME-INT-RANGE]`, for a binding, an
+  assignment, an argument or a result. `let a: Int = 1e19;` stored
+  9223372036854775807 with an uncoded range warning and went on; `int(1e19)`
+  already stopped.
+- **A negative Text slice bound is ARR-003** (D95, pscal-core). `s[-3..]` and
+  `s[..-1]` gave `""` with no message. The hint names
+  `s[length(s) - n..]`. An end before the start still gives `""`, and a bound
+  past the end is still cut.
+- **A wrong argument count on a math builtin is BUILT-002 at compile time**
+  (D96): `round`, `abs`, `sqrt`, `sqr`, `floor`, `ceil`, `trunc`, `sin`,
+  `cos`, `tan`, `exp`, `ln`, `log10` (one argument) and `pow` (two).
+  `round(1.567, 2)` compiled, ran when the line was never reached, and
+  otherwise stopped with the engine's uncoded message. A program's own
+  function of one of these names is judged by its own declaration.
+
+**No valid program changes** in the rest:
+
+- **Reading a Text by character is about 25 times faster.** `t[i]`, a slice,
+  `loop c in t` and `length(t)` each decoded the whole Text on every use, one
+  call per byte. A run of ASCII is now skipped eight bytes at a time, and an
+  all-ASCII Text is indexed directly (pscal-core). Counting one letter in a
+  131,072-character Text took 19 s and takes 0.75 s; a Text that is not all
+  ASCII gives the same characters as before (`tests/fx/builtins/text_scan_large_pass`).
+  Each of these is still proportional to the Text's length, so a scan is
+  still quadratic: an `Int[]` of the same size takes 0.02 s.
+- **An index into an empty array is ARR-003.** `let xs: Int[] = []; xs[0]`, a
+  write to it, and an element of an empty row stopped with the uncoded
+  `VM Error: Array element index out of bounds.` (pscal-core).
+- **Other languages' literals get a hint.** `True`, `False`, `None`, `null`
+  and `NULL` are SCOPE-001 with a hint naming `true`, `false` or `nil`.
+  `let ok = True;` was TYPE-001 with a hint to write `let ok: Real`, and
+  `loop i in range(0, 3)` was TYPE-001 asking for a typed `let`; it is
+  SCOPE-001 naming `loop i in 0..n`.
+- **Messages that named the wrong thing:**
+  - PAR-001 for an array shared by two branches called it a record and said
+    the threads write it. It says array, and its hint names the copy that is
+    accepted, `let ys: Int[] = xs[0..];`.
+  - The ANN-001 hint for an `@post` on an array result named the lowered
+    temporary (`length(__aether_post_0) > 0`); it says `length(result) > 0`.
+  - A Real slice bound (`s[..n / 2]`) was reported as "`copy()` needs an
+    Int"; it says a slice bound.
+  - `join` of an `Int[]` suggested `formatfloat`, which does not exist; it
+    says `format_float` (pscal-core).
+
 ## 2026-11-24-1
 
 Three engine changes that came in with the pscal-core pins between 2026-11-19

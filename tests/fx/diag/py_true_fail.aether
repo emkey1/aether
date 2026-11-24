@@ -1,0 +1,6 @@
+// `True` is another language's literal. It was TYPE-001 asking for a type
+// ("let ok: Real"); the name is the problem, and the hint now says `true`.
+fn main() -> Void {
+    let ok = True;
+    fx { println(ok); }
+}

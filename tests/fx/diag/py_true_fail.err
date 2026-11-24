@@ -1,0 +1,3 @@
+identifier 'True' not in scope.
+hint: write `true`
+!cannot infer

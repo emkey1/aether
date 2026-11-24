@@ -1,0 +1,12 @@
+// The fix the PAR-001 hint names: one copy of the array per branch. A full
+// slice is a copy; `let ys = xs;` is still the same array to PAR-001.
+type Tally { count: Int = 0; }
+fn tot(t: Tally, xs: Int[]) -> Void { t.count = sum(xs); }
+fn main() -> Void {
+    let a: Tally = new Tally();
+    let b: Tally = new Tally();
+    let xs: Int[] = [1, 2];
+    let ys: Int[] = xs[0..];
+    par { tot(a, xs); tot(b, ys); }
+    fx { println(a.count, " ", b.count); }
+}

@@ -1,0 +1,3 @@
+array 'xs' is shared by more than one par branch
+hint: give each par branch its own copy (`let ys: Int[] = xs[0..];`)
+!record 'xs'

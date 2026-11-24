@@ -1,0 +1,12 @@
+// D93: a JSON integer from 2^63 to 2^64-1 does not fit an Int. It read as a
+// negative Int (10000000000000000000 as -8446744073709551616, type "int").
+// It is a real: the Int getters fall back, the Real getters give its value.
+fn main() -> Void {
+    let d: ToonDoc = toon_parse("{\"c\": 10000000000000000000, \"d\": 9223372036854775807, \"e\": 18446744073709551615, \"f\": -5}");
+    let r: ToonNode = toon_root(d);
+    fx {
+        println(toon_get_int_or(r, "c", -1), " ", toon_get_real_or(r, "c", 0.0), " ", toon_type(toon_key(r, "c")), " ", toon_get_int(r, "c"));
+        println(toon_get_int_or(r, "d", -1), " ", toon_type(toon_key(r, "d")), " ", toon_get_real(r, "e"), " ", toon_get_int(r, "f"));
+    }
+    toon_close(d);
+}

@@ -457,7 +457,7 @@ true false false
   are no binary or octal literals.
 - Text literals use double or single quotes and stay on one line. Source files
   are UTF-8, so a literal may hold any character. The escapes are `\n`, `\t`,
-  `\r`, `\"`, `\\`, `\xNN` (one byte: `\x41` is `A`), and `\uXXXX` or
+  `\r`, `\"`, `\\`, `\xNN` (the character with that code: `\x41` is `A`, `\xe9` is `é`), and `\uXXXX` or
   `\UXXXXXXXX` (a Unicode code point: `\u00e9` is `é`, one character long).
   The braced form that Rust, JavaScript and Swift use, `\u{1F600}`, takes any
   number of hex digits and means the same as `\U0001F600`. A JSON-style

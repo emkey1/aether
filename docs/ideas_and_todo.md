@@ -742,6 +742,37 @@ reserved words" rule was preferred for now.
 
 ## Known gaps
 
+### Left open by the review of 2026-11-24
+Found and reproduced on language `2026-11-24-2`; none is new since `1.0`.
+
+- **Text by character is still proportional to the Text's length.** `t[i]`,
+  a slice, `loop c in t` and `length(t)` each walk the string (it carries no
+  length and no "all ASCII" mark), so a scan is quadratic: 131,072 characters
+  take 0.75 s (19 s before the ASCII fast path of `2026-11-24-2`) against
+  0.02 s for an `Int[]` of that size. A cached length on the string object
+  would make each O(1); every in-place write to a string would have to clear
+  it, and the engine has about twenty such sites.
+- **PAR-001 reads names, not aliases.** One record reached through two names
+  (`a.inner` and `b.inner`, `rows[i]` and `rows[j]` with `i == j`, two results
+  of one call) passes the check and the branches race: 147,588 of 200,000
+  increments survived in the review's probe. The full guide says so since
+  `2026-11-24-2`. A static fix would have to reject programs that are valid
+  today.
+- **A broken contract has no location and nothing in
+  `--diagnostics-json`.** `@pre`/`@post` and an array slice past the end lower
+  to `writeln(stderr, ...); halt(1);`, so the message carries no file or line
+  and the JSON stream is empty with exit status 1.
+- **Uncoded stops remain** (D5): a call to the program's own function with
+  the wrong argument count (`Not enough arguments for 'add'.`), assigning to
+  a `const` (`L2: cannot assign to constant 'K'.`, no file), `a < b` on two
+  records, a nil field read, `sqrt(-1.0)`, `s[1] = "xy"`, `toon_parse_file` of
+  a missing file, a call-stack overflow. Each prints `code: null` in JSON.
+- **A program function named like an imported function wins silently**, and
+  a module that fails to compile can surface only as SCOPE-001 on the caller
+  when the binding's type is inferred.
+- **`length()` with no argument** compiles and stops at run time; `length` is
+  kept out of the compile-time arity table on purpose (see its comment).
+
 ### `@cost` is decorative — *decided 2026-07-01: documented as non-binding*
 `@cost <n><unit>` (units: `ns us ms s op ops step steps`) is syntax-validated
 but **not enforced or tracked** — it carries no codegen and no runtime check.

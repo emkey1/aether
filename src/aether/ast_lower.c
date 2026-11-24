@@ -2754,6 +2754,17 @@ static AST *parseForeach(AetherParser *p, const char *name, AST *coll, int line,
                 free(elem);
                 reportAetherAstError(aetherSemanticGetSourcePath(), line, "declaration", detail,
                                      hint);
+            } else if (coll->type == AST_PROCEDURE_CALL && coll->token && coll->token->value &&
+                       strcmp(coll->token->value, "range") == 0 &&
+                       !aetherAstIsTopLevelUserFunction("range")) {
+                /* Python's range(): a typed `let` would not help, the callee
+                 * does not exist. */
+                char hint[160];
+                snprintf(detail, sizeof(detail), "identifier 'range' not in scope.");
+                snprintf(hint, sizeof(hint),
+                         "Aether has no range(): write `loop %s in 0..n { ... }` (n is excluded).",
+                         name);
+                reportAetherAstError(aetherSemanticGetSourcePath(), line, "scope", detail, hint);
             } else {
                 snprintf(detail, sizeof(detail),
                          "cannot infer the type of the collection in `loop %s in ...`.", name);

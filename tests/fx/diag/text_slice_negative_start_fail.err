@@ -1,0 +1,2 @@
+[ARR-003] slice bound -3 is negative
+hint: the last n characters are `s[length(s) - n..]`

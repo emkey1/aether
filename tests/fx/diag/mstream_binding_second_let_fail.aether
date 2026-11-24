@@ -1,0 +1,6 @@
+// D90: MS-001 for a stream bound to an Int, when the `let` is not first on
+// its line. It was the uncoded "Cannot assign MEMORY_STREAM to integer".
+fn main() -> Void {
+    let a: Int = 1; let s: Int = mstream_new();
+    fx { println(a); }
+}

@@ -1,0 +1,6 @@
+// D94: the same through an Int parameter.
+fn f(x: Int) -> Int { ret x; }
+fn main() -> Void {
+    let big = 1e30;
+    fx { println(f(2.5)); println(f(big)); }
+}

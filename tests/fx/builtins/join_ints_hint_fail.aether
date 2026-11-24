@@ -1,0 +1,5 @@
+// join of an Int[] named a builtin that does not exist (`formatfloat`).
+fn main() -> Void {
+    let xs: Int[] = [1, 2];
+    fx { println(join(xs, ",")); }
+}

@@ -1,0 +1,4 @@
+// D91: the import itself still works, and a different name is fine.
+use "limit_tools";
+const MyLimit: Int = 10;
+fn main() -> Void { fx { println(Limit, " ", MyLimit, " ", cap(7)); } }

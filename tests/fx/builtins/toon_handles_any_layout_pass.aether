@@ -1,0 +1,14 @@
+// D90: correct handle use, with several statements on a line, a one-line
+// function, object literals and the program's own node-taking functions. None
+// of it may be flagged by the per-statement handle checks.
+type Pair { a: Int; b: Text; }
+fn count(n: ToonNode) -> Int { ret toon_len(n); }
+fn first(n: ToonNode) -> Int { let e = toon_at(n, 0); ret toon_int_value(e); }
+fn sum_of(doc: ToonDoc, key: Text) -> Int { let r = toon_root(doc); let xs = toon_key(r, key); let t = 0; loop i in 0..toon_len(xs) { t = t + toon_int_value(toon_at(xs, i)); } ret t; }
+fn main() -> Void {
+    let doc = toon_parse("{\"xs\": [4, 5, 6], \"name\": \"z\", \"ok\": true}"); let root = toon_root(doc);
+    let xs: ToonNode = toon_key(root, "xs"); let p = new Pair { a: toon_get_int_or(root, "missing", 7), b: toon_get_text(root, "name") };
+    let nodes: ToonNode[] = [xs];
+    if toon_get_bool(root, "ok") { fx { println(count(xs), " ", first(xs), " ", sum_of(doc, "xs"), " ", p.a, " ", p.b, " ", count(nodes[0])); } }
+    toon_close(doc);
+}

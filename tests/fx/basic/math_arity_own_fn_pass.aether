@@ -1,0 +1,9 @@
+// D96: the program's own `round(x, n)` shadows the builtin and is judged by
+// its own declaration; the builtins keep working with the right counts.
+fn round(x: Real, n: Int) -> Real { ret round_to(x, n); }
+fn main() -> Void {
+    fx {
+        println(round(1.567, 2), " ", abs(-3), " ", pow(2, 10), " ", sqrt(16.0), " ", floor(2.7), " ", ceil(2.1), " ", trunc(2.9));
+        println(sqr(3), " ", exp(0.0), " ", ln(1.0), " ", sin(0.0), " ", cos(0.0), " ", tan(0.0), " ", log10(100.0));
+    }
+}

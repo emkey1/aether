@@ -1,0 +1,3 @@
+identifier 'None' not in scope.
+identifier 'null' not in scope.
+hint: write `nil` for a record that is not set

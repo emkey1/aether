@@ -1,0 +1,6 @@
+// D90: the handle checks read a `let` only at the start of a line, so the
+// second binding on this line was never checked and toon_len gave 0.
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1,2,3]"); let n: ToonNode = toon_parse("[1,2,3]");
+    fx { println(toon_len(n)); }
+}

@@ -2252,7 +2252,12 @@ static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len,
                         }
                     }
                     if (digits > 0) {
-                        buf[j++] = (char)val;
+                        /* D92: `\xNN` names the code point U+00NN, as
+                         * `chr(0xNN)` does (D85). At 0x80 and above it used
+                         * to be one raw byte: not a character, not equal to
+                         * `chr`, and a decode error when indexed. */
+                        if (val >= 0x80) j += aetherPutUtf8(buf + j, (unsigned long)val);
+                        else buf[j++] = (char)val;
                     } else {
                         buf[j++] = '\\';
                         buf[j++] = n;
@@ -2304,7 +2309,10 @@ static char *aetherUnescapeString(const char *src, size_t len, size_t *out_len,
                             val = (val << 3) + (src[++i] - '0');
                             digits++;
                         }
-                        buf[j++] = (char)val;
+                        /* D92: an octal escape is a code point too (`\351`
+                         * is `\xE9`); above 0x7F it was a raw byte. */
+                        if (val >= 0x80) j += aetherPutUtf8(buf + j, (unsigned long)val);
+                        else buf[j++] = (char)val;
                     } else {
                         buf[j++] = '\\';
                         buf[j++] = n;
@@ -5081,6 +5089,8 @@ static bool checkContractComparisons(AetherParser *p, AST *node,
             const char *arrDisp = (arrNode && arrNode->type == AST_VARIABLE &&
                                    arrNode->token && arrNode->token->value)
                                   ? arrNode->token->value : NULL;
+            /* The @post lowering renamed `result` to its per-ret temp. */
+            if (arrDisp && strncmp(arrDisp, "__aether_post_", 14) == 0) arrDisp = "result";
             char detail[320];
             snprintf(detail, sizeof(detail),
                      "@%s predicate compares an array (`%s`) to a scalar (`%s`) with `%s`; "
@@ -5841,6 +5851,24 @@ static AST *parseLetDeclAfterKeyword(AetherParser *p, int kwLine) {
                     freeAST(init);
                     return NULL;
                 }
+            }
+            /* `let ok = True;` / `let p = None;`: the initializer is another
+             * language's literal. Asking for a type sent the reader to
+             * `let ok: Real`; name the spelling instead. */
+            if (init->type == AST_VARIABLE && init->token && init->token->value &&
+                (!strcmp(init->token->value, "True") || !strcmp(init->token->value, "False") ||
+                 !strcmp(init->token->value, "None") || !strcmp(init->token->value, "null") ||
+                 !strcmp(init->token->value, "NULL"))) {
+                char scopeDetail[256];
+                const char *nameHint = aetherUnknownIdentifierHint(init->token->value);
+                snprintf(scopeDetail, sizeof(scopeDetail), "identifier '%s' not in scope.",
+                         init->token->value);
+                reportAetherAstError(aetherSemanticGetSourcePath(), kwLine, "scope", scopeDetail,
+                                     nameHint);
+                p->hadError = true;
+                freeToken(nameTok);
+                freeAST(init);
+                return NULL;
             }
             snprintf(detail, sizeof(detail),
                      "cannot infer the type of '%s' from its initializer.", vn);

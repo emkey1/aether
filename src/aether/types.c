@@ -1688,7 +1688,9 @@ static void ruleSink(void *vctx, const AST *site, const AST *value, const Aether
     else if (n && !strcasecmp(n, "copy")) shown = "copy";
     if (!shown || aetherTypeOf(value, env).kind != AETHER_T_REAL) return;
     char where[48];
-    snprintf(where, sizeof(where), "%s()", shown);
+    /* A Text slice lowers to copy(): the program never wrote that name. */
+    if (!strcmp(shown, "copy")) snprintf(where, sizeof(where), "a slice bound");
+    else snprintf(where, sizeof(where), "%s()", shown);
     reportRealInIntPosition(c, value, where);
 }
 

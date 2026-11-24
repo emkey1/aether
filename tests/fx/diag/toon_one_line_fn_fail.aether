@@ -1,0 +1,3 @@
+// D90: a whole function on one line. `d` is a ToonDoc and toon_get_int needs
+// a ToonNode; it printed 0. Written over several lines it was TOON-001.
+fn main() -> Void { let d = toon_parse("{\"a\": 5}"); fx { println(toon_get_int(d, "a")); } }

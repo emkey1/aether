@@ -1,0 +1,3 @@
+identifier 'range' not in scope.
+hint: Aether has no range(): write `loop i in 0..n { ... }`
+!cannot infer

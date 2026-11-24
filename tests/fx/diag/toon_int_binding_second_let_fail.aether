@@ -1,0 +1,3 @@
+// D90: a node bound to an Int after another statement on the line; `n + 1`
+// then did arithmetic on the handle.
+fn main() -> Void { let d = toon_parse("[1]"); let n: Int = toon_root(d); fx { println(n + 1); } }

@@ -1,0 +1,5 @@
+'round' takes 1 argument, but 2 were given.
+'abs' takes 1 argument, but 2 were given.
+'pow' takes 2 arguments, but 1 was given.
+'sqrt' takes 1 argument, but 2 were given.
+!expects 1 argument

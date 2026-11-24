@@ -1,0 +1,5 @@
+// D91: a program const named like a const the module exports. It compiled
+// with an uncoded "Constant redefined" warning and printed the module's 3.
+use "limit_tools";
+const Limit: Int = 10;
+fn main() -> Void { fx { println(Limit, " ", cap(7)); } }

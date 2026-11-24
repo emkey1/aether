@@ -1,0 +1,9 @@
+// D94: a Real with no Int value stored in an Int. It stored
+// 9223372036854775807, printed an uncoded range warning and carried on;
+// int(1e19) already stopped.
+fn main() -> Void {
+    let r = 1e19;
+    let small: Int = 3.9;
+    let a: Int = r;
+    fx { println(small, " ", a); }
+}

@@ -257,6 +257,53 @@ static const char *skipQuotedString(const char *cursor, int *line) {
     return cursor;
 }
 
+/* D90: where the statement that starts at `cursor` ends, within its line:
+ * just past the first `;`, `{` or `}` that is outside a string and outside
+ * any `(` or `[`, or at the newline. The handle-typing scans below read a
+ * `let` only at the start of what they were given, and they were given whole
+ * lines, so `let a: Int = 1; let n: ToonNode = toon_parse(s);` and a function
+ * written on one line were never checked: the program compiled and its
+ * getters returned their fallbacks. They are now given one statement at a
+ * time, and a caller that does not stop on a newline stays on the same line
+ * number. A `[v; n]` literal and a call's arguments are inside brackets, so
+ * they are not split; an object or map literal is split at its braces, which
+ * only shortens what follows a `let name = ` the scans have already read. */
+static const char *statementEndInLine(const char *cursor) {
+    int depth = 0;
+    while (*cursor && *cursor != '\n') {
+        char c = *cursor;
+        if (c == '"' || c == '\'') {
+            const char *after = skipQuotedString(cursor, NULL);
+            /* A string cannot hold a newline; if this one is not closed, stop
+             * at the end of the line rather than run on. */
+            const char *nl = cursor;
+            while (*nl && *nl != '\n') nl++;
+            if (after > nl) return nl;
+            cursor = after;
+            continue;
+        }
+        if (c == '(' || c == '[') {
+            depth++;
+        } else if (c == ')' || c == ']') {
+            if (depth > 0) depth--;
+        } else if (depth == 0 && (c == ';' || c == '{' || c == '}')) {
+            return cursor + 1;
+        }
+        cursor++;
+    }
+    return cursor;
+}
+
+/* The 0-based line `cursor` is on, counted on from a position already
+ * counted (the scans below move forward only). */
+static size_t lineIndexAt(const char *cursor, const char **counted, size_t *index) {
+    while (*counted < cursor) {
+        if (**counted == '\n') (*index)++;
+        (*counted)++;
+    }
+    return *index;
+}
+
 static int startsWithWord(const char *body, const char *lineEnd, const char *word) {
     size_t len = word ? strlen(word) : 0;
 
@@ -1031,17 +1078,15 @@ static void collectOpaqueParams(const char *body, const char *lineEnd,
 static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *table,
                                   const int *lineFnIds, size_t lineCount, int fnId) {
     const char *cursor = source;
+    const char *counted = source;
     size_t lineIdx = 0;
 
     while (cursor && *cursor) {
         const char *lineStart = cursor;
-        const char *lineEnd = cursor;
+        const char *lineEnd = statementEndInLine(cursor);
         const char *body;
-        size_t thisLine = lineIdx++;
+        size_t thisLine = lineIndexAt(cursor, &counted, &lineIdx);
 
-        while (*lineEnd && *lineEnd != '\n') {
-            lineEnd++;
-        }
         if (lineOutsideScope(lineFnIds, lineCount, thisLine, fnId)) {
             cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
             continue;
@@ -1134,17 +1179,15 @@ static void collectOpaqueBindings(const char *source, AetherOpaqueBindingTable *
 static void collectScalarBindings(const char *source, AetherScalarBindingTable *table,
                                   const int *lineFnIds, size_t lineCount, int fnId) {
     const char *cursor = source;
+    const char *counted = source;
     size_t lineIdx = 0;
 
     while (cursor && *cursor) {
         const char *lineStart = cursor;
-        const char *lineEnd = cursor;
+        const char *lineEnd = statementEndInLine(cursor);
         const char *body;
-        size_t thisLine = lineIdx++;
+        size_t thisLine = lineIndexAt(cursor, &counted, &lineIdx);
 
-        while (*lineEnd && *lineEnd != '\n') {
-            lineEnd++;
-        }
         if (lineOutsideScope(lineFnIds, lineCount, thisLine, fnId)) {
             cursor = *lineEnd == '\n' ? lineEnd + 1 : lineEnd;
             continue;
@@ -2153,6 +2196,170 @@ static const char *nextSignificantChar(const char *cursor, const char *lineEnd) 
     return NULL;
 }
 
+/* D90: the handle parameters of the program's own functions, so a call can
+ * be checked like a builtin's. `fn count(n: ToonNode)` called with a ToonDoc
+ * compiled (both lower to Int) and returned the getter's fallback. */
+#define AETHER_FN_HANDLE_PARAMS_MAX 8
+typedef struct {
+    char *name;
+    int kinds[AETHER_FN_HANDLE_PARAMS_MAX]; /* an AETHER_HANDLE_* kind, or -1 */
+    int count;
+    int ambiguous; /* two functions of this name (a method, a nested fn) disagree */
+} AetherFnHandleSig;
+
+typedef struct {
+    AetherFnHandleSig *items;
+    size_t count;
+    size_t cap;
+} AetherFnHandleSigTable;
+
+static void freeFnHandleSigTable(AetherFnHandleSigTable *table) {
+    if (!table) return;
+    for (size_t i = 0; i < table->count; i++) free(table->items[i].name);
+    free(table->items);
+    table->items = NULL;
+    table->count = table->cap = 0;
+}
+
+static AetherFnHandleSig *findFnHandleSig(const AetherFnHandleSigTable *table, const char *name,
+                                          size_t len) {
+    if (!table) return NULL;
+    for (size_t i = 0; i < table->count; i++) {
+        if (strlen(table->items[i].name) == len && strncmp(table->items[i].name, name, len) == 0)
+            return &table->items[i];
+    }
+    return NULL;
+}
+
+/* One `fn name(p: T, ...)` statement: record it when a parameter is a handle. */
+static void collectFnHandleSig(const char *body, const char *end, AetherFnHandleSigTable *table) {
+    AetherFnHandleSig sig;
+    const char *scan = skipInlineSpaces(body + 2, end);
+    const char *nameStart = scan;
+    int any = 0;
+
+    while (scan < end && (isalnum((unsigned char)*scan) || *scan == '_')) scan++;
+    if (scan == nameStart) return;
+    const char *nameEnd = scan;
+    scan = skipInlineSpaces(scan, end);
+    if (scan >= end || *scan != '(') return;
+    memset(&sig, 0, sizeof(sig));
+    while (scan < end && *scan != ')') {
+        int kind = -1;
+        int depth = 0;
+        const char *pStart = skipInlineSpaces(scan + 1, end);
+        const char *pEnd = pStart;
+        while (pEnd < end && (isalnum((unsigned char)*pEnd) || *pEnd == '_')) pEnd++;
+        const char *colon = skipInlineSpaces(pEnd, end);
+        if (pEnd == pStart || colon >= end || *colon != ':') break;
+        const char *typeStart = skipInlineSpaces(colon + 1, end);
+        const char *typeEnd = typeStart;
+        while (typeEnd < end && (isalnum((unsigned char)*typeEnd) || *typeEnd == '_')) typeEnd++;
+        if (typeEnd < end && *typeEnd != '[') {
+            size_t tl = (size_t)(typeEnd - typeStart);
+            if (tl == 7 && strncmp(typeStart, "ToonDoc", 7) == 0) kind = AETHER_HANDLE_DOC;
+            else if (tl == 8 && strncmp(typeStart, "ToonNode", 8) == 0) kind = AETHER_HANDLE_NODE;
+            else if (tl == 7 && strncmp(typeStart, "MStream", 7) == 0) kind = AETHER_HANDLE_MSTREAM;
+        }
+        if (sig.count < AETHER_FN_HANDLE_PARAMS_MAX) sig.kinds[sig.count++] = kind;
+        if (kind >= 0) any = 1;
+        for (scan = typeEnd; scan < end; scan++) {
+            if (*scan == '"' || *scan == '\'') {
+                const char *after = skipQuotedString(scan, NULL);
+                scan = (after > scan && after <= end) ? after - 1 : end - 1;
+            } else if (*scan == '(' || *scan == '[') {
+                depth++;
+            } else if (*scan == ')' || *scan == ']') {
+                if (depth == 0) break;
+                depth--;
+            } else if (*scan == ',' && depth == 0) {
+                break;
+            }
+        }
+    }
+    AetherFnHandleSig *seen = findFnHandleSig(table, nameStart, (size_t)(nameEnd - nameStart));
+    if (seen) {
+        if (seen->count != sig.count ||
+            memcmp(seen->kinds, sig.kinds, sizeof(int) * (size_t)sig.count) != 0)
+            seen->ambiguous = 1;
+        return;
+    }
+    /* A function with no handle parameter is remembered all the same: a
+     * same-named one elsewhere (a method, a nested fn) that has them must not
+     * be checked against this one's calls. */
+    (void)any;
+    if (table->count == table->cap) {
+        size_t cap = table->cap ? table->cap * 2 : 16;
+        AetherFnHandleSig *grown = (AetherFnHandleSig *)realloc(table->items, cap * sizeof(*grown));
+        if (!grown) return;
+        table->items = grown;
+        table->cap = cap;
+    }
+    sig.name = dupRange(nameStart, nameEnd);
+    if (!sig.name) return;
+    table->items[table->count++] = sig;
+}
+
+static void collectFnHandleSigs(const char *source, AetherFnHandleSigTable *table) {
+    const char *cursor = source;
+    while (cursor && *cursor) {
+        const char *end = statementEndInLine(cursor);
+        const char *body = skipInlineSpaces(cursor, end);
+        if (startsWithWord(body, end, "fn")) collectFnHandleSig(body, end, table);
+        cursor = *end == '\n' ? end + 1 : end;
+    }
+}
+
+/* A call to one of the program's functions: each argument that is a bare
+ * handle variable must be the handle its parameter declares. */
+static void validateUserCallHandleArgs(const char *callName, size_t callNameLen,
+                                       const char *openParen, const char *lineEnd, int line,
+                                       const AetherOpaqueBindingTable *opaqueBindings,
+                                       const AetherFnHandleSigTable *sigs) {
+    const AetherFnHandleSig *sig = findFnHandleSig(sigs, callName, callNameLen);
+    char detail[256];
+    const char *scan;
+    int index = 0;
+
+    if (!sig || sig->ambiguous || sig->count <= 0 || !opaqueBindings) return;
+    scan = openParen + 1;
+    while (scan < lineEnd && index < sig->count) {
+        const char *argStart = skipInlineSpaces(scan, lineEnd);
+        const char *argEnd = argStart;
+        int depth = 0;
+        while (argEnd < lineEnd && (isalnum((unsigned char)*argEnd) || *argEnd == '_')) argEnd++;
+        const char *after = skipInlineSpaces(argEnd, lineEnd);
+        if (argEnd > argStart && after < lineEnd && (*after == ',' || *after == ')') &&
+            sig->kinds[index] >= 0) {
+            const AetherOpaqueBinding *binding =
+                findOpaqueBinding(opaqueBindings, argStart, (size_t)(argEnd - argStart));
+            if (binding && binding->kind != sig->kinds[index]) {
+                snprintf(detail, sizeof(detail),
+                         "call to '%.*s' expects a %s handle, but '%.*s' is %s.",
+                         (int)callNameLen, callName, opaqueHandleTypeName(sig->kinds[index]),
+                         (int)(argEnd - argStart), argStart, opaqueHandleTypeName(binding->kind));
+                reportAetherErrorCoded(opaqueHandleCode(sig->kinds[index]), "type", line, detail);
+            }
+        }
+        /* On to the `,` that ends this argument, or the call's `)`. */
+        for (scan = argStart; scan < lineEnd; scan++) {
+            if (*scan == '"' || *scan == '\'') {
+                const char *past = skipQuotedString(scan, NULL);
+                scan = (past > scan && past <= lineEnd) ? past - 1 : lineEnd - 1;
+            } else if (*scan == '(' || *scan == '[') {
+                depth++;
+            } else if (*scan == ')' || *scan == ']') {
+                if (depth == 0) return;
+                depth--;
+            } else if (*scan == ',' && depth == 0) {
+                break;
+            }
+        }
+        scan++;
+        index++;
+    }
+}
+
 static void validateOpaqueCallKind(const char *callName,
                                    size_t callNameLen,
                                    const char *openParen,
@@ -2486,6 +2693,7 @@ static void validatePrimaryHelperArgType(const char *callName,
 static void validateAetherSource(const char *source,
                                  const AetherOpaqueBindingTable *opaqueBindings,
                                  const AetherScalarBindingTable *scalarBindings,
+                                 const AetherFnHandleSigTable *fnHandleSigs,
                                  const int *lineFnIds, size_t lineCount, int fnId) {
     /* Textual TOON handle-typing / scalar-flow pass. The fx effect fence and
      * @pure purity checks that used to live in this line scan moved to the AST
@@ -2498,15 +2706,13 @@ static void validateAetherSource(const char *source,
 
     while (*cursor) {
         const char *lineStart = cursor;
-        const char *lineEnd = cursor;
+        /* One statement, not one line (D90): see statementEndInLine. */
+        const char *lineEnd = statementEndInLine(cursor);
         const char *body;
         const char *scan;
         const char *lastWord = NULL;
         size_t lastWordLen = 0;
 
-        while (*lineEnd && *lineEnd != '\n') {
-            lineEnd++;
-        }
         if (lineOutsideScope(lineFnIds, lineCount, (size_t)(line - 1), fnId)) {
             if (*lineEnd == '\n') {
                 line++;
@@ -2558,6 +2764,13 @@ static void validateAetherSource(const char *source,
                                            lineEnd,
                                            line,
                                            opaqueBindings);
+                    {
+                        /* `p.count(doc)` is a method, not the free fn `count`. */
+                        const char *before = previousSignificantChar(lineStart, start);
+                        if (!(before && *before == '.'))
+                            validateUserCallHandleArgs(start, nameLen, afterName, lineEnd, line,
+                                                       opaqueBindings, fnHandleSigs);
+                    }
                     validateLengthOfHandle(start,
                                            nameLen,
                                            afterName,
@@ -3306,6 +3519,26 @@ static const AetherBuiltinArity kAetherBuiltinArity[] = {
     {"parse_float", 11, 1, 1},
     {"parse_bool",  10, 1, 1},
     {"split",        5, 2, 2},
+    /* D96: the one-argument math helpers and power, each read off its
+     * `arg_count` guard in pscal-core's builtin.c. `round(1.567, 2)`,
+     * `abs(1, 2)` and `pow(2)` compiled, ran when the line was never reached,
+     * and otherwise stopped with the engine's uncoded "Round expects 1
+     * argument."; the guides call a wrong argument count BUILT-002. */
+    {"round",        5, 1, 1},
+    {"abs",          3, 1, 1},
+    {"sqrt",         4, 1, 1},
+    {"sqr",          3, 1, 1},
+    {"floor",        5, 1, 1},
+    {"ceil",         4, 1, 1},
+    {"trunc",        5, 1, 1},
+    {"sin",          3, 1, 1},
+    {"cos",          3, 1, 1},
+    {"tan",          3, 1, 1},
+    {"exp",          3, 1, 1},
+    {"ln",           2, 1, 1},
+    {"log10",        5, 1, 1},
+    {"power",        5, 2, 2},
+    {"pow",          3, 2, 2},
     /* The modern standard surface (D56-D61): arities of pscal-core's
      * ext_builtins/strings/stdlib.c and of the aliased mstream/file builtins. */
     {"aether_repeat_array", 19, 2, 2},
@@ -5702,7 +5935,9 @@ void aetherPerformSemanticAnalysis(AST *root) {
         lineFnIds = computeLineFunctionIds(scanSource, &lineCount, &fnCount);
         collectOpaqueBindings(scanSource, &opaqueBindings, lineFnIds, lineCount, 0);
         collectScalarBindings(scanSource, &scalarBindings, lineFnIds, lineCount, 0);
-        validateAetherSource(scanSource, &opaqueBindings, &scalarBindings,
+        AetherFnHandleSigTable fnHandleSigs = {0};
+        collectFnHandleSigs(scanSource, &fnHandleSigs);
+        validateAetherSource(scanSource, &opaqueBindings, &scalarBindings, &fnHandleSigs,
                              lineFnIds, lineCount, 0);
         if (lineFnIds) {
             int fid;
@@ -5713,7 +5948,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
                     copyScalarBindingTable(&fnScalar, &scalarBindings)) {
                     collectOpaqueBindings(scanSource, &fnOpaque, lineFnIds, lineCount, fid);
                     collectScalarBindings(scanSource, &fnScalar, lineFnIds, lineCount, fid);
-                    validateAetherSource(scanSource, &fnOpaque, &fnScalar,
+                    validateAetherSource(scanSource, &fnOpaque, &fnScalar, &fnHandleSigs,
                                          lineFnIds, lineCount, fid);
                 }
                 freeScalarBindingTable(&fnScalar);
@@ -5722,6 +5957,7 @@ void aetherPerformSemanticAnalysis(AST *root) {
             free(lineFnIds);
         }
         validateNoDuplicateLocals(scanSource);
+        freeFnHandleSigTable(&fnHandleSigs);
         freeScalarBindingTable(&scalarBindings);
         freeOpaqueBindingTable(&opaqueBindings);
         free(sanitized);

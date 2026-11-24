@@ -1,0 +1,2 @@
+binding for 's' must use MStream when initialized from 'mstream_new'.
+!Cannot assign MEMORY_STREAM

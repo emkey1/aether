@@ -3462,6 +3462,24 @@ void aetherAstCollectImportedTypes(const char *mainSource, const char *path,
                 char *resolved = resolveRelativePath(path, importPath);
                 if (resolved) {
                     char *moduleSource = readTextFile(resolved);
+                    /* D91: `use "m_util";`, the canonical spelling, names no
+                     * extension, and the file is `m_util.aether`. This read
+                     * the bare name only, found nothing, and so no imported
+                     * const was ever known to the NAME-001 checks: a program
+                     * `const` of an exported name compiled and lost to the
+                     * module's value. Ask the loader's own resolver. */
+                    if (!moduleSource) {
+                        char *found = aetherResolveImportPath(importPath);
+                        if (found) {
+                            moduleSource = readTextFile(found);
+                            if (moduleSource) {
+                                free(resolved);
+                                resolved = found;
+                            } else {
+                                free(found);
+                            }
+                        }
+                    }
                     if (moduleSource) {
                         AetherBindingTable bt = {0};
                         AetherFunctionTable ft = {0};

@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-11-24-1*
+*Guide version: 2026-11-24-2*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -107,7 +107,9 @@ If you only read one part of this document, read **Highest-Value Rules** and
     rejected: with a record it races — the concurrent writes corrupt the heap,
     so it is rejected at compile time. Give each branch its own record and
     combine the results after the block. The same holds for an enclosing local
-    that a nested fn assigns: only one branch may use it.
+    that a nested fn assigns: only one branch may use it. The check reads
+    names: one record reached through two names (`a.inner` and `b.inner`, or
+    `rows[i]` and `rows[j]`) is not caught, and the branches then race.
 22. **MS-001.** `MStream` is the opaque memory-stream handle type.
     `mstream_new()` / `mstream_from_text(text)` return `MStream` — never
     declare the binding `Int` or `Text`. Extract contents with
@@ -193,7 +195,8 @@ when unsure about a type, add it explicitly.
 - an implicit `Real` → `Int` narrowing: `let n: Int = 3.7;`, `n = random();`,
   `let n: Int = sqrt(2.0);`. The fractional part is discarded silently — this is
   a `[NARROW-001]` **warning**, so it still compiles. Write `int(...)` when the
-  truncation is intended (NARROW-001)
+  truncation is intended (NARROW-001). A `Real` outside `Int`'s range has no
+  `Int` value: storing it stops the program (`[AETH-RUNTIME-INT-RANGE]`)
 - foreign object/JSON APIs such as `JsonDoc`, `JsonNode`, `json.parseFile(...)`,
   `root.get(...)`, `Int.MIN`, and `value.toString()`
 - Pascal-style `write(...)` / `writeln(...)` in new code; prefer
@@ -283,7 +286,8 @@ and `use` declarations are fine beside `main`. To stop early with a status from 
   `x div 2`.
 - **Text literals**: double-quoted. Escapes: `\"`, `\\`, `\n`, `\t`, `\r`,
   `\xNN` and `\uNNNN`; `\0` ends the string, and an unknown escape stays as
-  written (`\q` prints `\q`).
+  written (`\q` prints `\q`). `\xNN` names the character with that code, as
+  `chr` does: `"\xe9"` is `"\u00e9"`.
 - **Statements** end with `;`. Blocks use `{ }`. Two expressions on one line
   need an operator or a `;` between them: `a b` is `[SYN-001]`, and so is a
   statement that only computes a value (`x;`).
@@ -1077,7 +1081,7 @@ Additional verified `Text` builtins (all pure, no `fx` needed). Positions are
 |---|---|
 | `s[i]` | the character at `i`; **0-based**, like arrays (`s[0]` is the first) |
 | `s[a..b]` | substring from `a` up to but not including `b`, like `arr[a..b]`; a `b` past the end is cut at the end (an array slice is an error instead) |
-| `s[a..]` / `s[..b]` | from `a` to the end / the first `b` characters; past the end gives `""` |
+| `s[a..]` / `s[..b]` | from `a` to the end / the first `b` characters; past the end gives `""`. A negative bound is a run-time `ARR-003`, not "from the end": the last `n` characters are `s[length(s) - n..]` |
 | `s[i] = "x"` | replace the character at `i` with a one-character `Text` |
 | `loop ch in s { ... }` | each character in turn, as a one-character `Text` |
 | `contains(s, x) -> Bool` | whether `x` occurs in `s` |
@@ -1488,7 +1492,8 @@ or `toon_bool` — those are the most common wrong guesses. There is no
 expect with `toon_has_key`.
 
 Prefer `toon_is_*` predicates for control flow instead of depending on exact
-`toon_type(node)` string values.
+`toon_type(node)` string values. A JSON integer too large for `Int` (2^63 and
+above) is a `"real"`: `toon_get_real` reads it and the `Int` getters fall back.
 
 ### Root shape rule (ROOT-001)
 

@@ -1,0 +1,11 @@
+// D90: a ToonDoc passed to a function whose parameter is a ToonNode. Both
+// lower to Int, so it compiled on any layout and toon_len returned 0.
+fn use_node(n: ToonNode) -> Int {
+    ret toon_len(n);
+}
+fn main() -> Void {
+    let doc: ToonDoc = toon_parse("[1,2,3]");
+    let k: Int = use_node(doc);
+    fx { println(k); }
+    toon_close(doc);
+}

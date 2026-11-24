@@ -1,0 +1,7 @@
+// A Real slice bound was reported as "copy() needs an Int": the program
+// never wrote copy().
+fn main() -> Void {
+    let s = "abcdef";
+    let n = 4;
+    fx { println(s[..n / 2]); }
+}

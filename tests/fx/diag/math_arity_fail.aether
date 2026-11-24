@@ -1,0 +1,9 @@
+// D96: a wrong argument count on a math builtin is BUILT-002 at compile
+// time. `round(1.567, 2)` in a branch never taken compiled and ran; reached,
+// it stopped with the uncoded "Round expects 1 argument."
+fn main() -> Void {
+    fx {
+        if 1 > 2 { println(round(1.567, 2)); }
+        println(abs(1, 2), pow(2), sqrt(1.0, 2.0));
+    }
+}

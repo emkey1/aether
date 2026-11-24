@@ -1,0 +1,6 @@
+// D95: the end bound, and a bound held in a variable.
+fn main() -> Void {
+    let s = "hello";
+    let k = 0 - 1;
+    fx { println(s[..k]); }
+}

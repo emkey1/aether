@@ -1,0 +1,6 @@
+// The same for a row of a table that holds nothing, and for a write.
+fn main() -> Void {
+    let g: Int[][] = [[]];
+    g[0][0] = 4;
+    fx { println(length(g)); }
+}

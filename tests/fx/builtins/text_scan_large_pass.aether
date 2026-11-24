@@ -1,0 +1,26 @@
+// Scanning a large ASCII Text one character at a time: `t[i]`, a slice,
+// `loop c in t` and `length(t)` each decoded the whole Text on every use, so
+// this took about ten seconds; it now takes a fraction of one. The result
+// also pins that the fast path and the decoding path agree on a Text that
+// is not all ASCII.
+fn build(k: Int) -> Text {
+    let s = "ab";
+    loop i in 0..k { s = s + s; }
+    ret s;
+}
+fn count_a(t: Text) -> Int {
+    let n = 0;
+    loop i in 0..length(t) { if t[i] == "a" { n = n + 1; } }
+    ret n;
+}
+fn main() -> Void {
+    let big = build(15);
+    let mixed = "héllo wörld, naïve café — ok";
+    let each = 0;
+    loop c in mixed { if c == "é" { each = each + 1; } }
+    fx {
+        println(length(big), " ", count_a(big));
+        println(length(mixed), " ", mixed[1], " ", mixed[9], " ", mixed[22], " ", mixed[20..24], " ", each);
+        println(index_of(mixed, "caf"), " ", mixed[25], " ", mixed[length(mixed) - 1]);
+    }
+}

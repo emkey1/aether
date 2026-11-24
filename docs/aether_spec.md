@@ -179,7 +179,7 @@ fn main() -> Void {
 - **Real**: digits with a `.` and an optional exponent (`2.5e2`). `.5` and `2.`
   are accepted.
 - **Text**: `"..."` or `'...'`, on one line. Escapes: `\n`, `\t`, `\r`, `\"`,
-  `\\`, `\xNN` (one byte), `\uXXXX`, `\UXXXXXXXX` and `\u{H..H}` (a code point,
+  `\\`, `\xNN` (the code point with that code, D92), `\uXXXX`, `\UXXXXXXXX` and `\u{H..H}` (a code point,
   stored as UTF-8). An unknown escape keeps its backslash. Adjacent Text
   literals join.
 - **Bool**: `true`, `false` (lower case). **nil** is the empty record reference.

@@ -393,11 +393,22 @@ bool aetherCheckParSharedRecords(AetherParser *p, AST *call, int handle, int cal
         if (prior >= 0 && prior != handle) {
             const char *ppath = aetherSemanticGetSourcePath();
             if (ppath && *ppath) aetherDiagf("%s:%d: ", ppath, callLine);
-            aetherDiagf("[PAR-001] Aether par error: record '%s' is shared by more than one par "
-                        "branch; the spawned threads write it concurrently, which races (heap "
-                        "corruption).\n", an);
-            aetherDiagf("hint: give each par branch its own record, then combine the results "
-                        "after the `par { ... }` block.\n");
+            /* An array is rejected even when no branch writes it: say "array",
+             * and do not claim a write. */
+            size_t atyLen = strlen(aty);
+            if (atyLen > 0 && aty[atyLen - 1] == ']') {
+                aetherDiagf("[PAR-001] Aether par error: array '%s' is shared by more than one par "
+                            "branch; the branches run at the same time and share its storage, "
+                            "which races (heap corruption).\n", an);
+                aetherDiagf("hint: give each par branch its own copy (`let ys: %s = %s[0..];`), then "
+                            "combine the results after the `par { ... }` block.\n", aty, an);
+            } else {
+                aetherDiagf("[PAR-001] Aether par error: record '%s' is shared by more than one par "
+                            "branch; the spawned threads write it concurrently, which races (heap "
+                            "corruption).\n", an);
+                aetherDiagf("hint: give each par branch its own record, then combine the results "
+                            "after the `par { ... }` block.\n");
+            }
             aetherReportGuideHelp("PAR-001");
             p->hadError = true;
             return true;

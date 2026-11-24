@@ -1,0 +1,7 @@
+// Python's range(): it was TYPE-001 "cannot infer the type of the collection",
+// with a hint to bind a typed let. The callee does not exist.
+fn main() -> Void {
+    let n = 0;
+    loop i in range(0, 3) { n = n + i; }
+    fx { println(n); }
+}

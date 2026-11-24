@@ -1,0 +1,6 @@
+// `None` and `null` are not Aether: a record that is not set is `nil`.
+type P { v: Int; }
+fn main() -> Void {
+    let p: P = None;
+    if p == null { fx { println("unset"); } }
+}

@@ -1,0 +1,9 @@
+// D91: a local and a parameter named like an imported const are NAME-001,
+// as the guides say. The check never found a module imported without its
+// `.aether` extension, which is the canonical spelling.
+use "limit_tools";
+fn over(Limit: Int) -> Bool { ret Limit > 3; }
+fn main() -> Void {
+    let n = cap(7);
+    fx { println(n, " ", over(4)); }
+}

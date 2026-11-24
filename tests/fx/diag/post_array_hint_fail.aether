@@ -1,0 +1,7 @@
+// The @post hint named the lowered temp (`length(__aether_post_0) > 0`).
+@post result > 0
+fn f(n: Int) -> Int[] { ret [n]; }
+fn main() -> Void {
+    let xs: Int[] = f(1);
+    fx { println(xs[0]); }
+}

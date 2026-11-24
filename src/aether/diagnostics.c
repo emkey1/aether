@@ -423,6 +423,14 @@ static const AetherNameHint kAetherNameHints[] = {
     { "items", "loop over a map's keys: `loop k in m { ... m[k] ... }`." },
     { "pop", "did you mean 'remove(m, k)'? Read `m[k]` first if you need the value." },
     { "del", "did you mean 'remove(m, k)'?" },
+    /* Literals as other languages spell them. Names are case-sensitive (D70),
+     * so these were a bare SCOPE-001, or a TYPE-001 asking for a type. */
+    { "True", "write `true`: the Bool literals are lowercase `true` and `false`." },
+    { "False", "write `false`: the Bool literals are lowercase `true` and `false`." },
+    { "None", "write `nil` for a record that is not set; Int, Real, Text, Bool and arrays have no empty value." },
+    { "null", "write `nil` for a record that is not set; Int, Real, Text, Bool and arrays have no empty value." },
+    { "NULL", "write `nil` for a record that is not set; Int, Real, Text, Bool and arrays have no empty value." },
+    { "range", "Aether has no range(): write `loop i in 0..n { ... }` (n is excluded)." },
 };
 
 static const char *aetherNameHintFor(const char *name) {

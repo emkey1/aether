@@ -1,0 +1,11 @@
+// A read-only array shared by two branches is PAR-001. The message called
+// it a record and said the threads write it.
+type Tally { count: Int = 0; }
+fn tot(t: Tally, xs: Int[]) -> Void { t.count = sum(xs); }
+fn main() -> Void {
+    let a: Tally = new Tally();
+    let b: Tally = new Tally();
+    let xs: Int[] = [1, 2];
+    par { tot(a, xs); tot(b, xs); }
+    fx { println(a.count, b.count); }
+}

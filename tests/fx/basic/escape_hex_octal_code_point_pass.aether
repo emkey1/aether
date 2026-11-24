@@ -1,0 +1,10 @@
+// D92: `\xNN` and an octal escape name a code point, as chr does. At 0x80
+// and above each was one raw byte: it printed as another character, was not
+// equal to chr(233), and indexing a Text that held it stopped the program.
+fn main() -> Void {
+    let s = "a\xe9b";
+    fx {
+        println("[\xe9]", " ", length("\xe9"), " ", "\xe9" == chr(233), " ", "\351" == "é");
+        println(s[1], " ", length(s), " ", ord("\xff"), " ", "\x41\x7f" == "A" + chr(127));
+    }
+}

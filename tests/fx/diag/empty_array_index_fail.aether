@@ -1,0 +1,6 @@
+// Reading an element of an empty array stopped with the uncoded
+// "VM Error: Array element index out of bounds."; it is ARR-003.
+fn main() -> Void {
+    let xs: Int[] = [];
+    fx { println(xs[0]); }
+}
