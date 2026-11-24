@@ -156,8 +156,13 @@ Fleet facts stay out of this repo: which machines run the boards and the
 training, their names, counts and hardware. Tracked files say "the GPU hosts" or
 "the training host", and archived records use the aliases `host-a` .. `host-g`
 (`bench/results/pack_reports.py` applies `FLEET_RULES` when packing reports, and
-`--rescrub` to anything already committed); the `fleet-hardware` rule of
-`tools/check_public_hygiene.py` fails on a slip. The tools read real names from
+`--rescrub` to anything already committed). `tools/check_public_hygiene.py`
+fails on a slip through its `private-terms` check. Those patterns are private
+too: it reads them from `~/.config/pscal/private_terms.txt`, or in CI from the
+`AETHER_PRIVATE_TERMS` secret, and without them that check is skipped and says
+so. It catches only the terms listed there, and it does not read inside packed
+`.json.gz` reports, so a new host tag or hardware name needs a line in that
+file and a rule in the private scrub file. The tools read real names from
 the private overlay `~/.config/pscal/fleet.env` (`tools/fleet_env.py`): a run
 config's `"host": "host-c"` resolves through `AETHER_HOST_C`, the ssh user through
 `AETHER_TRAIN_SSH_USER`, the remote GPU host through `AETHER_REMOTE_GPU_HOST` /

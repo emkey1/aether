@@ -6,7 +6,7 @@ only in the base model and, in the later runs, the stopping rule.
 
 ## How it trains on this hardware
 
-- **bf16 loading runs out of memory** on the 121 GB unified-memory host. The loader holds a CPU copy (52 GB) beside
+- **bf16 loading runs out of memory** on the training host, whose memory is unified. The loader holds a CPU copy (52 GB) beside
   the GPU copy. So the runs load in **4-bit mode**, as the July MoE runs did.
   - bitsandbytes cannot quantize the fused expert weights (`mlp.experts.gate_up_proj` / `down_proj` are
     `nn.Parameter`s), so the 256 routed experts stay bf16 anyway. Only attention and the shared expert are 4-bit.

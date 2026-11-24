@@ -192,7 +192,7 @@ needs 0.22 (17.66 GiB of weights against a ~21.5 GiB budget leaves too little fo
 KV cache; the failure is a bare "Engine core initialization failed"). The
 14B-35B merges (28-67 GB) do not fit host-c at all and were served on host-b at
 0.85, which is what `serve_any.sh` has always defaulted to. torch
-`mem_get_info` reports only ~26% of unified memory as free on these GB10s
+`mem_get_info` reports only ~26% of unified memory as free on these GPU hosts
 (host-b 31.8 GiB of 121.6, host-c ~27, host-a 6.5 with something resident); that
 figure bounds serving but **not** training. No NVFP4 step is needed for this
 tier. Also: the serve loop's `docker logs --tail 15` captures only the outer

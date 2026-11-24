@@ -44,7 +44,7 @@
   "call to 'toon_parse_file' requires an fx block" (7 hard_v2 TOON tasks, 3 v2_pos), mostly fixed on repair.
   The __aether_slice_0 SCOPE-001 leak recurs (hard2_heap_sort), so two models hit it.
 - 2026-10-08 04:55Z (owner request): T'Ra host-d_remote max_concurrent_requests 4 -> 1 for the boards (backup
-  config.yaml.bak-aether-b0-m5cap-20261008T045531Z). Units before this ran with host-d shared up to 4-wide.
+  config.yaml.bak-aether-b0-hostdcap-20261008T045531Z). Units before this ran with host-d shared up to 4-wide.
 - qwen36-27b hard_v2 r0 had 3 empty_output infra cases (04:38Z), while the Ornith-1.5 co-tenant was loaded again
   beside it on the 4-wide host-d; the seeded re-run produced full programs, so transient serving, not an output cap.
 - Panel extended (owner request): mid-bonsai2-27b-ternary = Ternary-Bonsai-2-27B-PQ2_0.gguf on host-f,
@@ -90,7 +90,7 @@
   on host-g (default route via utun13); unconfirmed (no ProtonVPN log found). Jobs waited in T'Ra and resumed; the
   harness re-submitted after its 8900 s deadline. ~6 h lost, no data lost.
 - 4-WIDE host-d (owner request, 2026-10-09 15:27Z): T'Ra host-d_remote max_concurrent_requests 1 -> 4 (backup
-  config.yaml.bak-aether-b0-m5cap4-20261009T152550Z; T'Ra is back in the gui/501 launchd domain). The driver runs up
+  config.yaml.bak-aether-b0-hostdcap4-20261009T152550Z; T'Ra is back in the gui/501 launchd domain). The driver runs up
   to MAXPAR=4 consecutive same-model units in parallel (one model loaded, several requests in flight); B1/B0-small/
   P0/S0 are now ordered model-major so a model's repeats batch together. From qwen35-9b r0 on, host-d units ran with up
   to 4 concurrent requests on one model (MLX batching: seeded samples need not be bit-identical to serial runs).
@@ -148,7 +148,7 @@
   queue-wait limit); (2) cancel the T'Ra job when the parent gives up. host-d lane left paused pending the owner's call.
 - SCOPE CUT (owner decisions 2026-10-11 ~08:45Z): future boards run on OpenRouter (twin in results/b0_openrouter_20261010).
   host-d lane: only the two models OpenRouter lacks continue -- devstral-small-2 (r1, r2) and prism-coder-7b (r0-2) on B0,
-  then B1, P0 and BP for both (~/b0-tools/start_host-d_local_only.sh, screen b0m5s; starts when the orphaned 9b jobs clear).
+  then B1, P0 and BP for both (~/b0-tools/start_host-d_local_only.sh, screen b0hostds; starts when the orphaned 9b jobs clear).
   Dropped locally: qwen35-9b beyond its v2_pos r0 (partial checkpoints kept as B0/low-qwen35-9b__*.json.tmp), repeats
   1-2 of qwen36-35b-a3b and qwen36-27b, B0-small, S0. host-f lane: local Bonsai finishes B1 and stops
   (~/b0-tools/stop_m2_after_b1.sh); its P0, B0-small and BP are not run. The follow-up passes (b0hostdnext, b0hostfnext)

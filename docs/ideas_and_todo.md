@@ -1607,7 +1607,7 @@ to parse (seed-oss), and `par` blocks calling user functions can crash silently 
 ## Generative pass 2 — after the 2026-07-01 diagnostic/guide fixes
 
 *Re-ran the generative miner against the FIXED compiler (`aether 2026-07-01-1`, gitlink 63ca546)
-+ updated guides, 6 models (Ornith-1.0, m5 qwen3-coder-next + devstral, host-b a3b-coder, gemini-2.5-flash,
++ updated guides, 6 models (Ornith-1.0, host-d qwen3-coder-next + devstral, host-b a3b-coder, gemini-2.5-flash,
 gemini-3.1-pro), 32 programs, 23 clean.* **The six fixes held under free-form generation** — none of the
 prior high-frequency gaps recurred: reserved-word member collisions now emit a named `SYN-001`,
 `@post`-over-array is a compile-time `ANN-001`, mutating methods on inferred `new` compile, and
@@ -1710,7 +1710,7 @@ compiles+runs; the free-standing `fn get(self: C)` + `@pre self.v` form fails `[
 methods without a `self`-referencing contract still work. No `VERSION` bump (no language change).
 
 ## Generative pass 3 — 2026-07-01 (after the diagnostic/guide fixes + field-default work queued)
-10-model cohort (Ornith-1.0, host-b trained a3b/mistral, m5 qwen3-coder/devstral/olmo3-think, 2× Gemini,
+10-model cohort (Ornith-1.0, host-b trained a3b/mistral, host-d qwen3-coder/devstral/olmo3-think, 2× Gemini,
 2× GLM), 5 free-form programs each, T'Ra-routed. 41/59 (69%) compiled+ran; the capable models were clean
 (qwen3-coder 5/5, both Gemini 5/5, both GLM 4/5, Ornith 14/18). The previously-coded diagnostics all fired
 correctly (`FX-001`, `NAME-001`, `PAR-001`, `SCOPE-001`), i.e. no regressions from the recent fixes. The
