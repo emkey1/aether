@@ -501,6 +501,47 @@ reads everything it needs (binary and its sha256, guide, seed base, repeat)
 from the report; the drivers do this automatically. Each attempt also stores
 the provider's `finish_reason`.
 
+The re-run goes through `--resume` on a one-case copy of the report, so it is
+checked the way a resume is (below): where the guide, the tasks file, the
+binary, the compiler flags or the destination's settings are no longer what
+the report recorded, the case is left unmeasured and the tool says what
+differs. `--guide NAME=PATH` reads a variant's guide from a restored copy
+(its sha256 must still be the report's); `--allow-mismatch` re-runs anyway
+and records the differences on the patched case
+(`rerun_of_infra_failure.allowed_mismatches`). Baseline cases are re-run too.
+
+**A failed repair round keeps the first attempt.** When a repair round fails
+in the infrastructure, the attempts measured before it stay: a resume or a
+re-run asks only for the missing rounds, from the last measured attempt, and
+marks the case `continued_after_infra` (`kept_attempts`, `infra_kind`,
+`infra_stage`). Until 2026-11-24 such a case was asked again from the start.
+Only a case whose first attempt failed can reach a repair round, so only
+failed first attempts were drawn twice, which reads FA high. Reports made
+before then do not say which patched or resumed cases were re-drawn this way
+(`rerun_of_infra_failure` has no `kept_attempts` there).
+
+**`--resume`** continues the run checkpointed in `--output-json`. It is refused
+when anything that changes what a model is asked or how its answer is scored
+differs from the checkpoint: the tasks file, the binary, `--aether-arg` and
+`--sandbox-deny`, the guides the run uses, the run settings, and each
+destination's model, temperature, output budget, seed and `extra_body`
+(compared by sha256). `--resume-allow-mismatch` continues anyway and records
+the differences in the report's `resumed` entry. A checkpoint written before
+2026-11-24 has no temperature or `extra_body_sha256`, so those two are not
+compared for it.
+
+**What is scored.** The program is the reply's fenced block tagged `aether`
+(the first, where there are several; `python` or `rust` on a baseline lane).
+Without one it is the first block not tagged as output (`text`, `output`,
+`console` and the like), and without a fence the whole reply. An info string
+may hold more than the language (` ```aether title=x `). stdout is compared
+byte for byte with the expected text: a carriage return is not a newline.
+Before 2026-11-24 the first block was always taken, an info string with a
+space was not read as a fence (the text after the program was then scored),
+and `\r` was translated to `\n` before the comparison. Over the archive this
+changes 4 of 11,217 stored replies and no verdict
+(`results/decisions/bench_tools_2026-11-24.md`).
+
 On the T'Ra queue path three infra kinds say what happened to the job:
 `queue_timeout` (it never started within `queue_timeout_seconds`),
 `empty_reply_no_finish` (the queue returned an empty reply with no finish

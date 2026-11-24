@@ -603,7 +603,14 @@ if plan.get("prompt_log"):
 if plan.get("fail_on") == kind:
     sys.stderr.write("upstream exploded\n")
     raise SystemExit(1)
-if plan.get("fail_first_n"):
+if plan.get("fail_after_n") is not None:
+    counter = pathlib.Path(plan["counter"])
+    seen = int(counter.read_text()) if counter.exists() else 0
+    counter.write_text(str(seen + 1))
+    if seen >= plan["fail_after_n"]:
+        sys.stderr.write("HTTP API error 503: upstream down\n")
+        raise SystemExit(1)
+elif plan.get("fail_first_n"):
     counter = pathlib.Path(plan["counter"])
     seen = int(counter.read_text()) if counter.exists() else 0
     counter.write_text(str(seen + 1))
@@ -660,6 +667,19 @@ def test_run_captured_times_out_without_raising_and_caps_output():
         echoed = adb.run_captured([sys.executable, "-c", "import sys; print(sys.stdin.read().count('\\n'))"],
                                   cwd=tmp, timeout=20)
         assert echoed["stdout"] == "0\n", "a program with no task stdin reads EOF, not the harness's terminal"
+
+
+def test_carriage_returns_are_scored_as_written():
+    # "a\rb" used to be translated to "a\nb" before the comparison and passed.
+    with workdir() as tmp:
+        script = tmp / "cr.py"
+        script.write_text("import sys\nsys.stdout.buffer.write(b'a\\rb\\r\\nc\\n')\n", encoding="utf-8")
+        run = adb.run_captured([sys.executable, str(script)], cwd=tmp, timeout=20)
+        assert run["stdout"] == "a\rb\r\nc\n", run
+    task = adb.Task(task_id="cr", title="cr", prompt="", expected_stdout="a\nb\n")
+    assert adb.is_exact(task, 0, "a\nb\n") and not adb.is_exact(task, 0, "a\rb\n")
+    assert not adb.is_exact(task, 0, "a\r\nb\r\n")
+    assert "WHITESPACE" in adb.describe_stdout_mismatch("a\nb\n", "a\r\nb\r\n")
 
 
 def test_python_lane_timeout_is_rc_124():
@@ -1981,6 +2001,283 @@ def test_resume_without_a_report_starts_fresh_and_needs_output_json():
         proc = run_harness(["--task", "hello_fx", "--resume", "--allow-skew", "--docs", "none",
                             "--aether-bin", str(FAKE_AETHER)])
         assert proc.returncode != 0 and "--resume needs --output-json" in proc.stderr, proc.stderr
+
+
+def test_resume_refuses_changed_request_settings_and_compiler_flags():
+    # Review 2026-11-24: temperature, the output budget, the extra body and the
+    # compiler flags all change what is asked or how it is scored, and none of
+    # them stopped a resume.
+    with workdir() as tmp:
+        argv = ["--seed-base", "42", "--task", "hello_fx"]
+        base = dict(temperature=0.0, max_output_tokens=3000, extra_body={"reasoning": {"effort": "low"}})
+        proc, first = fake_run(tmp, argv, destinations=[mock_destination(**base)])
+        assert proc.returncode == 0, proc.stderr
+        recorded = first["destinations"][0]
+        assert recorded["temperature"] == 0.0 and recorded["max_output_tokens"] == 3000, recorded
+        assert len(recorded["extra_body_sha256"]) == 64, recorded
+        for change, needle in (
+            ({"temperature": 0.7}, "destination mock temperature"),
+            ({"max_output_tokens": 9000}, "destination mock max_output_tokens"),
+            ({"extra_body": {"reasoning": {"effort": "high"}}}, "destination mock extra_body_sha256"),
+        ):
+            proc, _ = fake_run(tmp, argv + ["--resume"], destinations=[mock_destination(**{**base, **change})])
+            assert proc.returncode != 0 and needle in proc.stderr, (change, proc.stderr)
+        proc, _ = fake_run(tmp, argv + ["--resume", "--aether-arg=--fake-flip"],
+                           destinations=[mock_destination(**base)])
+        assert proc.returncode != 0 and "toolchain.aether_args" in proc.stderr, proc.stderr
+        # The same configuration still resumes, and so does a checkpoint from
+        # before these settings were recorded.
+        proc, _ = fake_run(tmp, argv + ["--resume"], destinations=[mock_destination(**base)])
+        assert proc.returncode == 0, proc.stderr
+        old = json.loads((tmp / "report.json").read_text())
+        for key in ("temperature", "extra_body_sha256"):
+            old["destinations"][0].pop(key)
+        (tmp / "report.json").write_text(json.dumps(old), encoding="utf-8")
+        proc, _ = fake_run(tmp, argv + ["--resume"], destinations=[mock_destination(**{**base, "temperature": 0.7})])
+        assert proc.returncode == 0, proc.stderr
+
+
+def test_resume_allow_mismatch_records_what_differed():
+    with workdir() as tmp:
+        argv = ["--seed-base", "42", "--task", "hello_fx"]
+        proc, _ = fake_run(tmp, argv, destinations=[mock_destination(temperature=0.0)])
+        assert proc.returncode == 0, proc.stderr
+        proc, report = fake_run(tmp, argv + ["--resume", "--resume-allow-mismatch"],
+                                destinations=[mock_destination(temperature=0.7)])
+        assert proc.returncode == 0 and "allowed by --resume-allow-mismatch" in proc.stderr, proc.stderr
+        allowed = report["resumed"][-1]["allowed_mismatches"]
+        assert len(allowed) == 1 and "temperature" in allowed[0], allowed
+
+
+def test_resume_only_compares_the_guides_it_uses():
+    prior = {"tasks_sha256": "t", "binary_sha256": "b", "aether_version": "v",
+             "guides": {"medium": {"sha256": "m1"}, "full": {"sha256": "f1"}},
+             "run_config": {"docs": ["medium"]}, "destinations": []}
+    report = {"tasks_sha256": "t", "binary_sha256": "b", "aether_version": "v",
+              "guides": {"medium": {"sha256": "m1"}, "full": {"sha256": "f2"}},
+              "run_config": {"docs": ["medium"]}}
+    for key in adb.RESUME_RUN_CONFIG_KEYS:
+        report["run_config"].setdefault(key, None)
+        prior["run_config"].setdefault(key, None)
+    prior["run_config"]["repair_after_no_answer"] = report["run_config"]["repair_after_no_answer"] = False
+    assert adb.resume_mismatches(prior, report, {}) == []
+    report["guides"]["medium"] = {"sha256": "m2"}
+    problems = adb.resume_mismatches(prior, report, {})
+    assert len(problems) == 1 and problems[0].startswith("guide medium"), problems
+
+
+REPAIR_OUTAGE_PLAN = {"initial": "//! print wrong\n", "repair": "//! print ok\n"}
+
+
+def _prompt_kinds(log: pathlib.Path) -> list[str]:
+    return [json.loads(line)["kind"] for line in log.read_text().splitlines()] if log.exists() else []
+
+
+def test_resume_continues_a_case_after_its_measured_first_attempt():
+    # Review 2026-11-24: a repair round that failed in the infrastructure made
+    # the whole case infra, and resuming asked it again from the start. Only a
+    # failed first attempt can reach a repair round, so only failures got a
+    # second draw at the first attempt.
+    with workdir() as tmp:
+        argv = ["--repair-attempts", "2", "--seed-base", "42"]
+        proc, report = scripted_run(tmp, {**REPAIR_OUTAGE_PLAN, "fail_on": "repair"}, argv, [simple_task("t1")])
+        assert proc.returncode == 3, proc.stderr
+        case = next(c for _, _, c in all_cases(report))
+        assert case["infra_failed"] and case["infra_stage"] == "repair" and len(case["attempts"]) == 2, case
+        first = case["attempts"][0]
+        assert adb.measured_attempts_before_infra(case) == [first]
+        log = tmp / "prompts.jsonl"
+        proc, resumed = scripted_run(tmp, {**REPAIR_OUTAGE_PLAN, "prompt_log": str(log)}, argv + ["--resume"],
+                                     [simple_task("t1")])
+        assert proc.returncode == 0, proc.stderr
+        assert _prompt_kinds(log) == ["repair"], "the first attempt must not be asked again"
+        assert "1 of them after the attempts they had measured" in proc.stderr, proc.stderr
+        case = next(c for _, _, c in all_cases(resumed))
+        assert [a["prompt_kind"] for a in case["attempts"]] == ["initial", "repair"], case["attempts"]
+        assert case["attempts"][0] == first, "the measured first attempt is kept as it was"
+        assert case["run"]["exact_stdout_match"] and not case["infra_failed"] and case["resolved_after_repair"]
+        assert case["continued_after_infra"] == {"kept_attempts": 1, "infra_kind": "provider_error",
+                                                 "infra_stage": "repair"}, case["continued_after_infra"]
+        entry = resumed["resumed"][-1]
+        assert entry["dropped_infra_cases"] == 1 and entry["continued_cases"] == 1, entry
+        summary = resumed["destinations"][0]["variants"][0]["summary"]
+        assert summary["final_exact"] == 1 and summary["first_attempt_classes"].get("pass", 0) == 0, summary
+
+
+def test_resume_continues_from_the_round_that_failed_not_the_first_repair():
+    with workdir() as tmp:
+        argv = ["--repair-attempts", "3", "--seed-base", "42"]
+        # Round 1 of repair is measured (still wrong); round 2 gets the outage.
+        plan = {"initial": "//! print wrong\n", "repair": "//! print still wrong\n",
+                "fail_first_n": 0, "counter": str(tmp / "count")}
+        proc, report = scripted_run(tmp, {**plan, "fail_after_n": 2}, argv, [simple_task("t1")])
+        case = next(c for _, _, c in all_cases(report))
+        assert proc.returncode == 3 and [a.get("infra_failed", False) for a in case["attempts"]] == [
+            False, False, True], case["attempts"]
+        log = tmp / "prompts.jsonl"
+        proc, resumed = scripted_run(tmp, {"initial": "//! print wrong\n", "repair": "//! print ok\n",
+                                           "prompt_log": str(log)}, argv + ["--resume"], [simple_task("t1")])
+        assert proc.returncode == 0, proc.stderr
+        prompts = [json.loads(line) for line in log.read_text().splitlines()]
+        import re
+
+        assert [p["kind"] for p in prompts] == ["repair"], prompts
+        assert re.search(r"Repair attempt number:\s+2\b", prompts[0]["prompt"]), prompts[0]["prompt"][-600:]
+        assert "still wrong" in prompts[0]["prompt"], "the repair is of the last measured attempt"
+        case = next(c for _, _, c in all_cases(resumed))
+        assert len(case["attempts"]) == 3 and case["continued_after_infra"]["kept_attempts"] == 2, case
+
+
+def _rerun_tool(tmp: pathlib.Path, plan: dict, extra: list[str] | None = None) -> subprocess.CompletedProcess:
+    return run_harness(["--report", str(tmp / "report.json"), "--apply", "--max-rounds", "1", *(extra or [])],
+                       env={"MOCK_MODEL_FAKE_PROGRAMS": "1", "SCRIPTED_MODEL_PLAN": json.dumps(plan)},
+                       script=BENCH_DIR / "rerun_nogen_cases.py")
+
+
+def test_rerun_nogen_keeps_the_measured_first_attempt():
+    with workdir() as tmp:
+        argv = ["--repair-attempts", "2", "--seed-base", "42"]
+        proc, report = scripted_run(tmp, {**REPAIR_OUTAGE_PLAN, "fail_on": "repair"}, argv, [simple_task("t1")])
+        assert proc.returncode == 3, proc.stderr
+        first = next(c for _, _, c in all_cases(report))["attempts"][0]
+        log = tmp / "prompts.jsonl"
+        rerun = _rerun_tool(tmp, {**REPAIR_OUTAGE_PLAN, "prompt_log": str(log)})
+        assert rerun.returncode == 0, rerun.stdout + rerun.stderr
+        assert "keeps 1 measured attempt(s)" in rerun.stdout, rerun.stdout
+        assert _prompt_kinds(log) == ["repair"]
+        patched = json.loads((tmp / "report.json").read_text())
+        case = next(c for _, _, c in all_cases(patched))
+        assert case["attempts"][0] == first and case["run"]["exact_stdout_match"], case
+        assert case["rerun_of_infra_failure"]["kept_attempts"] == 1, case["rerun_of_infra_failure"]
+        assert case["rerun_of_infra_failure"]["infra_stage"] == "repair"
+        summary = patched["destinations"][0]["variants"][0]["summary"]
+        assert summary["infra_failed"] == 0 and summary["first_attempt_classes"].get("pass", 0) == 0, summary
+
+
+def test_rerun_nogen_refuses_a_report_whose_guide_or_destination_changed():
+    # Review 2026-11-24: the re-run read today's guide, tasks file and
+    # destinations file and checked only the binary's hash, so a patched case
+    # of a guide A/B could be measured under a later guide.
+    with workdir() as tmp:
+        guide = tmp / "guide.md"
+        guide.write_text("*Guide version: 2026-01-01-1*\nold text\n", encoding="utf-8")
+        kept = tmp / "guide_as_run.md"
+        kept.write_text(guide.read_text(encoding="utf-8"), encoding="utf-8")
+        plan = {"initial": "//! print ok\n", "fail_first_n": 1, "counter": str(tmp / "count")}
+        proc, report = scripted_run(tmp, plan, ["--doc", f"g={guide}", "--docs", "g"], [simple_task("t1")])
+        assert proc.returncode == 3, proc.stderr
+        before = (tmp / "report.json").read_text()
+        guide.write_text("*Guide version: 2026-02-02-1*\nnew text\n", encoding="utf-8")
+        rerun = _rerun_tool(tmp, plan)
+        assert rerun.returncode == 3, rerun.stdout + rerun.stderr
+        assert "NOT re-run" in rerun.stdout and "guide g" in rerun.stdout, rerun.stdout
+        after = json.loads((tmp / "report.json").read_text())
+        assert after["destinations"] == json.loads(before)["destinations"], "the unmeasured case is kept"
+        assert pathlib.Path(plan["counter"]).read_text() == "1", "the model was not asked"
+        # A changed destination is refused too, with the guide restored.
+        config = json.loads((tmp / "destinations.json").read_text())
+        (tmp / "destinations.json").write_text(json.dumps(
+            {"destinations": [{**config["destinations"][0], "temperature": 0.9}]}), encoding="utf-8")
+        rerun = _rerun_tool(tmp, plan, ["--guide", f"g={kept}"])
+        assert rerun.returncode == 3 and "destination scripted temperature" in rerun.stdout, rerun.stdout
+        (tmp / "destinations.json").write_text(json.dumps(config), encoding="utf-8")
+        # The restored guide is accepted: its sha256 is the report's.
+        rerun = _rerun_tool(tmp, plan, ["--guide", f"g={kept}"])
+        assert rerun.returncode == 0, rerun.stdout + rerun.stderr
+        case = next(c for _, _, c in all_cases(json.loads((tmp / "report.json").read_text())))
+        assert case["run"]["exact_stdout_match"] and case["rerun_of_infra_failure"]["kept_attempts"] == 0, case
+        assert "allowed_mismatches" not in case["rerun_of_infra_failure"]
+
+
+def test_rerun_nogen_allow_mismatch_records_the_difference():
+    with workdir() as tmp:
+        guide = tmp / "guide.md"
+        guide.write_text("*Guide version: 2026-01-01-1*\nold text\n", encoding="utf-8")
+        plan = {"initial": "//! print ok\n", "fail_first_n": 1, "counter": str(tmp / "count")}
+        proc, _ = scripted_run(tmp, plan, ["--doc", f"g={guide}", "--docs", "g"], [simple_task("t1")])
+        assert proc.returncode == 3, proc.stderr
+        guide.write_text("*Guide version: 2026-02-02-1*\nnew text\n", encoding="utf-8")
+        rerun = _rerun_tool(tmp, plan, ["--allow-mismatch"])
+        assert rerun.returncode == 0, rerun.stdout + rerun.stderr
+        case = next(c for _, _, c in all_cases(json.loads((tmp / "report.json").read_text())))
+        allowed = case["rerun_of_infra_failure"]["allowed_mismatches"]
+        assert len(allowed) == 1 and allowed[0].startswith("guide g"), allowed
+
+
+def test_rerun_nogen_passes_the_no_answer_rule_and_batch_size_of_the_report():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("rerun_nogen_cases_argv", BENCH_DIR / "rerun_nogen_cases.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    report = {"tasks_file": "bench/tasks.json", "destinations_config": "bench/d.json", "aether_bin": "build/aether",
+              "run_config": {"repair_after_no_answer": False, "shared_guide_batch_size": 4, "repair_attempts": 2}}
+    variant = {"doc_name": "none", "doc_path": None}
+    argv = mod.harness_rerun_argv(report, "d", variant, "t1", 2, pathlib.Path("out.json"))
+    assert "--resume" in argv and "--repair-after-no-answer" not in argv, argv
+    assert argv[argv.index("--shared-guide-batch-size") + 1] == "4" and argv[argv.index("--start-repeat") + 1] == "2"
+    report["run_config"]["repair_after_no_answer"] = True
+    assert "--repair-after-no-answer" in mod.harness_rerun_argv(report, "d", variant, "t1", 0, pathlib.Path("o"))
+    del report["run_config"]["repair_after_no_answer"]  # a report from before the rule repaired them
+    assert "--repair-after-no-answer" in mod.harness_rerun_argv(report, "d", variant, "t1", 0, pathlib.Path("o"))
+    argv = mod.harness_rerun_argv(report, "d", variant, "t1", 0, pathlib.Path("o"), key="python_baseline_results")
+    assert "--python-baseline" in argv and "--skip-aether" in argv, argv
+    # The one-case checkpoint names exactly the case, and nothing else of the report.
+    full = {**report, "resumed": [{}], "guides": {},
+            "destinations": [{"destination_id": "d", "model": "m", "variants": [
+                {"doc_name": "g", "doc_sha256": "abc", "summary": {"x": 1},
+                 "results": [{"task_id": "t0", "repeat_index": 0}, {"task_id": "t1", "repeat_index": 2}]}]}]}
+    dest = full["destinations"][0]
+    prior = mod.one_case_prior(full, dest, dest["variants"][0], "results", dest["variants"][0]["results"][1])
+    config = prior["run_config"]
+    assert (config["docs"], config["repeats"], config["start_repeat"], config["task_ids"]) == (["g"], 1, 2, ["t1"])
+    assert config["shared_guide_batch_size"] == 4 and "resumed" not in prior
+    assert prior["guides"] == {"g": {"sha256": "abc", "path": None}}, prior["guides"]
+    assert prior["destinations"][0]["variants"] == [
+        {"doc_name": "g", "doc_sha256": "abc", "batch_runs": [], "results": [{"task_id": "t1", "repeat_index": 2}]}]
+
+
+def test_board_mode_names_the_one_record_to_replace():
+    # --board used to overwrite every repeat of a task with the one fresh record.
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("rerun_nogen_cases_board", BENCH_DIR / "rerun_nogen_cases.py")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    good = {"task_id": "t1", "repeat_index": 0, "generated_ok": True, "attempts": [], "run": {"exact_stdout_match": True}}
+    dead = {"task_id": "t1", "repeat_index": 1, "generated_ok": False, "attempts": [], "run": {}}
+    with workdir() as tmp:
+        write_json(tmp / "m_simple.json", {"destinations": [{"destination_id": "m", "variants": [
+            {"doc_name": "medium", "results": [good, dead]}]}]})
+        todo = mod.find_nogen(tmp)
+        assert len(todo) == 1 and (todo[0]["destination_id"], todo[0]["result_index"]) == ("m", 1), todo
+
+
+def test_fenced_program_reads_info_strings_and_skips_sample_output():
+    # Review 2026-11-24. An info string with a space in it was not seen as a
+    # fence, so the closing fence opened the "block" and the text after the
+    # program was scored as the program.
+    program = 'fn main() -> Void {\n    fx { println("hi"); }\n}'
+    titled = f"Here it is:\n```aether title=main.aether\n{program}\n```\nExpected output:\n```\nhi\n```\n"
+    assert adb.sanitize_code(titled) == program
+    assert adb.sanitize_code(f"```aether (complete program)\n{program}\n```") == program
+    # Sample output shown before the program is not the program.
+    assert adb.sanitize_code(f"It prints:\n```text\nhi\n```\nProgram:\n```aether\n{program}\n```") == program
+    assert adb.sanitize_code(f"It prints:\n```\nhi\n```\nProgram:\n```aether\n{program}\n```") == program
+    assert adb.sanitize_code(f"```output\nhi\n```\n```\n{program}\n```") == program
+    # What already worked is unchanged: one block, tagged or not, prose around
+    # it; the first of two program blocks; no fence at all; an unclosed fence.
+    assert adb.sanitize_code(f"Sure.\n```aether\n{program}\n```\nDone.") == program
+    assert adb.sanitize_code(f"```\n{program}\n```") == program
+    assert adb.sanitize_code(f"```aether\n{program}\n```\nOr:\n```aether\nfn other() {{}}\n```") == program
+    assert adb.sanitize_code(f"```rust\n{program}\n```\n```text\nhi\n```") == program
+    assert adb.sanitize_code(program) == program
+    assert adb.sanitize_code(f"```aether\n{program}") == program
+    assert adb.sanitize_code("```text\nonly this\n```") == "only this"
+    # Each runner prefers its own language's block.
+    both = "```aether\nA\n```\n```python\nP\n```\n```rs\nR\n```"
+    assert (adb.sanitize_code(both), adb.sanitize_code(both, "python"), adb.sanitize_code(both, "rust")) == (
+        "A", "P", "R")
 
 
 def test_release_posts_the_model_to_the_queue_and_skips_other_kinds():

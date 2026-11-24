@@ -966,7 +966,44 @@ def decode_bytelevel_artifacts(text: str) -> str:
     return text
 
 
-def sanitize_code(raw: str) -> str:
+# One complete fenced block: the opening fence with its info string (which may
+# hold spaces, as in ```aether title=x), the body, the closing fence.
+_FENCED_BLOCK_RE = re.compile(r"```[ \t]*([^`\r\n]*?)[ \t]*\r?\n(.*?)\r?\n[ \t]*```", re.S)
+# The first word of an info string that marks a block as the program, per runner.
+_PROGRAM_FENCE_TAGS = {
+    "aether": ("aether",),
+    "python": ("python", "python3", "py"),
+    "rust": ("rust", "rs"),
+}
+# ... and the ones that mark it as sample output or a shell line, not a program.
+_OUTPUT_FENCE_TAGS = frozenset({"text", "txt", "output", "stdout", "console", "plaintext", "plain", "out", "log"})
+
+
+def fenced_program(text: str, language: str = "aether") -> str | None:
+    """The body of the fenced block that holds the program, or None when the
+    reply has no complete fence. The first block tagged with the language wins;
+    without one, the first block not tagged as output; without one of those,
+    the first block. Until 2026-11-24 this was always the first block, read
+    with a pattern that took an info string with a space in it for prose: the
+    closing fence then opened the "block", so the text after the program was
+    scored as the program."""
+    blocks: list[tuple[str, str]] = []
+    for match in _FENCED_BLOCK_RE.finditer(text):
+        words = match.group(1).strip().lower().split()
+        blocks.append((re.split(r"[^a-z0-9_+-]", words[0], maxsplit=1)[0] if words else "", match.group(2)))
+    if not blocks:
+        return None
+    wanted = _PROGRAM_FENCE_TAGS.get(language, (language,))
+    for tag, body in blocks:
+        if tag in wanted:
+            return body
+    for tag, body in blocks:
+        if tag not in _OUTPUT_FENCE_TAGS:
+            return body
+    return blocks[0][1]
+
+
+def sanitize_code(raw: str, language: str = "aether") -> str:
     text = decode_bytelevel_artifacts(raw)
     text = strip_reasoning_block(text)
     marker_idx = text.find(OUTPUT_END_MARKER)
@@ -975,12 +1012,12 @@ def sanitize_code(raw: str) -> str:
     text = text.strip()
     # Many models ignore OUT-001 and wrap the program in a Markdown code fence,
     # often with prose before and/or after it (a leading ```aether and a trailing
-    # ``` followed by an explanation). Extract the contents of the FIRST fenced
-    # block and discard everything outside it. No-op for models that already
-    # return raw source (no fence -> the regex never matches).
-    fence = re.search(r"```[ \t]*[A-Za-z0-9_.+-]*[ \t]*\r?\n(.*?)\r?\n[ \t]*```", text, re.S)
-    if fence:
-        text = fence.group(1).strip()
+    # ``` followed by an explanation). Extract the contents of the program's
+    # fenced block and discard everything outside it. No-op for models that
+    # already return raw source (no fence -> the pattern never matches).
+    fenced = fenced_program(text, language)
+    if fenced is not None:
+        text = fenced.strip()
     else:
         lines = text.splitlines()
         if lines and lines[0].lstrip().startswith("```"):
@@ -3020,9 +3057,12 @@ def _strip_run_dirs_in_diagnostics(diagnostics: Any) -> Any:
 
 
 def _decode_output(data: bytes) -> str:
-    # Same decoding and newline translation subprocess's text mode applied, so
-    # stored stdout stays comparable with every earlier report.
-    return data.decode("utf-8", errors="replace").replace("\r\n", "\n").replace("\r", "\n")
+    # The bytes as the program wrote them. Until 2026-11-24 this translated
+    # "\r\n" and a lone "\r" to "\n" (as subprocess's text mode had), so "a\rb"
+    # scored as an exact match for "a\nb". No archived program prints a carriage
+    # return (all 6,085 re-run, results/decisions/bench_tools_2026-11-24.md), so
+    # stored stdout is still comparable with every earlier report.
+    return data.decode("utf-8", errors="replace")
 
 
 def run_captured(
@@ -3941,7 +3981,7 @@ def evaluate_attempt(
         "context_fit": fit,
     }
     generation = run_model_with_deadline(prompt, destination, options)
-    source_code = sanitize_code(generation["raw_text"])
+    source_code = sanitize_code(generation["raw_text"], runner)
     attempt["generation"] = generation
     attempt["finish_reason"] = generation.get("finish_reason")
     attempt["usage"] = normalize_usage(generation.get("usage"))
@@ -4392,18 +4432,46 @@ RESUME_RUN_CONFIG_KEYS = (
     "min_output_tokens", "shared_guide_batch_size", "python_baseline",
     "rust_baseline", "skip_aether", "task_ids",
 )
+# What a destination sends with every request, and the flags every program is
+# compiled and run with. A report written before 2026-11-24 has no temperature
+# or extra_body_sha256, so those two are compared only where it records them.
+RESUME_DESTINATION_KEYS = ("temperature", "max_output_tokens", "seed_base", "extra_body_sha256")
+RESUME_TOOLCHAIN_KEYS = ("aether_args", "sandbox_deny")
 CASE_KEYS = ("results", "python_baseline_results", "rust_baseline_results")
 
 
+def destination_request_settings(destination: Destination, seed_base: int | None) -> dict[str, Any]:
+    """The request settings a report records for a destination (RESUME_DESTINATION_KEYS)."""
+    return {
+        "temperature": destination.temperature,
+        "max_output_tokens": destination.max_output_tokens,
+        # The seed repeat 0 is requested with; repeat r adds r.
+        "seed_base": request_seed(destination, 0, seed_base),
+        "extra_body_sha256": (sha256_text(json.dumps(destination.extra_body, sort_keys=True))
+                              if destination.extra_body else None),
+    }
+
+
 def resume_mismatches(prior: dict[str, Any], report: dict[str, Any],
-                      destination_models: dict[str, str]) -> list[str]:
+                      destination_models: dict[str, str],
+                      destination_settings: dict[str, dict[str, Any]] | None = None) -> list[str]:
     """Why a checkpointed report cannot be resumed by this run (empty: it can)."""
     problems = []
     for key in RESUME_REPORT_KEYS:
         if prior.get(key) != report.get(key):
             problems.append(f"{key}: the report has {prior.get(key)!r}, this run {report.get(key)!r}")
+    prior_toolchain = prior.get("toolchain") or {}
+    for key in RESUME_TOOLCHAIN_KEYS:
+        if key in prior_toolchain and prior_toolchain[key] != (report.get("toolchain") or {}).get(key):
+            problems.append(f"toolchain.{key}: the report has {prior_toolchain[key]!r}, "
+                            f"this run {(report.get('toolchain') or {}).get(key)!r}")
     prior_guides = prior.get("guides") or {}
+    # Only the guides this run puts in a prompt: another tier's file may have
+    # been edited since without changing anything this run asks.
+    in_use = set((report.get("run_config") or {}).get("docs") or [])
     for name, record in (report.get("guides") or {}).items():
+        if name not in in_use:
+            continue
         before = (prior_guides.get(name) or {}).get("sha256")
         if before != record.get("sha256"):
             problems.append(f"guide {name}: the report has sha256 {before}, this run {record.get('sha256')}")
@@ -4419,7 +4487,55 @@ def resume_mismatches(prior: dict[str, Any], report: dict[str, Any],
         if dest_id in destination_models and dest.get("model") != destination_models[dest_id]:
             problems.append(f"destination {dest_id}: the report ran model {dest.get('model')!r}, "
                             f"this run {destination_models[dest_id]!r}")
+        settings = (destination_settings or {}).get(dest_id) or {}
+        for key in RESUME_DESTINATION_KEYS:
+            if key in dest and key in settings and dest[key] != settings[key]:
+                problems.append(f"destination {dest_id} {key}: the report has {dest[key]!r}, "
+                                f"this run {settings[key]!r}")
     return problems
+
+
+def measured_attempts_before_infra(case: dict[str, Any]) -> list[dict[str, Any]]:
+    """The attempts of an infra-failed case that were measured before the
+    provider failed: a first attempt that ran and was wrong, then a repair
+    round that got HTTP 503, leaves the first attempt. Empty when the first
+    attempt itself measured nothing, or the record names no failed attempt."""
+    attempts = case.get("attempts") or []
+    for index, attempt in enumerate(attempts):
+        if attempt.get("infra_failed") and not attempt_is_no_answer(attempt):
+            return attempts[:index]
+    return []
+
+
+def resume_continued_cases(prior: dict[str, Any]) -> dict[tuple[str, str, str, str, int], dict[str, Any]]:
+    """The infra-failed cases of a checkpoint that a resumed run continues
+    instead of starting again, keyed by (destination id, doc name, case key,
+    task id, repeat). Only a case whose first attempt failed can reach a
+    repair round, so asking such a case again from the start gave failed first
+    attempts, and no others, a second draw: first-attempt accuracy read high."""
+    continued: dict[tuple[str, str, str, str, int], dict[str, Any]] = {}
+    for dest in prior.get("destinations") or []:
+        for variant in dest.get("variants") or []:
+            for key in CASE_KEYS:
+                for case in variant.get(key) or []:
+                    if not case_is_infra_failed(case):
+                        continue
+                    measured = measured_attempts_before_infra(case)
+                    if measured:
+                        continued[(dest["destination_id"], variant["doc_name"], key, case.get("task_id"),
+                                   int(case.get("repeat_index") or 0))] = {
+                            "attempts": measured,
+                            "infra_kind": case.get("infra_kind"),
+                            "infra_stage": case.get("infra_stage"),
+                        }
+    return continued
+
+
+def continued_case(args: Any, destination: Destination, doc_name: str, key: str, task_id: str,
+                   repeat_index: int) -> dict[str, Any] | None:
+    """The measured attempts this run continues a case from (--resume), if any."""
+    table = getattr(args, "resume_continued", None) or {}
+    return table.get((destination.destination_id, doc_name, key, task_id, int(repeat_index or 0)))
 
 
 def resume_kept_cases(prior: dict[str, Any]) -> tuple[dict[tuple[str, str, str], list[dict[str, Any]]], int, int]:
@@ -4592,9 +4708,13 @@ def apply_repairs(
     runner: str,
     repair_prompt_builder: Any,
     options: RequestOptions | None = None,
+    prior_attempts: list[dict[str, Any]] | None = None,
 ) -> list[dict[str, Any]]:
-    attempts: list[dict[str, Any]] = [initial_attempt]
-    attempt = initial_attempt
+    """The repair rounds after initial_attempt. With prior_attempts (the measured
+    attempts of a case whose later round failed in the infrastructure, first
+    attempt included), the rounds carry on after the last of them."""
+    attempts: list[dict[str, Any]] = list(prior_attempts) if prior_attempts else [initial_attempt]
+    attempt = attempts[-1]
 
     # Owner's rule of 2026-10-12: a first attempt with no program in it is the case's
     # result. It gets no repair round -- a model that reasons to the end of its budget
@@ -4606,7 +4726,7 @@ def apply_repairs(
         return attempts
 
     if args.repair_attempts > 0 and not attempt["run"]["exact_stdout_match"]:
-        for repair_index in range(args.repair_attempts):
+        for repair_index in range(len(attempts) - 1, args.repair_attempts):
             failure_summary = derive_failure_summary(
                 generated_ok=attempt.get("generated_ok", False),
                 run=attempt["run"],
@@ -4664,7 +4784,28 @@ def execute_case(
     runner: str,
     repair_prompt_builder: Any,
     options: RequestOptions | None = None,
+    continued: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
+    if continued and continued.get("attempts"):
+        # The first attempt (and any repair round after it) is already
+        # measured: keep it, and ask only for the rounds that are missing.
+        attempts = apply_repairs(
+            initial_attempt=continued["attempts"][0],
+            destination=destination,
+            task=task,
+            args=args,
+            runner=runner,
+            repair_prompt_builder=repair_prompt_builder,
+            options=options,
+            prior_attempts=continued["attempts"],
+        )
+        case = finalize_case_record(attempts, task.task_id)
+        case["continued_after_infra"] = {
+            "kept_attempts": len(continued["attempts"]),
+            "infra_kind": continued.get("infra_kind"),
+            "infra_stage": continued.get("infra_stage"),
+        }
+        return case
     try:
         attempt = evaluate_attempt(
             prompt=initial_prompt,
@@ -4733,6 +4874,7 @@ def run_single_aether_task(
                 **kwargs,
             ),
             options=options,
+            continued=continued_case(args, destination, doc_name, "results", task.task_id, repeat_index),
         )
         case_record.update(aether_case)
         case_record["doc_token_reference"] = doc_token_reference
@@ -4791,6 +4933,17 @@ def run_aether_task_group(
             doc_token_reference=doc_token_reference,
             options=options,
         )
+
+    # A case continued from its measured attempts (--resume) has no first
+    # prompt left to share: it runs on its own.
+    carried = [task for task in task_group
+               if continued_case(args, destination, doc_name, "results", task.task_id, repeat_index)]
+    if carried:
+        for task in carried:
+            emit(single(task))
+        task_group = [task for task in task_group if task not in carried]
+        if not task_group:
+            return results, None
 
     if len(task_group) <= 1 or effective_shared_guide_batch_size(args, destination) <= 1:
         for task in task_group:
@@ -4972,6 +5125,7 @@ def run_baseline_case(
     args: argparse.Namespace,
     doc_token_reference: dict[str, Any],
     options: RequestOptions | None = None,
+    continued: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """One Python or Rust comparison case (no guide in the prompt)."""
     prompt_builder = build_python_prompt if runner == "python" else build_rust_prompt
@@ -4985,6 +5139,7 @@ def run_baseline_case(
             runner=runner,
             repair_prompt_builder=lambda **kwargs: repair_builder(**kwargs),
             options=options,
+            continued=continued,
         )
     except Exception as exc:  # pragma: no cover - surfaced in JSON report
         case = {
@@ -5265,8 +5420,16 @@ def build_arg_parser() -> argparse.ArgumentParser:
         "--resume",
         action="store_true",
         help="continue the run checkpointed in --output-json: keep its finished cases, run only the "
-        "missing ones and those that failed in the infrastructure. Refused when the tasks, binary, "
-        "guides, run settings or a destination's model differ. Starts fresh when the file is absent",
+        "missing ones and those that failed in the infrastructure (a case whose repair round failed "
+        "keeps the attempts it had measured and continues after them). Refused when the tasks, binary, "
+        "compiler flags, guides in use, run settings or a destination's model, temperature, output "
+        "budget, seed or extra body differ. Starts fresh when the file is absent",
+    )
+    parser.add_argument(
+        "--resume-allow-mismatch",
+        action="store_true",
+        help="with --resume: continue even where the checkpoint was made by another configuration. "
+        "The differences are printed and recorded in the report's resumed entry (allowed_mismatches)",
     )
     parser.add_argument("--text-summary", action="store_true", help="print compact text summary")
     parser.add_argument("--progress", action="store_true", help="print per-task progress to stderr")
@@ -5970,26 +6133,36 @@ def _run_benchmark(
     prior_destination_reports: dict[str, dict[str, Any]] = {}
     if args.resume and args.output_json.exists():
         prior = json.loads(args.output_json.read_text(encoding="utf-8"))
-        problems = resume_mismatches(prior, report, {d.destination_id: d.model for d in destinations})
-        if problems:
+        problems = resume_mismatches(
+            prior, report, {d.destination_id: d.model for d in destinations},
+            {d.destination_id: destination_request_settings(d, args.seed_base) for d in destinations})
+        if problems and args.resume_allow_mismatch:
+            print(f"[resume] {args.output_json} was not made by this configuration (allowed by "
+                  "--resume-allow-mismatch, recorded):\n  - " + "\n  - ".join(problems), file=sys.stderr)
+        elif problems:
             raise SystemExit(
                 f"--resume: {args.output_json} was not made by this configuration:\n  - "
                 + "\n  - ".join(problems)
                 + "\nRun it to a new --output-json, or restore the configuration it was made with."
             )
         resume_kept, n_kept, n_dropped = resume_kept_cases(prior)
+        args.resume_continued = resume_continued_cases(prior)
         prior_destination_reports = {d["destination_id"]: d for d in prior.get("destinations") or []}
         report["created_at_unix"] = prior.get("created_at_unix", report["created_at_unix"])
         report["resumed"] = list(prior.get("resumed") or []) + [{
             "at_unix": int(time.time()),
             "kept_cases": n_kept,
             "dropped_infra_cases": n_dropped,
+            # Of the dropped ones: continued after their measured attempts, not asked again from the start.
+            "continued_cases": len(args.resume_continued),
+            "allowed_mismatches": problems,
             "prior_updated_at_unix": prior.get("updated_at_unix"),
             "prior_destinations_sha256": prior.get("destinations_sha256"),
             "prior_harness_sha256": ((prior.get("harness") or {}).get("files") or {}).get("tools/aether_doc_bench.py"),
         }]
         print(f"[resume] {args.output_json}: keeping {n_kept} finished case(s), re-running "
-              f"{n_dropped} infra-failed case(s) and every missing one", file=sys.stderr)
+              f"{n_dropped} infra-failed case(s) and every missing one "
+              f"({len(args.resume_continued)} of them after the attempts they had measured)", file=sys.stderr)
     elif args.resume:
         print(f"[resume] {args.output_json} does not exist yet; starting a fresh run", file=sys.stderr)
 
@@ -6029,11 +6202,9 @@ def _run_benchmark(
             "type": destination.kind,
             "model": destination.model,
             "base_url": destination.base_url,
-            # The seed repeat 0 is requested with; repeat r adds r.
-            "seed_base": request_seed(destination, 0, args.seed_base),
+            **destination_request_settings(destination, args.seed_base),
             "context_limit": context_limits[destination.destination_id]["context_limit"],
             "context_source": context_limits[destination.destination_id]["context_source"],
-            "max_output_tokens": destination.max_output_tokens,
             "variants": [],
         }
         report["destinations"].append(destination_report)
@@ -6141,6 +6312,8 @@ def _run_benchmark(
                                 args=args,
                                 doc_token_reference=doc_token_reference,
                                 options=options,
+                                continued=continued_case(args, destination, doc_name, key, task.task_id,
+                                                         repeat_index),
                             )
                             append_case(variant_report, key, case)
 
