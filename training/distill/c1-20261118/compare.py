@@ -46,7 +46,25 @@ def interval(diffs: list[float]) -> tuple[float, float, float]:
     return sum(diffs) / n, means[int(0.025 * RESAMPLES)], means[int(0.975 * RESAMPLES) - 1]
 
 
-def reading(low: float, high: float) -> str:
+def seed_check(mean: float, pair_totals: list[int], seed_only: tuple[float, float, float]) -> tuple[bool, str]:
+    """The seed check of 2026-11-24 (README.md): a difference in one direction counts only
+    if every run of one arm beats every run of the other in that direction, and the arm
+    difference is larger in size than either end of the seed-only contrast's interval."""
+    direction = 1 if mean > 0 else -1
+    ordered = all(direction * total > 0 for total in pair_totals)
+    reach = max(abs(seed_only[1]), abs(seed_only[2]))
+    larger = abs(mean) > reach
+    why = []
+    if not ordered:
+        why.append("the four run-against-run totals do not all point this way")
+    if not larger:
+        why.append(f"the difference is within the seed-only contrast's reach ({100 * reach:.2f} points)")
+    return ordered and larger, "; ".join(why)
+
+
+def reading(low: float, high: float, clear: bool, why: str) -> str:
+    if (low > 0 or high < 0) and not clear:
+        return f"not separable from seed noise ({why}): no change to filtering; the owner decides on more seeds"
     if low > 0:
         return "targeting helps beyond the same amount of data"
     if high < 0:
@@ -73,9 +91,9 @@ def main() -> None:
 
     arm = {name: {k: sum(passed[t][k] for _, t in members) / len(members) for k in keys} for name, members in ARMS.items()}
 
-    def arms(a: str, b: str) -> tuple[str, float, float]:
+    def arms(a: str, b: str) -> tuple[str, float, float, float]:
         mean, low, high = interval([arm[a][k] - arm[b][k] for k in keys])
-        return f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}]", low, high
+        return f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}]", low, high, mean
 
     def runs_diff(a: str, b: str) -> str:
         mean, low, high = interval([passed[a][k] - passed[b][k] for k in keys])
@@ -84,8 +102,18 @@ def main() -> None:
         return (f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}], gained {gained}, lost {lost}, "
                 f"sign test p={sign_test(gained, lost):.3g}")
 
-    text, low, high = arms("targeted", "control")
-    print(f"\nTHE READING: targeted minus control, two seeds each, {TASKS} tasks\n  {text}\n  -> {reading(low, high)}")
+    (_, t1), (_, t2) = ARMS["targeted"]
+    (_, c1), (_, c2) = ARMS["control"]
+    # A contrast with one run of each arm on each side: it holds no targeting effect.
+    seed_only = interval([(passed[t1][k] + passed[c2][k]) / 2 - (passed[t2][k] + passed[c1][k]) / 2 for k in keys])
+    pair_totals = [sum(passed[t].values()) - sum(passed[c].values()) for t in (t1, t2) for c in (c1, c2)]
+    text, low, high, mean = arms("targeted", "control")
+    clear, why = seed_check(mean, pair_totals, seed_only)
+    print(f"\nTHE READING: targeted minus control, two seeds each, {TASKS} tasks\n  {text}")
+    print(f"  seed check: seed-only contrast, {{{t1}, {c2}}} minus {{{t2}, {c1}}}: {100 * seed_only[0]:+.2f} points "
+          f"[{100 * seed_only[1]:+.2f}, {100 * seed_only[2]:+.2f}]; targeted-run minus control-run totals "
+          f"{', '.join(f'{total:+d}' for total in pair_totals)}")
+    print(f"  -> {reading(low, high, clear, why)}")
     print("\nreported, not deciding")
     print(f"  control minus baseline: {arms('control', 'baseline')[0]}")
     print(f"  targeted minus baseline: {arms('targeted', 'baseline')[0]}")
@@ -93,21 +121,8 @@ def main() -> None:
         print(f"  {t} minus {c}: {runs_diff(t, c)}")
     for name, ((_, a), (_, b)) in ARMS.items():
         print(f"  seed gap, {name}: {runs_diff(a, b)}")
-    # Seed noise at this resolution (README.md, note of 2026-11-24): the interval of the
-    # reading resamples tasks, not seeds.
-    (_, t1), (_, t2) = ARMS["targeted"]
-    (_, c1), (_, c2) = ARMS["control"]
-    mean, low, high = interval([(passed[t1][k] + passed[c2][k]) / 2 - (passed[t2][k] + passed[c1][k]) / 2 for k in keys])
-    print(f"  seed-only contrast, {{{t1}, {c2}}} minus {{{t2}, {c1}}}: "
-          f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}] (holds no targeting effect)")
-    signs = set()
     for t, c in ((t1, c2), (t2, c1)):
         print(f"  {t} minus {c}: {runs_diff(t, c)}")
-    for t in (t1, t2):
-        for c in (c1, c2):
-            total = sum(passed[t].values()) - sum(passed[c].values())
-            signs.add((total > 0) - (total < 0))
-    print(f"  the four targeted-run minus control-run totals {'all point the same way' if len(signs) == 1 else 'do not all point the same way'}")
 
 
 if __name__ == "__main__":

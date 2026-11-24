@@ -38,17 +38,23 @@ nothing would make this study measure two identical arms.
 
 | 95% interval | reading | what follows |
 |---|---|---|
-| above zero, and larger than the gap between the two `base` seeds | **a gain** | the `qwen3_5` family's targets add the five names, from the next run on |
-| above zero, but within the seed gap | **not separable from seed noise** | no change; the owner decides on more seeds |
+| above zero, larger than the gap between the two `base` seeds, and the seed check passes | **a gain** | the `qwen3_5` family's targets add the five names, from the next run on |
+| above zero, but within the seed gap or failing the seed check | **not separable from seed noise** | no change; the owner decides on more seeds |
 | includes zero | **no readable difference** | no change; the upper end says how large a gain is ruled out |
 | below zero | **a loss** | no change |
 
-**Note added 2026-11-24 (review of 2026-11-24).** The interval resamples tasks, not seeds, and the guard in the first
-two rows compares it with the gap between the two `base` seeds' totals. `../gemma4-12b-v3/RESULTS.md` found that guard
-weak: two seeds whose totals differed by one task differed on 15 of 53 first attempts. `compare.py` therefore also
-prints, as reported and not deciding, the seed-only contrast {la-s3407, base-s42} minus {la-s42, base-s3407}, which
-holds no `la` effect, and all four `la`-run minus `base`-run differences. The table above is unchanged; whether "a
-gain" must also clear those is the owner's call.
+**The seed check (amended 2026-11-24, owner: "Yes, make it decide").** As first written on 2026-11-18 the first two
+rows had only the gap between the two `base` seeds' totals as their guard. The interval resamples tasks, not seeds,
+and `../gemma4-12b-v3/RESULTS.md` found that guard weak: two seeds whose totals differed by one task differed on 15 of
+53 first attempts. The old guard stays, and "a gain" now also needs both of these:
+- every `la` run passes more tasks than every `base` run: all four differences are above zero;
+- the difference is larger than either end of the 95% interval of the **seed-only contrast**, {la-s3407, base-s42}
+  minus {la-s42, base-s3407}. That contrast has one run of each arm on each side, so it holds no `la` effect, only
+  what seeds do at this resolution.
+
+The check can only turn "a gain" into "not separable from seed noise", never the reverse. The other two rows are
+unchanged: neither leads to a change. When it was added the repo held no result for these runs; the training host
+was not checked.
 
 **Reported, not deciding:** each seed's difference with a sign test; the gap between seeds in each arm; failure class
 (coded, return code, wrong output); the benchmark's main and held-out suites at T=0 from the driver's scoring (held-out

@@ -46,11 +46,27 @@ def interval(diffs: list[float]) -> tuple[float, float, float]:
     return sum(diffs) / n, means[int(0.025 * RESAMPLES)], means[int(0.975 * RESAMPLES) - 1]
 
 
-def reading(low: float, high: float, seed_gap: float) -> str:
-    if low > 0 and (low + high) / 2 > seed_gap:
+def seed_check(mean: float, pair_totals: list[int], seed_only: tuple[float, float, float]) -> tuple[bool, str]:
+    """The seed check of 2026-11-24 (README.md): every la run beats every base run, and the
+    difference is larger than either end of the seed-only contrast's interval."""
+    ordered = all(total > 0 for total in pair_totals)
+    reach = max(abs(seed_only[1]), abs(seed_only[2]))
+    why = []
+    if not ordered:
+        why.append("not every la run beats every base run")
+    if not mean > reach:
+        why.append(f"the difference is within the seed-only contrast's reach ({100 * reach:.2f} points)")
+    return not why, "; ".join(why)
+
+
+def reading(low: float, high: float, seed_gap: float, clear: bool, why: str) -> str:
+    if low > 0 and (low + high) / 2 > seed_gap and clear:
         return "a gain: the qwen3_5 family's targets add the linear-attention names"
     if low > 0:
-        return f"not separable from seed noise (base seeds differ by {100 * seed_gap:.2f} points): no change"
+        reasons = [why] if why else []
+        if not (low + high) / 2 > seed_gap:
+            reasons.insert(0, f"base seeds differ by {100 * seed_gap:.2f} points")
+        return f"not separable from seed noise ({'; '.join(reasons)}): no change"
     if high < 0:
         return "a loss: no change"
     return f"no readable difference: no change; a gain above {100 * high:.2f} points is ruled out"
@@ -90,24 +106,25 @@ def main() -> None:
     arm_pass = {arm: {k: sum(passed[r][k] for r in members) / len(members) for k in keys} for arm, members in ARMS.items()}
     mean, low, high = interval([arm_pass["la"][k] - arm_pass["base"][k] for k in keys])
     seed_gap = abs(rate(ARMS["base"][0]) - rate(ARMS["base"][1]))
+    (l1, l2), (b1, b2) = ARMS["la"], ARMS["base"]
+    # A contrast with one run of each arm on each side: it holds no la effect.
+    seed_only = interval([(passed[l1][k] + passed[b2][k]) / 2 - (passed[l2][k] + passed[b1][k]) / 2 for k in keys])
+    pair_totals = [sum(passed[la_run].values()) - sum(passed[base_run].values())
+                   for la_run in (l1, l2) for base_run in (b1, b2)]
+    clear, why = seed_check(mean, pair_totals, seed_only)
     print(f"\nTHE READING: la minus base, two seeds each, all {TASKS} tasks")
     print(f"  {100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}]; base seeds differ by {100 * seed_gap:.2f}")
-    print(f"  -> {reading(low, high, seed_gap)}")
+    print(f"  seed check: seed-only contrast, {{{l1}, {b2}}} minus {{{l2}, {b1}}}: {100 * seed_only[0]:+.2f} points "
+          f"[{100 * seed_only[1]:+.2f}, {100 * seed_only[2]:+.2f}]; la-run minus base-run totals "
+          f"{', '.join(f'{total:+d}' for total in pair_totals)}")
+    print(f"  -> {reading(low, high, seed_gap, clear, why)}")
     print("\nreported, not deciding")
     for (la_run, base_run) in zip(ARMS["la"], ARMS["base"]):
         print(f"  {la_run} minus {base_run}: {pairwise(la_run, base_run)}")
     for arm, (a, b) in ARMS.items():
         print(f"  seed gap, {arm}: {pairwise(a, b)}")
-    # Seed noise at this resolution (README.md, note of 2026-11-24): the interval of the
-    # reading resamples tasks, not seeds.
-    (l1, l2), (b1, b2) = ARMS["la"], ARMS["base"]
-    mean, low, high = interval([(passed[l1][k] + passed[b2][k]) / 2 - (passed[l2][k] + passed[b1][k]) / 2 for k in keys])
-    print(f"  seed-only contrast, {{{l1}, {b2}}} minus {{{l2}, {b1}}}: "
-          f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}] (holds no la effect)")
     for la_run, base_run in ((l1, b2), (l2, b1)):
         print(f"  {la_run} minus {base_run}: {pairwise(la_run, base_run)}")
-    signs = {(rate(la_run) > rate(base_run)) - (rate(la_run) < rate(base_run)) for la_run in (l1, l2) for base_run in (b1, b2)}
-    print(f"  the four la-run minus base-run totals {'all point the same way' if len(signs) == 1 else 'do not all point the same way'}")
 
 
 if __name__ == "__main__":

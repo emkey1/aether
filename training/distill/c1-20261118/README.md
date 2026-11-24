@@ -27,20 +27,31 @@ repair, exactly as the four existing runs were.
 
 | 95% interval | reading | what follows |
 |---|---|---|
-| above zero | **targeting helps** beyond adding the same amount of data | the next batches keep filtering on a fine-tune's failures |
+| above zero, and the seed check passes | **targeting helps** beyond adding the same amount of data | the next batches keep filtering on a fine-tune's failures |
 | includes zero | **not shown**: at this resolution the fv3 gain is explained by more data | filtering is optional; the owner decides whether the cheaper unfiltered batches replace it |
-| below zero | **passed-task data helps more** | stop filtering on failures |
+| below zero, and the seed check passes | **passed-task data helps more** | stop filtering on failures |
+| above or below zero, but the seed check fails | **not separable from seed noise** | no change to filtering; the owner decides on more seeds |
+
+**The seed check (amended 2026-11-24, owner: "Yes, make it decide").** As first written on 2026-11-18 the table had
+only its interval: above zero, includes zero, below zero. The interval resamples tasks, not seeds, so a difference
+in either direction now also needs both of these, in that direction:
+- every targeted run against every control run, by total passes: all four differences point the same way;
+- the arm difference is larger in size than either end of the 95% interval of the **seed-only contrast**,
+  {targeted seed 3407, control seed 42} minus {targeted seed 42, control seed 3407}. That contrast has one run of each
+  arm on each side, so it holds no targeting effect, only what seeds do at this resolution.
+
+The check can only turn a directional reading into "not separable from seed noise", never the reverse. When it was
+added, the control pairs were solved and no control run had been scored on the scoring Mac; the repo held no result.
 
 **Reported, not deciding:** control minus baseline (v2) with its interval; each seed's differences with a sign test; the
 seed gap in each arm; failure class; how many passed-sample tasks the solvers solved, against the targeted batch's 298
 of 322.
 
-**Note added 2026-11-24, before any control run was scored (review of 2026-11-24).** The interval above resamples tasks,
+**Why the seed check (review of 2026-11-24).** The interval above resamples tasks,
 not seeds, so it describes these four sets of weights, not the recipe. On fv3's own reports seed noise alone reaches
 the decision boundary: the two baseline seeds differ by +2.44 points [+0.00, +4.87], and a contrast that holds no
-recipe difference at all, {v3, v2_s42} minus {v3_s42, v2}, is +1.56 [-0.10, +3.17]. `compare.py` therefore also prints,
-as reported and not deciding, that seed-only contrast for these arms and all four targeted-run minus control-run
-differences. The table above is unchanged; whether a positive reading must also clear those is the owner's call.
+recipe difference at all, {v3, v2_s42} minus {v3_s42, v2}, is +1.56 [-0.10, +3.17]. `compare.py` prints that seed-only contrast for these arms and all four targeted-run minus control-run
+differences. The same day the owner made them part of the reading: the seed check above.
 
 **Limits.** The control's tasks were easier for the fine-tune, so a solver may solve them more cleanly; the report
 gives each arm's solver mix and first-attempt share. One model (Gemma 4 12B) and one pool. The targeted and baseline
