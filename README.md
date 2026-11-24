@@ -35,7 +35,7 @@ benchmark, not opinion, is the instrument: see the
 Fine-tuning is the research frontier, but it isn't the cost of entry. The
 concise guide
 ([`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md),
-~955 lines) pasted into the prompt gets a frontier model that has *never seen
+~815 lines) pasted into the prompt gets a frontier model that has *never seen
 Aether* writing valid, correct programs a surprising fraction of the time — the
 grammar is small and regular enough to pick up in-context.
 
@@ -139,11 +139,11 @@ output it shows.
 New to the repo, or an agent working in it: start with [`CLAUDE.md`](CLAUDE.md).
 
 The three LLM-facing guides are the product, written to be pasted into a
-model's prompt (sizes in o200k tokens, 2026-10-06):
+model's prompt (sizes in o200k tokens, measured 2026-11-24):
 
-- [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full guide (28,961 tokens; frontier contexts), ending in a generated builtin inventory
-- [`aether_for_llms_medium_contexts.md`](docs/aether_for_llms_medium_contexts.md): the working guide (14,985 tokens, hard ceiling 15,000; ~32K contexts). The benchmark's main tier
-- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (11,898 tokens; ~16K contexts, ceiling 8,000 to be reached by the next small-guide pass)
+- [`aether_for_llms_and_others.md`](docs/aether_for_llms_and_others.md): the full guide (38,066 tokens; frontier contexts), ending in a generated builtin inventory
+- [`aether_for_llms_medium_contexts.md`](docs/aether_for_llms_medium_contexts.md): the working guide (13,477 tokens, hard ceiling 15,000; ~32K contexts). The benchmark's main tier
+- [`aether_for_llms_with_small_contexts.md`](docs/aether_for_llms_with_small_contexts.md): the concise guide (10,445 tokens; ~16K contexts, ceiling 8,000 to be reached by the next small-guide pass)
 
 Maintainer docs in [`docs/`](docs/):
 
@@ -162,8 +162,11 @@ The pipeline as built is §2 of the
 
 ## Models and benchmarks
 
-Training recipes, fine-tuning operations, and benchmark analyses for the language
-models that write Aether live in a companion repo:
+The benchmark harness, its task suites and archived reports are in
+[`bench/`](bench/README.md), and the training corpus and run records in
+[`training/`](training/README.md); both moved into this repository on
+2026-10-17. Per-run reports are in [`docs/benchmarks/`](docs/benchmarks/).
+Earlier training recipes and analyses are in the companion repo
 [**aether-infrastructure**](https://github.com/emkey1/aether-infrastructure).
 
 ## License

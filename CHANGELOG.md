@@ -15,6 +15,31 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-11-24-1
+
+Three engine changes that came in with the pscal-core pins between 2026-11-19
+and 2026-11-21 (`912a9d1`, `4f99309`, `d51e663`) and had no entry until the
+review of 2026-11-24. Not a release; the dev label stays `1.01-dev`.
+
+- **`pollkeyany()` runs on every build.** It is a function with the `io`
+  effect class everywhere, so it needs `fx` and `--deny io` refuses it. On the
+  standard build it reads the terminal; on an SDL build it also reads the
+  window's keys. Under `2026-11-18-1` the standard build compiled a call and
+  stopped at run time with `Undefined global variable 'pollkeyany'`, and the
+  line in that entry saying it is not callable there described that build. No
+  program that ran under `1.0` changes.
+- **A by-value read is a real copy while VM threads run** (pscal-core). A
+  read that only shared a static array, record, set or string with its
+  variable made the next writer swap in a clone, and a thread that still held
+  an address into the old storage then lost its write or wrote into freed
+  memory. This ended a threaded SDL program on iOS. Aether's `par` already
+  rejects two branches sharing a record or array (PAR-001), and no Aether
+  program's output changes; a `par` program that scans a large `Text` runs in
+  the same time as before (19.5 s and 20.5 s on one 131,072-character scan).
+- **SDL: a printable key is given once.** A key could arrive as its keycode
+  and again as its text, and keys typed at one program were still queued for
+  the next one run in the same process. SDL builds only.
+
 ## 2026-11-18-1
 
 From the review of 2026-11-16, which ran the `1.0` release binary beside `main`.

@@ -1,6 +1,6 @@
 # Aether for LLMs — Full Guide (for large contexts)
 
-*Guide version: 2026-11-21-1*
+*Guide version: 2026-11-24-1*
 
 If you only read one part of this document, read **Highest-Value Rules** and
 **Never Generate These**.
@@ -86,8 +86,8 @@ If you only read one part of this document, read **Highest-Value Rules** and
     Do not invent fields on a type.
 18. **FIELD-003.** A record/type field default must be a **literal**:
     `count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`.
-    Not an expression, not another field, not `self`, not a call — and **not a
-    named `const` either**. `limit: Int = MAX_SCORE;` is rejected exactly like
+    Not another field, not `self`, not a call — and **not a
+    named `const` either** (an expression of literals only, `2 * 3`, is accepted). `limit: Int = MAX_SCORE;` is rejected exactly like
     `limit: Int = MAX_SCORE + 1;`, so a sentinel built from a constant must be
     set at construction instead: `new T { limit: MAX_SCORE + 1 }`.
 19. **FLOW-001.** Every non-`Void` function must return a value on every
@@ -582,7 +582,7 @@ type JobSummary {
 - use `type`, never `class`; fields are `name: Type;` (semicolons)
 - a field may carry a **literal** default: `name: Type = <literal>`
   (`count: Int = 0`, `name: Text = ""`, `on: Bool = true`, `xs: Int[] = []`).
-  The default must be a **literal** — not an expression, not another field, not
+  The default must be a **literal** — not another field, not
   `self`, not a call, and not a named `const` (`= MAX_SCORE` fails just as
   `= MAX_SCORE + 1` does) (FIELD-003). For anything else, set it at
   construction with `new T { field: value }`. A field with no default
@@ -2101,9 +2101,9 @@ does not exist — re-read the message rather than inventing a rule for it.
   an `MStream` is MS-001 (index `mstream_text(ms)`).
 - **[FIELD-002]** `Unknown field` → use the exact declared field name, or extend
   the type explicitly if the prompt really requires that field.
-- **[FIELD-003]** a field default that is not a literal — an expression, a named
-  `const` (`= MAX_SCORE` is rejected, not just `= MAX_SCORE + 1`), or (references
-  another field, `self`, or calls a function), or a populated array default →
+- **[FIELD-003]** a field default that names a
+  `const` (`= MAX_SCORE` is rejected, not just `= MAX_SCORE + 1`), references
+  another field or `self`, calls a function, or is a populated array →
   use a literal/constant (`count: Int = 0`), or drop the default and set the
   value at construction with `new T { field: value }`. A type-mismatched default
   (`value: Int = "x"`) is a `[TYPE-001]` instead — make the default's type match

@@ -1,6 +1,6 @@
 # Aether for LLMs — Concise Guide (for small contexts)
 
-*Guide version: 2026-11-18-1*
+*Guide version: 2026-11-24-1*
 
 ## Highest-Value Rules
 
@@ -52,7 +52,7 @@
 17. **FIELD-002.** Record and type field names must exist exactly as declared.
     Do not invent fields.
 18. **FIELD-003.** A field default must be a **literal**: `count: Int = 0`,
-    `on: Bool = true`, `xs: Int[] = []`. Not an expression, not another field,
+    `on: Bool = true`, `xs: Int[] = []`. Not another field,
     not `self`, not a call, and **not a named `const`** — `n: Int = MAX;` is
     rejected as surely as `n: Int = MAX + 1;`. Set anything else at
     construction: `new T { field: value }`.
@@ -75,8 +75,8 @@
     variable changes).
 24. **PAR-001.** Each `par` branch must own the record it writes. Passing the
     **same** record or array (even a read-only array) to two branches is
-    rejected. So is a local that a nested `fn` assigns. Give each branch its
-    own record and combine the results after the block.
+    rejected. So is a local one branch's nested `fn` assigns and another
+    branch uses. Give each branch its own record and combine after the block.
 25. **MS-001.** `MStream` is the opaque memory-stream handle type (HTTP
     response bodies). `mstream_new()`/`mstream_from_text(text)` return
     `MStream` — never `Int`, never `Text`. Body text comes from
@@ -90,8 +90,8 @@ exactly.
 Not every rule above is a *compiler* check: some are emitted as a stable
 `[CODE]`, some are reported under a broader
 code (mostly SCOPE-001), and the rest are authoring rules the compiler cannot
-catch. The **Repair rules** section lists each emitted code with its fix and
-flags the authoring-only ones.
+catch. The **Repair rules** section lists the common emitted codes with fixes
+and flags the authoring-only ones.
 
 ## Core syntax
 

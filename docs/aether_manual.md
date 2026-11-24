@@ -158,7 +158,7 @@ compile (see [§2](#the-bytecode-cache)).
 - **October 2026.** The benchmark and the fine-tuning work move into this
   repository. A review round makes names case-sensitive, renames every builtin
   to snake_case and settles how a `Real` prints, and the result is tagged
-  `1.0-beta1`. Seventeen betas and their reviews follow, and on 30 October
+  `1.0-beta1`. Sixteen more betas and their reviews follow, and on 30 October
   the result is tagged `1.0`. From then on, changes follow the compatibility
   rules in [§22](#22-release-labels-and-versions).
 
@@ -2487,6 +2487,7 @@ no network in this run
 | `0` | `main` returned normally, or a script ran to the end |
 | `n` | `fn main() -> Int` returned `n`, or the program called `exit(n)` or `halt(n)` |
 | `1` | a compile error, a run-time error, a broken contract, or a denied effect |
+| `130` | the program was interrupted (Ctrl-C, SIGINT); it prints nothing more |
 
 ```aether @ok rc=3
 fn check(v: Int) -> Int {

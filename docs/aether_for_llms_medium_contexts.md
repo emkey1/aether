@@ -1,6 +1,6 @@
 # Aether for LLMs — Working Guide (for medium contexts)
 
-*Guide version: 2026-11-18-2*
+*Guide version: 2026-11-24-1*
 
 Everything needed to write correct Aether in one shot.
 
@@ -49,8 +49,9 @@ Everything needed to write correct Aether in one shot.
     variable changes) and call its sibling `fn`s; `@pure`/`@pre`/`@post` work
     above it.
 12. **PAR-001.** Each `par` branch must own the record it writes. The same record
-    or array (even read-only) passed to two branches is rejected, as is a local that a nested
-    `fn` assigns. Give each branch its own and combine after the block.
+    or array (even read-only) passed to two branches is rejected, as is a local one
+    branch's nested `fn` assigns and another uses. Give each branch its own and
+    combine after the block.
 13. **SCOPE-001.** A name must be declared before use and still be in scope at
     the use site. No guessed globals, no expired loop locals, no helper-local
     names borrowed from another function.
@@ -61,7 +62,7 @@ Everything needed to write correct Aether in one shot.
 16. **FIELD-002.** Field names must exist exactly as declared. Do not invent
     fields.
 17. **FIELD-003.** A field default must be a **literal** (`0`, `true`, `""`,
-    `[]`) — not an expression, a call, another field, or a named `const`
+    `[]`) — not a call, another field, or a named `const`
     (`limit: Int = MAX_SCORE;` is rejected). Set anything else at construction:
     `new T { limit: MAX_SCORE + 1 }`.
 18. **ARR-002.** A one-dimensional array indexed twice is a compile-time error.
@@ -963,8 +964,8 @@ The compiler prints a stable code in brackets; apply its fix.
 - **[NAME-001]** a name declared twice (or twice up to case; a loop variable,
   local or parameter may not reuse a visible variable or `const`) → pick a
   fresh name, or assign without `let`.
-- **[IMP-001]** a malformed `use` → write `use "module_name";` and call the
-  exports directly.
+- **[IMP-001]** a malformed `use`, or (a warning) a module not found → write
+  `use "module_name";` and call the exports directly.
 - **[TYPE-001]** a type cannot be inferred → annotate it, including untyped array
   literals. Also `println` of a whole array, `int()` of a `Text`, and a `Real`
   where an `Int` is needed (`%`, `div`, an index, a range bound): `/` is Real,
@@ -977,8 +978,7 @@ The compiler prints a stable code in brackets; apply its fix.
 - **[MS-001]** stream misuse → declare stream bindings `MStream` (rule 23).
 - **[FIELD-002]** `Unknown field` → use the exact declared name.
 - **[FIELD-003]** a non-literal field default → use a literal, or set the value
-  at construction with `new T { field: value }`. A *type*-mismatched default is
-  `[TYPE-001]` instead.
+  at construction with `new T { field: value }`.
 - **[FLOW-001]** a fallthrough path with no return value → add a final `ret`.
 - **[FLOW-002]** a bare `ret;` in a non-`Void` function → return a value, or
   declare `-> Void`.
