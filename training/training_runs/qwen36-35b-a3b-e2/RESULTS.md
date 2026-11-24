@@ -28,6 +28,9 @@ Aether on host-c, bf16, grader 2026-10-21-8; Python on the scoring Mac, int8.
 
 - **The decayed learning rate did not bring epoch 3's held-out gain to epoch 2.** This run lands where e3's
   mid-schedule epoch 2 did (33 held-out). The third pass itself carries the gain.
+  - **Corrected 2026-11-24: this did not hold up.** On 2,802 fresh tasks this run and e3 do not differ: e3 minus e2 is
+    +0.29 points [-0.79, +1.36] (`../../distill/fep-20261118/`). The six-task gap on 53 held-out tasks was one run per
+    arm with seed noise unmeasured, and could not carry the conclusion.
 - On the main suites the three are effectively tied: 70 after repair each, 65-68 on the first attempt.
 - Eval loss pointed the wrong way again: this run ends lower (0.0918 vs 0.1052) and generalises worse.
 

@@ -33,6 +33,28 @@ rather than trusting a name at face value.
 
 ---
 
+## Since 2026-10-17: where the later results are (added 2026-11-24)
+
+The sections below end at the `cs-aug` boards and were last revised on
+2026-10-17. Everything since is recorded per run, beside the reports that
+produced it, and is not repeated here. "Current primary board" in the next
+heading is therefore out of date: the released models train on the datasets
+`v1-20261021` and later, not `cs-aug20`.
+
+| what | result | where |
+|---|---|---|
+| MoE (`qwen36-35b-a3b-e3`, published), no guide, T=0 | 65 (70) of 73 main, 39 (47) of 53 held-out, first attempt (after repair) | `training/training_runs/qwen36-35b-a3b-e3/RESULTS.md` |
+| two epochs or three for the MoE, 2,802 fresh tasks | no readable difference: e3 minus e2 is +0.29 points [-0.79, +1.36]. The earlier "the third pass carries the gain" (53 held-out tasks) does not hold | `training/distill/fep-20261118/README.md` |
+| Gemma 4 12B plus 298 pairs from its own failures, 126 benchmark tasks | no gain by the fixed reading: held-out +5.7 points [-5.7, +17.0], two seeds a side | `training/training_runs/gemma4-12b-v3/RESULTS.md` |
+| the same pairs, 1,026 fresh tasks | +3.70 points [+1.90, +5.46] for these four sets of weights. The interval resamples tasks, not seeds, and the two baseline seeds alone differ by 2.4 points | `training/distill/fv3-20261105/README.md` |
+| control arm for those pairs (tasks the fine-tune passed) | reading fixed; no result recorded yet | `training/distill/c1-20261118/README.md` |
+| LoRA on the linear-attention layers, Qwen3.5-4B | reading fixed; no result recorded yet | `training/training_runs/qwen35-4b-la/README.md` |
+
+`training/training_runs/` holds one record per run, and
+`bench/results/instrument_log.csv` one row per instrument check.
+
+---
+
 ## cs-aug20 (0-based `Text` corpus -- current primary board)
 
 **Corpus:** `cs-aug20` (`training/out_cs_aug20`, dataset

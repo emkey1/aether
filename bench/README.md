@@ -450,10 +450,11 @@ so its prompts state the format completely; `expected_stdout` is the answer
 the task specifies (computed by its `py_refs` program), even where the
 current language differs. `reference_solution` is the safe form, passing on
 2026-10-06-1 and 2026-10-07-1. `trap.natural_program` is the plausible program
-the trap catches and `trap.observed` its class on each binary when the suite
-was written; `python3 tools/aether_oracle_check.py --tasks
+the trap catches and `trap.observed` its class on each binary it was run on
+(last refreshed for language 2026-11-24-2: 12 of 24 still fire, 5 of them
+silent); `python3 tools/aether_oracle_check.py --tasks
 bench/tasks_traps.json --traps --aether-bin <bin>` re-runs
-them. A fix shows up as that trap's class turning `pass`, and its first-attempt
+them, and `trap.fix` names the change that closed each. A fix shows up as that trap's class turning `pass`, and its first-attempt
 silent-wrong count on replay going to 0. Report the suite on its own, never
 merged into another: `summary.per_task_first_attempt_classes` holds the
 silent-wrong count per trap per variant.

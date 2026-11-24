@@ -61,9 +61,11 @@ The reports are `report__filter_{e3,e2,e3_ep2}.json.gz`; `python3 training/disti
 the third pass larger than 1.4 points is ruled out.
 
 Reported, not deciding:
-- **The schedule's end matters more than the number of passes.** Both finished schedules beat e3's own mid-schedule epoch-2 adapter: e3 by +1.43
-  [+0.46, +2.43] (p=0.005), e2 by +1.14 [+0.04, +2.28] (p=0.05). The earlier conclusion from 53 held-out tasks (`../../training_runs/qwen36-35b-a3b-e2/`:
-  "the decayed learning rate did not bring the gain, the third pass did") does not hold here: on fresh tasks a two-epoch schedule that decays to
-  zero lands where three epochs do, and the cut-mid-schedule checkpoint is the one that falls behind.
+- **Both finished schedules sit above e3's own mid-schedule epoch-2 adapter.** e3 by +1.43 [+0.46, +2.43] (p=0.005). e2 by +1.14 [+0.04, +2.28]:
+  143 gained, 111 lost, sign test p=0.052, and the lower bound is +0.00 with other bootstrap seeds, so e2's side is borderline, not shown. A
+  schedule that runs to its end is one explanation; with one run per arm it is not established as the cause. What does hold: the earlier
+  conclusion from 53 held-out tasks (`../../training_runs/qwen36-35b-a3b-e2/`: "the decayed learning rate did not bring the gain, the third pass
+  did") is not supported, since on fresh tasks the two-epoch schedule lands where three epochs do. (Wording corrected 2026-11-24: it read "the
+  schedule's end matters more than the number of passes" and gave e2's p as 0.05.)
 - e3's six-task held-out lead over e2, which decided the release, is not visible on fresh tasks. The release stands, as stated in the limits.
 - Seed noise is still unmeasured (one run per arm).

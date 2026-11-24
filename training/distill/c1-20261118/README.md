@@ -35,5 +35,16 @@ repair, exactly as the four existing runs were.
 seed gap in each arm; failure class; how many passed-sample tasks the solvers solved, against the targeted batch's 298
 of 322.
 
+**Note added 2026-11-24, before any control run was scored (review of 2026-11-24).** The interval above resamples tasks,
+not seeds, so it describes these four sets of weights, not the recipe. On fv3's own reports seed noise alone reaches
+the decision boundary: the two baseline seeds differ by +2.44 points [+0.00, +4.87], and a contrast that holds no
+recipe difference at all, {v3, v2_s42} minus {v3_s42, v2}, is +1.56 [-0.10, +3.17]. `compare.py` therefore also prints,
+as reported and not deciding, that seed-only contrast for these arms and all four targeted-run minus control-run
+differences. The table above is unchanged; whether a positive reading must also clear those is the owner's call.
+
 **Limits.** The control's tasks were easier for the fine-tune, so a solver may solve them more cleanly; the report
-gives each arm's solver mix and first-attempt share. One model (Gemma 4 12B) and one pool.
+gives each arm's solver mix and first-attempt share. One model (Gemma 4 12B) and one pool. The targeted and baseline
+reports are the ones of 2026-11-06 (Ollama 0.40.13), and `run.sh` pins no server version: the control runs answer on
+whatever the scoring Mac has then. `../fv3-20261105/` found that only 79 of 134 and 85 of 163 re-asked programs came
+back the same at T=0, so record the server version with the control reports, and if it differs, re-answer one targeted
+run first and report how much of it reproduces.

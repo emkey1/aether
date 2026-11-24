@@ -93,6 +93,21 @@ def main() -> None:
         print(f"  {t} minus {c}: {runs_diff(t, c)}")
     for name, ((_, a), (_, b)) in ARMS.items():
         print(f"  seed gap, {name}: {runs_diff(a, b)}")
+    # Seed noise at this resolution (README.md, note of 2026-11-24): the interval of the
+    # reading resamples tasks, not seeds.
+    (_, t1), (_, t2) = ARMS["targeted"]
+    (_, c1), (_, c2) = ARMS["control"]
+    mean, low, high = interval([(passed[t1][k] + passed[c2][k]) / 2 - (passed[t2][k] + passed[c1][k]) / 2 for k in keys])
+    print(f"  seed-only contrast, {{{t1}, {c2}}} minus {{{t2}, {c1}}}: "
+          f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}] (holds no targeting effect)")
+    signs = set()
+    for t, c in ((t1, c2), (t2, c1)):
+        print(f"  {t} minus {c}: {runs_diff(t, c)}")
+    for t in (t1, t2):
+        for c in (c1, c2):
+            total = sum(passed[t].values()) - sum(passed[c].values())
+            signs.add((total > 0) - (total < 0))
+    print(f"  the four targeted-run minus control-run totals {'all point the same way' if len(signs) == 1 else 'do not all point the same way'}")
 
 
 if __name__ == "__main__":

@@ -92,6 +92,9 @@ Per suite, first attempt (after repair):
     decayed learning rate" (`../qwen36-35b-a3b-e2/`, rule in its config).
 - **Outcome (2026-10-24, see `../qwen36-35b-a3b-e2/RESULTS.md`).**
   - The 2-epoch schedule matched this run's epoch 2 (held-out 33), so the third pass carries the held-out gain.
+    **Corrected 2026-11-24:** on 2,802 fresh tasks the finished 2-epoch run and this one do not differ, +0.29 points
+    [-0.79, +1.36] (`../../distill/fep-20261118/`); the held-out lead is not a gain from the third pass. The release
+    stands.
   - The owner chose **this run's final model (epoch 3)** for release, overriding the pre-set rule. The rule decided on
     a two-task gap on main; this run leads on held-out by six.
   - The held-out suites were used to choose between two finalists, and its held-out score is reported with that

@@ -1,7 +1,7 @@
 {
   "version": "2026-10-07-1",
   "hide_expected_stdout": true,
-  "_note": "Silent-wrong trap suite (W1-22): each task's natural Aether program compiles and prints the wrong answer on some binary. expected_stdout is the task-specified answer, produced by py_refs/<id>.py; reference_solution is the safe form. trap.natural_program is the plausible program the trap catches and trap.observed its class on each binary when the suite was written. Never merge into another suite; report it separately (board B1).",
+  "_note": "Silent-wrong trap suite (W1-22): each task's natural Aether program compiles and prints the wrong answer on some binary. expected_stdout is the task-specified answer, produced by py_refs/<id>.py; reference_solution is the safe form. trap.natural_program is the plausible program the trap catches and trap.observed its class on each binary it was run on (the last column is refreshed with `tools/aether_oracle_check.py --traps`; a test fails when it drifts on a recorded version). Never merge into another suite; report it separately (board B1).",
   "tasks": [
     {
       "id": "trap_div_middle_mark",
@@ -17,12 +17,13 @@
       "trap": {
         "class": "Int `/` is Real unless sunk into a typed Int target: `i == n / 2` is never true for odd n, and `n / 2` prints as 3.500000",
         "review": "C3 / T1-adjacent (CHANGELOG 2026-07-15-2 sink coercion)",
-        "fix": "W-language `/` decision (D4)",
+        "fix": "D4 decided B+ (2026-10-20-6): Int / Int is Real by design, so this trap still fires; an index or a range bound is TYPE-001",
         "natural_program": "fn main() -> Void {\n    let xs: Int[] = [4, 8, 15, 16, 23, 42, 7];\n    fx {\n        loop i in 0..length(xs) {\n            if i > 0 {\n                print(\" \");\n            }\n            if i == length(xs) / 2 {\n                print(\"[\", xs[i], \"]\");\n            } else {\n                print(xs[i]);\n            }\n        }\n        println(\"\");\n        println(\"middle index = \", length(xs) / 2);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "silent_wrong"
         }
       }
     },
@@ -40,12 +41,13 @@
       "trap": {
         "class": "Int `/` is Real before the sink: `p / 5 * 5` is p again, even stored into an Int",
         "review": "C3",
-        "fix": "W-language `/` decision (D4)",
+        "fix": "D4 decided B+ (2026-10-20-6): Int / Int is Real by design, so this trap still fires; an index or a range bound is TYPE-001",
         "natural_program": "fn roundDown(p: Int) -> Int {\n    let r: Int = p / 5 * 5;\n    ret r;\n}\n\nfn main() -> Void {\n    let prices: Int[] = [23, 40, 7, 99, 51];\n    let total: Int = 0;\n    fx {\n        loop i in 0..length(prices) {\n            let r: Int = roundDown(prices[i]);\n            total = total + r;\n            println(prices[i], \" -> \", r);\n        }\n        println(\"total rounded = \", total);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "silent_wrong"
         }
       }
     },
@@ -63,12 +65,13 @@
       "trap": {
         "class": "Int `/` is Real in a range bound: `0..n / 2` runs to 3.5, one iteration too many for odd n",
         "review": "A-probe-full-B-6 / C3",
-        "fix": "W-language `/` decision (D4)",
+        "fix": "D4 B+ (shipped 2026-10-20-6): a Real loop bound is TYPE-001 naming `a div b`",
         "natural_program": "fn main() -> Void {\n    let xs: Int[] = [3, 9, 2, 7, 5, 8, 1];\n    let first: Int = 0;\n    let second: Int = 0;\n    loop i in 0..length(xs) / 2 {\n        first = first + xs[i];\n    }\n    loop i in length(xs) / 2..length(xs) {\n        second = second + xs[i];\n    }\n    fx {\n        println(\"first half = \", first);\n        println(\"second half = \", second);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "coded_error"
         }
       }
     },
@@ -86,12 +89,13 @@
       "trap": {
         "class": "Int `/` is Real when printed directly: `println(s / 3600, \"h \")` prints 1.034722h, exit 0",
         "review": "C3 (every `/` in the 195 tasks lands in a sink)",
-        "fix": "W-language `/` decision (D4)",
+        "fix": "D4 decided B+ (2026-10-20-6): Int / Int is Real by design, so this trap still fires; an index or a range bound is TYPE-001",
         "natural_program": "fn main() -> Void {\n    let durations: Int[] = [3725, 59, 86399];\n    let total: Int = 0;\n    fx {\n        loop i in 0..length(durations) {\n            let s: Int = durations[i];\n            total = total + s;\n            println(s, \"s = \", s / 3600, \"h \", (s % 3600) / 60, \"m \", s % 60, \"s\");\n        }\n        println(\"total = \", total / 3600, \"h \", (total % 3600) / 60, \"m \", total % 60, \"s\");\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "silent_wrong"
         }
       }
     },
@@ -114,7 +118,8 @@
         "observed": {
           "2026-10-06-1": "uncoded_error",
           "2026-10-07-1": "uncoded_error",
-          "2026-10-17-3": "coded_error"
+          "2026-10-17-3": "coded_error",
+          "2026-11-24-2": "coded_error"
         }
       }
     },
@@ -137,7 +142,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "silent_wrong"
         }
       }
     },
@@ -156,12 +162,13 @@
       "trap": {
         "class": "an untyped `let total = it.price * it.qty;` infers Int (T2's Int fallback), truncating 7.50 to 7, with no NARROW-001, exit 0",
         "review": "T2 (inferLetTypeName fallback, commit 8a6c380)",
-        "fix": "W4 inference: promote binary-op types, NULL fallback (open)",
+        "fix": "an inferred `let` over Int and Real is Real (shipped 2026-10-20-1)",
         "natural_program": "type Item {\n    name: Text = \"\";\n    price: Real = 0.0;\n    qty: Int = 0;\n}\n\nfn main() -> Void {\n    let items: Item[] = [new Item { name: \"pen\", price: 2.5, qty: 3 }, new Item { name: \"notebook\", price: 4.25, qty: 2 }, new Item { name: \"stapler\", price: 11.99, qty: 1 }];\n    let subtotal: Real = 0.0;\n    fx {\n        loop i in 0..length(items) {\n            let it: Item = items[i];\n            let total = it.price * it.qty;\n            subtotal = subtotal + total;\n            println(it.name, \": \", it.qty, \" x \", it.price:0:2, \" = \", total:0:2);\n        }\n        println(\"subtotal = \", subtotal:0:2);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -184,7 +191,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "pass",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -207,7 +215,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "pass",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -230,7 +239,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -248,12 +258,13 @@
       "trap": {
         "class": "`<<` on a literal-derived Int works in 32 bits (part2 open list; L0's widening covers arithmetic, not shifts): `bit(32)` and `bit(40)` called with literals return 0, exit 0",
         "review": "part2 open silent-wrong list (`<<` in 32 bits)",
-        "fix": "W5 64-bit shifts (open)",
+        "fix": "W5 64-bit shifts, on literals too (shipped 2026-10-20-2)",
         "natural_program": "fn bit(k: Int) -> Int {\n    ret 1 << k;\n}\n\nfn main() -> Void {\n    let all: Int = bit(0) | bit(10) | bit(31) | bit(32) | bit(40);\n    fx {\n        println(\"bit 0 = \", bit(0));\n        println(\"bit 10 = \", bit(10));\n        println(\"bit 31 = \", bit(31));\n        println(\"bit 32 = \", bit(32));\n        println(\"bit 40 = \", bit(40));\n        println(\"all = \", all);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -277,7 +288,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "pass",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -295,12 +307,13 @@
       "trap": {
         "class": "a range loop re-reads its bound every iteration (R2): `loop i in 0..length(stack)` while popping stops halfway, exit 0",
         "review": "R2 / B-runtime-semantics-2 (the bug that corrupted algo_sliding_window_max)",
-        "fix": "W4 range-bound snapshot (open)",
+        "fix": "W4-33 a range loop evaluates its bounds once (D83, shipped 2026-10-24-1)",
         "natural_program": "fn main() -> Void {\n    let stack: Int[] = [];\n    stack = stack + [10];\n    stack = stack + [20];\n    stack = stack + [30];\n    stack = stack + [40];\n    stack = stack + [50];\n    stack = stack + [60];\n    fx {\n        println(\"size = \", length(stack));\n        loop i in 0..length(stack) {\n            let top: Int = stack[length(stack) - 1];\n            stack = stack[0..length(stack) - 1];\n            println(\"pop \", top);\n        }\n        println(\"left = \", length(stack));\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -318,12 +331,13 @@
       "trap": {
         "class": "2-D array value semantics depend on how rows were built (R3): `let copy: Int[][] = grid;` shares loop-built rows, so zeroing the copy zeroes the original, exit 0",
         "review": "R3 / B-backend-coupling-3",
-        "fix": "gated BE copy-on-write (W-runtime P2, open)",
+        "fix": "gated BE copy-on-write (W-runtime P2, pass by 2026-10-17-3)",
         "natural_program": "fn main() -> Void {\n    let grid: Int[][] = [];\n    loop r in 0..4 {\n        let row: Int[] = [];\n        loop c in 0..4 {\n            row = row + [r * 4 + c + 1];\n        }\n        grid = grid + [row];\n    }\n    let copy: Int[][] = grid;\n    loop i in 0..4 {\n        copy[i][i] = 0;\n    }\n    fx {\n        loop r in 0..4 {\n            let s: Int = 0;\n            loop c in 0..4 {\n                s = s + grid[r][c];\n            }\n            println(\"original row \", r, \" sum = \", s);\n        }\n        loop r in 0..4 {\n            let s: Int = 0;\n            loop c in 0..4 {\n                s = s + copy[r][c];\n            }\n            println(\"copy row \", r, \" sum = \", s);\n        }\n        print(\"original diagonal = \");\n        loop r in 0..4 {\n            if r > 0 {\n                print(\" \");\n            }\n            print(grid[r][r]);\n        }\n        println(\"\");\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -342,12 +356,13 @@
       "trap": {
         "class": "record `==` compares identity (T5): `if cur == goal` on two Points with equal fields is false, so every goal reads unreachable, exit 0",
         "review": "T5",
-        "fix": "W4 REC-001 for record ==/< (open)",
+        "fix": "records and tuples compare by value (D24, shipped 2026-10-20-3)",
         "natural_program": "type Point {\n    r: Int = 0;\n    c: Int = 0;\n}\n\nfn bfs(maze: Text[], start: Point, goal: Point) -> Int {\n    let rows: Int = length(maze);\n    let cols: Int = string_len(maze[0]);\n    let dist: Int[][] = [];\n    loop r in 0..rows {\n        let row: Int[] = [];\n        loop c in 0..cols {\n            row = row + [-1];\n        }\n        dist = dist + [row];\n    }\n    let queue: Point[] = [start];\n    dist[start.r][start.c] = 0;\n    let head: Int = 0;\n    let dr: Int[] = [-1, 1, 0, 0];\n    let dc: Int[] = [0, 0, -1, 1];\n    loop head < length(queue) {\n        let cur: Point = queue[head];\n        head = head + 1;\n        if cur == goal {\n            ret dist[cur.r][cur.c];\n        }\n        loop k in 0..4 {\n            let nr: Int = cur.r + dr[k];\n            let nc: Int = cur.c + dc[k];\n            if nr >= 0 && nr < rows && nc >= 0 && nc < cols {\n                let line: Text = maze[nr];\n                if line[nc] == \".\" && dist[nr][nc] == -1 {\n                    dist[nr][nc] = dist[cur.r][cur.c] + 1;\n                    queue = queue + [new Point { r: nr, c: nc }];\n                }\n            }\n        }\n    }\n    ret -1;\n}\n\nfn main() -> Void {\n    let maze: Text[] = [\"..#..\", \".##.#\", \".....\", \"#.#.#\", \"...#.\"];\n    let start: Point = new Point { r: 0, c: 0 };\n    let goals: Point[] = [new Point { r: 2, c: 4 }, new Point { r: 4, c: 0 }, new Point { r: 4, c: 4 }];\n    fx {\n        loop i in 0..length(goals) {\n            let g: Point = goals[i];\n            println(\"steps to (\", g.r, \",\", g.c, \") = \", bfs(maze, start, g));\n        }\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -365,12 +380,13 @@
       "trap": {
         "class": "value names ignore case, so parameter `name` shadows `const Name` inside greet: `Welcome to Ada.`, exit 0",
         "review": "part1: names ignore case (F6, F110); `fn check(limit) { ret LIMIT; }` returns the argument",
-        "fix": "W4 case-folded collision diagnostic (open)",
+        "fix": "NAME-001: W4 case-folded collision diagnostic (coded_error by 2026-10-17-3)",
         "natural_program": "const Name: Text = \"Aether\";\n\nfn greet(name: Text) -> Text {\n    ret \"Hello, \" + name + \"! Welcome to \" + Name + \".\";\n}\n\nfn main() -> Void {\n    fx {\n        println(greet(\"Ada\"));\n        println(greet(\"Linus\"));\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "coded_error"
+          "2026-10-17-3": "coded_error",
+          "2026-11-24-2": "coded_error"
         }
       }
     },
@@ -388,12 +404,13 @@
       "trap": {
         "class": "an if/else-if chain used as the function's tail expression (Rust style) is a discarded statement (G1): the function returns nil; printed directly it shows `nil` with exit 0, stored into a typed let it is an uncoded runtime error",
         "review": "G1 (`grade(...)` with a tail if-chain gives `grade=nil`)",
-        "fix": "W4-03 value-discarded / no-implicit-return error (open; D39)",
+        "fix": "W4-03 FLOW-001 value computed and discarded (D39, shipped 2026-10-24-1)",
         "natural_program": "fn grade(score: Int) -> Text {\n    if score >= 90 {\n        \"A\"\n    } else if score >= 80 {\n        \"B\"\n    } else if score >= 70 {\n        \"C\"\n    } else {\n        \"F\"\n    }\n}\n\nfn main() -> Void {\n    let scores: Int[] = [95, 83, 71, 40];\n    let passing: Int = 0;\n    fx {\n        loop i in 0..length(scores) {\n            println(scores[i], \": \", grade(scores[i]));\n            if grade(scores[i]) != \"F\" {\n                passing = passing + 1;\n            }\n        }\n        println(\"passing = \", passing);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "coded_error"
         }
       }
     },
@@ -411,12 +428,13 @@
       "trap": {
         "class": "a bare tail expression after early `ret`s (`... ret 100; } x }`) passes FLOW-001 and returns nil on the fall-through path (G1 / FLOW-001 gap); printed directly it shows `nil` with exit 0, stored into a typed let it is an uncoded runtime error",
         "review": "G1; *FLOW-001 misses a missing final ret*",
-        "fix": "W4-03 value-discarded / no-implicit-return error (open; D39)",
+        "fix": "W4-03 FLOW-001 value computed and discarded (D39, shipped 2026-10-24-1)",
         "natural_program": "fn clampPct(x: Int) -> Int {\n    if x < 0 {\n        ret 0;\n    }\n    if x > 100 {\n        ret 100;\n    }\n    x\n}\n\nfn main() -> Void {\n    let xs: Int[] = [-5, 42, 100, 250];\n    let unchanged: Int = 0;\n    fx {\n        loop i in 0..length(xs) {\n            println(\"clampPct(\", xs[i], \") = \", clampPct(xs[i]));\n            if clampPct(xs[i]) == xs[i] {\n                unchanged = unchanged + 1;\n            }\n        }\n        println(\"unchanged = \", unchanged);\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "coded_error"
         }
       }
     },
@@ -434,12 +452,13 @@
       "trap": {
         "class": "a top-level statement other than `let` next to `fn main` (here the loop that fills the table) means main never runs (X3 / entry-point rule): no output, exit 0",
         "review": "part1 entry-point rule (F71, F85, F91); part2 X3",
-        "fix": "coded ENTRY error (open)",
+        "fix": "ENTRY-001: coded ENTRY error (coded_error by 2026-10-17-3)",
         "natural_program": "let squares: Int[] = [];\nloop i in 0..10 {\n    squares = squares + [i * i];\n}\n\nfn main() -> Void {\n    fx {\n        println(\"squares[3] = \", squares[3]);\n        println(\"squares[9] = \", squares[9]);\n        println(\"table size = \", length(squares));\n    }\n    ret;\n}\n",
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "coded_error"
+          "2026-10-17-3": "coded_error",
+          "2026-11-24-2": "coded_error"
         }
       }
     },
@@ -465,7 +484,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -488,7 +508,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -511,7 +532,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "silent_wrong"
+          "2026-10-17-3": "silent_wrong",
+          "2026-11-24-2": "silent_wrong"
         }
       }
     },
@@ -538,7 +560,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "pass",
-          "2026-10-17-3": "pass"
+          "2026-10-17-3": "pass",
+          "2026-11-24-2": "pass"
         }
       }
     },
@@ -562,7 +585,8 @@
         "observed": {
           "2026-10-06-1": "silent_wrong",
           "2026-10-07-1": "silent_wrong",
-          "2026-10-17-3": "coded_error"
+          "2026-10-17-3": "coded_error",
+          "2026-11-24-2": "coded_error"
         }
       }
     }

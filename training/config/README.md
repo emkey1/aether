@@ -71,8 +71,10 @@ hand-copied merge script on the host to go stale. `train` refuses a twin.
 
 ### Progress by execution, not eval loss
 
-Eval loss chose the wrong stopping point for the MoE (best at epoch 0.64; the benchmark improved to epoch 3). To read
-progress by pass rate instead, keep adapters at several steps and score each:
+Eval loss chose the wrong stopping point for the MoE: it was best at epoch 0.64, while the pass rate kept rising to the
+end of the schedule. (How many epochs the schedule has mattered less: on 2,802 fresh tasks a finished two-epoch run and
+a three-epoch run do not differ, `../distill/fep-20261118/`.) To read progress by pass rate instead, keep adapters at
+several steps and score each:
 
 ```bash
 python3 tools/aether_train_run.py $RUN twins      # writes <tag>-s<step>.json per kept step (--force rewrites)

@@ -98,6 +98,16 @@ def main() -> None:
         print(f"  {la_run} minus {base_run}: {pairwise(la_run, base_run)}")
     for arm, (a, b) in ARMS.items():
         print(f"  seed gap, {arm}: {pairwise(a, b)}")
+    # Seed noise at this resolution (README.md, note of 2026-11-24): the interval of the
+    # reading resamples tasks, not seeds.
+    (l1, l2), (b1, b2) = ARMS["la"], ARMS["base"]
+    mean, low, high = interval([(passed[l1][k] + passed[b2][k]) / 2 - (passed[l2][k] + passed[b1][k]) / 2 for k in keys])
+    print(f"  seed-only contrast, {{{l1}, {b2}}} minus {{{l2}, {b1}}}: "
+          f"{100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}] (holds no la effect)")
+    for la_run, base_run in ((l1, b2), (l2, b1)):
+        print(f"  {la_run} minus {base_run}: {pairwise(la_run, base_run)}")
+    signs = {(rate(la_run) > rate(base_run)) - (rate(la_run) < rate(base_run)) for la_run in (l1, l2) for base_run in (b1, b2)}
+    print(f"  the four la-run minus base-run totals {'all point the same way' if len(signs) == 1 else 'do not all point the same way'}")
 
 
 if __name__ == "__main__":
