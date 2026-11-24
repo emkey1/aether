@@ -121,7 +121,7 @@ Both are in tasks_hard_nontoon:
 
 - `score/`
   - `tuned__*`: main suites, host-c.
-  - `m5ollama__*`: held-out suites, scoring Mac.
+  - `host-d-ollama__*`: held-out suites, scoring Mac.
   - `python__*`: the Python check.
 - `replay/`: run 7, its seeds and the 2026-10-18 guided base re-graded on 2026-10-20-12.
 - `train/run_metadata.json`: the training run as executed.

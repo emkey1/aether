@@ -107,7 +107,7 @@ Run 6 (`qwen38-27b-r6`) carries the responses:
 
 - `score/`
   - `tuned__*`: main suites, host-c.
-  - `m5ollama__*`: held-out suites, scoring Mac.
+  - `host-d-ollama__*`: held-out suites, scoring Mac.
   - `python__*`: the Python check.
   - `card__*`: the card experiment.
 - `../qwen38-27b-modern-p4/score/`: run 5b's main suites.

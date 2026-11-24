@@ -97,6 +97,6 @@ Python answer (`fn main`, `let x: Int`, `fx {`, `ret`). The cause is a train/ser
 
 `score/`:
 - `tuned__*`: main suites, vLLM, host-c.
-- `m5ollama__*`: held-out suites, scoring Mac.
+- `host-d-ollama__*`: held-out suites, scoring Mac.
 - `python__*`: the Python check.
 - `nocard__*` and `fixit__*`: main suites on the scoring Mac, without and with the fix-it card.

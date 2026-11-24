@@ -38,7 +38,7 @@ guide, untrained Qwen3.6-27B scored 95.9% FA and Bonsai 2 (Qwen3.8 at 1.7 bits) 
 ## Graders and hosts
 
 - `qwen38-27b-toon`: graded on aether 2026-10-16-3 (96f099f). Board suites served by vLLM (bf16) on host-c;
-  sealed suites by Ollama (bf16 import of the same merged export) on host-g, files `m5ollama__*`. The three smoke
+  sealed suites by Ollama (bf16 import of the same merged export) on host-g, files `host-d-ollama__*`. The three smoke
   tasks gave byte-identical first attempts on both hosts at T=0.
 - `qwen38-27b-l1-pilot`: graded on 2026-10-15-2 on host-c (frontier with `--allow-broken-oracle`: Linux `val("")`
   then reported success, so `val_checked_ledger` was unachievable there). Its first attempts were re-graded on

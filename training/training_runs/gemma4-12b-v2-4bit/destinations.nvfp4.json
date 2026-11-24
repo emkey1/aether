@@ -1,7 +1,7 @@
 {
   "destinations": [
     {
-      "id": "gemma4-12b-v2-nvfp4-m5ollama",
+      "id": "gemma4-12b-v2-nvfp4-host-d-ollama",
       "type": "openai_chat_completions",
       "base_url": "http://localhost:11434/v1",
       "api_key": "",

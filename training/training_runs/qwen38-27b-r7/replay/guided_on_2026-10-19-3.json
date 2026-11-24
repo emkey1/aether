@@ -53,7 +53,7 @@
   "unwaived": [
     {
       "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_percent_encode",
       "repeat_index": 0,
@@ -74,7 +74,7 @@
   "flips": [
     {
       "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_percent_encode",
       "repeat_index": 0,
@@ -93,7 +93,7 @@
     },
     {
       "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_file_roundtrip",
       "repeat_index": 0,
@@ -114,7 +114,7 @@
   "moves": [
     {
       "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_percent_encode",
       "repeat_index": 0,
@@ -132,7 +132,7 @@
     },
     {
       "report": "~/aether-models/score_guided_2026-10-18-1/guided__sealed_toon.json",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_file_roundtrip",
       "repeat_index": 0,

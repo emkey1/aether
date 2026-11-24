@@ -53,7 +53,7 @@ dest_for() {  # model file
   python3 - "$1" "$2" <<'PY'
 import json, sys
 model, path = sys.argv[1:]
-json.dump({"destinations": [{"id": model.replace("aether-", "") + "-m5ollama", "type": "openai_chat_completions", "base_url": "http://localhost:11434/v1",
+json.dump({"destinations": [{"id": model.replace("aether-", "") + "-host-d-ollama", "type": "openai_chat_completions", "base_url": "http://localhost:11434/v1",
                              "api_key": "", "model": model, "temperature": 0, "max_output_tokens": 8192, "prompt_context_limit": 32768,
                              "request_timeout_seconds": 900, "request_max_retries": 2, "retry_backoff_seconds": 5, "cooldown_seconds": 0,
                              "extra_body": {"reasoning_effort": "none"}}]}, open(path, "w"), indent=1)

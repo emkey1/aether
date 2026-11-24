@@ -53,7 +53,7 @@
   "flips": [
     {
       "report": "~/aether-models/replay_r6_on_19-3/in/aether__frontier_algo.json",
-      "destination": "qwen38-27b-r6-aether-m5ollama",
+      "destination": "qwen38-27b-r6-aether-host-d-ollama",
       "doc": "none",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -87,7 +87,7 @@
   "moves": [
     {
       "report": "~/aether-models/replay_r6_on_19-3/in/aether__frontier_algo.json",
-      "destination": "qwen38-27b-r6-aether-m5ollama",
+      "destination": "qwen38-27b-r6-aether-host-d-ollama",
       "doc": "none",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,

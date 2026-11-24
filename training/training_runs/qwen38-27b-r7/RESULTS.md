@@ -135,6 +135,6 @@ release (`tools/replay_bench.py`, zero GPU):
 
 - `score/`
   - `tuned__*`: main suites, host-c.
-  - `m5ollama__*`: held-out suites, scoring Mac.
+  - `host-d-ollama__*`: held-out suites, scoring Mac.
   - `python__*`: the Python check.
 - `replay/`: run 6 and the guided base re-graded on 2026-10-19-3.

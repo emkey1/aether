@@ -12,10 +12,10 @@
     "aether_args": []
   },
   "reports": [
-    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier.json.gz",
-    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
-    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_spec.json.gz",
-    "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__frontier.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__frontier_algo.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__frontier_spec.json.gz",
+    "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
     "training/training_runs/qwen38-27b-r7-s3/score/tuned__cs.json.gz",
     "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_nontoon.json.gz",
     "training/training_runs/qwen38-27b-r7-s3/score/tuned__hard_v2.json.gz",
@@ -55,8 +55,8 @@
   "waived": [],
   "unwaived": [
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__frontier_algo.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -74,8 +74,8 @@
       "transition": "pass->fail"
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_monthly_spend",
       "repeat_index": 0,
@@ -228,8 +228,8 @@
   ],
   "flips": [
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__frontier_algo.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -247,8 +247,8 @@
       "transition": "pass->fail"
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_cell_kinds",
       "repeat_index": 0,
@@ -266,8 +266,8 @@
       "transition": "pass->fail"
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_meter_validation",
       "repeat_index": 0,
@@ -285,8 +285,8 @@
       "transition": "pass->fail"
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_monthly_spend",
       "repeat_index": 0,
@@ -439,8 +439,8 @@
   ],
   "moves": [
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__frontier_algo.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__frontier_algo.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -457,8 +457,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_cell_kinds",
       "repeat_index": 0,
@@ -475,8 +475,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_cell_kinds",
       "repeat_index": 0,
@@ -493,8 +493,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_score_ranking",
       "repeat_index": 0,
@@ -511,8 +511,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_score_ranking",
       "repeat_index": 0,
@@ -529,8 +529,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_score_ranking",
       "repeat_index": 0,
@@ -547,8 +547,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_meter_validation",
       "repeat_index": 0,
@@ -565,8 +565,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_meter_validation",
       "repeat_index": 0,
@@ -583,8 +583,8 @@
       ]
     },
     {
-      "report": "training/training_runs/qwen38-27b-r7-s3/score/m5ollama__sealed_toon.json.gz",
-      "destination": "qwen38-27b-r7-s3-aether-m5ollama",
+      "report": "training/training_runs/qwen38-27b-r7-s3/score/host-d-ollama__sealed_toon.json.gz",
+      "destination": "qwen38-27b-r7-s3-aether-host-d-ollama",
       "doc": "none",
       "task_id": "sealed_toon_monthly_spend",
       "repeat_index": 0,

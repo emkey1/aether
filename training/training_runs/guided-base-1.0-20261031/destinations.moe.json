@@ -1,7 +1,7 @@
 {
   "destinations": [
     {
-      "id": "qwen36-35b-a3b-base-q8-m5ollama",
+      "id": "qwen36-35b-a3b-base-q8-host-d-ollama",
       "type": "openai_chat_completions",
       "base_url": "http://localhost:11434/v1",
       "api_key": "",

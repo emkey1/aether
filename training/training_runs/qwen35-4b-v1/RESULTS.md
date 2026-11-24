@@ -78,6 +78,6 @@ are counted here as misses, and a re-run reproduces them.
 
 - `score/`
   - `tuned__*`: main suites, host-c.
-  - `m5ollama__*`: held-out suites, scoring Mac.
+  - `host-d-ollama__*`: held-out suites, scoring Mac.
   - `python__*`: the Python check.
 - `train/run_metadata.json`: the training run as executed.

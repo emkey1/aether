@@ -53,7 +53,7 @@
   "unwaived": [
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "tuple_stats_pipeline",
       "repeat_index": 0,
@@ -72,7 +72,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "money_cents_report",
       "repeat_index": 0,
@@ -91,7 +91,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier_algo.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -110,7 +110,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_nontoon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_inventory_rollup",
       "repeat_index": 0,
@@ -129,7 +129,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard_expense_outliers",
       "repeat_index": 0,
@@ -148,7 +148,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_sensor_windows",
       "repeat_index": 0,
@@ -167,7 +167,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_grade_bands",
       "repeat_index": 0,
@@ -186,7 +186,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_cell_kinds",
       "repeat_index": 0,
@@ -205,7 +205,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_score_ranking",
       "repeat_index": 0,
@@ -224,7 +224,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_meter_validation",
       "repeat_index": 0,
@@ -243,7 +243,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_monthly_spend",
       "repeat_index": 0,
@@ -262,7 +262,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_percent_encode",
       "repeat_index": 0,
@@ -281,7 +281,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__v2_pos.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "real_mean_format",
       "repeat_index": 0,
@@ -302,7 +302,7 @@
   "flips": [
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "tuple_stats_pipeline",
       "repeat_index": 0,
@@ -321,7 +321,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "money_cents_report",
       "repeat_index": 0,
@@ -340,7 +340,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier_algo.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -359,7 +359,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_nontoon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_inventory_rollup",
       "repeat_index": 0,
@@ -378,7 +378,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard_expense_outliers",
       "repeat_index": 0,
@@ -397,7 +397,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_sensor_windows",
       "repeat_index": 0,
@@ -416,7 +416,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_grade_bands",
       "repeat_index": 0,
@@ -435,7 +435,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_cell_kinds",
       "repeat_index": 0,
@@ -454,7 +454,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_score_ranking",
       "repeat_index": 0,
@@ -473,7 +473,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_meter_validation",
       "repeat_index": 0,
@@ -492,7 +492,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_monthly_spend",
       "repeat_index": 0,
@@ -511,7 +511,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_percent_encode",
       "repeat_index": 0,
@@ -530,7 +530,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_file_roundtrip",
       "repeat_index": 0,
@@ -549,7 +549,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__v2_pos.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "real_mean_format",
       "repeat_index": 0,
@@ -570,7 +570,7 @@
   "moves": [
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "tuple_stats_pipeline",
       "repeat_index": 0,
@@ -588,7 +588,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "money_cents_report",
       "repeat_index": 0,
@@ -606,7 +606,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__frontier_algo.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "algo_record_pipeline",
       "repeat_index": 0,
@@ -624,7 +624,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_nontoon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_inventory_rollup",
       "repeat_index": 0,
@@ -642,7 +642,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard_expense_outliers",
       "repeat_index": 0,
@@ -660,7 +660,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_sensor_windows",
       "repeat_index": 0,
@@ -678,7 +678,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__hard_v2.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "hard2_grade_bands",
       "repeat_index": 0,
@@ -696,7 +696,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_cell_kinds",
       "repeat_index": 0,
@@ -714,7 +714,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_score_ranking",
       "repeat_index": 0,
@@ -732,7 +732,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_meter_validation",
       "repeat_index": 0,
@@ -750,7 +750,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_toon_monthly_spend",
       "repeat_index": 0,
@@ -768,7 +768,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_percent_encode",
       "repeat_index": 0,
@@ -786,7 +786,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__sealed_toon.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "sealed_mstream_file_roundtrip",
       "repeat_index": 0,
@@ -804,7 +804,7 @@
     },
     {
       "report": "training/training_runs/guided-qwen38-27b-20261018/score/guided__v2_pos.json.gz",
-      "destination": "qwen38-27b-base-guided-m5ollama",
+      "destination": "qwen38-27b-base-guided-host-d-ollama",
       "doc": "medium",
       "task_id": "real_mean_format",
       "repeat_index": 0,
