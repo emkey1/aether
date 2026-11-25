@@ -4,7 +4,7 @@
   "family": "gemma4_unified",
   "hf_repo": "google/gemma-4-12B-it",
   "base_model": "/storage/models/Gemma-4-12B-it",
-  "host": "host-c",
+  "host": "host-a",
   "precision": "4bit",
   "min_available_gb": 40,
   "lora": {
@@ -35,6 +35,7 @@
     "aether_version": "2026-10-30-1",
     "repair_manifest": "training/seed_repair_pairs.json",
     "max_python_pairs": 220,
+    "instruction_manifests": ["training/seed_instruction_pairs.json", "training/distilled/d1-20261016.json", "training/distilled/d1-20261016_python.json", "training/distilled/d2-20261018.json", "training/distilled/d2-20261018_python.json", "training/distilled/d2m-20261018.json", "training/distilled/d2m-20261018_python.json", "training/distilled/d3-20261018.json", "training/distilled/d3-20261018_python.json", "training/distilled/d4-20261021.json", "training/distilled/d4-20261021_python.json", "training/distilled/d5-20261031.json", "training/distilled/d5-20261031_python.json", "training/distill/c1-20261118/pairs.json"],
     "system_message": false
   },
   "score": {

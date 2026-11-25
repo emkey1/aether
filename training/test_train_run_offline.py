@@ -68,6 +68,45 @@ class ConfigTests(unittest.TestCase):
                 self.assertIn(message, str(ctx.exception))
 
 
+    def test_a_dataset_may_name_its_instruction_files(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            run = tr.load_run(write_run(tmp, dataset={"id": "ds-c", "instruction_manifests": [
+                "training/seed_instruction_pairs.json", "training/distilled/d1-20261016.json"]}))
+            self.assertEqual(len(run["dataset"]["instruction_manifests"]), 2)
+            self.assertTrue(tr._instruction_manifest("training/distilled/d1-20261016.json").is_file())
+            with self.assertRaises(SystemExit):
+                tr._instruction_manifest("training/distilled/no-such-batch.json")
+            for bad in ([], "training/x.json", ["a.json", "a.json"], [""]):
+                with self.subTest(bad=bad), self.assertRaises(SystemExit) as ctx:
+                    tr.load_run(write_run(tmp, dataset={"id": "ds-c", "instruction_manifests": bad}))
+                self.assertIn("instruction_manifests", str(ctx.exception))
+
+    def test_dataset_stage_passes_the_named_files_to_the_builder(self):
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            tmp = pathlib.Path(tmp)
+            run = tr.load_run(write_run(tmp, dataset={"id": "ds-c", "aether_version": "2026-10-15-1",
+                                                      "instruction_manifests": ["training/seed_instruction_pairs.json"]}))
+            run["paths"]["dataset_local"] = str(tmp / "out")
+            seen = {}
+
+            class Done(Exception):
+                pass
+
+            def fake_sh(argv, *a, **k):
+                seen["argv"] = argv
+                raise Done()
+            fake_version = mock.Mock(stdout="Aether Compiler Version: 2026-10-15-1\n")
+            with mock.patch.object(tr, "sh", fake_sh), mock.patch.object(tr.subprocess, "run", return_value=fake_version):
+                with self.assertRaises(Done):
+                    tr.stage_dataset(run, mock.Mock(aether_bin="aether", force=False))
+            argv = seen["argv"]
+            i = argv.index("--instruction-manifest")
+            self.assertTrue(argv[i + 1].endswith("training/seed_instruction_pairs.json"))
+            self.assertEqual(argv.count("--instruction-manifest"), 1)
+
+
 class ScriptTests(unittest.TestCase):
     def load(self, **overrides):
         with tempfile.TemporaryDirectory() as tmp:

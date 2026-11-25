@@ -84,7 +84,7 @@ HARNESS_FILES = [
 HARNESS_EXCLUDES = ["results/", "harness_out/", "*.bak*", "destinations.*.json", "__pycache__/"]
 # What a dataset is built from; a change here (committed or not) is a different dataset.
 DATASET_INPUTS = ["training/corpus_candidates", "training/corpus_candidates_manifest.json",
-                  "training/seed_instruction_pairs.json", "training/seed_repair_pairs*.json",
+                  "training/seed_instruction_pairs.json", "training/seed_repair_pairs*.json", "training/distilled",
                   "bench/tasks*.json", "tools/aether_specialization_*.py", "tools/recapture_expected.py"]
 DATASET_FILES = ["aether_instruction_sft.jsonl", "aether_repair_sft.jsonl", "aether_training_mix.json",
                  "aether_build_report.json"]
@@ -126,6 +126,14 @@ def load_run(path: pathlib.Path, families_path: pathlib.Path = FAMILIES_PATH) ->
     run["dataset"] = {"repair_manifest": "training/seed_repair_pairs.json"} | run["dataset"]
     if "id" not in run["dataset"]:
         raise SystemExit(f"{path}: dataset.id is required")
+    # A dataset may name its instruction-pair files (repo-relative) instead of the builder's default, the seed
+    # pairs plus every approved batch in training/distilled/: a control arm swaps one batch for another this way.
+    manifests = run["dataset"].get("instruction_manifests")
+    if manifests is not None:
+        if not isinstance(manifests, list) or not manifests or not all(isinstance(m, str) and m for m in manifests):
+            raise SystemExit(f"{path}: dataset.instruction_manifests must be a non-empty list of repo-relative paths")
+        if len(set(manifests)) != len(manifests):
+            raise SystemExit(f"{path}: dataset.instruction_manifests names a file twice")
     score = {"variants": ["base", "tuned"], "docs": "none", "repeats": 1, "repair_attempts": 2,
              "temperature": 0, "max_output_tokens": 8192, "seed_base": 42, "port": 8019,
              "request_timeout_seconds": 900, "smoke_tasks": 3,
@@ -619,6 +627,14 @@ def stage_plan(run: dict, args) -> int:
     return 0
 
 
+def _instruction_manifest(name: str) -> pathlib.Path:
+    """A repo-relative instruction-pair file a dataset names; it must exist."""
+    path = REPO_ROOT / name
+    if not path.is_file():
+        raise SystemExit(f"dataset.instruction_manifests: {name} does not exist")
+    return path
+
+
 def stage_dataset(run: dict, args) -> int:
     out = pathlib.Path(run["paths"]["dataset_local"])
     manifest_path = out / "DATASET_MANIFEST.json"
@@ -639,7 +655,9 @@ def stage_dataset(run: dict, args) -> int:
         "--version", run["dataset"].get("version", f"{datetime.date.today().isoformat()}-1"),
         *(["--max-python-pairs", str(run["dataset"]["max_python_pairs"])]
           if run["dataset"].get("max_python_pairs") is not None else []),
-        *(["--no-system-message"] if run["dataset"].get("system_message") is False else [])])
+        *(["--no-system-message"] if run["dataset"].get("system_message") is False else []),
+        *[arg for name in run["dataset"].get("instruction_manifests") or []
+          for arg in ("--instruction-manifest", str(_instruction_manifest(name)))]])
     leaks = {}
     for name in DATASET_FILES:
         found = sorted(set(PRIVATE.findall((out / name).read_text(encoding="utf-8"))))
@@ -662,6 +680,10 @@ def stage_dataset(run: dict, args) -> int:
         "repair_manifest": run["dataset"]["repair_manifest"],
         "max_python_pairs": run["dataset"].get("max_python_pairs"),
         "system_message": run["dataset"].get("system_message", True),
+        # None: the builder's default (the seed pairs and every file in training/distilled/).
+        "instruction_manifests": ({name: sha256(_instruction_manifest(name))
+                                   for name in run["dataset"]["instruction_manifests"]}
+                                  if run["dataset"].get("instruction_manifests") else None),
         "records": {"instruction": mix.get("instruction_records"), "repair": mix.get("repair_records")},
         "files": {name: sha256(out / name) for name in DATASET_FILES},
     }

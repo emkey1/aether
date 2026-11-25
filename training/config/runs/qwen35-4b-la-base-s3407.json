@@ -4,7 +4,7 @@
   "family": "qwen3_5",
   "hf_repo": "Qwen/Qwen3.5-4B",
   "base_model": "/storage/models/Qwen3.5-4B",
-  "host": "host-c",
+  "host": "host-b",
   "precision": "16bit",
   "min_available_gb": 30,
   "lora": {
