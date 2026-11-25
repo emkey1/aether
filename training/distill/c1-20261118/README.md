@@ -60,7 +60,10 @@ with the arm, and the seed check cannot see it. So:
 - Seeds stay two a side (owner, same day). The table and the seed check above are unchanged; the seed check now uses
   the re-answered targeted runs.
 
-This adds two passes on the scoring Mac (four in all) and changes no threshold.
+This adds two passes on the scoring Mac (four in all) and changes no threshold. `score.sh` runs the session. Before
+it was armed, `gemma4-12b-v3` was re-imported at int8 on Ollama 0.40.17 under a scratch name: all 677 tensor digests
+and the config matched fv3's model, so the targeted arm keeps fv3's int8 models and the import does not line up with
+the arm either.
 
 **Reported, not deciding:** control minus baseline (v2) with its interval; each seed's differences with a sign test; the
 seed gap in each arm; failure class; how many passed-sample tasks the solvers solved, against the targeted batch's 298

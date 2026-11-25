@@ -26,6 +26,14 @@ with LoRA on the 24 linear-attention layers and a larger trainable-parameter cou
 logged losses are finite. If not, the run is stopped and nothing else starts: a target list that silently adapts
 nothing would make this study measure two identical arms.
 
+**Passed, 2026-11-25.** The run finished all three epochs before the check was read (the wait watched the wrong
+directory); nothing else had started. Its adapter puts LoRA on all five linear-attention projections in each of the 24
+linear-attention layers, on the 8 full-attention layers and on all 32 MLPs, and on nothing in the vision tower:
+64,929,792 trainable parameters, against 42,467,328 for `qwen35-4b-v1`, the last run on the family's list (rank 32,
+alpha 64 in both). Its first logged losses were 0.61, 0.37, 0.40, 0.41 and 0.32, and eval loss fell from 0.196 at step
+25 to 0.104 at step 575. The other three then trained one at a time on the same host. `score.sh` runs the session
+below.
+
 ## The reading, fixed before training
 
 `compare.py` computes it.
