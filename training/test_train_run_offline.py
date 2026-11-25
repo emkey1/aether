@@ -186,7 +186,8 @@ class ScriptTests(unittest.TestCase):
 
     def test_generated_scripts_parse_and_keep_home_expandable(self):
         run = self.load()
-        for name, text in (("train.sh", tr.train_script(run)), ("score.sh", tr.score_script(run))):
+        for name, text in (("train.sh", tr.train_script(run)), ("score.sh", tr.score_script(run)),
+                           ("score_when_ready.sh", tr.score_when_ready_script(run))):
             with self.subTest(script=name):
                 self.assertEqual(subprocess.run(["bash", "-n"], input=text, text=True).returncode, 0)
                 self.assertNotIn("'$HOME", text)
@@ -200,6 +201,260 @@ class ScriptTests(unittest.TestCase):
         newer = tr.score_script(self.load(score={"grader_version": "2026-10-15-2"}))
         self.assertIn("*2026-10-15-2*", newer)
         self.assertNotIn("*2026-10-15-1*", newer)
+
+    def test_memory_wait_hours_must_be_positive(self):
+        self.assertEqual(self.load()["score"]["memory_wait_hours"], 24)
+        for bad in (0, -1, "24", True):
+            with self.subTest(bad=bad), self.assertRaises(SystemExit) as ctx:
+                self.load(score={"memory_wait_hours": bad})
+            self.assertIn("memory_wait_hours", str(ctx.exception))
+
+
+# Stand-ins for the host's commands, so the generated scripts run here: docker, curl, sleep, the harness
+# (python3), the grader, sha256sum, free and nvidia-smi. Each reads its behaviour from FAKE_* variables;
+# count NAME prints how many times NAME has been called, this call included.
+COUNT = 'count() { local n; n=$(cat "$FAKE_STATE/$1" 2>/dev/null || echo 0); n=$((n + 1)); echo $n > "$FAKE_STATE/$1"; echo $n; }\n'
+FAKES = {
+    # The training container runs for the first FAKE_RUNNING_CALLS inspections; another run's container is up
+    # for the first FAKE_PS_CALLS listings.
+    "docker": COUNT + """case "$1" in
+  run) exit "${FAKE_DOCKER_RUN_RC:-0}" ;;
+  inspect) [ "$(count inspect)" -le "${FAKE_RUNNING_CALLS:-0}" ] && echo true || echo false ;;
+  ps) [ "$(count ps)" -le "${FAKE_PS_CALLS:-0}" ] && echo aether-serve-other ;;
+esac
+exit 0""",
+    "curl": """[ "${FAKE_READY:-1}" = 1 ] && echo "{\\"data\\": [{\\"id\\": \\"$FAKE_NAME\\"}]}"
+exit 0""",
+    "sleep": "exit 0",
+    "sha256sum": 'echo "0000  $1"',
+    # check_generations.py --complete fails while FAKE_CHECK_RC says so; the harness itself always exits 0.
+    "python3": """case "$*" in *check_generations.py*--complete*) exit "${FAKE_CHECK_RC:-0}" ;; esac
+exit 0""",
+    "nvidia-smi": 'echo "${FAKE_NVIDIA:-[N/A], [N/A]}"',
+    # Available memory is FAKE_LOW_MIB for the first FAKE_LOW_CALLS calls, then FAKE_HIGH_MIB.
+    "free": COUNT + """avail=110000; [ "$(count free)" -le "${FAKE_LOW_CALLS:-0}" ] && avail=56000
+echo "               total        used        free      shared  buff/cache   available"
+echo "Mem:          124000       60000       10000           0       50000       $avail"
+exit 0""",
+}
+
+
+class FakeHost:
+    """A temporary $HOME with the run's remote directory, a grader and FAKES first on PATH."""
+
+    def __init__(self, test: unittest.TestCase, **overrides):
+        self._tmp = tempfile.TemporaryDirectory()
+        test.addCleanup(self._tmp.cleanup)
+        self.root = pathlib.Path(self._tmp.name)
+        self.home, self.bin, self.state = self.root / "home", self.root / "bin", self.root / "state"
+        for d in (self.home, self.bin, self.state):
+            d.mkdir()
+        for name, body in FAKES.items():
+            (self.bin / name).write_text("#!/bin/bash\n" + body + "\n", encoding="utf-8")
+            (self.bin / name).chmod(0o755)
+        overrides.setdefault("weights_root", str(self.root / "weights"))
+        score = {"grader": "$HOME/grader/aether", "variants": ["base"], "suites": {"a": "bench/a.json"}}
+        overrides["score"] = score | overrides.get("score", {})
+        self.run = tr.load_run(write_run(self.root, **overrides))
+        self.remote = self.home / "aether-train" / self.run["tag"]
+        (self.remote / "logs").mkdir(parents=True)
+        self.grader = self.home / "grader" / "aether"
+        self.set_grader("Aether Compiler Version: 2026-10-15-1 (1.0)")
+
+    def set_grader(self, version: str | None, executable: bool = True) -> None:
+        if version is None:
+            self.grader.unlink(missing_ok=True)
+            return
+        self.grader.parent.mkdir(parents=True, exist_ok=True)
+        self.grader.write_text(f"#!/bin/bash\necho '{version}'\n", encoding="utf-8")
+        self.grader.chmod(0o755 if executable else 0o644)
+
+    def bash(self, script: str, **env) -> subprocess.CompletedProcess:
+        path = self.root / "script.sh"
+        path.write_text(script, encoding="utf-8")
+        full = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_STATE": str(self.state),
+                "FAKE_NAME": tr.served_name(self.run, "base")} | {k: str(v) for k, v in env.items()}
+        return subprocess.run(["/bin/bash", str(path)], env=full, capture_output=True, text=True, timeout=60)
+
+    def log(self, name: str) -> str:
+        path = self.remote / name
+        return path.read_text(encoding="utf-8") if path.exists() else ""
+
+
+class GraderProbeTests(unittest.TestCase):
+    """push and check probe the grader score.sh uses (missing on a new training host, 2026-11-25)."""
+
+    def facts(self, host: FakeHost) -> dict:
+        out = host.bash(tr.grader_probe_cmd(host.run)).stdout
+        return dict(line.split("=", 1) for line in out.split() if "=" in line)
+
+    def test_probe_tells_missing_not_executable_and_version(self):
+        host = FakeHost(self)
+        self.assertIn("$HOME/grader/aether", tr.grader_probe_cmd(host.run))  # expanded on the host
+        facts = self.facts(host)
+        self.assertEqual(facts["grader"], "ok")
+        self.assertIn("2026-10-15-1", facts["grader_version"])
+        host.set_grader("Aether Compiler Version: 2026-10-15-1", executable=False)
+        self.assertEqual(self.facts(host), {"grader": "not-executable"})
+        host.set_grader(None)
+        self.assertEqual(self.facts(host), {"grader": "missing"})
+
+    def check(self, run: dict, probe_out: str) -> tuple[int, str, str]:
+        import contextlib
+        import io
+        from unittest import mock
+        base = "model=ok\nimage=ok\nserve_image=ok\navail_gb=100\ncontainers=\nmerged=no\ndisk_gb=500\n"
+        done = subprocess.CompletedProcess([], 0, stdout=base + probe_out, stderr="")
+        printed = io.StringIO()
+        with mock.patch.object(tr, "remote", return_value=done) as remote, contextlib.redirect_stdout(printed):
+            rc = tr.stage_check(run, mock.Mock(when_ready=False))
+        return rc, printed.getvalue(), remote.call_args[0][1]
+
+    def test_check_reports_a_missing_or_wrong_grader_as_a_problem(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            run = tr.load_run(write_run(pathlib.Path(tmp), score={"grader": "$HOME/g/aether",
+                                                                  "grader_version": "2026-10-30-1"}))
+        rc, out, command = self.check(run, "grader=ok\ngrader_version=Aether_Compiler_Version:_2026-10-30-1_(1.0)\n")
+        self.assertEqual(rc, 0, out)
+        self.assertIn("$HOME/g/aether --version", command)
+        for probe, wanted in (("grader=missing\n", "grader missing"),
+                              ("grader=not-executable\n", "grader not-executable"),
+                              ("", "grader missing"),
+                              ("grader=ok\ngrader_version=Aether_Compiler_Version:_2026-10-15-1\n",
+                               "'Aether Compiler Version: 2026-10-15-1', not language 2026-10-30-1")):
+            with self.subTest(probe=probe):
+                rc, out, _ = self.check(run, probe)
+                self.assertEqual(rc, 1)
+                problems = [line for line in out.splitlines() if line.startswith("PROBLEM:")]
+                self.assertEqual(len(problems), 1, out)
+                self.assertIn(wanted, problems[0])
+                self.assertIn("$HOME/g/aether", problems[0])
+
+
+class ScoreScriptExitTests(unittest.TestCase):
+    """score.sh exits non-zero when a variant failed or is incomplete, so a caller's log shows it (2026-11-25:
+    the served model never became ready and the pass still ended with exit 0)."""
+
+    def score(self, host: FakeHost, **env) -> subprocess.CompletedProcess:
+        return host.bash(tr.score_script(host.run), **env)
+
+    def test_a_finished_pass_exits_zero_and_a_rerun_skips_it(self):
+        host = FakeHost(self)
+        first = self.score(host)
+        self.assertEqual(first.returncode, 0, host.log("score/score.log"))
+        self.assertTrue((host.remote / "score" / "base__a.done").exists())
+        self.assertTrue((host.remote / "score" / "base.done").exists())
+        self.assertRegex(host.log("score/score.log"), r"score pass finished\n.*served model stopped\n$")
+        again = self.score(host, FAKE_DOCKER_RUN_RC=1)
+        self.assertEqual(again.returncode, 0)
+        self.assertIn("SKIP base (every suite done)", host.log("score/score.log"))
+
+    def test_failed_variants_exit_one(self):
+        for env, why in (({"FAKE_DOCKER_RUN_RC": 1}, "base: docker run failed"),
+                         ({"FAKE_READY": 0}, "base: never became ready")):
+            with self.subTest(why=why):
+                host = FakeHost(self)
+                result = self.score(host, **env)
+                self.assertEqual(result.returncode, 1)
+                self.assertIn(f"score pass finished with failures: {why} (re-run to resume)",
+                              host.log("score/score.log"))
+                self.assertFalse((host.remote / "score" / "base.done").exists())
+
+    def test_no_export_counts_as_a_failure_beside_a_scored_variant(self):
+        host = FakeHost(self, score={"variants": ["base", "tuned"]})
+        result = self.score(host)
+        self.assertEqual(result.returncode, 1)
+        self.assertTrue((host.remote / "score" / "base.done").exists())
+        self.assertIn("failures: tuned: no merged export", host.log("score/score.log"))
+
+    def test_an_incomplete_suite_exits_one_and_resumes(self):
+        host = FakeHost(self, score={"suites": {"a": "bench/a.json", "b": "bench/b.json"}})
+        result = self.score(host, FAKE_CHECK_RC=1)
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("failures: base: incomplete", host.log("score/score.log"))
+        self.assertFalse((host.remote / "score" / "base__a.done").exists())
+        self.assertTrue((host.remote / "score" / "base__smoke.ok").exists())
+        resumed = self.score(host)
+        self.assertEqual(resumed.returncode, 0)
+        self.assertTrue((host.remote / "score" / "base__b.done").exists())
+
+    def test_a_wrong_or_missing_grader_aborts_with_two(self):
+        host = FakeHost(self)
+        host.set_grader("Aether Compiler Version: 2026-10-14-1")
+        self.assertEqual(self.score(host).returncode, 2)
+        host.set_grader(None)
+        self.assertEqual(self.score(host).returncode, 2)
+        self.assertIn("ABORT grader missing", host.log("score/score.log"))
+
+
+class ScoreWaiterMemoryTests(unittest.TestCase):
+    """score_when_ready.sh waits for the serve's memory share (vLLM's --gpu-memory-utilization of the device),
+    logging the shortfall, gives up after score.memory_wait_hours, and exits with score.sh's status."""
+
+    def waiter(self, host: FakeHost, score_rc: int = 0, **env) -> subprocess.CompletedProcess:
+        (host.remote / "score.sh").write_text(f"touch \"$(dirname \"$0\")/scored\"\nexit {score_rc}\n")
+        return host.bash(tr.score_when_ready_script(host.run), **env)
+
+    def test_waits_for_memory_then_scores_and_passes_on_the_exit_status(self):
+        host = FakeHost(self)
+        result = self.waiter(host, score_rc=1, FAKE_LOW_CALLS=2)
+        log = host.log("logs/when_ready.log")
+        self.assertEqual(result.returncode, 1, log)
+        # 0.85 of 124,000 MiB is 105,400 MiB (102 GiB); 56,000 MiB (54 GiB) is short of it.
+        self.assertEqual(log.count("waiting for memory: the serve asks for 102 GiB (0.85 of 121 GiB), "
+                                   "54 GiB available"), 2, log)
+        self.assertIn("memory ok: the serve asks for 102 GiB (0.85 of 121 GiB), 107 GiB available", log)
+        self.assertIn("score.sh exit 1; see", log)
+        self.assertTrue((host.remote / "scored").exists())
+
+    def test_gives_up_after_the_limit_without_scoring(self):
+        host = FakeHost(self, score={"memory_wait_hours": 0.25})
+        result = self.waiter(host, FAKE_LOW_CALLS=1000)
+        log = host.log("logs/when_ready.log")
+        self.assertEqual(result.returncode, 5, log)
+        self.assertEqual(log.count("waiting for memory:"), 3)
+        self.assertIn("GAVE UP after 15 min short of memory", log)
+        self.assertFalse((host.remote / "scored").exists())
+
+    def test_own_jobs_do_not_use_up_the_memory_wait(self):
+        host = FakeHost(self, score={"memory_wait_hours": 0.25})
+        result = self.waiter(host, FAKE_PS_CALLS=10, FAKE_LOW_CALLS=1000)
+        log = host.log("logs/when_ready.log")
+        self.assertEqual(result.returncode, 5, log)
+        self.assertEqual(log.count("not yet: other GPU jobs running: aether-serve-other"), 10)
+        self.assertEqual(log.count("waiting for memory:"), 3)  # the 15 minutes start when the box is ours
+
+    def test_reads_a_discrete_gpu_from_nvidia_smi(self):
+        host = FakeHost(self, score={"memory_wait_hours": 0.25})
+        short = self.waiter(host, FAKE_NVIDIA="81920, 20000")
+        self.assertEqual(short.returncode, 5)
+        self.assertIn("the serve asks for 68 GiB (0.85 of 80 GiB), 19 GiB available", host.log("logs/when_ready.log"))
+        enough = self.waiter(host, FAKE_NVIDIA="81920, 70000")
+        self.assertEqual(enough.returncode, 0)
+        self.assertIn("memory ok: the serve asks for 68 GiB (0.85 of 80 GiB), 68 GiB available",
+                      host.log("logs/when_ready.log"))
+        self.assertFalse((host.state / "free").exists())  # free is the fallback for unified memory only
+
+    def test_says_what_it_waits_for_before_the_memory(self):
+        host = FakeHost(self, score={"variants": ["tuned"]})
+        merged = pathlib.Path(host.run["paths"]["merged"])
+        merged.mkdir(parents=True)
+        (merged / "config.json").write_text("{}")
+        result = self.waiter(host, FAKE_RUNNING_CALLS=2)
+        log = host.log("logs/when_ready.log")
+        self.assertEqual(result.returncode, 0, log)
+        self.assertNotIn("waiting for the merged export", log)  # already there
+        self.assertIn("waiting for aether-train-t-run to exit", log)
+        self.assertRegex(log, r"exit\n.*memory ok.*\n.*scoring\n.*score\.sh exit 0\n$")
+
+    def test_a_waiter_for_a_tuned_variant_waits_for_the_export_first(self):
+        text = tr.score_when_ready_script(self.fake_run(["tuned"]))
+        self.assertLess(text.index("waiting for the merged export"), text.index('to exit"'))
+        self.assertNotIn("merged export", tr.score_when_ready_script(self.fake_run(["base"])))
+
+    def fake_run(self, variants):
+        with tempfile.TemporaryDirectory() as tmp:
+            return tr.load_run(write_run(pathlib.Path(tmp), score={"variants": variants}))
 
 
 class MergeTwinTests(unittest.TestCase):
