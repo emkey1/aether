@@ -65,6 +65,24 @@ it was armed, `gemma4-12b-v3` was re-imported at int8 on Ollama 0.40.17 under a 
 and the config matched fv3's model, so the targeted arm keeps fv3's int8 models and the import does not line up with
 the arm either.
 
+**A diverged control run, and the pass order (amended 2026-11-25, owner: "Retrain, swap order", before any control
+run was scored).** `gemma4-12b-c1` (seed 3407) diverged at step 54 of 978. Its training loss went from 0.22 to 10.3
+(gradient norm 830) and never recovered. Eval loss was 0.14 at step 50, 6.59 at step 75 and 4.13 at the end. The
+trainer keeps the final model (`load_best_model_at_end` is false), so its export is the diverged model. Every other
+12B run of this recipe ends within 1.2 times its best eval loss: v2 1.09, v2_s42 1.07, v3 1.16, v3_s42 1.11, and c1_s42
+1.14 (best 0.0874, last 0.0993). So:
+- **The rule, fixed now:** a run whose final eval loss is more than twice its best has diverged. Its export is not
+  scored, and it is retrained once with the same config under a new tag. If the retrain diverges too, the arm has no
+  run at that seed, and nothing is read until the owner decides.
+- **`gemma4-12b-c1-r2`** is that retrain: `gemma4-12b-c1`'s config with only the tag changed
+  (`training/config/runs/gemma4-12b-c1-r2.json`). It is the control arm's seed-3407 run, tag `c1` in `compare.py`.
+  `score.sh` applies the rule to its eval history, written beside the export when training ends, before importing it.
+- **The pass order becomes v3, c1_s42, v3_s42, c1.** The session was stopped after the v3 pass, which is kept, and
+  before the diverged model answered any task. The retrain takes about two hours. The arms still alternate, so slow
+  drift still does not line up with an arm.
+
+The table, the seed check and the one-session rule are unchanged.
+
 **Reported, not deciding:** control minus baseline (v2) with its interval; each seed's differences with a sign test; the
 seed gap in each arm; failure class; how many passed-sample tasks the solvers solved, against the targeted batch's 298
 of 322.

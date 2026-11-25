@@ -1,0 +1,64 @@
+{
+  "_note": "The retrain of gemma4-12b-c1, the control arm's seed-3407 run (reading: training/distill/c1-20261118/README.md, amendment of 2026-11-25, written before any control run was scored). gemma4-12b-c1 diverged at step 54 (eval loss 0.14 at step 50, 6.59 at step 75, 4.13 at the end) and its export is not scored. This config is gemma4-12b-c1's with only the tag changed: same dataset v3c-20261118, same seed 3407, same recipe.",
+  "tag": "gemma4-12b-c1-r2",
+  "family": "gemma4_unified",
+  "hf_repo": "google/gemma-4-12B-it",
+  "base_model": "/storage/models/Gemma-4-12B-it",
+  "host": "host-a",
+  "precision": "4bit",
+  "min_available_gb": 40,
+  "lora": {
+    "r": 32,
+    "alpha": 64,
+    "dropout": 0.0
+  },
+  "train": {
+    "epochs": 3,
+    "learning_rate": 0.0001,
+    "batch_size": 1,
+    "grad_accum": 8,
+    "seed": 3407,
+    "early_stopping_patience": 0,
+    "early_stopping_threshold": 0.0,
+    "eval_cases": 60,
+    "eval_steps": 25,
+    "load_best_model_at_end": false,
+    "keep_checkpoint_steps": [
+      25,
+      300,
+      575
+    ]
+  },
+  "dataset": {
+    "id": "v3c-20261118",
+    "version": "2026-10-30-1",
+    "aether_version": "2026-10-30-1",
+    "repair_manifest": "training/seed_repair_pairs.json",
+    "max_python_pairs": 220,
+    "instruction_manifests": ["training/seed_instruction_pairs.json", "training/distilled/d1-20261016.json", "training/distilled/d1-20261016_python.json", "training/distilled/d2-20261018.json", "training/distilled/d2-20261018_python.json", "training/distilled/d2m-20261018.json", "training/distilled/d2m-20261018_python.json", "training/distilled/d3-20261018.json", "training/distilled/d3-20261018_python.json", "training/distilled/d4-20261021.json", "training/distilled/d4-20261021_python.json", "training/distilled/d5-20261031.json", "training/distilled/d5-20261031_python.json", "training/distill/c1-20261118/pairs.json"],
+    "system_message": false
+  },
+  "score": {
+    "variants": [
+      "tuned"
+    ],
+    "grader_version": "2026-10-30-1",
+    "docs": "none",
+    "repeats": 1,
+    "repair_attempts": 2,
+    "temperature": 0,
+    "max_output_tokens": 8192,
+    "suites": {
+      "v2_pos": "bench/tasks_v2_pos.json",
+      "hard_v2": "bench/tasks_hard_v2.json",
+      "hard_nontoon": "bench/tasks_hard_nontoon.json",
+      "cs": "bench/tasks_cs.json",
+      "frontier": "bench/tasks_frontier.json",
+      "frontier_algo": "bench/tasks_frontier_algo.json",
+      "frontier_spec": "bench/tasks_frontier_spec.json",
+      "sealed_toon": "bench/tasks_sealed_toon.json"
+    },
+    "python_check": false,
+    "grader": "$HOME/aether-1.0/aether-1.0-src/build/aether"
+  }
+}
