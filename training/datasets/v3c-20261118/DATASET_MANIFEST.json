@@ -1,0 +1,37 @@
+{
+  "dataset_id": "v3c-20261118",
+  "built_at": "2026-11-25T05:44:26+00:00",
+  "umbrella_commit": "ab9b39aa1dad2ba2414cf82221bd03d67d825c97",
+  "umbrella_dirty": false,
+  "aether_version": "2026-10-30-1",
+  "aether_sha256": "b968240e919cf7e577389cef8a3c66b9068d7c0fcb507ec9edd630fa6f5aed25",
+  "repair_manifest": "training/seed_repair_pairs.json",
+  "max_python_pairs": 220,
+  "system_message": false,
+  "instruction_manifests": {
+    "training/seed_instruction_pairs.json": "30c3c46e9bbb11785ae8560771e06b5aa084e062173af425d0be5fef63ef742c",
+    "training/distilled/d1-20261016.json": "bf29e672560129a24a2a07b409367767704f2f7b7c883d0bccffe0dbe4b2b86c",
+    "training/distilled/d1-20261016_python.json": "649307dacf2f50aaca97ead93e289c4161c8ced2372a99d44e4ab5815d33b15a",
+    "training/distilled/d2-20261018.json": "f43daf074efc6d72ae84dcf095a72a6c6e7ef42c8e7c5c230d6190adfd8dba4e",
+    "training/distilled/d2-20261018_python.json": "bc206239b34fd521a54e698068f1b0f9caa9735e0edc3dff32a81a0b02a8236e",
+    "training/distilled/d2m-20261018.json": "d8e9ac1f76dca3e66b0e2338fccc03fc5d5e6a8c7213a39b349df9cb5f6684c5",
+    "training/distilled/d2m-20261018_python.json": "e38f517fe83b732d32585237f6dc033dc6678de7d348fda61c06ce30ffdeda90",
+    "training/distilled/d3-20261018.json": "4c7b6b057381777ef020594c4ff5921754118b807e62defa4390ff22c4ecbd92",
+    "training/distilled/d3-20261018_python.json": "1e326279d4a50b4a18a813ffa7b2191a36a0c7965202d5fc3912ce3b833845a6",
+    "training/distilled/d4-20261021.json": "7d56800fecf960243f88ccaee5ccecb254f5ef1444a172fc688dc9e788cee76f",
+    "training/distilled/d4-20261021_python.json": "d0307459d229acc55b42035f12dd7f04c5c5433a08540a0e665d566d28e395f4",
+    "training/distilled/d5-20261031.json": "11b250d6c8f30ee85f659b9c2a205897b5380c69f8825756eac4200ae7164bf2",
+    "training/distilled/d5-20261031_python.json": "5e46163a476384f4bd08122c3ba1a14b1c4ecf11bd61250b583b20c2db9b0459",
+    "training/distill/c1-20261118/pairs.json": "abdfaa0fc264ed1a22067b503e7b102bbcb578856f41ca2737b34b1c9c18f6b4"
+  },
+  "records": {
+    "instruction": 2576,
+    "repair": 87
+  },
+  "files": {
+    "aether_instruction_sft.jsonl": "2ad88d6dd50aaa79fd692243077c3a7593fb1e41d0f4835465ee12b6dc72e98b",
+    "aether_repair_sft.jsonl": "e143adccaa085c731dcac5bbe6e3f24dfcc84a5665ca9c9dfbc59ea90cefa5c9",
+    "aether_training_mix.json": "3385551020057d0d51dbd83c9511d8fe3bd093c2353f68496a42edfe8ff548de",
+    "aether_build_report.json": "48d0fbc04ce60580aec752c37ba8c6dc0ee8df1a96cdf94108844ef1026f2d28"
+  }
+}
