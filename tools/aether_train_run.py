@@ -32,6 +32,10 @@ Guards, each from an earlier failed round:
 - a kept checkpoint is merged by `merge.sh`, generated and pushed with the twin's own copy of the trainer, so
   no hand-copied script on the host can go stale (a stale one cost three hours on 2026-10-23);
 - the trainer fails before step 1 when the chat markers mask every label;
+- with train.divergence_stop_ratio (off unless set), an eval loss above that many times the best so far, or a NaN
+  or inf one, ends training with no export and exit 6, recorded in train/run_metadata.json; status reports it,
+  train refuses to resume it and the score waiter gives up on it (gemma4-12b-c1 diverged at step 54, trained on
+  to the end and exported the diverged model, 2026-11-25);
 - the base model and the image are checked on the host before launch;
 - a smoke pass (three easy tasks, no guide) runs before every scored variant and
   stops the variant on empty output or a reasoning trace in the content;
@@ -128,6 +132,18 @@ def load_run(path: pathlib.Path, families_path: pathlib.Path = FAMILIES_PATH) ->
         raise SystemExit(f"{path}: lora.target_modules must be a non-empty list of module names")
     run["train"] = {"epochs": 3, "learning_rate": 1e-4, "batch_size": 1, "grad_accum": 8, "seed": 3407,
                     "early_stopping_patience": 2, "early_stopping_threshold": 0.0} | run.get("train", {})
+    # The divergence stop is off unless the run names a ratio; no default is filled in, so a run without it resolves
+    # exactly as before.
+    ratio, min_evals = run["train"].get("divergence_stop_ratio"), run["train"].get("divergence_stop_min_evals")
+    if ratio is not None and (not isinstance(ratio, (int, float)) or isinstance(ratio, bool)
+                              or not math.isfinite(ratio) or ratio <= 1):
+        raise SystemExit(f"{path}: train.divergence_stop_ratio must be a number above 1 (2 is the c1-20261118 rule)")
+    if min_evals is not None:
+        if ratio is None:
+            raise SystemExit(f"{path}: train.divergence_stop_min_evals does nothing without "
+                             "train.divergence_stop_ratio")
+        if not isinstance(min_evals, int) or isinstance(min_evals, bool) or min_evals < 1:
+            raise SystemExit(f"{path}: train.divergence_stop_min_evals must be a whole number of evals, 1 or more")
     run["dataset"] = {"repair_manifest": "training/seed_repair_pairs.json"} | run["dataset"]
     if "id" not in run["dataset"]:
         raise SystemExit(f"{path}: dataset.id is required")
@@ -253,6 +269,11 @@ def trainer_argv(run: dict) -> list[str]:
         argv += ["--eval-cases", str(train["eval_cases"])]
     if train.get("eval_steps"):
         argv += ["--eval-steps", str(train["eval_steps"]), "--save-steps", str(train["eval_steps"])]
+    # Off unless named: an eval loss above ratio x the best so far (or NaN/inf) ends the run with no export, exit 6.
+    if train.get("divergence_stop_ratio") is not None:
+        argv += ["--divergence-stop-ratio", str(train["divergence_stop_ratio"])]
+        if train.get("divergence_stop_min_evals") is not None:
+            argv += ["--divergence-stop-min-evals", str(train["divergence_stop_min_evals"])]
     return argv
 
 
@@ -579,6 +600,45 @@ def model_probe_cmd(path: str) -> str:
     return f"python3 -c {shlex.quote(MODEL_PROBE)} {_q(path)}"
 
 
+# The trainer's exit status, and the score waiter's, when train.divergence_stop_ratio ended the run (EXIT_DIVERGED
+# in the trainer).
+EXIT_DIVERGED = 6
+
+# Prints diverged=<the record, one line of JSON> when the trainer's divergence stop ended the run (the "diverged"
+# key of train/run_metadata.json), and nothing otherwise.
+DIVERGED_PROBE = (
+    "import json, sys\n"
+    "try:\n"
+    "    record = json.load(open(sys.argv[1])).get('diverged')\n"
+    "except (OSError, ValueError, AttributeError):\n"
+    "    record = None\n"
+    "if isinstance(record, dict):\n"
+    "    print('diverged=' + json.dumps(record, separators=(',', ':')))\n"
+)
+
+
+def diverged_probe_cmd(run: dict) -> str:
+    return f"python3 -c {shlex.quote(DIVERGED_PROBE)} {_q(run['paths']['remote'] + '/train/run_metadata.json')}"
+
+
+def diverged_message(record: dict) -> str:
+    return (f"DIVERGED: training stopped at step {record.get('step', '?')}: {record.get('message', 'no message')}. "
+            "No final adapter or merged export was written, and the checkpoints are past the divergence: retrain "
+            "under a new tag (train refuses to resume this one)")
+
+
+def diverged_in(stdout: str) -> dict | None:
+    """The record a diverged_probe_cmd line in stdout carries, if any."""
+    for line in stdout.splitlines():
+        if line.startswith("diverged="):
+            try:
+                record = json.loads(line[len("diverged="):])
+            except ValueError:
+                return {"message": line[len("diverged="):]}
+            return record if isinstance(record, dict) else {"message": str(record)}
+    return None
+
+
 def when_ready_script(run: dict) -> str:
     return f"""#!/bin/bash
 # Generated by tools/aether_train_run.py for run {run['tag']}; do not edit by hand.
@@ -633,17 +693,26 @@ def score_when_ready_script(run: dict) -> str:
     train, merged = run["containers"]["train"], run["paths"]["merged"]
     wait_export = ""
     if any(v.split(":")[0] == "tuned" for v in run["score"]["variants"]):
-        # Training may not have started yet when this is armed.
+        # Training may not have started yet when this is armed. A run the divergence stop ended has no export to come.
         wait_export = (f'if [ ! -f {merged}/config.json ]; then\n'
                        f'  log "waiting for the merged export {merged}"\n'
-                       f'  until [ -f {merged}/config.json ]; do sleep 300; done\n'
+                       f'  until [ -f {merged}/config.json ]; do\n'
+                       f'    DIVERGED=$({diverged_probe_cmd(run)})\n'
+                       f'    if [ -n "$DIVERGED" ]; then\n'
+                       f'      log "GAVE UP: training stopped diverged and wrote no export (retrain under a new tag): '
+                       f'${{DIVERGED#diverged=}}"\n'
+                       f'      exit {EXIT_DIVERGED}\n'
+                       f'    fi\n'
+                       f'    sleep 300\n'
+                       f'  done\n'
                        f'fi\n')
     return f"""#!/bin/bash
 # Generated by tools/aether_train_run.py for run {run['tag']}; do not edit by hand.
 # Waits for this run's training container to exit, for no other aether-train/aether-serve
 # container to run, and for the memory the served model asks for ({util} of the device:
 # vLLM's --gpu-memory-utilization), then runs score.sh and exits with its status.
-# Exits 5 after {hours} h short of that memory (another process holds it). Logs to logs/when_ready.log.
+# Exits 5 after {hours} h short of that memory (another process holds it), and {EXIT_DIVERGED} without scoring
+# when the trainer's divergence stop ended the run (no export will come). Logs to logs/when_ready.log.
 set -u
 R={run['paths']['remote']}
 LOG="$R/logs/when_ready.log"
@@ -942,6 +1011,11 @@ def stage_train(run: dict, args) -> int:
     if running == "true":
         print("training container is running")
         return 0
+    # The trainer refuses to resume a diverged run too, but only inside a detached container; say so here.
+    diverged = diverged_in(remote(run, diverged_probe_cmd(run), check=False).stdout)
+    if diverged is not None:
+        print(diverged_message(diverged))
+        return 1
     if args.when_ready:
         session = f"aether-train-wait-{run['tag']}"
         if remote(run, f"tmux has-session -t {session} 2>/dev/null", check=False).returncode == 0:
@@ -973,11 +1047,14 @@ def stage_score(run: dict, args) -> int:
 
 
 def stage_status(run: dict, args) -> int:
+    """Where the run is, from the host's files. Exits 1 when the divergence stop ended training: that run is over,
+    with no export, and says so in place of "merged export: not yet"."""
     p, c = run["paths"], run["containers"]
     cmd = " ; ".join([
         f"echo '--- containers'; docker ps -a --filter name=aether-.*-{run['tag']} --format '{{{{.Names}}}} {{{{.Status}}}}'",
         f"echo '--- training'; ls {p['remote']}/train 2>/dev/null | grep checkpoint | tail -2",
         f"docker logs --tail 3 {c['train']} 2>&1 | tr '\\r' '\\n' | tail -3",
+        diverged_probe_cmd(run),
         f"test -f {p['merged']}/config.json && echo 'merged export: present' || echo 'merged export: not yet'",
         f"tail -1 {p['remote']}/logs/when_ready.log 2>/dev/null",
         f"echo '--- scoring'; tmux has-session -t {run['tmux']} 2>/dev/null && echo 'tmux: running' || echo 'tmux: not running'",
@@ -985,8 +1062,19 @@ def stage_status(run: dict, args) -> int:
         f"tail -5 {p['remote']}/score/score.log 2>/dev/null",
         "echo \"--- host: $(free -g | awk '/^Mem:/{print $7}') GB available\"",
     ])
-    print(remote(run, cmd, check=False).stdout)
-    return 0
+    out = remote(run, cmd, check=False).stdout
+    diverged = diverged_in(out)
+    if diverged is None:
+        print(out)
+        return 0
+    for line in out.splitlines():
+        if line.startswith("diverged="):
+            print(diverged_message(diverged))
+        elif line == "merged export: not yet":
+            print("merged export: none (the run diverged)")
+        else:
+            print(line)
+    return 1
 
 
 def stage_fetch(run: dict, args) -> int:

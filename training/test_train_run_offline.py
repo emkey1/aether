@@ -3,8 +3,10 @@
 
 from __future__ import annotations
 
+import functools
 import json
 import pathlib
+import shutil
 import subprocess
 import sys
 import tempfile
@@ -227,8 +229,10 @@ exit 0""",
 exit 0""",
     "sleep": "exit 0",
     "sha256sum": 'echo "0000  $1"',
-    # check_generations.py --complete fails while FAKE_CHECK_RC says so; the harness itself always exits 0.
-    "python3": """case "$*" in *check_generations.py*--complete*) exit "${FAKE_CHECK_RC:-0}" ;; esac
+    # check_generations.py --complete fails while FAKE_CHECK_RC says so; the harness itself always exits 0. A probe
+    # (python3 -c) runs on the real interpreter.
+    "python3": """case "$1" in -c) exec "$REAL_PYTHON3" "$@" ;; esac
+case "$*" in *check_generations.py*--complete*) exit "${FAKE_CHECK_RC:-0}" ;; esac
 exit 0""",
     "nvidia-smi": 'echo "${FAKE_NVIDIA:-[N/A], [N/A]}"',
     # Available memory is FAKE_LOW_MIB for the first FAKE_LOW_CALLS calls, then FAKE_HIGH_MIB.
@@ -273,7 +277,8 @@ class FakeHost:
         path = self.root / "script.sh"
         path.write_text(script, encoding="utf-8")
         full = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_STATE": str(self.state),
-                "FAKE_NAME": tr.served_name(self.run, "base")} | {k: str(v) for k, v in env.items()}
+                "FAKE_NAME": tr.served_name(self.run, "base"), "REAL_PYTHON3": sys.executable} \
+            | {k: str(v) for k, v in env.items()}
         return subprocess.run([shell, str(path)], env=full, capture_output=True, text=True, timeout=60)
 
     def log(self, name: str) -> str:
@@ -721,6 +726,424 @@ class CheckGenerationsTests(unittest.TestCase):
         self.assertEqual(self.run_check(["fn main() -> Void { ret; }"], infra=1), 0)
         self.assertEqual(self.run_check(["fn main() -> Void { ret; }"], "--complete", infra=1), 1)
 
+
+
+# --------------------------------------------------------------------------- the divergence stop
+
+# gemma4-12b-c1's evals (2026-11-25): 0.14 at step 50, 6.59 at step 75, 4.13 at the end. Step 25 and the steps after 75
+# stand in for evals the README does not give.
+C1_EVAL_LOSSES = [0.31, 0.14, 6.59, 5.2, 4.13]
+
+
+class FakeTrainerCallback:
+    def on_train_begin(self, args, state, control, **kwargs):
+        pass
+
+    def on_evaluate(self, args, state, control, **kwargs):
+        pass
+
+    def on_save(self, args, state, control, **kwargs):
+        pass
+
+
+class FakeEarlyStopping(FakeTrainerCallback):
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+
+class FakeTokenizer:
+    pad_token, eos_token, padding_side = None, "<eos>", "left"
+
+    def apply_chat_template(self, messages, tokenize=False, add_generation_prompt=False, **kwargs):
+        return "".join(f"<{m['role']}>{m['content']}" for m in messages)
+
+    def __call__(self, text, add_special_tokens=False):
+        return {"input_ids": list(range(len(text)))}
+
+    def save_pretrained(self, path):
+        pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+        (pathlib.Path(path) / "tokenizer_config.json").write_text("{}")
+
+
+class FakeAutoTokenizer:
+    loads = 0
+
+    @classmethod
+    def from_pretrained(cls, *args, **kwargs):
+        cls.loads += 1
+        return FakeTokenizer()
+
+
+class FakeModel:
+    def __init__(self):
+        from types import SimpleNamespace
+        self.config = SimpleNamespace(quantization_config=None)
+
+    def named_modules(self):
+        return [("model.layers.0.self_attn.q_proj.lora_A", None)]
+
+    def named_parameters(self):
+        return []
+
+    def parameters(self):
+        from types import SimpleNamespace
+        return [SimpleNamespace(numel=lambda: 4, requires_grad=True)]
+
+    def save_pretrained_merged(self, path, tokenizer, save_method):
+        pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+        (pathlib.Path(path) / "config.json").write_text("{}")
+
+
+class FakeFastLanguageModel:
+    @staticmethod
+    def from_pretrained(**kwargs):
+        return FakeModel(), FakeTokenizer()
+
+    @staticmethod
+    def get_peft_model(model, **kwargs):
+        return model
+
+
+class FakeDataset(list):
+    @classmethod
+    def from_list(cls, rows):
+        return cls(rows)
+
+    @property
+    def column_names(self):
+        return list(self[0]) if self else []
+
+    def remove_columns(self, names):
+        return FakeDataset({k: v for k, v in row.items() if k not in names} for row in self)
+
+
+class FakeSFTTrainer:
+    """train() walks EVAL_LOSSES, one eval every eval_steps, as the HF Trainer calls its callbacks: on_train_begin, then
+    per eval the log_history entry before on_evaluate, stopping after the eval at which one sets should_training_stop."""
+    EVAL_LOSSES: list = []
+    last = None
+
+    def __init__(self, model, args, train_dataset, eval_dataset, **kwargs):
+        self.model, self.args, self.train_dataset = model, args, train_dataset
+        self.callbacks, self.evaluated = [], []
+        FakeSFTTrainer.last = self
+
+    def add_callback(self, callback):
+        self.callbacks.append(callback)
+
+    def train(self, resume_from_checkpoint=None):
+        from types import SimpleNamespace
+        state = SimpleNamespace(global_step=0, log_history=[], epoch=0.0)
+        control = SimpleNamespace(should_training_stop=False)
+        for callback in self.callbacks:
+            callback.on_train_begin(self.args, state, control)
+        for i, loss in enumerate(self.EVAL_LOSSES, start=1):
+            state.global_step = i * self.args.eval_steps
+            state.log_history.append({"eval_loss": loss, "step": state.global_step})
+            for callback in self.callbacks:
+                callback.on_evaluate(self.args, state, control, metrics={"eval_loss": loss})
+            self.evaluated.append(state.global_step)
+            if control.should_training_stop:
+                break
+
+    def save_model(self, path):
+        pathlib.Path(path).mkdir(parents=True, exist_ok=True)
+        (pathlib.Path(path) / "adapter_model.safetensors").write_bytes(b"")
+
+
+@functools.lru_cache(maxsize=None)
+def load_trainer():
+    """tools/unsloth_qwen_coder_30b_sft.py over stand-ins for torch, datasets, unsloth, transformers and trl, which it
+    imports at the top and which only the training image has."""
+    import importlib.util
+    import types
+    from types import SimpleNamespace
+    from unittest import mock
+    stubs = {"peft": None}  # its peft patches are skipped on ImportError
+    for name, attrs in (("torch", {"bfloat16": "bf16", "float16": "fp16", "manual_seed": lambda seed: None}),
+                        ("datasets", {"Dataset": FakeDataset}),
+                        ("unsloth", {"FastLanguageModel": FakeFastLanguageModel}),
+                        ("transformers", {"AutoTokenizer": FakeAutoTokenizer, "TrainerCallback": FakeTrainerCallback,
+                                          "EarlyStoppingCallback": FakeEarlyStopping}),
+                        ("trl", {"SFTConfig": SimpleNamespace, "SFTTrainer": FakeSFTTrainer})):
+        stubs[name] = types.ModuleType(name)
+        stubs[name].__dict__.update(attrs)
+    spec = importlib.util.spec_from_file_location("aether_sft_trainer_under_test", tr.TRAINER)
+    module = importlib.util.module_from_spec(spec)
+    find_spec = importlib.util.find_spec
+    try:
+        with mock.patch.dict(sys.modules, stubs):
+            spec.loader.exec_module(module)
+    finally:
+        importlib.util.find_spec = find_spec  # the trainer patches it for the image's kernels package
+    return module
+
+
+class TrainerDivergenceStopTests(unittest.TestCase):
+    """The trainer's divergence stop (--divergence-stop-ratio): gemma4-12b-c1 diverged at step 54 and trained on to
+    step 978, and its export was the diverged model (2026-11-25)."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.sft = load_trainer()
+
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self._tmp.cleanup)
+        self.tmp = pathlib.Path(self._tmp.name)
+
+    def main(self, out: pathlib.Path, *flags: str, losses=C1_EVAL_LOSSES) -> tuple[int, str]:
+        import contextlib
+        import io
+        from unittest import mock
+        data = self.tmp / "data"
+        data.mkdir(exist_ok=True)
+        rows = [{"id": f"i{n}", "kind": "program", "verification": {"returncode": 0},
+                 "messages": [{"role": "user", "content": f"task {n}"}, {"role": "assistant", "content": "prog"}]}
+                for n in range(3)]
+        (data / "instruction.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows))
+        (data / "repair.jsonl").write_text("")
+        argv = ["trainer", "--instruction-jsonl", str(data / "instruction.jsonl"),
+                "--repair-jsonl", str(data / "repair.jsonl"), "--output-dir", str(out),
+                "--merged-output-dir", str(self.tmp / "merged_16bit"), "--eval-cases", "1", "--eval-steps", "25",
+                "--no-train-on-responses-only", "--early-stopping-patience", "0", "--no-load-best-model-at-end", *flags]
+        FakeSFTTrainer.EVAL_LOSSES, FakeSFTTrainer.last = list(losses), None
+        printed = io.StringIO()
+        with mock.patch.object(sys, "argv", argv), contextlib.redirect_stdout(printed):
+            rc = self.sft.main()
+        return rc, printed.getvalue()
+
+    def metadata(self, out: pathlib.Path) -> dict:
+        return json.loads((out / "run_metadata.json").read_text(encoding="utf-8"))
+
+    def test_off_by_default_the_diverged_run_trains_to_the_end_and_exports(self):
+        out = self.tmp / "train"
+        rc, printed = self.main(out)
+        self.assertEqual(rc, 0, printed)
+        self.assertIn("divergence stop: off", printed)
+        self.assertEqual(FakeSFTTrainer.last.evaluated, [25, 50, 75, 100, 125])
+        self.assertFalse([c for c in FakeSFTTrainer.last.callbacks if isinstance(c, self.sft.DivergenceStop)])
+        self.assertTrue((self.tmp / "merged_16bit" / "config.json").is_file())
+        self.assertTrue((out / "final" / "adapter_model.safetensors").is_file())
+        meta = self.metadata(out)
+        self.assertIsNone(meta["divergence_stop_ratio"])
+        self.assertIsNone(meta["divergence_stop_min_evals"])
+        self.assertNotIn("diverged", meta)
+
+    def test_stops_at_the_first_eval_above_the_ratio_without_an_export(self):
+        out = self.tmp / "train"
+        rc, printed = self.main(out, "--divergence-stop-ratio", "2")
+        self.assertEqual(rc, self.sft.EXIT_DIVERGED, printed)
+        self.assertEqual(FakeSFTTrainer.last.evaluated, [25, 50, 75])  # stopped at step 75, not trained to the end
+        self.assertFalse((self.tmp / "merged_16bit").exists())
+        self.assertFalse((out / "final").exists())
+        self.assertFalse((out / "merged_export.json").exists())
+        meta = self.metadata(out)
+        self.assertEqual((meta["divergence_stop_ratio"], meta["divergence_stop_min_evals"]), (2.0, 2))
+        record = meta["diverged"]
+        self.assertEqual({k: record[k] for k in ("step", "eval_loss", "best_eval_loss", "best_step", "evals")},
+                         {"step": 75, "eval_loss": 6.59, "best_eval_loss": 0.14, "best_step": 50, "evals": 3})
+        self.assertIn("eval loss 6.5900 at step 75 is 47.07 x the best, 0.1400 at step 50", record["message"])
+        self.assertIn("DIVERGED: " + record["message"], printed)
+
+    def test_a_diverged_run_is_not_resumed(self):
+        out = self.tmp / "train"
+        self.main(out, "--divergence-stop-ratio", "2")
+        record = self.metadata(out)["diverged"]
+        loads = FakeAutoTokenizer.loads
+        for flags in (["--divergence-stop-ratio", "2"], []):  # nor with the stop turned off
+            with self.subTest(flags=flags):
+                rc, printed = self.main(out, *flags, losses=[0.1] * 5)
+                self.assertEqual(rc, self.sft.EXIT_DIVERGED)
+                self.assertIn("Not resuming: retrain under a new tag", printed)
+                self.assertIsNone(FakeSFTTrainer.last)  # refused before the trainer was built
+                self.assertEqual(FakeAutoTokenizer.loads, loads)  # and before anything loaded
+                self.assertEqual(self.metadata(out)["diverged"], record)  # the record stays
+                self.assertFalse((self.tmp / "merged_16bit").exists())
+
+    def test_a_healthy_run_is_untouched(self):
+        healthy = [0.52, 0.33, 0.264, 0.228, 0.235, 0.208]  # a small rise (1.03 x) mid-run, as qwen38-27b-toon's
+        off, on = self.tmp / "off", self.tmp / "on"
+        self.main(off, losses=healthy)
+        off_evals = FakeSFTTrainer.last.evaluated
+        shutil.rmtree(self.tmp / "merged_16bit")
+        rc, printed = self.main(on, "--divergence-stop-ratio", "2", losses=healthy)
+        self.assertEqual(rc, 0, printed)
+        self.assertEqual(FakeSFTTrainer.last.evaluated, off_evals)
+        self.assertTrue((self.tmp / "merged_16bit" / "config.json").is_file())
+        self.assertNotIn("diverged", self.metadata(on))
+
+    def test_the_rule_waits_for_min_evals(self):
+        stop = self.sft.DivergenceStop(2.0, 4)
+        self.assertEqual([stop.check(25 * n, loss) for n, loss in enumerate([0.31, 0.14, 6.59], start=1)],
+                         [None, None, None])
+        record = stop.check(100, 5.2)  # eval 4: still above 2 x 0.14
+        self.assertEqual((record["step"], record["best_step"], record["evals"]), (100, 50, 4))
+        rc, printed = self.main(self.tmp / "train", "--divergence-stop-ratio", "2", "--divergence-stop-min-evals", "4")
+        self.assertEqual(rc, self.sft.EXIT_DIVERGED)
+        self.assertEqual(FakeSFTTrainer.last.evaluated, [25, 50, 75, 100])
+
+    def test_a_nan_or_inf_eval_loss_stops_at_any_eval(self):
+        for bad in (float("nan"), float("inf")):
+            with self.subTest(bad=bad):
+                stop = self.sft.DivergenceStop(2.0, 5)  # before min_evals
+                record = stop.check(25, bad)
+                self.assertEqual((record["step"], record["eval_loss"], record["best_eval_loss"]), (25, str(bad), None))
+                self.assertIn("is not finite", record["message"])
+                out = self.tmp / f"train-{bad}"
+                rc, _ = self.main(out, "--divergence-stop-ratio", "2", losses=[0.31, 0.14, bad, 0.12])
+                self.assertEqual(rc, self.sft.EXIT_DIVERGED)
+                self.assertEqual(FakeSFTTrainer.last.evaluated, [25, 50, 75])
+                text = (out / "run_metadata.json").read_text()
+                self.assertNotIn("NaN", text)
+                self.assertNotIn("Infinity", text)  # strict JSON
+                self.assertEqual(self.metadata(out)["diverged"]["best_eval_loss"], 0.14)
+
+    def test_a_resumed_run_keeps_its_earlier_best(self):
+        import contextlib
+        import io
+        from types import SimpleNamespace
+        stop = self.sft.DivergenceStop(2.0, 2)
+        stop.on_train_begin(None, SimpleNamespace(log_history=[{"loss": 0.2, "step": 49},
+                                                               {"eval_loss": 0.14, "step": 50}]), None)
+        control = SimpleNamespace(should_training_stop=False)
+        with contextlib.redirect_stdout(io.StringIO()):
+            stop.on_evaluate(None, SimpleNamespace(global_step=75), control, metrics={"eval_loss": 6.59})
+        self.assertTrue(control.should_training_stop)
+        self.assertEqual((stop.stopped["best_step"], stop.stopped["evals"]), (50, 2))
+
+    def test_the_fetched_healthy_histories_never_fire(self):
+        # Three fetched runs keep their eval history; none rose above 1.06 x its best so far.
+        for tag in ("qwen38-27b-algo", "qwen38-27b-l1-pilot", "qwen38-27b-toon"):
+            with self.subTest(run=tag):
+                state = json.loads((tr.RUNS_OUT_DIR / tag / "train" / "trainer_state.json").read_text())
+                evals = [(e["step"], e["eval_loss"]) for e in state["log_history"] if "eval_loss" in e]
+                self.assertGreater(len(evals), 10)
+                stop = self.sft.DivergenceStop(2.0, 2)
+                self.assertEqual([stop.check(step, loss) for step, loss in evals], [None] * len(evals))
+
+    def test_bad_flags_are_refused(self):
+        for flags in (["--divergence-stop-ratio", "1"], ["--divergence-stop-ratio", "0.5"],
+                      ["--divergence-stop-ratio", "nan"],
+                      ["--divergence-stop-ratio", "2", "--divergence-stop-min-evals", "0"]):
+            with self.subTest(flags=flags), self.assertRaises(SystemExit) as ctx:
+                self.main(self.tmp / "train", *flags)
+            self.assertIn("--divergence-stop", str(ctx.exception))
+
+
+class DivergenceStopDriverTests(unittest.TestCase):
+    """train.divergence_stop_ratio in a run config, and what the driver does with a run the stop ended."""
+
+    def load(self, **train):
+        with tempfile.TemporaryDirectory() as tmp:
+            return tr.load_run(write_run(pathlib.Path(tmp), **({"train": train} if train else {})))
+
+    def test_off_unless_named_and_nothing_is_filled_in(self):
+        for run in (self.load(), self.load(divergence_stop_ratio=None)):
+            self.assertNotIn("divergence_stop_min_evals", run["train"])
+            self.assertIsNone(run["train"].get("divergence_stop_ratio"))
+            self.assertFalse([a for a in tr.trainer_argv(run) if a.startswith("--divergence")])
+        self.assertNotIn("divergence_stop_ratio", self.load()["train"])  # a run without it resolves as before
+
+    def test_a_ratio_and_min_evals_reach_the_trainer(self):
+        argv = tr.trainer_argv(self.load(divergence_stop_ratio=2))
+        self.assertEqual(argv[argv.index("--divergence-stop-ratio") + 1], "2")
+        self.assertNotIn("--divergence-stop-min-evals", argv)  # the trainer's default
+        argv = tr.trainer_argv(self.load(divergence_stop_ratio=2.5, divergence_stop_min_evals=4))
+        self.assertEqual(argv[argv.index("--divergence-stop-ratio") + 1], "2.5")
+        self.assertEqual(argv[argv.index("--divergence-stop-min-evals") + 1], "4")
+
+    def test_bad_values_are_refused(self):
+        for train in ({"divergence_stop_ratio": 1}, {"divergence_stop_ratio": 0.5}, {"divergence_stop_ratio": "2"},
+                      {"divergence_stop_ratio": True}, {"divergence_stop_ratio": float("inf")},
+                      {"divergence_stop_min_evals": 3},
+                      {"divergence_stop_ratio": 2, "divergence_stop_min_evals": 0},
+                      {"divergence_stop_ratio": 2, "divergence_stop_min_evals": 1.5},
+                      {"divergence_stop_ratio": 2, "divergence_stop_min_evals": True}):
+            with self.subTest(train=train), self.assertRaises(SystemExit) as ctx:
+                self.load(**train)
+            self.assertIn("train.divergence_stop", str(ctx.exception))
+
+    def diverged_host(self, **overrides) -> FakeHost:
+        """A host whose train/ holds what the trainer writes when the stop ends a c1-like run."""
+        host = FakeHost(self, **overrides)
+        train = host.remote / "train"
+        sft = load_trainer()
+        stop = sft.DivergenceStop(2.0, 2)
+        record = [r for r in (stop.check(25 * n, x) for n, x in enumerate(C1_EVAL_LOSSES[:3], start=1)) if r][0]
+        train.mkdir()
+        (train / "checkpoint-75").mkdir()
+        (train / "run_metadata.json").write_text(json.dumps({"seed": 3407, "diverged": record}, indent=2))
+        return host
+
+    def via(self, host: FakeHost, calls: list):
+        def fake_remote(run, command, *, check=True, capture=True):
+            calls.append(command)
+            return host.bash(command)
+        return fake_remote
+
+    def stage(self, stage, host: FakeHost, args=None) -> tuple[int, str, list]:
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        calls, printed = [], io.StringIO()
+        args = args or argparse.Namespace(when_ready=False, ignore_memory=False)
+        with mock.patch.object(tr, "remote", self.via(host, calls)), \
+                mock.patch.object(tr, "stage_check", return_value=0), contextlib.redirect_stdout(printed):
+            rc = stage(host.run, args)
+        return rc, printed.getvalue(), calls
+
+    def test_the_probe_reads_the_trainers_record(self):
+        host = FakeHost(self)
+        self.assertEqual(host.bash(tr.diverged_probe_cmd(host.run)).stdout, "")  # no run_metadata.json yet
+        (host.remote / "train").mkdir()
+        (host.remote / "train" / "run_metadata.json").write_text(json.dumps({"seed": 3407}, indent=2))
+        self.assertEqual(host.bash(tr.diverged_probe_cmd(host.run)).stdout, "")
+        self.assertIn("$HOME/aether-train/t-run/train/run_metadata.json", tr.diverged_probe_cmd(host.run))
+        diverged = self.diverged_host()
+        record = tr.diverged_in(diverged.bash(tr.diverged_probe_cmd(diverged.run)).stdout)
+        self.assertEqual((record["step"], record["best_step"], record["best_eval_loss"]), (75, 50, 0.14))
+
+    def test_status_reports_a_diverged_stop_and_exits_one(self):
+        rc, printed, _ = self.stage(tr.stage_status, self.diverged_host())
+        self.assertEqual(rc, 1, printed)
+        self.assertIn("DIVERGED: training stopped at step 75: eval loss 6.5900 at step 75 is 47.07 x the best, "
+                      "0.1400 at step 50", printed)
+        self.assertIn("No final adapter or merged export was written", printed)
+        self.assertIn("merged export: none (the run diverged)", printed)
+        self.assertNotIn("merged export: not yet", printed)
+        self.assertNotIn("diverged={", printed)
+        rc, printed, _ = self.stage(tr.stage_status, FakeHost(self))
+        self.assertEqual(rc, 0, printed)
+        self.assertIn("merged export: not yet", printed)
+        self.assertNotIn("DIVERGED", printed)
+
+    def test_train_refuses_to_resume_a_diverged_run(self):
+        import argparse
+        for when_ready in (False, True):
+            with self.subTest(when_ready=when_ready):
+                rc, printed, calls = self.stage(tr.stage_train, self.diverged_host(),
+                                                argparse.Namespace(when_ready=when_ready, ignore_memory=False))
+                self.assertEqual(rc, 1, printed)
+                self.assertIn("DIVERGED: training stopped at step 75", printed)
+                self.assertFalse([c for c in calls if "train.sh" in c or "train_when_ready.sh" in c])
+        rc, printed, calls = self.stage(tr.stage_train, FakeHost(self))
+        self.assertEqual(rc, 0, printed)
+        self.assertTrue([c for c in calls if c.endswith("/train.sh")])  # a healthy run still launches
+
+    def test_the_score_waiter_gives_up_on_a_diverged_run(self):
+        host = self.diverged_host(score={"variants": ["tuned"]})
+        (host.remote / "score.sh").write_text('touch "$(dirname "$0")/scored"\n')
+        result = host.bash(tr.score_when_ready_script(host.run))
+        log = host.log("logs/when_ready.log")
+        self.assertEqual(result.returncode, tr.EXIT_DIVERGED, log)
+        self.assertIn("GAVE UP: training stopped diverged and wrote no export (retrain under a new tag): {", log)
+        self.assertIn('"best_step":50', log)
+        self.assertFalse((host.remote / "scored").exists())
+
+    def test_the_driver_and_trainer_agree_on_the_exit_status(self):
+        self.assertEqual(tr.EXIT_DIVERGED, load_trainer().EXIT_DIVERGED)
 
 
 class HostAliasTests(unittest.TestCase):

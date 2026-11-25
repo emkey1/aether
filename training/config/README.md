@@ -54,6 +54,38 @@ has a default; a stage that needs the host says which variable to set.
 - **Records.** `trainer` writes seed, data-order seed, early-stopping settings,
   dataset sha256s, library versions and the first rendered training text to
   `train/run_metadata.json`; `train.sh` records the image id and its libraries.
+- **Divergence (opt-in).** `train.divergence_stop_ratio` ends a run whose eval
+  loss leaves its best behind, with no export (below).
+
+## Stopping a diverged run
+
+Off unless a run sets `train.divergence_stop_ratio`, a number above 1 (2 is the rule `../distill/c1-20261118/` fixed
+for scoring). From eval `train.divergence_stop_min_evals` on (default 2, counting from 1: the first eval only sets the
+best), an eval loss above ratio × the best eval loss of the earlier evals ends training at that eval. A NaN or inf
+eval loss ends it at any eval: a ratio test never fires on NaN, and no later step recovers from non-finite weights.
+Then:
+
+- the trainer writes no final adapter and no merged export, records the stop under `diverged` in
+  `train/run_metadata.json` (step, eval loss, best eval loss and its step, the settings, a message), and exits 6,
+  which `docker ps -a` shows. The checkpoints stay.
+- `status` prints a `DIVERGED:` line, says "merged export: none (the run diverged)", and exits 1.
+- `train` refuses to resume the run, and so does the trainer: its checkpoints are past the divergence. Retrain under
+  a new tag.
+- `score --when-ready` with a tuned variant gives up with exit 6 instead of waiting for an export that will not come.
+
+Why: `gemma4-12b-c1` (2026-11-25, `load_best_model_at_end` false) diverged at step 54 of 978. Its eval loss was 0.14
+at step 50, 6.59 at step 75 and 4.13 at the end. It trained to the end and exported the diverged model, about 1.8 GPU
+hours after the divergence showed. With the stop at 2 it would have ended at step 75.
+
+**A healthy run is unchanged.** Until it fires, the stop only reads eval losses. The run trains, saves, keeps
+checkpoints and exports as it would without it; only its records name the setting. So turning the stop on for a
+study's runs is a recipe change only for a run it would have stopped. That run then ends with no export, where without
+the stop it would have trained to the end (and, with `load_best_model_at_end`, exported its best checkpoint). The stop
+reads every eval, not only the last, so it also ends a run that rose above the ratio and would have come back. That is
+the one case where it is stricter than c1-20261118's rule, which reads only the final eval loss. The healthy 12B and
+4B runs of that recipe end within 1.2 × their best. The three fetched eval histories
+(`../training_runs/qwen38-27b-{algo,l1-pilot,toon}/train/trainer_state.json`) never rose above 1.06 × their best so
+far.
 
 ## Scoring a kept checkpoint
 

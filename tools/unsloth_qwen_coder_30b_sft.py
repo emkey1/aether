@@ -89,6 +89,79 @@ class KeepCheckpoints(TrainerCallback):
             print(f"WARNING: could not keep {src}: {exc!r}", flush=True)
 
 
+# The exit status of a run the divergence stop ended: the container's exit code, which `docker ps -a` shows. The
+# driver's score waiter gives up with the same status.
+EXIT_DIVERGED = 6
+
+
+def _finite_or_text(value: float) -> float | str:
+    """A loss as JSON can hold it: json.dumps writes NaN and Infinity, which strict readers refuse."""
+    return value if math.isfinite(value) else str(value)
+
+
+class DivergenceStop(TrainerCallback):
+    """Stop a run whose eval loss has left its best behind (--divergence-stop-ratio; off unless given).
+
+    From the min_evals-th eval on (the first only sets the best), an eval loss above ratio x the best eval loss of the
+    earlier evals stops training at that step. main() then writes no final adapter and no merged export, records the
+    stop under "diverged" in run_metadata.json and exits EXIT_DIVERGED. gemma4-12b-c1 (2026-11-25) diverged at step 54
+    of 978: eval loss 0.14 at step 50, 6.59 at step 75 and 4.13 at the end. With load_best_model_at_end false its export
+    was the diverged model, about 1.8 GPU hours after the divergence was visible. Healthy runs of that recipe end within
+    1.2 x their best eval loss.
+
+    A NaN or inf eval loss stops the run at any eval, before min_evals too. It means non-finite logits or weights, which
+    no later step recovers from (the optimizer carries a NaN on), and a ratio test never fires on one (NaN > x is
+    false), so without this the run would train to its end on it. Training loss is not watched: the Trainer's
+    logging_nan_inf_filter hides a non-finite step loss in the logs, and a step that poisons the weights makes the next
+    eval loss non-finite.
+
+    Until it fires the callback only reads eval losses, so a run it never stops trains, saves and exports as it would
+    without it.
+    """
+
+    def __init__(self, ratio: float, min_evals: int):
+        self.ratio, self.min_evals = ratio, min_evals
+        self.history: list[tuple[int, float]] = []  # (step, eval loss), every eval of the run
+        self.stopped: dict | None = None
+
+    def on_train_begin(self, args, state, control, **kwargs):
+        # A resumed run's earlier evals come back with the checkpoint's trainer state.
+        self.history = [(int(e.get("step", 0)), float(e["eval_loss"])) for e in state.log_history if "eval_loss" in e]
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        loss = (metrics or {}).get("eval_loss")
+        if loss is None or self.stopped is not None:
+            return
+        self.stopped = self.check(int(state.global_step), float(loss))
+        if self.stopped is not None:
+            control.should_training_stop = True
+            print(f"DIVERGED: {self.stopped['message']}; stopping without an export", flush=True)
+
+    def check(self, step: int, loss: float) -> dict | None:
+        """Record one eval; the stop's record when this eval ends the run, else None."""
+        earlier = [(s, value) for s, value in self.history if math.isfinite(value)]
+        self.history.append((step, loss))
+        best_step, best = min(earlier, key=lambda e: e[1]) if earlier else (None, None)
+        if not math.isfinite(loss):
+            message = f"eval loss {loss} at step {step} is not finite"
+        elif best is not None and len(self.history) >= self.min_evals and loss > self.ratio * best:
+            message = (f"eval loss {loss:.4f} at step {step} is {loss / best:.2f} x the best, {best:.4f} at step "
+                       f"{best_step} (the stop is above {self.ratio:g} x, from eval {self.min_evals})")
+        else:
+            return None
+        return {"step": step, "eval_loss": _finite_or_text(loss), "best_eval_loss": best, "best_step": best_step,
+                "evals": len(self.history), "ratio": self.ratio, "min_evals": self.min_evals, "message": message}
+
+
+def diverged_record(output_dir: Path) -> dict | None:
+    """The "diverged" record of an earlier attempt of this run in output_dir, if it stopped that way."""
+    try:
+        record = json.loads((output_dir / "run_metadata.json").read_text(encoding="utf-8")).get("diverged")
+    except (OSError, ValueError, AttributeError):
+        return None
+    return record if isinstance(record, dict) else None
+
+
 def fast_loader(name: str):
     """The Unsloth entry point a family loads through. FastLanguageModel is the text path; a multimodal architecture
     (Gemma 4) goes through FastModel, which returns a processor where the text path returns a tokenizer."""
@@ -534,6 +607,11 @@ def main() -> int:
     parser.add_argument("--early-stopping-patience", type=int, default=2)
     parser.add_argument("--early-stopping-threshold", type=float, default=0.0,
                         help="minimum eval_loss improvement to reset patience. 0.0 (default, legacy) means any uptick counts, which fires on noise for small eval sets.")
+    parser.add_argument("--divergence-stop-ratio", type=float, default=None,
+                        help="stop without an export when an eval loss exceeds this many times the best so far, or is "
+                             "NaN or inf; exit 6 (off unless given; see DivergenceStop)")
+    parser.add_argument("--divergence-stop-min-evals", type=int, default=2,
+                        help="the first eval the ratio applies at, counting from 1 (default 2: the first sets the best)")
     parser.add_argument("--load-best-model-at-end", action="store_true", default=True)
     parser.add_argument("--keep-checkpoint-steps", default="",
                         help="comma-separated steps whose adapters are kept in OUTPUT/keep/ (no optimizer state)")
@@ -610,6 +688,12 @@ def main() -> int:
 
     if args.load_in_8bit and args.load_in_4bit:
         raise SystemExit("--load-in-8bit requires --no-load-in-4bit (both quantizations cannot be active)")
+    # At 1 or below it would stop on any eval that does not improve: early stopping, not divergence.
+    if args.divergence_stop_ratio is not None and not (math.isfinite(args.divergence_stop_ratio)
+                                                       and args.divergence_stop_ratio > 1):
+        raise SystemExit("--divergence-stop-ratio must be a number above 1")
+    if args.divergence_stop_min_evals < 1:
+        raise SystemExit("--divergence-stop-min-evals must be 1 or more")
 
     CHAT_TEMPLATE_KWARGS.update(json.loads(args.chat_template_kwargs))
     global RENDER_AS_SERVED
@@ -647,6 +731,14 @@ def main() -> int:
                 encoding="utf-8",
             )
         return 0
+
+    # A run the divergence stop ended is not resumed: its last checkpoints are past the divergence, and starting
+    # again would overwrite the record in run_metadata.json. Checked before anything loads.
+    earlier = diverged_record(args.output_dir)
+    if earlier is not None:
+        print(f"DIVERGED earlier: {earlier.get('message', earlier)}. Not resuming: retrain under a new tag, or remove "
+              f"{args.output_dir} to start this one over", flush=True)
+        return EXIT_DIVERGED
 
     tokenizer = AutoTokenizer.from_pretrained(
         args.model_id,
@@ -809,6 +901,14 @@ def main() -> int:
     if keep_steps:
         trainer.add_callback(KeepCheckpoints(args.output_dir, keep_steps))
         print(f"keeping the adapters of steps {sorted(keep_steps)} in {args.output_dir / 'keep'}", flush=True)
+    divergence = None
+    if args.divergence_stop_ratio is not None:
+        divergence = DivergenceStop(args.divergence_stop_ratio, args.divergence_stop_min_evals)
+        trainer.add_callback(divergence)
+        print(f"divergence stop: an eval loss above {args.divergence_stop_ratio:g} x the best so far, from eval "
+              f"{args.divergence_stop_min_evals} on, or a NaN or inf one, ends the run without an export", flush=True)
+    else:
+        print("divergence stop: off", flush=True)
 
     metadata = {
         "model_id": args.model_id,
@@ -849,6 +949,9 @@ def main() -> int:
         "keep_checkpoint_steps": sorted(keep_steps),
         "early_stopping_threshold": args.early_stopping_threshold,
         "load_best_model_at_end": args.load_best_model_at_end,
+        # None: off. When the stop ends the run, "diverged" (DivergenceStop.check's record) is added below.
+        "divergence_stop_ratio": args.divergence_stop_ratio,
+        "divergence_stop_min_evals": args.divergence_stop_min_evals if divergence is not None else None,
         "chat_template_kwargs": CHAT_TEMPLATE_KWARGS,
         "loader": args.loader,
         "render_as_served": args.render_as_served,
@@ -871,6 +974,14 @@ def main() -> int:
     if resume_from_checkpoint is not None:
         print(f"Resuming training from checkpoint: {resume_from_checkpoint}", flush=True)
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+    if divergence is not None and divergence.stopped is not None:
+        # No final adapter and no export: a diverged model must not reach scoring, and with load_best_model_at_end
+        # the best checkpoint's export would read as a finished run. The checkpoints stay for whoever looks.
+        metadata["diverged"] = divergence.stopped
+        (args.output_dir / "run_metadata.json").write_text(json.dumps(metadata, indent=2), encoding="utf-8")
+        print(f"DIVERGED: {divergence.stopped['message']}. No final adapter or merged export was written; "
+              f"the stop is recorded under \"diverged\" in {args.output_dir / 'run_metadata.json'}", flush=True)
+        return EXIT_DIVERGED
     final_dir = args.output_dir / "final"
     trainer.save_model(str(final_dir))
     loaded.save_pretrained(str(final_dir))
