@@ -38,7 +38,7 @@ nothing would make this study measure two identical arms.
 
 | 95% interval | reading | what follows |
 |---|---|---|
-| above zero, larger than the gap between the two `base` seeds, and the seed check passes | **a gain** | the `qwen3_5` family's targets add the five names, from the next run on |
+| above zero, larger than the gap between the two `base` seeds, and the seed check passes | **a gain** | the five names are a candidate; no target changes until the three-seed reading below (amended 2026-11-25) |
 | above zero, but within the seed gap or failing the seed check | **not separable from seed noise** | no change; the owner decides on more seeds |
 | includes zero | **no readable difference** | no change; the upper end says how large a gain is ruled out |
 | below zero | **a loss** | no change |
@@ -55,6 +55,27 @@ and `../gemma4-12b-v3/RESULTS.md` found that guard weak: two seeds whose totals 
 The check can only turn "a gain" into "not separable from seed noise", never the reverse. The other two rows are
 unchanged: neither leads to a change. When it was added the repo held no result for these runs; the training host
 was not checked.
+
+**What a gain changes (amended 2026-11-25, owner: "yes please to your picks", before any run was trained).** As first
+written, "a gain" changed the `qwen3_5` family's targets from the next run on. That conflicts with two rules on record:
+`../../config/README.md` asks three seeds for a hyperparameter conclusion, and this README's own limits say a 4B gain
+earns a one-run check on the larger models, not a change. On 2026-11-25 no run had started: the training hosts held no
+run directory for it. So:
+- **The four runs are answered in one session** on the scoring Mac, on one server version written to
+  `session_server_version.txt` beside this README before the first pass, in the order la-s3407, base-s3407, la-s42,
+  base-s42; the session stops if the version changes, and `compare.py` refuses to read without the file.
+- **"A gain" by the table above makes the names a candidate and changes no target.**
+- **The 4B's targets change only on a three-seed reading.** A third run in each arm, seed 7, is trained, and all six runs
+  are answered again in one new session on one server version. Fixed now, before any run: that reading is "a gain"
+  only if (1) the 95% interval of `la` minus `base`, each task's pass averaged over the arm's three seeds (paired
+  bootstrap over tasks, 10,000 resamples, seed 42), is above zero; (2) all nine `la`-run minus `base`-run totals are
+  above zero; and (3) the arm difference is larger than the largest gap between two seeds' totals inside either arm.
+  Anything else is "not separable from seed noise" and no target changes.
+- **The 27B and the MoE** then get one run each with the five names added, answered in one session with a base run of
+  the same model. That run may show only "not worse than the base run by more than the 4B's largest between-seed gap";
+  it cannot show a gain, and no target changes for those models on it.
+
+This changes what follows from the first row, never what the four runs read.
 
 **Reported, not deciding:** each seed's difference with a sign test; the gap between seeds in each arm; failure class
 (coded, return code, wrong output); the benchmark's main and held-out suites at T=0 from the driver's scoring (held-out

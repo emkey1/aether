@@ -1,6 +1,9 @@
 #!/usr/bin/env python3
 """The reading fixed in README.md: la minus base, two seeds each, on 2,802 fresh tasks. Run from the repo root.
 
+A gain here makes the names a candidate only; the three-seed reading that can change a target is fixed in README.md
+(amendment of 2026-11-25) and gets its own script before its runs are scored.
+
 Reads report__filter_<run>.json.gz (or filter_<run>.json) beside this file, one per run. Prints no task id or program.
 """
 
@@ -61,7 +64,8 @@ def seed_check(mean: float, pair_totals: list[int], seed_only: tuple[float, floa
 
 def reading(low: float, high: float, seed_gap: float, clear: bool, why: str) -> str:
     if low > 0 and (low + high) / 2 > seed_gap and clear:
-        return "a gain: the qwen3_5 family's targets add the linear-attention names"
+        return ("a gain: the names are a candidate and no target changes yet (README.md, amendment of 2026-11-25); "
+                "next, a third seed per arm and all six runs answered in one session")
     if low > 0:
         reasons = [why] if why else []
         if not (low + high) / 2 > seed_gap:
@@ -72,7 +76,13 @@ def reading(low: float, high: float, seed_gap: float, clear: bool, why: str) -> 
     return f"no readable difference: no change; a gain above {100 * high:.2f} points is ruled out"
 
 
+SESSION_VERSION = HERE / "session_server_version.txt"
+
+
 def main() -> None:
+    if not SESSION_VERSION.is_file() or not SESSION_VERSION.read_text(encoding="utf-8").strip():
+        raise SystemExit(f"STOP: no {SESSION_VERSION.name}: the four passes must record their one server version")
+    print(f"session server version: {SESSION_VERSION.read_text(encoding='utf-8').strip()}")
     keys = [t["id"] for b in BATCHES
             for t in json.loads((DISTILL / b / "tasks_frozen.json").read_text(encoding="utf-8"))["tasks"]]
     if len(keys) != TASKS or len(set(keys)) != TASKS:

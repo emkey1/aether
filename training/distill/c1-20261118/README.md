@@ -43,6 +43,25 @@ in either direction now also needs both of these, in that direction:
 The check can only turn a directional reading into "not separable from seed noise", never the reverse. When it was
 added, the control pairs were solved and no control run had been scored on the scoring Mac; the repo held no result.
 
+**One scoring session for both arms (amended 2026-11-25, owner: "yes please to your picks", before any control run
+was trained or scored).** As first written, the targeted arm was read from fv3's reports of 2026-11-06, answered on
+Ollama 0.40.13; on 2026-11-25 the scoring Mac ran 0.40.17. A server change between the arms would line up exactly
+with the arm, and the seed check cannot see it. So:
+- The two targeted runs (`gemma4-12b-v3` and `gemma4-12b-v3-s42`, int8, as fv3 scored them) are answered again on the
+  same 1,026 tasks, with the same grader and settings, in one session with the two control runs. The four passes run
+  in the order v3, c1, v3_s42, c1_s42, so slow drift does not line up with an arm.
+- The session runs on one server version, written to `session_server_version.txt` beside this README before the first
+  pass; it stops if the version changes. `compare.py` refuses to read without that file.
+- The deciding targeted reports are `report__filter_v3_c1s.json.gz` and `report__filter_v3_s42_c1s.json.gz` beside
+  this README. fv3's 2026-11-06 targeted reports become reported, not deciding: `compare.py` prints how many first
+  attempts of each re-answered run reproduce them (same first program, same pass or fail).
+- The baseline (v2) reports stay fv3's; "control minus baseline" and "targeted minus baseline" were never deciding,
+  and are now also across server versions.
+- Seeds stay two a side (owner, same day). The table and the seed check above are unchanged; the seed check now uses
+  the re-answered targeted runs.
+
+This adds two passes on the scoring Mac (four in all) and changes no threshold.
+
 **Reported, not deciding:** control minus baseline (v2) with its interval; each seed's differences with a sign test; the
 seed gap in each arm; failure class; how many passed-sample tasks the solvers solved, against the targeted batch's 298
 of 322.
@@ -58,4 +77,7 @@ gives each arm's solver mix and first-attempt share. One model (Gemma 4 12B) and
 reports are the ones of 2026-11-06 (Ollama 0.40.13), and `run.sh` pins no server version: the control runs answer on
 whatever the scoring Mac has then. `../fv3-20261105/` found that only 79 of 134 and 85 of 163 re-asked programs came
 back the same at T=0, so record the server version with the control reports, and if it differs, re-answer one targeted
-run first and report how much of it reproduces.
+run first and report how much of it reproduces. (Superseded on 2026-11-25 by the one-session rule above: both
+targeted runs are re-answered beside the control runs.) The 1,026 tasks are also the pool on which the targeted recipe
+read +3.70 and on which the published 12B was chosen, so "targeting helps" here would say the effect is not seed noise
+or volume, not how large it is (added 2026-11-25).

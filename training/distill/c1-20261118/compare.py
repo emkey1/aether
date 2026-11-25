@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """The reading fixed in README.md: targeted minus control on fv3's 1,026 tasks, two seeds each. Run from the repo root.
 
-Reads ../fv3-20261105/report__filter_{v2,v2_s42,v3,v3_s42}.json.gz and, beside this file,
-report__filter_{c1,c1_s42}.json.gz (or filter_<tag>.json). Prints no task id or program.
+Reads, beside this file, the one-session reports (README.md, amendment of 2026-11-25)
+report__filter_{v3_c1s,v3_s42_c1s,c1,c1_s42}.json.gz (or filter_<tag>.json) and session_server_version.txt;
+from ../fv3-20261105/, the baseline reports report__filter_{v2,v2_s42}.json.gz and the 2026-11-06 targeted reports
+report__filter_{v3,v3_s42}.json.gz, which are reported, not deciding. Prints no task id or program.
 """
 
 from __future__ import annotations
@@ -19,8 +21,12 @@ import aether_distill as distill  # noqa: E402
 
 HERE = pathlib.Path(__file__).resolve().parent
 FV3 = HERE.parent / "fv3-20261105"
-ARMS = {"baseline": ((FV3, "v2"), (FV3, "v2_s42")), "targeted": ((FV3, "v3"), (FV3, "v3_s42")),
+# The targeted arm is read from its re-answer in the control session (amendment of 2026-11-25).
+ARMS = {"baseline": ((FV3, "v2"), (FV3, "v2_s42")), "targeted": ((HERE, "v3_c1s"), (HERE, "v3_s42_c1s")),
         "control": ((HERE, "c1"), (HERE, "c1_s42"))}
+# The 2026-11-06 answers of the same weights: reproduction only.
+FIRST_ANSWERS = {"v3_c1s": (FV3, "v3"), "v3_s42_c1s": (FV3, "v3_s42")}
+SESSION_VERSION = HERE / "session_server_version.txt"
 TASKS = 1026
 RESAMPLES = 10_000
 
@@ -73,6 +79,9 @@ def reading(low: float, high: float, clear: bool, why: str) -> str:
 
 
 def main() -> None:
+    if not SESSION_VERSION.is_file() or not SESSION_VERSION.read_text(encoding="utf-8").strip():
+        raise SystemExit(f"STOP: no {SESSION_VERSION.name}: the four session passes must record their one server version")
+    print(f"session server version: {SESSION_VERSION.read_text(encoding='utf-8').strip()}")
     keys = [t["id"] for t in json.loads((FV3 / "tasks_frozen.json").read_text(encoding="utf-8"))["tasks"]]
     if len(keys) != TASKS or len(set(keys)) != TASKS:
         raise SystemExit(f"STOP: expected {TASKS} unique fv3 tasks, found {len(keys)}")
@@ -123,6 +132,15 @@ def main() -> None:
         print(f"  seed gap, {name}: {runs_diff(a, b)}")
     for t, c in ((t1, c2), (t2, c1)):
         print(f"  {t} minus {c}: {runs_diff(t, c)}")
+    print("  targeted runs re-answered in this session against their 2026-11-06 answers (fv3):")
+    for tag, (where, first) in FIRST_ANSWERS.items():
+        before = load(where, first)
+        now = runs[tag]
+        same_program = sum(1 for k in keys if (now[k].get("source_code") or "") == (before[k].get("source_code") or ""))
+        before_pass = {k: distill.filter_failure_class(before[k].get("run") or {}) is None for k in keys}
+        same_class = sum(1 for k in keys if passed[tag][k] == before_pass[k])
+        print(f"    {tag}: same first program on {same_program} of {TASKS}, same pass or fail on {same_class}; "
+              f"passed {sum(passed[tag].values())} now, {sum(before_pass.values())} then")
 
 
 if __name__ == "__main__":
