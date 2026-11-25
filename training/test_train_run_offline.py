@@ -269,12 +269,12 @@ class FakeHost:
         self.grader.write_text(f"#!/bin/bash\necho '{version}'\n", encoding="utf-8")
         self.grader.chmod(0o755 if executable else 0o644)
 
-    def bash(self, script: str, **env) -> subprocess.CompletedProcess:
+    def bash(self, script: str, shell: str = "/bin/bash", **env) -> subprocess.CompletedProcess:
         path = self.root / "script.sh"
         path.write_text(script, encoding="utf-8")
         full = {"HOME": str(self.home), "PATH": f"{self.bin}:/usr/bin:/bin", "FAKE_STATE": str(self.state),
                 "FAKE_NAME": tr.served_name(self.run, "base")} | {k: str(v) for k, v in env.items()}
-        return subprocess.run(["/bin/bash", str(path)], env=full, capture_output=True, text=True, timeout=60)
+        return subprocess.run([shell, str(path)], env=full, capture_output=True, text=True, timeout=60)
 
     def log(self, name: str) -> str:
         path = self.remote / name
@@ -455,6 +455,81 @@ class ScoreWaiterMemoryTests(unittest.TestCase):
     def fake_run(self, variants):
         with tempfile.TemporaryDirectory() as tmp:
             return tr.load_run(write_run(pathlib.Path(tmp), score={"variants": variants}))
+
+
+class ScoreStageMemoryGateTests(unittest.TestCase):
+    """A direct score refuses to start without the serve's device share. min_available_gb (30 GB for the 4B runs)
+    passed on 2026-11-25 while vLLM's 0.85 of the device did not fit beside another process."""
+
+    def stage(self, memory_out: str, ignore_memory: bool = False):
+        import argparse
+        import contextlib
+        import io
+        from unittest import mock
+        with tempfile.TemporaryDirectory() as tmp:
+            run = tr.load_run(write_run(pathlib.Path(tmp), min_available_gb=30))
+        calls = []
+
+        def fake_remote(run, command, *, check=True, capture=True):
+            calls.append(command)
+            if command.startswith("tmux has-session"):
+                return subprocess.CompletedProcess([], 1, stdout="", stderr="")  # no scoring session yet
+            if command.endswith("\nmemory_mib"):
+                return subprocess.CompletedProcess([], 0, stdout=memory_out, stderr="")
+            if command.startswith("free -g"):  # host_busy: 54 GB available, no container up
+                return subprocess.CompletedProcess([], 0, stdout="54\n", stderr="")
+            return subprocess.CompletedProcess([], 0, stdout="", stderr="")
+
+        printed, error = io.StringIO(), None
+        with mock.patch.object(tr, "remote", fake_remote), contextlib.redirect_stdout(printed):
+            try:
+                tr.stage_score(run, argparse.Namespace(when_ready=False, ignore_memory=ignore_memory))
+            except SystemExit as exc:
+                error = str(exc)
+        started = any(c.startswith("tmux new-session") for c in calls)
+        probed = any(c.endswith("\nmemory_mib") for c in calls)
+        return started, probed, error, printed.getvalue()
+
+    def test_short_of_the_share_refuses_with_the_numbers(self):
+        started, probed, error, _ = self.stage("124000 56000\n")
+        self.assertFalse(started)
+        self.assertTrue(probed)
+        self.assertIn("54 GiB of device memory available; the serve asks for 102 GiB (0.85 of 121 GiB", error)
+        self.assertIn("score --when-ready", error)
+
+    def test_enough_memory_starts_scoring(self):
+        started, _, error, _ = self.stage("124000 110000\n")
+        self.assertIsNone(error)
+        self.assertTrue(started)
+
+    def test_ignore_memory_skips_the_probe(self):
+        started, probed, error, _ = self.stage("124000 56000\n", ignore_memory=True)
+        self.assertIsNone(error)
+        self.assertTrue(started)
+        self.assertFalse(probed)
+
+    def test_an_unreadable_probe_warns_and_starts(self):
+        for out in ("", "[N/A] 5\n"):
+            with self.subTest(out=out):
+                started, _, error, printed = self.stage(out)
+                self.assertIsNone(error)
+                self.assertTrue(started)
+                self.assertIn("warning: cannot read the device memory", printed)
+
+    def test_the_share_matches_the_waiters(self):
+        run = FakeHost(self).run
+        self.assertEqual(tr.serve_share_mib(run, 124000), 105400)
+        self.assertEqual(tr.serve_share_mib(run, 81920), 69632)
+        self.assertEqual(tr.serve_share_mib(run, 81921), 69633)  # rounded up, as vLLM's check needs
+
+    def test_the_probe_runs_in_a_posix_login_shell_too(self):
+        host = FakeHost(self)
+        for shell in ("/bin/bash", "/bin/sh"):
+            with self.subTest(shell=shell):
+                self.assertEqual(host.bash(tr.MEMORY_MIB + "\nmemory_mib", shell=shell).stdout.split(),
+                                 ["124000", "110000"])
+                self.assertEqual(host.bash(tr.MEMORY_MIB + "\nmemory_mib", shell=shell,
+                                           FAKE_NVIDIA="81920, 20000").stdout.split(), ["81920", "20000"])
 
 
 class MergeTwinTests(unittest.TestCase):

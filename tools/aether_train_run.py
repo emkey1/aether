@@ -38,7 +38,8 @@ Guards, each from an earlier failed round:
 - the grader binary is pinned by version and sha256, recorded per run, and probed on the host by push and
   check, so a missing or wrong grader stops a run before training, not after it (2026-11-25);
 - score.sh exits non-zero when a variant failed or was left incomplete, and score_when_ready.sh waits for the
-  memory the served model asks for, logging the shortfall, then logs score.sh's exit status (2026-11-25);
+  memory the served model asks for, logging the shortfall, then logs score.sh's exit status; a direct score
+  refuses to start without that memory (2026-11-25);
 - families with `tokenizer_from_base` are served with the base tokenizer.
 
 Hosts stay out of tracked files: a run names its host by a neutral alias
@@ -56,6 +57,7 @@ import datetime
 import gzip
 import hashlib
 import json
+import math
 import pathlib
 import re
 import shlex
@@ -604,6 +606,23 @@ done
 """
 
 
+# The device memory a serve competes for, read the same way by score_when_ready.sh and the score stage's gate.
+MEMORY_MIB = """# "TOTAL AVAILABLE" in MiB: the GPU's own when nvidia-smi reports them; on unified memory it
+# prints [N/A], and the host's available memory (free, as the driver's other gates read it)
+# stands in for the device's.
+memory_mib() {
+  local g
+  g=$(nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
+  case "$g" in [0-9]*,[0-9]*) echo "${g%%,*} ${g#*,}"; return ;; esac
+  free -m 2>/dev/null | awk '/^Mem:/{print $2, $7}'
+}"""
+
+
+def serve_share_mib(run: dict, total_mib: int) -> int:
+    """What vLLM asks for at engine init: --gpu-memory-utilization of the device, rounded up (as the waiter's awk)."""
+    return math.ceil(total_mib * run["family_config"]["serve"]["gpu_memory_utilization"])
+
+
 def score_when_ready_script(run: dict) -> str:
     """score_when_ready.sh: waits for the export, the training container, the other GPU jobs and the memory the
     served model asks for, then runs score.sh. vLLM takes --gpu-memory-utilization of the device's memory at
@@ -632,15 +651,7 @@ mkdir -p "$R/logs"
 log() {{ echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] $*" >> "$LOG"; }}
 UTIL={util}
 MAX_WAIT={int(float(hours) * 3600)}
-# "TOTAL AVAILABLE" in MiB: the GPU's own when nvidia-smi reports them; on unified memory it
-# prints [N/A], and the host's available memory (free, as the driver's other gates read it)
-# stands in for the device's.
-memory_mib() {{
-  local g
-  g=$(nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits 2>/dev/null | head -1 | tr -d ' ')
-  case "$g" in [0-9]*,[0-9]*) echo "${{g%%,*}} ${{g#*,}}"; return ;; esac
-  free -m 2>/dev/null | awk '/^Mem:/{{print $2, $7}}'
-}}
+{MEMORY_MIB}
 {wait_export}if [ "$(docker inspect -f '{{{{.State.Running}}}}' {train} 2>/dev/null)" = "true" ]; then
   log "waiting for {train} to exit"
   while [ "$(docker inspect -f '{{{{.State.Running}}}}' {train} 2>/dev/null)" = "true" ]; do sleep 300; done
@@ -875,6 +886,28 @@ def gpu_gate(run: dict, args, own: str) -> None:
                          f"(containers up: {names}); free the box or pass --ignore-memory")
 
 
+def serve_memory_gate(run: dict, args) -> None:
+    """Before a direct score: the device must have the share vLLM asks for at engine init. min_available_gb is a
+    training figure (30 GB for a 4B run) and passed on 2026-11-25 while the serve's 0.85 of the device did not fit
+    beside another process; the engine then failed at init. score --when-ready waits for this share instead."""
+    if args.ignore_memory:
+        return
+    probe = remote(run, MEMORY_MIB + "\nmemory_mib", check=False)
+    parts = probe.stdout.split()
+    if len(parts) != 2 or not all(p.isdigit() for p in parts):
+        print(f"warning: cannot read the device memory on {run['host']} (nvidia-smi, free); not checking the "
+              f"serve's share", flush=True)
+        return
+    total, avail = (int(p) for p in parts)
+    need = serve_share_mib(run, total)
+    if avail < need:
+        util = run["family_config"]["serve"]["gpu_memory_utilization"]
+        raise SystemExit(f"{run['host']} has {avail // 1024} GiB of device memory available; the serve asks for "
+                         f"{need // 1024} GiB ({util} of {total // 1024} GiB, the family's serve."
+                         f"gpu_memory_utilization), so vLLM would fail at engine init. Free it, arm "
+                         f"`score --when-ready` to wait for it, or pass --ignore-memory")
+
+
 def stage_merge(run: dict, args) -> int:
     """On the host, detached: merge the kept adapter named by merge_from. Push first, so merge.sh is current."""
     if not run.get("merge_from"):
@@ -933,6 +966,7 @@ def stage_score(run: dict, args) -> int:
         print(f"started {run['tmux']} on {run['host']}: scoring begins when {run['containers']['train']} has exited")
         return 0
     gpu_gate(run, args, run["containers"]["serve"])
+    serve_memory_gate(run, args)
     remote(run, f"tmux new-session -d -s {run['tmux']} 'bash {run['paths']['remote']}/score.sh'", capture=False)
     print(f"started tmux session {run['tmux']} on {run['host']}")
     return 0
@@ -1115,7 +1149,7 @@ def main(argv: list[str] | None = None) -> int:
                     help="compiler that builds the dataset (dataset stage)")
     ap.add_argument("--force", action="store_true",
                     help="dataset: rebuild although a manifest exists; twins: rewrite existing twin configs")
-    ap.add_argument("--ignore-memory", action="store_true", help="train/score: skip the available-memory gate")
+    ap.add_argument("--ignore-memory", action="store_true", help="train/score: skip the available-memory gates (score: also the serve's device share)")
     ap.add_argument("--include-training", action="store_true", help="release: also remove the training container")
     ap.add_argument("--when-ready", action="store_true",
                     help="train: wait on the host (tmux) for complete weights and a free box, then start")
