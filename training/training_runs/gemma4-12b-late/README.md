@@ -65,6 +65,33 @@ The margin is 2.0 points, about 20 of 1,026 tasks. fv3's two-seed intervals were
 equal arms will usually read "no loss shown", and a real loss of 2 points or more will usually not. "No loss shown" does
 not mean equal: it means a loss larger than 2 points is ruled out at this resolution.
 
+**The session moves to the training host (amended 2026-11-26, owner: "Yes, move it", before any late run was
+scored).** As first written, the four passes ran on the scoring Mac after the qwen35-4b-la session. That session holds
+the Mac until about 07:00Z on 2026-11-27, the Mac runs one Ollama job at a time, and in the c1 session a 12B pass took
+4.3 to 6.2 hours there, about 20 seconds a task. The training host is free once training ends, and it can answer many
+requests at once. So:
+- All four runs, the two all-layer v3 runs included, answer in one session on the training host. Each is served at
+  bf16 from its merged export by one vLLM image pinned by id (`30a38a1d74a1`, the image the driver's host scoring
+  uses), with the driver's serving flags (32,768-token context, eager mode), 16 requests at a time in every pass, and
+  graded by the 1.0 release built for Linux (sha256 `92341510…`, language 2026-10-30-1). The order stays v3_late, v3,
+  v3_late_s42, v3_s42. `score_host.sh` runs it. It writes the image, the grader and the worker count to
+  `session_server_version.txt` before the first pass and stops if any of them changes. The request timeout is 3,600
+  seconds (900 on the Mac), because a single request is slower there; it changes no answer.
+- The measure, the table, the margin, the seed check and the divergence rule are unchanged, and `compare.py` reads
+  the same four reports. `score.sh`, the Mac session, stays as written and is not run.
+- What is lost: the pass counts are bf16 under vLLM with batched requests, not int8 under Ollama, so they do not
+  compare in absolute terms with fv3's or c1's (886 and 879 for the all-layer runs in the c1 session). The all-layer
+  runs' reproduction of their c1-session answers now crosses server, precision and batching, and `compare.py` reports
+  it as that. At temperature 0, batched requests need not give the same answer twice; all four runs answer under the
+  same condition.
+- Before this amendment, a throughput test: `gemma4-12b-v3` (not a late run) on 128 seeded fv3 tasks, 16 at a time,
+  its answers not read for the reading, took 3.43 seconds a task (439 seconds for 128, about 109 completion tokens
+  a second in all, no empty or leaked answer, none stopped at the token limit): about six times the Mac's rate.
+- The cost item of "Reported, not deciding" gains what training measured: `gemma4-12b-v3-late` trained in 12,830
+  seconds and `gemma4-12b-c1-r2` (all layers, the same host, the same 978 steps) in 12,800. The late recipe saves
+  trainable parameters (76.5 million against 131.1 million), not training time; that is all the table's "for its
+  lower cost" can mean.
+
 **Reported, not deciding:**
 - **Seed noise.** The number of tasks on which an arm's two seeds differ: 125 for the all-layer seeds in the c1 session,
   recounted in this one. The idea behind the study is that the early layers' changes carry much of the seed-to-seed
@@ -79,4 +106,5 @@ not mean equal: it means a loss larger than 2 points is ruled out at this resolu
 of the all-layer run's trainable parameters: this tests the same recipe on fewer layers, not the same capacity.
 
 **Hosts and cost.** Training on the training host, one run at a time, about 3 to 4 hours each. Scoring on the scoring
-Mac after the qwen35-4b-la session: four passes of about 5 hours.
+Mac after the qwen35-4b-la session: four passes of about 5 hours. (Superseded on 2026-11-26 by the amendment above:
+the session runs on the training host.)

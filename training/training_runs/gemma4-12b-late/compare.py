@@ -2,9 +2,10 @@
 """The reading fixed in README.md: late minus all on fv3's 1,026 tasks, two seeds each. Run from the repo root.
 
 Reads, beside this file, the one-session reports report__filter_{v3_late,v3,v3_late_s42,v3_s42}.json.gz (or
-filter_<tag>.json) and session_server_version.txt. Reported, not deciding: the same all-layer weights' answers in the
-c1 session (../../distill/c1-20261118/, report__filter_{v3_c1s,v3_s42_c1s}.json.gz) and each run's trainable
-parameters (train/run_metadata.json of each run). Prints no task id or program.
+filter_<tag>.json) and session_server_version.txt (since README.md's amendment of 2026-11-26, the session's vLLM image,
+grader and worker count on the training host). Reported, not deciding: the same all-layer weights' int8 answers in
+the c1 session on the scoring Mac (../../distill/c1-20261118/, report__filter_{v3_c1s,v3_s42_c1s}.json.gz) and each
+run's trainable parameters (train/run_metadata.json of each run). Prints no task id or program.
 """
 
 from __future__ import annotations
@@ -101,7 +102,7 @@ def trainable(tag: str) -> str:
 def main() -> None:
     if not SESSION_VERSION.is_file() or not SESSION_VERSION.read_text(encoding="utf-8").strip():
         raise SystemExit(f"STOP: no {SESSION_VERSION.name}: the four session passes must record their one server version")
-    print(f"session server version: {SESSION_VERSION.read_text(encoding='utf-8').strip()}")
+    print(f"session: {'; '.join(SESSION_VERSION.read_text(encoding='utf-8').split(chr(10))).strip('; ')}")
     keys = [t["id"] for t in json.loads((FV3 / "tasks_frozen.json").read_text(encoding="utf-8"))["tasks"]]
     if len(keys) != TASKS or len(set(keys)) != TASKS:
         raise SystemExit(f"STOP: expected {TASKS} unique fv3 tasks, found {len(keys)}")
@@ -153,14 +154,15 @@ def main() -> None:
     for l in (l1, l2):
         for a in (a1, a2):
             print(f"  {l} minus {a}: {runs_diff(l, a)}")
-    print("  all-layer runs here against their answers in the c1 session (../../distill/c1-20261118/):")
     c1_server = (C1 / "session_server_version.txt").read_text(encoding="utf-8").strip()
+    print("  all-layer runs here against their int8 answers in the c1 session on the scoring Mac "
+          f"(Ollama {c1_server}; across server, precision and batching):")
     for tag, (where, first) in C1_ANSWERS.items():
         before = load(where, first)
         same_program = sum(1 for k in keys if (runs[tag][k].get("source_code") or "") == (before[k].get("source_code") or ""))
         same_class = sum(1 for k in keys if passed[tag][k] == c1_pass[tag][k])
         print(f"    {tag}: same first program on {same_program} of {TASKS}, same pass or fail on {same_class}; "
-              f"passed {sum(passed[tag].values())} now, {sum(c1_pass[tag].values())} then (Ollama {c1_server})")
+              f"passed {sum(passed[tag].values())} now, {sum(c1_pass[tag].values())} then")
     print("  cost:")
     for tag in runs:
         print(f"    {tag}: {trainable(tag)}")
