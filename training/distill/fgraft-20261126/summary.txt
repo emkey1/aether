@@ -1,0 +1,20 @@
+298 held-out records; loss = mean over records of each record's mean response-token loss
+candidate     mean   token  screen
+v3          0.0430  0.0444  parent
+v3_s42      0.0423  0.0431  parent
+g24_a       0.0451  0.0459  fails
+g24_b       0.0422  0.0436  passes
+g16_a       0.0448  0.0453  fails
+g16_b       0.0428  0.0443  passes
+late_v3     0.0456  0.0467  reported
+early_v3    0.7878  0.7276  reported
+base        0.7696  0.7199  reported
+screen ceiling (the higher parent): 0.0430
+  g24_a     vs v3: +0.0021 [+0.0012, +0.0030], lower on 107/298; vs v3_s42: +0.0028 [+0.0016, +0.0041], lower on 108/298
+  g24_b     vs v3: -0.0008 [-0.0020, +0.0003], lower on 152/298; vs v3_s42: -0.0001 [-0.0010, +0.0008], lower on 147/298
+  g16_a     vs v3: +0.0018 [+0.0007, +0.0029], lower on 120/298; vs v3_s42: +0.0025 [+0.0014, +0.0037], lower on 102/298
+  g16_b     vs v3: -0.0002 [-0.0015, +0.0009], lower on 147/298; vs v3_s42: +0.0005 [-0.0007, +0.0017], lower on 146/298
+  late_v3   vs v3: +0.0026 [+0.0010, +0.0040], lower on 113/298; vs v3_s42: +0.0033 [+0.0021, +0.0046], lower on 104/298
+  early_v3  vs v3: +0.7448 [+0.7191, +0.7712], lower on 0/298; vs v3_s42: +0.7455 [+0.7201, +0.7716], lower on 0/298
+  base      vs v3: +0.7266 [+0.7007, +0.7531], lower on 0/298; vs v3_s42: +0.7274 [+0.7018, +0.7537], lower on 0/298
+  parents: v3_s42 - v3 -0.0008 [-0.0021, +0.0005], v3_s42 lower on 163/298
