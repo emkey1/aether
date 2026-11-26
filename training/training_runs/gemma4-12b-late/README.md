@@ -92,6 +92,17 @@ requests at once. So:
   trainable parameters (76.5 million against 131.1 million), not training time; that is all the table's "for its
   lower cost" can mean.
 
+**Both sessions run; the Mac decides (amended again 2026-11-26, owner: "Go ahead and run the Mac tests later, I'm
+just interested in earlier preliminary results").** This was written while the training host's first pass (v3_late)
+was running, before any late answer had been read. So:
+- The deciding session is the Mac session as first written: `score.sh`, after the qwen35-4b-la session, int8 on one
+  Ollama version, reports `report__filter_<tag>.json.gz` and `session_server_version.txt`. The table and everything
+  above it apply to it unchanged.
+- The training host's session of the amendment above (`score_host.sh`) runs as a preliminary look, reported, not
+  deciding. Its reports are kept as `report__host_<tag>.json.gz` with `session_host.txt`; `python3 compare.py --host`
+  reads them and labels its reading preliminary. Whatever it shows changes nothing in the Mac session.
+- The throughput test and the training-cost note above stand.
+
 **Reported, not deciding:**
 - **Seed noise.** The number of tasks on which an arm's two seeds differ: 125 for the all-layer seeds in the c1 session,
   recounted in this one. The idea behind the study is that the early layers' changes carry much of the seed-to-seed
@@ -106,5 +117,5 @@ requests at once. So:
 of the all-layer run's trainable parameters: this tests the same recipe on fewer layers, not the same capacity.
 
 **Hosts and cost.** Training on the training host, one run at a time, about 3 to 4 hours each. Scoring on the scoring
-Mac after the qwen35-4b-la session: four passes of about 5 hours. (Superseded on 2026-11-26 by the amendment above:
-the session runs on the training host.)
+Mac after the qwen35-4b-la session: four passes of about 5 hours. (Amended twice on 2026-11-26, above: this Mac
+session decides, and the training host runs a preliminary one first.)

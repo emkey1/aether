@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """The reading fixed in README.md: late minus all on fv3's 1,026 tasks, two seeds each. Run from the repo root.
 
-Reads, beside this file, the one-session reports report__filter_{v3_late,v3,v3_late_s42,v3_s42}.json.gz (or
-filter_<tag>.json) and session_server_version.txt (since README.md's amendment of 2026-11-26, the session's vLLM image,
-grader and worker count on the training host). Reported, not deciding: the same all-layer weights' int8 answers in
-the c1 session on the scoring Mac (../../distill/c1-20261118/, report__filter_{v3_c1s,v3_s42_c1s}.json.gz) and each
-run's trainable parameters (train/run_metadata.json of each run). Prints no task id or program.
+Reads, beside this file, the deciding Mac session's reports report__filter_{v3_late,v3,v3_late_s42,v3_s42}.json.gz
+(or filter_<tag>.json) and session_server_version.txt. With --host it reads instead the training host's preliminary
+session (README.md's amendments of 2026-11-26): report__host_<tag>.json.gz and session_host.txt (its vLLM image,
+grader and worker count), and labels the reading preliminary. Reported, not deciding: the same all-layer weights' int8
+answers in the c1 session on the scoring Mac (../../distill/c1-20261118/, report__filter_{v3_c1s,v3_s42_c1s}.json.gz)
+and each run's trainable parameters (train/run_metadata.json of each run). Prints no task id or program.
 """
 
 from __future__ import annotations
@@ -30,14 +31,16 @@ RUN_DIRS = {"v3_late": "gemma4-12b-v3-late", "v3_late_s42": "gemma4-12b-v3-late-
             "v3_s42": "gemma4-12b-v3-s42"}
 # The same all-layer weights answered in the c1 session: reproduction and seed noise only.
 C1_ANSWERS = {"v3": (C1, "v3_c1s"), "v3_s42": (C1, "v3_s42_c1s")}
-SESSION_VERSION = HERE / "session_server_version.txt"
+HOST = "--host" in sys.argv[1:]  # the training host's preliminary session, not the deciding one
+SESSION_VERSION = HERE / ("session_host.txt" if HOST else "session_server_version.txt")
+PREFIX = "host" if HOST else "filter"
 TASKS = 1026
 RESAMPLES = 10_000
 MARGIN = 0.02  # 2.0 points
 
 
-def load(where: pathlib.Path, tag: str) -> dict:
-    path = where / f"report__filter_{tag}.json.gz"
+def load(where: pathlib.Path, tag: str, prefix: str = "filter") -> dict:
+    path = where / f"report__{prefix}_{tag}.json.gz"
     if not path.exists():
         path = where / f"filter_{tag}.json"
     with (gzip.open(path, "rt") if path.suffix == ".gz" else open(path)) as handle:
@@ -106,7 +109,7 @@ def main() -> None:
     keys = [t["id"] for t in json.loads((FV3 / "tasks_frozen.json").read_text(encoding="utf-8"))["tasks"]]
     if len(keys) != TASKS or len(set(keys)) != TASKS:
         raise SystemExit(f"STOP: expected {TASKS} unique fv3 tasks, found {len(keys)}")
-    runs = {tag: load(where, tag) for members in ARMS.values() for where, tag in members}
+    runs = {tag: load(where, tag, PREFIX) for members in ARMS.values() for where, tag in members}
     for tag, results in runs.items():
         if set(results) != set(keys):
             raise SystemExit(f"STOP: {tag} does not cover the {TASKS} tasks ({len(results)} results)")
@@ -135,7 +138,9 @@ def main() -> None:
     pair_totals = [sum(passed[l].values()) - sum(passed[a].values()) for l in (l1, l2) for a in (a1, a2)]
     mean, low, high = interval([arm["late"][k] - arm["all"][k] for k in keys])
     clear, why = seed_check(mean, pair_totals, seed_only)
-    print(f"\nTHE READING: late minus all, two seeds each, {TASKS} tasks\n"
+    title = ("PRELIMINARY, the training host's session (reported, not deciding)" if HOST
+             else "THE READING")
+    print(f"\n{title}: late minus all, two seeds each, {TASKS} tasks\n"
           f"  {100 * mean:+.2f} points [{100 * low:+.2f}, {100 * high:+.2f}]")
     print(f"  seed check: seed-only contrast, {{{l1}, {a2}}} minus {{{l2}, {a1}}}: {100 * seed_only[0]:+.2f} points "
           f"[{100 * seed_only[1]:+.2f}, {100 * seed_only[2]:+.2f}]; late-run minus all-run totals "

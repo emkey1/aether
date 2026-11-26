@@ -1,6 +1,7 @@
 #!/bin/bash
-# gemma4-12b-late on the training host: the one scoring session of README.md, as amended on 2026-11-26 (the session
-# moves off the scoring Mac). The two late runs and the two all-layer runs (gemma4-12b-v3 and -v3-s42) are each served
+# gemma4-12b-late on the training host: the preliminary scoring session of README.md's amendments of 2026-11-26
+# (reported, not deciding; the Mac session of score.sh decides). Its reports are kept as report__host_<tag>.json.gz
+# with its session_server_version.txt as session_host.txt, read by compare.py --host. The two late runs and the two all-layer runs (gemma4-12b-v3 and -v3-s42) are each served
 # at bf16 from their merged export by one pinned vLLM image, with the driver's host-scoring flags, and answer fv3's
 # 1,026 frozen tasks with no guide and no repair, WORKERS requests at a time, in the order v3_late, v3, v3_late_s42,
 # v3_s42, graded by the 1.0 release built for Linux. Pass or fail only: nothing here is solved, harvested or trained on.
