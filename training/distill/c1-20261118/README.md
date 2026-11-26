@@ -83,6 +83,36 @@ trainer keeps the final model (`load_best_model_at_end` is false), so its export
 
 The table, the seed check and the one-session rule are unchanged.
 
+## Result (2026-11-26)
+
+One session on Ollama 0.40.17 (`session_server_version.txt`), in the order v3, c1_s42, v3_s42, c1. The c1 pass is
+`gemma4-12b-c1-r2`, whose final eval loss was 1.11 times its best (40 evals, best 0.0848, last 0.0938), so the rule
+above let it in. Each pass answered all 1,026 tasks with no infrastructure failure, empty answer or leaked thinking.
+`compare.py` reads the four packed reports beside this README and prints the same reading.
+
+| run | arm, seed | first attempt passed | failed: coded / return code / wrong output |
+|---|---|---|---|
+| `v3_c1s` | targeted, 3407 | 886 | 45 / 7 / 88 |
+| `v3_s42_c1s` | targeted, 42 | 879 | 58 / 3 / 86 |
+| `c1` (`gemma4-12b-c1-r2`) | control, 3407 | 866 | 42 / 13 / 105 |
+| `c1_s42` | control, 42 | 870 | 57 / 2 / 97 |
+
+**The reading: not shown.** Targeted minus control is **+1.41 points [-0.24, +3.07]**. At this resolution the fv3 gain is
+explained by more data, and a targeting effect above 3.07 points is ruled out. What follows, from the table: filtering
+on a fine-tune's failures is optional, and the owner decides whether the cheaper unfiltered batches replace it. The seed
+check guards only directional readings; for the record, all four targeted-run minus control-run totals are positive
+(+20, +16, +13, +9) and the seed-only contrast is +0.54 points [-1.02, +2.10], so it would have failed on its second part.
+
+Reported, not deciding:
+- Control minus baseline +1.71 points [+0.10, +3.31]; targeted minus baseline +3.12 [+1.32, +4.87]. Both compare with
+  fv3's baseline reports of 2026-11-06 (Ollama 0.40.13), so they cross server versions.
+- Per seed: v3 minus c1 +1.95 [-0.39, +4.19], 83 gained and 63 lost (sign test p=0.116); v3_s42 minus c1_s42 +0.88
+  [-1.36, +3.12], 71 and 62 (p=0.49).
+- Seed gaps: baseline -2.44 [-4.87, +0.00], targeted +0.68 [-1.46, +2.83], control -0.39 [-2.73, +1.95].
+- The targeted runs re-answered here against their answers of 2026-11-06: v3 gave the same first program on 904 of
+  1,026 tasks and the same pass or fail on 1,014; v3_s42 on 768 and 990. Each passes 6 fewer now (886 against 892, 879
+  against 885).
+
 **Reported, not deciding:** control minus baseline (v2) with its interval; each seed's differences with a sign test; the
 seed gap in each arm; failure class; how many passed-sample tasks the solvers solved, against the targeted batch's 298
 of 322.
