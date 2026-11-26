@@ -130,6 +130,12 @@ def load_run(path: pathlib.Path, families_path: pathlib.Path = FAMILIES_PATH) ->
     if targets is not None and (not isinstance(targets, list) or not targets
                                 or not all(isinstance(t, str) and t for t in targets)):
         raise SystemExit(f"{path}: lora.target_modules must be a non-empty list of module names")
+    # A run may also restrict LoRA to some decoder layers by index (PEFT's layers_to_transform); otherwise every layer.
+    layers = run["lora"].get("layers_to_transform")
+    if layers is not None and (not isinstance(layers, list) or not layers
+                               or not all(isinstance(i, int) and not isinstance(i, bool) and i >= 0 for i in layers)
+                               or layers != sorted(set(layers))):
+        raise SystemExit(f"{path}: lora.layers_to_transform must be a non-empty, ascending list of distinct layer indices")
     run["train"] = {"epochs": 3, "learning_rate": 1e-4, "batch_size": 1, "grad_accum": 8, "seed": 3407,
                     "early_stopping_patience": 2, "early_stopping_threshold": 0.0} | run.get("train", {})
     # The divergence stop is off unless the run names a ratio; no default is filled in, so a run without it resolves
@@ -250,6 +256,8 @@ def trainer_argv(run: dict) -> list[str]:
         "--chat-template-kwargs", json.dumps(fam.get("chat_template_kwargs") or {}),
         "--export-merged-16bit", "--merged-output-dir", run["paths"]["merged"],
     ]
+    if lora.get("layers_to_transform"):
+        argv += ["--layers-to-transform", ",".join(str(i) for i in lora["layers_to_transform"])]
     if fam.get("loader"):
         argv += ["--loader", fam["loader"]]
     if fam.get("render_as_served"):

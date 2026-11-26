@@ -194,6 +194,27 @@ def describe_lora_coverage(model) -> dict:
             "trainable_pct": round(100 * trainable / max(total, 1), 4)}
 
 
+def lora_layer_indices(module_names) -> dict[int, int]:
+    """LoRA modules per decoder layer index, from module names like ...layers.20.self_attn.q_proj.lora_A."""
+    layers: dict[int, int] = {}
+    for name in module_names:
+        if name.endswith("lora_A"):
+            match = re.search(r"\.layers\.(\d+)\.", name)
+            key = int(match.group(1)) if match else -1
+            layers[key] = layers.get(key, 0) + 1
+    return layers
+
+
+def check_lora_layers(model, wanted: list[int]) -> None:
+    """Stop unless LoRA sits on every wanted layer and on no other: an ignored layers_to_transform would train every
+    layer, and a run asked to adapt layers 20 to 47 would then measure the all-layer recipe."""
+    found = lora_layer_indices(name for name, _ in model.named_modules())
+    if set(found) != set(wanted):
+        extra, missing = sorted(set(found) - set(wanted)), sorted(set(wanted) - set(found))
+        raise SystemExit(f"LoRA layers differ from --layers-to-transform: extra {extra}, missing {missing}")
+    print(f"LoRA layer check: {sum(found.values())} LoRA modules on exactly the {len(wanted)} requested layers", flush=True)
+
+
 def find_resumable_checkpoint(output_dir: Path) -> str | None:
     """Return the highest-step checkpoint dir with an intact trainer_state.json, or None.
 
@@ -638,6 +659,9 @@ def main() -> int:
     parser.add_argument("--target-modules", default="",
                         help="comma-separated LoRA target module names; empty uses the default set. "
                              "For hybrid-attention archs (qwen3_5) add the linear_attn projections.")
+    parser.add_argument("--layers-to-transform", default="",
+                        help="comma-separated decoder layer indices to put LoRA on (PEFT layers_to_transform); "
+                             "empty means every layer. The run stops unless LoRA lands on exactly these layers.")
     parser.add_argument("--max-steps", type=int, default=-1,
                         help="cap optimizer steps, overriding epochs when > 0 (smoke tests)")
     parser.add_argument("--gradient-checkpointing", default="unsloth",
@@ -793,6 +817,11 @@ def main() -> int:
     print(f"LoRA target modules ({len(target_modules)}): {target_modules}", flush=True)
     gc_value = {"unsloth": "unsloth", "true": True, "false": False}[args.gradient_checkpointing]
     print(f"use_gradient_checkpointing = {gc_value!r}", flush=True)
+    layers_to_transform = [int(i) for i in args.layers_to_transform.split(",") if i.strip()] or None
+    # Passed only when asked, so a run without it calls get_peft_model exactly as before.
+    layer_kwargs = {"layers_to_transform": layers_to_transform} if layers_to_transform else {}
+    if layers_to_transform:
+        print(f"LoRA layers ({len(layers_to_transform)}): {layers_to_transform}", flush=True)
     model = fast_loader(args.loader).get_peft_model(
         model,
         r=args.lora_r,
@@ -804,9 +833,12 @@ def main() -> int:
         random_state=args.random_state,
         use_rslora=False,
         loftq_config=None,
+        **layer_kwargs,
     )
     lora_coverage = describe_lora_coverage(model)
     print(f"LoRA coverage: {json.dumps(lora_coverage)}", flush=True)
+    if layers_to_transform:
+        check_lora_layers(model, layers_to_transform)
 
     train_dataset = Dataset.from_list(train_records)
     eval_dataset = Dataset.from_list(eval_records)
@@ -929,6 +961,7 @@ def main() -> int:
         "load_in_4bit": args.load_in_4bit,
         "load_in_8bit": args.load_in_8bit,
         "lora_target_modules": target_modules,
+        "lora_layers_to_transform": layers_to_transform,
         "lora_coverage": lora_coverage,
         "local_files_only": args.local_files_only,
         "dtype": args.dtype,

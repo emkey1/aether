@@ -146,6 +146,14 @@ class ScriptTests(unittest.TestCase):
             with self.assertRaises(SystemExit):
                 self.load(lora={"target_modules": bad})
 
+    def test_lora_layers_are_every_layer_unless_a_run_names_them(self):
+        self.assertNotIn("--layers-to-transform", tr.trainer_argv(self.load()))
+        argv = tr.trainer_argv(self.load(lora={"layers_to_transform": list(range(20, 48))}))
+        self.assertEqual(argv[argv.index("--layers-to-transform") + 1], ",".join(str(i) for i in range(20, 48)))
+        for bad in ([], "20-47", [20, 20], [21, 20], [-1], [True], [1.0]):
+            with self.assertRaises(SystemExit):
+                self.load(lora={"layers_to_transform": bad})
+
     def test_python_check_is_scored_on_the_host_only_when_asked(self):
         import subprocess
         plain = tr.score_script(self.load())
