@@ -91,3 +91,44 @@ failures stay unread); trainable parameters, training time and final eval loss f
 
 **Limits.** One model size and one dataset. A result on the 4B says nothing certain about the 27B or the MoE, where
 three in four layers are linear attention too; a gain here would justify a one-run check there, not a change by itself.
+
+## Result (2026-11-27)
+
+One session on Ollama 0.40.17 (`session_server_version.txt`), in the order la-s3407, base-s3407, la-s42, base-s42,
+from 12:01Z on 2026-11-26 to 04:06Z on 2026-11-27. Each pass answered all 2,802 tasks with no infrastructure failure,
+empty answer or leaked thinking. `compare.py` reads the four packed reports beside this README and prints the same
+reading.
+
+| run | arm, seed | first attempt passed | failed: coded / return code / wrong output | stopped at the length cap |
+|---|---|---|---|---|
+| `qwen35-4b-la-la-s3407` | la, 3407 | 2,069 | 180 / 46 / 507 | 5 |
+| `qwen35-4b-la-base-s3407` | base, 3407 | 2,077 | 180 / 46 / 499 | 5 |
+| `qwen35-4b-la-la-s42` | la, 42 | 2,100 | 197 / 33 / 472 | 6 |
+| `qwen35-4b-la-base-s42` | base, 42 | 2,050 | 202 / 41 / 509 | 3 |
+
+**The reading: no readable difference.** `la` minus `base` is **+0.75 points [-0.30, +1.78]**; the two `base` seeds
+differ by 0.96. What follows, from the table: no change, and a gain above 1.78 points is ruled out at this resolution.
+The three-seed reading (seed 7) and the 27B and MoE runs follow only from "a gain", so none of them runs. The seed
+check guards only "a gain"; for the record, the four `la`-run minus `base`-run totals are -8, +19, +23 and +50, and the
+seed-only contrast is -1.03 points [-2.09, +0.00], so it would have failed on its first part.
+
+Reported, not deciding:
+- Per seed: la-s3407 minus base-s3407 -0.29 points [-1.82, +1.28], 244 gained and 252 lost (sign test p=0.753);
+  la-s42 minus base-s42 +1.78 [+0.36, +3.21], 236 and 186 (p=0.017). Across seeds: la-s3407 minus base-s42 +0.68
+  [-0.89, +2.21]; la-s42 minus base-s3407 +0.82 [-0.75, +2.32].
+- Seed gaps, seed 3407 minus seed 42: `base` +0.96 [-0.57, +2.53], `la` -1.11 [-2.68, +0.50].
+- The benchmark from the driver's scoring (no guide, T=0, seed 42, one repeat, two repair rounds, the 1.0 release
+  built for Linux), first attempt (after repair); held-out failures stay unread:
+
+  | run | main (73) | held-out (53) |
+  |---|---|---|
+  | `qwen35-4b-la-la-s3407` | 64 (65) | 19 (25) |
+  | `qwen35-4b-la-base-s3407` | 61 (63) | 19 (19) |
+  | `qwen35-4b-la-la-s42` | 63 (66) | 16 (20) |
+  | `qwen35-4b-la-base-s42` | 61 (62) | 18 (21) |
+
+- Cost, from each run's record: `base` 42,467,328 trainable parameters in 128 LoRA modules, `la` 64,929,792 in 248.
+  Training time on the same training host: 6,327 and 3,827 seconds for `base` (s3407, s42), 4,000 and 4,295 for `la`;
+  this record does not say why base-s3407 took longer. Final eval loss against the best (34 evals; the same seed holds
+  out the same 60 records): `base` 0.1175 / 0.1022 and 0.1294 / 0.1151, `la` 0.1163 / 0.1020 and 0.1300 / 0.1133, all
+  within 1.15 times the best.
