@@ -1,0 +1,21 @@
+{
+ "built_by": "training/distill/frestore-20261127/build_restore.py",
+ "base": "/storage/models/Gemma-4-12B-it",
+ "tuned": "/storage/aether-train/gemma4-12b-v3/merged_16bit",
+ "tuned_layers": [
+  16,
+  47
+ ],
+ "base_sha256": "5a84cb313260ac447237b890387116dfa8682e49a6b44bc585ae8353abbff18d",
+ "tuned_sha256": "5c556ef2065b06a2bd5d07723208f3abcf2ac5a2813bdff73cd0daae35344432",
+ "out_sha256": "54e5d19675a00386b8a3739feb5907ce8be186a16e0506aa90f6e522c14bee11",
+ "tensors": 677,
+ "metadata": {
+  "format": "pt"
+ },
+ "from_tuned": 218,
+ "from_base": 110,
+ "untouched_equal": 349,
+ "targets_equal_to_base": 0,
+ "seconds": 104
+}

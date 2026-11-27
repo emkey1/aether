@@ -94,3 +94,50 @@ no change, v3 stays as it is. Nothing here touches the published repositories.
 repair. The 1,026 tasks were written for Aether by one writer; that they are solvable in Python is known, but they may
 favour neither language's habits. The split at layer 16 is where the two seeds' changes stop being unrelated, not a
 tuned boundary.
+
+## Result (2026-11-27)
+
+The session ran on the training host from 09:48Z to 15:54Z at 31a8c5f, in the order above, on one setup
+(`session_server_version.txt`). Every pass answered all 1,026 tasks with no infrastructure failure, empty answer or
+leaked reasoning. Both builds passed every check (`restore_manifest_<tag>.json`): r16 took 218 target tensors from v3
+and 110 from the base, e16 the reverse; the other 349 tensors were byte-identical in both inputs, and no v3 target
+equalled the base's. `compare.py` printed the same reading on the training host and from the packed reports here.
+
+First attempts, of 1,026:
+
+| tag | Python passed | Python failed: error / wrong output | Aether passed | Aether failed: coded / return code / wrong output |
+|---|---:|---|---:|---|
+| `base` | 964 | 8 / 54 | | |
+| `v3` | 941 | 14 / 71 | 884 | 44 / 8 / 90 |
+| `r16` | 928 | 19 / 79 | 856 | 49 / 9 / 112 |
+| `e16` | 968 | 9 / 49 | | |
+| `v3_late` | 944 | 16 / 66 | | |
+
+**The reading.**
+- Python, r16 minus v3: -1.27 points [-2.92, +0.39] (gained 32, lost 45): **no Python recovery shown**. A recovery
+  above 0.39 points is ruled out. Against the base-minus-v3 gap of +2.24 points [+0.49, +4.00], the share recovered is
+  -57% [-350%, +13%].
+- Aether, r16 minus v3: -2.73 points [-4.97, -0.58] (gained 52, lost 80): **costs Aether**.
+- So **no change: v3 stays as it is.** r16 is not a candidate, and nothing goes to the scoring Mac.
+
+**Reported, not deciding.**
+- Where the Python cost sits: e16 minus base is +0.39 points [-0.97, +1.75] (gained 29, lost 25), so v3's changes to
+  layers 0 to 15 on their own cost no Python that this measures. r16 minus base is -3.51 points [-5.36, -1.75]: v3's
+  later layers without its early ones are further from the base in Python than v3 is.
+- The late-only LoRA run: v3_late minus v3 is +0.29 points [-1.36, +1.95] (gained 40, lost 37), minus base -1.95
+  points [-3.61, -0.29]. Training only layers 20 to 47 leaves about the same Python cost as the all-layer recipe.
+- Aether written into Python: none of the 385 failed first Python programs (base 62, v3 85, r16 98, e16 58, v3_late
+  82) carries any of the five markers.
+- v3's Aether here against the same weights in gemma4-12b-late's training-host session: the same first program on 819
+  of 1,026 tasks and the same pass or fail on 1,004; 884 passed here, 872 there. Between two sessions on one setup the
+  same weights changed pass or fail on 22 tasks; r16 and v3 differ on 132.
+
+**What this answers and what it does not.** In this setting (fv3's tasks, bf16 through vLLM, no guide, first attempts),
+v3's Python cost against the base is small, 2.24 points. It does not come from v3's changes to layers 0 to 15, removing
+those changes makes both languages worse, and no failed Python program here carries Aether. The card's gap, 109 against
+68 of 126 at int8 with Aether in many failed programs, is not reproduced, so this session does not locate that larger
+damage. The card's numbers differ from these in their tasks and in the int8 Ollama form. On the card, too, v3 is nearly
+level with the base on the algorithms suite (18 against 19 of 19) and loses most on the TOON, core, surface and
+specification suites.
+
+The r16 and e16 exports (24 GB each) are kept on the training host until the owner decides what to do with them.
