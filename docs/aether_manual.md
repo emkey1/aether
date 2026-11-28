@@ -2550,8 +2550,13 @@ changes of meaning. What may still change:
 - additions: new builtins, new types, and syntax that used to be an error;
 - better diagnostics, better performance, and bug fixes;
 - a single exception: a program whose 1.0 behaviour is silently wrong under
-  the specification may become a coded error, with its own decision row, the
-  evidence for it, and a hint that names the fix.
+  the specification may become a coded error, or give the output its decision
+  row states, with that row and the evidence for it (D75 as amended on
+  2026-11-28). `1.01` also carries two changes the owner accepted as freeze
+  breaks on 2026-11-24, because they stop programs that ran correctly under
+  1.0: a name an imported module exports as a `const` is NAME-001 (D91), and a
+  wrong argument count on a math builtin is BUILT-002 at compile time (D96). No
+  archived program uses either form.
 
 Before that the language was in beta, from `1.0-beta1` on 2026-10-20 to
 `1.0-beta17` on 2026-10-27. The freeze applied in intent, but a breaking

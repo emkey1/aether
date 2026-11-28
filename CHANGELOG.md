@@ -17,6 +17,25 @@ genuinely behind. Each bump should add an entry below.
 
 ## 2026-11-28-1
 
+**Release `1.01`** (D75, D97): declared by the owner on 2026-11-28 (the
+roadmap's Q6 and Q7, adopted by D97) and tagged `1.01`; `--version` prints
+`Aether Compiler Version: 2026-11-28-1 (1.01)`. It carries languages
+`2026-11-18-1`, `2026-11-24-1`, `2026-11-24-2` and the change below: all of
+`main` on that date (Q6(a)). Under D75 as amended by Q7, D90, D92, D93, D94
+and D95 turn silently wrong 1.0 behaviours into coded errors or right values.
+D91 and D96 are freeze breaks the owner accepted on 2026-11-24: they stop
+programs that ran correctly under 1.0, and no archived or replay program uses
+either form. KPI S has no board on 1.0 or later, so this release waives the
+board and reads S by paired replay: of 274 archived first attempts and 43
+repairs, 0 move into silent_wrong on the release binary, and 0 regressions are
+unwaived (its `bench/results/instrument_log.csv` row is logged right after the
+tag). Known at the tag: `length` applied directly to a `ToonNode` that the
+program's own function returns, or read from an array element or a record
+field, stops at run time uncoded (held in a typed local it is TOON-001);
+conformance expects two failures (W5-13 width spec, W5-08 empty-array
+equality). The card is within its 2,000-token ceiling (1,996 under Qwen3.5
+since stamp 2026-11-19-1). The next dev label is `1.02-dev`.
+
 - **`has_builtin` answers for a core builtin under any category again,** as at
   `1.0` and as the full guide says ("a core builtin matches on the function
   name whatever category you pass"). pscal-core `d64986c` (2026-11-11), which
