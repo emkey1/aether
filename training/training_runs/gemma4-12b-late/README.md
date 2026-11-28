@@ -119,3 +119,50 @@ of the all-layer run's trainable parameters: this tests the same recipe on fewer
 **Hosts and cost.** Training on the training host, one run at a time, about 3 to 4 hours each. Scoring on the scoring
 Mac after the qwen35-4b-la session: four passes of about 5 hours. (Amended twice on 2026-11-26, above: this Mac
 session decides, and the training host runs a preliminary one first.)
+
+## Result (2026-11-27)
+
+**Training.** Both late runs passed the smoke check: the trainer logged `LoRA layer check: 191 LoRA modules on exactly
+the 28 requested layers` (107 attention, 84 MLP), with 76,505,088 trainable parameters against v3's 131,137,536.
+Neither diverged: final eval loss over best was 1.257 for seed 3407 (best 0.0935, final 0.1175) and 1.236 for seed 42
+(0.0915, 0.1132), against the limit of 2. On the same eval split the all-layer runs had best 0.0924 and final 0.1069
+(v3) and 0.0905 and 0.1006 (v3_s42), each best at step 650 of 978, as was v3_late's. `train/run_metadata.json` and the image records of each run are in
+`../gemma4-12b-v3-late/` and `../gemma4-12b-v3-late-s42/`.
+
+**The deciding session,** on the scoring Mac (`score.sh` at 623da5b, Ollama 0.40.17 in `session_server_version.txt`),
+ran from 04:11Z to 22:27Z on 2026-11-27 in the order v3_late, v3, v3_late_s42, v3_s42. Every pass answered all 1,026
+tasks with no infrastructure failure, empty answer or leaked reasoning.
+
+| run | first attempts passed | failed: coded / return code / wrong output |
+|---|---:|---|
+| `v3_late` | 857 | 56 / 10 / 103 |
+| `v3_late_s42` | 874 | 55 / 4 / 93 |
+| `v3` | 890 | 45 / 6 / 85 |
+| `v3_s42` | 879 | 58 / 3 / 86 |
+
+**The reading:** late minus all, **-1.85 points [-3.61, -0.15]**. The whole interval is below zero. The seed check
+fails: all four late-run minus all-run totals point the same way (-33, -22, -16, -5), but the difference is within
+the reach of the seed-only contrast ({v3_late, v3_s42} minus {v3_late_s42, v3}: -1.36 points [-2.88, +0.15]). The row:
+**a loss not separable from seed noise. No change; the owner decides on more seeds.**
+
+**Reported, not deciding:**
+- Seed noise: the late seeds differ on 127 tasks and the all-layer seeds on 123 (125 for the same weights in the c1
+  session). Late-only training does not make the seeds agree more, so this gives no reason for a three-seed follow-up.
+- Run against run: v3_late minus v3 -3.22 points [-5.75, -0.68] (sign test p = 0.015), minus v3_s42 -2.14 [-4.48,
+  +0.19]; v3_late_s42 minus v3 -1.56 [-3.80, +0.68], minus v3_s42 -0.49 [-2.53, +1.56]. The seed gap within the late
+  arm is -1.66 points [-3.80, +0.49] and within the all-layer arm +1.07 [-1.07, +3.22].
+- Reproduction of the c1 session on the same Ollama version: v3_s42 wrote the same first program on all 1,026 tasks;
+  v3 on 940, with the same pass or fail on 1,014 (890 now, 886 then).
+- Cost: 76.5 million trainable parameters against 131.1 million. Training took 12,830 and 12,780 seconds, against
+  12,800 for an all-layer run on the same host, so the late recipe saves parameters, not time. The trainer does not
+  record peak memory.
+- Python, from `../../distill/frestore-20261127/` (bf16 on the training host, the same 1,026 tasks): v3_late minus
+  v3 +0.29 points [-1.36, +1.95]. Training only layers 20 to 47 does not reduce v3's Python cost.
+- Not run: the eval loss on the 298 control pairs with `graft_eval.py`, and the per-layer cosine between the two late
+  seeds' changes.
+
+**The preliminary session** on the training host (`report__host_<tag>.json.gz`, `session_host.txt`; bf16 through vLLM,
+16 requests at a time) read -1.36 points [-3.02, +0.29], not resolved. Its runs passed 857, 874, 872 and 887 in the
+table's order. The late runs' totals equal the Mac's by coincidence: the two sessions differ in pass or fail on 70
+tasks (v3_late) and 56 (v3_late_s42). Its all-layer runs, against their c1-session answers across server, precision
+and batching, had the same pass or fail on 988 (v3) and 978 (v3_s42) tasks.
