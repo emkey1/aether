@@ -1,0 +1,1878 @@
+{
+ "base": "1.0",
+ "head": "c329db8",
+ "engine_commits": [
+  {
+   "pin_move": "61f14de",
+   "engine": "pscal-core",
+   "sha": "9ecb9e7225",
+   "subject": "vproc: closing a stdio entry takes its saved number with it",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "8cffd73",
+   "engine": "pscal-core",
+   "sha": "0ff9640e50",
+   "subject": "vproc: one definition of vprocForgetSavedStdioLocked",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "8cffd73",
+   "engine": "pscal-core",
+   "sha": "e527066e73",
+   "subject": "ios: an empty path names nothing",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 1 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "952f9e4",
+   "engine": "pscal-core",
+   "sha": "066f3365a1",
+   "subject": "ios: a program's file calls follow cd and take the app's absolute paths",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "No change on macOS/Linux to builtin.c, path_virtualization.c and getcurrentdir/fileexists (iOS-guarded or include-only), and the path_truncate.c change has no caller in the aether build; but yyjson_builtins.c (YyjsonReadFile, AetherTryToonReadFile) and sqlite_builtins.c vmSqliteOpen now route their path through pscalPathVirtualized_hostPath, an identity inline off iOS, in code Aether programs run."
+  },
+  {
+   "pin_move": "952f9e4",
+   "engine": "pscal-core",
+   "sha": "75732ea16c",
+   "subject": "shell: an array's sparse flag starts false and survives a subshell",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "952f9e4",
+   "engine": "pscal-core",
+   "sha": "37592c7375",
+   "subject": "ios: a background job's vproc is made at the &",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "Only vproc.h is in the aether build; off iOS it gains no-op inline stubs (vprocReplaceStdio, vprocPassChildrenToParent) whose only callers are shell_execution.inc and vproc.c."
+  },
+  {
+   "pin_move": "952f9e4",
+   "engine": "pscal-core",
+   "sha": "b9b74e85c6",
+   "subject": "ios: fcntl on a vproc's slot goes through its shim",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c readKeyFetchConsoleByte (ReadKey's ESC handling) and getCursorPosition (wherex/wherey) now call vmStdinFcntl, plain fcntl off iOS: a behaviour-preserving refactor of Aether-callable builtins."
+  },
+  {
+   "pin_move": "c9cc57c",
+   "engine": "pscal-core",
+   "sha": "8c057b0ad2",
+   "subject": "ios: wait gets a killed job's status, and killing a job harms nothing else",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "The vm.c pthread_testcancel() sits inside #if defined(PSCAL_TARGET_IOS) in interpretBytecode; vproc.h only adds a vprocEndAbandoned declaration and a desktop no-op stub no aether-build code calls."
+  },
+  {
+   "pin_move": "c9cc57c",
+   "engine": "pscal-core",
+   "sha": "d858699231",
+   "subject": "ios: keys typed at a command all reach it",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "c9cc57c",
+   "engine": "pscal-core",
+   "sha": "ff30686a0a",
+   "subject": "ios: the interrupt key ends what reads the terminal; read -s, -n, -d work there",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "c9cc57c",
+   "engine": "pscal-core",
+   "sha": "0658146965",
+   "subject": "shell: a line at the prompt can hand its status back",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "builtin.h only gains the declaration shellRuntimeSetPromptStatus; body and callers are in shell/shell_runtime_state.inc (exsh)."
+  },
+  {
+   "pin_move": "c9cc57c",
+   "engine": "pscal-core",
+   "sha": "7010b6ac41",
+   "subject": "shell: a line at the prompt leaves the shell's state for the next",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "Only a builtin.h declaration of shellRuntimeKeepLineState, defined and called only in shell/shell_runtime_state.inc."
+  },
+  {
+   "pin_move": "49ede5e",
+   "engine": "pscal-core",
+   "sha": "f9c1124a58",
+   "subject": "shell: a new job's slot starts empty",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "49ede5e",
+   "engine": "pscal-core",
+   "sha": "226ac85157",
+   "subject": "exsh: the prompt right after kill does not report the job",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "49ede5e",
+   "engine": "pscal-core",
+   "sha": "6871d00f5b",
+   "subject": "shell: putting the terminal back after a tool keeps what was typed",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "01dda20",
+   "engine": "pscal-core",
+   "sha": "d14604a0de",
+   "subject": "vproc: ssh isn't a remote client by name",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "ec8468f",
+   "engine": "pscal-core",
+   "sha": "8e4a832c63",
+   "subject": "shell: loops that start together keep their own description",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "e091097",
+   "engine": "pscal-core",
+   "sha": "5f3b74fc06",
+   "subject": "ios: a job's substitution moves only its own stdout",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "e091097",
+   "engine": "pscal-core",
+   "sha": "bbc5f22c11",
+   "subject": "ios: a stdout stream asks by slot whether it still fits",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 1 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "0b64c39",
+   "engine": "pscal-core",
+   "sha": "6c2161b2d6",
+   "subject": "vproc: basename and dirname answer per thread",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "a6f0d6b",
+   "engine": "pscal-core",
+   "sha": "237858546e",
+   "subject": "ios: a host descriptor stays a host descriptor in the slot shims",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin_network_api.c on every non-Windows build: vmBuiltinSocketPoll (Aether's socket_poll) and socketWaitReadable move from select to poll; socket_poll now fails with EINVAL on a negative timeout and counts POLLHUP/POLLERR as ready."
+  },
+  {
+   "pin_move": "c6b46fa",
+   "engine": "pscal-core",
+   "sha": "947b6ad141",
+   "subject": "vproc: a snapshot returns what its buffer holds",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "a1cc8b1",
+   "engine": "pscal-core",
+   "sha": "f5a382ffde",
+   "subject": "ios: setlocale is the calling thread's, and a capture of libc's environment holds a lock",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "001a948",
+   "engine": "pscal-core",
+   "sha": "c681f76ef4",
+   "subject": "ios: a kill as a frontend ends can't stop the ones after it",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "ed1d9cf",
+   "engine": "pscal-core",
+   "sha": "76099bda20",
+   "subject": "ios: the passwd and group tables have a lock, and an answer outlives a reload",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "5ff9986",
+   "engine": "pscal-core",
+   "sha": "a8ce959b80",
+   "subject": "shell: command substitutions nested five deep no longer write into freed memory",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "103a0de",
+   "engine": "pscal-core",
+   "sha": "c5cf3de08a",
+   "subject": "ios: a walk of the environment takes a copy, and $(...) restores only what changed",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "env_snapshot.c's new walk and rewritten snapshot take/restore are called only from shell/*.inc and path_truncate.c's /proc environ writer, which off iOS is reachable only through the iOS-only path_virtualization.c and sdl.c (SDL off)."
+  },
+  {
+   "pin_move": "048a50f",
+   "engine": "pscal-core",
+   "sha": "e2906bd9b5",
+   "subject": "ios: closing a tab ends that tab's session",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "cc9ce1b",
+   "engine": "pscal-core",
+   "sha": "e1a6d1fe03",
+   "subject": "ios: a thread a task starts doesn't take over as its main thread",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "fc9938e",
+   "engine": "pscal-core",
+   "sha": "0ea190e30e",
+   "subject": "shell: a DEBUG trap's exit stops the command it comes before, and stages keep what they use",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "Only a builtin.h declaration of shellRuntimeChunkLeftStages, used only by exsh .inc files."
+  },
+  {
+   "pin_move": "72b9d0c",
+   "engine": "pscal-core",
+   "sha": "206faaee26",
+   "subject": "ios: halt ends the session, with a plain end",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "Only vproc.h is in the aether build: new vprocHaltSession/vprocTaskHalting declarations and desktop stubs, called only from shell_word_expansion.inc."
+  },
+  {
+   "pin_move": "e5cbef6",
+   "engine": "pscal-core",
+   "sha": "b55acdb924",
+   "subject": "Pascal also looks for units in lib/pascal above the binary",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "findUnitFile in utils.c is Pascal-only, but the new pscalLibDirBesideExecutable is called by rea's tryResolveRelativePath, which every Aether `use` runs through resolveModulePath, so it can change which module an import finds (<exe>/../lib/rea)."
+  },
+  {
+   "pin_move": "e5cbef6",
+   "engine": "rea",
+   "sha": "c6e5598d8c",
+   "subject": "Carry the library modules in lib/rea, and install them",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "rea semantic.c tryResolveRelativePath, unguarded and on Aether's `use` path, now also searches <exe>/../lib/rea before REA_DEFAULT_IMPORT_DIR, so an import can resolve to a different file or resolve where it failed."
+  },
+  {
+   "pin_move": "d0df102",
+   "engine": "pscal-core",
+   "sha": "4fedf0614d",
+   "subject": "vm: simple instructions skip the loop's checks, and scalars are stored and freed inline",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "vm.c interpretBytecode dispatch (VM_NEXT_SIMPLE skips top-of-loop checks), freeValue's inline scalar fast path and vmStoreThroughAddress's same-type scalar store, all unguarded."
+  },
+  {
+   "pin_move": "77e8450",
+   "engine": "pscal-core",
+   "sha": "f68f8f6a04",
+   "subject": "shell: wait -n ID, a redirection's word in its turn, command prog {fd}>, varredir_close, ${!@}, wait -n in <(...)",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "cd653e5",
+   "engine": "pscal-core",
+   "sha": "0e475d2fb9",
+   "subject": "shell: [ and test compare strings, and a value is a value",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "b3da29a",
+   "engine": "pscal-core",
+   "sha": "3394406a19",
+   "subject": "ios: /dev/stdin, /dev/stdout, /dev/stderr, /dev/fd/N and /proc/<pid>/fd/N are descriptors, as on Linux",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "cache.c's new cacheSourceIsFile (stat, S_ISREG, not iOS-guarded) gates loadBytecodeFromCache and saveBytecodeToCache, which rea main.c calls for Aether unless --no-cache: /dev/stdin or /dev/fd/N sources now skip the cache; builtin.c vmReadLineInterruptible's desktop fd<0 early return changes too."
+  },
+  {
+   "pin_move": "a38c6e8",
+   "engine": "pscal-core",
+   "sha": "ce4c02a937",
+   "subject": "vproc: a thread's stack of vprocs has no limit",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "e8177cd",
+   "engine": "pscal-core",
+   "sha": "6440e3d977",
+   "subject": "ios: an orphan's row goes when it ends",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "d967382",
+   "engine": "pscal-core",
+   "sha": "08a300dd1f",
+   "subject": "ios: a poll's wakeup stays with the thread it was for, so ssh a | ssh b keeps moving",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "678f905",
+   "engine": "pscal-core",
+   "sha": "c7bcf96602",
+   "subject": "shell: break in a substitution, one call list, jobs in a stage, ulimit; a FIFO goes where the task says",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "mkfifo/mknod wrappers sit inside path_virtualization.c's iOS block; vproc.h's non-iOS getrlimit/setrlimit inlines are called only by the shell's ulimit; the builtin.h additions are read only by shell code."
+  },
+  {
+   "pin_move": "678f905",
+   "engine": "pscal-core",
+   "sha": "0e5b6024fa",
+   "subject": "shell: jobs lists what has ended, in bash's line, and one job spec resolver",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "builtin.h only adds the prototype vmBuiltinShellJobText; its definition and registration are in shell sources outside the aether build."
+  },
+  {
+   "pin_move": "4a1f6e3",
+   "engine": "pscal-core",
+   "sha": "678694f9c1",
+   "subject": "shell: a glob's matches sort as the locale collates, as in bash",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "8759bd7",
+   "engine": "pscal-core",
+   "sha": "752a99adf8",
+   "subject": "ios: a thread's own stdio streams close when the thread ends",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 3 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "6d8592c",
+   "engine": "pscal-core",
+   "sha": "8f5c2c105f",
+   "subject": "shell: a substitution drops what has ended but the job $! names, as bash's fork does",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "666db07",
+   "engine": "pscal-core",
+   "sha": "7a45cb8805",
+   "subject": "ios: a thread that ends in raw mode puts the terminal back",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c vmThreadCleanup's non-iOS branch restores termios from a per-thread record; vmEnableRawMode and vmPrepareCanonicalInput go through vmNoteRawMode/vmThreadTerm; reached by aether_read_line and readkey/keypressed."
+  },
+  {
+   "pin_move": "7a3aaac",
+   "engine": "pscal-core",
+   "sha": "9a74b87418",
+   "subject": "shell: IFS splits only what an expansion produced",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "af92ff2",
+   "engine": "pscal-core",
+   "sha": "378ef51a01",
+   "subject": "ios: a killed frontend's write to a stalled pipe or FIFO ends",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "builtin.c changes (vmVprocPipeOpen, vmVprocStreamOpen) are all inside the PSCAL_TARGET_IOS block; vproc.h only adds a non-iOS inline no aether code calls."
+  },
+  {
+   "pin_move": "b5708b3",
+   "engine": "pscal-core",
+   "sha": "d47185a015",
+   "subject": "ios: a closed stdin is no terminal",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "aa6d90c",
+   "engine": "pscal-core",
+   "sha": "0aaefb2ee1",
+   "subject": "ios: raw mode puts back the terminal as each program found it",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c vmEnableRawMode and vmRestoreTerminal, outside any iOS guard: base termios re-read each time raw mode starts, per-thread restore; reached by Aether's readkey and by every program through atexit vmAtExitCleanup."
+  },
+  {
+   "pin_move": "f39f712",
+   "engine": "pscal-core",
+   "sha": "15dfeccbf6",
+   "subject": "ios: a program whose reader left ends alone, and its subshell goes on",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "e2ad836",
+   "engine": "pscal-core",
+   "sha": "4bbbd9d631",
+   "subject": "shell: less work per command for metadata, status, debug switches and nested calls",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "vm.c CALL_BUILTIN_PROC adds a strcmp before the strcasecmp in the id_name_mismatch check: behaviour-preserving, in the builtin-call path every Aether program runs."
+  },
+  {
+   "pin_move": "4844b0e",
+   "engine": "pscal-core",
+   "sha": "30e46b69dd",
+   "subject": "ios: what a task makes obeys its own file mask, by every route",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 13 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "d1b5835",
+   "engine": "pscal-core",
+   "sha": "23e3bb92f2",
+   "subject": "landscape: the shader layers need a current OpenGL context, never crash without one",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "landscape.c registerLandscapeBuiltins now registers landscapeshadersavailable outside #ifdef SDL (false with SDL off), callable by name and listed in the user ext category: a change to the builtin registry Aether looks up and to the ids of builtins registered after it."
+  },
+  {
+   "pin_move": "d1b5835",
+   "engine": "rea",
+   "sha": "153fd3334e",
+   "subject": "examples: landscape uses sprite clouds where the window has no OpenGL context",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "f3974b6",
+   "engine": "pscal-core",
+   "sha": "44b4c5fca8",
+   "subject": "shell: with no job control a command stays in the shell's process group",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "builtin.h adds a shell_task field to ShellCwdScope used only by shell code; vproc.h adds declarations and desktop no-op stubs called only by shell and vproc.c."
+  },
+  {
+   "pin_move": "418dd0b",
+   "engine": "pscal-core",
+   "sha": "688e1ac128",
+   "subject": "iOS: Aether sees only its own builtins, not the shell's",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c rewrites the registry lookups Aether uses (getVmBuiltinID, getVmBuiltinHandlerById, getVmBuiltinEffectMaskById, isBuiltin) around shellViewOfId; results should not change on desktop, but it is a refactor of the lookup; query_builtin.c adds a frontendIsAether() skip of the shell category."
+  },
+  {
+   "pin_move": "8868ad9",
+   "engine": "pscal-core",
+   "sha": "5e0134e30f",
+   "subject": "ios: <(cmd) and >(cmd) are a pipe and a command beside it",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "0ba5d34",
+   "engine": "pscal-core",
+   "sha": "d1320306a2",
+   "subject": "ios: a frontend killed at the end of a pipeline no longer leaves its tab waiting for ever",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63d76ff",
+   "engine": "pscal-core",
+   "sha": "abade37c11",
+   "subject": "apple 3d: a primitive with nothing to draw no longer blanks a Metal frame",
+   "class": "sdl-build-only",
+   "decided_by": "files",
+   "reason": "touches only SDL backend files; the default build has SDL off"
+  },
+  {
+   "pin_move": "66cf5a4",
+   "engine": "pscal-core",
+   "sha": "5611836e79",
+   "subject": "ios: exec resets caught signals, and poll on host descriptors returns EINTR",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "6c8c54f",
+   "engine": "pscal-core",
+   "sha": "953a0411a4",
+   "subject": "ios: an environment keeps only so many old values",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "6c8c54f",
+   "engine": "pscal-core",
+   "sha": "3857a11eee",
+   "subject": "ios: a glob reads the program's PWD, not the app's",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 1 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "2732620",
+   "engine": "pscal-core",
+   "sha": "70e51fae34",
+   "subject": "ios: a task killed as its wait starts no longer ends the app as a corrupt mutex",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "1e59f8d",
+   "engine": "pscal-core",
+   "sha": "067f0ce278",
+   "subject": "apple 3d: build each primitive's Metal vertices at the end of the frame's queue",
+   "class": "sdl-build-only",
+   "decided_by": "files",
+   "reason": "touches only SDL backend files; the default build has SDL off"
+  },
+  {
+   "pin_move": "37d4db4",
+   "engine": "pscal-core",
+   "sha": "2e9a3f112b",
+   "subject": "ios: /dev/tty is the tab's terminal, and a prompt ends at a signal that ends the shell",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 2 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "ba83cc5",
+   "engine": "pscal-core",
+   "sha": "f7733da9bd",
+   "subject": "ios: a fatal signal a task sends itself ends it, and a signal to an ended task succeeds",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "Every vprocKillLive swap and the vprocTaskKilledHere check sit inside PSCAL_TARGET_IOS blocks in builtin.c and vm.c; vproc.h only adds non-iOS stubs no non-shell aether code calls."
+  },
+  {
+   "pin_move": "390bce8",
+   "engine": "pscal-core",
+   "sha": "a716c55f63",
+   "subject": "ios: a pipeline's first stage killed from elsewhere no longer leaves the stage reading it waiting",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "34b9a9d6e7",
+   "subject": "ios: remove the terminal layer ported from iSH",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "501a0a729a",
+   "subject": "ios: terminal layer, the shared names, open files and process hooks",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "b74c06ec7b",
+   "subject": "ios: terminal layer, terminals and pty pairs",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "86bd8e5a06",
+   "subject": "vproc: signal action code written fresh",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "6d4e5e610e",
+   "subject": "terminal layer: what a program sees, as on Linux",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "2c4a6a0472",
+   "subject": "vproc: what the terminal layer needs to ask, and the host's termios in full",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "bf02dc4097",
+   "subject": "terminal: one record of the foreground group",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "222b9df",
+   "engine": "pscal-core",
+   "sha": "a2ea748e13",
+   "subject": "terminal layer: each polling thread wakes on a pipe of its own",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "e775a46",
+   "engine": "pscal-core",
+   "sha": "94fdd48c31",
+   "subject": "vproc: users and root in the app (uids, the /etc guard, exec, the host name)",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "path_virtualization changes are in its PSCAL_TARGET_IOS-only body; vproc.h additions are read only by vproc.c; path_truncate.c pathTruncateRefreshProc writes the same text and has no caller in the aether build."
+  },
+  {
+   "pin_move": "c521ffb",
+   "engine": "pscal-core",
+   "sha": "bd3934119d",
+   "subject": "iOS: one mount table for the app; statfs and statvfs see it",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "The mount table and /proc/mounts writer in path_truncate.c are reached only through the iOS-only path_virtualization.c, vproc.c, the shell or sdl.c; the statfs/statvfs wrappers sit inside the iOS block."
+  },
+  {
+   "pin_move": "14aab8d",
+   "engine": "pscal-core",
+   "sha": "e1619adbf6",
+   "subject": "net: one snapshot of interfaces and routes for ip and /proc/net",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "net_snapshot.c is called only from path_truncate.c's /proc/net refresh, reached only from the shell, the iOS-only path virtualization, vproc.c, nextvi and sdl.c."
+  },
+  {
+   "pin_move": "43c9af5",
+   "engine": "pscal-core",
+   "sha": "d7ce8fc80a",
+   "subject": "iOS: fstatfs and fstatvfs name the app's filesystems; fstab sources by label",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 12 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "3be88f0",
+   "engine": "pscal-core",
+   "sha": "2eb39ad58f",
+   "subject": "vproc: pid 1 reaps its own children; a label makes no task; no wall time as CPU time",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "98c7a5c",
+   "engine": "pscal-core",
+   "sha": "1280c502a6",
+   "subject": "ios: a write to a pipe whose reader has gone raises SIGPIPE on the writing task",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "vproc.h only adds vprocWriteShimNoSignal and a desktop stub that is plain write(); the SIGPIPE logic and callers are in vproc.c and shell_builtins.inc."
+  },
+  {
+   "pin_move": "2c42132",
+   "engine": "pscal-core",
+   "sha": "b48e7c7799",
+   "subject": "ios: /proc/$$/fd follows a sourced file's, eval's and a stage's redirections; masked host open for Go",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "The /proc/<pid>/fd writer in path_truncate.c is procfs provisioning only the iOS path virtualization reaches; vproc.h only gains declarations for vproc.c."
+  },
+  {
+   "pin_move": "bf880ff",
+   "engine": "pscal-core",
+   "sha": "a7f739a494",
+   "subject": "shell: bash's history options; [[ < > ]] collate; nohup's HUP ignored on entry in the app",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "bf880ff",
+   "engine": "pscal-core",
+   "sha": "1a2a3dc5d2",
+   "subject": "shell: EXSH_VERSION and EXSH_VERSINFO from exsh's release version",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "3a7d63f",
+   "engine": "pscal-core",
+   "sha": "9c588a1a72",
+   "subject": "shell: cd goes to $HOME; the bytecode cache takes the host's name for an app home",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "cache.c ensureCacheDirectory, on Aether's cached path, now passes $HOME through pscalPathVirtualized_hostPath, the identity off iOS: behaviour-preserving, in code Aether runs."
+  },
+  {
+   "pin_move": "ff8b480",
+   "engine": "pscal-core",
+   "sha": "74a7c74b28",
+   "subject": "vproc: lchown, utimensat, linkat, mkstemp and mkdtemp take the app's paths",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "vproc.h only adds declarations and desktop pass-through shims (lchown, utimensat, linkat, mkstemp, mkdtemp) used by vproc.c and vproc_shim.h, outside the aether build."
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "5dc21b11f7",
+   "subject": "terminal: stage B of the Linux line discipline (L2 L6 L9 L10 L12 L17 L24)",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "65b4a3784a",
+   "subject": "VM: a program started in the background leaves the terminal alone",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c vmInitTerminalState now skips vmEnableRawMode unless vmTerminalIsOurs(); reached from rea main.c with no front-end guard, but only when PSCAL_INIT_TERM is set and not 0."
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "3337c36a6b",
+   "subject": "vproc: a tab's terminal is claimed for its own shell's session, not the last shell's",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "d145b3310c",
+   "subject": "VM: ReadKey's Ctrl-C ends the program, not only the procedure that called it",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "vmBuiltinReadkey under #if !defined(PSCAL_TARGET_IOS): a pending SIGINT or a 0x03 byte now leaves the interrupt to the VM instead of setting exit_requested, so Ctrl-C in readkey ends the program and changes the exit status."
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "b26d201d40",
+   "subject": "VM: a CLike character literal stores into a string; no precision warning for a WideChar target",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "Unguarded: compiler.c's assignment precision warning now ranks a TYPE_WIDECHAR target as 32 bits (Aether uses WIDECHAR for non-ASCII chars); vm.c vmStoreUnicodeChar and the single-byte char store accept integer values for every front end."
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "a45342f553",
+   "subject": "VM on the iOS build: Ctrl-C ends a program with 130, Ctrl-Z stops it at a line read",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "vm.c vmMarkAbortRequested and vmHandleGlobalInterrupt set the new ended_by_interrupt field, which vmRunWasInterrupted returns and rea main.c uses for Aether's Ctrl-C exit 130; vmBuiltinReadkey and vmReadLineInterruptible change on non-iOS paths too."
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "6156b72625",
+   "subject": "shell: a tool's terminal modes are put back only where it changed them",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "158b57ad20",
+   "subject": "VM on iOS: terminal modes of a descriptor that is no terminal are ENOTTY",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 1 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "pscal-core",
+   "sha": "f6a5ffa7b5",
+   "subject": "shell on iOS: the terminal goes back to the shell's group as it is now",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "42f9024",
+   "engine": "rea",
+   "sha": "5247bc5b9a",
+   "subject": "Ctrl-C ends a program with status 130 on macOS and Linux too, as on iOS",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "rea main.c is Aether's entry point; reaHandleSigint sets ended_by_interrupt and the run exits 130 via vmRunWasInterrupted instead of 0."
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "7be42a72b1",
+   "subject": "terminal: stage C L20, the terminal itself makes Ctrl-C, Ctrl-\\ and Ctrl-Z signals",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 1 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "dd02c139a3",
+   "subject": "terminal: stage C L21 L22 L23 hang-ups; a tab's terminal is claimed for the tab's own shell",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "061cc07883",
+   "subject": "terminal: L21 as on Linux, the master's last close hangs up the session's leader only",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "46f75ab567",
+   "subject": "VM: a line read leaves isig on, so the terminal's Ctrl-C and Ctrl-Z reach the program (L20)",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 1 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "580760267f",
+   "subject": "vproc: session teardown waits for its hang-up, so SIGHUP reaches the session that hung up",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "a0499e9868",
+   "subject": "vproc: a command the shell starts has SIGINT and SIGQUIT unblocked, as on Linux",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "0fdf185a54",
+   "subject": "vproc: a command ended by Ctrl-C on the shell's thread reads end of input; a fatal signal wakes a prompt read",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "3bf0727ec1",
+   "subject": "vproc: a command the shell starts has SIGINT and SIGQUIT at the default, not the shell's catcher",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "8bac611a34",
+   "subject": "vproc: a command any shell starts has SIGINT and SIGQUIT at the default, not only the tab's shell's",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "63372c6",
+   "engine": "pscal-core",
+   "sha": "887e67e1b7",
+   "subject": "shell on iOS: the terminal goes back to the group of the shell that is running",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "728e5da",
+   "engine": "pscal-core",
+   "sha": "d64986c8e5",
+   "subject": "iOS: Pascal, Rea and CLike see only their own builtins, not the shell's",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "vmFrontendHidesShellBuiltins includes FRONTEND_KIND_AETHER with no iOS guard, so query_builtin.c vmBuiltinHasExtBuiltin now answers false for category \"shell\"; before, Aether's has_builtin(\"shell\", \"socket_create\") answered true on macOS. The ExtBuiltin listings and preproc.c run the new filter too."
+  },
+  {
+   "pin_move": "dacae59",
+   "engine": "pscal-core",
+   "sha": "f2ba1993b1",
+   "subject": "vproc: the old session reader is gone",
+   "class": "other-front-end",
+   "decided_by": "preprocess",
+   "reason": "all 3 aether translation units that read it preprocess identically"
+  },
+  {
+   "pin_move": "ff10cdc",
+   "engine": "pscal-core",
+   "sha": "eba2db5a20",
+   "subject": "fopen takes a one-letter path or mode, which CLike passes as a char",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c vmBuiltinFopen takes a char for path or mode through fopenArgText; fopen is a Core builtin Aether can call (in the full guide's appendix, not removed)."
+  },
+  {
+   "pin_move": "4925efe",
+   "engine": "pscal-core",
+   "sha": "82cec95cfe",
+   "subject": "Pascal: an undeclared name is a compile error, not a run-time one",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "The new compile error is behind frontendIsPascal(); the one unguarded change (an errorsBefore early break in compileStatement's PROC_CALL_INDIRECT fallback) acts only after a compile error, on a path Aether's semantic pass rules out (FUNC-001)."
+  },
+  {
+   "pin_move": "607be45",
+   "engine": "pscal-core",
+   "sha": "76f08e52ac",
+   "subject": "Ctrl-C ends a program blocked in a socket call on macOS and Linux",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin_network_api.c socketConsumeInterrupt, used by every blocking socket wait, now also stops on vm->abort_requested or the thread owner's flag; no frontend or platform guard."
+  },
+  {
+   "pin_move": "61fee48",
+   "engine": "pscal-core",
+   "sha": "2dcd443800",
+   "subject": "Pascal: Delete, Insert, Assigned, GetTickCount and Move; SizeOf(TypeName); cb := nil",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c appends five entries to the static dispatch table, moving every registered extra builtin's id (Aether's aether_* builtins among them) and so the compiled bytecode; getVmBuiltinID, getVmBuiltinHandlerById and isBuiltin consult vmBuiltinHiddenFromFrontend, which names FRONTEND_KIND_AETHER; compiler.c parts are frontendIsPascal()-guarded."
+  },
+  {
+   "pin_move": "bf54831",
+   "engine": "pscal-core",
+   "sha": "d096e4d036",
+   "subject": "Pascal: integer arguments to Byte/Word/subrange parameters; open arrays indexed from 0",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "compiler.c logic is frontendIsPascal()-gated, but builtin.c appends __pascal_to_ordinal to the static dispatch table, shifting the id of every registered extra builtin Aether uses (aether_* stdlib, yyjson, sqlite) by one."
+  },
+  {
+   "pin_move": "0cd64e5",
+   "engine": "pscal-core",
+   "sha": "a835aa4e79",
+   "subject": "CLike and Rea: strinsert and strdelete; a builtin can belong to some languages only",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "strinsert/strdelete stay hidden from Aether, but vmBuiltinHiddenFromFrontend (called from getVmBuiltinID, isBuiltin, getVmBuiltinHandlerById) was rewritten around per-language bits, and the static dispatch table gains two entries, shifting the ids of dynamically registered builtins."
+  },
+  {
+   "pin_move": "0c60fe9",
+   "engine": "pscal-core",
+   "sha": "766786c4be",
+   "subject": "Pascal open arrays: mark a rebased routine on its AST node, not in a process-wide list",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "ast.h's new open_arrays_rebased is read only by pascalRebaseOpenArrayParams behind frontendIsPascal(); on Aether's nodes newASTNode and copyASTRecursive only set or copy it."
+  },
+  {
+   "pin_move": "0303827",
+   "engine": "pscal-core",
+   "sha": "4436da664a",
+   "subject": "Rea: s.insert(pos, t) and s.remove(pos, n) change a string in place",
+   "class": "other-front-end",
+   "decided_by": "reading",
+   "reason": "reaStringMethodBuiltin returns NULL unless frontendIsRea() (FRONTEND_KIND_REA only), so the new string-method compile paths never act for Aether (FRONTEND_KIND_AETHER)."
+  },
+  {
+   "pin_move": "0303827",
+   "engine": "rea",
+   "sha": "572672b3c3",
+   "subject": "Test: a Rea program names its own delete, insert, move, gettickcount",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "0303827",
+   "engine": "rea",
+   "sha": "b93037d05f",
+   "subject": "Test and docs: strinsert and strdelete",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "0303827",
+   "engine": "rea",
+   "sha": "c0e3660ac0",
+   "subject": "Test and docs: string methods s.insert and s.remove",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "9b97811",
+   "engine": "pscal-core",
+   "sha": "7f1466afd5",
+   "subject": "iOS: a background job never takes the terminal or gives it back",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "9b97811",
+   "engine": "pscal-core",
+   "sha": "07aacd910b",
+   "subject": "iOS: a shell run as a command starts job control for its own group",
+   "class": "other-front-end",
+   "decided_by": "files",
+   "reason": "touches no file the default aether build compiles or includes"
+  },
+  {
+   "pin_move": "33f2311",
+   "engine": "pscal-core",
+   "sha": "be107dbad9",
+   "subject": "SDL on iOS: touches land where they are, and a printable key is not lost",
+   "class": "sdl-build-only",
+   "decided_by": "files",
+   "reason": "touches only SDL backend files; the default build has SDL off"
+  },
+  {
+   "pin_move": "f87d34e",
+   "engine": "pscal-core",
+   "sha": "2c30a3b461",
+   "subject": "SDL: hold a printable key in one place, so graphloop cannot eat it",
+   "class": "sdl-build-only",
+   "decided_by": "files",
+   "reason": "touches only SDL backend files; the default build has SDL off"
+  },
+  {
+   "pin_move": "4125012",
+   "engine": "pscal-core",
+   "sha": "e0550addcf",
+   "subject": "audio: load sounds through the VM's own I/O on iOS, and say why one failed",
+   "class": "sdl-build-only",
+   "decided_by": "files",
+   "reason": "touches only SDL backend files; the default build has SDL off"
+  },
+  {
+   "pin_move": "0cac11f",
+   "engine": "pscal-core",
+   "sha": "912a9d1791",
+   "subject": "SDL: a printable key is given once, and none is left for the next program",
+   "class": "sdl-build-only",
+   "decided_by": "files",
+   "reason": "touches only SDL backend files; the default build has SDL off"
+  },
+  {
+   "pin_move": "37622f8",
+   "engine": "pscal-core",
+   "sha": "4f99309d1c",
+   "subject": "VM: a by-value read of a shared variable is a real copy while threads run",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "vm.c copyValueForStack takes real copies of strings, sets, records, enums and static arrays while any thread job runs (Aether's par and threads use them); types.h ArrayObj gains a pins field read by utils.c valueCowHeader; unguarded."
+  },
+  {
+   "pin_move": "f2f74b1",
+   "engine": "pscal-core",
+   "sha": "d51e663bad",
+   "subject": "PollKeyAny is a routine in every build",
+   "class": "aether-visible",
+   "decided_by": "reading",
+   "reason": "builtin.c populateBuiltinRegistry registers PollKeyAny as a function in non-SDL builds; before, an Aether call to pollkeyany compiled and then stopped with \"Undefined global variable\", and builtins_json listed its kind as unknown."
+  }
+ ],
+ "pin_moves": [
+  {
+   "pin_move": "61f14de",
+   "date": "2026-11-03",
+   "subject": "build: bump external pins (pscal-core 6865c1a..9ecb9e7)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "8cffd73",
+   "date": "2026-11-03",
+   "subject": "chore: bump pscal-core pin to e527066 (an empty path names nothing)",
+   "engine_commits": 2,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "952f9e4",
+   "date": "2026-11-03",
+   "subject": "build: bump external pins (pscal-core ec10d62..b9b74e8)",
+   "engine_commits": 4,
+   "class": "aether-visible",
+   "visible": [
+    "066f3365a1",
+    "b9b74e85c6"
+   ]
+  },
+  {
+   "pin_move": "c9cc57c",
+   "date": "2026-11-03",
+   "subject": "build: bump external pins (pscal-core b9b74e8..7010b6a)",
+   "engine_commits": 5,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "49ede5e",
+   "date": "2026-11-04",
+   "subject": "build: bump external pins (pscal-core 18a91fd..6871d00)",
+   "engine_commits": 3,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "01dda20",
+   "date": "2026-11-04",
+   "subject": "build: bump external pins (pscal-core 6871d00..d14604a)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "ec8468f",
+   "date": "2026-11-04",
+   "subject": "build: bump external pins (pscal-core 9c78153..8e4a832)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "e091097",
+   "date": "2026-11-04",
+   "subject": "build: bump external pins (pscal-core dcaa16b..bbc5f22)",
+   "engine_commits": 2,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "0b64c39",
+   "date": "2026-11-04",
+   "subject": "build: bump external pins (pscal-core t bbc5f..6c2161b)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "a6f0d6b",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core a5a3d17..2378585)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "237858546e"
+   ]
+  },
+  {
+   "pin_move": "c6b46fa",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core 381deee..947b6ad)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "a1cc8b1",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core 991dae8..f5a382f)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "001a948",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core f5a382f..c681f76)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "ed1d9cf",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core bcfc29b..76099bd)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "5ff9986",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core 7740efc..a8ce959)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "103a0de",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core a8ce959..c5cf3de)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "048a50f",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core c5cf3de..e2906bd)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "cc9ce1b",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core e2906bd..e1a6d1f)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "fc9938e",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core e1a6d1f..0ea190e)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "72b9d0c",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core 0ea190e..206faae)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "e5cbef6",
+   "date": "2026-11-05",
+   "subject": "external: pscal-core b55acdb, rea c6e5598 (library modules in lib/rea above the binary)",
+   "engine_commits": 2,
+   "class": "aether-visible",
+   "visible": [
+    "b55acdb924",
+    "c6e5598d8c"
+   ]
+  },
+  {
+   "pin_move": "d0df102",
+   "date": "2026-11-05",
+   "subject": "chore: bump external pscal-core to 4fedf06 (simple instructions skip the loop's checks)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "4fedf0614d"
+   ]
+  },
+  {
+   "pin_move": "77e8450",
+   "date": "2026-11-05",
+   "subject": "build: bump external pscal-core to f68f8f6 (wait -n ID, a redirection's word in its turn)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "cd653e5",
+   "date": "2026-11-05",
+   "subject": "build: bump external pscal-core to 0e475d2 ([ and test compare strings)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "b3da29a",
+   "date": "2026-11-05",
+   "subject": "build: bump external pscal-core to 3394406 (/dev/stdout and the like are descriptors)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "3394406a19"
+   ]
+  },
+  {
+   "pin_move": "a38c6e8",
+   "date": "2026-11-05",
+   "subject": "build: bump external pscal-core to ce4c02a (a thread's stack of vprocs has no limit)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "e8177cd",
+   "date": "2026-11-05",
+   "subject": "build: bump external pins (pscal-core ce4c02a..6440e3d)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "d967382",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 6440e3d..08a300d)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "678f905",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 08a300d..0e5b602)",
+   "engine_commits": 2,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "4a1f6e3",
+   "date": "2026-11-06",
+   "subject": "external: pscal-core 678694f (a glob sorts as the locale collates)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "8759bd7",
+   "date": "2026-11-06",
+   "subject": "external: pscal-core 752a99a (a thread's own stdio streams close when the thread ends)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "6d8592c",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core ed8d224..8f5c2c1)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "666db07",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 8f5c2c1..7a45cb8)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "7a45cb8805"
+   ]
+  },
+  {
+   "pin_move": "7a3aaac",
+   "date": "2026-11-06",
+   "subject": "chore: bump external/pscal-core pin (IFS splits only what an expansion produced)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "af92ff2",
+   "date": "2026-11-06",
+   "subject": "chore: bump external/pscal-core pin (a killed frontend's write to a stalled pipe or FIFO ends)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "b5708b3",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 14b3fb5..d47185a)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "aa6d90c",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 2befd90..0aaefb2)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "0aaefb2ee1"
+   ]
+  },
+  {
+   "pin_move": "f39f712",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 0aaefb2..15dfecc)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "e2ad836",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 15dfecc..4bbbd9d)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "4bbbd9d631"
+   ]
+  },
+  {
+   "pin_move": "4844b0e",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 4bbbd9d..30e46b6)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "d1b5835",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 30e46b6..23e3bb9, rea 30debf6..153fd33)",
+   "engine_commits": 2,
+   "class": "aether-visible",
+   "visible": [
+    "23e3bb92f2"
+   ]
+  },
+  {
+   "pin_move": "f3974b6",
+   "date": "2026-11-06",
+   "subject": "external: pscal-core 44b4c5f (a script's commands share its process group)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "418dd0b",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 44b4c5f..688e1ac)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "688e1ac128"
+   ]
+  },
+  {
+   "pin_move": "8868ad9",
+   "date": "2026-11-06",
+   "subject": "external: pscal-core 5e0134e (<(cmd) and >(cmd) on iOS are a pipe and a command beside it)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "0ba5d34",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 5e0134e..d132030)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "63d76ff",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core d132030..abade37)",
+   "engine_commits": 1,
+   "class": "sdl-build-only",
+   "visible": []
+  },
+  {
+   "pin_move": "66cf5a4",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core abade37..5611836)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "6c8c54f",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 5611836..3857a11)",
+   "engine_commits": 2,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "2732620",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 3857a11..70e51fa)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "1e59f8d",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 3a8808f..067f0ce)",
+   "engine_commits": 1,
+   "class": "sdl-build-only",
+   "visible": []
+  },
+  {
+   "pin_move": "37d4db4",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 067f0ce..2e9a3f1)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "ba83cc5",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core 2e9a3f1..f7733da)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "390bce8",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core f7733da..a716c55)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "222b9df",
+   "date": "2026-11-06",
+   "subject": "build: bump external pins (pscal-core a716c55..a2ea748)",
+   "engine_commits": 8,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "e775a46",
+   "date": "2026-11-07",
+   "subject": "external: pscal-core 94fdd48 (users and root in the iOS app)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "c521ffb",
+   "date": "2026-11-07",
+   "subject": "external: pscal-core bd39341 (one mount table for the iOS app; statfs sees it)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "2acdb1b",
+   "date": "2026-11-07",
+   "subject": "external: pscal-core bd39341, the commit c521ffb meant",
+   "engine_commits": 0,
+   "class": "no-engine-change",
+   "visible": []
+  },
+  {
+   "pin_move": "14aab8d",
+   "date": "2026-11-07",
+   "subject": "external: pscal-core e1619ad (the net snapshot for ip and /proc/net)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "43c9af5",
+   "date": "2026-11-07",
+   "subject": "external: pscal-core d7ce8fc (fstatfs names and fstab labels in the iOS app)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "3be88f0",
+   "date": "2026-11-07",
+   "subject": "external: pscal-core 2eb39ad (pid 1 reaps its own children; a label makes no task; no wall time as CPU time)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "98c7a5c",
+   "date": "2026-11-11",
+   "subject": "external: pscal-core 1280c50 (a write to a pipe whose reader has gone raises SIGPIPE on the writing task)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "2c42132",
+   "date": "2026-11-11",
+   "subject": "external: pscal-core b48e7c7 (/proc/$$/fd follows sourced files' redirections; masked host open for Go)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "bf880ff",
+   "date": "2026-11-11",
+   "subject": "external: pscal-core 1a2a3dc (history's options, [[ < ]] collation, nohup's HUP ignored on entry in the app, EXSH_VERSION)",
+   "engine_commits": 2,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "3a7d63f",
+   "date": "2026-11-11",
+   "subject": "external: pscal-core 9c588a1 (a tab's $HOME is the app's name for it in the iOS app; cd goes to $HOME)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "9c588a1a72"
+   ]
+  },
+  {
+   "pin_move": "ff8b480",
+   "date": "2026-11-11",
+   "subject": "external: pscal-core 74a7c74 (lchown, utimensat, linkat, mkstemp and mkdtemp take the app's paths on iOS)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "42f9024",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core f6a5ffa, rea 5247bc5 (terminal stage B; Ctrl-C status 130 for programs; a CLike character literal stores into a string)",
+   "engine_commits": 10,
+   "class": "aether-visible",
+   "visible": [
+    "65b4a3784a",
+    "d145b3310c",
+    "b26d201d40",
+    "a45342f553",
+    "5247bc5b9a"
+   ]
+  },
+  {
+   "pin_move": "63372c6",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core 887e67e (terminal stage C: the terminal makes Ctrl-C a signal itself; hang-ups as on Linux)",
+   "engine_commits": 10,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "728e5da",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core d64986c (Pascal, Rea and CLike see only their own builtins in the app)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "d64986c8e5"
+   ]
+  },
+  {
+   "pin_move": "dacae59",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core f2ba199 (the old terminal reader is gone)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "ff10cdc",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core eba2db5 (fopen takes a one-letter path or mode)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "eba2db5a20"
+   ]
+  },
+  {
+   "pin_move": "4925efe",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core 82cec95 (Pascal: an undeclared name is a compile error)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "607be45",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core 76f08e5 (Ctrl-C ends a program blocked in a socket call)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "76f08e52ac"
+   ]
+  },
+  {
+   "pin_move": "61fee48",
+   "date": "2026-11-12",
+   "subject": "external: pscal-core 2dcd443 (Pascal's Delete, Insert, Assigned, GetTickCount, Move; hidden from Aether)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "2dcd443800"
+   ]
+  },
+  {
+   "pin_move": "bf54831",
+   "date": "2026-11-13",
+   "subject": "external: pscal-core d096e4d (Pascal integer arguments to narrower parameters; open arrays from 0)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "d096e4d036"
+   ]
+  },
+  {
+   "pin_move": "0cd64e5",
+   "date": "2026-11-13",
+   "subject": "external: pscal-core a835aa4 (CLike and Rea strinsert/strdelete; hidden from Aether)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "a835aa4e79"
+   ]
+  },
+  {
+   "pin_move": "0c60fe9",
+   "date": "2026-11-13",
+   "subject": "external: pscal-core 766786c (open-array rebase mark on the AST node)",
+   "engine_commits": 1,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "0303827",
+   "date": "2026-11-13",
+   "subject": "external: pscal-core 4436da6, rea c0e3660 (Rea string methods insert and remove)",
+   "engine_commits": 4,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "9b97811",
+   "date": "2026-11-13",
+   "subject": "external: pscal-core 07aacd9 (Ctrl-C ends a script whose background job has finished, or one with job control started for it)",
+   "engine_commits": 2,
+   "class": "other-front-end",
+   "visible": []
+  },
+  {
+   "pin_move": "33f2311",
+   "date": "2026-11-15",
+   "subject": "chore: bump external/pscal-core (SDL touch coordinates and printable keys on iOS)",
+   "engine_commits": 1,
+   "class": "sdl-build-only",
+   "visible": []
+  },
+  {
+   "pin_move": "f87d34e",
+   "date": "2026-11-16",
+   "subject": "chore: bump external/pscal-core (a printable key survives GraphLoop)",
+   "engine_commits": 1,
+   "class": "sdl-build-only",
+   "visible": []
+  },
+  {
+   "pin_move": "4125012",
+   "date": "2026-11-16",
+   "subject": "chore: bump external/pscal-core (sounds load on iOS)",
+   "engine_commits": 1,
+   "class": "sdl-build-only",
+   "visible": []
+  },
+  {
+   "pin_move": "0cac11f",
+   "date": "2026-11-19",
+   "subject": "chore: bump external/pscal-core to 912a9d1 (SDL: a printable key is given once)",
+   "engine_commits": 1,
+   "class": "sdl-build-only",
+   "visible": []
+  },
+  {
+   "pin_move": "37622f8",
+   "date": "2026-11-19",
+   "subject": "chore: external/pscal-core 4f99309 (a by-value read is a real copy while VM threads run)",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "4f99309d1c"
+   ]
+  },
+  {
+   "pin_move": "f2f74b1",
+   "date": "2026-11-21",
+   "subject": "Full guide 2026-11-21-1: pollkeyany is back in the appendix; external/pscal-core pin",
+   "engine_commits": 1,
+   "class": "aether-visible",
+   "visible": [
+    "d51e663bad"
+   ]
+  }
+ ]
+}

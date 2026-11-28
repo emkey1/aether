@@ -1,0 +1,514 @@
+[
+ {
+  "aether_commit": "8cffd73",
+  "engine": "external/pscal-core",
+  "sha": "e527066e73",
+  "subject": "ios: an empty path names nothing",
+  "tus": 1,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "952f9e4",
+  "engine": "external/pscal-core",
+  "sha": "066f3365a1",
+  "subject": "ios: a program's file calls follow cd and take the app's absolute paths",
+  "tus": 14,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "952f9e4",
+  "engine": "external/pscal-core",
+  "sha": "37592c7375",
+  "subject": "ios: a background job's vproc is made at the &",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "952f9e4",
+  "engine": "external/pscal-core",
+  "sha": "b9b74e85c6",
+  "subject": "ios: fcntl on a vproc's slot goes through its shim",
+  "tus": 4,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "c9cc57c",
+  "engine": "external/pscal-core",
+  "sha": "8c057b0ad2",
+  "subject": "ios: wait gets a killed job's status, and killing a job harms nothing else",
+  "tus": 3,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "c9cc57c",
+  "engine": "external/pscal-core",
+  "sha": "d858699231",
+  "subject": "ios: keys typed at a command all reach it",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "c9cc57c",
+  "engine": "external/pscal-core",
+  "sha": "ff30686a0a",
+  "subject": "ios: the interrupt key ends what reads the terminal; read -s, -n, -d work there",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "c9cc57c",
+  "engine": "external/pscal-core",
+  "sha": "0658146965",
+  "subject": "shell: a line at the prompt can hand its status back",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "c9cc57c",
+  "engine": "external/pscal-core",
+  "sha": "7010b6ac41",
+  "subject": "shell: a line at the prompt leaves the shell's state for the next",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "e091097",
+  "engine": "external/pscal-core",
+  "sha": "bbc5f22c11",
+  "subject": "ios: a stdout stream asks by slot whether it still fits",
+  "tus": 1,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "0b64c39",
+  "engine": "external/pscal-core",
+  "sha": "6c2161b2d6",
+  "subject": "vproc: basename and dirname answer per thread",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "a6f0d6b",
+  "engine": "external/pscal-core",
+  "sha": "237858546e",
+  "subject": "ios: a host descriptor stays a host descriptor in the slot shims",
+  "tus": 4,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "a1cc8b1",
+  "engine": "external/pscal-core",
+  "sha": "f5a382ffde",
+  "subject": "ios: setlocale is the calling thread's, and a capture of libc's environment holds a lock",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "103a0de",
+  "engine": "external/pscal-core",
+  "sha": "c5cf3de08a",
+  "subject": "ios: a walk of the environment takes a copy, and $(...) restores only what changed",
+  "tus": 3,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "fc9938e",
+  "engine": "external/pscal-core",
+  "sha": "0ea190e30e",
+  "subject": "shell: a DEBUG trap's exit stops the command it comes before, and stages keep what they use",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "72b9d0c",
+  "engine": "external/pscal-core",
+  "sha": "206faaee26",
+  "subject": "ios: halt ends the session, with a plain end",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "e5cbef6",
+  "engine": "external/pscal-core",
+  "sha": "b55acdb924",
+  "subject": "Pascal also looks for units in lib/pascal above the binary",
+  "tus": 52,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "e5cbef6",
+  "engine": "external/rea",
+  "sha": "c6e5598d8c",
+  "subject": "Carry the library modules in lib/rea, and install them",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "d0df102",
+  "engine": "external/pscal-core",
+  "sha": "4fedf0614d",
+  "subject": "vm: simple instructions skip the loop's checks, and scalars are stored and freed inline",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "b3da29a",
+  "engine": "external/pscal-core",
+  "sha": "3394406a19",
+  "subject": "ios: /dev/stdin, /dev/stdout, /dev/stderr, /dev/fd/N and /proc/<pid>/fd/N are descriptors, as on Linux",
+  "tus": 14,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "678f905",
+  "engine": "external/pscal-core",
+  "sha": "c7bcf96602",
+  "subject": "shell: break in a substitution, one call list, jobs in a stage, ulimit; a FIFO goes where the task says",
+  "tus": 57,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "678f905",
+  "engine": "external/pscal-core",
+  "sha": "0e5b6024fa",
+  "subject": "shell: jobs lists what has ended, in bash's line, and one job spec resolver",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "4a1f6e3",
+  "engine": "external/pscal-core",
+  "sha": "678694f9c1",
+  "subject": "shell: a glob's matches sort as the locale collates, as in bash",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "8759bd7",
+  "engine": "external/pscal-core",
+  "sha": "752a99adf8",
+  "subject": "ios: a thread's own stdio streams close when the thread ends",
+  "tus": 3,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "666db07",
+  "engine": "external/pscal-core",
+  "sha": "7a45cb8805",
+  "subject": "ios: a thread that ends in raw mode puts the terminal back",
+  "tus": 3,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "af92ff2",
+  "engine": "external/pscal-core",
+  "sha": "378ef51a01",
+  "subject": "ios: a killed frontend's write to a stalled pipe or FIFO ends",
+  "tus": 3,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "aa6d90c",
+  "engine": "external/pscal-core",
+  "sha": "0aaefb2ee1",
+  "subject": "ios: raw mode puts back the terminal as each program found it",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "e2ad836",
+  "engine": "external/pscal-core",
+  "sha": "4bbbd9d631",
+  "subject": "shell: less work per command for metadata, status, debug switches and nested calls",
+  "tus": 54,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "4844b0e",
+  "engine": "external/pscal-core",
+  "sha": "30e46b69dd",
+  "subject": "ios: what a task makes obeys its own file mask, by every route",
+  "tus": 13,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "d1b5835",
+  "engine": "external/pscal-core",
+  "sha": "23e3bb92f2",
+  "subject": "landscape: the shader layers need a current OpenGL context, never crash without one",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "f3974b6",
+  "engine": "external/pscal-core",
+  "sha": "44b4c5fca8",
+  "subject": "shell: with no job control a command stays in the shell's process group",
+  "tus": 54,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "418dd0b",
+  "engine": "external/pscal-core",
+  "sha": "688e1ac128",
+  "subject": "iOS: Aether sees only its own builtins, not the shell's",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "8868ad9",
+  "engine": "external/pscal-core",
+  "sha": "5e0134e30f",
+  "subject": "ios: <(cmd) and >(cmd) are a pipe and a command beside it",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "6c8c54f",
+  "engine": "external/pscal-core",
+  "sha": "3857a11eee",
+  "subject": "ios: a glob reads the program's PWD, not the app's",
+  "tus": 1,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "37d4db4",
+  "engine": "external/pscal-core",
+  "sha": "2e9a3f112b",
+  "subject": "ios: /dev/tty is the tab's terminal, and a prompt ends at a signal that ends the shell",
+  "tus": 2,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "ba83cc5",
+  "engine": "external/pscal-core",
+  "sha": "f7733da9bd",
+  "subject": "ios: a fatal signal a task sends itself ends it, and a signal to an ended task succeeds",
+  "tus": 4,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "e775a46",
+  "engine": "external/pscal-core",
+  "sha": "94fdd48c31",
+  "subject": "vproc: users and root in the app (uids, the /etc guard, exec, the host name)",
+  "tus": 13,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "c521ffb",
+  "engine": "external/pscal-core",
+  "sha": "bd3934119d",
+  "subject": "iOS: one mount table for the app; statfs and statvfs see it",
+  "tus": 14,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "14aab8d",
+  "engine": "external/pscal-core",
+  "sha": "e1619adbf6",
+  "subject": "net: one snapshot of interfaces and routes for ip and /proc/net",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "43c9af5",
+  "engine": "external/pscal-core",
+  "sha": "d7ce8fc80a",
+  "subject": "iOS: fstatfs and fstatvfs name the app's filesystems; fstab sources by label",
+  "tus": 12,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "98c7a5c",
+  "engine": "external/pscal-core",
+  "sha": "1280c502a6",
+  "subject": "ios: a write to a pipe whose reader has gone raises SIGPIPE on the writing task",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "2c42132",
+  "engine": "external/pscal-core",
+  "sha": "b48e7c7799",
+  "subject": "ios: /proc/$$/fd follows a sourced file's, eval's and a stage's redirections; masked host open for Go",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "3a7d63f",
+  "engine": "external/pscal-core",
+  "sha": "9c588a1a72",
+  "subject": "shell: cd goes to $HOME; the bytecode cache takes the host's name for an app home",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "ff8b480",
+  "engine": "external/pscal-core",
+  "sha": "74a7c74b28",
+  "subject": "vproc: lchown, utimensat, linkat, mkstemp and mkdtemp take the app's paths",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "42f9024",
+  "engine": "external/pscal-core",
+  "sha": "65b4a3784a",
+  "subject": "VM: a program started in the background leaves the terminal alone",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "42f9024",
+  "engine": "external/pscal-core",
+  "sha": "d145b3310c",
+  "subject": "VM: ReadKey's Ctrl-C ends the program, not only the procedure that called it",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "42f9024",
+  "engine": "external/pscal-core",
+  "sha": "b26d201d40",
+  "subject": "VM: a CLike character literal stores into a string; no precision warning for a WideChar target",
+  "tus": 2,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "42f9024",
+  "engine": "external/pscal-core",
+  "sha": "a45342f553",
+  "subject": "VM on the iOS build: Ctrl-C ends a program with 130, Ctrl-Z stops it at a line read",
+  "tus": 66,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "42f9024",
+  "engine": "external/pscal-core",
+  "sha": "158b57ad20",
+  "subject": "VM on iOS: terminal modes of a descriptor that is no terminal are ENOTTY",
+  "tus": 1,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "42f9024",
+  "engine": "external/rea",
+  "sha": "5247bc5b9a",
+  "subject": "Ctrl-C ends a program with status 130 on macOS and Linux too, as on iOS",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "63372c6",
+  "engine": "external/pscal-core",
+  "sha": "7be42a72b1",
+  "subject": "terminal: stage C L20, the terminal itself makes Ctrl-C, Ctrl-\\ and Ctrl-Z signals",
+  "tus": 1,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "63372c6",
+  "engine": "external/pscal-core",
+  "sha": "46f75ab567",
+  "subject": "VM: a line read leaves isig on, so the terminal's Ctrl-C and Ctrl-Z reach the program (L20)",
+  "tus": 1,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "728e5da",
+  "engine": "external/pscal-core",
+  "sha": "d64986c8e5",
+  "subject": "iOS: Pascal, Rea and CLike see only their own builtins, not the shell's",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "dacae59",
+  "engine": "external/pscal-core",
+  "sha": "f2ba1993b1",
+  "subject": "vproc: the old session reader is gone",
+  "tus": 3,
+  "verdict": "binary-identical"
+ },
+ {
+  "aether_commit": "ff10cdc",
+  "engine": "external/pscal-core",
+  "sha": "eba2db5a20",
+  "subject": "fopen takes a one-letter path or mode, which CLike passes as a char",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "4925efe",
+  "engine": "external/pscal-core",
+  "sha": "82cec95cfe",
+  "subject": "Pascal: an undeclared name is a compile error, not a run-time one",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "607be45",
+  "engine": "external/pscal-core",
+  "sha": "76f08e52ac",
+  "subject": "Ctrl-C ends a program blocked in a socket call on macOS and Linux",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "61fee48",
+  "engine": "external/pscal-core",
+  "sha": "2dcd443800",
+  "subject": "Pascal: Delete, Insert, Assigned, GetTickCount and Move; SizeOf(TypeName); cb := nil",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "bf54831",
+  "engine": "external/pscal-core",
+  "sha": "d096e4d036",
+  "subject": "Pascal: integer arguments to Byte/Word/subrange parameters; open arrays indexed from 0",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "0cd64e5",
+  "engine": "external/pscal-core",
+  "sha": "a835aa4e79",
+  "subject": "CLike and Rea: strinsert and strdelete; a builtin can belong to some languages only",
+  "tus": 53,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "0c60fe9",
+  "engine": "external/pscal-core",
+  "sha": "766786c4be",
+  "subject": "Pascal open arrays: mark a rebased routine on its AST node, not in a process-wide list",
+  "tus": 68,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "0303827",
+  "engine": "external/pscal-core",
+  "sha": "4436da664a",
+  "subject": "Rea: s.insert(pos, t) and s.remove(pos, n) change a string in place",
+  "tus": 1,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "37622f8",
+  "engine": "external/pscal-core",
+  "sha": "4f99309d1c",
+  "subject": "VM: a by-value read of a shared variable is a real copy while threads run",
+  "tus": 74,
+  "verdict": "changes"
+ },
+ {
+  "aether_commit": "f2f74b1",
+  "engine": "external/pscal-core",
+  "sha": "d51e663bad",
+  "subject": "PollKeyAny is a routine in every build",
+  "tus": 1,
+  "verdict": "changes"
+ }
+]

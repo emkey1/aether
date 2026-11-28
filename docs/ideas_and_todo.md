@@ -3204,7 +3204,7 @@ Update a row and the roadmap's "Where we are" together.
 |---|---|---|---|---|
 | B1 | One analysis tool: paired difference, task-clustered interval, the seed check | open | — | |
 | B2 | A serving block in every report | open | nothing: R1 and R2 are scored | |
-| DG1 | Census and failure histogram on today's compiler | open | Q5 for the aggregate-only mode | |
+| DG1 | Census and failure histogram on today's compiler | open; the unchanged re-run done 2026-11-28 (`tests/diag_census/2026-11-24-2.md`) | Q5 for the aggregate-only mode | |
 | T2 | Rebuild the freeze's replay net on a 1.0-or-later export | open | Q5, Q22 | |
 | B3 | The local panel and its noise floor | open | Q14; B1, B2 | |
 | B4 | The reading-protocol row | open | Q15, Q16; B3 | |
@@ -3219,7 +3219,7 @@ Update a row and the roadmap's "Where we are" together.
 | L5 | Spec sections 3 to 5 and a 2.0 ledger | open | Q7 | the spec's leniency list against the surface registry (`W8-11`) |
 | L6 | The second silent-wrong batch | open | Q10; L5, T2, E1 | `W5-08`, `W5-13`; the registry's `pending` `x:.2`; the first half of "A program function named like an imported function wins silently" (review of 2026-11-24) |
 | L7 | Read the reopen gates D48 to D53 | open | Q19; DG2's hints, B3, B6 | `W8-12`, `W8-26` |
-| E1 | Enforce the pin rule | open | Q8 | |
+| E1 | Enforce the pin rule | open; step 0 done 2026-11-28: 20 of 84 ungated pin moves are Aether-visible (`results/decisions/pin_moves_since_1.0_2026-11-28.md`) | Q8 | |
 | E2 | Confirm the shared-session HTTP crash is closed | open | — | |
 | E3 | Builtin metadata in the engine | open | a design row; E1 | "Enrich builtin metadata so discovery teaches *how to call*" |
 | E4 | Constant-time Text reads | open | Q9; E1 | "Text by character is still proportional to the Text's length" (review of 2026-11-24) |
@@ -3227,7 +3227,7 @@ Update a row and the roadmap's "Where we are" together.
 | DG2 | Code the remaining stops; locate contract and slice stops | open | DG1, E1 | `W6-02`, `W6-22`; the registry's five `pending` hints; "Uncoded stops remain", "A broken contract has no location" and the SCOPE-001 half of "A program function named like an imported function wins silently" (review of 2026-11-24) |
 | DG3 | One stderr wording release (D13's help line) | open | Q13; DG1, E1, DG2 shipped | |
 | DG4 | Structured diagnostics at the emission site | open | DG2, DG3 | |
-| GD1 | Close the guide gate gaps | open | Q19, Q20, Q32 | |
+| GD1 | Close the guide gate gaps | open; the contamination count is 0 and the gate is strict in CTest and CI since 2026-11-28 (`aether_guide_contamination`, `aether_guide_contamination_seeded`) | Q19, Q20 | |
 | GD2 | Guide pass 2 as one measured pass | open | Q16; L4, B4, B6, GD1 | |
 | T1 | Track the roadmap | done 2026-11-28 | — | this table and the W-key map below |
 | T3 | Correct the public record: the MoE cards, the README headline | open | Q23 | |

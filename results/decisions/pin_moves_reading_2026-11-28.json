@@ -1,0 +1,237 @@
+[
+ {
+  "sha": "066f3365a1",
+  "class": "aether-visible",
+  "reason": "No change on macOS/Linux to builtin.c, path_virtualization.c and getcurrentdir/fileexists (iOS-guarded or include-only), and the path_truncate.c change has no caller in the aether build; but yyjson_builtins.c (YyjsonReadFile, AetherTryToonReadFile) and sqlite_builtins.c vmSqliteOpen now route their path through pscalPathVirtualized_hostPath, an identity inline off iOS, in code Aether programs run."
+ },
+ {
+  "sha": "8c057b0ad2",
+  "class": "other-front-end",
+  "reason": "The vm.c pthread_testcancel() sits inside #if defined(PSCAL_TARGET_IOS) in interpretBytecode; vproc.h only adds a vprocEndAbandoned declaration and a desktop no-op stub no aether-build code calls."
+ },
+ {
+  "sha": "237858546e",
+  "class": "aether-visible",
+  "reason": "builtin_network_api.c on every non-Windows build: vmBuiltinSocketPoll (Aether's socket_poll) and socketWaitReadable move from select to poll; socket_poll now fails with EINVAL on a negative timeout and counts POLLHUP/POLLERR as ready."
+ },
+ {
+  "sha": "206faaee26",
+  "class": "other-front-end",
+  "reason": "Only vproc.h is in the aether build: new vprocHaltSession/vprocTaskHalting declarations and desktop stubs, called only from shell_word_expansion.inc."
+ },
+ {
+  "sha": "4fedf0614d",
+  "class": "aether-visible",
+  "reason": "vm.c interpretBytecode dispatch (VM_NEXT_SIMPLE skips top-of-loop checks), freeValue's inline scalar fast path and vmStoreThroughAddress's same-type scalar store, all unguarded."
+ },
+ {
+  "sha": "0e5b6024fa",
+  "class": "other-front-end",
+  "reason": "builtin.h only adds the prototype vmBuiltinShellJobText; its definition and registration are in shell sources outside the aether build."
+ },
+ {
+  "sha": "0aaefb2ee1",
+  "class": "aether-visible",
+  "reason": "builtin.c vmEnableRawMode and vmRestoreTerminal, outside any iOS guard: base termios re-read each time raw mode starts, per-thread restore; reached by Aether's readkey and by every program through atexit vmAtExitCleanup."
+ },
+ {
+  "sha": "44b4c5fca8",
+  "class": "other-front-end",
+  "reason": "builtin.h adds a shell_task field to ShellCwdScope used only by shell code; vproc.h adds declarations and desktop no-op stubs called only by shell and vproc.c."
+ },
+ {
+  "sha": "94fdd48c31",
+  "class": "other-front-end",
+  "reason": "path_virtualization changes are in its PSCAL_TARGET_IOS-only body; vproc.h additions are read only by vproc.c; path_truncate.c pathTruncateRefreshProc writes the same text and has no caller in the aether build."
+ },
+ {
+  "sha": "1280c502a6",
+  "class": "other-front-end",
+  "reason": "vproc.h only adds vprocWriteShimNoSignal and a desktop stub that is plain write(); the SIGPIPE logic and callers are in vproc.c and shell_builtins.inc."
+ },
+ {
+  "sha": "74a7c74b28",
+  "class": "other-front-end",
+  "reason": "vproc.h only adds declarations and desktop pass-through shims (lchown, utimensat, linkat, mkstemp, mkdtemp) used by vproc.c and vproc_shim.h, outside the aether build."
+ },
+ {
+  "sha": "b26d201d40",
+  "class": "aether-visible",
+  "reason": "Unguarded: compiler.c's assignment precision warning now ranks a TYPE_WIDECHAR target as 32 bits (Aether uses WIDECHAR for non-ASCII chars); vm.c vmStoreUnicodeChar and the single-byte char store accept integer values for every front end."
+ },
+ {
+  "sha": "d64986c8e5",
+  "class": "aether-visible",
+  "reason": "vmFrontendHidesShellBuiltins includes FRONTEND_KIND_AETHER with no iOS guard, so query_builtin.c vmBuiltinHasExtBuiltin now answers false for category \"shell\"; before, Aether's has_builtin(\"shell\", \"socket_create\") answered true on macOS. The ExtBuiltin listings and preproc.c run the new filter too."
+ },
+ {
+  "sha": "76f08e52ac",
+  "class": "aether-visible",
+  "reason": "builtin_network_api.c socketConsumeInterrupt, used by every blocking socket wait, now also stops on vm->abort_requested or the thread owner's flag; no frontend or platform guard."
+ },
+ {
+  "sha": "a835aa4e79",
+  "class": "aether-visible",
+  "reason": "strinsert/strdelete stay hidden from Aether, but vmBuiltinHiddenFromFrontend (called from getVmBuiltinID, isBuiltin, getVmBuiltinHandlerById) was rewritten around per-language bits, and the static dispatch table gains two entries, shifting the ids of dynamically registered builtins."
+ },
+ {
+  "sha": "4f99309d1c",
+  "class": "aether-visible",
+  "reason": "vm.c copyValueForStack takes real copies of strings, sets, records, enums and static arrays while any thread job runs (Aether's par and threads use them); types.h ArrayObj gains a pins field read by utils.c valueCowHeader; unguarded."
+ },
+ {
+  "sha": "37592c7375",
+  "class": "other-front-end",
+  "reason": "Only vproc.h is in the aether build; off iOS it gains no-op inline stubs (vprocReplaceStdio, vprocPassChildrenToParent) whose only callers are shell_execution.inc and vproc.c."
+ },
+ {
+  "sha": "0658146965",
+  "class": "other-front-end",
+  "reason": "builtin.h only gains the declaration shellRuntimeSetPromptStatus; body and callers are in shell/shell_runtime_state.inc (exsh)."
+ },
+ {
+  "sha": "c5cf3de08a",
+  "class": "other-front-end",
+  "reason": "env_snapshot.c's new walk and rewritten snapshot take/restore are called only from shell/*.inc and path_truncate.c's /proc environ writer, which off iOS is reachable only through the iOS-only path_virtualization.c and sdl.c (SDL off)."
+ },
+ {
+  "sha": "b55acdb924",
+  "class": "aether-visible",
+  "reason": "findUnitFile in utils.c is Pascal-only, but the new pscalLibDirBesideExecutable is called by rea's tryResolveRelativePath, which every Aether `use` runs through resolveModulePath, so it can change which module an import finds (<exe>/../lib/rea)."
+ },
+ {
+  "sha": "3394406a19",
+  "class": "aether-visible",
+  "reason": "cache.c's new cacheSourceIsFile (stat, S_ISREG, not iOS-guarded) gates loadBytecodeFromCache and saveBytecodeToCache, which rea main.c calls for Aether unless --no-cache: /dev/stdin or /dev/fd/N sources now skip the cache; builtin.c vmReadLineInterruptible's desktop fd<0 early return changes too."
+ },
+ {
+  "sha": "7a45cb8805",
+  "class": "aether-visible",
+  "reason": "builtin.c vmThreadCleanup's non-iOS branch restores termios from a per-thread record; vmEnableRawMode and vmPrepareCanonicalInput go through vmNoteRawMode/vmThreadTerm; reached by aether_read_line and readkey/keypressed."
+ },
+ {
+  "sha": "4bbbd9d631",
+  "class": "aether-visible",
+  "reason": "vm.c CALL_BUILTIN_PROC adds a strcmp before the strcasecmp in the id_name_mismatch check: behaviour-preserving, in the builtin-call path every Aether program runs."
+ },
+ {
+  "sha": "688e1ac128",
+  "class": "aether-visible",
+  "reason": "builtin.c rewrites the registry lookups Aether uses (getVmBuiltinID, getVmBuiltinHandlerById, getVmBuiltinEffectMaskById, isBuiltin) around shellViewOfId; results should not change on desktop, but it is a refactor of the lookup; query_builtin.c adds a frontendIsAether() skip of the shell category."
+ },
+ {
+  "sha": "bd3934119d",
+  "class": "other-front-end",
+  "reason": "The mount table and /proc/mounts writer in path_truncate.c are reached only through the iOS-only path_virtualization.c, vproc.c, the shell or sdl.c; the statfs/statvfs wrappers sit inside the iOS block."
+ },
+ {
+  "sha": "b48e7c7799",
+  "class": "other-front-end",
+  "reason": "The /proc/<pid>/fd writer in path_truncate.c is procfs provisioning only the iOS path virtualization reaches; vproc.h only gains declarations for vproc.c."
+ },
+ {
+  "sha": "65b4a3784a",
+  "class": "aether-visible",
+  "reason": "builtin.c vmInitTerminalState now skips vmEnableRawMode unless vmTerminalIsOurs(); reached from rea main.c with no front-end guard, but only when PSCAL_INIT_TERM is set and not 0."
+ },
+ {
+  "sha": "a45342f553",
+  "class": "aether-visible",
+  "reason": "vm.c vmMarkAbortRequested and vmHandleGlobalInterrupt set the new ended_by_interrupt field, which vmRunWasInterrupted returns and rea main.c uses for Aether's Ctrl-C exit 130; vmBuiltinReadkey and vmReadLineInterruptible change on non-iOS paths too."
+ },
+ {
+  "sha": "eba2db5a20",
+  "class": "aether-visible",
+  "reason": "builtin.c vmBuiltinFopen takes a char for path or mode through fopenArgText; fopen is a Core builtin Aether can call (in the full guide's appendix, not removed)."
+ },
+ {
+  "sha": "2dcd443800",
+  "class": "aether-visible",
+  "reason": "builtin.c appends five entries to the static dispatch table, moving every registered extra builtin's id (Aether's aether_* builtins among them) and so the compiled bytecode; getVmBuiltinID, getVmBuiltinHandlerById and isBuiltin consult vmBuiltinHiddenFromFrontend, which names FRONTEND_KIND_AETHER; compiler.c parts are frontendIsPascal()-guarded."
+ },
+ {
+  "sha": "766786c4be",
+  "class": "other-front-end",
+  "reason": "ast.h's new open_arrays_rebased is read only by pascalRebaseOpenArrayParams behind frontendIsPascal(); on Aether's nodes newASTNode and copyASTRecursive only set or copy it."
+ },
+ {
+  "sha": "d51e663bad",
+  "class": "aether-visible",
+  "reason": "builtin.c populateBuiltinRegistry registers PollKeyAny as a function in non-SDL builds; before, an Aether call to pollkeyany compiled and then stopped with \"Undefined global variable\", and builtins_json listed its kind as unknown."
+ },
+ {
+  "sha": "b9b74e85c6",
+  "class": "aether-visible",
+  "reason": "builtin.c readKeyFetchConsoleByte (ReadKey's ESC handling) and getCursorPosition (wherex/wherey) now call vmStdinFcntl, plain fcntl off iOS: a behaviour-preserving refactor of Aether-callable builtins."
+ },
+ {
+  "sha": "7010b6ac41",
+  "class": "other-front-end",
+  "reason": "Only a builtin.h declaration of shellRuntimeKeepLineState, defined and called only in shell/shell_runtime_state.inc."
+ },
+ {
+  "sha": "0ea190e30e",
+  "class": "other-front-end",
+  "reason": "Only a builtin.h declaration of shellRuntimeChunkLeftStages, used only by exsh .inc files."
+ },
+ {
+  "sha": "c6e5598d8c",
+  "class": "aether-visible",
+  "reason": "rea semantic.c tryResolveRelativePath, unguarded and on Aether's `use` path, now also searches <exe>/../lib/rea before REA_DEFAULT_IMPORT_DIR, so an import can resolve to a different file or resolve where it failed."
+ },
+ {
+  "sha": "c7bcf96602",
+  "class": "other-front-end",
+  "reason": "mkfifo/mknod wrappers sit inside path_virtualization.c's iOS block; vproc.h's non-iOS getrlimit/setrlimit inlines are called only by the shell's ulimit; the builtin.h additions are read only by shell code."
+ },
+ {
+  "sha": "378ef51a01",
+  "class": "other-front-end",
+  "reason": "builtin.c changes (vmVprocPipeOpen, vmVprocStreamOpen) are all inside the PSCAL_TARGET_IOS block; vproc.h only adds a non-iOS inline no aether code calls."
+ },
+ {
+  "sha": "23e3bb92f2",
+  "class": "aether-visible",
+  "reason": "landscape.c registerLandscapeBuiltins now registers landscapeshadersavailable outside #ifdef SDL (false with SDL off), callable by name and listed in the user ext category: a change to the builtin registry Aether looks up and to the ids of builtins registered after it."
+ },
+ {
+  "sha": "f7733da9bd",
+  "class": "other-front-end",
+  "reason": "Every vprocKillLive swap and the vprocTaskKilledHere check sit inside PSCAL_TARGET_IOS blocks in builtin.c and vm.c; vproc.h only adds non-iOS stubs no non-shell aether code calls."
+ },
+ {
+  "sha": "e1619adbf6",
+  "class": "other-front-end",
+  "reason": "net_snapshot.c is called only from path_truncate.c's /proc/net refresh, reached only from the shell, the iOS-only path virtualization, vproc.c, nextvi and sdl.c."
+ },
+ {
+  "sha": "9c588a1a72",
+  "class": "aether-visible",
+  "reason": "cache.c ensureCacheDirectory, on Aether's cached path, now passes $HOME through pscalPathVirtualized_hostPath, the identity off iOS: behaviour-preserving, in code Aether runs."
+ },
+ {
+  "sha": "d145b3310c",
+  "class": "aether-visible",
+  "reason": "vmBuiltinReadkey under #if !defined(PSCAL_TARGET_IOS): a pending SIGINT or a 0x03 byte now leaves the interrupt to the VM instead of setting exit_requested, so Ctrl-C in readkey ends the program and changes the exit status."
+ },
+ {
+  "sha": "5247bc5b9a",
+  "class": "aether-visible",
+  "reason": "rea main.c is Aether's entry point; reaHandleSigint sets ended_by_interrupt and the run exits 130 via vmRunWasInterrupted instead of 0."
+ },
+ {
+  "sha": "82cec95cfe",
+  "class": "other-front-end",
+  "reason": "The new compile error is behind frontendIsPascal(); the one unguarded change (an errorsBefore early break in compileStatement's PROC_CALL_INDIRECT fallback) acts only after a compile error, on a path Aether's semantic pass rules out (FUNC-001)."
+ },
+ {
+  "sha": "d096e4d036",
+  "class": "aether-visible",
+  "reason": "compiler.c logic is frontendIsPascal()-gated, but builtin.c appends __pascal_to_ordinal to the static dispatch table, shifting the id of every registered extra builtin Aether uses (aether_* stdlib, yyjson, sqlite) by one."
+ },
+ {
+  "sha": "4436da664a",
+  "class": "other-front-end",
+  "reason": "reaStringMethodBuiltin returns NULL unless frontendIsRea() (FRONTEND_KIND_REA only), so the new string-method compile paths never act for Aether (FRONTEND_KIND_AETHER)."
+ }
+]
