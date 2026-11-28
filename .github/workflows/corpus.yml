@@ -48,5 +48,5 @@ jobs:
         run: python3 training/test_hf_release_offline.py
       - name: Distillation helpers
         run: python3 training/test_distill_offline.py
-      - name: Guide contamination (report mode until guide pass 1 renames land)
-        run: python3 tools/check_guide_contamination.py --docs-dir docs
+      - name: Guide contamination (strict; no binary here, so the stdout check is CTest's)
+        run: python3 tools/check_guide_contamination.py --strict --docs-dir docs

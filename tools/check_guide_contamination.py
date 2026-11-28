@@ -25,8 +25,10 @@ since whatever the guide carries flows into training from there.
 
 Report mode is the default: hits are printed (and written with
 --report-json) and the exit status is 0. --strict exits 1 on any hit. The
-guide-side renames that clear today's hits belong to the first guide pass
-(W1-14 part 4); flip CI to --strict after it lands.
+first strict count (2026-11-28, language 2026-11-24-2) found no hit in the
+three guides or the card, so CTest (aether_guide_contamination) and CI run it
+strict with nothing waived; tests/tools/guide_contamination_seeded.py checks
+that a seeded block fails it.
 """
 
 from __future__ import annotations
@@ -51,6 +53,7 @@ DEFAULT_GUIDES = (
     "aether_for_llms_medium_contexts.md",
     "aether_for_llms_with_small_contexts.md",
     "aether_for_llms_and_others.md",
+    "aether_card.md",
 )
 RUN_TIMEOUT_SECONDS = 10
 _IDENT_DECL_RE = re.compile(r"\bexport\s+(?:fn|const|type)\s+([A-Za-z_][A-Za-z0-9_]*)")
@@ -186,7 +189,7 @@ def main() -> int:
     parser.add_argument("--docs-dir", type=pathlib.Path, default=DEFAULT_DOCS_DIR,
                         help="directory holding the guides (default: docs)")
     parser.add_argument("--guide", action="append", default=None,
-                        help="guide file name inside --docs-dir (repeatable; default: medium, small, full)")
+                        help="guide file name inside --docs-dir (repeatable; default: medium, small, full, card)")
     parser.add_argument("--bench-dir", type=pathlib.Path, default=policy.DEFAULT_BENCH_DIR)
     parser.add_argument("--benchmark-tasks", action="append", type=pathlib.Path, default=None,
                         help="board manifest (repeatable; default: every board manifest)")
@@ -197,6 +200,8 @@ def main() -> int:
     parser.add_argument("--strict", action="store_true", help="exit 1 on any hit (default: report only)")
     parser.add_argument("--report-json", type=pathlib.Path, default=None)
     args = parser.parse_args()
+    # Blocks run in a temp directory, so a relative binary path would not resolve there.
+    args.aether_bin = args.aether_bin.resolve()
 
     manifests = args.benchmark_tasks or policy.default_board_manifests(args.bench_dir)
     facts = board_facts(manifests)

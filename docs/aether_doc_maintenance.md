@@ -307,8 +307,8 @@ suites in `bench/` with `python3 tools/audit_guides.py --refresh`, so the test
 never reads the suites themselves. A per-guide `ALLOWLIST` keeps
 the deliberate hits: the small guide's Pascal naming mnemonic (`arctan` not
 `atan`). The guide pass 1 drafts have
-no hits (`--strict` exits 0); the CTest still runs it in **report mode** until
-the pass is adopted and adds `--strict`.
+no hits (`--strict` exits 0); the pass was adopted and the CTest runs it with
+`--strict` since 2026-11-18. `tools/check_guide_contamination.py` (CTest `aether_guide_contamination`, strict since 2026-11-28 with no hit waived) also runs each guide's and the card's blocks, and fails on a block printing a board task's expected stdout, a board support-module identifier, or a board reference line; `aether_guide_contamination_seeded` checks that a seeded block fails it.
 
 Runtime-discovery advice is a special case: `builtin_info` / `builtins_json` are
 *runtime* calls a one-shot generator cannot make. Since guide pass 1 the medium

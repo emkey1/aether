@@ -383,6 +383,23 @@ else()
                      ${CMAKE_CURRENT_SOURCE_DIR}/tools/audit_guides.py --strict)
     set_tests_properties(aether_guide_audit PROPERTIES LABELS "guide")
 
+    # Benchmark contamination (tools/check_guide_contamination.py): no runnable
+    # block in the three guides or the card prints a board task's expected
+    # stdout, and no line names a board support-module identifier or carries a
+    # board reference line. Strict from its first count (2026-11-28: no hit, so
+    # nothing is waived). The seeded test writes one guide of each kind to a
+    # temp directory and checks the gate fails both and passes a clean one.
+    add_test(NAME aether_guide_contamination
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tools/check_guide_contamination.py --strict
+                     --aether-bin $<TARGET_FILE:aether>)
+    add_test(NAME aether_guide_contamination_seeded
+             COMMAND ${AETHER_DOCS_PYTHON}
+                     ${CMAKE_CURRENT_SOURCE_DIR}/tests/tools/guide_contamination_seeded.py)
+    set_tests_properties(aether_guide_contamination aether_guide_contamination_seeded PROPERTIES
+        ENVIRONMENT "AETHER_BIN=$<TARGET_FILE:aether>"
+        LABELS "guide")
+
     # The diagnostic-code map: codes the fixtures make the compiler print,
     # against code literals in the sources and each guide's repair rules.
     # Strict since 2026-11-18: any finding fails. A code only an experiment
