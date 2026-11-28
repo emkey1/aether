@@ -166,3 +166,9 @@ the reach of the seed-only contrast ({v3_late, v3_s42} minus {v3_late_s42, v3}: 
 table's order. The late runs' totals equal the Mac's by coincidence: the two sessions differ in pass or fail on 70
 tasks (v3_late) and 56 (v3_late_s42). Its all-layer runs, against their c1-session answers across server, precision
 and batching, had the same pass or fail on 988 (v3) and 978 (v3_s42) tasks.
+
+## Owner decision (2026-11-28)
+
+No more seeds: late minus all stays a loss not separable from seed noise, and the late recipe saves trainable
+parameters, not time. The two unrun reported items (graft_eval on the control pairs, the per-layer cosine) are
+dropped (`docs/aether_decisions.md`, D97).

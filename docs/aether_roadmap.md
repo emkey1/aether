@@ -23,12 +23,12 @@ Every pick in this file is a recommendation until a decision row or a dated amen
   - `training/training_runs/gemma4-12b-late/` trained LoRA on layers 20 to 47 only. Late minus all is -1.85 points [-3.61, -0.15], a loss not separable from seed noise (cbd9b31); it saves trainable parameters (76.5 million against 131.1 million), not training time. More seeds are the owner's call.
   - `training/distill/frestore-20261127/` put v3's layers 0 to 15 back to the base. Python: no recovery, r16 minus v3 -1.27 points [-2.92, +0.39]. Aether: a cost of -2.73 [-4.97, -0.58] (5159298). On fv3's tasks at bf16, v3 trails the base in Python by only 2.24 points, so the card's 126-task gap (item 6 below) is not located.
 - **Step 3, parts (a) to (c), done 2026-11-28.** (a) The census re-run on 1.01-dev moved 3 of 1,853 sources and no archived attempt (`tests/diag_census/2026-11-24-2.md`). (b) Of the 84 pin moves without a gate summary, 20 are Aether-visible, 6 touch only the SDL backend, 57 are other front end and 1 changes no engine commit (`results/decisions/pin_moves_since_1.0_2026-11-28.md`). (c) The strict contamination count is 0 in the three guides and the card, so the gate runs strict in CTest (`aether_guide_contamination`, with a seeded test) and in CI with nothing waived, and step 2 does not wait on Q32. (d) is drafted: both MoE cards carry the fresh-task reading in place of the third-epoch claim, and `tools/hf_release.py` refuses an MoE card without it; uploading them is Q23. (e) is open. **Not started:** steps 2, 4 and 5. 1.01 is untagged and the language is still `2026-11-24-2`. No tabulation or 32 GB pass has run, and no other instrument item, track item or study in this plan has begun. T1 is done (2026-11-28). This file is tracked, with a doc-map row in `CLAUDE.md`. `docs/ideas_and_todo.md` has a row for every item ("Roadmap items") and maps the 41 W-keys: 32 closed, one closed as untraceable, eight carried by items.
-- **Open owner decisions raised by the results:**
-  - Q24, the next dataset after "not shown";
-  - more seeds for the late study;
-  - scoring a surviving graft.
+- **Owner decisions of 2026-11-28 (D97):** every open pick adopted, and the three raised by the results:
+  - Q24: the next dataset is unfiltered batches; the 298 existing pairs stay;
+  - the late study gets no more seeds, and its two unrun reported items are dropped;
+  - no surviving graft is scored. Deletions had no pick and stay open, as does Q28's machine.
 - **Next by this plan:**
-  - step 2 (Q6, Q7), step 3(e) and step 4 (Q5), step 5 (Q28), and the MoE cards' upload with the README headline (Q23);
+  - step 2, the 1.01 tag (Q6, Q7 decided); the MoE cards' upload and the README headline (Q23 decided); step 3(e) and step 4 (Q5 decided); step 5 once Q28's machine is named;
   - step 7;
   - B2, which waited only on R1 and R2 being scored.
 
@@ -50,7 +50,7 @@ Every owner decision needed through step 13, and the later ones already framed, 
 
 **Before the first rig run** (R1, R2, step 4)
 
-*Q1 to Q4 settled 2026-11-25 as picked (ab9b39a).*
+*Q1 to Q4 settled 2026-11-25 as picked (ab9b39a). Q5 to Q29 and Q31 adopted as picked 2026-11-28 (D97); Q30 is done and Q32 moot.*
 
 - **Q1. Free the training host for c1's control runs:** now, or after the tag. *Pick:* now.
 - **Q2. c1 and the model server's version.** (a) As registered: record it; if it differs from the 2026-11-06 reports', re-answer one targeted run and report what reproduces. (b) Dated amendment, changing the README and `compare.py` together before any control report exists: re-answer both targeted runs in the control session, under new names beside the c1 reports, and read those; the 2026-11-06 reports become "reported, not deciding". (c) (a) with a threshold for "not readable". *Pick:* (b); a version change is aligned with the arm and invisible to the seed check. Four passes, not two.

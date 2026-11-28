@@ -75,3 +75,8 @@ the base before any copy), 298 records, 96,013 response tokens. `losses.json` ho
   than the base. On this loss, the early-layer changes, the part where the seeds do not overlap, are almost idle.
 
 Eval loss is not pass rate, so none of this shows a gain. Scoring a surviving graft is the owner's call.
+
+## Owner decision (2026-11-28)
+
+No surviving graft is scored: on eval loss neither is lower than the better parent on more records than chance
+(`docs/aether_decisions.md`, D97).

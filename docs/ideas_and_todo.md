@@ -3192,7 +3192,8 @@ than passing the task by itself.
 
 This ledger holds one row for every item of `docs/aether_roadmap.md`, the roadmap and research plan written on
 2026-11-25, so it stays the one list (D29). The roadmap holds each item's goal, work, done-when and cost. Its picks
-are recommendations until a decision row or a dated amendment adopts them.
+are recommendations until a decision row or a dated amendment adopts them. Since 2026-11-28 (D97) every pick is adopted, so a Q in the
+Waits-on column below is decided; what remains is the work (and Q28's machine).
 
 - **Status:** **open** (not started) or **done**.
 - **Waits on:** the owner decisions (Q) and items the roadmap names.

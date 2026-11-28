@@ -174,6 +174,9 @@ FUTURE_BOARD_MANIFESTS = ("tasks_traps.json", "tasks_scale.json", "tasks_sealed_
 # read when authoring drills or examples; their scores are reported in
 # aggregate only. A fine-tune that gains on the boards but not here has learned
 # the boards, not the language. Decontamination covers them like any board.
+# Amended 2026-11-28 (D97, Q18): they no longer decide a study; they are a reported
+# column until B8's larger sealed suite exists, and stay never mined, failures
+# unread, totals only.
 SEALED_MANIFESTS = (
     "tasks_frontier.json",
     "tasks_frontier_algo.json",

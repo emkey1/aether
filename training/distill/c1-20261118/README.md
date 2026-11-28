@@ -132,3 +132,8 @@ run first and report how much of it reproduces. (Superseded on 2026-11-25 by the
 targeted runs are re-answered beside the control runs.) The 1,026 tasks are also the pool on which the targeted recipe
 read +3.70 and on which the published 12B was chosen, so "targeting helps" here would say the effect is not seed noise
 or volume, not how large it is (added 2026-11-25).
+
+## Owner decision (2026-11-28)
+
+Q24, after R1 read "not shown": the next dataset is unfiltered batches, as a cost decision, and the 298
+existing control pairs stay (`docs/aether_decisions.md`, D97).
