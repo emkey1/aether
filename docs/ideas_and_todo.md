@@ -751,27 +751,27 @@ Found and reproduced on language `2026-11-24-2`; none is new since `1.0`.
   take 0.75 s (19 s before the ASCII fast path of `2026-11-24-2`) against
   0.02 s for an `Int[]` of that size. A cached length on the string object
   would make each O(1); every in-place write to a string would have to clear
-  it, and the engine has about twenty such sites.
+  it, and the engine has about twenty such sites. Roadmap E4.
 - **PAR-001 reads names, not aliases.** One record reached through two names
   (`a.inner` and `b.inner`, `rows[i]` and `rows[j]` with `i == j`, two results
   of one call) passes the check and the branches race: 147,588 of 200,000
   increments survived in the review's probe. The full guide says so since
   `2026-11-24-2`. A static fix would have to reject programs that are valid
-  today.
+  today. Roadmap: parked.
 - **A broken contract has no location and nothing in
   `--diagnostics-json`.** `@pre`/`@post` and an array slice past the end lower
   to `writeln(stderr, ...); halt(1);`, so the message carries no file or line
-  and the JSON stream is empty with exit status 1.
+  and the JSON stream is empty with exit status 1. Roadmap DG2.
 - **Uncoded stops remain** (D5): a call to the program's own function with
   the wrong argument count (`Not enough arguments for 'add'.`), assigning to
   a `const` (`L2: cannot assign to constant 'K'.`, no file), `a < b` on two
   records, a nil field read, `sqrt(-1.0)`, `s[1] = "xy"`, `toon_parse_file` of
-  a missing file, a call-stack overflow. Each prints `code: null` in JSON.
+  a missing file, a call-stack overflow. Each prints `code: null` in JSON. Roadmap DG2.
 - **A program function named like an imported function wins silently**, and
   a module that fails to compile can surface only as SCOPE-001 on the caller
-  when the binding's type is inferred.
+  when the binding's type is inferred. Roadmap L6 and DG2.
 - **`length()` with no argument** compiles and stops at run time; `length` is
-  kept out of the compile-time arity table on purpose (see its comment).
+  kept out of the compile-time arity table on purpose (see its comment). Out of roadmap DG2 by D96.
 
 ### `@cost` is decorative — *decided 2026-07-01: documented as non-binding*
 `@cost <n><unit>` (units: `ns us ms s op ops step steps`) is syntax-validated
@@ -3185,3 +3185,125 @@ builtin directly. Same family as the TYPE-001 `copy()`-on-an-array hint
 than error -- but if it stays an error it must say so. Renaming clears SYN-001
 and the program proceeds to a genuine `FX-001`, so this unblocks repair rather
 than passing the task by itself.
+
+---
+
+## Roadmap items — 2026-11-28
+
+This ledger holds one row for every item of `docs/aether_roadmap.md`, the roadmap and research plan written on
+2026-11-25, so it stays the one list (D29). The roadmap holds each item's goal, work, done-when and cost. Its picks
+are recommendations until a decision row or a dated amendment adopts them.
+
+- **Status:** **open** (not started) or **done**.
+- **Waits on:** the owner decisions (Q) and items the roadmap names.
+- **Takes over:** the W-keys and earlier entries of this file that the item now carries.
+
+Update a row and the roadmap's "Where we are" together.
+
+| Id | Item | Status (2026-11-28) | Waits on | Takes over |
+|---|---|---|---|---|
+| B1 | One analysis tool: paired difference, task-clustered interval, the seed check | open | — | |
+| B2 | A serving block in every report | open | nothing: R1 and R2 are scored | |
+| DG1 | Census and failure histogram on today's compiler | open | Q5 for the aggregate-only mode | |
+| T2 | Rebuild the freeze's replay net on a 1.0-or-later export | open | Q5, Q22 | |
+| B3 | The local panel and its noise floor | open | Q14; B1, B2 | |
+| B4 | The reading-protocol row | open | Q15, Q16; B3 | |
+| B5 | A pool-use ledger and a new pool | open | Q17; R3's step 0, B3 | |
+| B8 | A sealed suite of the benchmark's mix | open | Q18 | |
+| B6 | The first protocol baseline | open | Q19; B1 to B4, L1 | |
+| B7 | Traps v2 and a surface-coverage suite | open | L6 scoped, B3 | |
+| L1 | Cut 1.01 | open | Q6, Q7; Q32 if GD1's count has hits | |
+| L2 | Close D12 | open | Q12; DG1's aggregate-only mode; B6 for the arm | `W1-20` |
+| L3 | Empty the reformat-invariance known list | open | Q5 for step 0 | |
+| L4 | Ship the additive forms accepted on 2026-10-06 | open | Q11, Q20; L3, E1 | `W4-16`; the registry's `pending` entries for `..=`, Text + number and `toon_int` (`W8-11`) |
+| L5 | Spec sections 3 to 5 and a 2.0 ledger | open | Q7 | the spec's leniency list against the surface registry (`W8-11`) |
+| L6 | The second silent-wrong batch | open | Q10; L5, T2, E1 | `W5-08`, `W5-13`; the registry's `pending` `x:.2`; the first half of "A program function named like an imported function wins silently" (review of 2026-11-24) |
+| L7 | Read the reopen gates D48 to D53 | open | Q19; DG2's hints, B3, B6 | `W8-12`, `W8-26` |
+| E1 | Enforce the pin rule | open | Q8 | |
+| E2 | Confirm the shared-session HTTP crash is closed | open | — | |
+| E3 | Builtin metadata in the engine | open | a design row; E1 | "Enrich builtin metadata so discovery teaches *how to call*" |
+| E4 | Constant-time Text reads | open | Q9; E1 | "Text by character is still proportional to the Text's length" (review of 2026-11-24) |
+| E5 | Array copy cost, then retiring the experiment flags | open | E4's timing pack | `W5-31`; the `tail=ret` arm of D39 (`W4-03`) |
+| DG2 | Code the remaining stops; locate contract and slice stops | open | DG1, E1 | `W6-02`, `W6-22`; the registry's five `pending` hints; "Uncoded stops remain", "A broken contract has no location" and the SCOPE-001 half of "A program function named like an imported function wins silently" (review of 2026-11-24) |
+| DG3 | One stderr wording release (D13's help line) | open | Q13; DG1, E1, DG2 shipped | |
+| DG4 | Structured diagnostics at the emission site | open | DG2, DG3 | |
+| GD1 | Close the guide gate gaps | open | Q19, Q20, Q32 | |
+| GD2 | Guide pass 2 as one measured pass | open | Q16; L4, B4, B6, GD1 | |
+| T1 | Track the roadmap | done 2026-11-28 | — | this table and the W-key map below |
+| T3 | Correct the public record: the MoE cards, the README headline | open | Q23 | |
+| T4 | An agent runner and an install path | open | Q31; DG2 | |
+| R1 | c1-20261118: targeted pairs against the same number of control pairs | done 2026-11-26: not shown, +1.41 points [-0.24, +3.07] | — | |
+| R2 | qwen35-4b-la: LoRA on the linear-attention projections | done 2026-11-27: no readable difference, +0.75 points [-0.30, +1.78] | — | |
+| R3 | Seed noise on the 4B | open | Q25 | |
+| R4 | Two epochs or three on the 4B | open | R3, Q15 | |
+| R5 | Learning rate and rank on the 4B | open | R2 to R4, B5, Q15 | |
+| R6 | How much data is enough, on the 4B | open | R1, R3, Q15 | |
+| R7 | What the next dataset changes | open: since R1 read "not shown", only Q24 and the repair arm remain | Q24, Q26; B5 | |
+| I1 | Aether against Python, same model | open | Q29; B1, B4, B5 | |
+| I2 | What a repair round should carry | open | B1 | |
+| I3 | Whether a fine-tune uses a guide in its prompt | open | Q27; B2, B5 | |
+| I4 | Guide length and the small tier | open | Q21; B3, B4, Q16 | `W3-15` |
+| I5 | Examples or prose: where guide tokens go | open | B3, B4, Q16 | |
+| I6 | The 32 GB consumer desktop (I6a, I6b) | open | Q28 | |
+| I7 | Whether contracts turn silent wrong answers into stops | open | B7, DG2 | |
+| I8 | Format cost | open | B2 | |
+
+Two entries of the review of 2026-11-24 are not items:
+- "PAR-001 reads names, not aliases" is the roadmap's parked row "A fix for the par alias race".
+- "`length()` with no argument" stays out of DG2 by D96.
+
+## W-keys of the 2026-10-06 remediation plan — 2026-11-28
+
+`docs/aether_decisions.md` and five other docs cite work items of the maintainer's remediation plan of 2026-10-06,
+and that plan is not tracked. The 41 keys cited in `docs/` are counted with
+`grep -rhoE 'W[0-9]+-[0-9]+[a-z]?' docs | sort -u`; a key written as `W4-01/02/07` counts once.
+
+Each key below says where it is cited and where it went:
+- **closed**: shipped, decided, or an option that was not taken, with the evidence;
+- **open**: the roadmap item that carries it.
+
+A key that was cited as pending work and is now closed is also marked closed where it is cited.
+
+| Key | Cited in | What it named | Where it went |
+|---|---|---|---|
+| `W1-04` | D35 (evidence) | the miner data behind D35's convenience-builtin gate | closed: evidence on record; the gate is the roadmap's parked "Convenience builtins" row |
+| `W1-08` | D6 | the harness clamps a request's output budget | closed: `tools/aether_doc_bench.py` clamps it and records the clamp |
+| `W1-20` | D12 (evidence) | the B0 failure histogram | closed: `results/decisions/fx_gate_2026-10-07.md`; D12's open arm is L2 |
+| `W3-06` | `aether_doc_maintenance.md`, guide-pass step 4 | a gate that runs guide programs | closed: `aether_guide_run` (97dc497, 2026-10-07) runs every complete guide program and the recipe drivers |
+| `W3-15` | D11, D43; `aether_doc_maintenance.md` (small guide) | the small-guide pass, in A/B-measured steps | open: I4; Q21 decides whether cutting pauses until I4 reads |
+| `W3-19` | `aether_doc_maintenance.md`, guide pass 1's ledger list | the cast rows that would close "Models reach for `Int(...)` / `Real(...)` casts" | closed: that entry is fixed by `W4-10` |
+| `W3-21` | D43 | the medium must-preserve recipes swapped for builtin rows | closed: the helpers are builtins since language 2026-10-17-3 (D56, D57), and the must-preserve list names them |
+| `W4-01` | D38, as `W4-01/02/07` | L0's front-end fixes | closed: Release L0, language 2026-10-07-1 |
+| `W4-03` | the register's preface; D39 | a tail expression in a non-Void fn | closed: D39 (a), coded FLOW-001, language 2026-10-24-1; retiring the `tail=ret` arm is E5 |
+| `W4-10` | three entries of this file | `fn __init__`, and the typed-let form of `Int(...)` | closed: fixed, as those entries say |
+| `W4-16` | D15 | inferring `let xs = [1, 2, 3]` | open: L4 |
+| `W4-19` | "Every implicit `Real` → `Int` narrowing is silent" | a Real reaching `%` is coded | closed: shipped, as that entry says |
+| `W4-25` | `aether_architecture_and_rationale.md` | a matching tuple annotation | closed: shipped (the as-built list) |
+| `W4-33` | D83 (evidence) | a range loop reads its bound once | closed: language 2026-10-24-1, `tests/fx/lower/range_bound_once_pass` |
+| `W4-37` | D37d | a failing `par` branch fails the program | closed: language 2026-10-20-2 |
+| `W4-43` | D84 (evidence) | `result` as an ordinary name | closed: language 2026-10-24-1 |
+| `W5-03` | D38 | an L0 engine fix (core-0) | closed: Release L0, language 2026-10-07-1 |
+| `W5-04` | "Literal shifts fold at 32 bits" | the conformance case `int64_paths` | closed: it passes, as that entry says |
+| `W5-04a` | D38 | an L0 engine fix (core-0) | closed: Release L0; its step 1 changed 0 of 751 corpus outputs |
+| `W5-06` | D38 | an L0 engine fix (core-0) | closed: Release L0 |
+| `W5-07` | D38, "if green" | an optional core-0 fix | closed, untraceable: L0's eight fixes match its eight named keys, and no tracked record says what this one was or whether it shipped |
+| `W5-08` | `docs/releases/1.0.md` | empty-array equality after a resize, an expected engine failure | open: L6 |
+| `W5-12a` | D38 | an L0 engine fix (core-0) | closed: Release L0 |
+| `W5-13` | D33; `docs/releases/1.0.md` | width specifiers (`@bug=D33`) | open: L6 |
+| `W5-18` | D85 (evidence) | `chr(n)` above 127 | closed: language 2026-10-24-1 |
+| `W5-21` | D38 | L0's Rea fix (r-0): a nested `continue` | closed: Release L0 |
+| `W5-31` | D8 | the deep-copy cost of recursive grid helpers | open: E5 |
+| `W5-32` | D34 | file refcounting, the option not taken | closed: D34's coded rejection shipped in language 2026-10-08-1; refcounting has no item |
+| `W6-02` | D5 (evidence) | the code policy: self-contained codes, a full-guide row only | open in part: D5 is partly met, and its uncoded stops are DG2 |
+| `W6-04` | `aether_architecture_and_rationale.md` | FMT-001 for placeholders and f-strings | closed: shipped |
+| `W6-05` | `aether_architecture_and_rationale.md`; D56; the 2026-10-17 proposal | method spellings are SCOPE-001 with a hint naming the function | closed: language 2026-10-17-3 |
+| `W6-06` | D15 | a TYPE-001 hint that names `T[]` | closed: an empty `[]` gets "`let xs: Int[] = [];`" (checked 2026-11-28) |
+| `W6-22` | D44, option (b) | backfilling codes from JSON, the option not taken | closed: D44 took (a); its unshipped Text-index part is DG2 |
+| `W7-04` | "Misc code-quality notes (parser)" | a per-parse serial for synthesized temps | closed: fixed, as that entry says |
+| `W7-24a` | D4 | the build D4's census arms ran on | closed: D4 was decided on 2026-10-20 (B+) |
+| `W8-11` | `aether_spec.md` (D7 and the leniencies) | the surface registry | closed: `tests/surface/registry.json` since 2026-10-07. Its 9 `pending` entries are in L4, L6 and DG2; matching the spec's leniencies to it is L5 |
+| `W8-12` | D47 to D54 | the 2026-10-06 surface decisions | open: L7 reads D48 to D53's gates. D68 supersedes D47 for maps; D54's answer is "never" |
+| `W8-14` | `aether_architecture_and_rationale.md`; "Integer division (`div` / `//`) is undiscoverable" | `//` is a comment, DIV-002 after an expression | closed: shipped (D45) |
+| `W8-15` | `aether_architecture_and_rationale.md`; `aether_spec.md`; "Two stale documentation gaps found alongside the range-loop bug" | `println(array)` and `int(Text)` are TYPE-001 | closed: shipped (D14) |
+| `W8-19` | D7, class 4 | the gate before a case/underscore builtin fold | closed: D70 (language 2026-10-20-9) made names case-sensitive, and the fold is class 2 |
+| `W8-26` | D50 | the pre-registered rule for nested `fn` and `match` | open: L7 |

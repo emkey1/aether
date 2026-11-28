@@ -439,7 +439,7 @@ one-off guide edit:
    them is wrong). Add `check_guides` and `check_guide_facts` when the guide
    workstream lands them.
 4. **Run every complete program you touched, and every recipe, by hand** and
-   read the output, until the snippet gate runs programs (W3-06).
+   read the output, until the snippet gate runs programs (W3-06; closed: `aether_guide_run` has run them, and the recipe drivers, since 2026-10-07).
 5. **Stamp each touched guide** with `python3 tools/bump_guide_version.py
    <guide>` and paste the printed row into `aether_guide_changelog.md` in the
    same commit (D28). The row names the counterpart rows in the other two
@@ -455,7 +455,7 @@ one-off guide edit:
    - "Integer division (`div` / `//`) is undiscoverable": action (a) is done;
      drop `//` from the advice (D45).
    - "Models reach for `Int(...)` / `Real(...)` casts — resolved (docs-only)":
-     reopened until the cast rows land (W3-19).
+     reopened until the cast rows land (W3-19; closed: the entry is fixed by W4-10).
    - "`replace` / whole-string case conversion": it says the recipes section is
      in all three guides; it is in full and medium only.
    - Item 4, "Truncation drops the exact tables": superseded by the medium guide.

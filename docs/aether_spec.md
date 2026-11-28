@@ -2377,7 +2377,7 @@ ran
 D30 makes the spec normative "with enumerated leniencies": forms the compiler
 accepts with an exact meaning that the grammar above does not teach. Each is
 listed here with its meaning; anything accepted and not in §2 or this list is a
-bug. The surface registry (W8-11) will assign each one its synonym class.
+bug. The surface registry (W8-11; `tests/surface/registry.json` since 2026-10-07) assigns synonym classes. Not every leniency here has an entry yet (checked 2026-11-28 by id and spelling); matching them is roadmap L5.
 
 | Leniency | Meaning |
 |---|---|
