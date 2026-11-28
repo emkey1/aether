@@ -123,7 +123,7 @@ order, and verify every claim in it against `./build/aether`.
 |---|---|
 | As-built | `docs/aether_architecture_and_rationale.md` |
 | Reference | `docs/aether_manual.md` (the manual for people: tutorial order, rationale and history; every program runs under `aether_manual_snippets`); the three guides (for models); `docs/aether_spec.md` (normative skeleton, examples run by `ctest -L spec`); `tests/surface/registry.json` (surface synonyms) |
-| Decisions and ledgers | `docs/aether_decisions.md`, `CHANGELOG.md`, `docs/aether_guide_changelog.md`, `docs/ideas_and_todo.md`; `results/decisions/` (the measured evidence behind decision rows, with the commands that produced it) |
+| Decisions and ledgers | `docs/aether_decisions.md`, `CHANGELOG.md`, `docs/aether_guide_changelog.md`, `docs/ideas_and_todo.md`; `results/decisions/` (the measured evidence behind decision rows, with the commands that produced it); `docs/aether_roadmap.md` (the roadmap and research plan of 2026-11-25, with a dated status section: its picks are recommendations until a decision row or dated amendment adopts them) |
 | Results | `docs/aether_guided_benchmark.md`, `docs/aether_specialization_findings.md` |
 | Historical (do not trust for current behaviour) | `src/aether/DESIGN.md`, `src/aether/README.md`, `docs/parser_roadmap.md`, `docs/text_zero_based_migration_plan.md`, `docs/archive/` |
 | Generated | the builtin appendix at the end of the full guide |
