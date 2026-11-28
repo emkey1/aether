@@ -1,0 +1,12 @@
+// A core builtin answers on its name whatever category is passed (the full guide's has_builtin rule),
+// "shell" included, as at 1.0; a name no registry holds is false under any category.
+fn main() -> Void {
+    let probes: Text[] = ["shell:socket_create", "shell:sqrt", "shell:println", "anything:socket_create",
+                          "network:socket_create", "shell:no_such_builtin", "anything:no_such_builtin"];
+    fx {
+        loop p in probes {
+            let parts: Text[] = split(p, ":");
+            println(p, " ", has_builtin(parts[0], parts[1]));
+        }
+    }
+}

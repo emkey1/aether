@@ -1,0 +1,7 @@
+shell:socket_create true
+shell:sqrt true
+shell:println true
+anything:socket_create true
+network:socket_create true
+shell:no_such_builtin false
+anything:no_such_builtin false

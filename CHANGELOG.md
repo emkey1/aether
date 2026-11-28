@@ -15,6 +15,20 @@ plain rebuild. Because the stamp is checked in, every node that builds a given
 commit reports the same version, so a real mismatch between nodes means one is
 genuinely behind. Each bump should add an entry below.
 
+## 2026-11-28-1
+
+- **`has_builtin` answers for a core builtin under any category again,** as at
+  `1.0` and as the full guide says ("a core builtin matches on the function
+  name whatever category you pass"). pscal-core `d64986c` (2026-11-11), which
+  hid the shell's `"shell"` category from every language front end in the iOS
+  app, made `has_builtin("shell", f)` false for every `f` on every build:
+  `has_builtin("shell", "socket_create")` answered `false`, so a call guarded
+  by it was skipped. A hidden category now hides only its own extended
+  functions (pscal-core `27e9a8e`). `tests/fx/sandbox/has_builtin_category_core_pass`
+  prints what the `1.0` release binary prints. No archived or replay program
+  calls `has_builtin`. Found while gating `1.01`, by running the `1.0` binary
+  beside `main` after the roadmap's pin sort marked `d64986c` Aether-visible.
+
 ## 2026-11-24-2
 
 From the review of 2026-11-24: seven behaviours that were silently wrong
