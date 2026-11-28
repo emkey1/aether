@@ -15,6 +15,7 @@ The order is fixed by what each step refuses:
   anything on the Hub that is not local. Its record names the commit it checked.
 - `promote` and `publish` refuse without a passing record for the same folder contents, and `promote` also
   refuses when the branch has moved since the check.
+- `upload`, `promote` and `readme` refuse a model card that states a claim without its correction (CARD_RULES).
 
 The token is read from $HF_TOKEN and from nowhere else; it is never written or printed. A release makes or
 changes public content, so each of upload-to-public, promote, publish and readme is the owner's decision.
@@ -32,6 +33,48 @@ import time
 
 SKIP_LOCAL = (".cache",)
 SKIP_REMOTE = {".gitattributes"}
+
+# Claims a card may only make with their correction beside them (roadmap T3). A card whose front matter names one
+# of these base models must carry the block word for word (whitespace aside) and none of the retired phrases.
+# `upload`, `promote` and `readme` refuse a README.md that fails, before any network call.
+MOE_FRESH_TASK_DISCLOSURE = """**A later check on fresh tasks (2026-11-18) does not show the third epoch's gain.** The six-task held-out lead above
+came from 53 tasks, which resolve about 9 points either way, and those tasks chose this model. 2,802 fresh tasks,
+which no MoE run trained on and which chose nothing, were then answered by this model and by the run scheduled for
+exactly two epochs (same data, recipe and seed): first attempt, no guide, no repair, at int8, graded by the Aether
+1.0 compiler. This model passed 88.7% and the two-epoch run 88.4%, a difference of +0.29 points with a 95% interval
+of [-0.79, +1.36] (paired bootstrap over tasks). That rules out a gain from the third epoch larger than 1.4 points.
+It reads one training run per arm. The model stays published as it is."""
+CARD_RULES = (
+    {"base_models": ("Qwen/Qwen3.6-35B-A3B",), "must_carry": MOE_FRESH_TASK_DISCLOSURE,
+     "retired": ("lifted the held-out score",), "source": "training/distill/fep-20261118/README.md"},
+)
+
+
+def _flat(text: str) -> str:
+    return " ".join(text.split())
+
+
+def card_problems(text: str) -> list[str]:
+    """What keeps a model card from being uploaded: a claim without its correction."""
+    front = text.split("\n---", 1)[0] if text.startswith("---") else ""
+    base = next((line.split(":", 1)[1].strip() for line in front.splitlines() if line.startswith("base_model:")), "")
+    problems = []
+    for rule in CARD_RULES:
+        if base not in rule["base_models"]:
+            continue
+        if _flat(rule["must_carry"]) not in _flat(text):
+            problems.append(f"a {base} card must carry the disclosure from {rule['source']} word for word")
+        for phrase in rule["retired"]:
+            if phrase in _flat(text):
+                problems.append(f"a {base} card states {phrase!r} (retired; see {rule['source']})")
+    return problems
+
+
+def refuse_bad_card(path: pathlib.Path) -> None:
+    if path.is_file():
+        problems = card_problems(path.read_text(encoding="utf-8"))
+        if problems:
+            raise SystemExit("refusing: " + "; ".join(problems) + f" ({path})")
 
 
 def sha256_file(path: pathlib.Path) -> str:
@@ -138,6 +181,7 @@ def exists(api, repo: str) -> bool:
 
 
 def cmd_upload(args) -> int:
+    refuse_bad_card(args.folder / "README.md")
     api, folder = hub(), args.folder
     print("account:", api.whoami()["name"], flush=True)
     if not exists(api, args.repo):
@@ -181,6 +225,7 @@ def cmd_verify(args) -> int:
 
 
 def cmd_promote(args) -> int:
+    refuse_bad_card(args.folder / "README.md")
     api = hub()
     rec = check_record(args.folder, args.repo, args.from_revision)
     if head_of(api, args.repo, args.from_revision) != rec["commit"]:
@@ -207,6 +252,7 @@ def cmd_publish(args) -> int:
 
 
 def cmd_readme(args) -> int:
+    refuse_bad_card(args.file)
     api = hub()
     data = args.file.read_bytes()
     commit = api.upload_file(path_or_fileobj=data, path_in_repo="README.md", repo_id=args.repo, repo_type="model",

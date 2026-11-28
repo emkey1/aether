@@ -3230,7 +3230,7 @@ Update a row and the roadmap's "Where we are" together.
 | GD1 | Close the guide gate gaps | open; the contamination count is 0 and the gate is strict in CTest and CI since 2026-11-28 (`aether_guide_contamination`, `aether_guide_contamination_seeded`) | Q19, Q20 | |
 | GD2 | Guide pass 2 as one measured pass | open | Q16; L4, B4, B6, GD1 | |
 | T1 | Track the roadmap | done 2026-11-28 | — | this table and the W-key map below |
-| T3 | Correct the public record: the MoE cards, the README headline | open | Q23 | |
+| T3 | Correct the public record: the MoE cards, the README headline | open; the cards and the card check drafted 2026-11-28, not uploaded | Q23 | |
 | T4 | An agent runner and an install path | open | Q31; DG2 | |
 | R1 | c1-20261118: targeted pairs against the same number of control pairs | done 2026-11-26: not shown, +1.41 points [-0.24, +3.07] | — | |
 | R2 | qwen35-4b-la: LoRA on the linear-attention projections | done 2026-11-27: no readable difference, +0.75 points [-0.30, +1.78] | — | |

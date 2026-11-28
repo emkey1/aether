@@ -107,5 +107,46 @@ class RecordTests(unittest.TestCase):
         self.assertIn("HF_TOKEN is not set", out.stderr)
 
 
+CARDS = REPO_ROOT / "training" / "config" / "hf_release"
+MOE_FRONT = "---\nlicense: apache-2.0\nbase_model: Qwen/Qwen3.6-35B-A3B\n---\n\n# card\n"
+
+
+class CardTests(unittest.TestCase):
+    """Roadmap T3: no MoE card states the third-epoch gain without the fresh-task reading."""
+
+    def test_every_committed_card_passes(self):
+        cards = sorted(CARDS.glob("README*.md"))
+        self.assertGreaterEqual(len(cards), 7)
+        for card in cards:
+            self.assertEqual(hr.card_problems(card.read_text(encoding="utf-8")), [], card.name)
+
+    def test_both_moe_cards_are_held_to_the_rule(self):
+        moe = [c for c in sorted(CARDS.glob("README*.md"))
+               if "base_model: Qwen/Qwen3.6-35B-A3B" in c.read_text(encoding="utf-8")]
+        self.assertEqual([c.name for c in moe], ["README.moe.lora.md", "README.moe.merged.md"])
+
+    def test_the_old_wording_and_a_missing_block_are_refused(self):
+        old = MOE_FRONT + "Training on for three full epochs raised eval loss, yet it lifted the\n  held-out score to 39.\n"
+        problems = hr.card_problems(old)
+        self.assertEqual(len(problems), 2, problems)
+        self.assertEqual(len(hr.card_problems(old + hr.MOE_FRESH_TASK_DISCLOSURE)), 1)
+        rewrapped = " ".join(hr.MOE_FRESH_TASK_DISCLOSURE.split()).replace(". ", ".\n")
+        self.assertEqual(hr.card_problems(MOE_FRONT + rewrapped), [])
+
+    def test_other_base_models_are_not_held_to_it(self):
+        other = "---\nbase_model: google/gemma-4-12b\n---\n\nIt lifted the held-out score.\n"
+        self.assertEqual(hr.card_problems(other), [])
+
+    def test_readme_refuses_a_bad_card_before_the_token_is_read(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            card = pathlib.Path(tmp) / "README.md"
+            card.write_text(MOE_FRONT + "It lifted the held-out score to 39.\n", encoding="utf-8")
+            out = subprocess.run([sys.executable, str(REPO_ROOT / "tools" / "hf_release.py"), "readme", "o/r",
+                                  str(card), "-m", "m"], capture_output=True, text=True, env={"PATH": "/usr/bin:/bin"})
+        self.assertNotEqual(out.returncode, 0)
+        self.assertIn("refusing: a Qwen/Qwen3.6-35B-A3B card must carry the disclosure", out.stderr)
+        self.assertNotIn("HF_TOKEN", out.stderr)
+
+
 if __name__ == "__main__":
     unittest.main()

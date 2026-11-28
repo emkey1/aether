@@ -73,8 +73,8 @@ which the model sees the compiler's diagnostic and the observed output.
 
 Eval loss on a held-out slice of the training data was the wrong guide for this model.
 - With early stopping on eval loss, training stopped at epoch 0.76 and scored 62 (main) and 30 (held-out).
-- Training on for three full epochs raised eval loss (the model memorises its training set), yet it lifted the
-  held-out score to 39.
+- Training on for three full epochs raised eval loss (the model memorises its training set), and the finished run
+  scored 39 on the held-out suites. Whether the third epoch caused that is the check at the end of this section.
 
 Four finished models were compared, first attempt, main / held-out:
 
@@ -88,6 +88,14 @@ Four finished models were compared, first attempt, main / held-out:
 A rule fixed before the last run would have picked the 2-epoch run, on a two-task first-attempt gap on the main
 suites; after repair the two tie at 70. This model was chosen instead for its held-out lead of six tasks, eight after
 repair. That decision used the held-out suites, which is the reason for the selection-bias note above.
+
+**A later check on fresh tasks (2026-11-18) does not show the third epoch's gain.** The six-task held-out lead above
+came from 53 tasks, which resolve about 9 points either way, and those tasks chose this model. 2,802 fresh tasks,
+which no MoE run trained on and which chose nothing, were then answered by this model and by the run scheduled for
+exactly two epochs (same data, recipe and seed): first attempt, no guide, no repair, at int8, graded by the Aether
+1.0 compiler. This model passed 88.7% and the two-epoch run 88.4%, a difference of +0.29 points with a 95% interval
+of [-0.79, +1.36] (paired bootstrap over tasks). That rules out a gain from the third epoch larger than 1.4 points.
+It reads one training run per arm. The model stays published as it is.
 
 ### Python, same model, same tasks
 
